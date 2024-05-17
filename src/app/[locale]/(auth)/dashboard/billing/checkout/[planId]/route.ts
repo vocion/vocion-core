@@ -1,5 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
-import { notFound, redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import type Stripe from 'stripe';
 
 import {
@@ -17,18 +17,18 @@ export async function GET(
     };
   },
 ) {
+  const { orgId } = auth();
+
+  if (!orgId) {
+    redirect('/onboarding/organization-selection');
+  }
+
   const plan = PricingPlanList.find(
     (elt) => elt.id.toLocaleLowerCase() === context.params.planId,
   );
 
   if (!plan) {
-    notFound();
-  }
-
-  const { orgId } = auth();
-
-  if (!orgId) {
-    redirect('/onboarding/organization-selection');
+    redirect('/dashboard/billing');
   }
 
   const customerId = await createOrRetrieveCustomer(orgId);
