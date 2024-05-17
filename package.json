@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev:spotlight": "spotlight-sidecar",
+    "dev:stripe": "stripe listen --forward-to localhost:3000/api/billing/webhook",
     "dev:next": "next dev",
     "dev": "run-p dev:*",
     "build": "npm run db:migrate && next build",
@@ -23,6 +24,7 @@
     "storybook:serve": "http-server storybook-static --port 6006 --silent",
     "serve-storybook": "run-s storybook:*",
     "test-storybook:ci": "start-server-and-test serve-storybook http://127.0.0.1:6006 test-storybook",
+    "stripe:setup-price": "dotenv -c -- tsx ./scripts/createStripePrice.ts",
     "prepare": "husky"
   },
   "dependencies": {
@@ -39,6 +41,7 @@
     "@radix-ui/react-tooltip": "^1.0.7",
     "@sentry/nextjs": "^7.114.0",
     "@spotlightjs/spotlight": "^1.2.17",
+    "@stripe/stripe-js": "^3.4.0",
     "@t3-oss/env-nextjs": "^0.10.1",
     "@tanstack/react-table": "^8.16.0",
     "checkly": "^4.6.3",
@@ -54,6 +57,7 @@
     "react-dom": "~18.2.0",
     "react-hook-form": "^7.51.4",
     "sharp": "^0.33.3",
+    "stripe": "^15.7.0",
     "tailwind-merge": "^2.3.0",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^3.23.8"
