@@ -2,11 +2,8 @@ import { getTranslations } from 'next-intl/server';
 
 import { ActionCell } from './ActionTodoTable';
 
-export const generateColumns = async (locale: string) => {
-  const t = await getTranslations({
-    locale,
-    namespace: 'TodoTableColumns',
-  });
+export const generateColumns = async () => {
+  const t = await getTranslations('TodoTableColumns');
 
   return [
     {

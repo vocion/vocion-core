@@ -1,6 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
-import { useLocale } from 'next-intl';
 
 import { DataTable } from '@/components/ui/data-table';
 import { getTodoList } from '@/services/TodoService';
@@ -14,9 +13,8 @@ const TodoTable = async () => {
     redirect('/onboarding/organization-selection');
   }
 
-  const locale = useLocale();
   const data = await getTodoList(orgId);
-  const todoTableColumns = await generateColumns(locale);
+  const todoTableColumns = await generateColumns();
 
   return <DataTable columns={todoTableColumns} data={data} />;
 };
