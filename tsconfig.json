@@ -35,6 +35,8 @@
     "isolatedModules": true,
     "incremental": true,
 
+    "types": ["vitest/globals"],
+
     // Path aliases
     "baseUrl": ".",
     "paths": {
@@ -55,6 +57,7 @@
     "**/*.ts",
     "**/*.tsx",
     ".storybook/*.ts",
-    ".next/types/**/*.ts"
+    ".next/types/**/*.ts",
+    "**/*.mts"
   ]
 }

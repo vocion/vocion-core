@@ -1,8 +1,10 @@
+import { vi } from 'vitest';
+
 import { BILLING_INTERVAL, SUBSCRIPTION_STATUS } from '@/types/Subscription';
 
 import { determineSubscriptionPlan } from './BillingService';
 
-jest.mock('@/utils/AppConfig', () => ({
+vi.mock('@/utils/AppConfig', () => ({
   PLAN_ID: {
     FREE: 'free',
     PREMIUM: 'premium',
