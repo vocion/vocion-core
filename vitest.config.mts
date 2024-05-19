@@ -16,7 +16,7 @@ export default defineConfig({
     },
     environmentMatchGlobs: [
       ['**/*.test.tsx', 'jsdom'],
-      ['src/hooks/**/*.test.tsx', 'jsdom'],
+      ['src/hooks/**/*.test.ts', 'jsdom'],
     ],
     setupFiles: ['./vitest-setup.ts'],
     env: loadEnv('', process.cwd(), ''),
