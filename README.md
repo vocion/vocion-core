@@ -4,7 +4,7 @@
   <a href="https://creativedesignsguru.com/demo/vocion-core/"><img height="300" src="public/assets/images/nextjs-starter-banner.png?raw=true" alt="Next js starter banner"></a>
 </p>
 
-🚀 Boilerplate and Starter for Next.js with App Router support, Tailwind CSS and TypeScript ⚡️ Made with developer experience first: Next.js, TypeScript, ESLint, Prettier, Husky, Lint-Staged, Jest, Testing Library, Commitlint, VSCode, PostCSS, Tailwind CSS, Authentication with [Clerk](https://go.clerk.com/zGlzydF), Database with DrizzleORM (SQLite, PostgreSQL, and MySQL) and [Turso](https://turso.tech/?utm_source=nextjsstarterbp), Error Monitoring with [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo), Logging with Pino.js and Log Management, Monitoring as Code, Storybook, Multi-language (i18n), and more.
+🚀 Boilerplate and Starter for Next.js with App Router support, Tailwind CSS and TypeScript ⚡️ Made with developer experience first: Next.js, TypeScript, ESLint, Prettier, Husky, Lint-Staged, Jest (replaced by Vitest), Testing Library, Commitlint, VSCode, PostCSS, Tailwind CSS, Authentication with [Clerk](https://go.clerk.com/zGlzydF), Database with DrizzleORM (SQLite, PostgreSQL, and MySQL) and [Turso](https://turso.tech/?utm_source=nextjsstarterbp), Error Monitoring with [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo), Logging with Pino.js and Log Management, Monitoring as Code, Storybook, Multi-language (i18n), and more.
 
 Clone this project and use it to create your own SaaS. You can check the live demo at [Vocion](https://react-saas.com).
 
@@ -89,7 +89,7 @@ Developer experience first, extremely flexible code structure and only keep what
 - 🚫 Lint-staged for running linters on Git staged files
 - 🚓 Lint git commit with Commitlint
 - 📓 Write standard compliant commit messages with Commitizen
-- 🦺 Unit Testing with Jest and React Testing Library
+- 🦺 Unit Testing with Vitest and React Testing Library
 - 🧪 Integration and E2E Testing with Playwright
 - 👷 Run tests on pull request with GitHub Actions
 - 🎉 Storybook for UI development
@@ -251,7 +251,7 @@ One of the benefits of using Conventional Commits is that it allows us to automa
 
 ### Testing
 
-All unit tests are located with the source code inside the same directory. So, it makes it easier to find them. The project uses Jest and React Testing Library for unit testing. You can run the tests with:
+All unit tests are located with the source code inside the same directory. So, it makes it easier to find them. The project uses Vitest and React Testing Library for unit testing. You can run the tests with:
 
 ```shell
 npm run test
@@ -364,7 +364,7 @@ Then, you can open https://local.drizzle.studio with your favorite browser to ex
 
 If you are VSCode users, you can have a better integration with VSCode by installing the suggested extension in `.vscode/extension.json`. The starter code comes up with Settings for a seamless integration with VSCode. The Debug configuration is also provided for frontend and backend debugging experience.
 
-With the plugins installed on your VSCode, ESLint and Prettier can automatically fix the code and show you the errors. Same goes for testing, you can install VSCode Jest extension to automatically run your tests and it also show the code coverage in context.
+With the plugins installed on your VSCode, ESLint and Prettier can automatically fix the code and show you the errors. Same goes for testing, you can install VSCode Vitest extension to automatically run your tests and it also show the code coverage in context.
 
 Pro tips: if you need a project wide type checking with TypeScript, you can run a build with <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac.
 
