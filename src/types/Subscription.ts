@@ -36,3 +36,15 @@ export type IStripeSubscription = {
   stripeSubscriptionStatus: string | null;
   stripeSubscriptionCurrentPeriodEnd: number | null;
 };
+
+export type PlanDetails =
+  | {
+      isPaid: true;
+      plan: PricingPlan;
+      stripeDetails: IStripeSubscription;
+    }
+  | {
+      isPaid: false;
+      plan: PricingPlan;
+      stripeDetails?: undefined;
+    };

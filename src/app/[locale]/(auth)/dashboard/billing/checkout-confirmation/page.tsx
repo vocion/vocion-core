@@ -1,0 +1,44 @@
+import Link from 'next/link';
+import { useTranslations } from 'next-intl';
+
+import { buttonVariants } from '@/components/ui/button';
+import { MessageState } from '@/features/dashboard/MessageState';
+import { TitleBar } from '@/features/dashboard/TitleBar';
+
+const CheckoutConfirmation = () => {
+  const t = useTranslations('CheckoutConfirmation');
+
+  return (
+    <>
+      <TitleBar title={t('title_bar')} />
+
+      <MessageState
+        icon={
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M0 0h24v24H0z" stroke="none" />
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9 12l2 2 4-4" />
+          </svg>
+        }
+        title={t('message_state_title')}
+        description={t('message_state_description')}
+        button={
+          <Link
+            className={buttonVariants({ size: 'lg' })}
+            href="/dashboard/billing"
+          >
+            {t('message_state_button')}
+          </Link>
+        }
+      />
+    </>
+  );
+};
+
+export default CheckoutConfirmation;
