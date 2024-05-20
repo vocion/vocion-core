@@ -6,6 +6,7 @@ import {
   createCheckoutSession,
   createOrRetrieveCustomer,
 } from '@/services/BillingService';
+import { ORG_ROLE } from '@/types/Auth';
 import { PricingPlanList } from '@/utils/AppConfig';
 
 export async function GET(
@@ -17,10 +18,14 @@ export async function GET(
     };
   },
 ) {
-  const { orgId } = auth();
+  const { orgId, has } = auth();
 
   if (!orgId) {
     redirect('/onboarding/organization-selection');
+  }
+
+  if (!has({ role: ORG_ROLE.ADMIN })) {
+    redirect('/dashboard/billing');
   }
 
   const plan = PricingPlanList.find(

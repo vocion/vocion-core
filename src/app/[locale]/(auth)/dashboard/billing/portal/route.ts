@@ -4,6 +4,7 @@ import type Stripe from 'stripe';
 
 import { createBillingPortal } from '@/services/BillingService';
 import { getStripeCustomerId } from '@/services/OrganizationService';
+import { ORG_ROLE } from '@/types/Auth';
 
 export async function GET(
   _request: Request,
@@ -13,10 +14,14 @@ export async function GET(
     };
   },
 ) {
-  const { orgId } = auth();
+  const { orgId, has } = auth();
 
   if (!orgId) {
     redirect('/onboarding/organization-selection');
+  }
+
+  if (!has({ role: ORG_ROLE.ADMIN })) {
+    redirect('/dashboard/billing');
   }
 
   const organization = await getStripeCustomerId(orgId);
