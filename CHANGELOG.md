@@ -1,3 +1,19 @@
+# [1.1.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.0.0...v1.1.0) (2024-05-20)
+
+
+### Bug Fixes
+
+* add locale in api for running Clerk middleware ([71c9e81](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/71c9e81047995d6ace6c6729a0d49172a5b031e0))
+
+
+### Features
+
+* add todo CRUD example and Stripe integration ([d4fff6d](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/d4fff6d50dd7d3956bb8d5dab5c2bf0a45cb9268))
+* move Stripe webhook in unauth folder ([3e65e18](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/3e65e18b4d210af881a4c77a4d54dc134f58018d))
+* only admin of an organization can manage billing ([be225ae](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/be225aeb83a6afaf81f53d00f1fee706f499c976))
+* update to Storybook v8 and migrate to Vitest ([58deffb](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/58deffbe03d7fb633da03db143d3ac49e60dc1a5))
+* vscode jest open test result view on test fails and add unauthenticatedUrl in clerk middleware ([d6cf960](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/d6cf96015965a664ed62c55c1ccd5dd543732558))
+
 # 1.0.0 (2024-05-16)
 
 
