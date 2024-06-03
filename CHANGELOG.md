@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.1.0...v1.2.0) (2024-06-03)
+
+
+### Features
+
+* update to Drizzle Kit 0.22 version and update logger to support serverless/Vercel ([42c9fad](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/42c9fad9b54164964b986f5d013d5d2d154843b2))
+
 # [1.1.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.0.0...v1.1.0) (2024-05-20)
 
 
