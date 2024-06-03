@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/Vocion/vocion-core-Pro/compare/v1.3.0...v1.3.1) (2024-06-03)
+
+
+### Bug Fixes
+
+* set BILLING_PLAN_ENV to test for unit testing ([5fda638](https://github.com/Vocion/vocion-core-Pro/commit/5fda6385f67ff91d3ccdc70c958d7f8d8fdab076))
+
 # [1.3.0](https://github.com/Vocion/vocion-core-Pro/compare/v1.2.0...v1.3.0) (2024-06-03)
 
 
