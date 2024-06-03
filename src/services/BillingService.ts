@@ -1,5 +1,6 @@
 import type Stripe from 'stripe';
 
+import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 import { stripe } from '@/libs/Stripe';
 import {
@@ -9,7 +10,7 @@ import {
   SUBSCRIPTION_STATUS,
 } from '@/types/Subscription';
 import { PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
-import { getBaseUrl, IS_DEV, MILLISECONDS_IN_ONE_DAY } from '@/utils/Helpers';
+import { getBaseUrl, MILLISECONDS_IN_ONE_DAY } from '@/utils/Helpers';
 
 import {
   getStripeCustomerId,
@@ -96,7 +97,7 @@ export const createCheckoutSession = (
     mode: 'subscription',
     line_items: [
       {
-        price: IS_DEV ? plan.devPriceId : plan.prodPriceId,
+        price: plan[`${Env.BILLING_PLAN_ENV}PriceId`],
         // For metered billing, do not pass quantity
         quantity: 1,
       },
@@ -135,7 +136,7 @@ export const determineSubscriptionPlan = (
 
   if (isActive) {
     const plan = PricingPlanList.find((elt) => {
-      const priceId = IS_DEV ? elt.devPriceId : elt.prodPriceId;
+      const priceId = elt[`${Env.BILLING_PLAN_ENV}PriceId`];
 
       return priceId === stripeDetails.stripeSubscriptionPriceId;
     });
