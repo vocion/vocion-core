@@ -1,4 +1,5 @@
-import { GitHubLogoIcon, TwitterLogoIcon } from '@radix-ui/react-icons';
+import { ArrowRightIcon, TwitterLogoIcon } from '@radix-ui/react-icons';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { buttonVariants } from '@/components/ui/button';
@@ -29,19 +30,17 @@ const Hero = () => {
         description={t('description')}
         buttons={
           <>
-            <a
-              className={buttonVariants({ size: 'lg' })}
-              href="https://github.com/ixartz/SaaS-Boilerplate"
-            >
+            <Link className={buttonVariants({ size: 'lg' })} href="/sign-up">
               {t('primary_button')}
-            </a>
+            </Link>
 
             <a
               className={buttonVariants({ variant: 'outline', size: 'lg' })}
-              href="https://github.com/ixartz/SaaS-Boilerplate"
+              href="https://nextjs-boilerplate.com/pro-saas-starter-kit"
             >
-              <GitHubLogoIcon className="mr-2 size-5" />
               {t('secondary_button')}
+
+              <ArrowRightIcon className="ml-1 size-5" />
             </a>
           </>
         }
