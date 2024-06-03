@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.2.0...v1.3.0) (2024-06-03)
+
+
+### Features
+
+* add Demo Badge on all pages ([ca59c74](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/ca59c7448f7cbc3926626a8af1d177768b906823))
+
 # [1.2.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.1.0...v1.2.0) (2024-06-03)
 
 
