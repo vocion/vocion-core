@@ -20,6 +20,7 @@ export type PricingPlan = {
   id: PlanId;
   price: number;
   interval: BillingInterval;
+  testPriceId: string; // Use for testing
   devPriceId: string;
   prodPriceId: string;
   features: {

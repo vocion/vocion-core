@@ -11,7 +11,7 @@ export const Env = createEnv({
     LOGTAIL_SOURCE_TOKEN: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().min(1),
     STRIPE_WEBHOOK_SECRET: z.string().min(1),
-    BILLING_PLAN_ENV: z.enum(['dev', 'prod']),
+    BILLING_PLAN_ENV: z.enum(['dev', 'test', 'prod']),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),

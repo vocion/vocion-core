@@ -49,7 +49,7 @@ describe('BillingService', () => {
     it('should return the correct plan if the organization has an active subscription', () => {
       const result = determineSubscriptionPlan({
         stripeSubscriptionId: 'RANDOM_ID',
-        stripeSubscriptionPriceId: 'price_123',
+        stripeSubscriptionPriceId: 'price_enterprise_test',
         stripeSubscriptionStatus: SUBSCRIPTION_STATUS.ACTIVE,
         stripeSubscriptionCurrentPeriodEnd: Date.now(),
       });
