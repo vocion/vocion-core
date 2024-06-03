@@ -60,7 +60,7 @@ export const PricingPlanList: Array<PricingPlan> = [
     interval: BILLING_INTERVAL.MONTH,
     // FIXME: Update the price ID, you can create it after running `npm run stripe:setup-price`
     devPriceId: 'price_1OzSFPEK74ldPEzAvcR8EZPJ',
-    prodPriceId: '',
+    prodPriceId: 'price_123',
     features: {
       teamMember: 100,
       website: 100,
