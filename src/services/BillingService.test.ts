@@ -1,33 +1,7 @@
-import { vi } from 'vitest';
-
-import { BILLING_INTERVAL, SUBSCRIPTION_STATUS } from '@/types/Subscription';
+import { SUBSCRIPTION_STATUS } from '@/types/Subscription';
+import { PLAN_ID } from '@/utils/AppConfig';
 
 import { determineSubscriptionPlan } from './BillingService';
-
-vi.mock('@/utils/AppConfig', () => ({
-  PLAN_ID: {
-    FREE: 'free',
-    PREMIUM: 'premium',
-  },
-  PricingPlanList: [
-    {
-      id: 'free',
-      price: 0,
-      interval: BILLING_INTERVAL.MONTH,
-      devPriceId: '',
-      prodPriceId: '',
-      features: {},
-    },
-    {
-      id: 'premium',
-      price: 79,
-      interval: BILLING_INTERVAL.MONTH,
-      devPriceId: '',
-      prodPriceId: 'price_123',
-      features: {},
-    },
-  ],
-}));
 
 describe('BillingService', () => {
   describe('determineSubscriptionPlan function', () => {
@@ -35,7 +9,7 @@ describe('BillingService', () => {
       const result = determineSubscriptionPlan();
 
       expect(result.isPaid).toBeFalsy();
-      expect(result.plan.id).toBe('free');
+      expect(result.plan.id).toBe(PLAN_ID.FREE);
     });
 
     it('should return the free plan if the organization has an inactive subscription', () => {
@@ -47,7 +21,7 @@ describe('BillingService', () => {
       });
 
       expect(result.isPaid).toBeFalsy();
-      expect(result.plan.id).toBe('free');
+      expect(result.plan.id).toBe(PLAN_ID.FREE);
 
       result = determineSubscriptionPlan({
         stripeSubscriptionId: 'RANDOM_ID',
@@ -57,7 +31,7 @@ describe('BillingService', () => {
       });
 
       expect(result.isPaid).toBeFalsy();
-      expect(result.plan.id).toBe('free');
+      expect(result.plan.id).toBe(PLAN_ID.FREE);
     });
 
     it('should return the free plan if the organization has an active subscription but the priceId is incorrect', () => {
@@ -69,7 +43,7 @@ describe('BillingService', () => {
       });
 
       expect(result.isPaid).toBeFalsy();
-      expect(result.plan.id).toBe('free');
+      expect(result.plan.id).toBe(PLAN_ID.FREE);
     });
 
     it('should return the correct plan if the organization has an active subscription', () => {
@@ -81,7 +55,7 @@ describe('BillingService', () => {
       });
 
       expect(result.isPaid).toBeTruthy();
-      expect(result.plan.id).toBe('premium');
+      expect(result.plan.id).toBe(PLAN_ID.ENTERPRISE);
     });
   });
 });
