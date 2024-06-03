@@ -1,4 +1,4 @@
-import { GitHubLogoIcon } from '@radix-ui/react-icons';
+import { ArrowRightIcon } from '@radix-ui/react-icons';
 import { useTranslations } from 'next-intl';
 
 import { buttonVariants } from '@/components/ui/button';
@@ -16,10 +16,11 @@ const CTA = () => {
         buttons={
           <a
             className={buttonVariants({ variant: 'outline', size: 'lg' })}
-            href="https://github.com/vocion/Vocion"
+            href="https://vocion.ai/pro-saas-starter-kit"
           >
-            <GitHubLogoIcon className="mr-2 size-5" />
             {t('button_text')}
+
+            <ArrowRightIcon className="ml-1 size-5" />
           </a>
         }
       />

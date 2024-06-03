@@ -17,7 +17,7 @@
     "title": "The perfect <important>SaaS template</important> to build and scale your business with ease.",
     "description": "A free and open-source landing page template for your SaaS business, built with Next.js, TypeScript, Shadcn UI, and Tailwind CSS.",
     "primary_button": "Get Started",
-    "secondary_button": "Star on GitHub"
+    "secondary_button": "Buy Next.js Vocion"
   },
   "Sponsors": {
     "title": "Sponsored by"
@@ -63,7 +63,7 @@
   "CTA": {
     "title": "You are ready?",
     "description": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-    "button_text": "Star on GitHub"
+    "button_text": "Buy Next.js Vocion"
   },
   "Footer": {
     "product": "Product",
@@ -102,7 +102,7 @@
     "title_bar_description": "Welcome to your dashboard",
     "message_state_title": "Let's get started",
     "message_state_description": "You can customize this page by editing the file at <code>dashboard/page.tsx</code>",
-    "message_state_button": "Read the documentation"
+    "message_state_button": "Buy Next.js Vocion"
   },
   "UserProfile": {
     "title_bar": "User Profile",
