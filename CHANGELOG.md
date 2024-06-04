@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.3.1...v1.3.2) (2024-06-04)
+
+
+### Bug Fixes
+
+* automatically use Vercel environment variable for production in getBaseUrl ([38f6094](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/38f6094e76d4b44182838280421ef152ccbbd264))
+
 ## [1.3.1](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.3.0...v1.3.1) (2024-06-03)
 
 
