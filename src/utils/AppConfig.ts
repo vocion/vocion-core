@@ -47,7 +47,7 @@ export const PricingPlanList: Array<PricingPlan> = [
     interval: BILLING_INTERVAL.MONTH,
     testPriceId: 'price_premium_test', // Use for testing
     // FIXME: Update the price ID, you can create it after running `npm run stripe:setup-price`
-    devPriceId: 'price_1OzSFPEK74ldPEzAVBTiYW8W',
+    devPriceId: 'price_1PNksvKOp3DEwzQlGOXO7YBK',
     prodPriceId: '',
     features: {
       teamMember: 5,
@@ -62,7 +62,7 @@ export const PricingPlanList: Array<PricingPlan> = [
     interval: BILLING_INTERVAL.MONTH,
     testPriceId: 'price_enterprise_test', // Use for testing
     // FIXME: Update the price ID, you can create it after running `npm run stripe:setup-price`
-    devPriceId: 'price_1OzSFPEK74ldPEzAvcR8EZPJ',
+    devPriceId: 'price_1PNksvKOp3DEwzQli9IvXzgb',
     prodPriceId: 'price_123',
     features: {
       teamMember: 100,
