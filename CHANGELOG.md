@@ -1,3 +1,10 @@
+## [1.3.3](https://github.com/Vocion/vocion-core-Pro/compare/v1.3.2...v1.3.3) (2024-06-05)
+
+
+### Bug Fixes
+
+* add next_renew_data translation for French version ([da86be2](https://github.com/Vocion/vocion-core-Pro/commit/da86be243782c1bfc5b0f8b7835a98215b5f3794))
+
 ## [1.3.2](https://github.com/Vocion/vocion-core-Pro/compare/v1.3.1...v1.3.2) (2024-06-04)
 
 
