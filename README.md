@@ -125,6 +125,7 @@ Built-in feature from Next.js:
 ### Requirements
 
 - Node.js 20+ and npm
+- Stripe CLI, you can install it by following this [documentation](https://docs.stripe.com/stripe-cli)
 
 ### Getting started
 
