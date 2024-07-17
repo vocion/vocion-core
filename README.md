@@ -81,7 +81,7 @@ Developer experience first, extremely flexible code structure and only keep what
 - 💽 Global Database with [Turso](https://turso.tech/?utm_source=nextjsstarterbp)
 - 🌐 Multi-language (i18n) with [next-intl](https://next-intl-docs.vercel.app/) and [Crowdin](https://l.crowdin.com/next-js)
 - ♻️ Type-safe environment variables with T3 Env
-- ⌨️ Form with React Hook From
+- ⌨️ Form with React Hook Form
 - 🔴 Validation library with Zod
 - 📏 Linter with [ESLint](https://eslint.org) (default NextJS, NextJS Core Web Vitals, Tailwind CSS and Airbnb configuration)
 - 💖 Code Formatter with [Prettier](https://prettier.io)
@@ -401,6 +401,34 @@ If you are VSCode users, you can have a better integration with VSCode by instal
 With the plugins installed on your VSCode, ESLint and Prettier can automatically fix the code and show you the errors. Same goes for testing, you can install VSCode Vitest extension to automatically run your tests and it also show the code coverage in context.
 
 Pro tips: if you need a project wide type checking with TypeScript, you can run a build with <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac.
+
+### Upgrade from Free to Pro
+
+> :warning: This section only applies to someone who already started with the free version and already made some changes in the free version. If you are starting from scratch, you can directly clone the premium repository.
+
+If the file is present in both repository, the content should be the same. You should just looking at the missing files. In the premium repository, there are only new files.
+
+The most important difference is related to Stripe and the Todo/CRUD code.
+
+Here are new files added in the premium repository:
+
+- src/app/\[locale\]/(auth)/api/todo/route.ts
+- src/app/\[locale\]/(auth)/dashboard/add-todo/page.tsx
+- src/app/\[locale\]/(auth)/dashboard/edit-todo/\[id\]/page.tsx
+- src/app/\[locale\]/(auth)/dashboard/todos/page.tsx
+- src/app/\[locale\]/(auth)/dashboard/billing/checkout/\[planId\]/route.ts
+- src/app/\[locale\]/(auth)/dashboard/billing/checkout-confirmation/page.tsx
+- src/app/\[locale\]/(auth)/dashboard/billing/portal/route.ts
+- src/app/\[locale\]/(auth)/dashboard/billing/page.tsx
+- src/app/\[locale\]/(unauth)/webhook/billing/route.ts
+
+For your information, the list may not be exhaustive and you also need to add the related imports used in these files.
+
+#### Update Database Schema when upgrading from Free to Pro
+
+> :warning: We assume that you didn't make any changes in the database schema and all the current data is not important. If it's not the case, please contact the support to find the perfect solution for your case.
+
+You'll also require to remove the whole `/migration` folder and copy the new one from the premium repository. You also need to remove the `next-js-boilerplate.db` file to have a fresh and clean local database.
 
 ### Contributions
 
