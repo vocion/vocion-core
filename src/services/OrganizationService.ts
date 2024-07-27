@@ -54,6 +54,5 @@ export const updateStripeSubscription = (
         subscription.stripeSubscriptionCurrentPeriodEnd,
       updatedAt: sql`(strftime('%s', 'now'))`,
     })
-    .where(eq(organizationSchema.stripeCustomerId, customerId))
-    .run();
+    .where(eq(organizationSchema.stripeCustomerId, customerId));
 };
