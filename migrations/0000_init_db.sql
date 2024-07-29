@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS "organization" (
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "todo" (
-	"id" serial NOT NULL,
+	"id" serial PRIMARY KEY NOT NULL,
 	"owner_id" text NOT NULL,
 	"title" text NOT NULL,
 	"message" text NOT NULL,
