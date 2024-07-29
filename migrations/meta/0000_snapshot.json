@@ -1,5 +1,5 @@
 {
-  "id": "c448171b-17da-4119-b082-bfb419974633",
+  "id": "2bfa846d-695b-4df3-a11b-a8f17ba093b8",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -87,7 +87,7 @@
         "id": {
           "name": "id",
           "type": "serial",
-          "primaryKey": false,
+          "primaryKey": true,
           "notNull": true
         },
         "owner_id": {
