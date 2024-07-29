@@ -35,7 +35,7 @@ export const organizationSchema = pgTable(
 );
 
 export const todoSchema = pgTable('todo', {
-  id: serial('id'),
+  id: serial('id').primaryKey(),
   ownerId: text('owner_id').notNull(),
   title: text('title').notNull(),
   message: text('message').notNull(),
