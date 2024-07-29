@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS "organization" (
 	"stripe_subscription_id" text,
 	"stripe_subscription_price_id" text,
 	"stripe_subscription_status" text,
-	"stripe_subscription_current_period_end" integer,
+	"stripe_subscription_current_period_end" bigint,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
