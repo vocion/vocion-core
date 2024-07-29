@@ -1,5 +1,5 @@
 {
-  "id": "57b93df8-c7cc-4e14-a783-067b0aa620fc",
+  "id": "c448171b-17da-4119-b082-bfb419974633",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -40,7 +40,7 @@
         },
         "stripe_subscription_current_period_end": {
           "name": "stripe_subscription_current_period_end",
-          "type": "integer",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
