@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { organizationSchema } from '@/models/Schema';
@@ -22,7 +22,6 @@ export const upsertStripeCustomerId = (
       target: organizationSchema.id,
       set: {
         stripeCustomerId,
-        updatedAt: sql`(strftime('%s', 'now'))`,
       },
     });
 };
@@ -52,8 +51,6 @@ export const updateStripeSubscription = (
       stripeSubscriptionStatus: subscription.stripeSubscriptionStatus,
       stripeSubscriptionCurrentPeriodEnd:
         subscription.stripeSubscriptionCurrentPeriodEnd,
-      updatedAt: sql`(strftime('%s', 'now'))`,
     })
-    .where(eq(organizationSchema.stripeCustomerId, customerId))
-    .run();
+    .where(eq(organizationSchema.stripeCustomerId, customerId));
 };

@@ -30,7 +30,7 @@ export const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
   }
 
   try {
-    updateStripeSubscription(customerId, {
+    await updateStripeSubscription(customerId, {
       stripeSubscriptionId: subscription.id,
       stripeSubscriptionPriceId: subscription.items.data[0].price.id,
       stripeSubscriptionStatus: subscription.status,

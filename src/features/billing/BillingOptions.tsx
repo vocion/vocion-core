@@ -32,6 +32,7 @@ const BillingOptions = () => {
                   className: 'mt-5 w-full',
                 })}
                 href="/dashboard/billing/checkout/premium"
+                prefetch={false} // Disable prefetching when redirecting to Stripe checkout
               >
                 {t('upgrade_plan')}
               </Link>
@@ -43,6 +44,7 @@ const BillingOptions = () => {
                   className: 'mt-5 w-full',
                 })}
                 href="/dashboard/billing/checkout/enterprise"
+                prefetch={false} // Disable prefetching when redirecting to Stripe checkout
               >
                 {t('upgrade_plan')}
               </Link>
