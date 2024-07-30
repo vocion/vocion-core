@@ -1,3 +1,19 @@
+# [1.4.0](https://github.com/Vocion/vocion-core-Pro/compare/v1.3.3...v1.4.0) (2024-07-30)
+
+
+### Bug Fixes
+
+* add test as NODE_ENV ([c1ae823](https://github.com/Vocion/vocion-core-Pro/commit/c1ae823907ce3fecb8f87603001b00dff4d22a60))
+* comment NEXT_PUBLIC_APP_URL env variable ([a1e01f4](https://github.com/Vocion/vocion-core-Pro/commit/a1e01f459810fa11124fe4c41b5b8cf15b2f1a4b))
+* use bigint for stripe current period end and add await for updating Stripe subscription ([d6c3942](https://github.com/Vocion/vocion-core-Pro/commit/d6c3942ed49ecc6c8a00da01dfbf4fef9c13d484))
+
+
+### Features
+
+* add primary key in todo table ([1af10b5](https://github.com/Vocion/vocion-core-Pro/commit/1af10b56a0da4eda2588f16f14c9826d0ae105c3))
+* remove prefetch in billingOption ([700eb50](https://github.com/Vocion/vocion-core-Pro/commit/700eb50cebf1dbd499f9ca239380fe0bb45ecc0e))
+* udpate migrations folder after adding primary key ([b5ebd35](https://github.com/Vocion/vocion-core-Pro/commit/b5ebd3503d4fd71e9ad9e516d6426d5bca3fffc0))
+
 ## [1.3.3](https://github.com/Vocion/vocion-core-Pro/compare/v1.3.2...v1.3.3) (2024-06-05)
 
 
