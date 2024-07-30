@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { todoSchema } from '@/models/Schema';
@@ -12,6 +12,7 @@ export const getTodoList = (orgId: string) => {
       title: true,
       message: true,
     },
+    orderBy: (todo, { asc }) => [asc(todo.createdAt)],
   });
 };
 
@@ -36,17 +37,12 @@ export const getTodo = (todoId: number, orgId: string) => {
 export const updateTodo = (todo: Todo, orgId: string) => {
   return db
     .update(todoSchema)
-    .set({
-      ...todo,
-      updatedAt: sql`(strftime('%s', 'now'))`,
-    })
-    .where(and(eq(todoSchema.id, todo.id), eq(todoSchema.ownerId, orgId)))
-    .run();
+    .set(todo)
+    .where(and(eq(todoSchema.id, todo.id), eq(todoSchema.ownerId, orgId)));
 };
 
 export const deleteTodo = (todoId: number, orgId: string) => {
   return db
     .delete(todoSchema)
-    .where(and(eq(todoSchema.id, todoId), eq(todoSchema.ownerId, orgId)))
-    .run();
+    .where(and(eq(todoSchema.id, todoId), eq(todoSchema.ownerId, orgId)));
 };

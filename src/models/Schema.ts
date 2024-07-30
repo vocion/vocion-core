@@ -1,12 +1,13 @@
-import { sql } from 'drizzle-orm';
 import {
-  integer,
-  sqliteTable,
+  bigint,
+  pgTable,
+  serial,
   text,
+  timestamp,
   uniqueIndex,
-} from 'drizzle-orm/sqlite-core';
+} from 'drizzle-orm/pg-core';
 
-export const organizationSchema = sqliteTable(
+export const organizationSchema = pgTable(
   'organization',
   {
     id: text('id').primaryKey(),
@@ -14,15 +15,15 @@ export const organizationSchema = sqliteTable(
     stripeSubscriptionId: text('stripe_subscription_id'),
     stripeSubscriptionPriceId: text('stripe_subscription_price_id'),
     stripeSubscriptionStatus: text('stripe_subscription_status'),
-    stripeSubscriptionCurrentPeriodEnd: integer(
+    stripeSubscriptionCurrentPeriodEnd: bigint(
       'stripe_subscription_current_period_end',
+      { mode: 'number' },
     ),
-    createdAt: integer('created_at', { mode: 'timestamp' }).default(
-      sql`(strftime('%s', 'now'))`,
-    ),
-    updatedAt: integer('updated_at', { mode: 'timestamp' }).default(
-      sql`(strftime('%s', 'now'))`,
-    ),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   (table) => {
     return {
@@ -33,15 +34,14 @@ export const organizationSchema = sqliteTable(
   },
 );
 
-export const todoSchema = sqliteTable('todo', {
-  id: integer('id').primaryKey(),
+export const todoSchema = pgTable('todo', {
+  id: serial('id').primaryKey(),
   ownerId: text('owner_id').notNull(),
   title: text('title').notNull(),
   message: text('message').notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(
-    sql`(strftime('%s', 'now'))`,
-  ),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(
-    sql`(strftime('%s', 'now'))`,
-  ),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
