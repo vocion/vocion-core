@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/Vocion/vocion-core-Pro/compare/v1.4.0...v1.4.1) (2024-09-08)
+
+
+### Bug Fixes
+
+* make NODE_ENV environment variable optional ([4af2e3c](https://github.com/Vocion/vocion-core-Pro/commit/4af2e3c104b094785f6f8e25ae25d9a0ff52d7ec))
+
 # [1.4.0](https://github.com/Vocion/vocion-core-Pro/compare/v1.3.3...v1.4.0) (2024-07-30)
 
 
