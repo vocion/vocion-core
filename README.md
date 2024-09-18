@@ -1,12 +1,18 @@
-# Boilerplate and Starter for Next JS 14+, Tailwind CSS 3.4 and TypeScript
+# Vocion with Tailwind CSS and Shadcn UI
 
 <p align="center">
-  <a href="https://creativedesignsguru.com/demo/vocion-core/"><img height="300" src="public/assets/images/nextjs-starter-banner.png?raw=true" alt="Next js starter banner"></a>
+  <a href="https://pro-demo.vocion.ai"><img height="300" src="public/assets/images/nextjs-starter-banner.png?raw=true" alt="Next.js SaaS Template"></a>
 </p>
 
-🚀 Boilerplate and Starter for Next.js with App Router support, Tailwind CSS and TypeScript ⚡️ Made with developer experience first: Next.js, TypeScript, ESLint, Prettier, Husky, Lint-Staged, Vitest (replacing Jest), Testing Library, Commitlint, VSCode, PostCSS, Tailwind CSS, Authentication with [Clerk](https://go.clerk.com/zGlzydF), Database with DrizzleORM (PostgreSQL, SQLite, and MySQL), Error Monitoring with [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo), Logging with Pino.js and Log Management, Monitoring as Code, Storybook, Multi-language (i18n), and more. Ready for Next.js 15.
+🚀 **Vocion** is a powerful and fully customizable template to kickstart your SaaS applications. Built with **Next.js** and **Tailwind CSS**, and the modular UI components of **Shadcn UI**. This **Next.js SaaS Template** helps you to quickly build and launch SaaS with minimal effort.
 
-Clone this project and use it to create your own SaaS. You can check the live demo at [Vocion](https://react-saas.com).
+Packed with essential features like built-in **Authentication**, **Multi-Tenancy** with Team support, **Role & Permission**, Database, I18n (internationalization), Landing Page, User Dashboard, Form handling, SEO optimization, Logging, Error reporting with [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo), Testing, Deployment, Monitoring, and **User Impersonation**, this SaaS template provides everything you need to get started.
+
+Designed with developers in mind, this **Next.js Starter Kit** uses TypeScript for type safety and integrates ESLint to maintain code quality, along with Prettier for consistent code formatting. The testing suite combines Vitest and React Testing Library for robust unit testing, while Playwright handles integration and E2E testing. Continuous integration and deployment are managed via GitHub Actions. For user management, authentication is handled by [Clerk](https://go.clerk.com/zGlzydF). For database operations, it uses Drizzle ORM for type-safe database management across popular databases like PostgreSQL, SQLite, and MySQL.
+
+Whether you're building a new SaaS app or looking for a flexible, **production-ready SaaS template**, this boilerplate has you covered. This free, open-source starter kit has everything you need to accelerate your development and scale your product with ease.
+
+Clone this project and use it to create your own SaaS. You can check the live demo at [Vocion](https://pro-demo.vocion.ai), which is a demo with a working authentication and multi-tenancy system.
 
 ## Sponsors
 
@@ -56,6 +62,22 @@ Clone this project and use it to create your own SaaS. You can check the live de
   </tr>
 </table>
 
+### Demo
+
+**Live demo: [Vocion](https://pro-demo.vocion.ai)**
+
+| Landing Page | User Dashboard |
+| --- | --- |
+| [![Vocion SaaS Landing Page](public/assets/images/vocion-core-saas-landing-page.png)](https://pro-demo.vocion.ai) | [![Vocion SaaS User Dashboard](public/assets/images/vocion-core-saas-user-dashboard.png)](https://pro-demo.vocion.ai/dashboard) |
+
+| Team Management | User Profile |
+| --- | --- |
+| [![Vocion SaaS Team Management](public/assets/images/vocion-core-saas-multi-tenancy.png)](https://pro-demo.vocion.ai/dashboard/organization-profile/organization-members) | [![Vocion SaaS User Profile](public/assets/images/vocion-core-saas-user-profile.png)](https://pro-demo.vocion.ai/dashboard/user-profile) |
+
+| Sign Up | Sign In |
+| --- | --- |
+| [![Vocion SaaS Sign Up](public/assets/images/vocion-core-saas-sign-up.png)](https://pro-demo.vocion.ai/sign-up) | [![Vocion SaaS Sign In](public/assets/images/vocion-core-saas-sign-in.png)](https://pro-demo.vocion.ai/sign-in) |
+
 ### Features
 
 Developer experience first, extremely flexible code structure and only keep what you need:
@@ -63,7 +85,7 @@ Developer experience first, extremely flexible code structure and only keep what
 - ⚡ [Next.js](https://nextjs.org) with App Router support
 - 🔥 Type checking [TypeScript](https://www.typescriptlang.org)
 - 💎 Integrate with [Tailwind CSS](https://tailwindcss.com) and Shadcn UI
-- ✅ Strict Mode for TypeScript and React 18
+- ✅ Strict Mode for TypeScript and [React 18](https://react.dev)
 - 🔒 Authentication with [Clerk](https://go.clerk.com/zGlzydF): Sign up, Sign in, Sign out, Forgot password, Reset password, and more.
 - 👤 Passwordless Authentication with Magic Links, Multi-Factor Auth (MFA), Social Auth (Google, Facebook, Twitter, GitHub, Apple, and more), Passwordless login with Passkeys, User Impersonation
 - 👥 Multi-tenancy & team support: create, switch, update organization and invite team members
@@ -72,21 +94,21 @@ Developer experience first, extremely flexible code structure and only keep what
 - 📦 Type-safe ORM with DrizzleORM, compatible with PostgreSQL, SQLite, and MySQL
 - 🌐 Multi-language (i18n) with [next-intl](https://next-intl-docs.vercel.app/) and [Crowdin](https://l.crowdin.com/next-js)
 - ♻️ Type-safe environment variables with T3 Env
-- ⌨️ Form with React Hook Form
-- 🔴 Validation library with Zod
+- ⌨️ Form with [React Hook Form](https://react-hook-form.com)
+- 🔴 Validation library with [Zod](https://zod.dev)
 - 📏 Linter with [ESLint](https://eslint.org) (default NextJS, NextJS Core Web Vitals, Tailwind CSS and Airbnb configuration)
 - 💖 Code Formatter with [Prettier](https://prettier.io)
 - 🦊 Husky for Git Hooks
 - 🚫 Lint-staged for running linters on Git staged files
 - 🚓 Lint git commit with Commitlint
 - 📓 Write standard compliant commit messages with Commitizen
-- 🦺 Unit Testing with Vitest and React Testing Library
-- 🧪 Integration and E2E Testing with Playwright
-- 👷 Run tests on pull request with GitHub Actions
-- 🎉 Storybook for UI development
+- 🦺 Unit Testing with [Vitest](https://vitest.dev) and React Testing Library
+- 🧪 Integration and E2E Testing with [Playwright](https://playwright.dev)
+- 👷 Run tests on pull requests with GitHub Actions
+- 🎉 [Storybook](https://storybook.js.org) for UI development
 - 🚨 Error Monitoring with [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo)
 - ☂️ Code coverage with [Codecov](https://about.codecov.io/codecov-free-trial/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo)
-- 📝 Logging with Pino.js and Log Management with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core)
+- 📝 Logging with [Pino.js](https://getpino.io) and Log Management with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core)
 - 🖥️ Monitoring as Code with [Checkly](https://www.checklyhq.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core)
 - 🎁 Automatic changelog generation with Semantic Release
 - 🔍 Visual testing with Percy (Optional)
@@ -109,9 +131,11 @@ Built-in feature from Next.js:
 
 - Nothing is hidden from you, so you have the freedom to make the necessary adjustments to fit your needs and preferences.
 - Dependencies are updated every month
+- Start for free without upfront costs
 - Easy to customize
 - Minimal code
 - SEO-friendly
+- Everything you need to build a SaaS
 - 🚀 Production-ready
 
 ### Requirements
@@ -129,7 +153,9 @@ cd my-project-name
 npm install
 ```
 
-Then, you can run locally in development mode with live reload:
+For your information, all dependencies are updated every month.
+
+Then, you can run the project locally in development mode with live reload by executing:
 
 ```shell
 npm run dev
@@ -146,7 +172,9 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_pub_key
 CLERK_SECRET_KEY=your_clerk_secret_key
 ```
 
-Now, you can a fully working authentication system with Next.js: Sign up, Sign in, Sign out, Forgot password, Reset password, Update profile, Update password, Update email, Delete account, and more.
+In your Clerk Dashboard, you also need to `Enable Organization` by navigating to `Organization management` > `Settings` > `Enable organization`.
+
+Now, you have a fully working authentication system with Next.js: Sign up, Sign in, Sign out, Forgot password, Reset password, Update profile, Update password, Update email, Delete account, and more.
 
 ### Set up remote database
 
@@ -156,9 +184,9 @@ The project uses DrizzleORM, a type-safe ORM compatible with PostgreSQL, SQLite,
 
 For translation, the project uses `next-intl` combined with [Crowdin](https://l.crowdin.com/next-js). As a developer, you only need to take care of the English (or another default language) version. Other languages are automatically generated and handled by Crowdin. You can use Crowdin to collaborate with your translation team or translate the messages yourself with the help of machine translation.
 
-To set up translation (i18n), create an account at [Crowdin.com](https://l.crowdin.com/next-js) and create a new project. In the newly created project, you will able to find the project ID. You'll also require to create a new Personal Access Tokens by going to Account Settings > API. Then, in your GitHub Actions, you need to define the following environment variables `CROWDIN_PROJECT_ID` and `CROWDIN_PERSONAL_TOKEN`.
+To set up translation (i18n), create an account at [Crowdin.com](https://l.crowdin.com/next-js) and create a new project. In the newly created project, you will able to find the project ID. You'll also be required to create new Personal Access Tokens by going to Account Settings > API. Then, in your GitHub Actions, you need to define the following environment variables `CROWDIN_PROJECT_ID` and `CROWDIN_PERSONAL_TOKEN`.
 
-After defining the environment variables in your GitHub Actions, your localization files will be synchronized with Crowdin everytime you push a new commit to the `main` branch.
+After defining the environment variables in your GitHub Actions, your localization files will be synchronized with Crowdin every time you push a new commit to the `main` branch.
 
 ### Project structure
 
@@ -191,7 +219,7 @@ After defining the environment variables in your GitHub Actions, your localizati
 
 ### Customization
 
-You can easily configure Next.js Vocion by making a search in the whole project with `FIXME:` for making quick customization. Here is some of the most important files to customize:
+You can easily configure Next.js Vocion by making a search in the whole project with `FIXME:` for quick customization. Here are some of the most important files to customize:
 
 - `public/apple-touch-icon.png`, `public/favicon.ico`, `public/favicon-16x16.png` and `public/favicon-32x32.png`: your website favicon, you can generate from https://favicon.io/favicon-converter/
 - `src/utils/AppConfig.ts`: configuration file
@@ -199,7 +227,7 @@ You can easily configure Next.js Vocion by making a search in the whole project 
 - `next.config.mjs`: Next.js configuration
 - `.env`: default environment variables
 
-You have access to the whole code source if you need further customization. The provided code is only example for you to start your project. The sky is the limit 🚀.
+You have access to the whole code source if you need further customization. The provided code is only an example for you to start your project. The sky is the limit 🚀.
 
 ### Commit Message Format
 
@@ -307,21 +335,21 @@ The command starts a local server with the production build. Then, you can now o
 
 The project uses [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo) to monitor errors. For development environment, you don't need to do anything: NextJS Vocion is already configured to use Sentry and Spotlight (Sentry for Development). All errors will be automatically sent to your local Spotlight instance. So, you can try the Sentry experience locally.
 
-For production environment, you need to create a Sentry account and create a new project. Then, in `next.config.mjs`, you need to update the `org` and `project` attribute in `withSentryConfig` function. You also need to add your Sentry DSN in `sentry.client.config.ts`, `sentry.edge.config.ts` and `sentry.server.config.ts`.
+For production environment, you need to create a Sentry account and create a new project. Then, in `next.config.mjs`, you need to update the `org` and `project` attributes in `withSentryConfig` function. You also need to add your Sentry DSN in `sentry.client.config.ts`, `sentry.edge.config.ts`, and `sentry.server.config.ts`.
 
 ### Code coverage
 
 Vocion relies on [Codecov](https://about.codecov.io/codecov-free-trial/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo) for code coverage reporting solution. To use Codecov, create a Codecov account and connect it to your GitHub account. On your Codecov dashboard, it should display a list of your repositories. Select the repository you want to enable Codecov for and copy the token. Then, in your GitHub Actions, you need to define the `CODECOV_TOKEN` environment variable and paste the token you copied.
 
-Be sure to create the `CODECOV_TOKEN` as a Github Actions secret, do not paste it directly into your source code.
+Be sure to create the `CODECOV_TOKEN` as a GitHub Actions secret, do not paste it directly into your source code.
 
 ### Logging
 
 The project uses Pino.js for logging. By default, for development environment, the logs are displayed in the console.
 
-For production environment, the project is already integrated with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core) to manage and query your logs using SQL. To use Better Stack, you need to create a [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core) account and create a new source: go to your Better Stack Logs Dashboard > Sources > Connect source. Then, you need to give a name to your source and select Node.js as the platform.
+For the production environment, the project is already integrated with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core) to manage and query your logs using SQL. To use Better Stack, you need to create a [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core) account and create a new source: go to your Better Stack Logs Dashboard > Sources > Connect source. Then, you need to give a name to your source and select Node.js as the platform.
 
-After creating the source, you able to see your source token and copy it. Then, in your environment variabless, you can paste the token in `LOGTAIL_SOURCE_TOKEN` variable. Now, all your logs will be automatically sent and ingested by Better Stack.
+After creating the source, you able to see your source token and copy it. Then, in your environment variables, you can paste the token in `LOGTAIL_SOURCE_TOKEN` variable. Now, all your logs will be automatically sent and ingested by Better Stack.
 
 ### Checkly monitoring
 
@@ -355,9 +383,9 @@ Then, you can open https://local.drizzle.studio with your favorite browser to ex
 
 ### VSCode information (optional)
 
-If you are VSCode users, you can have a better integration with VSCode by installing the suggested extension in `.vscode/extension.json`. The starter code comes up with Settings for a seamless integration with VSCode. The Debug configuration is also provided for frontend and backend debugging experience.
+If you are VSCode user, you can have a better integration with VSCode by installing the suggested extension in `.vscode/extension.json`. The starter code comes up with Settings for a seamless integration with VSCode. The Debug configuration is also provided for frontend and backend debugging experience.
 
-With the plugins installed on your VSCode, ESLint and Prettier can automatically fix the code and show you the errors. Same goes for testing, you can install VSCode Vitest extension to automatically run your tests and it also show the code coverage in context.
+With the plugins installed on your VSCode, ESLint, and Prettier can automatically fix the code and show you the errors. The same goes for testing, you can install the VSCode Vitest extension to automatically run your tests and it also shows the code coverage in context.
 
 Pro tips: if you need a project wide type checking with TypeScript, you can run a build with <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac.
 
@@ -391,7 +419,7 @@ You'll also require to remove the whole `/migration` folder and copy the new one
 
 ### Contributions
 
-Everyone is welcome to contribute to this project. Feel free to open an issue if you have question or found a bug. Totally open to any suggestions and improvements.
+Everyone is welcome to contribute to this project. Feel free to open an issue if you have a question or find a bug. Totally open to any suggestions and improvements.
 
 ### License
 
