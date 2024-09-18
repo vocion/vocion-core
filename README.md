@@ -148,7 +148,7 @@ Built-in feature from Next.js:
 Run the following command on your local environment:
 
 ```shell
-git clone --depth=1 https://github.com/Vocion/vocion-core-Pro my-project-name
+git clone --depth=1 https://github.com/Vocion/vocion-core-Pro.git my-project-name
 cd my-project-name
 npm install
 ```
@@ -410,12 +410,6 @@ Here are new files added in the premium repository:
 - src/app/\[locale\]/(unauth)/webhook/billing/route.ts
 
 For your information, the list may not be exhaustive and you also need to add the related imports used in these files.
-
-#### Update Database Schema when upgrading from Free to Pro
-
-> :warning: We assume that you didn't make any changes in the database schema and all the current data is not important. If it's not the case, please contact the support to find the perfect solution for your case.
-
-You'll also require to remove the whole `/migration` folder and copy the new one from the premium repository. You also need to remove the `vocion-core.db` file to have a fresh and clean local database.
 
 ### Contributions
 
