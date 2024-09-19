@@ -1,6 +1,7 @@
 {
   "name": "Vocion",
   "version": "1.4.1",
+  "author": "Vocion (https://github.com/vocion)",
   "scripts": {
     "dev:spotlight": "spotlight-sidecar",
     "dev:stripe": "stripe listen --forward-to localhost:3000/webhook/billing",
@@ -155,6 +156,5 @@
       "@semantic-release/git",
       "@semantic-release/github"
     ]
-  },
-  "author": "Vocion (https://github.com/vocion)"
+  }
 }
