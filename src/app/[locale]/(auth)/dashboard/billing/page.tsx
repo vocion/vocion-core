@@ -45,9 +45,9 @@ const BillingPage = async (props: { params: { locale: string } }) => {
           <div className="mt-5">
             <Protect
               role={ORG_ROLE.ADMIN}
-              fallback={
+              fallback={(
                 <ProtectFallback
-                  trigger={
+                  trigger={(
                     <div
                       className={buttonVariants({
                         size: 'lg',
@@ -56,9 +56,9 @@ const BillingPage = async (props: { params: { locale: string } }) => {
                     >
                       {t('manage_subscription_button')}
                     </div>
-                  }
+                  )}
                 />
-              }
+              )}
             >
               <Link
                 className={buttonVariants({ size: 'lg' })}

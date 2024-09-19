@@ -15,7 +15,7 @@ const Navbar = () => {
     <Section className="px-3 py-6">
       <CenteredMenu
         logo={<Logo />}
-        rightMenu={
+        rightMenu={(
           <>
             <li>
               <LocaleSwitcher />
@@ -29,7 +29,7 @@ const Navbar = () => {
               </Link>
             </li>
           </>
-        }
+        )}
       >
         <li>
           <Link href="/sign-up">{t('product')}</Link>

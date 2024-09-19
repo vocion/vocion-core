@@ -43,7 +43,7 @@ export default function LocaleSwitcher() {
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuRadioGroup value={locale} onValueChange={handleChange}>
-          {AppConfig.locales.map((elt) => (
+          {AppConfig.locales.map(elt => (
             <DropdownMenuRadioItem key={elt.id} value={elt.id}>
               {elt.name}
             </DropdownMenuRadioItem>
