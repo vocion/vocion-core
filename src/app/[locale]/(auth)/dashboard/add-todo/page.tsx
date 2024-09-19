@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { type SubmitHandler } from 'react-hook-form';
+import type { SubmitHandler } from 'react-hook-form';
 import type { z } from 'zod';
 
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
