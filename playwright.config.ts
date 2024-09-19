@@ -14,7 +14,7 @@ export default defineConfig({
   // Look for files with the .spec.js or .e2e.js extension
   testMatch: '*.@(spec|e2e).?(c|m)[jt]s?(x)',
   // Timeout per test
-  timeout: 30 * 1000,
+  timeout: 5 * 1000,
   // Run tests in files in parallel on CI
   fullyParallel: !!process.env.CI,
   // Fail the build on CI if you accidentally left test.only in the source code.
