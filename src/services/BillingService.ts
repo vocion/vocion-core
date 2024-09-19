@@ -23,8 +23,8 @@ export const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
   const customerId = subscription.customer;
 
   if (
-    typeof customerId !== 'string' ||
-    subscription.items.data[0] === undefined
+    typeof customerId !== 'string'
+    || subscription.items.data[0] === undefined
   ) {
     throw new Error('Invalid Stripe subscription data');
   }
@@ -46,9 +46,9 @@ export const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
 
 export const processWebhookEvent = async (event: Stripe.Event) => {
   if (
-    event.type === 'customer.subscription.created' ||
-    event.type === 'customer.subscription.updated' ||
-    event.type === 'customer.subscription.deleted'
+    event.type === 'customer.subscription.created'
+    || event.type === 'customer.subscription.updated'
+    || event.type === 'customer.subscription.deleted'
   ) {
     const subscription = event.data.object;
 
@@ -57,8 +57,8 @@ export const processWebhookEvent = async (event: Stripe.Event) => {
     const checkoutSession = event.data.object;
 
     if (
-      checkoutSession.mode === 'subscription' &&
-      typeof checkoutSession.subscription === 'string'
+      checkoutSession.mode === 'subscription'
+      && typeof checkoutSession.subscription === 'string'
     ) {
       await retrieveSubscriptionAndUpdate(checkoutSession.subscription);
     }
@@ -125,14 +125,14 @@ export const createBillingPortal = (
 export const determineSubscriptionPlan = (
   stripeDetails?: IStripeSubscription,
 ): PlanDetails => {
-  const isActive =
-    stripeDetails !== undefined &&
-    stripeDetails.stripeSubscriptionId !== null &&
-    stripeDetails.stripeSubscriptionPriceId !== null &&
-    stripeDetails.stripeSubscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE &&
-    stripeDetails.stripeSubscriptionCurrentPeriodEnd !== null &&
-    stripeDetails.stripeSubscriptionCurrentPeriodEnd + MILLISECONDS_IN_ONE_DAY >
-      Date.now();
+  const isActive
+    = stripeDetails !== undefined
+    && stripeDetails.stripeSubscriptionId !== null
+    && stripeDetails.stripeSubscriptionPriceId !== null
+    && stripeDetails.stripeSubscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE
+    && stripeDetails.stripeSubscriptionCurrentPeriodEnd !== null
+    && stripeDetails.stripeSubscriptionCurrentPeriodEnd + MILLISECONDS_IN_ONE_DAY
+    > Date.now();
 
   if (isActive) {
     const plan = PricingPlanList.find((elt) => {
@@ -146,7 +146,7 @@ export const determineSubscriptionPlan = (
     }
   }
 
-  const freePlan = PricingPlanList.find((elt) => elt.id === PLAN_ID.FREE);
+  const freePlan = PricingPlanList.find(elt => elt.id === PLAN_ID.FREE);
 
   if (!freePlan) {
     throw new Error('Free plan not found');

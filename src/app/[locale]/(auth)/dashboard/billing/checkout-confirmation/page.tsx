@@ -13,7 +13,7 @@ const CheckoutConfirmation = () => {
       <TitleBar title={t('title_bar')} />
 
       <MessageState
-        icon={
+        icon={(
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 24 24"
@@ -25,17 +25,17 @@ const CheckoutConfirmation = () => {
             <circle cx="12" cy="12" r="9" />
             <path d="M9 12l2 2 4-4" />
           </svg>
-        }
+        )}
         title={t('message_state_title')}
         description={t('message_state_description')}
-        button={
+        button={(
           <Link
             className={buttonVariants({ size: 'lg' })}
             href="/dashboard/billing"
           >
             {t('message_state_button')}
           </Link>
-        }
+        )}
       />
     </>
   );
