@@ -19,6 +19,7 @@ storybook-static
 /test-results/
 /playwright-report/
 /playwright/.cache/
+/playwright/
 
 # next.js
 /.next

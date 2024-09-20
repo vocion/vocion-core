@@ -21,24 +21,16 @@ test.describe('I18n', () => {
       ).toBeVisible();
     });
 
-    test('should test', async ({ page }) => {
+    test('should switch language from English to French and verify text on the sign-in page', async ({ page }) => {
       await page.goto('/');
       await page.getByText('Sign in').click();
 
-      await expect(
-        page.getByText(
-          'Email address',
-        ),
-      ).toBeVisible();
+      await expect(page.getByText('Email address')).toBeVisible();
 
       await page.goto('/fr');
       await page.getByText('Se connecter').click();
 
-      await expect(
-        page.getByText(
-          'Adresse e-mail',
-        ),
-      ).toBeVisible();
+      await expect(page.getByText('Adresse e-mail')).toBeVisible();
     });
   });
 });
