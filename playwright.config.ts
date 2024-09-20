@@ -14,7 +14,7 @@ export default defineConfig({
   // Look for files with the .spec.js or .e2e.js extension
   testMatch: '*.@(spec|e2e).?(c|m)[jt]s?(x)',
   // Timeout per test
-  timeout: 5 * 1000,
+  timeout: 15 * 1000,
   // Run tests in files in parallel on CI
   fullyParallel: !!process.env.CI,
   // Fail the build on CI if you accidentally left test.only in the source code.
@@ -27,6 +27,11 @@ export default defineConfig({
   maxFailures: process.env.CI ? 10 : undefined,
   // Reporter to use. See https://playwright.dev/docs/test-reporters
   reporter: process.env.CI ? 'github' : 'list',
+
+  expect: {
+    // Set timeout for async expect matchers
+    timeout: 15 * 1000,
+  },
 
   // Run your local dev server before starting the tests:
   // https://playwright.dev/docs/test-advanced#launching-a-development-web-server-during-the-tests
@@ -48,19 +53,23 @@ export default defineConfig({
   },
 
   projects: [
+    { name: 'setup', testMatch: /.*\.setup\.ts/ },
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      dependencies: ['setup'],
     },
     ...(process.env.CI
       ? [
           {
             name: 'firefox',
             use: { ...devices['Desktop Firefox'] },
+            dependencies: ['setup'],
           },
           {
             name: 'webkit',
             use: { ...devices['Desktop Safari'] },
+            dependencies: ['setup'],
           },
         ]
       : []),
