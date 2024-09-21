@@ -53,7 +53,8 @@ export default defineConfig({
   },
 
   projects: [
-    { name: 'setup', testMatch: /.*\.setup\.ts/ },
+    { name: 'setup', testMatch: /.*\.setup\.ts/, teardown: 'teardown' },
+    { name: 'teardown', testMatch: /.*\.teardown\.ts/ },
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
