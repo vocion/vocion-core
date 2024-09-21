@@ -4,7 +4,7 @@ import { clerkClient } from '@clerk/nextjs/server';
 import { test as teardown } from '@playwright/test';
 
 teardown('account and organization deletion', async () => {
-  assert(process.env.E2E_CLERK_USER_USERNAME !== undefined, 'E2E_CLERK_USER_USERNAME not set');
+  assert(process.env.E2E_CLERK_USER_USERNAME, 'E2E_CLERK_USER_USERNAME is not set');
 
   const { data } = await clerkClient().users.getUserList({
     emailAddress: [process.env.E2E_CLERK_USER_USERNAME],
