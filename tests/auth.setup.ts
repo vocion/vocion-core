@@ -14,12 +14,12 @@ setup('account and organization creation', async ({ page }) => {
 
   await expect(page.getByText('Email address')).toBeVisible();
 
-  let email = faker.internet.email();
+  const email = faker.internet.email();
   // Any email with the +clerk_test subaddress is a test email address
-  email = `${email.split('@')[0]}+clerk_test@${email.split('@')[1]}`;
+  process.env.E2E_CLERK_USER_USERNAME = `${email.split('@')[0]}+clerk_test@${email.split('@')[1]}`;
   const password = 'password+clerk_test';
 
-  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Email address').fill(process.env.E2E_CLERK_USER_USERNAME);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Continue' }).click();
 
