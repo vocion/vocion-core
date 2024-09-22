@@ -1,10 +1,8 @@
-import path from 'node:path';
-
 import test, { expect } from '@playwright/test';
 
-const authFile = path.join(process.cwd(), 'playwright/.auth/user.json');
+import { AUTH_FILE } from '../TestUtils';
 
-test.use({ storageState: authFile });
+test.use({ storageState: AUTH_FILE });
 
 test.describe('Auth', () => {
   test.describe('Signup pages', () => {
