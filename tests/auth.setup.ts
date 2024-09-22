@@ -1,10 +1,8 @@
-import path from 'node:path';
-
 import { clerkSetup, setupClerkTestingToken } from '@clerk/testing/playwright';
 import { faker } from '@faker-js/faker';
 import { expect, test as setup } from '@playwright/test';
 
-const authFile = path.join(process.cwd(), 'playwright/.auth/user.json');
+import { AUTH_FILE } from './TestUtils';
 
 setup('account and organization creation', async ({ page }) => {
   await clerkSetup();
@@ -35,5 +33,5 @@ setup('account and organization creation', async ({ page }) => {
 
   await expect(page.getByText('Welcome to your dashboard')).toBeVisible();
 
-  await page.context().storageState({ path: authFile });
+  await page.context().storageState({ path: AUTH_FILE });
 });
