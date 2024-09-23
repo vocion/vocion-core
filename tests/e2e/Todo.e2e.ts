@@ -7,7 +7,7 @@ test.use({ storageState: AUTH_FILE });
 
 test.describe('Todo', () => {
   test.describe('todo', () => {
-    test('should navigate to Todos page', async ({ page }) => {
+    test('should create and edit a todo', async ({ page }) => {
       await page.goto('/dashboard');
       await page.getByText('Todos').click();
 
@@ -30,6 +30,28 @@ test.describe('Todo', () => {
       await page.getByRole('button', { name: 'Submit' }).click();
 
       await expect(page.getByText('[EDITED]')).toBeVisible();
+    });
+
+    test('should create and delete a todo', async ({ page }) => {
+      await page.goto('/dashboard');
+      await page.getByText('Todos').click();
+
+      await expect(page.getByText('No results')).toBeVisible();
+
+      // Create a new todo
+      await page.getByRole('button', { name: 'New todo' }).click();
+
+      await page.getByLabel('Title').fill(faker.word.words(3));
+      await page.getByLabel('Message').fill(faker.word.words(10));
+      await page.getByRole('button', { name: 'Submit' }).click();
+
+      await expect(page.getByText('Todo List', { exact: true })).toBeVisible();
+
+      // Delete the todo
+      await page.getByRole('button', { name: 'Open menu' }).click();
+      await page.getByRole('menuitem', { name: 'Delete' }).click();
+
+      await expect(page.getByText('No results')).toBeVisible();
     });
   });
 });
