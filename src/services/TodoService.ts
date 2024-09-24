@@ -38,7 +38,8 @@ export const updateTodo = (todo: Todo, orgId: string) => {
   return db
     .update(todoSchema)
     .set(todo)
-    .where(and(eq(todoSchema.id, todo.id), eq(todoSchema.ownerId, orgId)));
+    .where(and(eq(todoSchema.id, todo.id), eq(todoSchema.ownerId, orgId)))
+    .returning();
 };
 
 export const deleteTodo = (todoId: number, orgId: string) => {

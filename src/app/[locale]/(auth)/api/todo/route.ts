@@ -24,19 +24,13 @@ export const POST = async (request: Request) => {
     return NextResponse.json(parse.error.format(), { status: 422 });
   }
 
-  try {
-    const todo = await createTodo(parse.data, orgId);
+  const todo = await createTodo(parse.data, orgId);
 
-    logger.info('A new todo has been created');
+  logger.info('A new todo has been created');
 
-    return NextResponse.json({
-      id: todo[0]?.id,
-    });
-  } catch (error) {
-    logger.error(error, 'An error occurred while creating a todo');
-
-    return NextResponse.json({}, { status: 500 });
-  }
+  return NextResponse.json({
+    id: todo[0]?.id,
+  });
 };
 
 export const PUT = async (request: Request) => {
@@ -57,17 +51,15 @@ export const PUT = async (request: Request) => {
     return NextResponse.json(parse.error.format(), { status: 422 });
   }
 
-  try {
-    await updateTodo(parse.data, orgId);
+  const result = await updateTodo(parse.data, orgId);
 
-    logger.info('A todo has been updated');
-
-    return NextResponse.json({});
-  } catch (error) {
-    logger.error(error, 'An error occurred while updating a todo');
-
-    return NextResponse.json({}, { status: 500 });
+  if (result.length === 0) {
+    return NextResponse.json({}, { status: 404 });
   }
+
+  logger.info('A todo has been updated');
+
+  return NextResponse.json({});
 };
 
 export const DELETE = async (request: Request) => {
