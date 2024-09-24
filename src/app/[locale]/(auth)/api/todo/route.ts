@@ -80,15 +80,13 @@ export const DELETE = async (request: Request) => {
     return NextResponse.json(parse.error.format(), { status: 422 });
   }
 
-  try {
-    await deleteTodo(parse.data.id, orgId);
+  const result = await deleteTodo(parse.data.id, orgId);
 
-    logger.info('A todo entry has been deleted');
-
-    return NextResponse.json({});
-  } catch (error) {
-    logger.error(error, 'An error occurred while deleting a todo');
-
-    return NextResponse.json({}, { status: 500 });
+  if (result.length === 0) {
+    return NextResponse.json({}, { status: 404 });
   }
+
+  logger.info('A todo entry has been deleted');
+
+  return NextResponse.json({});
 };
