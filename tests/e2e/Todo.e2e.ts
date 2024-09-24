@@ -6,7 +6,7 @@ import { AUTH_FILE } from '../TestUtils';
 test.use({ storageState: AUTH_FILE });
 
 test.describe('Todo', () => {
-  test.describe('CRUD operations', () => {
+  test.describe('Basic CRUD operations', () => {
     test('should create and edit a todo', async ({ page }) => {
       await page.goto('/dashboard');
       await page.getByText('Todos').click();
