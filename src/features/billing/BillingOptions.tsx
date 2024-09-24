@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { Section } from '@/features/landing/Section';
 import { PLAN_ID } from '@/utils/AppConfig';
 

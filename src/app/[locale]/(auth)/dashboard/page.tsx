@@ -1,6 +1,6 @@
 import { useTranslations } from 'next-intl';
 
-import { buttonVariants } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { MessageState } from '@/features/dashboard/MessageState';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 
