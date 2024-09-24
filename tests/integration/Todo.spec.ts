@@ -10,18 +10,18 @@ test.describe('Todo', () => {
     test('should create a new todo and edit it without error', async ({
       request,
     }) => {
-      const create = await request.post('/api/todo', {
+      const createResponse = await request.post('/api/todo', {
         data: {
           title: faker.word.words(3),
           message: faker.word.words(10),
         },
       });
-      const createJson = await create.json();
+      const createJson = await createResponse.json();
 
-      expect(create.status()).toBe(200);
+      expect(createResponse.status()).toBe(200);
       expect(createJson.id).toBeDefined();
 
-      const edit = await request.put('/api/todo', {
+      const editResponse = await request.put('/api/todo', {
         data: {
           id: createJson.id,
           title: faker.word.words(3),
@@ -29,7 +29,30 @@ test.describe('Todo', () => {
         },
       });
 
-      expect(edit.status()).toBe(200);
+      expect(editResponse.status()).toBe(200);
+    });
+
+    test('should create a new todo and delete it without error', async ({
+      request,
+    }) => {
+      const createResponse = await request.post('/api/todo', {
+        data: {
+          title: faker.word.words(3),
+          message: faker.word.words(10),
+        },
+      });
+      const createJson = await createResponse.json();
+
+      expect(createResponse.status()).toBe(200);
+      expect(createJson.id).toBeDefined();
+
+      const deleteResponse = await request.delete('/api/todo', {
+        data: {
+          id: createJson.id,
+        },
+      });
+
+      expect(deleteResponse.status()).toBe(200);
     });
   });
 });
