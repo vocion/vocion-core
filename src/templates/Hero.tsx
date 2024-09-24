@@ -2,7 +2,7 @@ import { ArrowRightIcon, TwitterLogoIcon } from '@radix-ui/react-icons';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
-import { buttonVariants } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { CenteredHero } from '@/features/landing/CenteredHero';
 import { Section } from '@/features/landing/Section';
 
