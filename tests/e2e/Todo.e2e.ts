@@ -6,9 +6,20 @@ import { AUTH_FILE } from '../TestUtils';
 test.use({ storageState: AUTH_FILE });
 
 test.describe('Todo', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/dashboard');
+    await page.getByLabel('Open organization switcher').click();
+    await page.getByRole('menuitem', { name: 'Create organization' }).click();
+
+    const companyName = faker.company.name();
+    await page.getByLabel('Name').fill(companyName);
+    await page.getByRole('button', { name: 'Create Organization' }).click();
+
+    await expect(page.getByText(companyName)).toBeVisible();
+  });
+
   test.describe('Basic CRUD operations', () => {
     test('should create and edit a todo', async ({ page }) => {
-      await page.goto('/dashboard');
       await page.getByText('Todos').click();
 
       await expect(page.getByText('No results')).toBeVisible();
@@ -33,7 +44,6 @@ test.describe('Todo', () => {
     });
 
     test('should create and delete a todo', async ({ page }) => {
-      await page.goto('/dashboard');
       await page.getByText('Todos').click();
 
       await expect(page.getByText('No results')).toBeVisible();
