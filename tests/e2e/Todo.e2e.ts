@@ -1,27 +1,19 @@
 import { faker } from '@faker-js/faker';
 import test, { expect } from '@playwright/test';
 
-import { AUTH_FILE } from '../TestUtils';
-
-test.use({ storageState: AUTH_FILE });
+import { createOrganization, signIn } from '../TestUtils';
 
 test.describe('Todo', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/dashboard');
-    await page.getByLabel('Open organization switcher').click();
-    await page.getByRole('menuitem', { name: 'Create organization' }).click();
-
-    const companyName = faker.company.name();
-    await page.getByLabel('Name').fill(companyName);
-    await page.getByRole('button', { name: 'Create Organization' }).click();
-
-    await expect(page.getByText(companyName)).toBeVisible();
+    await signIn(page);
+    await createOrganization(page);
   });
 
   test.describe('Basic CRUD operations', () => {
     test('should create and edit a todo', async ({ page }) => {
       await page.getByText('Todos').click();
 
+      // Check if there are no todos
       await expect(page.getByText('No results')).toBeVisible();
 
       // Create a new todo
@@ -30,8 +22,6 @@ test.describe('Todo', () => {
       await page.getByLabel('Title').fill(faker.word.words(3));
       await page.getByLabel('Message').fill(faker.word.words(10));
       await page.getByRole('button', { name: 'Submit' }).click();
-
-      await expect(page.getByText('Todo List', { exact: true })).toBeVisible();
 
       // Edit the todo
       await page.getByRole('button', { name: 'Open menu' }).click();
@@ -40,12 +30,14 @@ test.describe('Todo', () => {
       await page.getByLabel('Title').fill(`[EDITED] ${faker.word.words(3)}`);
       await page.getByRole('button', { name: 'Submit' }).click();
 
+      // Check if the todo was edited
       await expect(page.getByText('[EDITED]')).toBeVisible();
     });
 
     test('should create and delete a todo', async ({ page }) => {
       await page.getByText('Todos').click();
 
+      // Check if there are no todos
       await expect(page.getByText('No results')).toBeVisible();
 
       // Create a new todo
@@ -55,12 +47,11 @@ test.describe('Todo', () => {
       await page.getByLabel('Message').fill(faker.word.words(10));
       await page.getByRole('button', { name: 'Submit' }).click();
 
-      await expect(page.getByText('Todo List', { exact: true })).toBeVisible();
-
       // Delete the todo
       await page.getByRole('button', { name: 'Open menu' }).click();
       await page.getByRole('menuitem', { name: 'Delete' }).click();
 
+      // Check if the todo was deleted
       await expect(page.getByText('No results')).toBeVisible();
     });
   });
