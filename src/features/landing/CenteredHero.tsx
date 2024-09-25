@@ -1,4 +1,4 @@
-import { badgeVariants } from '@/components/ui/badge';
+import { badgeVariants } from '@/components/ui/badgeVariants';
 
 const CenteredHero = (props: {
   banner: {
