@@ -14,11 +14,9 @@ export default defineConfig({
   // Look for files with the .spec.js or .e2e.js extension
   testMatch: '*.@(spec|e2e).?(c|m)[jt]s?(x)',
   // Timeout per test
-  timeout: 60 * 1000,
+  timeout: 30 * 1000,
   // Fail the build on CI if you accidentally left test.only in the source code.
   forbidOnly: !!process.env.CI,
-  // Opt out of parallel tests on CI
-  workers: process.env.CI ? 1 : undefined,
   // Reporter to use. See https://playwright.dev/docs/test-reporters
   reporter: process.env.CI ? 'github' : 'list',
 
