@@ -6,6 +6,8 @@ import { createOrganization, signIn } from '../TestUtils';
 test.describe('Todo', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page);
+
+    // Create a new organization for each test, to make sure there is no data between tests
     await createOrganization(page);
   });
 
