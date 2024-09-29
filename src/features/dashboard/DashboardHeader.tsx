@@ -16,7 +16,7 @@ import {
 import { Logo } from '@/templates/Logo';
 import { getI18nPath } from '@/utils/Helpers';
 
-const DashboardHeader = (props: {
+export const DashboardHeader = (props: {
   menu: {
     href: string;
     label: string;
@@ -109,5 +109,3 @@ const DashboardHeader = (props: {
     </>
   );
 };
-
-export { DashboardHeader };

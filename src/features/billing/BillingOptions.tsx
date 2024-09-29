@@ -8,7 +8,7 @@ import { PLAN_ID } from '@/utils/AppConfig';
 
 import { PricingInformation } from './PricingInformation';
 
-const BillingOptions = () => {
+export const BillingOptions = () => {
   const t = useTranslations('BillingOptions');
 
   return (
@@ -56,5 +56,3 @@ const BillingOptions = () => {
     </div>
   );
 };
-
-export { BillingOptions };

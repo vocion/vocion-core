@@ -6,7 +6,7 @@ import { getTodoList } from '@/services/TodoService';
 
 import { generateColumns } from './TodoTableColumns';
 
-const TodoTable = async () => {
+export const TodoTable = async () => {
   const { orgId } = auth();
 
   if (!orgId) {
@@ -18,5 +18,3 @@ const TodoTable = async () => {
 
   return <DataTable columns={todoTableColumns} data={data} />;
 };
-
-export { TodoTable };

@@ -5,7 +5,7 @@ import { PricingFeature } from '@/features/billing/PricingFeature';
 import type { PlanId } from '@/types/Subscription';
 import { PricingPlanList } from '@/utils/AppConfig';
 
-const PricingInformation = (props: {
+export const PricingInformation = (props: {
   buttonList: Record<PlanId, React.ReactNode>;
 }) => {
   const t = useTranslations('PricingPlan');
@@ -50,5 +50,3 @@ const PricingInformation = (props: {
     </div>
   );
 };
-
-export { PricingInformation };

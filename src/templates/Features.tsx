@@ -4,7 +4,7 @@ import { Background } from '@/components/Background';
 import { FeatureCard } from '@/features/landing/FeatureCard';
 import { Section } from '@/features/landing/Section';
 
-const Features = () => {
+export const Features = () => {
   const t = useTranslations('Features');
 
   return (
@@ -133,5 +133,3 @@ const Features = () => {
     </Background>
   );
 };
-
-export { Features };

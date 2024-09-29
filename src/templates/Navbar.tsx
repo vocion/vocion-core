@@ -8,7 +8,7 @@ import { Section } from '@/features/landing/Section';
 
 import { Logo } from './Logo';
 
-const Navbar = () => {
+export const Navbar = () => {
   const t = useTranslations('Navbar');
 
   return (
@@ -54,5 +54,3 @@ const Navbar = () => {
     </Section>
   );
 };
-
-export { Navbar };
