@@ -36,7 +36,6 @@ const CenteredFooter = (props: {
               </Link>
             ),
           })}
-          .
           {/*
            * PLEASE READ THIS SECTION
            * I'm an indie maker with limited resources and funds, I'll really appreciate if you could have a link to my website.
