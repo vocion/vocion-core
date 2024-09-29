@@ -7,7 +7,7 @@ import { AppConfig } from '@/utils/AppConfig';
 
 import { Logo } from './Logo';
 
-const Footer = () => {
+export const Footer = () => {
   const t = useTranslations('Footer');
 
   return (
@@ -108,5 +108,3 @@ const Footer = () => {
     </Section>
   );
 };
-
-export { Footer };
