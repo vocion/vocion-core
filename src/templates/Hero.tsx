@@ -6,7 +6,7 @@ import { buttonVariants } from '@/components/ui/buttonVariants';
 import { CenteredHero } from '@/features/landing/CenteredHero';
 import { Section } from '@/features/landing/Section';
 
-const Hero = () => {
+export const Hero = () => {
   const t = useTranslations('Hero');
 
   return (
@@ -50,5 +50,3 @@ const Hero = () => {
     </Section>
   );
 };
-
-export { Hero };

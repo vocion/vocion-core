@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import React from 'react';
 
-const CenteredFooter = (props: {
+export const CenteredFooter = (props: {
   logo: React.ReactNode;
   name: string;
   iconList: React.ReactNode;
@@ -51,5 +51,3 @@ const CenteredFooter = (props: {
     </div>
   );
 };
-
-export { CenteredFooter };

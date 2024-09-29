@@ -1,4 +1,4 @@
-const DemoBadge = () => (
+export const DemoBadge = () => (
   <div className="fixed bottom-0 right-20 z-10">
     <a
       href="https://nextjs-boilerplate.com/pro-saas-starter-kit"
@@ -10,5 +10,3 @@ const DemoBadge = () => (
     </a>
   </div>
 );
-
-export { DemoBadge };

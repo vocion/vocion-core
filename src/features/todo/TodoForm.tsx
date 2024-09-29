@@ -16,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { TodoValidation } from '@/validations/TodoValidation';
 
-const TodoForm = (props: {
+export const TodoForm = (props: {
   defaultValues?: z.infer<typeof TodoValidation>;
   onValid: SubmitHandler<z.infer<typeof TodoValidation>>;
 }) => {
@@ -70,5 +70,3 @@ const TodoForm = (props: {
     </Form>
   );
 };
-
-export { TodoForm };

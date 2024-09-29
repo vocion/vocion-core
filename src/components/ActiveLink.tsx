@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 
 import { cn } from '@/utils/Helpers';
 
-const ActiveLink = (props: { href: string; children: React.ReactNode }) => {
+export const ActiveLink = (props: { href: string; children: React.ReactNode }) => {
   const pathname = usePathname();
 
   return (
@@ -21,5 +21,3 @@ const ActiveLink = (props: { href: string; children: React.ReactNode }) => {
     </Link>
   );
 };
-
-export { ActiveLink };

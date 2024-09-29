@@ -4,7 +4,7 @@ import Image from 'next/image';
 import { LogoCloud } from '@/features/landing/LogoCloud';
 import { Section } from '@/features/landing/Section';
 
-const Sponsors = () => (
+export const Sponsors = () => (
   <Section>
     <LogoCloud text="Sponsored by">
       <a
@@ -57,5 +57,3 @@ const Sponsors = () => (
     </LogoCloud>
   </Section>
 );
-
-export { Sponsors };

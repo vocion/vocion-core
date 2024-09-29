@@ -2,7 +2,7 @@ import { useTranslations } from 'next-intl';
 
 import type { PlanDetails } from '@/types/Subscription';
 
-const CurrentPlanDetails = (props: { planDetails: PlanDetails }) => {
+export const CurrentPlanDetails = (props: { planDetails: PlanDetails }) => {
   const t = useTranslations('PricingPlan');
 
   return (
@@ -27,5 +27,3 @@ const CurrentPlanDetails = (props: { planDetails: PlanDetails }) => {
     </>
   );
 };
-
-export { CurrentPlanDetails };

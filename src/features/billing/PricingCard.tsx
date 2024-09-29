@@ -3,7 +3,7 @@ import React from 'react';
 
 import type { BillingInterval, PlanId } from '@/types/Subscription';
 
-const PricingCard = (props: {
+export const PricingCard = (props: {
   planId: PlanId;
   price: number;
   interval: BillingInterval;
@@ -38,5 +38,3 @@ const PricingCard = (props: {
     </div>
   );
 };
-
-export { PricingCard };
