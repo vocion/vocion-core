@@ -14,10 +14,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ProtectFallback } from '@/features/auth/ProtectFallback';
 import { ORG_ROLE } from '@/types/Auth';
 import type { Todo } from '@/types/Todo';
-
-import { ProtectFallback } from '../auth/ProtectFallback';
 
 export const ActionCell = ({ row }: { row: { original: Todo } }) => {
   const router = useRouter();

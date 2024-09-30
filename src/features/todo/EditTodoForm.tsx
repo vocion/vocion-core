@@ -11,7 +11,7 @@ import type {
 
 import { TodoForm } from './TodoForm';
 
-const EditTodoForm = (props: { todo: z.infer<typeof EditTodoValidation> }) => {
+export const EditTodoForm = (props: { todo: z.infer<typeof EditTodoValidation> }) => {
   const router = useRouter();
 
   const onValid: SubmitHandler<z.infer<typeof TodoValidation>> = async (
@@ -34,5 +34,3 @@ const EditTodoForm = (props: { todo: z.infer<typeof EditTodoValidation> }) => {
 
   return <TodoForm defaultValues={props.todo} onValid={onValid} />;
 };
-
-export { EditTodoForm };

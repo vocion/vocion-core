@@ -28,16 +28,16 @@ export default function middleware(
   event: NextFetchEvent,
 ) {
   if (
-    request.nextUrl.pathname.includes('/sign-in') ||
-    request.nextUrl.pathname.includes('/sign-up') ||
-    isProtectedRoute(request)
+    request.nextUrl.pathname.includes('/sign-in')
+    || request.nextUrl.pathname.includes('/sign-up')
+    || isProtectedRoute(request)
   ) {
     return clerkMiddleware((auth, req) => {
       const authObj = auth();
 
       if (isProtectedRoute(req)) {
-        const locale =
-          req.nextUrl.pathname.match(/(\/.*)\/dashboard/)?.at(1) ?? '';
+        const locale
+          = req.nextUrl.pathname.match(/(\/.*)\/dashboard/)?.at(1) ?? '';
 
         const signInUrl = new URL(`${locale}/sign-in`, req.url);
 
@@ -48,10 +48,10 @@ export default function middleware(
       }
 
       if (
-        authObj.userId &&
-        !authObj.orgId &&
-        req.nextUrl.pathname.includes('/dashboard') &&
-        !req.nextUrl.pathname.endsWith('/organization-selection')
+        authObj.userId
+        && !authObj.orgId
+        && req.nextUrl.pathname.includes('/dashboard')
+        && !req.nextUrl.pathname.endsWith('/organization-selection')
       ) {
         const orgSelection = new URL(
           '/onboarding/organization-selection',
