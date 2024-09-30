@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import { stripe } from '@/libs/Stripe';
 import type { PricingPlan } from '@/types/Subscription';
 import { AppConfig, PricingPlanList } from '@/utils/AppConfig';
@@ -25,7 +24,6 @@ async function main() {
 
   // run sequentially (not in parallel) with classic loop, `forEach` is not designed for asynchronous code.
   for (const plan of PricingPlanList.slice(1)) {
-    // eslint-disable-next-line no-await-in-loop
     await createStripePrice(plan);
   }
 
