@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.5.0...v1.5.1) (2024-09-30)
+
+
+### Bug Fixes
+
+* remove playwright in gitignore, unused ([3609191](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/36091913aab1fea06ac8cd1364d966281be57e96))
+
 # [1.5.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.4.1...v1.5.0) (2024-09-30)
 
 
