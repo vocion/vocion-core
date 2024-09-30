@@ -1,3 +1,15 @@
+# [1.5.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.4.1...v1.5.0) (2024-09-30)
+
+
+### Bug Fixes
+
+* add punctuation inside i18n english json file ([2fe6e6d](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/2fe6e6d0e20d2b902e93b788683054f3b891d14e))
+
+
+### Features
+
+* add a storybook for Background component ([b49ea2c](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/b49ea2cd7c577a437c48b164b5ead2344c9bfd51))
+
 ## [1.4.1](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.4.0...v1.4.1) (2024-09-08)
 
 
