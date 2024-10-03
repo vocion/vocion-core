@@ -1,5 +1,3 @@
-'use client';
-
 import { Protect } from '@clerk/nextjs';
 import { DotsHorizontalIcon } from '@radix-ui/react-icons';
 import Link from 'next/link';
