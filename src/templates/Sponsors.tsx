@@ -16,7 +16,7 @@ export const Sponsors = () => (
           src="/assets/images/clerk-logo-dark.png"
           alt="Clerk"
           width="128"
-          height="40"
+          height="37"
         />
       </a>
 
