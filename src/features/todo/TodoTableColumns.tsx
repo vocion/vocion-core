@@ -7,10 +7,10 @@ import type { Todo } from '@/types/Todo';
 
 import { ActionCell } from './ActionTodoTable';
 
-export const TodoTableColumns = async (props: {
+export const TodoTableColumns = (props: {
   data: Todo[];
 }) => {
-  const t = await useTranslations('TodoTableColumns');
+  const t = useTranslations('TodoTableColumns');
 
   const columns = [
     {
