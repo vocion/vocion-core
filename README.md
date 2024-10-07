@@ -163,6 +163,14 @@ npm install
 
 For your information, all dependencies are updated every month.
 
+You'll need to log in to your Stripe account using the Stripe CLI:
+
+```shell
+stripe login
+```
+
+Please note that at this stage, we are only ensuring that you have the Stripe CLI installed and functioning properly. The complete setup of Stripe will be done later.
+
 Then, you can run the project locally in development mode with live reload by executing:
 
 ```shell
