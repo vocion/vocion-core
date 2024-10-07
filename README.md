@@ -459,12 +459,22 @@ Here are new files added in the premium repository:
 - ./tests/global.teardown.ts
 - ./tests/TestUtils.ts
 
-Then, in the following, you need to update the existing files:
+Then, in the following files, you will need to update the existing files:
 
 - src/app/[locale]/(auth)/dashboard/layout.tsx, add links to `Todos` and `Billing` page
 - package.json, add the missing scripts `dev:stripe` and `stripe:setup-price`.
 
 For your information, the list may not be exhaustive and you also need to add the related imports used in these files.
+
+### FAQ
+
+#### Why are webhooks not necessary for Clerk?
+
+For most applications, there is no need to sync with Clerk using webhooks. In the Todo app example, the data related to users, organizations, and roles is stored in Clerk. It only uses the ID as the primary key for the database table.
+
+Of course, if your application is more complex, you can synchronize the data with Clerk using webhooks.
+
+To integrate with Stripe, we follow a different approach due to Stripe's rate limiting. Instead of making direct API calls to Stripe each time, we store important Stripe data in our database and synchronize it using webhooks.
 
 ### Contributions
 
