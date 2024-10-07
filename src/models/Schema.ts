@@ -15,7 +15,7 @@ import {
 
 // The generated migration file will reflect your schema changes.
 // The migration is automatically applied during the next database interaction,
-// so there's no need to run it manually.
+// so there's no need to run it manually or restart the Next.js server.
 
 export const organizationSchema = pgTable(
   'organization',

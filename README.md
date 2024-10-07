@@ -257,7 +257,7 @@ After making changes to the schema, generate a migration by running the followin
 npm run db:generate
 ```
 
-This will create a migration file that reflects your schema changes. The migration is automatically applied during the next database interaction, so there is no need to run it manually.
+This will create a migration file that reflects your schema changes. The migration is automatically applied during the next database interaction, so there is no need to run it manually or restart the Next.js server.
 
 ### Commit Message Format
 
@@ -433,19 +433,36 @@ Pro tips: if you need a project wide-type checking with TypeScript, you can run 
 
 If the file is present in both repository, the content should be the same. You should just looking at the missing files. In the premium repository, there are only new files.
 
+To make the migration easier, the default migration folder is exactly the same as the free version.
+
 The most important difference is related to Stripe and the Todo/CRUD code.
 
 Here are new files added in the premium repository:
 
-- src/app/\[locale\]/(auth)/api/todo/route.ts
-- src/app/\[locale\]/(auth)/dashboard/add-todo/page.tsx
-- src/app/\[locale\]/(auth)/dashboard/edit-todo/\[id\]/page.tsx
-- src/app/\[locale\]/(auth)/dashboard/todos/page.tsx
-- src/app/\[locale\]/(auth)/dashboard/billing/checkout/\[planId\]/route.ts
-- src/app/\[locale\]/(auth)/dashboard/billing/checkout-confirmation/page.tsx
-- src/app/\[locale\]/(auth)/dashboard/billing/portal/route.ts
-- src/app/\[locale\]/(auth)/dashboard/billing/page.tsx
-- src/app/\[locale\]/(unauth)/webhook/billing/route.ts
+- ./scripts/*
+- ./src/app/\[locale\]/(auth)/api/*
+- ./src/app/\[locale\]/(auth)/dashboard/add-todo/*
+- ./src/app/\[locale\]/(auth)/dashboard/billing/*
+- ./src/app/\[locale\]/(auth)/dashboard/edit-todo/*
+- ./src/app/\[locale\]/(auth)/dashboard/todos/*
+- ./src/app/\[locale\]/(unauth)/webhook/*
+- ./src/features/billing/BillingOptions.tsx
+- ./src/features/billing/CurrentPlanDetails.tsx
+- ./src/features/todo/*
+- ./src/libs/Stripe.ts
+- ./src/services/*
+- ./src/types/Todo.ts
+- ./src/validations/*
+- ./tests/e2e/Todo.e2e.ts
+- ./tests/integration/Todo.spec.ts
+- ./tests/global.setup.ts
+- ./tests/global.teardown.ts
+- ./tests/TestUtils.ts
+
+Then, in the following, you need to update the existing files:
+
+- src/app/[locale]/(auth)/dashboard/layout.tsx, add links to `Todos` and `Billing` page
+- package.json, add the missing scripts `dev:stripe` and `stripe:setup-price`.
 
 For your information, the list may not be exhaustive and you also need to add the related imports used in these files.
 
