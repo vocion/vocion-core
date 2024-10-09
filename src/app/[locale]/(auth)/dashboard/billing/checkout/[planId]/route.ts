@@ -29,7 +29,7 @@ export async function GET(
   }
 
   const plan = PricingPlanList.find(
-    elt => elt.id.toLocaleLowerCase() === context.params.planId,
+    elt => elt.id === context.params.planId,
   );
 
   if (!plan) {
