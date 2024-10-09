@@ -1,3 +1,10 @@
+## [1.5.2](https://github.com/Vocion/vocion-core-Pro/compare/v1.5.1...v1.5.2) (2024-10-09)
+
+
+### Bug Fixes
+
+* add a new props isTextHidden in Logo component ([1b47a18](https://github.com/Vocion/vocion-core-Pro/commit/1b47a18048307d7a8e9e743cdd58e23f7e489635))
+
 ## [1.5.1](https://github.com/Vocion/vocion-core-Pro/compare/v1.5.0...v1.5.1) (2024-09-30)
 
 

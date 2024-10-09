@@ -1,6 +1,6 @@
 {
   "name": "Vocion",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "author": "Vocion (https://github.com/vocion)",
   "scripts": {
     "dev:spotlight": "spotlight-sidecar",
