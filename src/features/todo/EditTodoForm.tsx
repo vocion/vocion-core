@@ -17,7 +17,7 @@ export const EditTodoForm = (props: { todo: z.infer<typeof EditTodoValidation> }
   const onValid: SubmitHandler<z.infer<typeof TodoValidation>> = async (
     data,
   ) => {
-    await fetch(`/api/todo`, {
+    await fetch(`/api/todos`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
