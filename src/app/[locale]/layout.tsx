@@ -45,9 +45,11 @@ export default function RootLayout(props: {
   // Using internationalization in Client Components
   const messages = useMessages();
 
+  // The `suppressHydrationWarning` attribute is used to prevent hydration errors caused by Sentry Overlay,
+  // which dynamically adds a `style` attribute to the body tag.
   return (
     <html lang={props.params.locale}>
-      <body className="bg-background text-foreground antialiased">
+      <body className="bg-background text-foreground antialiased" suppressHydrationWarning>
         <NextIntlClientProvider
           locale={props.params.locale}
           messages={messages}
