@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useLocale } from 'next-intl';
 
 import { ActiveLink } from '@/components/ActiveLink';
+import { DarkModeToggle } from '@/components/DarkModeToggle';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { ToggleMenuButton } from '@/components/ToggleMenuButton';
 import {
@@ -71,7 +72,7 @@ export const DashboardHeader = (props: {
       </div>
 
       <div>
-        <ul className="flex items-center gap-x-1 [&_li:not(:last-child):hover]:opacity-100 [&_li:not(:last-child)]:opacity-60">
+        <ul className="flex items-center gap-x-1.5 [&_li:not(:last-child):hover]:opacity-100 [&_li:not(:last-child)]:opacity-60">
           <li>
             <div className="lg:hidden">
               <DropdownMenu>
@@ -89,7 +90,11 @@ export const DashboardHeader = (props: {
             </div>
           </li>
 
-          <li>
+          <li className="max-sm:hidden">
+            <DarkModeToggle />
+          </li>
+
+          <li className="max-sm:hidden">
             <LocaleSwitcher />
           </li>
 
