@@ -67,7 +67,6 @@ export default function RootLayout(props: {
             {props.children}
 
             <DemoBadge />
-
           </NextIntlClientProvider>
         </ThemeProvider>
       </body>

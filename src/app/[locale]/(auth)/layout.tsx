@@ -1,5 +1,9 @@
+'use client';
+
 import { enUS, frFR } from '@clerk/localizations';
 import { ClerkProvider } from '@clerk/nextjs';
+import { dark } from '@clerk/themes';
+import { useTheme } from 'next-themes';
 
 import { AppConfig } from '@/utils/AppConfig';
 
@@ -24,8 +28,13 @@ export default function AuthLayout(props: {
     afterSignOutUrl = `/${props.params.locale}${afterSignOutUrl}`;
   }
 
+  const { resolvedTheme } = useTheme();
+
   return (
     <ClerkProvider
+      appearance={{
+        baseTheme: resolvedTheme === 'dark' ? dark : undefined,
+      }}
       localization={clerkLocale}
       signInUrl={signInUrl}
       signUpUrl={signUpUrl}
