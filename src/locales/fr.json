@@ -142,7 +142,8 @@
     "edit": "Modifier",
     "delete": "Supprimer",
     "title_header": "Titre",
-    "message_header": "Message"
+    "message_header": "Message",
+    "created_at_header": "Created at"
   },
   "AddTodo": {
     "title_bar": "Ajouter une todo",
