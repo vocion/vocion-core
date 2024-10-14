@@ -1,6 +1,6 @@
 import { stripe } from '@/libs/Stripe';
 import type { PricingPlan } from '@/types/Subscription';
-import { AppConfig, PricingPlanList } from '@/utils/AppConfig';
+import { AppConfig, PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
 
 const createStripePrice = async (plan: PricingPlan) => {
   const product = await stripe.products.create({
@@ -22,8 +22,10 @@ const createStripePrice = async (plan: PricingPlan) => {
 async function main() {
   console.log('Create Stripe price started');
 
+  const paidPricingPlanList = Object.entries(PricingPlanList).filter(([id, _plan]) => id !== PLAN_ID.FREE);
+
   // run sequentially (not in parallel) with classic loop, `forEach` is not designed for asynchronous code.
-  for (const plan of PricingPlanList.slice(1)) {
+  for (const [_id, plan] of paidPricingPlanList) {
     await createStripePrice(plan);
   }
 
