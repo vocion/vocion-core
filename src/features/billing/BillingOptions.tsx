@@ -31,7 +31,7 @@ export const BillingOptions = () => {
                   size: 'sm',
                   className: 'mt-5 w-full',
                 })}
-                href="/dashboard/billing/checkout/premium"
+                href={`/dashboard/billing/checkout/${PLAN_ID.PREMIUM}`}
               >
                 {t('upgrade_plan')}
               </a>
@@ -42,7 +42,7 @@ export const BillingOptions = () => {
                   size: 'sm',
                   className: 'mt-5 w-full',
                 })}
-                href="/dashboard/billing/checkout/enterprise"
+                href={`/dashboard/billing/checkout/${PLAN_ID.ENTERPRISE}`}
               >
                 {t('upgrade_plan')}
               </a>
