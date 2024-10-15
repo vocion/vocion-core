@@ -1,3 +1,26 @@
+# [1.6.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.5.2...v1.6.0) (2024-10-15)
+
+
+### Bug Fixes
+
+* display created at in todo table ([eea2bec](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/eea2bec2729c147eab836e0e240a6f623988c51c))
+* implement dark mode for Clerk component ([899e12b](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/899e12b427fff992c4d9c71292da0954d618f14e))
+* make sponsor logo dark mode compatible ([858a582](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/858a582c64b1f2fc7e2030432ceb3bd35ea4b3ad))
+* make table responsive after adding createAt field ([de33219](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/de332192b2e3362330a22955a7a341497c43eb55))
+* remove hydratation warning in body tag with Sentry Overlay ([2980d7a](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/2980d7abdef0f1512d47b0648ba3a293723103d3))
+* replace Link components with anchor tags when the page redirects ([f993c49](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/f993c49c48004b5f754fa69c5b332333d650f8ca))
+* set organization switcher max width for small screen ([36939a4](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/36939a49092b73e7ee9c96e5dd809d085ef70b18))
+
+
+### Features
+
+* add dark mode support ([18755de](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/18755dec607ef556f6b25ab7ac6e7c1b18c70744))
+
+
+### Reverts
+
+* use spotlightjs 2.4.2 instead of 2.5.0 to avoid redirection errors when using billing ([c1c5e8e](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/c1c5e8e75fa3fedbc3e9778f79c249e0ac5b95c8))
+
 ## [1.5.2](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.5.1...v1.5.2) (2024-10-09)
 
 
