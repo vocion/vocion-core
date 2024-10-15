@@ -20,7 +20,7 @@ const TodosPage = async (props: { params: { locale: string } }) => {
       />
 
       <div className="flex justify-end">
-        <Link href="/dashboard/add-todo">
+        <Link href="/dashboard/todos/add">
           <Button size="sm">{t('add_todo_button')}</Button>
         </Link>
       </div>

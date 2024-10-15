@@ -449,9 +449,7 @@ Here are new files added in the premium repository:
 
 - ./scripts/*
 - ./src/app/\[locale\]/(auth)/api/*
-- ./src/app/\[locale\]/(auth)/dashboard/add-todo/*
 - ./src/app/\[locale\]/(auth)/dashboard/billing/*
-- ./src/app/\[locale\]/(auth)/dashboard/edit-todo/*
 - ./src/app/\[locale\]/(auth)/dashboard/todos/*
 - ./src/app/\[locale\]/(unauth)/webhook/*
 - ./src/features/billing/BillingOptions.tsx
