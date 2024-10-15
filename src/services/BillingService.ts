@@ -135,7 +135,7 @@ export const determineSubscriptionPlan = (
     > Date.now();
 
   if (isActive) {
-    const plan = PricingPlanList.find((elt) => {
+    const plan = Object.values(PricingPlanList).find((elt) => {
       const priceId = elt[`${Env.BILLING_PLAN_ENV}PriceId`];
 
       return priceId === stripeDetails.stripeSubscriptionPriceId;
@@ -146,7 +146,7 @@ export const determineSubscriptionPlan = (
     }
   }
 
-  const freePlan = PricingPlanList.find(elt => elt.id === PLAN_ID.FREE);
+  const freePlan = PricingPlanList[PLAN_ID.FREE];
 
   if (!freePlan) {
     throw new Error('Free plan not found');
