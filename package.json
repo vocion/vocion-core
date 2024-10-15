@@ -1,6 +1,6 @@
 {
   "name": "saas-boilerplate",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "author": "Ixartz (https://github.com/ixartz)",
   "scripts": {
     "dev:spotlight": "spotlight-sidecar",

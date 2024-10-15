@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.6.0...v1.6.1) (2024-10-15)
+
+
+### Bug Fixes
+
+* add sticky banner in landing page ([ce1b591](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/ce1b5915cedf8650cfc9b94d8aaf928708938b74))
+
 # [1.6.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.5.2...v1.6.0) (2024-10-15)
 
 
