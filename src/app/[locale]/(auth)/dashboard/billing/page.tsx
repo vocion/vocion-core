@@ -1,6 +1,5 @@
 import { Protect } from '@clerk/nextjs';
 import { auth } from '@clerk/nextjs/server';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 
@@ -60,12 +59,12 @@ const BillingPage = async (props: { params: { locale: string } }) => {
                 />
               )}
             >
-              <Link
+              <a
                 className={buttonVariants({ size: 'lg' })}
                 href="/dashboard/billing/portal"
               >
                 {t('manage_subscription_button')}
-              </Link>
+              </a>
             </Protect>
           </div>
         )}

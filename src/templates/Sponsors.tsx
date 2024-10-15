@@ -14,7 +14,15 @@ export const Sponsors = () => (
       >
         <Image
           src="/assets/images/clerk-logo-dark.png"
-          alt="Clerk"
+          alt="Clerk logo dark"
+          className="dark:hidden"
+          width="128"
+          height="37"
+        />
+        <Image
+          src="/assets/images/clerk-logo-white.png"
+          alt="Clerk logo light"
+          className="hidden dark:block"
           width="128"
           height="37"
         />
@@ -27,7 +35,15 @@ export const Sponsors = () => (
       >
         <Image
           src="/assets/images/crowdin-dark.png"
-          alt="Crowdin"
+          alt="Crowdin logo dark"
+          className="dark:hidden"
+          width="128"
+          height="26"
+        />
+        <Image
+          src="/assets/images/crowdin-white.png"
+          alt="Crowdin logo light"
+          className="hidden dark:block"
           width="128"
           height="26"
         />
@@ -40,7 +56,15 @@ export const Sponsors = () => (
       >
         <Image
           src="/assets/images/sentry-dark.png"
-          alt="Sentry"
+          alt="Sentry logo dark"
+          className="dark:hidden"
+          width="128"
+          height="38"
+        />
+        <Image
+          src="/assets/images/sentry-white.png"
+          alt="Sentry logo light"
+          className="hidden dark:block"
           width="128"
           height="38"
         />

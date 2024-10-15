@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
@@ -27,28 +26,26 @@ export const BillingOptions = () => {
               </Button>
             ),
             [PLAN_ID.PREMIUM]: (
-              <Link
+              <a
                 className={buttonVariants({
                   size: 'sm',
                   className: 'mt-5 w-full',
                 })}
-                href="/dashboard/billing/checkout/premium"
-                prefetch={false} // Disable prefetching when redirecting to Stripe checkout
+                href={`/dashboard/billing/checkout/${PLAN_ID.PREMIUM}`}
               >
                 {t('upgrade_plan')}
-              </Link>
+              </a>
             ),
             [PLAN_ID.ENTERPRISE]: (
-              <Link
+              <a
                 className={buttonVariants({
                   size: 'sm',
                   className: 'mt-5 w-full',
                 })}
-                href="/dashboard/billing/checkout/enterprise"
-                prefetch={false} // Disable prefetching when redirecting to Stripe checkout
+                href={`/dashboard/billing/checkout/${PLAN_ID.ENTERPRISE}`}
               >
                 {t('upgrade_plan')}
-              </Link>
+              </a>
             ),
           }}
         />

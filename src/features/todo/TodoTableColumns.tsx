@@ -1,6 +1,7 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import type { ColumnDef } from '@tanstack/react-table';
+import { useFormatter, useTranslations } from 'next-intl';
 
 import { DataTable } from '@/components/ui/data-table';
 import type { Todo } from '@/types/Todo';
@@ -11,8 +12,9 @@ export const TodoTableColumns = (props: {
   data: Todo[];
 }) => {
   const t = useTranslations('TodoTableColumns');
+  const format = useFormatter();
 
-  const columns = [
+  const columns: ColumnDef<Todo, string>[] = [
     {
       accessorKey: 'title',
       header: t('title_header'),
@@ -20,6 +22,13 @@ export const TodoTableColumns = (props: {
     {
       accessorKey: 'message',
       header: t('message_header'),
+    },
+    {
+      accessorFn: row => format.dateTime(row.createdAt, {
+        dateStyle: 'full',
+        timeStyle: 'medium',
+      }),
+      header: t('created_at_header'),
     },
     {
       id: 'actions',

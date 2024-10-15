@@ -28,9 +28,7 @@ export async function GET(
     redirect('/dashboard/billing');
   }
 
-  const plan = PricingPlanList.find(
-    elt => elt.id.toLocaleLowerCase() === context.params.planId,
-  );
+  const plan = PricingPlanList[context.params.planId];
 
   if (!plan) {
     redirect('/dashboard/billing');

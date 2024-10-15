@@ -33,13 +33,13 @@ export const ActionCell = ({ row }: { row: { original: Todo } }) => {
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem asChild>
-          <Link href={`/dashboard/edit-todo/${todo.id}`}>{t('edit')}</Link>
+          <Link href={`/dashboard/todos/edit/${todo.id}`}>{t('edit')}</Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="text-destructive"
           onClick={async () => {
-            await fetch(`/api/todo`, {
+            await fetch(`/api/todos`, {
               method: 'DELETE',
               headers: {
                 'Content-Type': 'application/json',

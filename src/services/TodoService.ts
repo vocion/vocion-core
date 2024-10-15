@@ -11,12 +11,13 @@ export const getTodoList = (orgId: string) => {
       id: true,
       title: true,
       message: true,
+      createdAt: true,
     },
     orderBy: (todo, { asc }) => [asc(todo.createdAt)],
   });
 };
 
-export const createTodo = (todo: Omit<Todo, 'id'>, orgId: string) => {
+export const createTodo = (todo: Omit<Todo, 'id' | 'createdAt'>, orgId: string) => {
   return db
     .insert(todoSchema)
     .values({ ...todo, ownerId: orgId })
@@ -34,7 +35,7 @@ export const getTodo = (todoId: number, orgId: string) => {
   });
 };
 
-export const updateTodo = (todo: Todo, orgId: string) => {
+export const updateTodo = (todo: Omit<Todo, 'createdAt'>, orgId: string) => {
   return db
     .update(todoSchema)
     .set(todo)
