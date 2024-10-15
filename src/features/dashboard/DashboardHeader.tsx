@@ -55,7 +55,7 @@ export const DashboardHeader = (props: {
           skipInvitationScreen
           appearance={{
             elements: {
-              organizationSwitcherTrigger: 'max-w-52',
+              organizationSwitcherTrigger: 'max-w-28 sm:max-w-52',
             },
           }}
         />
@@ -90,11 +90,11 @@ export const DashboardHeader = (props: {
             </div>
           </li>
 
-          <li className="max-sm:hidden">
+          <li>
             <DarkModeToggle />
           </li>
 
-          <li className="max-sm:hidden">
+          <li>
             <LocaleSwitcher />
           </li>
 
