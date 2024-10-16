@@ -452,6 +452,7 @@ Here are new files added in the premium repository:
 - ./src/app/\[locale\]/(auth)/dashboard/billing/*
 - ./src/app/\[locale\]/(auth)/dashboard/todos/*
 - ./src/app/\[locale\]/(unauth)/webhook/*
+- ./src/components/DarkModeToggle.tsx
 - ./src/features/billing/BillingOptions.tsx
 - ./src/features/billing/CurrentPlanDetails.tsx
 - ./src/features/todo/*
@@ -467,7 +468,11 @@ Here are new files added in the premium repository:
 
 Then, in the following files, you will need to update the existing files:
 
-- src/app/[locale]/(auth)/dashboard/layout.tsx, add links to `Todos` and `Billing` page
+- src/app/\[locale\]/layout.tsx, add dark mode support for Shadcn UI
+- src/app/\[locale\]/(auth)/layout.tsx, add dark mode support for Clerk
+- src/app/\[locale\]/(auth)/dashboard/layout.tsx, add links to `Todos` and `Billing` page
+- src/features/dashboard/DashboardHeader.tsx, add dark mode toggle
+- src/templates/Sponsors.tsx, add dark mode support for logos
 - package.json, add the missing scripts `dev:stripe` and `stripe:setup-price`.
 
 For your information, the list may not be exhaustive and you also need to add the related imports used in these files.
