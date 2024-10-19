@@ -1,9 +1,9 @@
 'use client';
 
+import { OrganizationSwitcher, UserButton } from '@clerk/nextjs';
 import {
   BookOpen,
   Bot,
-  Command,
   Frame,
   LifeBuoy,
   Map,
@@ -12,22 +12,21 @@ import {
   Settings2,
   SquareTerminal,
 } from 'lucide-react';
+import { useLocale } from 'next-intl';
 import * as React from 'react';
 
 import { NavMain } from '@/components/nav-main';
 import { NavProjects } from '@/components/nav-projects';
 import { NavSecondary } from '@/components/nav-secondary';
-import { NavUser } from '@/components/nav-user';
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
+import { Logo } from '@/templates/Logo';
+import { getI18nPath } from '@/utils/Helpers';
 
 const data = {
   user: {
@@ -154,32 +153,49 @@ const data = {
 };
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const locale = useLocale();
+
   return (
-    <Sidebar variant="inset" {...props}>
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <a href="#">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                  <Command className="size-4" />
-                </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">Acme Inc</span>
-                  <span className="truncate text-xs">Enterprise</span>
-                </div>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+    <Sidebar {...props}>
+      <SidebarHeader className="pt-5">
+        <div className="flex justify-center pb-3">
+          <Logo />
+        </div>
+
+        <OrganizationSwitcher
+          organizationProfileMode="navigation"
+          organizationProfileUrl={getI18nPath(
+            '/dashboard/organization-profile',
+            locale,
+          )}
+          afterCreateOrganizationUrl="/dashboard"
+          hidePersonal
+          skipInvitationScreen
+          appearance={{
+            elements: {
+              organizationSwitcherTrigger: 'w-64 md:w-60',
+            },
+          }}
+        />
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
         <NavProjects projects={data.projects} />
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
-      <SidebarFooter>
-        <NavUser user={data.user} />
+      <SidebarFooter className="pb-5">
+        <UserButton
+          userProfileMode="navigation"
+          userProfileUrl="/dashboard/user-profile"
+          appearance={{
+            elements: {
+              rootBox: 'px-2',
+              userButtonBox: 'flex-row-reverse',
+              userButtonOuterIdentifier: 'w-48 lg truncate',
+            },
+          }}
+          showName
+        />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
