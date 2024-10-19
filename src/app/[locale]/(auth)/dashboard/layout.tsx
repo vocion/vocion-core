@@ -1,12 +1,9 @@
 import { UserButton } from '@clerk/nextjs';
-import { useTranslations } from 'next-intl';
 import { getTranslations } from 'next-intl/server';
 
 import { AppSidebar } from '@/components/app-sidebar';
 import { DarkModeToggle } from '@/components/DarkModeToggle';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
-import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 
 export async function generateMetadata(props: { params: { locale: string } }) {
@@ -22,8 +19,6 @@ export async function generateMetadata(props: { params: { locale: string } }) {
 }
 
 export default function DashboardLayout(props: { children: React.ReactNode }) {
-  const t = useTranslations('DashboardLayout');
-
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -31,20 +26,6 @@ export default function DashboardLayout(props: { children: React.ReactNode }) {
         <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-2">
           <div className="flex items-center gap-2 px-4">
             <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="mr-2 h-4" />
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem className="hidden lg:block">
-                  <BreadcrumbLink href="#">
-                    Building Your Application
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator className="hidden lg:block" />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Data Fetching</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
           </div>
 
           <ul className="flex items-center gap-x-1.5 [&_li:not(:last-child):hover]:opacity-100 [&_li:not(:last-child)]:opacity-60">
@@ -70,7 +51,7 @@ export default function DashboardLayout(props: { children: React.ReactNode }) {
           </ul>
         </header>
 
-        <div className="px-6 pt-4">
+        <div className="flex-1 px-6 pt-4">
           {props.children}
         </div>
       </SidebarInset>
