@@ -2,18 +2,12 @@ import { useTranslations } from 'next-intl';
 
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { MessageState } from '@/features/dashboard/MessageState';
-import { TitleBar } from '@/features/dashboard/TitleBar';
 
 const DashboardIndexPage = () => {
   const t = useTranslations('DashboardIndex');
 
   return (
     <>
-      <TitleBar
-        title={t('title_bar')}
-        description={t('title_bar_description')}
-      />
-
       <MessageState
         icon={(
           <svg
