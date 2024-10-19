@@ -71,7 +71,7 @@ const BillingPage = async (props: { params: { locale: string } }) => {
       </DashboardSection>
 
       {has({ role: ORG_ROLE.ADMIN }) && !planDetails.isPaid && (
-        <div className="mt-8">
+        <div className="mt-5">
           <BillingOptions />
         </div>
       )}

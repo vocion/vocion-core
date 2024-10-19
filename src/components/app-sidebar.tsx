@@ -1,6 +1,6 @@
 'use client';
 
-import { OrganizationSwitcher, UserButton } from '@clerk/nextjs';
+import { OrganizationSwitcher } from '@clerk/nextjs';
 import {
   BookOpen,
   Bot,
@@ -21,7 +21,6 @@ import { NavSecondary } from '@/components/nav-secondary';
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
   SidebarRail,
 } from '@/components/ui/sidebar';
@@ -183,20 +182,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavProjects projects={data.projects} />
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
-      <SidebarFooter className="pb-5">
-        <UserButton
-          userProfileMode="navigation"
-          userProfileUrl="/dashboard/user-profile"
-          appearance={{
-            elements: {
-              rootBox: 'px-2',
-              userButtonBox: 'flex-row-reverse',
-              userButtonOuterIdentifier: 'w-48 lg truncate',
-            },
-          }}
-          showName
-        />
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );
