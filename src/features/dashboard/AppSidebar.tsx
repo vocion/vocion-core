@@ -12,13 +12,13 @@ import {
 import { useLocale } from 'next-intl';
 import * as React from 'react';
 
-import { NavSecondary } from '@/components/nav-secondary';
 import {
   Sidebar,
   SidebarContent,
   SidebarHeader,
   SidebarRail,
 } from '@/components/ui/sidebar';
+import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { Logo } from '@/templates/Logo';
 import { getI18nPath } from '@/utils/Helpers';
 
@@ -49,7 +49,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         />
       </SidebarHeader>
       <SidebarContent>
-        <NavSecondary
+        <AppSidebarNav
           label="Main navigation"
           items={[
             {
@@ -64,7 +64,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             },
           ]}
         />
-        <NavSecondary
+        <AppSidebarNav
           label="Organization"
           items={[
             {
@@ -79,7 +79,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             },
           ]}
         />
-        <NavSecondary
+        <AppSidebarNav
           items={[
             {
               title: 'Support',
