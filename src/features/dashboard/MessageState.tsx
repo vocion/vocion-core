@@ -1,5 +1,3 @@
-import React from 'react';
-
 export const MessageState = (props: {
   icon: React.ReactNode;
   title: React.ReactNode;
