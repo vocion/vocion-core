@@ -2,9 +2,9 @@ import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import type { ComponentPropsWithoutRef } from 'react';
 
-import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from './ui/sidebar';
+import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 
-export function NavSecondary({
+export function AppSidebarNav({
   items,
   ...props
 }: {
