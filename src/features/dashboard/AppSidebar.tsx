@@ -11,7 +11,6 @@ import {
   Users,
 } from 'lucide-react';
 import { useLocale } from 'next-intl';
-import * as React from 'react';
 
 import {
   Sidebar,
