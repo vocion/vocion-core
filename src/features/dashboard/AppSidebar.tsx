@@ -23,7 +23,7 @@ import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { Logo } from '@/templates/Logo';
 import { getI18nPath } from '@/utils/Helpers';
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
   const locale = useLocale();
 
   return (
@@ -104,4 +104,4 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarRail />
     </Sidebar>
   );
-}
+};

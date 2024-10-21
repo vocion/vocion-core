@@ -2,25 +2,29 @@ import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import type { ComponentPropsWithoutRef } from 'react';
 
-import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
+import {
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from '@/components/ui/sidebar';
 
-export function AppSidebarNav({
-  items,
-  ...props
-}: {
+export const AppSidebarNav = (props: {
   label?: string;
   items: {
     title: string;
     url: string;
     icon: LucideIcon;
   }[];
-} & ComponentPropsWithoutRef<typeof SidebarGroup>) {
+} & ComponentPropsWithoutRef<typeof SidebarGroup>) => {
   return (
     <SidebarGroup {...props}>
       <SidebarGroupContent>
         {props.label && (<SidebarGroupLabel>{props.label}</SidebarGroupLabel>)}
         <SidebarMenu>
-          {items.map(item => (
+          {props.items.map(item => (
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton asChild>
                 <Link href={item.url}>
@@ -34,4 +38,4 @@ export function AppSidebarNav({
       </SidebarGroupContent>
     </SidebarGroup>
   );
-}
+};
