@@ -1,10 +1,10 @@
 import { UserButton } from '@clerk/nextjs';
 import { getTranslations } from 'next-intl/server';
 
-import { AppSidebar } from '@/components/app-sidebar';
 import { DarkModeToggle } from '@/components/DarkModeToggle';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { AppSidebar } from '@/features/dashboard/AppSidebar';
 
 export async function generateMetadata(props: { params: { locale: string } }) {
   const t = await getTranslations({
