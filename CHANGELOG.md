@@ -1,3 +1,11 @@
+## [1.7.1](https://github.com/Vocion/vocion-core-Pro/compare/v1.7.0...v1.7.1) (2024-10-22)
+
+
+### Bug Fixes
+
+* add i18n for text in AppSidebar component ([0ed5b06](https://github.com/Vocion/vocion-core-Pro/commit/0ed5b06f225ed62cc9d275185ee42dc860b86f84))
+* add workaround for after org creation when auth() isn't updated accordingly ([76b75d4](https://github.com/Vocion/vocion-core-Pro/commit/76b75d46cf51a64e59b1e00fff6e1926d56567a0))
+
 # [1.7.0](https://github.com/Vocion/vocion-core-Pro/compare/v1.6.1...v1.7.0) (2024-10-22)
 
 
