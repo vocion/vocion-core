@@ -1,3 +1,23 @@
+# [1.7.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.6.1...v1.7.0) (2024-10-22)
+
+
+### Bug Fixes
+
+* add billing link in sidebar ([6167c3f](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/6167c3fa940a6a5db7df756c47721092d5968a99))
+* add organization switcher and user button in sidebar ([db804fa](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/db804fa373fd72660c47c67afecbbb5f11b47994))
+* adjust font weight in TitleBar component and adjust margin in BillingPage component ([c549cd2](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/c549cd279c26d6213ab4ac78405999d7751052c1))
+
+
+### Features
+
+* add sidebar dependencies into the project ([e218c96](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/e218c96655445b0a5157369ed60984b23a1c5165))
+* use shadcn cli to add sidebar-08 ([6efccad](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/6efccad49dea35af3e3c9eeee9668fdf0a1d8f45))
+
+
+### Reverts
+
+* back to next-intl 3.21 ([28859c2](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/28859c2951822009ee1bfcf9978b40e0f8523aea))
+
 ## [1.6.1](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.6.0...v1.6.1) (2024-10-15)
 
 
