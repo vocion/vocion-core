@@ -38,7 +38,9 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
             '/dashboard/organization-profile',
             locale,
           )}
-          afterCreateOrganizationUrl="/dashboard"
+          // WORKAROUND: cannot redirect to `/dashboard`
+          // due to `auth()` function returning the data from the previous organization
+          afterCreateOrganizationUrl="/onboarding/organization-selection"
           hidePersonal
           skipInvitationScreen
           appearance={{
