@@ -87,15 +87,15 @@
     "meta_description": "Créez un compte sans effort grâce à notre processus d'inscription intuitif."
   },
   "DashboardLayout": {
-    "main_section_label": "Main navigation",
-    "organization_section_label": "Organization",
+    "main_section_label": "Menu principal",
+    "organization_section_label": "Organisation",
     "home": "Accueil",
     "todos": "Todos",
     "members": "Membres",
     "billing": "Facturation",
     "settings": "Réglages",
     "support": "Support",
-    "feedback": "Feedback"
+    "feedback": "Commentaires"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du SaaS Template",
