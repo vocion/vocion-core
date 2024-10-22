@@ -32,7 +32,7 @@ export const createUserWithOrganization = async (page: Page) => {
   await page.getByLabel('Name').fill(faker.company.name());
   await page.getByRole('button', { name: 'Create Organization' }).click();
 
-  await expect(page.getByText('Welcome to your dashboard')).toBeVisible();
+  await expect(page.getByText('Main navigation')).toBeVisible();
 };
 
 export const deleteUserWithOrganization = async () => {
