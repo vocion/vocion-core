@@ -25,7 +25,7 @@ const TodosPage = async (props: { params: { locale: string } }) => {
         </Link>
       </div>
 
-      <div className="mt-2">
+      <div className="mt-5">
         <Suspense>
           <TodoTable />
         </Suspense>
