@@ -87,11 +87,15 @@
     "meta_description": "Effortlessly create an account through our intuitive sign-up process."
   },
   "DashboardLayout": {
+    "main_section_label": "Main navigation",
+    "organization_section_label": "Organization",
     "home": "Home",
     "todos": "Todos",
     "members": "Members",
     "billing": "Billing",
-    "settings": "Settings"
+    "settings": "Settings",
+    "support": "Support",
+    "feedback": "Feedback"
   },
   "Dashboard": {
     "meta_title": "SaaS Template Dashboard",

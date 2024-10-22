@@ -10,7 +10,7 @@ import {
   Settings,
   Users,
 } from 'lucide-react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 import {
   Sidebar,
@@ -24,6 +24,7 @@ import { getI18nPath } from '@/utils/Helpers';
 
 export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
   const locale = useLocale();
+  const t = useTranslations('DashboardLayout');
 
   return (
     <Sidebar {...props}>
@@ -38,7 +39,9 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
             '/dashboard/organization-profile',
             locale,
           )}
-          afterCreateOrganizationUrl="/dashboard"
+          // WORKAROUND: cannot redirect to `/dashboard`
+          // due to `auth()` function returning the data from the previous organization
+          afterCreateOrganizationUrl="/onboarding/organization-selection"
           hidePersonal
           skipInvitationScreen
           appearance={{
@@ -50,35 +53,35 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
       </SidebarHeader>
       <SidebarContent>
         <AppSidebarNav
-          label="Main navigation"
+          label={t('main_section_label')}
           items={[
             {
-              title: 'Home',
+              title: t('home'),
               url: '/dashboard',
               icon: Home,
             },
             {
-              title: 'Todos',
+              title: t('todos'),
               url: '/dashboard/todos',
               icon: CirclePlus,
             },
           ]}
         />
         <AppSidebarNav
-          label="Organization"
+          label={t('organization_section_label')}
           items={[
             {
-              title: 'Billing',
+              title: t('billing'),
               url: '/dashboard/billing',
               icon: CircleDollarSign,
             },
             {
-              title: 'Members',
+              title: t('members'),
               url: '/dashboard/organization-profile/organization-members',
               icon: Users,
             },
             {
-              title: 'Settings',
+              title: t('settings'),
               url: '/dashboard/organization-profile',
               icon: Settings,
             },
@@ -87,12 +90,12 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
         <AppSidebarNav
           items={[
             {
-              title: 'Support',
+              title: t('support'),
               url: 'mailto:contact@creativedesignsguru.com',
               icon: LifeBuoy,
             },
             {
-              title: 'Feedback',
+              title: t('feedback'),
               url: 'mailto:contact@creativedesignsguru.com',
               icon: Send,
             },
