@@ -85,6 +85,10 @@ Clone this project and use it to create your own SaaS. You can check the live de
 | --- | --- |
 | [![Next.js Boilerplate SaaS Sign Up](public/assets/images/nextjs-boilerplate-saas-sign-up.png)](https://pro-demo.nextjs-boilerplate.com/sign-up) | [![Next.js Boilerplate SaaS Sign In](public/assets/images/nextjs-boilerplate-saas-sign-in.png)](https://pro-demo.nextjs-boilerplate.com/sign-in) |
 
+| Landing Page Dark Mode (Pro Version) | User Dashboard Dark Mode (Pro Version) |
+| --- | --- |
+| [![Next.js Boilerplate SaaS Landing Page Dark Mode](public/assets/images/nextjs-boilerplate-saas-landing-page-dark-mode.png)](https://pro-demo.nextjs-boilerplate.com) | [![Next.js Boilerplate SaaS User Dashboard Dark Mode](public/assets/images/nextjs-boilerplate-saas-user-dashboard-dark-mode.png)](https://pro-demo.nextjs-boilerplate.com/dashboard) |
+
 ### Features
 
 Developer experience first, extremely flexible code structure and only keep what you need:
