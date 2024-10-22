@@ -3,7 +3,7 @@ export const DashboardSection = (props: {
   description: string;
   children: React.ReactNode;
 }) => (
-  <div className="rounded-md bg-card p-5">
+  <div className="rounded-md border border-border p-5">
     <div className="max-w-3xl">
       <div className="text-lg font-semibold">{props.title}</div>
 

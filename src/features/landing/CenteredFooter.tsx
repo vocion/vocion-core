@@ -1,5 +1,4 @@
 import { useTranslations } from 'next-intl';
-import React from 'react';
 
 export const CenteredFooter = (props: {
   logo: React.ReactNode;
