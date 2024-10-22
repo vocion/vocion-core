@@ -85,6 +85,10 @@ Clone this project and use it to create your own SaaS. You can check the live de
 | --- | --- |
 | [![Vocion SaaS Sign Up](public/assets/images/vocion-core-saas-sign-up.png)](https://pro-demo.vocion.ai/sign-up) | [![Vocion SaaS Sign In](public/assets/images/vocion-core-saas-sign-in.png)](https://pro-demo.vocion.ai/sign-in) |
 
+| Landing Page Dark Mode (Pro Version) | User Dashboard Dark Mode (Pro Version) |
+| --- | --- |
+| [![Vocion SaaS Landing Page Dark Mode](public/assets/images/vocion-core-saas-landing-page-dark-mode.png)](https://pro-demo.vocion.ai) | [![Vocion SaaS User Dashboard Dark Mode](public/assets/images/vocion-core-saas-user-dashboard-dark-mode.png)](https://pro-demo.vocion.ai/dashboard) |
+
 ### Features
 
 Developer experience first, extremely flexible code structure and only keep what you need:
