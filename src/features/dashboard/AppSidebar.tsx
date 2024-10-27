@@ -2,8 +2,8 @@
 
 import { OrganizationSwitcher } from '@clerk/nextjs';
 import {
-  CircleDollarSign,
   CirclePlus,
+  CreditCard,
   Home,
   LifeBuoy,
   Send,
@@ -73,7 +73,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
             {
               title: t('billing'),
               url: '/dashboard/billing',
-              icon: CircleDollarSign,
+              icon: CreditCard,
             },
             {
               title: t('members'),
