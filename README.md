@@ -85,9 +85,13 @@ Clone this project and use it to create your own SaaS. You can check the live de
 | --- | --- |
 | [![Next.js Boilerplate SaaS Sign Up](public/assets/images/nextjs-boilerplate-saas-sign-up.png)](https://pro-demo.nextjs-boilerplate.com/sign-up) | [![Next.js Boilerplate SaaS Sign In](public/assets/images/nextjs-boilerplate-saas-sign-in.png)](https://pro-demo.nextjs-boilerplate.com/sign-in) |
 
-| Landing Page Dark Mode (Pro Version) | User Dashboard Dark Mode (Pro Version) |
+| Landing Page with Dark Mode (Pro Version) | User Dashboard with Dark Mode (Pro Version) |
 | --- | --- |
-| [![Next.js Boilerplate SaaS Landing Page Dark Mode](public/assets/images/nextjs-boilerplate-saas-landing-page-dark-mode.png)](https://pro-demo.nextjs-boilerplate.com) | [![Next.js Boilerplate SaaS User Dashboard Dark Mode](public/assets/images/nextjs-boilerplate-saas-user-dashboard-dark-mode.png)](https://pro-demo.nextjs-boilerplate.com/dashboard) |
+| [![Next.js Boilerplate SaaS Landing Page Dark Mode](public/assets/images/nextjs-boilerplate-saas-landing-page-dark-mode.png)](https://pro-demo.nextjs-boilerplate.com) | [![Next.js Boilerplate SaaS User Dashboard Dark Mode](public/assets/images/nextjs-boilerplate-saas-user-dashboard-sidebar-dark-mode.png)](https://pro-demo.nextjs-boilerplate.com/dashboard) |
+
+| User Dashboard with Sidebar (Pro Version) |
+| --- |
+| [![Next.js Boilerplate SaaS User Dashboard Sidebar](public/assets/images/nextjs-boilerplate-saas-user-dashboard-sidebar.png)](https://pro-demo.nextjs-boilerplate.com) |
 
 ### Features
 
