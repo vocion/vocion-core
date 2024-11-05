@@ -2,6 +2,7 @@ import { useTranslations } from 'next-intl';
 
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { MessageState } from '@/features/dashboard/MessageState';
+import { SponsorLogos } from '@/features/sponsors/SponsorLogos';
 
 const DashboardIndexPage = () => {
   const t = useTranslations('DashboardIndex');
@@ -29,12 +30,18 @@ const DashboardIndexPage = () => {
         ),
       })}
       button={(
-        <a
-          className={buttonVariants({ size: 'lg' })}
-          href="https://nextjs-boilerplate.com/pro-saas-starter-kit"
-        >
-          {t('message_state_button')}
-        </a>
+        <>
+          <a
+            className={buttonVariants({ size: 'lg' })}
+            href="https://nextjs-boilerplate.com/pro-saas-starter-kit"
+          >
+            {t('message_state_button')}
+          </a>
+
+          <div className="mt-7">
+            <SponsorLogos />
+          </div>
+        </>
       )}
     />
   );
