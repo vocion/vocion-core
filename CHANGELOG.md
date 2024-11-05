@@ -1,3 +1,14 @@
+## [1.7.2](https://github.com/Vocion/vocion-core-Pro/compare/v1.7.1...v1.7.2) (2024-11-05)
+
+
+### Bug Fixes
+
+* add separator between UserButton and theme switcher & Locale switcher ([0f28ebe](https://github.com/Vocion/vocion-core-Pro/commit/0f28ebec928613bc7985c49332b165c715c410f1))
+* add sponsor logo in user dashboard index ([02e7d82](https://github.com/Vocion/vocion-core-Pro/commit/02e7d82a5b8126332e6139800d123e77f3a558ac))
+* change billing icon in AppSidebar, use Credit Card icon ([819eb7a](https://github.com/Vocion/vocion-core-Pro/commit/819eb7a9d36fefae2547b0575a1a6d079a7fa10a))
+* enable eslint format in vscode ([03bbe80](https://github.com/Vocion/vocion-core-Pro/commit/03bbe801023593be71d19851cb6b0400af778408))
+* implement fade support in navbar component ([fb81fe9](https://github.com/Vocion/vocion-core-Pro/commit/fb81fe96eb352975dedd1938a29338541465d612))
+
 ## [1.7.1](https://github.com/Vocion/vocion-core-Pro/compare/v1.7.0...v1.7.1) (2024-10-22)
 
 
