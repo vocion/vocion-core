@@ -85,9 +85,13 @@ Clone this project and use it to create your own SaaS. You can check the live de
 | --- | --- |
 | [![Vocion SaaS Sign Up](public/assets/images/vocion-core-saas-sign-up.png)](https://pro-demo.vocion.ai/sign-up) | [![Vocion SaaS Sign In](public/assets/images/vocion-core-saas-sign-in.png)](https://pro-demo.vocion.ai/sign-in) |
 
-| Landing Page Dark Mode (Pro Version) | User Dashboard Dark Mode (Pro Version) |
+| Landing Page with Dark Mode (Pro Version) | User Dashboard with Dark Mode (Pro Version) |
 | --- | --- |
-| [![Vocion SaaS Landing Page Dark Mode](public/assets/images/vocion-core-saas-landing-page-dark-mode.png)](https://pro-demo.vocion.ai) | [![Vocion SaaS User Dashboard Dark Mode](public/assets/images/vocion-core-saas-user-dashboard-dark-mode.png)](https://pro-demo.vocion.ai/dashboard) |
+| [![Vocion SaaS Landing Page Dark Mode](public/assets/images/vocion-core-saas-landing-page-dark-mode.png)](https://pro-demo.vocion.ai) | [![Vocion SaaS User Dashboard Dark Mode](public/assets/images/vocion-core-saas-user-dashboard-sidebar-dark-mode.png)](https://pro-demo.vocion.ai/dashboard) |
+
+| User Dashboard with Sidebar (Pro Version) |
+| --- |
+| [![Vocion SaaS User Dashboard Sidebar](public/assets/images/vocion-core-saas-user-dashboard-sidebar.png)](https://pro-demo.vocion.ai) |
 
 ### Features
 
@@ -561,5 +565,7 @@ See [LICENSE](LICENSE) for more information.
 ---
 
 Made with ♥ by [CreativeDesignsGuru](https://creativedesignsguru.com) [![Twitter](https://img.shields.io/twitter/url/https/twitter.com/cloudposse.svg?style=social&label=Follow%20%40Vocion)](https://twitter.com/vocion)
+
+Looking for a custom boilerplate to kick off your project? I'd be glad to discuss how I can help you build one. Feel free to reach out anytime at contact@creativedesignsguru.com!
 
 [![Sponsor Next JS Boilerplate](https://cdn.buymeacoffee.com/buttons/default-red.png)](https://github.com/sponsors/vocion)
