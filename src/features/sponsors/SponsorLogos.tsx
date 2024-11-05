@@ -68,7 +68,11 @@ export const SponsorLogos = () => (
       />
     </a>
 
-    <a href="https://vocion.ai/pro-saas-starter-kit">
+    <a
+      href="https://vocion.ai/pro-saas-starter-kit"
+      target="_blank"
+      rel="noopener"
+    >
       <Image
         src="/assets/images/vocion-core-saas.png"
         alt="Nextjs Vocion"
