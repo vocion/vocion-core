@@ -1,6 +1,5 @@
-import { type ForwardedRef, forwardRef } from 'react';
-
 import { Button } from '@/components/ui/button';
+import { type ForwardedRef, forwardRef } from 'react';
 
 /**
  * A toggle button to show/hide component in small screen.

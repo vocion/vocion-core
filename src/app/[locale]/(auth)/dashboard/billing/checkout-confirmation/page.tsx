@@ -1,10 +1,9 @@
+import { buttonVariants } from '@/components/ui/buttonVariants';
+import { MessageState } from '@/features/dashboard/MessageState';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
-import { buttonVariants } from '@/components/ui/buttonVariants';
-import { MessageState } from '@/features/dashboard/MessageState';
-
-const CheckoutConfirmation = () => {
+export default function CheckoutConfirmation() {
   const t = useTranslations('CheckoutConfirmation');
 
   return (
@@ -35,5 +34,3 @@ const CheckoutConfirmation = () => {
     />
   );
 };
-
-export default CheckoutConfirmation;

@@ -1,10 +1,9 @@
-import { useTranslations } from 'next-intl';
-
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { MessageState } from '@/features/dashboard/MessageState';
 import { SponsorLogos } from '@/features/sponsors/SponsorLogos';
+import { useTranslations } from 'next-intl';
 
-const DashboardIndexPage = () => {
+export default function DashboardIndexPage() {
   const t = useTranslations('DashboardIndex');
 
   return (
@@ -46,5 +45,3 @@ const DashboardIndexPage = () => {
     />
   );
 };
-
-export default DashboardIndexPage;

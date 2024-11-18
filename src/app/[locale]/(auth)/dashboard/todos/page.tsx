@@ -1,14 +1,16 @@
+import { Button } from '@/components/ui/button';
+import { TitleBar } from '@/features/dashboard/TitleBar';
+import { TodoTable } from '@/features/todo/TodoTable';
 import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
 import { Suspense } from 'react';
 
-import { Button } from '@/components/ui/button';
-import { TitleBar } from '@/features/dashboard/TitleBar';
-import { TodoTable } from '@/features/todo/TodoTable';
-
-const TodosPage = async (props: { params: { locale: string } }) => {
+export default async function TodosPage(props: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await props.params;
   const t = await getTranslations({
-    locale: props.params.locale,
+    locale,
     namespace: 'Todos',
   });
 
@@ -33,5 +35,3 @@ const TodosPage = async (props: { params: { locale: string } }) => {
     </>
   );
 };
-
-export default TodosPage;

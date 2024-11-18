@@ -1,7 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import Link from 'next/link';
 import type { ComponentPropsWithoutRef } from 'react';
-
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -10,6 +8,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import Link from 'next/link';
 
 export const AppSidebarNav = (props: {
   label?: string;

@@ -2,13 +2,6 @@
 
 import type { ColumnDef } from '@tanstack/react-table';
 import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from '@tanstack/react-table';
-import { useTranslations } from 'next-intl';
-
-import {
   Table,
   TableBody,
   TableCell,
@@ -16,6 +9,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from '@tanstack/react-table';
+import { useTranslations } from 'next-intl';
 
 type DataTableProps<TData, TValue> = {
   columns: ColumnDef<TData, TValue>[];

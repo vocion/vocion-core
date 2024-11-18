@@ -1,5 +1,14 @@
 'use client';
 
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarRail,
+} from '@/components/ui/sidebar';
+import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
+import { Logo } from '@/templates/Logo';
+import { getI18nPath } from '@/utils/Helpers';
 import { OrganizationSwitcher } from '@clerk/nextjs';
 import {
   CirclePlus,
@@ -11,16 +20,6 @@ import {
   Users,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
-
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-  SidebarRail,
-} from '@/components/ui/sidebar';
-import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
-import { Logo } from '@/templates/Logo';
-import { getI18nPath } from '@/utils/Helpers';
 
 export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
   const locale = useLocale();

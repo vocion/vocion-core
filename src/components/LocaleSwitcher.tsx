@@ -1,7 +1,5 @@
 'use client';
 
-import { useLocale } from 'next-intl';
-
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -12,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { usePathname, useRouter } from '@/libs/i18nNavigation';
 import { AppConfig } from '@/utils/AppConfig';
+import { useLocale } from 'next-intl';
 
 export const LocaleSwitcher = () => {
   const router = useRouter();

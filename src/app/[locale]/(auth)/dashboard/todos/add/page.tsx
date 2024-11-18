@@ -1,10 +1,9 @@
-import { useTranslations } from 'next-intl';
-
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { AddTodoForm } from '@/features/todo/AddTodoForm';
+import { useTranslations } from 'next-intl';
 
-const AddTodoPage = () => {
+export default function AddTodoPage() {
   const t = useTranslations('AddTodo');
 
   return (
@@ -20,5 +19,3 @@ const AddTodoPage = () => {
     </>
   );
 };
-
-export default AddTodoPage;

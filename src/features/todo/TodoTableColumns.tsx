@@ -1,11 +1,9 @@
 'use client';
 
-import type { ColumnDef } from '@tanstack/react-table';
-import { useFormatter, useTranslations } from 'next-intl';
-
-import { DataTable } from '@/components/ui/data-table';
 import type { Todo } from '@/types/Todo';
-
+import type { ColumnDef } from '@tanstack/react-table';
+import { DataTable } from '@/components/ui/data-table';
+import { useFormatter, useTranslations } from 'next-intl';
 import { ActionCell } from './ActionTodoTable';
 
 export const TodoTableColumns = (props: {

@@ -1,12 +1,17 @@
-import { getTranslations } from 'next-intl/server';
-
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
+import { getTranslations } from 'next-intl/server';
 
-export async function generateMetadata(props: { params: { locale: string } }) {
+type ILayoutProps = {
+  params: Promise<{ locale: string }>;
+  children: React.ReactNode;
+};
+
+export async function generateMetadata(props: ILayoutProps) {
+  const { locale } = await props.params;
   const t = await getTranslations({
-    locale: props.params.locale,
+    locale,
     namespace: 'Dashboard',
   });
 
@@ -16,7 +21,7 @@ export async function generateMetadata(props: { params: { locale: string } }) {
   };
 }
 
-export default function DashboardLayout(props: { children: React.ReactNode }) {
+export default function DashboardLayout(props: ILayoutProps) {
   return (
     <SidebarProvider>
       <AppSidebar />
