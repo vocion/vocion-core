@@ -1,5 +1,5 @@
-import { stripe } from '@/libs/Stripe';
 import type { PricingPlan } from '@/types/Subscription';
+import { stripe } from '@/libs/Stripe';
 import { AppConfig, PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
 
 const createStripePrice = async (plan: PricingPlan) => {

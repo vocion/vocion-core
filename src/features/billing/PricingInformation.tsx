@@ -1,8 +1,7 @@
-import { useTranslations } from 'next-intl';
-
 import { PricingCard } from '@/features/billing/PricingCard';
 import { PricingFeature } from '@/features/billing/PricingFeature';
 import { PricingPlanList } from '@/utils/AppConfig';
+import { useTranslations } from 'next-intl';
 
 export const PricingInformation = (props: {
   buttonList: Record<string, React.ReactNode>;

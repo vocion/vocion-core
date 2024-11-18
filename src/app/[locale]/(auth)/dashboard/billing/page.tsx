@@ -1,8 +1,3 @@
-import { Protect } from '@clerk/nextjs';
-import { auth } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
-import { getTranslations } from 'next-intl/server';
-
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { ProtectFallback } from '@/features/auth/ProtectFallback';
 import { BillingOptions } from '@/features/billing/BillingOptions';
@@ -12,16 +7,24 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { determineSubscriptionPlan } from '@/services/BillingService';
 import { getStripeSubscription } from '@/services/OrganizationService';
 import { ORG_ROLE } from '@/types/Auth';
+import { Protect } from '@clerk/nextjs';
+import { auth } from '@clerk/nextjs/server';
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getTranslations } from 'next-intl/server';
 
-const BillingPage = async (props: { params: { locale: string } }) => {
-  const { orgId, has } = auth();
+export default async function BillingPage(props: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { orgId, has } = await auth();
+  const { locale } = await props.params;
 
   if (!orgId) {
     redirect('/onboarding/organization-selection');
   }
 
   const t = await getTranslations({
-    locale: props.params.locale,
+    locale,
     namespace: 'Billing',
   });
   const stripeDetails = await getStripeSubscription(orgId);
@@ -59,12 +62,13 @@ const BillingPage = async (props: { params: { locale: string } }) => {
                 />
               )}
             >
-              <a
+              <Link
                 className={buttonVariants({ size: 'lg' })}
                 href="/dashboard/billing/portal"
+                prefetch={false}
               >
                 {t('manage_subscription_button')}
-              </a>
+              </Link>
             </Protect>
           </div>
         )}
@@ -78,5 +82,3 @@ const BillingPage = async (props: { params: { locale: string } }) => {
     </>
   );
 };
-
-export default BillingPage;

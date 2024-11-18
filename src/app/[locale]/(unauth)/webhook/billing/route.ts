@@ -1,15 +1,14 @@
-import { headers } from 'next/headers';
-import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
-
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 import { stripe } from '@/libs/Stripe';
 import { processWebhookEvent } from '@/services/BillingService';
+import { headers } from 'next/headers';
+import { NextResponse } from 'next/server';
 
 export const POST = async (request: Request) => {
   const body = await request.text();
-  const signature = headers().get('Stripe-Signature');
+  const signature = (await headers()).get('Stripe-Signature');
 
   if (!signature) {
     logger.error('Stripe-Signature header not found');
