@@ -1,9 +1,12 @@
 import { OrganizationList } from '@clerk/nextjs';
 import { getTranslations } from 'next-intl/server';
 
-export async function generateMetadata(props: { params: { locale: string } }) {
+export async function generateMetadata(props: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await props.params;
   const t = await getTranslations({
-    locale: props.params.locale,
+    locale,
     namespace: 'Dashboard',
   });
 
@@ -13,17 +16,17 @@ export async function generateMetadata(props: { params: { locale: string } }) {
   };
 }
 
-const OrganizationSelectionPage = () => (
-  <div className="flex min-h-screen items-center justify-center">
-    <OrganizationList
-      afterSelectOrganizationUrl="/dashboard"
-      afterCreateOrganizationUrl="/dashboard"
-      hidePersonal
-      skipInvitationScreen
-    />
-  </div>
-);
+export default function OrganizationSelectionPage() {
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <OrganizationList
+        afterSelectOrganizationUrl="/dashboard"
+        afterCreateOrganizationUrl="/dashboard"
+        hidePersonal
+        skipInvitationScreen
+      />
+    </div>
+  );
+}
 
 export const dynamic = 'force-dynamic';
-
-export default OrganizationSelectionPage;

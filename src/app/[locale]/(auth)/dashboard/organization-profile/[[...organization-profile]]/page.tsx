@@ -1,15 +1,18 @@
+import { getI18nPath } from '@/utils/Helpers';
 import { OrganizationProfile } from '@clerk/nextjs';
 
-import { getI18nPath } from '@/utils/Helpers';
+export default async function OrganizationProfilePage(props: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await props.params;
 
-const OrganizationProfilePage = (props: { params: { locale: string } }) => {
   return (
     <div className="mt-5">
       <OrganizationProfile
         routing="path"
         path={getI18nPath(
           '/dashboard/organization-profile',
-          props.params.locale,
+          locale,
         )}
         afterLeaveOrganizationUrl="/onboarding/organization-selection"
         appearance={{
@@ -22,5 +25,3 @@ const OrganizationProfilePage = (props: { params: { locale: string } }) => {
     </div>
   );
 };
-
-export default OrganizationProfilePage;

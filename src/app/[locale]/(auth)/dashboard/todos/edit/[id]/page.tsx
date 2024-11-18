@@ -1,17 +1,17 @@
-import { auth } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
-import { getTranslations } from 'next-intl/server';
-
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { EditTodoForm } from '@/features/todo/EditTodoForm';
 import { getTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
+import { getTranslations } from 'next-intl/server';
 
-const EditTodoPage = async (props: {
-  params: { id: number; locale: string };
-}) => {
-  const { orgId, has } = auth();
+export default async function EditTodoPage(props: {
+  params: Promise<{ id: number; locale: string }>;
+}) {
+  const { orgId, has } = await auth();
+  const { id, locale } = await props.params;
 
   if (!orgId) {
     redirect('/onboarding/organization-selection');
@@ -21,14 +21,14 @@ const EditTodoPage = async (props: {
     redirect('/dashboard/todos');
   }
 
-  const todo = await getTodo(props.params.id, orgId);
+  const todo = await getTodo(id, orgId);
 
   if (!todo) {
     redirect('/dashboard/todos');
   }
 
   const t = await getTranslations({
-    locale: props.params.locale,
+    locale,
     namespace: 'EditTodo',
   });
 
@@ -45,5 +45,3 @@ const EditTodoPage = async (props: {
     </>
   );
 };
-
-export default EditTodoPage;

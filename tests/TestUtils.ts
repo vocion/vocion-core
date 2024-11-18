@@ -1,5 +1,4 @@
 import assert from 'node:assert';
-
 import { clerkClient } from '@clerk/nextjs/server';
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright';
 import { faker } from '@faker-js/faker';
@@ -38,21 +37,22 @@ export const createUserWithOrganization = async (page: Page) => {
 export const deleteUserWithOrganization = async () => {
   assert(process.env.E2E_CLERK_USER_USERNAME, 'E2E_CLERK_USER_USERNAME is not set');
 
-  const { data } = await clerkClient().users.getUserList({
+  const authClient = await clerkClient();
+  const { data } = await authClient.users.getUserList({
     emailAddress: [process.env.E2E_CLERK_USER_USERNAME],
   });
 
   assert(data[0] !== undefined, 'User not found');
 
-  const { data: orgMemList } = await clerkClient().users.getOrganizationMembershipList({
+  const { data: orgMemList } = await authClient.users.getOrganizationMembershipList({
     userId: data[0].id,
   });
 
   for (const orgMem of orgMemList) {
-    await clerkClient().organizations.deleteOrganization(orgMem.organization.id);
+    await authClient.organizations.deleteOrganization(orgMem.organization.id);
   }
 
-  await clerkClient().users.deleteUser(data[0].id);
+  await authClient.users.deleteUser(data[0].id);
 };
 
 export const signIn = async (page: Page) => {
