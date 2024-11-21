@@ -8,8 +8,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { usePathname, useRouter } from '@/libs/i18nNavigation';
+import { usePathname } from '@/libs/i18nNavigation';
 import { AppConfig } from '@/utils/AppConfig';
+import { useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
 
 export const LocaleSwitcher = () => {
@@ -18,7 +19,7 @@ export const LocaleSwitcher = () => {
   const locale = useLocale();
 
   const handleChange = (value: string) => {
-    router.push(pathname, { locale: value });
+    router.push(`/${value}${pathname}`);
     router.refresh();
   };
 
