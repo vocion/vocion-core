@@ -1,10 +1,17 @@
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { AddTodoForm } from '@/features/todo/AddTodoForm';
-import { useTranslations } from 'next-intl';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 
-export default function AddTodoPage() {
-  const t = useTranslations('AddTodo');
+export default async function AddTodoPage(props: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await props.params;
+  setRequestLocale(locale);
+  const t = await getTranslations({
+    locale,
+    namespace: 'AddTodo',
+  });
 
   return (
     <>

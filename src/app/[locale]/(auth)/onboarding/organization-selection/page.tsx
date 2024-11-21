@@ -1,9 +1,11 @@
 import { OrganizationList } from '@clerk/nextjs';
-import { getTranslations } from 'next-intl/server';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 
-export async function generateMetadata(props: {
+type IOrganizationSelectionProps = {
   params: Promise<{ locale: string }>;
-}) {
+};
+
+export async function generateMetadata(props: IOrganizationSelectionProps) {
   const { locale } = await props.params;
   const t = await getTranslations({
     locale,
@@ -16,7 +18,10 @@ export async function generateMetadata(props: {
   };
 }
 
-export default function OrganizationSelectionPage() {
+export default async function OrganizationSelectionPage(props: IOrganizationSelectionProps) {
+  const { locale } = await props.params;
+  setRequestLocale(locale);
+
   return (
     <div className="flex min-h-screen items-center justify-center">
       <OrganizationList
@@ -28,5 +33,3 @@ export default function OrganizationSelectionPage() {
     </div>
   );
 }
-
-export const dynamic = 'force-dynamic';
