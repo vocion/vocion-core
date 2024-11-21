@@ -1,6 +1,6 @@
 'use client';
 
-import { AppConfig } from '@/utils/AppConfig';
+import { routing } from '@/libs/i18nNavigation';
 import { enUS, frFR } from '@clerk/localizations';
 import { ClerkProvider } from '@clerk/nextjs';
 import { dark } from '@clerk/themes';
@@ -21,7 +21,7 @@ export default function AuthLayout(props: {
     clerkLocale = frFR;
   }
 
-  if (locale !== AppConfig.defaultLocale) {
+  if (locale !== routing.defaultLocale) {
     signInUrl = `/${locale}${signInUrl}`;
     signUpUrl = `/${locale}${signUpUrl}`;
     dashboardUrl = `/${locale}${dashboardUrl}`;
