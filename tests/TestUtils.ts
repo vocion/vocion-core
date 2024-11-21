@@ -68,6 +68,7 @@ export const signIn = async (page: Page) => {
       password: process.env.E2E_CLERK_USER_PASSWORD,
     },
   });
+  await page.reload();
 };
 
 export const createOrganization = async (page: Page) => {
