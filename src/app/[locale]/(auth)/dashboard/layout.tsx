@@ -1,7 +1,7 @@
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
-import { getTranslations } from 'next-intl/server';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 
 type ILayoutProps = {
   params: Promise<{ locale: string }>;
@@ -21,7 +21,10 @@ export async function generateMetadata(props: ILayoutProps) {
   };
 }
 
-export default function DashboardLayout(props: ILayoutProps) {
+export default async function DashboardLayout(props: ILayoutProps) {
+  const { locale } = await props.params;
+  setRequestLocale(locale);
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -35,5 +38,3 @@ export default function DashboardLayout(props: ILayoutProps) {
     </SidebarProvider>
   );
 }
-
-export const dynamic = 'force-dynamic';
