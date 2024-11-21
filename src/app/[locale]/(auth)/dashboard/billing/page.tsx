@@ -9,7 +9,6 @@ import { getStripeSubscription } from '@/services/OrganizationService';
 import { ORG_ROLE } from '@/types/Auth';
 import { Protect } from '@clerk/nextjs';
 import { auth } from '@clerk/nextjs/server';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 
@@ -62,13 +61,14 @@ export default async function BillingPage(props: {
                 />
               )}
             >
-              <Link
+              {/* Not using Next.js Link when redirecting to Stripe */}
+              {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+              <a
                 className={buttonVariants({ size: 'lg' })}
                 href="/dashboard/billing/portal"
-                prefetch={false}
               >
                 {t('manage_subscription_button')}
-              </Link>
+              </a>
             </Protect>
           </div>
         )}
