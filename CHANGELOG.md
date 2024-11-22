@@ -1,3 +1,17 @@
+# [1.8.0](https://github.com/Vocion/vocion-core-Pro/compare/v1.7.2...v1.8.0) (2024-11-22)
+
+
+### Bug Fixes
+
+* add setRequestLocale to support static generation with i18n ([48688c7](https://github.com/Vocion/vocion-core-Pro/commit/48688c7876e48899b0a6749e89446fa1572079e9))
+* replace Next.js Link with anchor tag when Stripe redirection ([97acb75](https://github.com/Vocion/vocion-core-Pro/commit/97acb7570420b7a11b82eff2c7df0125e68ba8f2))
+* switch back to en/default ([ce44610](https://github.com/Vocion/vocion-core-Pro/commit/ce44610d29bf6198e7d12ee4292e89c3248ac438))
+
+
+### Features
+
+* update to next.js 15 and react 19 RC ([d33e879](https://github.com/Vocion/vocion-core-Pro/commit/d33e8790240a8754029d3e6ae7c4c554993f028d))
+
 ## [1.7.2](https://github.com/Vocion/vocion-core-Pro/compare/v1.7.1...v1.7.2) (2024-11-05)
 
 
