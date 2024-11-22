@@ -1,6 +1,5 @@
 import { faker } from '@faker-js/faker';
 import test, { expect } from '@playwright/test';
-
 import { signIn } from '../TestUtils';
 
 test.describe('Todo', () => {

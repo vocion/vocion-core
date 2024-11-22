@@ -1,9 +1,7 @@
-import { useTranslations } from 'next-intl';
-
 import { Button } from '@/components/ui/button';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { PLAN_ID } from '@/utils/AppConfig';
-
+import { useTranslations } from 'next-intl';
 import { PricingInformation } from './PricingInformation';
 
 export const BillingOptions = () => {

@@ -1,6 +1,5 @@
-import { useTranslations } from 'next-intl';
-
 import type { PlanDetails } from '@/types/Subscription';
+import { useTranslations } from 'next-intl';
 
 export const CurrentPlanDetails = (props: { planDetails: PlanDetails }) => {
   const t = useTranslations('PricingPlan');

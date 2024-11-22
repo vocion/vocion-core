@@ -1,17 +1,12 @@
-import { auth } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
-
 import { logger } from '@/libs/Logger';
 import { createTodo, deleteTodo, updateTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
-import {
-  DeleteTodoValidation,
-  EditTodoValidation,
-  TodoValidation,
-} from '@/validations/TodoValidation';
+import { DeleteTodoValidation, EditTodoValidation, TodoValidation } from '@/validations/TodoValidation';
+import { auth } from '@clerk/nextjs/server';
+import { NextResponse } from 'next/server';
 
 export const POST = async (request: Request) => {
-  const { userId, orgId } = auth();
+  const { userId, orgId } = await auth();
 
   if (!userId || !orgId) {
     return new NextResponse('Unauthorized', { status: 401 });
@@ -34,7 +29,7 @@ export const POST = async (request: Request) => {
 };
 
 export const PUT = async (request: Request) => {
-  const { userId, orgId, has } = auth();
+  const { userId, orgId, has } = await auth();
 
   if (!userId || !orgId) {
     return new NextResponse('Unauthorized', { status: 401 });
@@ -63,7 +58,7 @@ export const PUT = async (request: Request) => {
 };
 
 export const DELETE = async (request: Request) => {
-  const { userId, orgId, has } = auth();
+  const { userId, orgId, has } = await auth();
 
   if (!userId || !orgId) {
     return new NextResponse('Unauthorized', { status: 401 });

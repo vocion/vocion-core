@@ -1,9 +1,4 @@
-import { Protect } from '@clerk/nextjs';
-import { DotsHorizontalIcon } from '@radix-ui/react-icons';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
-
+import type { Todo } from '@/types/Todo';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,7 +9,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ProtectFallback } from '@/features/auth/ProtectFallback';
 import { ORG_ROLE } from '@/types/Auth';
-import type { Todo } from '@/types/Todo';
+import { Protect } from '@clerk/nextjs';
+import { DotsHorizontalIcon } from '@radix-ui/react-icons';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 
 export const ActionCell = ({ row }: { row: { original: Todo } }) => {
   const router = useRouter();
