@@ -1,11 +1,17 @@
-import Link from 'next/link';
-import { useTranslations } from 'next-intl';
-
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { MessageState } from '@/features/dashboard/MessageState';
+import Link from 'next/link';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 
-const CheckoutConfirmation = () => {
-  const t = useTranslations('CheckoutConfirmation');
+export default async function CheckoutConfirmation(props: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await props.params;
+  setRequestLocale(locale);
+  const t = await getTranslations({
+    locale,
+    namespace: 'CheckoutConfirmation',
+  });
 
   return (
     <MessageState
@@ -35,5 +41,3 @@ const CheckoutConfirmation = () => {
     />
   );
 };
-
-export default CheckoutConfirmation;

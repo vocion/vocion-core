@@ -1,11 +1,17 @@
-import { useTranslations } from 'next-intl';
-
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { MessageState } from '@/features/dashboard/MessageState';
 import { SponsorLogos } from '@/features/sponsors/SponsorLogos';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 
-const DashboardIndexPage = () => {
-  const t = useTranslations('DashboardIndex');
+export default async function DashboardIndexPage(props: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await props.params;
+  setRequestLocale(locale);
+  const t = await getTranslations({
+    locale,
+    namespace: 'DashboardIndex',
+  });
 
   return (
     <MessageState
@@ -46,5 +52,3 @@ const DashboardIndexPage = () => {
     />
   );
 };
-
-export default DashboardIndexPage;

@@ -1,24 +1,21 @@
-import { auth } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
 import type Stripe from 'stripe';
-
-import {
-  createCheckoutSession,
-  createOrRetrieveCustomer,
-} from '@/services/BillingService';
+import { createCheckoutSession, createOrRetrieveCustomer } from '@/services/BillingService';
 import { ORG_ROLE } from '@/types/Auth';
 import { PricingPlanList } from '@/utils/AppConfig';
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
 
 export async function GET(
   _request: Request,
   context: {
-    params: {
+    params: Promise<{
       planId: string;
       locale: Stripe.Checkout.SessionCreateParams.Locale;
-    };
+    }>;
   },
 ) {
-  const { orgId, has } = auth();
+  const { orgId, has } = await auth();
+  const { locale, planId } = await context.params;
 
   if (!orgId) {
     redirect('/onboarding/organization-selection');
@@ -28,7 +25,7 @@ export async function GET(
     redirect('/dashboard/billing');
   }
 
-  const plan = PricingPlanList[context.params.planId];
+  const plan = PricingPlanList[planId];
 
   if (!plan) {
     redirect('/dashboard/billing');
@@ -38,7 +35,7 @@ export async function GET(
   const session = await createCheckoutSession(
     plan,
     customerId,
-    context.params.locale,
+    locale,
   );
 
   if (!session.url) {
