@@ -1,18 +1,9 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import {
-  type NextFetchEvent,
-  type NextRequest,
-  NextResponse,
-} from 'next/server';
+import { type NextFetchEvent, type NextRequest, NextResponse } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
+import { routing } from './libs/i18nNavigation';
 
-import { AllLocales, AppConfig } from './utils/AppConfig';
-
-const intlMiddleware = createMiddleware({
-  locales: AllLocales,
-  localePrefix: AppConfig.localePrefix,
-  defaultLocale: AppConfig.defaultLocale,
-});
+const intlMiddleware = createMiddleware(routing);
 
 const isProtectedRoute = createRouteMatcher([
   '/dashboard(.*)',
@@ -23,17 +14,23 @@ const isProtectedRoute = createRouteMatcher([
   '/:locale/api(.*)',
 ]);
 
+const isAuthPage = createRouteMatcher([
+  '/sign-in(.*)',
+  '/:locale/sign-in(.*)',
+  '/sign-up(.*)',
+  '/:locale/sign-up(.*)',
+]);
+
 export default function middleware(
   request: NextRequest,
   event: NextFetchEvent,
 ) {
+  // Run Clerk middleware only when it's necessary
   if (
-    request.nextUrl.pathname.includes('/sign-in')
-    || request.nextUrl.pathname.includes('/sign-up')
-    || isProtectedRoute(request)
+    isAuthPage(request) || isProtectedRoute(request)
   ) {
-    return clerkMiddleware((auth, req) => {
-      const authObj = auth();
+    return clerkMiddleware(async (auth, req) => {
+      const authObj = await auth();
 
       if (isProtectedRoute(req)) {
         const locale
@@ -41,7 +38,7 @@ export default function middleware(
 
         const signInUrl = new URL(`${locale}/sign-in`, req.url);
 
-        authObj.protect({
+        await auth.protect({
           // `unauthenticatedUrl` is needed to avoid error: "Unable to find `next-intl` locale because the middleware didn't run on this request"
           unauthenticatedUrl: signInUrl.toString(),
         });
@@ -69,5 +66,10 @@ export default function middleware(
 }
 
 export const config = {
-  matcher: ['/((?!.+\\.[\\w]+$|_next|monitoring).*)', '/', '/(api|trpc)(.*)'], // Also exclude tunnelRoute used in Sentry from the matcher
+  matcher: [
+    // Skip Next.js internals and all static files, unless found in search params
+    '/((?!_next|monitoring|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    // Always run for API routes
+    '/(api|trpc)(.*)',
+  ],
 };

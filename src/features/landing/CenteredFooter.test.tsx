@@ -1,8 +1,6 @@
+import messages from '@/locales/en.json';
 import { render, screen } from '@testing-library/react';
 import { NextIntlClientProvider } from 'next-intl';
-
-import messages from '@/locales/en.json';
-
 import { CenteredFooter } from './CenteredFooter';
 
 describe('CenteredFooter', () => {

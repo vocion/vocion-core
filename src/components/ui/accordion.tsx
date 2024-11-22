@@ -1,10 +1,9 @@
 'use client';
 
+import { cn } from '@/utils/Helpers';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
 import { ChevronRight } from 'lucide-react';
 import * as React from 'react';
-
-import { cn } from '@/utils/Helpers';
 
 const Accordion = AccordionPrimitive.Root;
 
