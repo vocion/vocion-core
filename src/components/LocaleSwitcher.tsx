@@ -10,17 +10,15 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { usePathname } from '@/libs/i18nNavigation';
 import { AppConfig } from '@/utils/AppConfig';
-import { useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
 
 export const LocaleSwitcher = () => {
-  const router = useRouter();
   const pathname = usePathname();
   const locale = useLocale();
 
   const handleChange = (value: string) => {
-    router.push(`/${value}${pathname}`);
-    router.refresh();
+    // WORKAROUND: Force a full page reload to avoid inconsistencies with i18n, next-theme, and Clerk
+    window.location.assign(`/${value}${pathname}`);
   };
 
   return (
