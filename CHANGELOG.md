@@ -1,3 +1,10 @@
+## [1.8.1](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.8.0...v1.8.1) (2024-11-23)
+
+
+### Bug Fixes
+
+* update LocaleSwitcher to force full page reload for locale changes ([bf622ad](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/bf622ad4cbb5baacb18191100547fe82ebe63029))
+
 # [1.8.0](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.7.2...v1.8.0) (2024-11-22)
 
 
