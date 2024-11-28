@@ -19,7 +19,7 @@ export const AppSidebarNav = (props: {
     icon: LucideIcon;
   }[];
 } & ComponentPropsWithoutRef<typeof SidebarGroup>) => {
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, isMobile } = useSidebar();
 
   return (
     <SidebarGroup {...props}>
@@ -31,7 +31,9 @@ export const AppSidebarNav = (props: {
               <SidebarMenuButton
                 asChild
                 onClick={() => {
-                  toggleSidebar();
+                  if (isMobile) {
+                    toggleSidebar();
+                  }
                 }}
               >
                 <Link href={item.url}>
