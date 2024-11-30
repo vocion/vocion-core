@@ -75,7 +75,7 @@ export default async function BillingPage(props: {
       </DashboardSection>
 
       {has({ role: ORG_ROLE.ADMIN }) && !planDetails.isPaid && (
-        <div className="mt-5 @container">
+        <div className="mt-5">
           <BillingOptions />
         </div>
       )}

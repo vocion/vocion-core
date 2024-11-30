@@ -20,7 +20,7 @@ export default async function OrganizationProfilePage(props: {
         appearance={{
           elements: {
             rootBox: 'w-full',
-            cardBox: 'w-full flex',
+            cardBox: 'w-full',
           },
         }}
       />
