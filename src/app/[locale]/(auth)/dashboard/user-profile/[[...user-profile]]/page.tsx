@@ -16,7 +16,7 @@ export default async function UserProfilePage(props: {
         appearance={{
           elements: {
             rootBox: 'w-full',
-            cardBox: 'w-full flex',
+            cardBox: 'w-full',
           },
         }}
       />
