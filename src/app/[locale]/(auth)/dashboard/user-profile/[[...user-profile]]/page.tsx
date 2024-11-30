@@ -17,7 +17,6 @@ export default async function UserProfilePage(props: {
           elements: {
             rootBox: 'w-full',
             cardBox: 'w-full',
-            pageScrollBox: 'overflow-y-visible', // Avoid scroll bar on mobile
           },
         }}
       />
