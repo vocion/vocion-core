@@ -1,3 +1,22 @@
+## [1.8.2](https://github.com/Vocion/vocion-core-Pro/compare/v1.8.1...v1.8.2) (2024-12-01)
+
+
+### Bug Fixes
+
+* add flex in organization profile ([3dfb3a5](https://github.com/Vocion/vocion-core-Pro/commit/3dfb3a524904bd9b4dd17aa0aa6c5ae9d9b18ceb))
+* automatically close sidebar only on mobile and make Org Switcher work with Shadcn Sidebar ([eb72def](https://github.com/Vocion/vocion-core-Pro/commit/eb72def30150d5820c92860142cfa26e0b0702d1))
+* avoid scroll bar in user profile component on mobile ([e372843](https://github.com/Vocion/vocion-core-Pro/commit/e372843ffda1bfd6ee82f54b20cc8fb93ab3a981))
+* enhance sidebar accessibility to next.js errors and responsiveness in pricing table ([6c60d7e](https://github.com/Vocion/vocion-core-Pro/commit/6c60d7e6a43e4ddb59b1501b37b4b071ad3581bf))
+* install tailwind container queries ([baa176d](https://github.com/Vocion/vocion-core-Pro/commit/baa176d36c7f2c4b6e6cd57ee09717acad70101d))
+* make clerk component responsive ([c08a444](https://github.com/Vocion/vocion-core-Pro/commit/c08a44437180b3f46c058e2017588733aa458b53))
+* make CTA button used in the landing page responsive ([b6db724](https://github.com/Vocion/vocion-core-Pro/commit/b6db724d7a7759c55fd2e392332194ebee832164))
+* make table component responsive within sidebar ([e1ad3ef](https://github.com/Vocion/vocion-core-Pro/commit/e1ad3ef501a3e87910aef5d278fdca66ec8d535f))
+
+
+### Reverts
+
+* add back scrool bar in user profile ([75fdfbe](https://github.com/Vocion/vocion-core-Pro/commit/75fdfbe7bbfa28c522c55063ff226d648fbf439f))
+
 ## [1.8.1](https://github.com/Vocion/vocion-core-Pro/compare/v1.8.0...v1.8.1) (2024-11-23)
 
 
