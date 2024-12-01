@@ -14,7 +14,7 @@ export const CTA = () => {
         description={t('description')}
         buttons={(
           <a
-            className={buttonVariants({ variant: 'outline', size: 'lg' })}
+            className={buttonVariants({ variant: 'outline', size: 'lg', className: 'whitespace-pre-line' })}
             href="https://vocion.ai/pro-saas-starter-kit"
           >
             {t('button_text')}
