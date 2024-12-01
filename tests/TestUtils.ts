@@ -79,10 +79,5 @@ export const createOrganization = async (page: Page) => {
   await page.getByLabel('Name').fill(companyName);
   await page.getByRole('button', { name: 'Create organization' }).click();
 
-  // Need to select the created organization
-  await expect(page.getByText('Choose an organization')).toBeVisible();
-
-  await page.getByText(companyName).click();
-
   await expect(page.getByLabel('Open organization switcher').getByText(companyName)).toBeVisible();
 };

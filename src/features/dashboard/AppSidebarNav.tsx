@@ -7,6 +7,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
 
@@ -18,6 +19,8 @@ export const AppSidebarNav = (props: {
     icon: LucideIcon;
   }[];
 } & ComponentPropsWithoutRef<typeof SidebarGroup>) => {
+  const { toggleSidebar, isMobile } = useSidebar();
+
   return (
     <SidebarGroup {...props}>
       <SidebarGroupContent>
@@ -25,7 +28,14 @@ export const AppSidebarNav = (props: {
         <SidebarMenu>
           {props.items.map(item => (
             <SidebarMenuItem key={item.title}>
-              <SidebarMenuButton asChild>
+              <SidebarMenuButton
+                asChild
+                onClick={() => {
+                  if (isMobile) {
+                    toggleSidebar();
+                  }
+                }}
+              >
                 <Link href={item.url}>
                   <item.icon />
                   <span>{item.title}</span>
