@@ -38,14 +38,16 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
             '/dashboard/organization-profile',
             locale,
           )}
-          // WORKAROUND: cannot redirect to `/dashboard`
-          // due to `auth()` function returning the data from the previous organization
-          afterCreateOrganizationUrl="/onboarding/organization-selection"
+          afterCreateOrganizationUrl="/dashboard/"
           hidePersonal
           skipInvitationScreen
           appearance={{
             elements: {
               organizationSwitcherTrigger: 'w-64 md:w-60 justify-between',
+              organizationSwitcherPopoverRootBox: {
+                // WORKAROUND: conflict with Shadcn Sidebar, solution from https://github.com/clerk/javascript/issues/3739
+                pointerEvents: 'auto',
+              },
             },
           }}
         />
