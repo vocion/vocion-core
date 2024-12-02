@@ -4,8 +4,8 @@ import { EditTodoForm } from '@/features/todo/EditTodoForm';
 import { getTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
 import { auth } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
+import { redirect } from 'next/navigation';
 
 export default async function EditTodoPage(props: {
   params: Promise<{ id: number; locale: string }>;
