@@ -1,7 +1,7 @@
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { MessageState } from '@/features/dashboard/MessageState';
-import Link from 'next/link';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
+import Link from 'next/link';
 
 export default async function CheckoutConfirmation(props: {
   params: Promise<{ locale: string }>;
