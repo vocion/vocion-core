@@ -11,9 +11,9 @@ import { ProtectFallback } from '@/features/auth/ProtectFallback';
 import { ORG_ROLE } from '@/types/Auth';
 import { Protect } from '@clerk/nextjs';
 import { DotsHorizontalIcon } from '@radix-ui/react-icons';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
 
 export const ActionCell = ({ row }: { row: { original: Todo } }) => {
   const router = useRouter();

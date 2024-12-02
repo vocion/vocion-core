@@ -3,8 +3,8 @@ import { buttonVariants } from '@/components/ui/buttonVariants';
 import { CenteredHero } from '@/features/landing/CenteredHero';
 import { Section } from '@/features/landing/Section';
 import { ArrowRightIcon, TwitterLogoIcon } from '@radix-ui/react-icons';
-import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 
 export const Hero = () => {
   const t = useTranslations('Hero');
