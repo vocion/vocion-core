@@ -1,3 +1,10 @@
+## [1.8.3](https://github.com/Vocion/vocion-core-Pro/compare/v1.8.2...v1.8.3) (2024-12-06)
+
+
+### Bug Fixes
+
+* upgrade to react 19 stable version ([4596534](https://github.com/Vocion/vocion-core-Pro/commit/45965347dfd6d05eb1eabea386399acd2b056b33))
+
 ## [1.8.2](https://github.com/Vocion/vocion-core-Pro/compare/v1.8.1...v1.8.2) (2024-12-01)
 
 
