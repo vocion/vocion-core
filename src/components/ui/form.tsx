@@ -1,3 +1,5 @@
+'use client';
+
 import type * as LabelPrimitive from '@radix-ui/react-label';
 import type { ControllerProps, FieldPath, FieldValues } from 'react-hook-form';
 import { Label } from '@/components/ui/label';
@@ -15,11 +17,10 @@ const FormField = <
 >({
   ...props
 }: ControllerProps<TFieldValues, TName>) => {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const formFieldName = React.useMemo(() => ({ name: props.name }), []);
+  const contextValue = React.useMemo(() => ({ name: props.name }), [props.name]);
 
   return (
-    <FormFieldContext.Provider value={formFieldName}>
+    <FormFieldContext.Provider value={contextValue}>
       <Controller {...props} />
     </FormFieldContext.Provider>
   );
@@ -30,11 +31,10 @@ const FormItem = React.forwardRef<
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => {
   const id = React.useId();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const formItemId = React.useMemo(() => ({ id }), []);
+  const contextValue = React.useMemo(() => ({ id }), [id]);
 
   return (
-    <FormItemContext.Provider value={formItemId}>
+    <FormItemContext.Provider value={contextValue}>
       <div ref={ref} className={cn('space-y-2', className)} {...props} />
     </FormItemContext.Provider>
   );
@@ -62,8 +62,7 @@ const FormControl = React.forwardRef<
   React.ElementRef<typeof Slot>,
   React.ComponentPropsWithoutRef<typeof Slot>
 >(({ ...props }, ref) => {
-  const { error, formItemId, formDescriptionId, formMessageId }
-    = useFormField();
+  const { error, formItemId, formDescriptionId, formMessageId } = useFormField();
 
   return (
     <Slot
@@ -130,4 +129,5 @@ export {
   FormItem,
   FormLabel,
   FormMessage,
+  useFormField,
 };
