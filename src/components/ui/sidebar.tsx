@@ -12,14 +12,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useIsMobile } from '@/components/ui/useMobile';
 import { cn } from '@/utils/Helpers';
 import { Slot } from '@radix-ui/react-slot';
 import { cva } from 'class-variance-authority';
 import { PanelLeft } from 'lucide-react';
 import * as React from 'react';
+import { useIsMobile } from './useMobile';
 
-const SIDEBAR_COOKIE_NAME = 'sidebar:state';
+export const SIDEBAR_COOKIE_NAME = 'sidebar:state';
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = '16rem';
 const SIDEBAR_WIDTH_MOBILE = '18rem';
@@ -41,7 +41,7 @@ const SidebarContext = React.createContext<ISidebarContext | null>(null);
 function useSidebar() {
   const context = React.useContext(SidebarContext);
   if (!context) {
-    throw new Error('useSidebar must be used within a Sidebar.');
+    throw new Error('useSidebar must be used within a SidebarProvider.');
   }
 
   return context;
@@ -76,16 +76,15 @@ const SidebarProvider = React.forwardRef<
         const open = openProp ?? _open;
         const setOpen = React.useCallback(
           (value: boolean | ((value: boolean) => boolean)) => {
+            const openState = typeof value === 'function' ? value(open) : value;
             if (setOpenProp) {
-              return setOpenProp?.(
-                typeof value === 'function' ? value(open) : value,
-              );
+              setOpenProp(openState);
+            } else {
+              _setOpen(openState);
             }
 
-            _setOpen(value);
-
             // This sets the cookie to keep the sidebar state.
-            document.cookie = `${SIDEBAR_COOKIE_NAME}=${open}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
+            document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
           },
           [setOpenProp, open],
         );
@@ -142,7 +141,7 @@ const SidebarProvider = React.forwardRef<
                   } as React.CSSProperties
                 }
                 className={cn(
-                  'group/sidebar-wrapper flex min-h-svh w-full text-sidebar-foreground has-[[data-variant=inset]]:bg-sidebar',
+                  'group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar',
                   className,
                 )}
                 ref={ref}
@@ -221,7 +220,7 @@ const Sidebar = React.forwardRef<
     return (
       <div
         ref={ref}
-        className="group peer hidden md:block"
+        className="group peer hidden text-sidebar-foreground md:block"
         data-state={state}
         data-collapsible={state === 'collapsed' ? collapsible : ''}
         data-variant={variant}
