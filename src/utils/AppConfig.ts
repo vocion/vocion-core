@@ -13,6 +13,7 @@ export const AppConfig = {
     },
     { id: 'fr', name: 'Français' },
   ],
+  sidebarCookieName: 'sidebar:state',
   defaultLocale: 'en',
   localePrefix,
 };
