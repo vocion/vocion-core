@@ -12,6 +12,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { AppConfig } from '@/utils/AppConfig';
 import { cn } from '@/utils/Helpers';
 import { Slot } from '@radix-ui/react-slot';
 import { cva } from 'class-variance-authority';
@@ -19,7 +20,6 @@ import { PanelLeft } from 'lucide-react';
 import * as React from 'react';
 import { useIsMobile } from './useMobile';
 
-export const SIDEBAR_COOKIE_NAME = 'sidebar:state';
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = '16rem';
 const SIDEBAR_WIDTH_MOBILE = '18rem';
@@ -84,7 +84,7 @@ const SidebarProvider = React.forwardRef<
             }
 
             // This sets the cookie to keep the sidebar state.
-            document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
+            document.cookie = `${AppConfig.sidebarCookieName}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
           },
           [setOpenProp, open],
         );

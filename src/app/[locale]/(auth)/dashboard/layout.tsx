@@ -1,6 +1,7 @@
-import { SIDEBAR_COOKIE_NAME, SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
+import { AppConfig } from '@/utils/AppConfig';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { cookies } from 'next/headers';
 
@@ -28,7 +29,7 @@ export default async function DashboardLayout(props: ILayoutProps) {
 
   // Get the persisted sidebar state from the cookie
   const cookieStore = await cookies();
-  const defaultOpen = cookieStore.get(SIDEBAR_COOKIE_NAME)?.value === 'true';
+  const defaultOpen = cookieStore.get(AppConfig.sidebarCookieName)?.value !== 'false';
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
