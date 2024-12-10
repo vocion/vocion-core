@@ -1,3 +1,15 @@
+## [1.8.4](https://github.com/Vocion/vocion-core-Pro/compare/v1.8.3...v1.8.4) (2024-12-10)
+
+
+### Bug Fixes
+
+* avoid hard coded size for svg in button and remove export useFormField in Form ([b6b1b49](https://github.com/Vocion/vocion-core-Pro/commit/b6b1b4983fe4735106ae3caa66815032334ea894))
+* persisted sidebar with cookie and move text-sidebar-foreground to sidebar component ([64a610a](https://github.com/Vocion/vocion-core-Pro/commit/64a610a459785bf9092db2865b20b41878bb550f))
+* update dropdown menu component ([22f79f9](https://github.com/Vocion/vocion-core-Pro/commit/22f79f902c7502d73c67d397eaab91715e60f79e))
+* update shadcn ui button, automatically style icon inside button ([5bb75a9](https://github.com/Vocion/vocion-core-Pro/commit/5bb75a9b7f626c83734f5e742bdcf2a5106ce908))
+* update shadcn ui form component ([eae2876](https://github.com/Vocion/vocion-core-Pro/commit/eae287623fc405ead319920d2a04bf379a4e0ebe))
+* update shadcn ui input component ([daab1e5](https://github.com/Vocion/vocion-core-Pro/commit/daab1e50f5f30aee7cfeb8401605126b7b1d1a3b))
+
 ## [1.8.3](https://github.com/Vocion/vocion-core-Pro/compare/v1.8.2...v1.8.3) (2024-12-06)
 
 
