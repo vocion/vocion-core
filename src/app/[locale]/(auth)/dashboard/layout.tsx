@@ -29,6 +29,7 @@ export default async function DashboardLayout(props: ILayoutProps) {
 
   // Get the persisted sidebar state from the cookie
   const cookieStore = await cookies();
+  // If the cookie is not set, default to open
   const defaultOpen = cookieStore.get(AppConfig.sidebarCookieName)?.value !== 'false';
 
   return (
