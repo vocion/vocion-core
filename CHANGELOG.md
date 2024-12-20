@@ -1,3 +1,10 @@
+## [1.8.5](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.8.4...v1.8.5) (2024-12-20)
+
+
+### Bug Fixes
+
+* remove custom framework config used by i18n-ally and update setting name used by Vitest ([330cc6f](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/commit/330cc6fa5f807ad2fc95ee71c5d018debdc2297c))
+
 ## [1.8.4](https://github.com/Nextlessjs/Next-js-Boilerplate-Pro/compare/v1.8.3...v1.8.4) (2024-12-10)
 
 
