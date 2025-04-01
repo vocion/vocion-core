@@ -16,7 +16,7 @@ export const createUserWithOrganization = async (page: Page) => {
 
   await page.getByLabel('Email address').fill(process.env.E2E_CLERK_USER_USERNAME);
   await page.getByLabel('Password', { exact: true }).fill(process.env.E2E_CLERK_USER_PASSWORD);
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
 
   await expect(page.getByText('Verify your email')).toBeVisible();
 
