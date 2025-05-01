@@ -30,8 +30,6 @@ export default function middleware(
     isAuthPage(request) || isProtectedRoute(request)
   ) {
     return clerkMiddleware(async (auth, req) => {
-      const authObj = await auth();
-
       if (isProtectedRoute(req)) {
         const locale
           = req.nextUrl.pathname.match(/(\/.*)\/dashboard/)?.at(1) ?? '';
@@ -43,6 +41,8 @@ export default function middleware(
           unauthenticatedUrl: signInUrl.toString(),
         });
       }
+
+      const authObj = await auth();
 
       if (
         authObj.userId
