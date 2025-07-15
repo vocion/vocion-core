@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { SUBSCRIPTION_STATUS } from '@/types/Subscription';
 import { PLAN_ID } from '@/utils/AppConfig';
 import { determineSubscriptionPlan } from './BillingService';

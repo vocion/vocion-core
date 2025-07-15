@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { cookies } from 'next/headers';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
@@ -10,7 +11,7 @@ type ILayoutProps = {
   children: React.ReactNode;
 };
 
-export async function generateMetadata(props: ILayoutProps) {
+export async function generateMetadata(props: ILayoutProps): Promise<Metadata> {
   const { locale } = await props.params;
   const t = await getTranslations({
     locale,
