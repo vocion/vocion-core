@@ -1,11 +1,11 @@
 'use client';
 
-import { routing } from '@/libs/i18nNavigation';
 import { enUS, frFR } from '@clerk/localizations';
 import { ClerkProvider } from '@clerk/nextjs';
 import { dark } from '@clerk/themes';
 import { useTheme } from 'next-themes';
 import { useParams } from 'next/navigation';
+import { routing } from '@/libs/i18nNavigation';
 
 export default function AuthLayout(props: {
   children: React.ReactNode;

@@ -1,7 +1,7 @@
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { AddTodoForm } from '@/features/todo/AddTodoForm';
-import { getTranslations, setRequestLocale } from 'next-intl/server';
 
 export default async function AddTodoPage(props: {
   params: Promise<{ locale: string }>;

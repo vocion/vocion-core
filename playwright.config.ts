@@ -1,3 +1,4 @@
+import type { ChromaticConfig } from '@chromatic-com/playwright';
 import { defineConfig, devices } from '@playwright/test';
 
 // Use process.env.PORT by default and fallback to port 3000
@@ -9,7 +10,7 @@ const baseURL = `http://localhost:${PORT}`;
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
-export default defineConfig({
+export default defineConfig<ChromaticConfig>({
   testDir: './tests',
   // Look for files with the .spec.js or .e2e.js extension
   testMatch: '*.@(spec|e2e).?(c|m)[jt]s?(x)',
@@ -22,16 +23,19 @@ export default defineConfig({
 
   expect: {
     // Set timeout for async expect matchers
-    timeout: 10 * 1000,
+    timeout: 20 * 1000,
   },
 
   // Run your local dev server before starting the tests:
   // https://playwright.dev/docs/test-advanced#launching-a-development-web-server-during-the-tests
   webServer: {
-    command: process.env.CI ? 'npm run start' : 'npm run dev:next',
+    command: process.env.CI ? 'npx pglite-server --run "npm run start"' : 'npx run-p db-server:memory dev:next',
     url: baseURL,
     timeout: 2 * 60 * 1000,
     reuseExistingServer: !process.env.CI,
+    env: {
+      NEXT_PUBLIC_SENTRY_DISABLED: 'true',
+    },
   },
 
   // Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions.
@@ -41,10 +45,13 @@ export default defineConfig({
     baseURL,
 
     // Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer
-    trace: process.env.CI ? 'retain-on-failure' : undefined,
+    trace: process.env.CI ? 'on' : 'retain-on-failure',
 
     // Record videos when retrying the failed test.
     video: process.env.CI ? 'retain-on-failure' : undefined,
+
+    // Disable automatic screenshots at test completion when using Chromatic test fixture.
+    disableAutoSnapshot: true,
   },
 
   projects: [

@@ -1,8 +1,8 @@
+import { UserButton } from '@clerk/nextjs';
 import { DarkModeToggle } from '@/components/DarkModeToggle';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { UserButton } from '@clerk/nextjs';
 
 export const AppSidebarHeader = () => (
   <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-2">

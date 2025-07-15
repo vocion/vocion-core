@@ -1,7 +1,7 @@
 import type { IStripeSubscription } from '@/types/Subscription';
+import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { organizationSchema } from '@/models/Schema';
-import { eq } from 'drizzle-orm';
 
 export const getStripeCustomerId = (orgId: string) => {
   return db.query.organizationSchema.findFirst({

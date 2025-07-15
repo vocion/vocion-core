@@ -1,6 +1,6 @@
-import { getI18nPath } from '@/utils/Helpers';
 import { UserProfile } from '@clerk/nextjs';
 import { setRequestLocale } from 'next-intl/server';
+import { getI18nPath } from '@/utils/Helpers';
 
 export default async function UserProfilePage(props: {
   params: Promise<{ locale: string }>;
