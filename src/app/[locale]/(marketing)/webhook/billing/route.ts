@@ -23,7 +23,7 @@ export const POST = async (request: Request) => {
       signature,
       Env.STRIPE_WEBHOOK_SECRET,
     );
-  } catch (error) {
+  } catch (error: any) {
     logger.error(error);
     return NextResponse.json({ error: 'Webhook Error' }, { status: 400 });
   }
