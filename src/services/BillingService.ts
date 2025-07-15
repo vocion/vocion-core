@@ -36,7 +36,7 @@ export const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
     });
 
     logger.info('Subscription has been updated');
-  } catch (error) {
+  } catch (error: any) {
     logger.error(error, 'An error occurred while updating subscription');
   }
 };
@@ -122,14 +122,12 @@ export const createBillingPortal = (
 export const determineSubscriptionPlan = (
   stripeDetails?: IStripeSubscription,
 ): PlanDetails => {
-  const isActive
-    = stripeDetails !== undefined
-      && stripeDetails.stripeSubscriptionId !== null
-      && stripeDetails.stripeSubscriptionPriceId !== null
-      && stripeDetails.stripeSubscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE
-      && stripeDetails.stripeSubscriptionCurrentPeriodEnd !== null
-      && stripeDetails.stripeSubscriptionCurrentPeriodEnd + MILLISECONDS_IN_ONE_DAY
-      > Date.now();
+  const isActive = stripeDetails !== undefined
+    && stripeDetails.stripeSubscriptionId !== null
+    && stripeDetails.stripeSubscriptionPriceId !== null
+    && stripeDetails.stripeSubscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE
+    && stripeDetails.stripeSubscriptionCurrentPeriodEnd !== null
+    && stripeDetails.stripeSubscriptionCurrentPeriodEnd + MILLISECONDS_IN_ONE_DAY > Date.now();
 
   if (isActive) {
     const plan = Object.values(PricingPlanList).find((elt) => {
