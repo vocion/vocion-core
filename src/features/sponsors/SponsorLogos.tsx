@@ -1,6 +1,6 @@
 /* eslint-disable react-dom/no-unsafe-target-blank */
-import { LogoCloud } from '@/features/landing/LogoCloud';
 import Image from 'next/image';
+import { LogoCloud } from '@/features/landing/LogoCloud';
 
 export const SponsorLogos = () => (
   <LogoCloud text="Sponsored by">

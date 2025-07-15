@@ -1,9 +1,9 @@
 import type Stripe from 'stripe';
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
 import { createCheckoutSession, createOrRetrieveCustomer } from '@/services/BillingService';
 import { ORG_ROLE } from '@/types/Auth';
 import { PricingPlanList } from '@/utils/AppConfig';
-import { auth } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
 
 export async function GET(
   _request: Request,
