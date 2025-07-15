@@ -19,9 +19,6 @@
     "primary_button": "Get Started",
     "secondary_button": "Buy Next.js Vocion"
   },
-  "Sponsors": {
-    "title": "Sponsored by"
-  },
   "Features": {
     "section_subtitle": "Features",
     "section_title": "Unlock the Full Potential of the SaaS Template",
@@ -102,19 +99,9 @@
     "meta_description": "A free and open-source landing page template for your SaaS business, built with Next.js, TypeScript, Shadcn UI, and Tailwind CSS."
   },
   "DashboardIndex": {
-    "title_bar": "Dashboard",
-    "title_bar_description": "Welcome to your dashboard",
     "message_state_title": "Let's get started",
     "message_state_description": "You can customize this page by editing the file at <code>dashboard/page.tsx</code>",
     "message_state_button": "Buy Next.js Vocion"
-  },
-  "UserProfile": {
-    "title_bar": "User Profile",
-    "title_bar_description": "View and manage your user profile"
-  },
-  "OrganizationProfile": {
-    "title_bar": "Organization Management",
-    "title_bar_description": "Manage your organization"
   },
   "Billing": {
     "title_bar": "Billing",
@@ -128,7 +115,6 @@
     "upgrade_plan": "Get Started"
   },
   "CheckoutConfirmation": {
-    "title_bar": "Payment Confirmation",
     "message_state_title": "Payment successful",
     "message_state_description": "Your payment has been successfully processed. Thank you for your purchase!",
     "message_state_button": "Go back to Billing"
