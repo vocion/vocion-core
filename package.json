@@ -119,11 +119,6 @@
     "vitest": "^3.2.4",
     "vitest-browser-react": "^1.0.0"
   },
-  "config": {
-    "commitizen": {
-      "path": "@commitlint/cz-commitlint"
-    }
-  },
   "release": {
     "branches": [
       "main"
@@ -136,14 +131,6 @@
         }
       ],
       "@semantic-release/release-notes-generator",
-      "@semantic-release/changelog",
-      [
-        "@semantic-release/npm",
-        {
-          "npmPublish": false
-        }
-      ],
-      "@semantic-release/git",
       "@semantic-release/github"
     ]
   }
