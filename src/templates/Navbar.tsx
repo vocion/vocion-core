@@ -1,10 +1,10 @@
+import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { DarkModeToggle } from '@/components/DarkModeToggle';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { CenteredMenu } from '@/features/landing/CenteredMenu';
 import { Section } from '@/features/landing/Section';
-import { useTranslations } from 'next-intl';
-import Link from 'next/link';
 
 import { Logo } from './Logo';
 

@@ -1,5 +1,5 @@
-import type { PLAN_ID } from '@/utils/AppConfig';
 import type { EnumValues } from './Enum';
+import type { PLAN_ID } from '@/utils/AppConfig';
 
 export type PlanId = EnumValues<typeof PLAN_ID>;
 
@@ -37,8 +37,8 @@ export type IStripeSubscription = {
   stripeSubscriptionCurrentPeriodEnd: number | null;
 };
 
-export type PlanDetails =
-  | {
+export type PlanDetails
+  = | {
     isPaid: true;
     plan: PricingPlan;
     stripeDetails: IStripeSubscription;

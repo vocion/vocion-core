@@ -1,11 +1,10 @@
 import type Stripe from 'stripe';
+import type { IStripeSubscription, PlanDetails, PricingPlan } from '@/types/Subscription';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 import { stripe } from '@/libs/Stripe';
 import {
-  type IStripeSubscription,
-  type PlanDetails,
-  type PricingPlan,
+
   SUBSCRIPTION_STATUS,
 } from '@/types/Subscription';
 import { PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
@@ -125,12 +124,12 @@ export const determineSubscriptionPlan = (
 ): PlanDetails => {
   const isActive
     = stripeDetails !== undefined
-    && stripeDetails.stripeSubscriptionId !== null
-    && stripeDetails.stripeSubscriptionPriceId !== null
-    && stripeDetails.stripeSubscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE
-    && stripeDetails.stripeSubscriptionCurrentPeriodEnd !== null
-    && stripeDetails.stripeSubscriptionCurrentPeriodEnd + MILLISECONDS_IN_ONE_DAY
-    > Date.now();
+      && stripeDetails.stripeSubscriptionId !== null
+      && stripeDetails.stripeSubscriptionPriceId !== null
+      && stripeDetails.stripeSubscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE
+      && stripeDetails.stripeSubscriptionCurrentPeriodEnd !== null
+      && stripeDetails.stripeSubscriptionCurrentPeriodEnd + MILLISECONDS_IN_ONE_DAY
+      > Date.now();
 
   if (isActive) {
     const plan = Object.values(PricingPlanList).find((elt) => {

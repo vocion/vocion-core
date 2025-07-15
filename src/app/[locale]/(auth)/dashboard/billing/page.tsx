@@ -1,3 +1,7 @@
+import { Protect } from '@clerk/nextjs';
+import { auth } from '@clerk/nextjs/server';
+import { getTranslations } from 'next-intl/server';
+import { redirect } from 'next/navigation';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { ProtectFallback } from '@/features/auth/ProtectFallback';
 import { BillingOptions } from '@/features/billing/BillingOptions';
@@ -7,10 +11,6 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { determineSubscriptionPlan } from '@/services/BillingService';
 import { getStripeSubscription } from '@/services/OrganizationService';
 import { ORG_ROLE } from '@/types/Auth';
-import { Protect } from '@clerk/nextjs';
-import { auth } from '@clerk/nextjs/server';
-import { getTranslations } from 'next-intl/server';
-import { redirect } from 'next/navigation';
 
 export default async function BillingPage(props: {
   params: Promise<{ locale: string }>;

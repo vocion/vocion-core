@@ -1,9 +1,9 @@
+import { getTranslations, setRequestLocale } from 'next-intl/server';
+import { cookies } from 'next/headers';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { AppConfig } from '@/utils/AppConfig';
-import { getTranslations, setRequestLocale } from 'next-intl/server';
-import { cookies } from 'next/headers';
 
 type ILayoutProps = {
   params: Promise<{ locale: string }>;

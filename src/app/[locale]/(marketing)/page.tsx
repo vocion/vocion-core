@@ -1,3 +1,4 @@
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { CTA } from '@/templates/CTA';
 import { DemoBanner } from '@/templates/DemoBanner';
 import { FAQ } from '@/templates/FAQ';
@@ -7,7 +8,6 @@ import { Hero } from '@/templates/Hero';
 import { Navbar } from '@/templates/Navbar';
 import { Pricing } from '@/templates/Pricing';
 import { Sponsors } from '@/templates/Sponsors';
-import { getTranslations, setRequestLocale } from 'next-intl/server';
 
 type IIndexProps = {
   params: Promise<{ locale: string }>;

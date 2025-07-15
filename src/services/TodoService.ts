@@ -1,7 +1,7 @@
 import type { Todo } from '@/types/Todo';
+import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { todoSchema } from '@/models/Schema';
-import { and, eq } from 'drizzle-orm';
 
 export const getTodoList = (orgId: string) => {
   return db.query.todoSchema.findMany({

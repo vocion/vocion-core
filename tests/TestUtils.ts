@@ -1,8 +1,9 @@
+import type { Page } from '@playwright/test';
 import assert from 'node:assert';
 import { clerkClient } from '@clerk/nextjs/server';
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright';
 import { faker } from '@faker-js/faker';
-import { expect, type Page } from '@playwright/test';
+import { expect } from '@playwright/test';
 
 export const createUserWithOrganization = async (page: Page) => {
   await setupClerkTestingToken({ page });

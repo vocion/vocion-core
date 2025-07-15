@@ -1,9 +1,9 @@
+import { auth } from '@clerk/nextjs/server';
+import { NextResponse } from 'next/server';
 import { logger } from '@/libs/Logger';
 import { createTodo, deleteTodo, updateTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
 import { DeleteTodoValidation, EditTodoValidation, TodoValidation } from '@/validations/TodoValidation';
-import { auth } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
 
 export const POST = async (request: Request) => {
   const { userId, orgId } = await auth();
