@@ -11,7 +11,7 @@ const globalForDb = globalThis as unknown as {
 };
 
 // Need a database for production? Check out https://www.prisma.io/?via=nextjsboilerplate
-// Tested and compatible with Next.js Boilerplate
+// Tested and compatible with SaaS Boilerplate
 const createDbConnection = () => {
   return drizzle({
     connection: {

@@ -11,7 +11,7 @@ import { bigint, pgTable, serial, text, timestamp, uniqueIndex } from 'drizzle-o
 // so there's no need to run it manually or restart the Next.js server.
 
 // Need a database for production? Check out https://www.prisma.io/?via=nextjsboilerplate
-// Tested and compatible with Next.js Boilerplate
+// Tested and compatible with SaaS Boilerplate
 
 export const organizationSchema = pgTable(
   'organization',
