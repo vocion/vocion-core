@@ -1,7 +1,9 @@
 {
   "name": "Vocion",
-  "version": "1.8.5",
   "author": "Vocion (https://github.com/vocion)",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev:spotlight": "npx @spotlightjs/spotlight",
     "dev:next": "next dev --turbopack",
