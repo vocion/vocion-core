@@ -32,7 +32,7 @@ export const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
       stripeSubscriptionPriceId: subscription.items.data[0].price.id,
       stripeSubscriptionStatus: subscription.status,
       stripeSubscriptionCurrentPeriodEnd:
-        subscription.current_period_end * 1000,
+        subscription.items.data[0].current_period_end * 1000,
     });
 
     logger.info('Subscription has been updated');

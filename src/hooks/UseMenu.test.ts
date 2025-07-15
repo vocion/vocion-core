@@ -1,5 +1,6 @@
-import { act, renderHook } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 import { useMenu } from './UseMenu';
+import { act } from 'react';
 
 describe('UseMenu', () => {
   describe('Render hook', () => {

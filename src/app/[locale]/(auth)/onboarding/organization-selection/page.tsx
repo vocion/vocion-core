@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { OrganizationList } from '@clerk/nextjs';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 
@@ -5,7 +6,7 @@ type IOrganizationSelectionProps = {
   params: Promise<{ locale: string }>;
 };
 
-export async function generateMetadata(props: IOrganizationSelectionProps) {
+export async function generateMetadata(props: IOrganizationSelectionProps): Promise<Metadata> {
   const { locale } = await props.params;
   const t = await getTranslations({
     locale,
