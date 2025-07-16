@@ -7,27 +7,28 @@ vi.mock('@/libs/DB');
 
 describe('TodoService', () => {
   describe('CRUD operations', () => {
-    it('should return a list with one todo', async () => {
+    it('should return an empty list when no todos exist', async () => {
       const org = faker.string.uuid();
       const result = await getTodoList(org);
 
       expect(result).toEqual([]);
     });
 
-    it('should create a new todo and return it', async () => {
+    it('should create a new todo and retrieve it successfully', async () => {
       const org = faker.string.uuid();
-      const todoTitle = faker.word.words(3);
       const newTodo = {
-        title: todoTitle,
+        title: faker.word.words(3),
         message: faker.word.words(10),
       };
+
       const createResponse = await createTodo(newTodo, org);
       assert(createResponse[0] !== undefined, 'Todo creation failed');
 
       const getResponse = await getTodo(createResponse[0].id, org);
       assert(getResponse !== undefined, 'Todo retrieval failed');
 
-      expect(getResponse.title).toEqual(todoTitle);
+      expect(getResponse.title).toEqual(newTodo.title);
+      expect(getResponse.message).toEqual(newTodo.message);
     });
   });
 });
