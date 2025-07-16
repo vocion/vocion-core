@@ -3,17 +3,10 @@ import type { IStripeSubscription, PlanDetails, PricingPlan } from '@/types/Subs
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 import { stripe } from '@/libs/Stripe';
-import {
-
-  SUBSCRIPTION_STATUS,
-} from '@/types/Subscription';
+import { SUBSCRIPTION_STATUS } from '@/types/Subscription';
 import { PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
 import { getBaseUrl, MILLISECONDS_IN_ONE_DAY } from '@/utils/Helpers';
-import {
-  getStripeCustomerId,
-  updateStripeSubscription,
-  upsertStripeCustomerId,
-} from './OrganizationService';
+import { getStripeCustomerId, updateStripeSubscription, upsertStripeCustomerId } from './OrganizationService';
 
 export const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
