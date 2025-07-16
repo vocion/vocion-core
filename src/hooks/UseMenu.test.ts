@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { renderHook } from 'vitest-browser-react';
 import { useMenu } from './UseMenu';
-import { act } from 'react';
 
 describe('UseMenu', () => {
   describe('Render hook', () => {
@@ -11,7 +11,7 @@ describe('UseMenu', () => {
     });
 
     it('should make the menu visible by toggling the menu', () => {
-      const { result } = renderHook(() => useMenu());
+      const { result, act } = renderHook(() => useMenu());
 
       act(() => {
         result.current.handleToggleMenu();
@@ -21,7 +21,7 @@ describe('UseMenu', () => {
     });
 
     it('shouldn\'t make the menu visible after toggling and closing the menu', () => {
-      const { result } = renderHook(() => useMenu());
+      const { result, act } = renderHook(() => useMenu());
 
       act(() => {
         result.current.handleClose();
@@ -31,7 +31,7 @@ describe('UseMenu', () => {
     });
 
     it('shouldn\'t make the menu visible after toggling the menu twice', () => {
-      const { result } = renderHook(() => useMenu());
+      const { result, act } = renderHook(() => useMenu());
 
       act(() => {
         result.current.handleToggleMenu();

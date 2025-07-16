@@ -37,6 +37,9 @@ export default defineConfig({
         },
       },
     ],
-    env: loadEnv('', process.cwd(), ''),
+    env: {
+      ...loadEnv('', process.cwd(), ''),
+      BILLING_PLAN_ENV: 'test',
+    },
   },
 });
