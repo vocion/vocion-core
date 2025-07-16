@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import { faker } from '@faker-js/faker';
 import { describe, expect, it, vi } from 'vitest';
-import { createTodo, getTodo, getTodoList } from './TodoService';
+import { createTodo, getTodo, getTodoList, updateTodo } from './TodoService';
 
 vi.mock('@/libs/DB');
 
@@ -29,6 +29,36 @@ describe('TodoService', () => {
 
       expect(getResponse.title).toEqual(newTodo.title);
       expect(getResponse.message).toEqual(newTodo.message);
+    });
+
+    it('should update an existing todo successfully', async () => {
+      const org = faker.string.uuid();
+      const originalTodo = {
+        title: faker.word.words(3),
+        message: faker.word.words(10),
+      };
+
+      // Create a todo first
+      const createResponse = await createTodo(originalTodo, org);
+      assert(createResponse[0] !== undefined, 'Todo creation failed');
+
+      // Update the todo
+      const updatedTodo = {
+        id: createResponse[0].id,
+        title: `[UPDATED] ${originalTodo.title}`,
+        message: `[UPDATED] ${originalTodo.message}`,
+      };
+
+      const updateResponse = await updateTodo(updatedTodo, org);
+      assert(updateResponse[0] !== undefined, 'Todo update failed');
+
+      // Verify the update
+      const getResponse = await getTodo(createResponse[0].id, org);
+      assert(getResponse !== undefined, 'Todo retrieval after update failed');
+
+      expect(getResponse.id).toEqual(createResponse[0].id);
+      expect(getResponse.title).toEqual(updatedTodo.title);
+      expect(getResponse.message).toEqual(updatedTodo.message);
     });
   });
 });
