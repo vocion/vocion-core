@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { vi } from 'vitest';
+import { page, userEvent } from '@vitest/browser/context';
+import { describe, expect, it, vi } from 'vitest';
+import { render } from 'vitest-browser-react';
 import { ToggleMenuButton } from './ToggleMenuButton';
 
 describe('ToggleMenuButton', () => {
@@ -9,7 +9,7 @@ describe('ToggleMenuButton', () => {
       const handler = vi.fn();
 
       render(<ToggleMenuButton onClick={handler} />);
-      const button = screen.getByRole('button');
+      const button = page.getByRole('button');
       await userEvent.click(button);
 
       expect(handler).toHaveBeenCalled();
