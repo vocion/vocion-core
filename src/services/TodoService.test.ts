@@ -69,5 +69,20 @@ describe('TodoService', () => {
 
       expect(deleteResponse).toEqual([]);
     });
+
+    it('should delete an existing todo successfully', async () => {
+      const org = faker.string.uuid();
+      const newTodo = {
+        title: faker.word.words(3),
+        message: faker.word.words(10),
+      };
+
+      const createResponse = await createTodo(newTodo, org);
+      assert(createResponse[0] !== undefined, 'Todo creation failed');
+
+      // Delete the todo
+      const deleteResponse = await deleteTodo(createResponse[0].id, org);
+      assert(deleteResponse[0] !== undefined, 'Todo deletion failed');
+    });
   });
 });
