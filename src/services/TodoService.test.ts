@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import { faker } from '@faker-js/faker';
 import { describe, expect, it, vi } from 'vitest';
-import { createTodo, getTodo, getTodoList, updateTodo } from './TodoService';
+import { createTodo, deleteTodo, getTodo, getTodoList, updateTodo } from './TodoService';
 
 vi.mock('@/libs/DB');
 
@@ -59,6 +59,15 @@ describe('TodoService', () => {
       expect(getResponse.id).toEqual(createResponse[0].id);
       expect(getResponse.title).toEqual(updatedTodo.title);
       expect(getResponse.message).toEqual(updatedTodo.message);
+    });
+
+    it('should handle deletion of non-existing todo gracefully', async () => {
+      const org = faker.string.uuid();
+      const nonExistingTodoId = 99999;
+
+      const deleteResponse = await deleteTodo(nonExistingTodoId, org);
+
+      expect(deleteResponse).toEqual([]);
     });
   });
 });
