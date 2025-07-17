@@ -1,22 +1,9 @@
 'use client';
 
 import { OrganizationSwitcher } from '@clerk/nextjs';
-import {
-  CirclePlus,
-  CreditCard,
-  Home,
-  LifeBuoy,
-  Send,
-  Settings,
-  Users,
-} from 'lucide-react';
+import { CirclePlus, CreditCard, Home, LifeBuoy, Send, Settings, Users } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-  SidebarRail,
-} from '@/components/ui/sidebar';
+import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { Logo } from '@/templates/Logo';
 import { getI18nPath } from '@/utils/Helpers';
