@@ -1,3 +1,4 @@
+import type { Row } from '@tanstack/react-table';
 import type { Todo } from '@/types/Todo';
 import { Protect } from '@clerk/nextjs';
 import { DotsHorizontalIcon } from '@radix-ui/react-icons';
@@ -9,10 +10,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { ProtectFallback } from '@/features/auth/ProtectFallback';
 import { ORG_ROLE } from '@/types/Auth';
 
-export const ActionCell = ({ row }: { row: { original: Todo } }) => {
+export const ActionCell = (props: { row: Row<Todo> }) => {
   const router = useRouter();
   const t = useTranslations('TodoTableColumns');
-  const todo = row.original;
+  const todo = props.row.original;
 
   const trigger = (
     <Button variant="ghost" className="size-8 p-0 focus-visible:ring-offset-0">
