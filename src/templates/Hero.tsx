@@ -19,7 +19,7 @@ export const Hero = () => {
             target="_blank"
             rel="noopener noreferrer"
           >
-            <TwitterLogoIcon className="mr-1 size-5" />
+            <TwitterLogoIcon />
             {' '}
             {t('follow_twitter')}
           </a>
