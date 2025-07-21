@@ -17,13 +17,13 @@ export const Navbar = () => {
         logo={<Logo />}
         rightMenu={(
           <>
-            <li data-fade>
+            <li>
               <DarkModeToggle />
             </li>
-            <li data-fade>
+            <li>
               <LocaleSwitcher />
             </li>
-            <li className="ml-1 mr-2.5" data-fade>
+            <li className="ml-1 mr-2.5">
               <Link href="/sign-in">{t('sign_in')}</Link>
             </li>
             <li>
