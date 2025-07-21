@@ -25,7 +25,7 @@ export const CenteredMenu = (props: {
       </div>
 
       <nav className={cn('rounded-t max-lg:mt-2', navClass)}>
-        <ul className="flex gap-x-6 gap-y-1 text-lg font-medium max-lg:flex-col [&_a:hover]:opacity-100 [&_a]:opacity-60 max-lg:[&_a]:inline-block max-lg:[&_a]:w-full">
+        <ul className="flex gap-x-6 gap-y-1 text-lg font-medium max-lg:flex-col [&_a:hover]:opacity-70 max-lg:[&_a]:inline-block max-lg:[&_a]:w-full">
           {props.children}
         </ul>
       </nav>
@@ -36,7 +36,7 @@ export const CenteredMenu = (props: {
           navClass,
         )}
       >
-        <ul className="flex flex-row items-center gap-x-1.5 text-lg font-medium [&_li[data-fade]:hover]:opacity-100 [&_li[data-fade]]:opacity-60">
+        <ul className="flex flex-row items-center gap-x-1.5 text-lg font-medium [&_a:hover]:opacity-70">
           {props.rightMenu}
         </ul>
       </div>
