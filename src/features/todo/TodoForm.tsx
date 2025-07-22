@@ -36,7 +36,7 @@ export const TodoForm = (props: {
                 <Input {...field} />
               </FormControl>
               <FormDescription>{t('title_description')}</FormDescription>
-              <FormMessage />
+              <FormMessage errorMessage={t('title_error_message')} />
             </FormItem>
           )}
         />
@@ -51,7 +51,7 @@ export const TodoForm = (props: {
                 <Input {...field} />
               </FormControl>
               <FormDescription>{t('message_description')}</FormDescription>
-              <FormMessage />
+              <FormMessage errorMessage={t('message_error_message')} />
             </FormItem>
           )}
         />
