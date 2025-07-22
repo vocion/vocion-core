@@ -17,7 +17,7 @@ export const DarkModeToggle = () => {
       <DropdownMenuTrigger asChild>
         <Button className="p-2 focus-visible:ring-offset-0" variant="ghost" size="icon">
           <Sun className="dark:hidden" />
-          <Moon className="hidden rotate-0 dark:block" />
+          <Moon className="hidden dark:block" />
           <span className="sr-only">Toggle theme</span>
         </Button>
       </DropdownMenuTrigger>
