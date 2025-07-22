@@ -34,9 +34,9 @@
     "stripe:setup-price": "dotenv -c -- tsx ./scripts/createStripePrice.ts"
   },
   "dependencies": {
-    "@clerk/localizations": "^3.19.2",
-    "@clerk/nextjs": "^6.25.3",
-    "@clerk/themes": "^2.3.2",
+    "@clerk/localizations": "^3.20.1",
+    "@clerk/nextjs": "^6.25.4",
+    "@clerk/themes": "^2.3.3",
     "@hookform/resolvers": "^5.1.1",
     "@logtape/logtape": "^1.0.4",
     "@radix-ui/react-accordion": "^1.2.11",
@@ -68,7 +68,7 @@
   "devDependencies": {
     "@antfu/eslint-config": "^4.17.0",
     "@chromatic-com/playwright": "^0.12.5",
-    "@clerk/testing": "^1.10.3",
+    "@clerk/testing": "^1.10.4",
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
     "@commitlint/prompt-cli": "^19.8.1",
