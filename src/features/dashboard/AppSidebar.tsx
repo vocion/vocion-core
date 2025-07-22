@@ -13,7 +13,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
   const t = useTranslations('DashboardLayout');
 
   return (
-    <Sidebar variant="inset" {...props}>
+    <Sidebar {...props}>
       <SidebarHeader className="pt-5">
         <div className="flex justify-center pb-3">
           <Logo />
