@@ -148,8 +148,10 @@
   "TodoForm": {
     "title_label": "Title",
     "title_description": "Enter a descriptive title for your todo.",
+    "title_error_message": "Title is required and cannot be empty",
     "message_title": "Message",
     "message_description": "Enter a detailed message for your todo.",
+    "message_error_message": "Message is required and cannot be empty",
     "submit_button": "Submit"
   }
 }
