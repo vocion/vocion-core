@@ -9,7 +9,7 @@ export const Footer = () => {
   const t = useTranslations('Footer');
 
   return (
-    <Section className="pb-16 pt-0">
+    <Section className="pt-0 pb-16">
       <CenteredFooter
         logo={<Logo />}
         name={AppConfig.name}

@@ -39,7 +39,7 @@ export default async function DashboardLayout(props: ILayoutProps) {
       <SidebarInset>
         <AppSidebarHeader />
 
-        <div className="flex-1 px-6 py-4 @container">
+        <div className="@container flex-1 px-6 py-4">
           {props.children}
         </div>
       </SidebarInset>

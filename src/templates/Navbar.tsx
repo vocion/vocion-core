@@ -23,7 +23,7 @@ export const Navbar = () => {
             <li>
               <LocaleSwitcher />
             </li>
-            <li className="ml-1 mr-2.5">
+            <li className="mr-2.5 ml-1">
               <Link href="/sign-in">{t('sign_in')}</Link>
             </li>
             <li>

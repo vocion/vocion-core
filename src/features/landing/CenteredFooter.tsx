@@ -17,7 +17,7 @@ export const CenteredFooter = (props: {
         {props.children}
       </ul>
 
-      <ul className="mt-4 flex flex-row gap-x-5 text-primary [&_svg:hover]:opacity-60 [&_svg]:size-5 [&_svg]:fill-current">
+      <ul className="mt-4 flex flex-row gap-x-5 text-primary [&_svg]:size-5 [&_svg]:fill-current [&_svg:hover]:opacity-60">
         {props.iconList}
       </ul>
 
