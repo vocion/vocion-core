@@ -9,7 +9,7 @@ export const MessageState = (props: {
       {props.icon}
     </div>
 
-    <div className="mb-24 mt-3 text-center">
+    <div className="mt-3 mb-24 text-center">
       <div className="text-xl font-semibold">{props.title}</div>
       <div className="mt-1 text-sm font-medium text-muted-foreground">
         {props.description}
