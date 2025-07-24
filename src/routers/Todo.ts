@@ -3,12 +3,12 @@ import { logger } from '@/libs/Logger';
 import { createTodo, deleteTodo, updateTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
 import { DeleteTodoValidation, EditTodoValidation, TodoValidation } from '@/validations/TodoValidation';
-import { guardAuthenticated, guardRole } from './AuthGuards';
+import { guardAuth, guardRole } from './AuthGuards';
 
 export const create = os
   .input(TodoValidation)
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuthenticated();
+    const { orgId } = await guardAuth();
 
     const todo = await createTodo(input, orgId);
 
