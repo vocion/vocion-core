@@ -31,6 +31,8 @@ export default async function middleware(
     isAuthPage(request) || isProtectedRoute(request)
   ) {
     return clerkMiddleware(async (auth, req) => {
+      // Check if the current route is protected and requires authentication
+      // If user is not authenticated, redirect them to the sign-in page with proper locale
       if (isProtectedRoute(req)) {
         const locale = req.nextUrl.pathname.match(/(\/.*)\/dashboard/)?.at(1) ?? '';
 
@@ -43,6 +45,8 @@ export default async function middleware(
 
       const authObj = await auth();
 
+      // Redirect authenticated users without an organization to the organization selection page
+      // This ensures users are properly associated with an organization before accessing the dashboard
       if (
         authObj.userId
         && !authObj.orgId
