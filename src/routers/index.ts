@@ -1,8 +1,7 @@
-import { create, edit, ping, remove } from './todo';
+import { create, edit, remove } from './todo';
 
 export const router = {
   todo: {
-    ping,
     create,
     edit,
     remove,
