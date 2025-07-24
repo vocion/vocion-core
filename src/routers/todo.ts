@@ -5,14 +5,21 @@ import { createTodo, deleteTodo, updateTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
 import { DeleteTodoValidation, EditTodoValidation, TodoValidation } from '@/validations/TodoValidation';
 
+// Authentication helper function
+const requireAuth = async () => {
+  const { userId, orgId, has } = await auth();
+
+  if (!userId || !orgId) {
+    throw new ORPCError('Unauthorized', { status: 401 });
+  }
+
+  return { userId, orgId, has };
+};
+
 export const create = os
   .input(TodoValidation)
   .handler(async ({ input }) => {
-    const { userId, orgId } = await auth();
-
-    if (!userId || !orgId) {
-      throw new ORPCError('Unauthorized', { status: 401 });
-    }
+    const { orgId } = await requireAuth();
 
     const todo = await createTodo(input, orgId);
 
@@ -26,11 +33,7 @@ export const create = os
 export const edit = os
   .input(EditTodoValidation)
   .handler(async ({ input }) => {
-    const { userId, orgId, has } = await auth();
-
-    if (!userId || !orgId) {
-      throw new ORPCError('Unauthorized', { status: 401 });
-    }
+    const { orgId, has } = await requireAuth();
 
     if (!has({ role: ORG_ROLE.ADMIN })) {
       throw new ORPCError('Forbidden', { status: 403 });
@@ -50,11 +53,7 @@ export const edit = os
 export const remove = os
   .input(DeleteTodoValidation)
   .handler(async ({ input }) => {
-    const { userId, orgId, has } = await auth();
-
-    if (!userId || !orgId) {
-      throw new ORPCError('Unauthorized', { status: 401 });
-    }
+    const { orgId, has } = await requireAuth();
 
     if (!has({ role: ORG_ROLE.ADMIN })) {
       throw new ORPCError('Forbidden', { status: 403 });
