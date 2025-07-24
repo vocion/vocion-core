@@ -1,4 +1,3 @@
-import { auth } from '@clerk/nextjs/server';
 import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
@@ -6,16 +5,13 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { EditTodoForm } from '@/features/todo/EditTodoForm';
 import { getTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
+import { requireOrganization } from '@/utils/Helpers';
 
 export default async function EditTodoPage(props: {
   params: Promise<{ id: number; locale: string }>;
 }) {
-  const { orgId, has } = await auth();
+  const { orgId, has } = await requireOrganization();
   const { id, locale } = await props.params;
-
-  if (!orgId) {
-    redirect('/onboarding/organization-selection');
-  }
 
   if (!has({ role: ORG_ROLE.ADMIN })) {
     redirect('/dashboard/todos');
