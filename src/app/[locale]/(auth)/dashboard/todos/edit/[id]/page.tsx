@@ -5,7 +5,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { EditTodoForm } from '@/features/todo/EditTodoForm';
 import { getTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
-import { requireOrganization } from '@/utils/Helpers';
+import { requireOrganization } from '@/utils/Auth';
 
 export default async function EditTodoPage(props: {
   params: Promise<{ id: number; locale: string }>;

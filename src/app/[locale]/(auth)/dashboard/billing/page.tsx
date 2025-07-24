@@ -9,7 +9,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { determineSubscriptionPlan } from '@/services/BillingService';
 import { getStripeSubscription } from '@/services/OrganizationService';
 import { ORG_ROLE } from '@/types/Auth';
-import { requireOrganization } from '@/utils/Helpers';
+import { requireOrganization } from '@/utils/Auth';
 
 export default async function BillingPage(props: {
   params: Promise<{ locale: string }>;

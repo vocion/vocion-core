@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { createBillingPortal } from '@/services/BillingService';
 import { getStripeCustomerId } from '@/services/OrganizationService';
 import { ORG_ROLE } from '@/types/Auth';
-import { requireOrganization } from '@/utils/Helpers';
+import { requireOrganization } from '@/utils/Auth';
 
 export async function GET(
   _request: Request,
