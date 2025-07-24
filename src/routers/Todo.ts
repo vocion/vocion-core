@@ -1,32 +1,9 @@
-import type { OrgRole } from '@/types/Auth';
-import { auth } from '@clerk/nextjs/server';
 import { ORPCError, os } from '@orpc/server';
 import { logger } from '@/libs/Logger';
 import { createTodo, deleteTodo, updateTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
 import { DeleteTodoValidation, EditTodoValidation, TodoValidation } from '@/validations/TodoValidation';
-
-// Authentication helper function
-const requireAuth = async () => {
-  const { userId, orgId, has } = await auth();
-
-  if (!userId || !orgId) {
-    throw new ORPCError('Unauthorized', { status: 401 });
-  }
-
-  return { orgId, has };
-};
-
-// Role-based authentication helper function
-const requireRole = async (role: OrgRole) => {
-  const { orgId, has } = await requireAuth();
-
-  if (!has({ role })) {
-    throw new ORPCError('Forbidden', { status: 403 });
-  }
-
-  return { orgId };
-};
+import { requireAuth, requireRole } from './AuthGuards';
 
 export const create = os
   .input(TodoValidation)
