@@ -1,7 +1,8 @@
-import { ping } from './todo';
+import { create, ping } from './todo';
 
 export const router = {
   todo: {
     ping,
+    create,
   },
 };
