@@ -1,3 +1,4 @@
+import type { OrgRole } from '@/types/Auth';
 import { auth } from '@clerk/nextjs/server';
 import { ORPCError, os } from '@orpc/server';
 import { logger } from '@/libs/Logger';
@@ -13,7 +14,18 @@ const requireAuth = async () => {
     throw new ORPCError('Unauthorized', { status: 401 });
   }
 
-  return { userId, orgId, has };
+  return { orgId, has };
+};
+
+// Role-based authentication helper function
+const requireRole = async (role: OrgRole) => {
+  const { orgId, has } = await requireAuth();
+
+  if (!has({ role })) {
+    throw new ORPCError('Forbidden', { status: 403 });
+  }
+
+  return { orgId };
 };
 
 export const create = os
@@ -33,11 +45,7 @@ export const create = os
 export const edit = os
   .input(EditTodoValidation)
   .handler(async ({ input }) => {
-    const { orgId, has } = await requireAuth();
-
-    if (!has({ role: ORG_ROLE.ADMIN })) {
-      throw new ORPCError('Forbidden', { status: 403 });
-    }
+    const { orgId } = await requireRole(ORG_ROLE.ADMIN);
 
     const result = await updateTodo(input, orgId);
 
@@ -53,11 +61,7 @@ export const edit = os
 export const remove = os
   .input(DeleteTodoValidation)
   .handler(async ({ input }) => {
-    const { orgId, has } = await requireAuth();
-
-    if (!has({ role: ORG_ROLE.ADMIN })) {
-      throw new ORPCError('Forbidden', { status: 403 });
-    }
+    const { orgId } = await requireRole(ORG_ROLE.ADMIN);
 
     const result = await deleteTodo(input.id, orgId);
 
