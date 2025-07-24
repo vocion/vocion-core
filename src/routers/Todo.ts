@@ -3,12 +3,12 @@ import { logger } from '@/libs/Logger';
 import { createTodo, deleteTodo, updateTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
 import { DeleteTodoValidation, EditTodoValidation, TodoValidation } from '@/validations/TodoValidation';
-import { requireAuth, requireRole } from './AuthGuards';
+import { guardAuthenticated, guardRole } from './AuthGuards';
 
 export const create = os
   .input(TodoValidation)
   .handler(async ({ input }) => {
-    const { orgId } = await requireAuth();
+    const { orgId } = await guardAuthenticated();
 
     const todo = await createTodo(input, orgId);
 
@@ -22,7 +22,7 @@ export const create = os
 export const edit = os
   .input(EditTodoValidation)
   .handler(async ({ input }) => {
-    const { orgId } = await requireRole(ORG_ROLE.ADMIN);
+    const { orgId } = await guardRole(ORG_ROLE.ADMIN);
 
     const result = await updateTodo(input, orgId);
 
@@ -38,7 +38,7 @@ export const edit = os
 export const remove = os
   .input(DeleteTodoValidation)
   .handler(async ({ input }) => {
-    const { orgId } = await requireRole(ORG_ROLE.ADMIN);
+    const { orgId } = await guardRole(ORG_ROLE.ADMIN);
 
     const result = await deleteTodo(input.id, orgId);
 
