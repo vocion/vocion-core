@@ -16,7 +16,7 @@ import { ORPCError } from '@orpc/server';
  * @returns Promise containing orgId and has function for role checking
  * @throws ORPCError with 401 status if userId or orgId is missing
  */
-export const guardAuthenticated = async () => {
+export const guardAuth = async () => {
   const { userId, orgId, has } = await auth();
 
   if (!userId || !orgId) {
@@ -34,7 +34,7 @@ export const guardAuthenticated = async () => {
  * @throws ORPCError with 401 status if not authenticated, 403 if insufficient permissions
  */
 export const guardRole = async (role: OrgRole) => {
-  const { orgId, has } = await guardAuthenticated();
+  const { orgId, has } = await guardAuth();
 
   if (!has({ role })) {
     throw new ORPCError('Forbidden', { status: 403 });
