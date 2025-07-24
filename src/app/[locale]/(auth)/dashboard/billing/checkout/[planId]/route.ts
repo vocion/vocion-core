@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { createCheckoutSession, createOrRetrieveCustomer } from '@/services/BillingService';
 import { ORG_ROLE } from '@/types/Auth';
 import { PricingPlanList } from '@/utils/AppConfig';
-import { requireOrganization } from '@/utils/Helpers';
+import { requireOrganization } from '@/utils/Auth';
 
 export async function GET(
   _request: Request,

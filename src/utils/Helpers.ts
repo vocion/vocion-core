@@ -1,7 +1,5 @@
 import type { ClassValue } from 'clsx';
-import { auth } from '@clerk/nextjs/server';
 import { clsx } from 'clsx';
-import { redirect } from 'next/navigation';
 import { twMerge } from 'tailwind-merge';
 import { routing } from '@/libs/I18nRouting';
 
@@ -40,14 +38,4 @@ export const getI18nPath = (url: string, locale: string) => {
 
 export const isServer = () => {
   return typeof window === 'undefined';
-};
-
-export const requireOrganization = async () => {
-  const { orgId, has } = await auth();
-
-  if (!orgId) {
-    redirect('/onboarding/organization-selection');
-  }
-
-  return { orgId, has };
 };

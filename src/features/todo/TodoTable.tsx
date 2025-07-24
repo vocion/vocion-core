@@ -1,5 +1,5 @@
 import { getTodoList } from '@/services/TodoService';
-import { requireOrganization } from '@/utils/Helpers';
+import { requireOrganization } from '@/utils/Auth';
 import { TodoTableColumns } from './TodoTableColumns';
 
 export const TodoTable = async () => {
