@@ -24,7 +24,7 @@ export const createUserWithOrganization = async (page: Page) => {
   // Need to wait for the email verification code to be 'sent' (simulated in the test environment)
   await expect(async () => {
     // The verification code for test emails is `424242`
-    await page.getByLabel('Enter verification code').fill('424242');
+    await page.keyboard.type('424242');
 
     await expect(page.getByRole('heading', { name: 'Create Organization' })).toBeVisible();
   }).toPass();
