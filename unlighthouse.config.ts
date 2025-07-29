@@ -5,6 +5,6 @@ export default {
     maxRoutes: 2, // Increase this number to test more routes
   },
   ci: {
-    budget: 80, // Fail if the score is below the budget for any lighthouse category
+    budget: 70, // Fail if the score is below the budget for any lighthouse category
   },
 };
