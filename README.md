@@ -445,48 +445,6 @@ With the plugins installed in your VSCode, ESLint and Prettier can automatically
 
 Pro tips: if you need a project wide-type checking with TypeScript, you can run a build with <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac.
 
-### Upgrade from Free to Pro
-
-> :warning: This section only applies to someone who already started with the free version and already made some changes in the free version. If you are starting from scratch, you can directly clone the premium repository.
-
-If the file is present in both repository, the content should be the same. You should just looking at the missing files. In the premium repository, there are only new files.
-
-To make the migration easier, the default migration folder is exactly the same as the free version.
-
-The most important difference is related to Stripe and the Todo/CRUD code.
-
-Here are new files added in the premium repository:
-
-- ./scripts/*
-- ./src/app/\[locale\]/(auth)/api/*
-- ./src/app/\[locale\]/(auth)/dashboard/billing/*
-- ./src/app/\[locale\]/(auth)/dashboard/todos/*
-- ./src/app/\[locale\]/(unauth)/webhook/*
-- ./src/components/DarkModeToggle.tsx
-- ./src/features/billing/BillingOptions.tsx
-- ./src/features/billing/CurrentPlanDetails.tsx
-- ./src/features/todo/*
-- ./src/libs/Stripe.ts
-- ./src/services/*
-- ./src/types/Todo.ts
-- ./src/validations/*
-- ./tests/e2e/Todo.e2e.ts
-- ./tests/integration/Todo.spec.ts
-- ./tests/global.setup.ts
-- ./tests/global.teardown.ts
-- ./tests/TestUtils.ts
-
-Then, in the following files, you will need to update the existing files:
-
-- src/app/\[locale\]/layout.tsx, add dark mode support for Shadcn UI
-- src/app/\[locale\]/(auth)/layout.tsx, add dark mode support for Clerk
-- src/app/\[locale\]/(auth)/dashboard/layout.tsx, add links to `Todos` and `Billing` page
-- src/features/dashboard/DashboardHeader.tsx, add dark mode toggle
-- src/templates/Sponsors.tsx, add dark mode support for logos
-- package.json, add the missing scripts `dev:stripe` and `stripe:setup-price`.
-
-For your information, the list may not be exhaustive and you also need to add the related imports used in these files.
-
 ### FAQ
 
 #### Why are webhooks not necessary for Clerk?
