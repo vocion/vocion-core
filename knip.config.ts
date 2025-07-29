@@ -5,9 +5,11 @@ const config: KnipConfig = {
   ignore: [
     'checkly.config.ts',
     'unlighthouse.config.ts',
+    'src/components/ui/*',
     'src/libs/I18n.ts',
     'src/types/I18n.ts',
     'tests/**/*.ts',
+    'src/types/Auth.ts',
   ],
   // Dependencies to ignore during analysis
   ignoreDependencies: [
@@ -19,6 +21,7 @@ const config: KnipConfig = {
   // Binaries to ignore during analysis
   ignoreBinaries: [
     'production', // False positive raised with dotenv-cli
+    'stripe', // False positive
   ],
   compilers: {
     css: (text: string) => [...text.matchAll(/(?<=@)import[^;]+/g)].join('\n'),

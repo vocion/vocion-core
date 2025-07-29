@@ -8,7 +8,7 @@ import { PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
 import { getBaseUrl, MILLISECONDS_IN_ONE_DAY } from '@/utils/Helpers';
 import { getStripeCustomerId, updateStripeSubscription, upsertStripeCustomerId } from './OrganizationService';
 
-export const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
+const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const customerId = subscription.customer;
 
