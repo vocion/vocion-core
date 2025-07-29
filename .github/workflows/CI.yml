@@ -202,6 +202,8 @@ jobs:
       - name: Run unlighthouse
         run: |
           npm run test:lighthouse
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
 
   synchronize-with-crowdin:
     name: GitHub PR synchronize with Crowdin
