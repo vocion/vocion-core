@@ -100,7 +100,7 @@ Developer experience first, extremely flexible code structure and only keep what
 - ⚡ [Next.js](https://nextjs.org) with App Router support
 - 🔥 Type checking [TypeScript](https://www.typescriptlang.org)
 - 💎 Integrate with [Tailwind CSS](https://tailwindcss.com) and Shadcn UI
-- ✅ Strict Mode for TypeScript and [React 19](https://react.dev)
+- ✅ Strict Mode for TypeScript and React 19
 - 🔒 Authentication with [Clerk](https://go.clerk.com/zGlzydF): Sign up, Sign in, Sign out, Forgot password, Reset password, and more.
 - 👤 Passwordless Authentication with Magic Links, Multi-Factor Auth (MFA), Social Auth (Google, Facebook, Twitter, GitHub, Apple, and more), Passwordless login with Passkeys, User Impersonation
 - 👥 Multi-tenancy & team support: create, switch, update organization and invite team members
@@ -108,34 +108,40 @@ Developer experience first, extremely flexible code structure and only keep what
 - 👤 Multi-Factor Auth (MFA), Social Auth (Google, Facebook, Twitter, GitHub, Apple, and more), User Impersonation
 - 📦 Type-safe ORM with DrizzleORM, compatible with PostgreSQL, SQLite, and MySQL
 - 💽 Offline and local development database with PGlite
-- 🌐 Multi-language (i18n) with [next-intl](https://next-intl-docs.vercel.app/) and [Crowdin](https://l.crowdin.com/next-js)
+- ☁️ Remote and production database with [Prisma Postgres](https://www.prisma.io/?via=nextjs-boilerplate)
+- 🌐 Multi-language (i18n) with next-intl and [Crowdin](https://l.crowdin.com/next-js)
 - ♻️ Type-safe environment variables with T3 Env
-- ⌨️ Form with [React Hook Form](https://react-hook-form.com)
-- 🔴 Validation library with [Zod](https://zod.dev)
-- 📏 Linter with [ESLint](https://eslint.org) (default NextJS, NextJS Core Web Vitals, Tailwind CSS and Antfu configuration)
-- 💖 Code Formatter with [Prettier](https://prettier.io)
-- 🦊 Husky for Git Hooks
+- ⌨️ Form handling with React Hook Form
+- 🔴 Validation library with Zod
+- 📏 Linter with [ESLint](https://eslint.org) (default Next.js, Next.js Core Web Vitals, Tailwind CSS and Antfu configuration)
+- 💖 Code Formatter with Prettier
+- 🦊 Husky for Git Hooks (replaced by Lefthook)
 - 🚫 Lint-staged for running linters on Git staged files
 - 🚓 Lint git commit with Commitlint
 - 📓 Write standard compliant commit messages with Commitizen
-- 🦺 Unit Testing with [Vitest](https://vitest.dev) and React Testing Library
-- 🧪 Integration and E2E Testing with [Playwright](https://playwright.dev)
-- 👷 Run tests on pull requests with GitHub Actions
-- 🎉 [Storybook](https://storybook.js.org) for UI development
+- 🔍 Unused files and dependencies detection with Knip
+- 🌍 I18n validation and missing translation detection with i18n-check
+- 🦺 Unit Testing with Vitest and Browser mode (replacing React Testing Library)
+- 🧪 Integration and E2E Testing with Playwright
+- 👷 Run tests on pull request with GitHub Actions
+- 🎉 Storybook for UI development
 - 🚨 Error Monitoring with [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-nextjsboilerplate-logo)
+- 🔍 Local development error monitoring with Sentry Spotlight
 - ☂️ Code coverage with [Codecov](https://about.codecov.io/codecov-free-trial/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-nextjsboilerplate-logo)
-- 📝 Logging with [Pino.js](https://getpino.io) and Log Management with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=next-js-boilerplate)
+- 📝 Logging with LogTape and Log Management with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=next-js-boilerplate)
 - 🖥️ Monitoring as Code with [Checkly](https://www.checklyhq.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=next-js-boilerplate)
+- 🔐 Security and bot protection ([Arcjet](https://launch.arcjet.com/Q6eLbRE))
 - 🎁 Automatic changelog generation with Semantic Release
-- 🔍 Visual testing with Percy (Optional)
+- 🔍 Visual regression testing
 - 💡 Absolute Imports using `@` prefix
 - 🗂 VSCode configuration: Debug, Settings, Tasks and Extensions
 - 🤖 SEO metadata, JSON-LD and Open Graph tags
 - 🗺️ Sitemap.xml and robots.txt
+- 👷 Automatic dependency updates with Dependabot
 - ⌘ Database exploration with Drizzle Studio and CLI migration tool with Drizzle Kit
-- ⚙️ [Bundler Analyzer](https://www.npmjs.com/package/@next/bundle-analyzer)
+- ⚙️ Bundler Analyzer
 - 🌈 Include a FREE minimalist theme
-- 💯 Maximize lighthouse score
+- 💯 Maximize lighthouse score with Unlighthouse
 
 Built-in feature from Next.js:
 
@@ -156,8 +162,7 @@ Built-in feature from Next.js:
 
 ### Requirements
 
-- Node.js 20+ and npm
-- Stripe CLI, you can install it by following this [documentation](https://docs.stripe.com/stripe-cli)
+- Node.js 22+ and npm
 
 ### Getting started
 
@@ -171,21 +176,13 @@ npm install
 
 For your information, all dependencies are updated every month.
 
-You'll need to log in to your Stripe account using the Stripe CLI:
-
-```shell
-stripe login
-```
-
-Please note that at this stage, we are only ensuring that you have the Stripe CLI installed and functioning properly. The complete setup of Stripe will be done later.
-
 Then, you can run the project locally in development mode with live reload by executing:
 
 ```shell
 npm run dev
 ```
 
-Open http://localhost:3000 with your favorite browser to see your project.
+Open http://localhost:3000 with your favorite browser to see your project. For your information, the project is already pre-configured with a local database using PGlite. No extra setup is required to run the project locally.
 
 ### Set up authentication
 
@@ -204,7 +201,8 @@ Now, you have a fully working authentication system with Next.js: Sign up, Sign 
 
 The project uses DrizzleORM, a type-safe ORM that is compatible with PostgreSQL, SQLite, and MySQL databases. By default, the project is set up to work seamlessly with PostgreSQL and you can easily choose any PostgreSQL database provider. Here are some popular options:
 
-- [Neon.tech](https://neon.tech) - Tested and works great with the project
+- Neon.tech - Tested and works great with the project
+- [Prisma PostgreSQL](https://www.prisma.io/?via=nextjs-boilerplate) - Tested and works great with the project
 - AWS
 - Xata
 - Tembo.io
@@ -227,7 +225,8 @@ After defining the environment variables in your GitHub Actions, your localizati
 .
 ├── README.md                       # README file
 ├── .github                         # GitHub folder
-├── .husky                          # Husky configuration
+│   ├── actions                     # Reusable actions
+│   └── workflows                   # GitHub Actions workflows
 ├── .storybook                      # Storybook folder
 ├── .vscode                         # VSCode configuration
 ├── migrations                      # Database migrations
@@ -235,7 +234,7 @@ After defining the environment variables in your GitHub Actions, your localizati
 ├── scripts                         # Scripts folder
 ├── src
 │   ├── app                         # Next JS App (App Router)
-│   ├── components                  # Reusable components
+│   ├── components                  # React components
 │   ├── features                    # Components specific to a feature
 │   ├── libs                        # 3rd party libraries configuration
 │   ├── locales                     # Locales folder (i18n messages)
@@ -243,11 +242,12 @@ After defining the environment variables in your GitHub Actions, your localizati
 │   ├── styles                      # Styles folder
 │   ├── templates                   # Templates folder
 │   ├── types                       # Type definitions
-│   └── utils                       # Utilities folder
+│   ├── utils                       # Utilities folder
+│   └── validations                 # Validation schemas
 ├── tests
 │   ├── e2e                         # E2E tests, also includes Monitoring as Code
 │   └── integration                 # Integration tests
-├── tailwind.config.js              # Tailwind CSS configuration
+├── next.config.ts                  # Next JS configuration
 └── tsconfig.json                   # TypeScript configuration
 ```
 
@@ -258,12 +258,12 @@ You can easily configure SaaS Boilerplate by searching the entire project for `F
 - `public/apple-touch-icon.png`, `public/favicon.ico`, `public/favicon-16x16.png` and `public/favicon-32x32.png`: your website favicon
 - `src/utils/AppConfig.ts`: configuration file
 - `src/templates/BaseTemplate.tsx`: default theme
-- `next.config.mjs`: Next.js configuration
+- `next.config.ts`: Next.js configuration
 - `.env`: default environment variables
 
 You have full access to the source code for further customization. The provided code is just an example to help you start your project. The sky's the limit 🚀.
 
-In the source code, you will also find `PRO` comments that indicate the code that is only available in the PRO version. You can easily remove or replace this code with your own implementation.
+In the source code, you will also find `PRO` comments that indicate the code that is only available in the PRO version.
 
 ### Change database schema
 
@@ -279,7 +279,7 @@ This will create a migration file that reflects your schema changes. The migrati
 
 ### Commit Message Format
 
-The project follows the [Conventional Commits](https://www.conventionalcommits.org/) specification, meaning all commit messages must be formatted accordingly. To help you write commit messages, the project uses [Commitizen](https://github.com/commitizen/cz-cli), an interactive CLI that guides you through the commit process. To use it, run the following command:
+The project follows the [Conventional Commits](https://www.conventionalcommits.org/) specification, meaning all commit messages must be formatted accordingly. To help you write commit messages, the project provides an interactive CLI that guides you through the commit process. To use it, run the following command:
 
 ```shell
 npm run commit
@@ -289,23 +289,27 @@ One of the benefits of using Conventional Commits is the ability to automaticall
 
 ### Subscription payment with Stripe
 
-The project is integrated with Stripe for subscription payment. You need to create a Stripe account and you also need to install the Stripe CLI. After installing the Stripe CLI, you need to login using the CLI:
+#### Stripe setup
+
+The project is integrated with Stripe for subscription payment. You need to create a Stripe account and you also need to install the Stripe CLI. You can install the Stripe CLI by following the instructions this [documentation](https://docs.stripe.com/stripe-cli).
+
+After installing the Stripe CLI, you need to login using the CLI:
 
 ```shell
 stripe login
 ```
 
-Then, you can run the following command to create a new price:
+Then, you can run the following command to set up your Stripe account and create different prices for your subscription plans:
 
 ```shell
 npm run stripe:setup-price
 ```
 
-After running the command, you need to copy the price ID and paste it in `src/utils/AppConfig.ts` by updating the existing price ID with the new one.
+After running the command, you need to copy the price ID and paste it in `src/utils/AppConfig.ts` by updating the existing price ID with the new ones.
 
-In your Stripe Dashboard, you are required to configure your customer portal settings at https://dashboard.stripe.com/test/settings/billing/portal. Most importantly, you need to save the settings.
+In your Stripe Dashboard, you are required to configure your customer portal settings at https://dashboard.stripe.com/test/settings/billing/portal. Most importantly, don't forget to save the settings even you don't change anything. This is necessary to ensure that the customer portal works correctly.
 
-In your `.env` file, you need to update the `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` with your own Stripe Publishable key. You can find the key in your Stripe Dashboard. Then, you also need to create a new file named `.env.local` and add the following environment variables in the newly created file:
+In your `.env` file, you need to update the `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` with your Stripe Publishable key. You can find the key in your Stripe Dashboard. Then, you also need to create a new file named `.env.local` and add the following environment variables in the newly created file:
 
 ```shell
 STRIPE_SECRET_KEY=your_stripe_secret_key
@@ -315,14 +319,30 @@ STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
 You get the `STRIPE_SECRET_KEY` from your Stripe Dashboard. The `STRIPE_WEBHOOK_SECRET` is generated by running the following command:
 
 ```shell
+npm run stripe:listen
+```
+
+You'll find the webhook signing secret in your terminal. You can copy it and paste it in your `.env.local` file.
+
+#### Running Stripe webhooks locally
+
+Now, you are ready to test the Stripe integration in your local environment. In one terminal, you need to run your Next.js application in development mode:
+
+```shell
 npm run dev
 ```
 
-You'll find in your terminal the webhook signing secret. You can copy it and paste it in your `.env.local` file.
+And, in another terminal, you need to run the Stripe webhook listener to forward Stripe events to your local development server:
+
+```shell
+npm run stripe:listen
+```
+
+This allows you to test subscription events, payment completions, and other Stripe webhooks locally without deploying your application.
 
 ### Testing
 
-All unit tests are located alongside the source code in the same directory, making them easier to find. The project uses Vitest and React Testing Library for unit testing. You can run the tests with the following command:
+All unit tests are located alongside the source code in the same directory, making them easier to find. The unit test files follow this format: `*.test.ts` or `*.test.tsx`. The project uses Vitest and React Testing Library for unit testing. You can run the tests with the following command:
 
 ```shell
 npm run test
@@ -330,36 +350,32 @@ npm run test
 
 ### Integration & E2E Testing
 
-The project uses Playwright for integration and end-to-end (E2E) testing. You can run the tests with the following commands:
+The project uses Playwright for integration and end-to-end (E2E) testing. Integration test files use the `*.spec.ts` extension, while E2E test files use the `*.e2e.ts` extension. You can run the tests with the following commands:
 
 ```shell
 npx playwright install # Only for the first time in a new environment
 npm run test:e2e
 ```
 
-In the local environment, visual testing is disabled, and the terminal will display the message `[percy] Percy is not running, disabling snapshots.`. By default, visual testing only runs in GitHub Actions.
+### Storybook
 
-### Enable Edge runtime (optional)
+Storybook is configured for UI component development and testing. The project uses Storybook with Next.js and Vite integration, including accessibility testing and documentation features.
 
-The App Router folder is compatible with the Edge runtime. You can enable it by adding the following lines `src/app/layouts.tsx`:
+Stories are located alongside your components in the `src` directory and follow the pattern `*.stories.ts` or `*.stories.tsx`.
 
-```tsx
-export const runtime = 'edge';
-```
-
-For your information, the database migration is not compatible with the Edge runtime. So, you need to disable the automatic migration in `src/libs/DB.ts`:
-
-```tsx
-await migrate(db, { migrationsFolder: './migrations' });
-```
-
-After disabling it, you are required to run the migration manually with:
+You can run Storybook in development mode with:
 
 ```shell
-npm run db:migrate
+npm run storybook
 ```
 
-You also require to run the command each time you want to update the database schema.
+This will start Storybook on http://localhost:6006 where you can view and interact with your UI components in isolation.
+
+To run Storybook tests in headless mode, you can use the following command:
+
+```shell
+npm run storybook:test
+```
 
 ### Deploy to production
 
@@ -391,7 +407,15 @@ Here are some popular hosting options without Docker for deploying your Next.js 
 
 The project uses [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-nextjsboilerplate-logo) to monitor errors. In the development environment, no additional setup is needed: SaaS Boilerplate is pre-configured to use Sentry and Spotlight (Sentry for Development). All errors will automatically be sent to your local Spotlight instance, allowing you to experience Sentry locally.
 
-For production environment, you'll need to create a Sentry account and a new project. Then, in `next.config.mjs`, you need to update the `org` and `project` attributes in `withSentryConfig` function. Additionally, add your Sentry DSN to `sentry.client.config.ts`, `sentry.edge.config.ts` and `sentry.server.config.ts`.
+For production environment, you'll need to create a Sentry account and a new project. Then, in `.env.production`, you need to update the following environment variables:
+
+```shell
+NEXT_PUBLIC_SENTRY_DSN=
+SENTRY_ORGANIZATION=
+SENTRY_PROJECT=
+```
+
+You also need to create a environment variable `SENTRY_AUTH_TOKEN` in your hosting provider's dashboard.
 
 ### Code coverage
 
@@ -401,11 +425,11 @@ Make sure to create `CODECOV_TOKEN` as a GitHub Actions secret, do not paste it 
 
 ### Logging
 
-The project uses Pino.js for logging. In the development environment, logs are displayed in the console by default.
+The project uses LogTape for logging. In the development environment, logs are displayed in the console by default.
 
 For production, the project is already integrated with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=next-js-boilerplate) to manage and query your logs using SQL. To use Better Stack, you need to create a [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=next-js-boilerplate) account and create a new source: go to your Better Stack Logs Dashboard > Sources > Connect source. Then, you need to give a name to your source and select Node.js as the platform.
 
-After creating the source, you will be able to view and copy your source token. In your environment variables, paste the token into the `LOGTAIL_SOURCE_TOKEN` variable. Now, all logs will automatically be sent to and ingested by Better Stack.
+After creating the source, you will be able to view and copy your source token. In your environment variables, paste the token into the `BETTER_STACK_SOURCE_TOKEN` variable. Now, all logs will automatically be sent to and ingested by Better Stack.
 
 ### Checkly monitoring
 
@@ -416,6 +440,16 @@ To use Checkly, you must first create an account on [their website](https://www.
 To complete the setup, update the `checkly.config.ts` file with your own email address and production URL.
 
 ### Useful commands
+
+### Code Quality and Validation
+
+The project includes several commands to ensure code quality and consistency. You can run:
+
+- `npm run lint` to check for linting errors
+- `npm run lint:fix` to automatically fix fixable issues from the linter
+- `npm run check:types` to verify type safety across the entire project
+- `npm run check:deps` help identify unused dependencies and files
+- `npm run check:i18n` ensures all translations are complete and properly formatted
 
 #### Bundle Analyzer
 
@@ -444,48 +478,6 @@ If you are VSCode user, you can have a better integration with VSCode by install
 With the plugins installed in your VSCode, ESLint and Prettier can automatically fix the code and display errors. The same applies to testing: you can install the VSCode Vitest extension to automatically run your tests, and it also shows the code coverage in context.
 
 Pro tips: if you need a project wide-type checking with TypeScript, you can run a build with <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac.
-
-### Upgrade from Free to Pro
-
-> :warning: This section only applies to someone who already started with the free version and already made some changes in the free version. If you are starting from scratch, you can directly clone the premium repository.
-
-If the file is present in both repository, the content should be the same. You should just looking at the missing files. In the premium repository, there are only new files.
-
-To make the migration easier, the default migration folder is exactly the same as the free version.
-
-The most important difference is related to Stripe and the Todo/CRUD code.
-
-Here are new files added in the premium repository:
-
-- ./scripts/*
-- ./src/app/\[locale\]/(auth)/api/*
-- ./src/app/\[locale\]/(auth)/dashboard/billing/*
-- ./src/app/\[locale\]/(auth)/dashboard/todos/*
-- ./src/app/\[locale\]/(unauth)/webhook/*
-- ./src/components/DarkModeToggle.tsx
-- ./src/features/billing/BillingOptions.tsx
-- ./src/features/billing/CurrentPlanDetails.tsx
-- ./src/features/todo/*
-- ./src/libs/Stripe.ts
-- ./src/services/*
-- ./src/types/Todo.ts
-- ./src/validations/*
-- ./tests/e2e/Todo.e2e.ts
-- ./tests/integration/Todo.spec.ts
-- ./tests/global.setup.ts
-- ./tests/global.teardown.ts
-- ./tests/TestUtils.ts
-
-Then, in the following files, you will need to update the existing files:
-
-- src/app/\[locale\]/layout.tsx, add dark mode support for Shadcn UI
-- src/app/\[locale\]/(auth)/layout.tsx, add dark mode support for Clerk
-- src/app/\[locale\]/(auth)/dashboard/layout.tsx, add links to `Todos` and `Billing` page
-- src/features/dashboard/DashboardHeader.tsx, add dark mode toggle
-- src/templates/Sponsors.tsx, add dark mode support for logos
-- package.json, add the missing scripts `dev:stripe` and `stripe:setup-price`.
-
-For your information, the list may not be exhaustive and you also need to add the related imports used in these files.
 
 ### FAQ
 
