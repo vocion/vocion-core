@@ -279,7 +279,7 @@ This will create a migration file that reflects your schema changes. The migrati
 
 ### Commit Message Format
 
-The project follows the [Conventional Commits](https://www.conventionalcommits.org/) specification, meaning all commit messages must be formatted accordingly. To help you write commit messages, the project uses [Commitizen](https://github.com/commitizen/cz-cli), an interactive CLI that guides you through the commit process. To use it, run the following command:
+The project follows the [Conventional Commits](https://www.conventionalcommits.org/) specification, meaning all commit messages must be formatted accordingly. To help you write commit messages, the project provides an interactive CLI that guides you through the commit process. To use it, run the following command:
 
 ```shell
 npm run commit
@@ -322,7 +322,7 @@ You'll find in your terminal the webhook signing secret. You can copy it and pas
 
 ### Testing
 
-All unit tests are located alongside the source code in the same directory, making them easier to find. The project uses Vitest and React Testing Library for unit testing. You can run the tests with the following command:
+All unit tests are located alongside the source code in the same directory, making them easier to find. The unit test files follow this format: `*.test.ts` or `*.test.tsx`. The project uses Vitest and React Testing Library for unit testing. You can run the tests with the following command:
 
 ```shell
 npm run test
@@ -330,36 +330,32 @@ npm run test
 
 ### Integration & E2E Testing
 
-The project uses Playwright for integration and end-to-end (E2E) testing. You can run the tests with the following commands:
+The project uses Playwright for integration and end-to-end (E2E) testing. Integration test files use the `*.spec.ts` extension, while E2E test files use the `*.e2e.ts` extension. You can run the tests with the following commands:
 
 ```shell
 npx playwright install # Only for the first time in a new environment
 npm run test:e2e
 ```
 
-In the local environment, visual testing is disabled, and the terminal will display the message `[percy] Percy is not running, disabling snapshots.`. By default, visual testing only runs in GitHub Actions.
+### Storybook
 
-### Enable Edge runtime (optional)
+Storybook is configured for UI component development and testing. The project uses Storybook with Next.js and Vite integration, including accessibility testing and documentation features.
 
-The App Router folder is compatible with the Edge runtime. You can enable it by adding the following lines `src/app/layouts.tsx`:
+Stories are located alongside your components in the `src` directory and follow the pattern `*.stories.ts` or `*.stories.tsx`.
 
-```tsx
-export const runtime = 'edge';
-```
-
-For your information, the database migration is not compatible with the Edge runtime. So, you need to disable the automatic migration in `src/libs/DB.ts`:
-
-```tsx
-await migrate(db, { migrationsFolder: './migrations' });
-```
-
-After disabling it, you are required to run the migration manually with:
+You can run Storybook in development mode with:
 
 ```shell
-npm run db:migrate
+npm run storybook
 ```
 
-You also require to run the command each time you want to update the database schema.
+This will start Storybook on http://localhost:6006 where you can view and interact with your UI components in isolation.
+
+To run Storybook tests in headless mode, you can use the following command:
+
+```shell
+npm run storybook:test
+```
 
 ### Deploy to production
 
@@ -391,7 +387,15 @@ Here are some popular hosting options without Docker for deploying your Next.js 
 
 The project uses [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo) to monitor errors. In the development environment, no additional setup is needed: Vocion is pre-configured to use Sentry and Spotlight (Sentry for Development). All errors will automatically be sent to your local Spotlight instance, allowing you to experience Sentry locally.
 
-For production environment, you'll need to create a Sentry account and a new project. Then, in `next.config.mjs`, you need to update the `org` and `project` attributes in `withSentryConfig` function. Additionally, add your Sentry DSN to `sentry.client.config.ts`, `sentry.edge.config.ts` and `sentry.server.config.ts`.
+For production environment, you'll need to create a Sentry account and a new project. Then, in `.env.production`, you need to update the following environment variables:
+
+```shell
+NEXT_PUBLIC_SENTRY_DSN=
+SENTRY_ORGANIZATION=
+SENTRY_PROJECT=
+```
+
+You also need to create a environment variable `SENTRY_AUTH_TOKEN` in your hosting provider's dashboard.
 
 ### Code coverage
 
@@ -401,11 +405,11 @@ Make sure to create `CODECOV_TOKEN` as a GitHub Actions secret, do not paste it 
 
 ### Logging
 
-The project uses Pino.js for logging. In the development environment, logs are displayed in the console by default.
+The project uses LogTape for logging. In the development environment, logs are displayed in the console by default.
 
 For production, the project is already integrated with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core) to manage and query your logs using SQL. To use Better Stack, you need to create a [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core) account and create a new source: go to your Better Stack Logs Dashboard > Sources > Connect source. Then, you need to give a name to your source and select Node.js as the platform.
 
-After creating the source, you will be able to view and copy your source token. In your environment variables, paste the token into the `LOGTAIL_SOURCE_TOKEN` variable. Now, all logs will automatically be sent to and ingested by Better Stack.
+After creating the source, you will be able to view and copy your source token. In your environment variables, paste the token into the `BETTER_STACK_SOURCE_TOKEN` variable. Now, all logs will automatically be sent to and ingested by Better Stack.
 
 ### Checkly monitoring
 
