@@ -1,32 +1,33 @@
+import type { NextConfig } from 'next';
 import withBundleAnalyzer from '@next/bundle-analyzer';
 import { withSentryConfig } from '@sentry/nextjs';
 import createNextIntlPlugin from 'next-intl/plugin';
 import './src/libs/Env';
 
-const withNextIntl = createNextIntlPlugin('./src/libs/i18n.ts');
+// Define the base Next.js configuration
+const baseConfig: NextConfig = {
+  eslint: {
+    dirs: ['.'],
+  },
+  poweredByHeader: false,
+  reactStrictMode: true,
+};
 
-const bundleAnalyzer = withBundleAnalyzer({
-  enabled: process.env.ANALYZE === 'true',
-});
+// Initialize the Next-Intl plugin
+let configWithPlugins = createNextIntlPlugin('./src/libs/I18n.ts')(baseConfig);
 
-/** @type {import('next').NextConfig} */
-export default withSentryConfig(
-  bundleAnalyzer(
-    withNextIntl({
-      eslint: {
-        dirs: ['.'],
-      },
-      poweredByHeader: false,
-      reactStrictMode: true,
-      serverExternalPackages: ['@electric-sql/pglite'],
-    }),
-  ),
-  {
+// Conditionally enable bundle analysis
+if (process.env.ANALYZE === 'true') {
+  configWithPlugins = withBundleAnalyzer()(configWithPlugins);
+}
+
+// Conditionally enable Sentry configuration
+if (!process.env.NEXT_PUBLIC_SENTRY_DISABLED) {
+  configWithPlugins = withSentryConfig(configWithPlugins, {
     // For all available options, see:
-    // https://github.com/getsentry/sentry-webpack-plugin#options
-    // FIXME: Add your Sentry organization and project names
-    org: 'vocion-core-org',
-    project: 'vocion-core',
+    // https://www.npmjs.com/package/@sentry/webpack-plugin#options
+    org: process.env.SENTRY_ORGANIZATION,
+    project: process.env.SENTRY_PROJECT,
 
     // Only print logs for uploading source maps in CI
     silent: !process.env.CI,
@@ -37,7 +38,7 @@ export default withSentryConfig(
     // Upload a larger set of source maps for prettier stack traces (increases build time)
     widenClientFileUpload: true,
 
-    // Automatically annotate React components to show their full name in breadcrumbs and session replay
+    // Upload a larger set of source maps for prettier stack traces (increases build time)
     reactComponentAnnotation: {
       enabled: true,
     },
@@ -48,19 +49,13 @@ export default withSentryConfig(
     // side errors will fail.
     tunnelRoute: '/monitoring',
 
-    // Hides source maps from generated client bundles
-    hideSourceMaps: true,
-
     // Automatically tree-shake Sentry logger statements to reduce bundle size
     disableLogger: true,
 
-    // Enables automatic instrumentation of Vercel Cron Monitors. (Does not yet work with App Router route handlers.)
-    // See the following for more information:
-    // https://docs.sentry.io/product/crons/
-    // https://vercel.com/docs/cron-jobs
-    automaticVercelMonitors: true,
-
     // Disable Sentry telemetry
     telemetry: false,
-  },
-);
+  });
+}
+
+const nextConfig = configWithPlugins;
+export default nextConfig;

@@ -1,19 +1,12 @@
+import type { SubmitHandler } from 'react-hook-form';
 import type { z } from 'zod';
-import { Button } from '@/components/ui/button';
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { TodoValidation } from '@/validations/TodoValidation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useTranslations } from 'next-intl';
-import { type SubmitHandler, useForm } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
+import { Button } from '@/components/ui/button';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { TodoValidation } from '@/validations/TodoValidation';
 
 export const TodoForm = (props: {
   defaultValues?: z.infer<typeof TodoValidation>;
@@ -43,7 +36,7 @@ export const TodoForm = (props: {
                 <Input {...field} />
               </FormControl>
               <FormDescription>{t('title_description')}</FormDescription>
-              <FormMessage />
+              <FormMessage errorMessage={t('title_error_message')} />
             </FormItem>
           )}
         />
@@ -58,7 +51,7 @@ export const TodoForm = (props: {
                 <Input {...field} />
               </FormControl>
               <FormDescription>{t('message_description')}</FormDescription>
-              <FormMessage />
+              <FormMessage errorMessage={t('message_error_message')} />
             </FormItem>
           )}
         />

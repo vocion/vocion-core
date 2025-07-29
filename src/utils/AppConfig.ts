@@ -1,5 +1,8 @@
-import type { LocalePrefixMode } from 'node_modules/next-intl/dist/types/src/routing/types';
-import { BILLING_INTERVAL, type PricingPlan } from '@/types/Subscription';
+import type { LocalizationResource } from '@clerk/types';
+import type { LocalePrefixMode } from 'next-intl/routing';
+import type { PricingPlan } from '@/types/Subscription';
+import { enUS, frFR } from '@clerk/localizations';
+import { BILLING_INTERVAL } from '@/types/Subscription';
 
 const localePrefix: LocalePrefixMode = 'as-needed';
 
@@ -16,6 +19,16 @@ export const AppConfig = {
   sidebarCookieName: 'sidebar:state',
   defaultLocale: 'en',
   localePrefix,
+};
+
+const supportedLocales: Record<string, LocalizationResource> = {
+  en: enUS,
+  fr: frFR,
+};
+
+export const ClerkLocalizations = {
+  defaultLocale: enUS,
+  supportedLocales,
 };
 
 export const AllLocales = AppConfig.locales.map(locale => locale.id);

@@ -1,10 +1,10 @@
 import type Stripe from 'stripe';
+import { headers } from 'next/headers';
+import { NextResponse } from 'next/server';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 import { stripe } from '@/libs/Stripe';
 import { processWebhookEvent } from '@/services/BillingService';
-import { headers } from 'next/headers';
-import { NextResponse } from 'next/server';
 
 export const POST = async (request: Request) => {
   const body = await request.text();
@@ -23,7 +23,7 @@ export const POST = async (request: Request) => {
       signature,
       Env.STRIPE_WEBHOOK_SECRET,
     );
-  } catch (error) {
+  } catch (error: any) {
     logger.error(error);
     return NextResponse.json({ error: 'Webhook Error' }, { status: 400 });
   }

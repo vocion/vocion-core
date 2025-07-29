@@ -1,22 +1,14 @@
 import type Stripe from 'stripe';
+import type { IStripeSubscription, PlanDetails, PricingPlan } from '@/types/Subscription';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 import { stripe } from '@/libs/Stripe';
-import {
-  type IStripeSubscription,
-  type PlanDetails,
-  type PricingPlan,
-  SUBSCRIPTION_STATUS,
-} from '@/types/Subscription';
+import { SUBSCRIPTION_STATUS } from '@/types/Subscription';
 import { PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
 import { getBaseUrl, MILLISECONDS_IN_ONE_DAY } from '@/utils/Helpers';
-import {
-  getStripeCustomerId,
-  updateStripeSubscription,
-  upsertStripeCustomerId,
-} from './OrganizationService';
+import { getStripeCustomerId, updateStripeSubscription, upsertStripeCustomerId } from './OrganizationService';
 
-export const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
+const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const customerId = subscription.customer;
 
@@ -33,11 +25,11 @@ export const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
       stripeSubscriptionPriceId: subscription.items.data[0].price.id,
       stripeSubscriptionStatus: subscription.status,
       stripeSubscriptionCurrentPeriodEnd:
-        subscription.current_period_end * 1000,
+        subscription.items.data[0].current_period_end * 1000,
     });
 
     logger.info('Subscription has been updated');
-  } catch (error) {
+  } catch (error: any) {
     logger.error(error, 'An error occurred while updating subscription');
   }
 };
@@ -123,14 +115,12 @@ export const createBillingPortal = (
 export const determineSubscriptionPlan = (
   stripeDetails?: IStripeSubscription,
 ): PlanDetails => {
-  const isActive
-    = stripeDetails !== undefined
+  const isActive = stripeDetails !== undefined
     && stripeDetails.stripeSubscriptionId !== null
     && stripeDetails.stripeSubscriptionPriceId !== null
     && stripeDetails.stripeSubscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE
     && stripeDetails.stripeSubscriptionCurrentPeriodEnd !== null
-    && stripeDetails.stripeSubscriptionCurrentPeriodEnd + MILLISECONDS_IN_ONE_DAY
-    > Date.now();
+    && stripeDetails.stripeSubscriptionCurrentPeriodEnd + MILLISECONDS_IN_ONE_DAY > Date.now();
 
   if (isActive) {
     const plan = Object.values(PricingPlanList).find((elt) => {

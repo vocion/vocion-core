@@ -1,17 +1,18 @@
+import type { NextFetchEvent, NextRequest } from 'next/server';
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import createMiddleware from 'next-intl/middleware';
-import { type NextFetchEvent, type NextRequest, NextResponse } from 'next/server';
-import { routing } from './libs/i18nNavigation';
+import { NextResponse } from 'next/server';
+import { routing } from './libs/I18nRouting';
 
-const intlMiddleware = createMiddleware(routing);
+const handleI18nRouting = createMiddleware(routing);
 
 const isProtectedRoute = createRouteMatcher([
   '/dashboard(.*)',
   '/:locale/dashboard(.*)',
   '/onboarding(.*)',
   '/:locale/onboarding(.*)',
-  '/api(.*)',
-  '/:locale/api(.*)',
+  '/rpc(.*)',
+  '/:locale/rpc(.*)',
 ]);
 
 const isAuthPage = createRouteMatcher([
@@ -21,29 +22,31 @@ const isAuthPage = createRouteMatcher([
   '/:locale/sign-up(.*)',
 ]);
 
-export default function middleware(
+export default async function middleware(
   request: NextRequest,
   event: NextFetchEvent,
 ) {
-  // Run Clerk middleware only when it's necessary
+  // Clerk keyless mode doesn't work with i18n, this is why we need to run the middleware conditionally
   if (
     isAuthPage(request) || isProtectedRoute(request)
   ) {
     return clerkMiddleware(async (auth, req) => {
+      // Check if the current route is protected and requires authentication
+      // If user is not authenticated, redirect them to the sign-in page with proper locale
       if (isProtectedRoute(req)) {
-        const locale
-          = req.nextUrl.pathname.match(/(\/.*)\/dashboard/)?.at(1) ?? '';
+        const locale = req.nextUrl.pathname.match(/(\/.*)\/dashboard/)?.at(1) ?? '';
 
         const signInUrl = new URL(`${locale}/sign-in`, req.url);
 
         await auth.protect({
-          // `unauthenticatedUrl` is needed to avoid error: "Unable to find `next-intl` locale because the middleware didn't run on this request"
           unauthenticatedUrl: signInUrl.toString(),
         });
       }
 
       const authObj = await auth();
 
+      // Redirect authenticated users without an organization to the organization selection page
+      // This ensures users are properly associated with an organization before accessing the dashboard
       if (
         authObj.userId
         && !authObj.orgId
@@ -58,18 +61,16 @@ export default function middleware(
         return NextResponse.redirect(orgSelection);
       }
 
-      return intlMiddleware(req);
+      return handleI18nRouting(req);
     })(request, event);
   }
 
-  return intlMiddleware(request);
+  return handleI18nRouting(request);
 }
 
 export const config = {
-  matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
-    '/((?!_next|monitoring|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-    // Always run for API routes
-    '/(api|trpc)(.*)',
-  ],
+  // Match all pathnames except for
+  // - … if they start with `/_next`, `/_vercel` or `monitoring`
+  // - … the ones containing a dot (e.g. `favicon.ico`)
+  matcher: '/((?!_next|_vercel|monitoring|.*\\..*).*)',
 };
