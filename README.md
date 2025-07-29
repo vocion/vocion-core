@@ -100,7 +100,7 @@ Developer experience first, extremely flexible code structure and only keep what
 - ⚡ [Next.js](https://nextjs.org) with App Router support
 - 🔥 Type checking [TypeScript](https://www.typescriptlang.org)
 - 💎 Integrate with [Tailwind CSS](https://tailwindcss.com) and Shadcn UI
-- ✅ Strict Mode for TypeScript and [React 19](https://react.dev)
+- ✅ Strict Mode for TypeScript and React 19
 - 🔒 Authentication with [Clerk](https://go.clerk.com/zGlzydF): Sign up, Sign in, Sign out, Forgot password, Reset password, and more.
 - 👤 Passwordless Authentication with Magic Links, Multi-Factor Auth (MFA), Social Auth (Google, Facebook, Twitter, GitHub, Apple, and more), Passwordless login with Passkeys, User Impersonation
 - 👥 Multi-tenancy & team support: create, switch, update organization and invite team members
@@ -108,34 +108,40 @@ Developer experience first, extremely flexible code structure and only keep what
 - 👤 Multi-Factor Auth (MFA), Social Auth (Google, Facebook, Twitter, GitHub, Apple, and more), User Impersonation
 - 📦 Type-safe ORM with DrizzleORM, compatible with PostgreSQL, SQLite, and MySQL
 - 💽 Offline and local development database with PGlite
-- 🌐 Multi-language (i18n) with [next-intl](https://next-intl-docs.vercel.app/) and [Crowdin](https://l.crowdin.com/next-js)
+- ☁️ Remote and production database with [Prisma Postgres](https://www.prisma.io/?via=vocion-core)
+- 🌐 Multi-language (i18n) with next-intl and [Crowdin](https://l.crowdin.com/next-js)
 - ♻️ Type-safe environment variables with T3 Env
-- ⌨️ Form with [React Hook Form](https://react-hook-form.com)
-- 🔴 Validation library with [Zod](https://zod.dev)
-- 📏 Linter with [ESLint](https://eslint.org) (default NextJS, NextJS Core Web Vitals, Tailwind CSS and Antfu configuration)
-- 💖 Code Formatter with [Prettier](https://prettier.io)
-- 🦊 Husky for Git Hooks
+- ⌨️ Form handling with React Hook Form
+- 🔴 Validation library with Zod
+- 📏 Linter with [ESLint](https://eslint.org) (default Next.js, Next.js Core Web Vitals, Tailwind CSS and Antfu configuration)
+- 💖 Code Formatter with Prettier
+- 🦊 Husky for Git Hooks (replaced by Lefthook)
 - 🚫 Lint-staged for running linters on Git staged files
 - 🚓 Lint git commit with Commitlint
 - 📓 Write standard compliant commit messages with Commitizen
-- 🦺 Unit Testing with [Vitest](https://vitest.dev) and React Testing Library
-- 🧪 Integration and E2E Testing with [Playwright](https://playwright.dev)
-- 👷 Run tests on pull requests with GitHub Actions
-- 🎉 [Storybook](https://storybook.js.org) for UI development
+- 🔍 Unused files and dependencies detection with Knip
+- 🌍 I18n validation and missing translation detection with i18n-check
+- 🦺 Unit Testing with Vitest and Browser mode (replacing React Testing Library)
+- 🧪 Integration and E2E Testing with Playwright
+- 👷 Run tests on pull request with GitHub Actions
+- 🎉 Storybook for UI development
 - 🚨 Error Monitoring with [Sentry](https://sentry.io/for/nextjs/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo)
+- 🔍 Local development error monitoring with Sentry Spotlight
 - ☂️ Code coverage with [Codecov](https://about.codecov.io/codecov-free-trial/?utm_source=github&utm_medium=paid-community&utm_campaign=general-fy25q1-nextjs&utm_content=github-banner-vocioncore-logo)
-- 📝 Logging with [Pino.js](https://getpino.io) and Log Management with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core)
+- 📝 Logging with LogTape and Log Management with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core)
 - 🖥️ Monitoring as Code with [Checkly](https://www.checklyhq.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core)
+- 🔐 Security and bot protection ([Arcjet](https://launch.arcjet.com/Q6eLbRE))
 - 🎁 Automatic changelog generation with Semantic Release
-- 🔍 Visual testing with Percy (Optional)
+- 🔍 Visual regression testing
 - 💡 Absolute Imports using `@` prefix
 - 🗂 VSCode configuration: Debug, Settings, Tasks and Extensions
 - 🤖 SEO metadata, JSON-LD and Open Graph tags
 - 🗺️ Sitemap.xml and robots.txt
+- 👷 Automatic dependency updates with Dependabot
 - ⌘ Database exploration with Drizzle Studio and CLI migration tool with Drizzle Kit
-- ⚙️ [Bundler Analyzer](https://www.npmjs.com/package/@next/bundle-analyzer)
+- ⚙️ Bundler Analyzer
 - 🌈 Include a FREE minimalist theme
-- 💯 Maximize lighthouse score
+- 💯 Maximize lighthouse score with Unlighthouse
 
 Built-in feature from Next.js:
 
@@ -156,8 +162,7 @@ Built-in feature from Next.js:
 
 ### Requirements
 
-- Node.js 20+ and npm
-- Stripe CLI, you can install it by following this [documentation](https://docs.stripe.com/stripe-cli)
+- Node.js 22+ and npm
 
 ### Getting started
 
@@ -171,21 +176,13 @@ npm install
 
 For your information, all dependencies are updated every month.
 
-You'll need to log in to your Stripe account using the Stripe CLI:
-
-```shell
-stripe login
-```
-
-Please note that at this stage, we are only ensuring that you have the Stripe CLI installed and functioning properly. The complete setup of Stripe will be done later.
-
 Then, you can run the project locally in development mode with live reload by executing:
 
 ```shell
 npm run dev
 ```
 
-Open http://localhost:3000 with your favorite browser to see your project.
+Open http://localhost:3000 with your favorite browser to see your project. For your information, the project is already pre-configured with a local database using PGlite. No extra setup is required to run the project locally.
 
 ### Set up authentication
 
@@ -204,7 +201,8 @@ Now, you have a fully working authentication system with Next.js: Sign up, Sign 
 
 The project uses DrizzleORM, a type-safe ORM that is compatible with PostgreSQL, SQLite, and MySQL databases. By default, the project is set up to work seamlessly with PostgreSQL and you can easily choose any PostgreSQL database provider. Here are some popular options:
 
-- [Neon.tech](https://neon.tech) - Tested and works great with the project
+- Neon.tech - Tested and works great with the project
+- [Prisma PostgreSQL](https://www.prisma.io/?via=vocion-core) - Tested and works great with the project
 - AWS
 - Xata
 - Tembo.io
@@ -227,7 +225,8 @@ After defining the environment variables in your GitHub Actions, your localizati
 .
 ├── README.md                       # README file
 ├── .github                         # GitHub folder
-├── .husky                          # Husky configuration
+│   ├── actions                     # Reusable actions
+│   └── workflows                   # GitHub Actions workflows
 ├── .storybook                      # Storybook folder
 ├── .vscode                         # VSCode configuration
 ├── migrations                      # Database migrations
@@ -235,7 +234,7 @@ After defining the environment variables in your GitHub Actions, your localizati
 ├── scripts                         # Scripts folder
 ├── src
 │   ├── app                         # Next JS App (App Router)
-│   ├── components                  # Reusable components
+│   ├── components                  # React components
 │   ├── features                    # Components specific to a feature
 │   ├── libs                        # 3rd party libraries configuration
 │   ├── locales                     # Locales folder (i18n messages)
@@ -243,11 +242,12 @@ After defining the environment variables in your GitHub Actions, your localizati
 │   ├── styles                      # Styles folder
 │   ├── templates                   # Templates folder
 │   ├── types                       # Type definitions
-│   └── utils                       # Utilities folder
+│   ├── utils                       # Utilities folder
+│   └── validations                 # Validation schemas
 ├── tests
 │   ├── e2e                         # E2E tests, also includes Monitoring as Code
 │   └── integration                 # Integration tests
-├── tailwind.config.js              # Tailwind CSS configuration
+├── next.config.ts                  # Next JS configuration
 └── tsconfig.json                   # TypeScript configuration
 ```
 
@@ -258,12 +258,12 @@ You can easily configure Vocion by searching the entire project for `FIXME:` to 
 - `public/apple-touch-icon.png`, `public/favicon.ico`, `public/favicon-16x16.png` and `public/favicon-32x32.png`: your website favicon
 - `src/utils/AppConfig.ts`: configuration file
 - `src/templates/BaseTemplate.tsx`: default theme
-- `next.config.mjs`: Next.js configuration
+- `next.config.ts`: Next.js configuration
 - `.env`: default environment variables
 
 You have full access to the source code for further customization. The provided code is just an example to help you start your project. The sky's the limit 🚀.
 
-In the source code, you will also find `PRO` comments that indicate the code that is only available in the PRO version. You can easily remove or replace this code with your own implementation.
+In the source code, you will also find `PRO` comments that indicate the code that is only available in the PRO version.
 
 ### Change database schema
 
