@@ -1,9 +1,10 @@
 'use client';
 
-import type { TodoValidation } from '@/validations/TodoValidation';
 import type { SubmitHandler } from 'react-hook-form';
 import type { z } from 'zod';
+import type { TodoValidation } from '@/validations/TodoValidation';
 import { useRouter } from 'next/navigation';
+import { client } from '@/libs/Orpc';
 import { TodoForm } from './TodoForm';
 
 export const AddTodoForm = () => {
@@ -12,13 +13,7 @@ export const AddTodoForm = () => {
   const onValid: SubmitHandler<z.infer<typeof TodoValidation>> = async (
     data,
   ) => {
-    await fetch(`/api/todos`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(data),
-    });
+    await client.todo.create(data);
 
     router.push('/dashboard/todos');
     router.refresh();

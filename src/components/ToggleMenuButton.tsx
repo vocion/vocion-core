@@ -1,5 +1,4 @@
 import { Button } from '@/components/ui/button';
-import { type ForwardedRef, forwardRef } from 'react';
 
 /**
  * A toggle button to show/hide component in small screen.
@@ -7,17 +6,13 @@ import { type ForwardedRef, forwardRef } from 'react';
  * @params props - Component props.
  * @params props.onClick - Function to run when the button is clicked.
  */
-const ToggleMenuButtonInternal = (
-  props: {
-    onClick?: () => void;
-  },
-  ref?: ForwardedRef<HTMLButtonElement>,
-) => (
+const ToggleMenuButton = (props: {
+  onClick?: () => void;
+}) => (
   <Button
     className="p-2 focus-visible:ring-offset-0"
     variant="ghost"
-    ref={ref}
-    {...props}
+    onClick={props.onClick}
   >
     <svg
       className="size-6 stroke-current"
@@ -33,7 +28,5 @@ const ToggleMenuButtonInternal = (
     </svg>
   </Button>
 );
-
-const ToggleMenuButton = forwardRef(ToggleMenuButtonInternal);
 
 export { ToggleMenuButton };

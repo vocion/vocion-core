@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS "organization" (
+CREATE TABLE "organization" (
 	"id" text PRIMARY KEY NOT NULL,
 	"stripe_customer_id" text,
 	"stripe_subscription_id" text,
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS "organization" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "todo" (
+CREATE TABLE "todo" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"owner_id" text NOT NULL,
 	"title" text NOT NULL,
@@ -18,4 +18,4 @@ CREATE TABLE IF NOT EXISTS "todo" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "stripe_customer_id_idx" ON "organization" USING btree ("stripe_customer_id");
+CREATE UNIQUE INDEX "stripe_customer_id_idx" ON "organization" USING btree ("stripe_customer_id");

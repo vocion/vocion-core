@@ -1,6 +1,9 @@
+import { describe, expect, it, vi } from 'vitest';
 import { SUBSCRIPTION_STATUS } from '@/types/Subscription';
 import { PLAN_ID } from '@/utils/AppConfig';
 import { determineSubscriptionPlan } from './BillingService';
+
+vi.mock('@/libs/DB');
 
 describe('BillingService', () => {
   describe('determineSubscriptionPlan function', () => {

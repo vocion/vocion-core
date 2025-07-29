@@ -1,11 +1,10 @@
+import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { DarkModeToggle } from '@/components/DarkModeToggle';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { CenteredMenu } from '@/features/landing/CenteredMenu';
 import { Section } from '@/features/landing/Section';
-import { useTranslations } from 'next-intl';
-import Link from 'next/link';
-
 import { Logo } from './Logo';
 
 export const Navbar = () => {
@@ -17,13 +16,13 @@ export const Navbar = () => {
         logo={<Logo />}
         rightMenu={(
           <>
-            <li data-fade>
+            <li>
               <DarkModeToggle />
             </li>
-            <li data-fade>
+            <li>
               <LocaleSwitcher />
             </li>
-            <li className="ml-1 mr-2.5" data-fade>
+            <li className="mr-2.5 ml-1">
               <Link href="/sign-in">{t('sign_in')}</Link>
             </li>
             <li>

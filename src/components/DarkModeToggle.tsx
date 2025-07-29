@@ -1,15 +1,9 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 export const DarkModeToggle = () => {
   const { theme, setTheme } = useTheme();
@@ -23,7 +17,7 @@ export const DarkModeToggle = () => {
       <DropdownMenuTrigger asChild>
         <Button className="p-2 focus-visible:ring-offset-0" variant="ghost" size="icon">
           <Sun className="dark:hidden" />
-          <Moon className="hidden rotate-0 dark:block" />
+          <Moon className="hidden dark:block" />
           <span className="sr-only">Toggle theme</span>
         </Button>
       </DropdownMenuTrigger>
