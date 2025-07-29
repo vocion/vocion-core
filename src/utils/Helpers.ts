@@ -1,6 +1,7 @@
-import { routing } from '@/libs/i18nNavigation';
-import { type ClassValue, clsx } from 'clsx';
+import type { ClassValue } from 'clsx';
+import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { routing } from '@/libs/I18nRouting';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -33,4 +34,8 @@ export const getI18nPath = (url: string, locale: string) => {
   }
 
   return `/${locale}${url}`;
+};
+
+export const isServer = () => {
+  return typeof window === 'undefined';
 };

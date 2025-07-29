@@ -1,24 +1,20 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { usePathname } from '@/libs/i18nNavigation';
-import { AppConfig } from '@/utils/AppConfig';
 import { useLocale } from 'next-intl';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { usePathname } from '@/libs/I18nNavigation';
+import { AppConfig } from '@/utils/AppConfig';
 
 export const LocaleSwitcher = () => {
+  const router = useRouter();
   const pathname = usePathname();
   const locale = useLocale();
 
   const handleChange = (value: string) => {
-    // WORKAROUND: Force a full page reload to avoid inconsistencies with i18n, next-theme, and Clerk
-    window.location.assign(`/${value}${pathname}`);
+    router.push(`/${value}${pathname}`);
+    router.refresh(); // Ensure the page takes the new locale into account related to the issue #395
   };
 
   return (

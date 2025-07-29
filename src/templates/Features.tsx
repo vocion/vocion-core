@@ -1,7 +1,7 @@
+import { useTranslations } from 'next-intl';
 import { Background } from '@/components/Background';
 import { FeatureCard } from '@/features/landing/FeatureCard';
 import { Section } from '@/features/landing/Section';
-import { useTranslations } from 'next-intl';
 
 export const Features = () => {
   const t = useTranslations('Features');

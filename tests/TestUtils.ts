@@ -1,8 +1,9 @@
+import type { Page } from '@playwright/test';
 import assert from 'node:assert';
 import { clerkClient } from '@clerk/nextjs/server';
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright';
 import { faker } from '@faker-js/faker';
-import { expect, type Page } from '@playwright/test';
+import { expect } from '@playwright/test';
 
 export const createUserWithOrganization = async (page: Page) => {
   await setupClerkTestingToken({ page });
@@ -23,7 +24,7 @@ export const createUserWithOrganization = async (page: Page) => {
   // Need to wait for the email verification code to be 'sent' (simulated in the test environment)
   await expect(async () => {
     // The verification code for test emails is `424242`
-    await page.getByLabel('Enter verification code').fill('424242');
+    await page.keyboard.type('424242');
 
     await expect(page.getByRole('heading', { name: 'Create Organization' })).toBeVisible();
   }).toPass();

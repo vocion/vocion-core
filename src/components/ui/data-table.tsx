@@ -1,20 +1,9 @@
 'use client';
 
 import type { ColumnDef } from '@tanstack/react-table';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from '@tanstack/react-table';
+import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { useTranslations } from 'next-intl';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 type DataTableProps<TData, TValue> = {
   columns: ColumnDef<TData, TValue>[];
@@ -33,7 +22,7 @@ export function DataTable<TData, TValue>({
   const t = useTranslations('DataTable');
 
   return (
-    <div className="rounded-md border bg-card">
+    <div className="rounded-md border">
       <Table>
         <TableHeader className="whitespace-nowrap">
           {table.getHeaderGroups().map(headerGroup => (
@@ -44,9 +33,9 @@ export function DataTable<TData, TValue>({
                     {header.isPlaceholder
                       ? null
                       : flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
-                      )}
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
                   </TableHead>
                 );
               })}

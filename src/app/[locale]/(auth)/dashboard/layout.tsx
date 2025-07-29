@@ -1,16 +1,17 @@
+import type { Metadata } from 'next';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
+import { cookies } from 'next/headers';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { AppConfig } from '@/utils/AppConfig';
-import { getTranslations, setRequestLocale } from 'next-intl/server';
-import { cookies } from 'next/headers';
 
 type ILayoutProps = {
   params: Promise<{ locale: string }>;
   children: React.ReactNode;
 };
 
-export async function generateMetadata(props: ILayoutProps) {
+export async function generateMetadata(props: ILayoutProps): Promise<Metadata> {
   const { locale } = await props.params;
   const t = await getTranslations({
     locale,
@@ -38,7 +39,7 @@ export default async function DashboardLayout(props: ILayoutProps) {
       <SidebarInset>
         <AppSidebarHeader />
 
-        <div className="flex-1 px-6 pt-4 @container">
+        <div className="@container flex-1 px-6 py-4">
           {props.children}
         </div>
       </SidebarInset>

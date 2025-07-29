@@ -1,7 +1,7 @@
+import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { MessageState } from '@/features/dashboard/MessageState';
 import { SponsorLogos } from '@/features/sponsors/SponsorLogos';
-import { getTranslations, setRequestLocale } from 'next-intl/server';
 
 export default async function DashboardIndexPage(props: {
   params: Promise<{ locale: string }>;

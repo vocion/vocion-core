@@ -1,8 +1,8 @@
+import { ArrowRightIcon } from '@radix-ui/react-icons';
+import { useTranslations } from 'next-intl';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { CTABanner } from '@/features/landing/CTABanner';
 import { Section } from '@/features/landing/Section';
-import { ArrowRightIcon } from '@radix-ui/react-icons';
-import { useTranslations } from 'next-intl';
 
 export const CTA = () => {
   const t = useTranslations('CTA');
@@ -14,7 +14,7 @@ export const CTA = () => {
         description={t('description')}
         buttons={(
           <a
-            className={buttonVariants({ variant: 'outline', size: 'lg', className: 'whitespace-pre-line' })}
+            className={buttonVariants({ variant: 'secondary', size: 'lg', className: 'whitespace-pre-line' })}
             href="https://nextjs-boilerplate.com/pro-saas-starter-kit"
           >
             {t('button_text')}

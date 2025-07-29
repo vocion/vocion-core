@@ -1,9 +1,9 @@
 import type Stripe from 'stripe';
+import { redirect } from 'next/navigation';
 import { createBillingPortal } from '@/services/BillingService';
 import { getStripeCustomerId } from '@/services/OrganizationService';
 import { ORG_ROLE } from '@/types/Auth';
-import { auth } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
+import { requireOrganization } from '@/utils/Auth';
 
 export async function GET(
   _request: Request,
@@ -13,12 +13,8 @@ export async function GET(
     }>;
   },
 ) {
-  const { orgId, has } = await auth();
+  const { orgId, has } = await requireOrganization();
   const { locale } = await context.params;
-
-  if (!orgId) {
-    redirect('/onboarding/organization-selection');
-  }
 
   if (!has({ role: ORG_ROLE.ADMIN })) {
     redirect('/dashboard/billing');

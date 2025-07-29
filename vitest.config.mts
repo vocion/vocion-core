@@ -6,17 +6,40 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
   test: {
-    globals: true, // This is needed by @testing-library to be cleaned up after each test
-    include: ['src/**/*.test.{js,jsx,ts,tsx}'],
     coverage: {
       include: ['src/**/*'],
-      exclude: ['src/**/*.stories.{js,jsx,ts,tsx}', '**/*.d.ts'],
+      exclude: ['src/**/*.stories.{js,jsx,ts,tsx}'],
     },
-    environmentMatchGlobs: [
-      ['**/*.test.tsx', 'jsdom'],
-      ['src/hooks/**/*.test.ts', 'jsdom'],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'unit',
+          include: ['src/**/*.test.{js,ts}'],
+          exclude: ['src/hooks/**/*.test.ts'],
+          environment: 'node',
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'ui',
+          include: ['**/*.test.tsx', 'src/hooks/**/*.test.ts'],
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: 'playwright', // or 'webdriverio'
+            screenshotDirectory: 'vitest-test-results',
+            instances: [
+              { browser: 'chromium' },
+            ],
+          },
+        },
+      },
     ],
-    setupFiles: ['./vitest-setup.ts'],
-    env: loadEnv('', process.cwd(), ''),
+    env: {
+      ...loadEnv('', process.cwd(), ''),
+      BILLING_PLAN_ENV: 'test',
+    },
   },
 });

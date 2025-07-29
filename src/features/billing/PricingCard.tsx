@@ -1,8 +1,8 @@
-import type { BillingInterval } from '@/types/Subscription';
+import type { BillingInterval, PlanId } from '@/types/Subscription';
 import { useTranslations } from 'next-intl';
 
 export const PricingCard = (props: {
-  planId: string;
+  planId: PlanId;
   price: number;
   interval: BillingInterval;
   button: React.ReactNode;

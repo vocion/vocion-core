@@ -1,6 +1,8 @@
-import messages from '@/locales/en.json';
-import { render, screen } from '@testing-library/react';
+import { page } from '@vitest/browser/context';
 import { NextIntlClientProvider } from 'next-intl';
+import { describe, expect, it } from 'vitest';
+import { render } from 'vitest-browser-react';
+import messages from '@/locales/en.json';
 import { CenteredFooter } from './CenteredFooter';
 
 describe('CenteredFooter', () => {
@@ -14,7 +16,7 @@ describe('CenteredFooter', () => {
         </NextIntlClientProvider>,
       );
 
-      const copyright = screen.getByText(/© Copyright/);
+      const copyright = page.getByText(/© Copyright/);
 
       expect(copyright).toBeInTheDocument();
     });
