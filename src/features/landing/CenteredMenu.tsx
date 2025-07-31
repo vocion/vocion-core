@@ -24,7 +24,7 @@ export const CenteredMenu = (props: {
         <ToggleMenuButton onClick={handleToggleMenu} />
       </div>
 
-      <nav className={cn('rounded-t max-lg:mt-2', navClass)}>
+      <nav className={cn('rounded-t-xl max-lg:mt-2', navClass)}>
         <ul className="flex gap-x-6 gap-y-1 text-lg font-medium max-lg:flex-col max-lg:[&_a]:inline-block max-lg:[&_a]:w-full [&_a:hover]:opacity-70">
           {props.children}
         </ul>
@@ -32,7 +32,7 @@ export const CenteredMenu = (props: {
 
       <div
         className={cn(
-          'rounded-b max-lg:border-t max-lg:border-border',
+          'rounded-b-xl max-lg:border-t max-lg:border-border',
           navClass,
         )}
       >

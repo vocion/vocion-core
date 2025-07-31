@@ -32,6 +32,9 @@ export const TodoTableColumns = (props: {
       id: 'actions',
       enableHiding: false,
       cell: ActionCell,
+      meta: {
+        className: 'w-20',
+      },
     },
   ];
 
