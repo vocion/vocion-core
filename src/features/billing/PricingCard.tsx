@@ -26,7 +26,7 @@ export const PricingCard = (props: {
         </div>
       </div>
 
-      <div className="mt-2 text-sm text-muted-foreground">
+      <div className="mt-2 mb-5 text-sm text-muted-foreground">
         {t(`${props.planId}_plan_description`)}
       </div>
 
