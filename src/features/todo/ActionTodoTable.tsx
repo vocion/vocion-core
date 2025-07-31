@@ -17,7 +17,7 @@ export const ActionCell = (props: { row: Row<Todo> }) => {
   const todo = props.row.original;
 
   const trigger = (
-    <Button variant="ghost" className="p-0">
+    <Button variant="ghost">
       <span className="sr-only">{t('open_menu')}</span>
       <DotsHorizontalIcon />
     </Button>
