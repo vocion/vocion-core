@@ -22,9 +22,9 @@ export function DataTable<TData, TValue>({
   const t = useTranslations('DataTable');
 
   return (
-    <div className="rounded-md border">
+    <div className="overflow-hidden rounded-md border">
       <Table>
-        <TableHeader className="whitespace-nowrap">
+        <TableHeader className="bg-muted whitespace-nowrap">
           {table.getHeaderGroups().map(headerGroup => (
             <TableRow key={headerGroup.id}>
               {headerGroup.headers.map((header) => {
