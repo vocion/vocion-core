@@ -17,9 +17,9 @@ export const ActionCell = (props: { row: Row<Todo> }) => {
   const todo = props.row.original;
 
   const trigger = (
-    <Button variant="ghost" className="size-8 p-0 focus-visible:ring-offset-0">
+    <Button variant="ghost" className="p-0">
       <span className="sr-only">{t('open_menu')}</span>
-      <DotsHorizontalIcon className="size-4" />
+      <DotsHorizontalIcon />
     </Button>
   );
 
@@ -48,7 +48,7 @@ export const ActionCell = (props: { row: Row<Todo> }) => {
   );
 
   return (
-    <div className="flex items-center justify-end">
+    <div className="h-8">
       <Protect
         role={ORG_ROLE.ADMIN}
         fallback={<ProtectFallback trigger={trigger} />}
