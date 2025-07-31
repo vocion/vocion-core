@@ -4,6 +4,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { useTranslations } from 'next-intl';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/utils/Helpers';
 
 type DataTableProps<TData, TValue> = {
   columns: ColumnDef<TData, TValue>[];
@@ -29,7 +30,7 @@ export function DataTable<TData, TValue>({
             <TableRow key={headerGroup.id}>
               {headerGroup.headers.map((header) => {
                 return (
-                  <TableHead key={header.id}>
+                  <TableHead key={header.id} className={header.column.columnDef.meta?.className}>
                     {header.isPlaceholder
                       ? null
                       : flexRender(
@@ -51,7 +52,10 @@ export function DataTable<TData, TValue>({
                     data-state={row.getIsSelected() && 'selected'}
                   >
                     {row.getVisibleCells().map(cell => (
-                      <TableCell key={cell.id} className="whitespace-nowrap">
+                      <TableCell
+                        key={cell.id}
+                        className={cn('whitespace-nowrap', cell.column.columnDef.meta?.className)}
+                      >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     ))}
