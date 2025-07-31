@@ -48,7 +48,7 @@ export const ActionCell = (props: { row: Row<Todo> }) => {
   );
 
   return (
-    <div className="h-8">
+    <div className="flex h-10 items-center justify-end">
       <Protect
         role={ORG_ROLE.ADMIN}
         fallback={<ProtectFallback trigger={trigger} />}
