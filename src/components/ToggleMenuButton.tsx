@@ -10,7 +10,6 @@ const ToggleMenuButton = (props: {
   onClick?: () => void;
 }) => (
   <Button
-    className="p-2 focus-visible:ring-offset-0"
     variant="ghost"
     onClick={props.onClick}
   >

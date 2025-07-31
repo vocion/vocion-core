@@ -20,7 +20,7 @@ export const Pricing = () => {
             <Link
               className={buttonVariants({
                 size: 'sm',
-                className: 'mt-5 w-full',
+                className: 'w-full',
               })}
               href="/sign-up"
             >
@@ -31,7 +31,7 @@ export const Pricing = () => {
             <Link
               className={buttonVariants({
                 size: 'sm',
-                className: 'mt-5 w-full',
+                className: 'w-full',
               })}
               href="/sign-up"
             >
@@ -42,7 +42,7 @@ export const Pricing = () => {
             <Link
               className={buttonVariants({
                 size: 'sm',
-                className: 'mt-5 w-full',
+                className: 'w-full',
               })}
               href="/sign-up"
             >
