@@ -1,26 +1,21 @@
 import { UserButton } from '@clerk/nextjs';
 import { DarkModeToggle } from '@/components/DarkModeToggle';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
-import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 
 export const AppSidebarHeader = () => (
   <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-2">
-    <div className="flex items-center gap-2 px-4 [&_button:hover]:opacity-60">
+    <div className="flex items-center gap-2 px-4">
       <SidebarTrigger className="-ml-1" />
     </div>
 
-    <ul className="flex items-center gap-x-1.5 [&_button:hover]:opacity-60">
+    <ul className="flex items-center gap-x-1.5">
       <li>
         <DarkModeToggle />
       </li>
 
       <li>
         <LocaleSwitcher />
-      </li>
-
-      <li>
-        <Separator orientation="vertical" className="h-4" />
       </li>
 
       <li>
