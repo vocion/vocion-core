@@ -14,7 +14,7 @@ export const BillingOptions = () => {
           <Button
             size="sm"
             variant="secondary"
-            className="mt-5 w-full"
+            className="w-full"
             disabled
           >
             {t('current_plan')}
@@ -24,7 +24,7 @@ export const BillingOptions = () => {
           <a
             className={buttonVariants({
               size: 'sm',
-              className: 'mt-5 w-full',
+              className: 'w-full',
             })}
             href={`/dashboard/billing/checkout/${PLAN_ID.PREMIUM}`}
           >
@@ -35,7 +35,7 @@ export const BillingOptions = () => {
           <a
             className={buttonVariants({
               size: 'sm',
-              className: 'mt-5 w-full',
+              className: 'w-full',
             })}
             href={`/dashboard/billing/checkout/${PLAN_ID.ENTERPRISE}`}
           >
