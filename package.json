@@ -28,8 +28,6 @@
     "storybook": "storybook dev -p 6006",
     "storybook:test": "vitest run --config .storybook/vitest.config.mts",
     "build-storybook": "storybook build",
-    "lighthouse": "unlighthouse-ci --site localhost:3000",
-    "test:lighthouse": "run-p start lighthouse --race",
     "stripe:listen": "stripe listen --forward-to localhost:3000/webhook/billing",
     "stripe:setup-price": "dotenv -c -- tsx ./scripts/createStripePrice.ts"
   },
@@ -119,7 +117,6 @@
     "tsx": "^4.20.3",
     "tw-animate-css": "^1.3.6",
     "typescript": "^5.8.3",
-    "unlighthouse": "^0.17.2",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.2.4",
     "vitest-browser-react": "^1.0.1"
