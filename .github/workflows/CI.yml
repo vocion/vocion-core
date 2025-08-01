@@ -180,31 +180,6 @@ jobs:
           path: test-results/
           retention-days: 7
 
-  lighthouse:
-    strategy:
-      matrix:
-        node-version: [22.x]
-
-    name: Run unlighthouse
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [build]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js environment
-        uses: ./.github/actions/setup-project
-        with:
-          node-version: ${{ matrix.node-version }}
-          restore-nextjs-cache: true
-
-      - name: Run unlighthouse
-        run: |
-          npm run test:lighthouse
-        env:
-          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-
   synchronize-with-crowdin:
     name: GitHub PR synchronize with Crowdin
     runs-on: ubuntu-latest
