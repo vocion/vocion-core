@@ -1,5 +1,6 @@
 import { Protect } from '@clerk/nextjs';
 import { getTranslations } from 'next-intl/server';
+import Link from 'next/link';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { ProtectFallback } from '@/features/auth/ProtectFallback';
 import { BillingOptions } from '@/features/billing/BillingOptions';
@@ -56,14 +57,13 @@ export default async function BillingPage(props: {
                 />
               )}
             >
-              {/* Not using Next.js Link when redirecting to Stripe */}
-              {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-              <a
+              <Link
                 className={buttonVariants({ size: 'lg' })}
                 href="/dashboard/billing/portal"
+                prefetch={false}
               >
                 {t('manage_subscription_button')}
-              </a>
+              </Link>
             </Protect>
           </div>
         )}
