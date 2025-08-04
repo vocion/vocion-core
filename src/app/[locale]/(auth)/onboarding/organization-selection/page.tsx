@@ -27,7 +27,8 @@ export default async function OrganizationSelectionPage(props: IOrganizationSele
     <div className="flex min-h-screen items-center justify-center">
       <OrganizationList
         afterSelectOrganizationUrl="/dashboard"
-        afterCreateOrganizationUrl="/dashboard"
+        afterCreateOrganizationUrl="/onboarding/organization-selection"
+        hideSlug
         hidePersonal
         skipInvitationScreen
       />

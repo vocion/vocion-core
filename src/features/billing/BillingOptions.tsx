@@ -1,4 +1,5 @@
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { PLAN_ID } from '@/utils/AppConfig';
@@ -21,26 +22,28 @@ export const BillingOptions = () => {
           </Button>
         ),
         [PLAN_ID.PREMIUM]: (
-          <a
+          <Link
             className={buttonVariants({
               size: 'sm',
               className: 'w-full',
             })}
             href={`/dashboard/billing/checkout/${PLAN_ID.PREMIUM}`}
+            prefetch={false}
           >
             {t('upgrade_plan')}
-          </a>
+          </Link>
         ),
         [PLAN_ID.ENTERPRISE]: (
-          <a
+          <Link
             className={buttonVariants({
               size: 'sm',
               className: 'w-full',
             })}
             href={`/dashboard/billing/checkout/${PLAN_ID.ENTERPRISE}`}
+            prefetch={false}
           >
             {t('upgrade_plan')}
-          </a>
+          </Link>
         ),
       }}
     />
