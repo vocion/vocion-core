@@ -21,11 +21,9 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
 
         <OrganizationSwitcher
           organizationProfileMode="navigation"
-          organizationProfileUrl={getI18nPath(
-            '/dashboard/organization-profile',
-            locale,
-          )}
-          afterCreateOrganizationUrl="/dashboard/"
+          organizationProfileUrl={getI18nPath('/dashboard/organization-profile', locale)}
+          afterCreateOrganizationUrl="/onboarding/organization-selection"
+          hideSlug
           hidePersonal
           skipInvitationScreen
           appearance={{
