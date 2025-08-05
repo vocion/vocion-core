@@ -429,7 +429,9 @@ The project uses LogTape for logging. In the development environment, logs are d
 
 For production, the project is already integrated with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=next-js-boilerplate) to manage and query your logs using SQL. To use Better Stack, you need to create a [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=next-js-boilerplate) account and create a new source: go to your Better Stack Logs Dashboard > Sources > Connect source. Then, you need to give a name to your source and select Node.js as the platform.
 
-After creating the source, you will be able to view and copy your source token. In your environment variables, paste the token into the `BETTER_STACK_SOURCE_TOKEN` variable. Now, all logs will automatically be sent to and ingested by Better Stack.
+After creating the source, you will be able to view and copy your source token. In your environment variables, paste the token into the `NEXT_PUBLIC_BETTER_STACK_SOURCE_TOKEN` variable. You'll also need to define the `NEXT_PUBLIC_BETTER_STACK_INGESTING_URL` variable, which can be found in the same place as the source token.
+
+Now, all logs will automatically be sent to and ingested by Better Stack.
 
 ### Checkly monitoring
 
