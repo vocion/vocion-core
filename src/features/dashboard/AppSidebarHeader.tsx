@@ -22,6 +22,7 @@ export const AppSidebarHeader = () => (
         <UserButton
           userProfileMode="navigation"
           userProfileUrl="/dashboard/user-profile"
+          afterSwitchSessionUrl="/dashboard"
           appearance={{
             elements: {
               rootBox: 'px-2 py-1.5',
