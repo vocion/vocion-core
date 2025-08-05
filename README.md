@@ -197,6 +197,8 @@ In your Clerk Dashboard, you also need to `Enable Organization` by navigating to
 
 Now, you have a fully working authentication system with Next.js: Sign up, Sign in, Sign out, Forgot password, Reset password, Update profile, Update password, Update email, Delete account, and more.
 
+Optional: To enable multi-session functionality, which allows users to be signed into multiple accounts simultaneously, navigate to `Session management` > `Sessions` > `Multi-session handling` in your Clerk Dashboard and enable this feature.
+
 ### Set up remote database
 
 The project uses DrizzleORM, a type-safe ORM that is compatible with PostgreSQL, SQLite, and MySQL databases. By default, the project is set up to work seamlessly with PostgreSQL and you can easily choose any PostgreSQL database provider. Here are some popular options:
