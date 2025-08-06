@@ -21,13 +21,10 @@ export const createUserWithOrganization = async (page: Page) => {
 
   await expect(page.getByText('Verify your email')).toBeVisible();
 
-  // Need to wait for the email verification code to be 'sent' (simulated in the test environment)
-  await expect(async () => {
-    // The verification code for test emails is `424242`
-    await page.keyboard.type('424242');
+  // The verification code for test emails is `424242`
+  await page.keyboard.type('424242');
 
-    await expect(page.getByRole('heading', { name: 'Create Organization' })).toBeVisible();
-  }).toPass();
+  await expect(page.getByRole('heading', { name: 'Create Organization' })).toBeVisible();
 
   await page.getByLabel('Name').fill(faker.company.name());
   await page.getByRole('button', { name: 'Create Organization' }).click();
@@ -69,7 +66,7 @@ export const signIn = async (page: Page) => {
       password: process.env.E2E_CLERK_USER_PASSWORD,
     },
   });
-  await page.reload();
+  await page.goto('/dashboard');
 };
 
 export const createOrganization = async (page: Page) => {
@@ -79,6 +76,8 @@ export const createOrganization = async (page: Page) => {
   const companyName = faker.company.name();
   await page.getByLabel('Name').fill(companyName);
   await page.getByRole('button', { name: 'Create organization' }).click();
+
+  await page.getByText(companyName).click();
 
   await expect(page.getByLabel('Open organization switcher').getByText(companyName)).toBeVisible();
 };
