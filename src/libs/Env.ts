@@ -14,7 +14,7 @@ export const Env = createEnv({
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1),
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1),
     NEXT_PUBLIC_BETTER_STACK_SOURCE_TOKEN: z.string().optional(),
-    NEXT_PUBLIC_BETTER_STACK_INGESTING_URL: z.string().optional(),
+    NEXT_PUBLIC_BETTER_STACK_INGESTING_HOST: z.string().optional(),
   },
   shared: {
     NODE_ENV: z.enum(['test', 'development', 'production']).optional(),
@@ -32,7 +32,7 @@ export const Env = createEnv({
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
     NEXT_PUBLIC_BETTER_STACK_SOURCE_TOKEN: process.env.NEXT_PUBLIC_BETTER_STACK_SOURCE_TOKEN,
-    NEXT_PUBLIC_BETTER_STACK_INGESTING_URL: process.env.NEXT_PUBLIC_BETTER_STACK_INGESTING_URL,
+    NEXT_PUBLIC_BETTER_STACK_INGESTING_HOST: process.env.NEXT_PUBLIC_BETTER_STACK_INGESTING_HOST,
     NODE_ENV: process.env.NODE_ENV,
   },
 });

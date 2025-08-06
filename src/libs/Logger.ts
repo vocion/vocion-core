@@ -3,7 +3,7 @@ import { configure, fromAsyncSink, getConsoleSink, getJsonLinesFormatter, getLog
 import { Env } from './Env';
 
 const betterStackSink: AsyncSink = async (record) => {
-  await fetch(`https://${Env.NEXT_PUBLIC_BETTER_STACK_INGESTING_URL}`, {
+  await fetch(`https://${Env.NEXT_PUBLIC_BETTER_STACK_INGESTING_HOST}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -22,7 +22,7 @@ await configure({
     { category: ['logtape', 'meta'], sinks: ['console'], lowestLevel: 'warning' },
     {
       category: ['app'],
-      sinks: Env.NEXT_PUBLIC_BETTER_STACK_SOURCE_TOKEN && Env.NEXT_PUBLIC_BETTER_STACK_INGESTING_URL
+      sinks: Env.NEXT_PUBLIC_BETTER_STACK_SOURCE_TOKEN && Env.NEXT_PUBLIC_BETTER_STACK_INGESTING_HOST
         ? ['console', 'betterStack']
         : ['console'],
       lowestLevel: 'debug',
