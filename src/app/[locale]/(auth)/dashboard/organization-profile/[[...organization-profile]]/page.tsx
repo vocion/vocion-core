@@ -12,10 +12,7 @@ export default async function OrganizationProfilePage(props: {
     <div className="mt-5">
       <OrganizationProfile
         routing="path"
-        path={getI18nPath(
-          '/dashboard/organization-profile',
-          locale,
-        )}
+        path={getI18nPath('/dashboard/organization-profile', locale)}
         afterLeaveOrganizationUrl="/onboarding/organization-selection"
         appearance={{
           elements: {

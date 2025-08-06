@@ -28,6 +28,7 @@ export default async function OrganizationSelectionPage(props: IOrganizationSele
       <OrganizationList
         afterSelectOrganizationUrl="/dashboard"
         afterCreateOrganizationUrl="/dashboard"
+        hideSlug
         hidePersonal
         skipInvitationScreen
       />
