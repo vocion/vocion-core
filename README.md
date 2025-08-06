@@ -197,6 +197,8 @@ In your Clerk Dashboard, you also need to `Enable Organization` by navigating to
 
 Now, you have a fully working authentication system with Next.js: Sign up, Sign in, Sign out, Forgot password, Reset password, Update profile, Update password, Update email, Delete account, and more.
 
+Optional: To enable multi-session functionality, which allows users to be signed into multiple accounts simultaneously, navigate to `Session management` > `Sessions` > `Multi-session handling` in your Clerk Dashboard and enable this feature.
+
 ### Set up remote database
 
 The project uses DrizzleORM, a type-safe ORM that is compatible with PostgreSQL, SQLite, and MySQL databases. By default, the project is set up to work seamlessly with PostgreSQL and you can easily choose any PostgreSQL database provider. Here are some popular options:
@@ -429,7 +431,9 @@ The project uses LogTape for logging. In the development environment, logs are d
 
 For production, the project is already integrated with [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core) to manage and query your logs using SQL. To use Better Stack, you need to create a [Better Stack](https://betterstack.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=vocion-core) account and create a new source: go to your Better Stack Logs Dashboard > Sources > Connect source. Then, you need to give a name to your source and select Node.js as the platform.
 
-After creating the source, you will be able to view and copy your source token. In your environment variables, paste the token into the `BETTER_STACK_SOURCE_TOKEN` variable. Now, all logs will automatically be sent to and ingested by Better Stack.
+After creating the source, you will be able to view and copy your source token. In your environment variables, paste the token into the `NEXT_PUBLIC_BETTER_STACK_SOURCE_TOKEN` variable. You'll also need to define the `NEXT_PUBLIC_BETTER_STACK_INGESTING_URL` variable, which can be found in the same place as the source token.
+
+Now, all logs will automatically be sent to and ingested by Better Stack.
 
 ### Checkly monitoring
 
