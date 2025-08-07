@@ -287,7 +287,7 @@ The project follows the [Conventional Commits](https://www.conventionalcommits.o
 npm run commit
 ```
 
-One of the benefits of using Conventional Commits is the ability to automatically generate a `CHANGELOG` file. It also allows us to automatically determine the next version number based on the types of commits that are included in a release.
+One of the benefits of using Conventional Commits is the ability to automatically generate GitHub releases. It also allows us to automatically determine the next version number based on the types of commits that are included in a release.
 
 ### Subscription payment with Stripe
 
