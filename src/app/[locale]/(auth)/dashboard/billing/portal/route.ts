@@ -1,4 +1,3 @@
-import type Stripe from 'stripe';
 import { redirect } from 'next/navigation';
 import { createBillingPortal } from '@/services/BillingService';
 import { getStripeCustomerId } from '@/services/OrganizationService';
@@ -9,7 +8,7 @@ export async function GET(
   _request: Request,
   context: {
     params: Promise<{
-      locale: Stripe.BillingPortal.SessionCreateParams.Locale;
+      locale: string;
     }>;
   },
 ) {
