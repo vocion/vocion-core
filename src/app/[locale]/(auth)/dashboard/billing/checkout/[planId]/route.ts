@@ -1,4 +1,3 @@
-import type Stripe from 'stripe';
 import { redirect } from 'next/navigation';
 import { createCheckoutSession, createOrRetrieveCustomer } from '@/services/BillingService';
 import { ORG_ROLE } from '@/types/Auth';
@@ -10,7 +9,7 @@ export async function GET(
   context: {
     params: Promise<{
       planId: string;
-      locale: Stripe.Checkout.SessionCreateParams.Locale;
+      locale: string;
     }>;
   },
 ) {
