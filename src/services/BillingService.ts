@@ -76,7 +76,7 @@ export const createOrRetrieveCustomer = async (orgId: string) => {
 };
 
 // Map app locale to the configured Stripe locale with a safe fallback
-export const toStripeLocale = (locale: string): StripeLocale => {
+const toStripeLocale = (locale: string): StripeLocale => {
   const stripeLocale = AppConfig.locales.find(elt => elt.id === locale)?.stripeLocale;
   const fallback: StripeLocale = 'auto';
 
