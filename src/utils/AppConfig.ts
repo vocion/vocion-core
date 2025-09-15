@@ -1,22 +1,29 @@
 import type { LocalizationResource } from '@clerk/types';
 import type { LocalePrefixMode } from 'next-intl/routing';
+import type { AppLocale } from '@/types/I18n';
 import type { PricingPlan } from '@/types/Subscription';
 import { enUS, frFR } from '@clerk/localizations';
 import { BILLING_INTERVAL } from '@/types/Subscription';
 
 const localePrefix: LocalePrefixMode = 'as-needed';
+const locales = [
+  {
+    id: 'en',
+    name: 'English',
+    stripeLocale: 'en',
+  },
+  {
+    id: 'fr',
+    name: 'Français',
+    stripeLocale: 'fr',
+  },
+] satisfies AppLocale[];
 
 // FIXME: Update this configuration file based on your project information
 export const AppConfig = {
   name: 'SaaS Template',
-  locales: [
-    {
-      id: 'en',
-      name: 'English',
-    },
-    { id: 'fr', name: 'Français' },
-  ],
   sidebarCookieName: 'sidebar:state',
+  locales,
   defaultLocale: 'en',
   localePrefix,
 };

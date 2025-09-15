@@ -1,10 +1,10 @@
 import type Stripe from 'stripe';
-import type { IStripeSubscription, PlanDetails, PricingPlan } from '@/types/Subscription';
+import type { IStripeSubscription, PlanDetails, PricingPlan, StripeLocale } from '@/types/Subscription';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 import { stripe } from '@/libs/Stripe';
 import { SUBSCRIPTION_STATUS } from '@/types/Subscription';
-import { PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
+import { AppConfig, PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
 import { getBaseUrl, MILLISECONDS_IN_ONE_DAY } from '@/utils/Helpers';
 import { getStripeCustomerId, updateStripeSubscription, upsertStripeCustomerId } from './OrganizationService';
 
@@ -75,10 +75,18 @@ export const createOrRetrieveCustomer = async (orgId: string) => {
   return stripeCustomer.id;
 };
 
+// Map app locale to the configured Stripe locale with a safe fallback
+const toStripeLocale = (locale: string): StripeLocale => {
+  const stripeLocale = AppConfig.locales.find(elt => elt.id === locale)?.stripeLocale;
+  const fallback: StripeLocale = 'auto';
+
+  return stripeLocale ?? fallback;
+};
+
 export const createCheckoutSession = (
   plan: PricingPlan,
   customerId: string,
-  locale: Stripe.Checkout.SessionCreateParams.Locale,
+  locale: string,
 ) => {
   const baseUrl = getBaseUrl();
 
@@ -95,20 +103,20 @@ export const createCheckoutSession = (
     success_url: `${baseUrl}/dashboard/billing/checkout-confirmation`,
     cancel_url: `${baseUrl}/dashboard/billing`,
     customer: customerId,
-    locale,
+    locale: toStripeLocale(locale),
   });
 };
 
 export const createBillingPortal = (
   customerId: string,
-  locale: Stripe.BillingPortal.SessionCreateParams.Locale,
+  locale: string,
 ) => {
   const baseUrl = getBaseUrl();
 
   return stripe.billingPortal.sessions.create({
     customer: customerId,
     return_url: `${baseUrl}/dashboard/billing`,
-    locale,
+    locale: toStripeLocale(locale),
   });
 };
 
