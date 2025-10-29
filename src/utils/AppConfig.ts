@@ -1,6 +1,6 @@
 import type { LocalizationResource } from '@clerk/types';
 import type { LocalePrefixMode } from 'next-intl/routing';
-import type { AppLocale } from '@/types/I18n';
+import type { AppLocale } from '@/types/AppConfig';
 import type { PricingPlan } from '@/types/Subscription';
 import { enUS, frFR } from '@clerk/localizations';
 import { BILLING_INTERVAL } from '@/types/Subscription';
