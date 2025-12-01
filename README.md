@@ -299,9 +299,13 @@ One of the benefits of using Conventional Commits is the ability to automaticall
 
 ### Subscription payment with Stripe
 
+The project is integrated with Stripe for subscription payment. First, you need to create a Stripe account.
+
+In your Stripe Dashboard, you are required to configure your customer portal settings at https://dashboard.stripe.com/test/settings/billing/portal. Most importantly, don't forget to save the settings even you don't change anything. This is necessary to ensure that the customer portal works correctly.
+
 #### Stripe setup
 
-The project is integrated with Stripe for subscription payment. You need to create a Stripe account and you also need to install the Stripe CLI. You can install the Stripe CLI by following the instructions this [documentation](https://docs.stripe.com/stripe-cli).
+You also need to install the Stripe CLI. You can install the Stripe CLI by following the instructions this [documentation](https://docs.stripe.com/stripe-cli).
 
 After installing the Stripe CLI, you need to login using the CLI:
 
@@ -316,8 +320,6 @@ npm run stripe:setup-price
 ```
 
 After running the command, you need to copy the price ID and paste it in `src/utils/AppConfig.ts` by updating the existing price ID with the new ones.
-
-In your Stripe Dashboard, you are required to configure your customer portal settings at https://dashboard.stripe.com/test/settings/billing/portal. Most importantly, don't forget to save the settings even you don't change anything. This is necessary to ensure that the customer portal works correctly.
 
 In your `.env` file, you need to update the `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` with your Stripe Publishable key. You can find the key in your Stripe Dashboard. Then, you also need to create a new file named `.env.local` and add the following environment variables in the newly created file:
 
