@@ -65,11 +65,7 @@ export const signIn = async (page: Page) => {
   await page.goto('/sign-up');
   await clerk.signIn({
     page,
-    signInParams: {
-      strategy: 'password',
-      identifier: process.env.E2E_CLERK_USER_USERNAME,
-      password: process.env.E2E_CLERK_USER_PASSWORD,
-    },
+    emailAddress: process.env.E2E_CLERK_USER_USERNAME,
   });
   await page.goto('/dashboard');
 };
