@@ -44,6 +44,19 @@ export default async function DashboardIndexPage(props: {
             {t('message_state_button')}
           </a>
 
+          <p className="mt-5 text-sm font-medium text-muted-foreground">
+            {t.rich('max_message', {
+              url: () => (
+                <a
+                  className="text-blue-500 hover:text-blue-600"
+                  href="https://nextjs-boilerplate.com/nextjs-multi-tenant-saas-boilerplate"
+                >
+                  Next.js Boilerplate Max
+                </a>
+              ),
+            })}
+          </p>
+
           <div className="mt-7">
             <SponsorLogos />
           </div>
