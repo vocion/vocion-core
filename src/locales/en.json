@@ -101,7 +101,8 @@
   "DashboardIndex": {
     "message_state_title": "Let's get started",
     "message_state_description": "You can customize this page by editing the file at <code>dashboard/page.tsx</code>",
-    "message_state_button": "Buy Next.js Vocion"
+    "message_state_button": "Buy Next.js Vocion",
+    "max_message": "Or, need a Self-hosted auth stack (Better Auth)? Try <url></url>."
   },
   "Billing": {
     "title_bar": "Billing",

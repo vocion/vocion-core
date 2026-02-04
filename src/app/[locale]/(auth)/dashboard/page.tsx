@@ -44,6 +44,19 @@ export default async function DashboardIndexPage(props: {
             {t('message_state_button')}
           </a>
 
+          <p className="mt-5 text-sm font-medium text-muted-foreground">
+            {t.rich('max_message', {
+              url: () => (
+                <a
+                  className="text-blue-500 hover:text-blue-600"
+                  href="https://vocion.ai/nextjs-multi-tenant-Vocion"
+                >
+                  Vocion Max
+                </a>
+              ),
+            })}
+          </p>
+
           <div className="mt-7">
             <SponsorLogos />
           </div>

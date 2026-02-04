@@ -28,9 +28,9 @@ export const CenteredFooter = (props: {
             author: () => (
               <a
                 className="text-blue-500 hover:text-blue-600"
-                href="https://creativedesignsguru.com"
+                href="https://vocion.ai/"
               >
-                Creative Designs Guru
+                Vocion
               </a>
             ),
           })}
