@@ -101,7 +101,8 @@
   "DashboardIndex": {
     "message_state_title": "C'est parti",
     "message_state_description": "Vous pouvez personnaliser cette page en modifiant le fichier dans <code>dashboard/page.tsx</code>",
-    "message_state_button": "Acheter Next.js SaaS Boilerplate"
+    "message_state_button": "Acheter Next.js SaaS Boilerplate",
+    "max_message": "Ou, besoin d'une stack d'auth auto-hébergée (Better Auth) ? Essayez <url></url>."
   },
   "Billing": {
     "title_bar": "Facturation",
