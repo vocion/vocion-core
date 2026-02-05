@@ -30,7 +30,7 @@ export const CenteredFooter = (props: {
             author: () => (
               <a
                 className="text-blue-500 hover:text-blue-600"
-                href="https://vocion.ai/"
+                href="https://vocion.ai"
               >
                 Vocion
               </a>
