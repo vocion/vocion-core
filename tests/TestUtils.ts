@@ -63,10 +63,20 @@ export const signIn = async (page: Page) => {
   assert(process.env.E2E_CLERK_USER_PASSWORD, 'E2E_CLERK_USER_PASSWORD is not set');
 
   await page.goto('/sign-in');
+
+  // Wait for the email to be "sent" to avoid the error: "You need to send a verification code before attempting to verify."
+  const prepareVerification = page.waitForResponse(res => res.url().includes('prepare_second_factor') && res.status() === 200);
+
   await page.getByLabel('Email address').fill(process.env.E2E_CLERK_USER_USERNAME);
   await page.getByLabel('Password', { exact: true }).fill(process.env.E2E_CLERK_USER_PASSWORD);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
+
+  await prepareVerification;
+
+  // The verification code for test emails is `424242`
   await page.getByLabel('Enter verification code').fill('424242');
+
+  await expect(page.getByText('Main navigation')).toBeVisible();
 };
 
 export const createOrganization = async (page: Page) => {
