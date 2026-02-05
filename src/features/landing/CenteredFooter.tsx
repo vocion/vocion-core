@@ -30,7 +30,7 @@ export const CenteredFooter = (props: {
             author: () => (
               <a
                 className="text-blue-500 hover:text-blue-600"
-                href="https://nextjs-boilerplate.com/"
+                href="https://nextjs-boilerplate.com"
               >
                 Next.js Boilerplate
               </a>
