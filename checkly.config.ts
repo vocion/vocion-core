@@ -17,7 +17,7 @@ export const config = defineConfig({
   logicalId: process.env.CHECKLY_LOGICAL_ID ?? '',
   repoUrl: 'https://github.com/vocion/vocion-core',
   checks: {
-    locations: ['us-east-1', 'eu-west-1'],
+    locations: ['us-east-1', 'eu-central-1'],
     tags: ['website'],
     runtimeId: '2024.02',
     browserChecks: {

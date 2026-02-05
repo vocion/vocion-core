@@ -113,7 +113,7 @@ Developer experience first, extremely flexible code structure and only keep what
 - ♻️ Type-safe environment variables with T3 Env
 - ⌨️ Form handling with React Hook Form
 - 🔴 Validation library with Zod
-- 📏 Linter with [ESLint](https://eslint.org) (default Next.js, Next.js Core Web Vitals, Tailwind CSS and Antfu configuration)
+- 📏 Linter with ESLint (default Next.js, Next.js Core Web Vitals, Tailwind CSS and Antfu configuration)
 - 💖 Code Formatter with Prettier
 - 🦊 Husky for Git Hooks (replaced by Lefthook)
 - 🚫 Lint-staged for running linters on Git staged files
@@ -186,7 +186,7 @@ Open http://localhost:3000 with your favorite browser to see your project. For y
 
 ### Set up authentication
 
-Create a Clerk account at [Clerk.com](https://go.clerk.com/zGlzydF) and create a new application in the Clerk Dashboard. Then, copy the values of `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` into the `.env.local` file (which is not tracked by Git):
+To get started, create a Clerk account at [Clerk.com](https://go.clerk.com/zGlzydF) and create a new application in the Clerk Dashboard. Then copy the `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` values and add them to your `.env.local` file (not tracked by Git):
 
 ```shell
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_pub_key
@@ -195,7 +195,7 @@ CLERK_SECRET_KEY=your_clerk_secret_key
 
 In your Clerk Dashboard, you also need to `Enable Organization` by navigating to `Organization management` > `Settings` > `Enable organization`.
 
-Now, you have a fully working authentication system with Next.js: Sign up, Sign in, Sign out, Forgot password, Reset password, Update profile, Update password, Update email, Delete account, and more.
+You now have a fully functional authentication system with Next.js, including features such as sign up, sign in, sign out, forgot password, reset password, update profile, update password, update email, delete account, and more.
 
 Optional: To enable multi-session functionality, which allows users to be signed into multiple accounts simultaneously, navigate to `Session management` > `Sessions` > `Multi-session handling` in your Clerk Dashboard and enable this feature.
 
@@ -212,6 +212,10 @@ The project uses DrizzleORM, a type-safe ORM that is compatible with PostgreSQL,
 - Google Cloud
 - Microsoft Azure
 - Render
+
+#### Create a fresh and empty database
+
+If you want to create a fresh and empty database, you just need to remove the folder `local.db` from the root of the project. The next time you run the project, a new database will be created automatically.
 
 ### Translation (i18n) setup
 
