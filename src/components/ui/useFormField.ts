@@ -1,5 +1,5 @@
 import type { FieldPath, FieldValues } from 'react-hook-form';
-import React from 'react';
+import * as React from 'react';
 import { useFormContext, useFormState } from 'react-hook-form';
 
 type FormFieldContextValue<
