@@ -8,7 +8,7 @@ describe('ToggleMenuButton', () => {
     it('should call the callback when the user click on the button', async () => {
       const handler = vi.fn();
 
-      render(<ToggleMenuButton onClick={handler} />);
+      await render(<ToggleMenuButton onClick={handler} />);
       const button = page.getByRole('button');
       await userEvent.click(button);
 

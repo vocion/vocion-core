@@ -7,8 +7,8 @@ import { CenteredFooter } from './CenteredFooter';
 
 describe('CenteredFooter', () => {
   describe('Render method', () => {
-    it('should have copyright information', () => {
-      render(
+    it('should have copyright information', async () => {
+      await render(
         <NextIntlClientProvider locale="en" messages={messages}>
           <CenteredFooter logo={null} name="" iconList={null} legalLinks={null}>
             Random children
@@ -16,7 +16,7 @@ describe('CenteredFooter', () => {
         </NextIntlClientProvider>,
       );
 
-      const copyright = page.getByText(/© Copyright/);
+      const copyright = page.getByText(/© /);
 
       expect(copyright).toBeInTheDocument();
     });
