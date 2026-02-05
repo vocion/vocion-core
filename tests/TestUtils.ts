@@ -68,6 +68,8 @@ export const signIn = async (page: Page) => {
     emailAddress: process.env.E2E_CLERK_USER_USERNAME,
   });
   await page.goto('/dashboard');
+
+  await expect(page.getByText('Main navigation')).toBeVisible();
 };
 
 export const createOrganization = async (page: Page) => {
