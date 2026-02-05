@@ -1,4 +1,3 @@
-/* eslint-disable react-dom/no-unsafe-target-blank */
 import Image from 'next/image';
 import { LogoCloud } from '@/features/landing/LogoCloud';
 
