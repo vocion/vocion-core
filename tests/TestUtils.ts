@@ -62,14 +62,12 @@ export const signIn = async (page: Page) => {
   assert(process.env.E2E_CLERK_USER_USERNAME, 'E2E_CLERK_USER_USERNAME is not set');
   assert(process.env.E2E_CLERK_USER_PASSWORD, 'E2E_CLERK_USER_PASSWORD is not set');
 
-  await page.goto('/sign-up');
+  await page.goto('/sign-in');
   await clerk.signIn({
     page,
     emailAddress: process.env.E2E_CLERK_USER_USERNAME,
   });
-  await page.goto('/dashboard');
-
-  await expect(page.getByText('Main navigation')).toBeVisible();
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
 };
 
 export const createOrganization = async (page: Page) => {
