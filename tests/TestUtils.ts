@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import assert from 'node:assert';
 import { clerkClient } from '@clerk/nextjs/server';
-import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright';
+import { setupClerkTestingToken } from '@clerk/testing/playwright';
 import { faker } from '@faker-js/faker';
 import { expect } from '@playwright/test';
 
@@ -63,11 +63,10 @@ export const signIn = async (page: Page) => {
   assert(process.env.E2E_CLERK_USER_PASSWORD, 'E2E_CLERK_USER_PASSWORD is not set');
 
   await page.goto('/sign-in');
-  await clerk.signIn({
-    page,
-    emailAddress: process.env.E2E_CLERK_USER_USERNAME,
-  });
-  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
+  await page.getByLabel('Email address').fill(process.env.E2E_CLERK_USER_USERNAME);
+  await page.getByLabel('Password', { exact: true }).fill(process.env.E2E_CLERK_USER_PASSWORD);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByLabel('Enter verification code').fill('424242');
 };
 
 export const createOrganization = async (page: Page) => {
