@@ -2,11 +2,11 @@ import type { Metadata } from 'next';
 import { OrganizationList } from '@clerk/nextjs';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 
-type IOrganizationSelectionProps = {
+type OrganizationSelectionProps = {
   params: Promise<{ locale: string }>;
 };
 
-export async function generateMetadata(props: IOrganizationSelectionProps): Promise<Metadata> {
+export async function generateMetadata(props: OrganizationSelectionProps): Promise<Metadata> {
   const { locale } = await props.params;
   const t = await getTranslations({
     locale,
@@ -19,7 +19,7 @@ export async function generateMetadata(props: IOrganizationSelectionProps): Prom
   };
 }
 
-export default async function OrganizationSelectionPage(props: IOrganizationSelectionProps) {
+export default async function OrganizationSelectionPage(props: OrganizationSelectionProps) {
   const { locale } = await props.params;
   setRequestLocale(locale);
 
@@ -28,7 +28,6 @@ export default async function OrganizationSelectionPage(props: IOrganizationSele
       <OrganizationList
         afterSelectOrganizationUrl="/dashboard"
         afterCreateOrganizationUrl="/dashboard"
-        hideSlug
         hidePersonal
         skipInvitationScreen
       />

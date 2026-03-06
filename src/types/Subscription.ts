@@ -1,10 +1,5 @@
-import type Stripe from 'stripe';
 import type { EnumValues } from './Enum';
 import type { PLAN_ID } from '@/utils/AppConfig';
-
-export type StripeLocale
-  = Stripe.Checkout.SessionCreateParams.Locale
-    & Stripe.BillingPortal.SessionCreateParams.Locale;
 
 export type PlanId = EnumValues<typeof PLAN_ID>;
 

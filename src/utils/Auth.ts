@@ -1,3 +1,6 @@
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
+
 /**
  * Authentication utilities for Next.js App Router. These functions use Next.js `redirect()`.
  *
@@ -6,15 +9,12 @@
  *
  * For API/RPC authentication, use AuthGuards.ts (`guard*` functions) instead.
  */
-import { auth } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
 
 /**
  * Ensures the user belongs to an organization.
  * Redirects to organization selection if no organization is found.
- *
- * @returns Promise containing orgId and has function for role checking
- * @throws Redirects to organization selection if no orgId
+ * @returns Promise containing orgId and has function for role checking.
+ * @throws {redirect} Redirects to organization selection if no orgId.
  */
 export const requireOrganization = async () => {
   const { orgId, has } = await auth();

@@ -1,6 +1,6 @@
 import { UserButton } from '@clerk/nextjs';
-import { DarkModeToggle } from '@/components/DarkModeToggle';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
+import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 
 export const AppSidebarHeader = () => (
@@ -11,7 +11,7 @@ export const AppSidebarHeader = () => (
 
     <ul className="flex items-center gap-x-1.5">
       <li>
-        <DarkModeToggle />
+        <ThemeSwitcher />
       </li>
 
       <li>
