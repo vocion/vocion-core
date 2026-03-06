@@ -1,5 +1,6 @@
 import type Stripe from 'stripe';
-import type { IStripeSubscription, PlanDetails, PricingPlan, StripeLocale } from '@/types/Subscription';
+import type { StripeLocale } from '@/types/I18n';
+import type { IStripeSubscription, PlanDetails, PricingPlan } from '@/types/Subscription';
 import { Env } from '@/libs/Env';
 import { logger } from '@/libs/Logger';
 import { stripe } from '@/libs/Stripe';
@@ -77,7 +78,7 @@ export const createOrRetrieveCustomer = async (orgId: string) => {
 
 // Map app locale to the configured Stripe locale with a safe fallback
 const toStripeLocale = (locale: string): StripeLocale => {
-  const stripeLocale = AppConfig.locales.find(elt => elt.id === locale)?.stripeLocale;
+  const stripeLocale = AppConfig.i18n.locales.find(elt => elt.id === locale)?.stripeLocale;
   const fallback: StripeLocale = 'auto';
 
   return stripeLocale ?? fallback;

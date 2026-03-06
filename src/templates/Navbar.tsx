@@ -1,10 +1,10 @@
 import { useTranslations } from 'next-intl';
-import Link from 'next/link';
-import { DarkModeToggle } from '@/components/DarkModeToggle';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
+import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { CenteredMenu } from '@/features/landing/CenteredMenu';
 import { Section } from '@/features/landing/Section';
+import { Link } from '@/libs/I18nNavigation';
 import { Logo } from './Logo';
 
 export const Navbar = () => {
@@ -17,7 +17,7 @@ export const Navbar = () => {
         rightMenu={(
           <>
             <li>
-              <DarkModeToggle />
+              <ThemeSwitcher />
             </li>
             <li>
               <LocaleSwitcher />

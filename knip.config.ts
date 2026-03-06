@@ -7,7 +7,6 @@ const config: KnipConfig = {
     'src/components/ui/*',
     'src/libs/I18n.ts',
     'src/types/Auth.ts',
-    'src/types/I18n.ts',
     'src/types/Table.ts',
     'tests/**/*.ts',
   ],
