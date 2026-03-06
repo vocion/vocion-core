@@ -35,3 +35,7 @@ export const getI18nPath = (url: string, locale: string) => {
 
   return `/${locale}${url}`;
 };
+
+export const isServer = () => {
+  return typeof window === 'undefined';
+};

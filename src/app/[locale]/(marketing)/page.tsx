@@ -10,11 +10,11 @@ import { Navbar } from '@/templates/Navbar';
 import { Pricing } from '@/templates/Pricing';
 import { Sponsors } from '@/templates/Sponsors';
 
-type IIndexProps = {
+type IndexProps = {
   params: Promise<{ locale: string }>;
 };
 
-export async function generateMetadata(props: IIndexProps): Promise<Metadata> {
+export async function generateMetadata(props: IndexProps): Promise<Metadata> {
   const { locale } = await props.params;
   const t = await getTranslations({
     locale,
@@ -27,7 +27,7 @@ export async function generateMetadata(props: IIndexProps): Promise<Metadata> {
   };
 }
 
-export default async function Index(props: IIndexProps) {
+export default async function Index(props: IndexProps) {
   const { locale } = await props.params;
   setRequestLocale(locale);
 
