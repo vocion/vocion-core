@@ -12,6 +12,15 @@
     "community": "Community",
     "company": "Company"
   },
+  "LocaleSwitcher": {
+    "button_label": "Change language"
+  },
+  "ThemeSwitcher": {
+    "button_label": "Change theme",
+    "theme_light_label": "Light",
+    "theme_dark_label": "Dark",
+    "theme_system_label": "System"
+  },
   "Hero": {
     "follow_twitter": "Follow @Vocion on Twitter",
     "title": "The perfect <important>SaaS template</important> to build and scale your business with ease.",

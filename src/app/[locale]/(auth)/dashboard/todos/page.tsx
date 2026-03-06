@@ -1,8 +1,8 @@
 import { getTranslations } from 'next-intl/server';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { TodoTable } from '@/features/todo/TodoTable';
+import { Link } from '@/libs/I18nNavigation';
 
 export default async function TodosPage(props: {
   params: Promise<{ locale: string }>;
