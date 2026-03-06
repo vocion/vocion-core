@@ -301,6 +301,24 @@ npm run commit
 
 One of the benefits of using Conventional Commits is the ability to automatically generate GitHub releases. It also allows us to automatically determine the next version number based on the types of commits that are included in a release.
 
+#### Commit Types
+
+Every commit message follows Conventional Commits and must begin with a type prefix (e.g., `feat: add login page`). The table below lists the available types:
+
+| Type | Description |
+| --- | --- |
+| `feat` | New feature or functionality |
+| `fix` | Bug fix |
+| `docs` | Documentation only |
+| `style` | Code formatting without logic changes |
+| `refactor` | Code restructuring without behavior changes |
+| `perf` | Performance improvement |
+| `test` | Adding or updating tests |
+| `build` | Build system |
+| `ci` | CI configuration and scripts |
+| `chore` | Maintenance tasks (dependencies, config) |
+| `revert` | Reverts a previous commit |
+
 ### Subscription payment with Stripe
 
 The project is integrated with Stripe for subscription payment. First, you need to create a Stripe account.
