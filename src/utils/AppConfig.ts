@@ -1,10 +1,11 @@
 import type { LocalizationResource } from '@clerk/types';
 import type { LocalePrefixMode } from 'next-intl/routing';
-import type { AppLocale } from '@/types/AppConfig';
+import type { AppLocale } from '@/types/I18n';
 import type { PricingPlan } from '@/types/Subscription';
 import { enUS, frFR } from '@clerk/localizations';
 import { BILLING_INTERVAL } from '@/types/Subscription';
 
+/** Locale prefix strategy for next-intl routing. */
 const localePrefix: LocalePrefixMode = 'as-needed';
 const locales = [
   {
@@ -23,9 +24,11 @@ const locales = [
 export const AppConfig = {
   name: 'SaaS Template',
   sidebarCookieName: 'sidebar:state',
-  locales,
-  defaultLocale: 'en',
-  localePrefix,
+  i18n: {
+    locales,
+    defaultLocale: 'en',
+    localePrefix,
+  },
 };
 
 const supportedLocales: Record<string, LocalizationResource> = {
@@ -38,7 +41,7 @@ export const ClerkLocalizations = {
   supportedLocales,
 };
 
-export const AllLocales = AppConfig.locales.map(locale => locale.id);
+export const AllLocales = AppConfig.i18n.locales.map(locale => locale.id);
 
 export const PLAN_ID = {
   FREE: 'free',
