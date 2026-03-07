@@ -3,7 +3,7 @@
 import type { SubmitHandler } from 'react-hook-form';
 import type { z } from 'zod';
 import type { EditTodoValidation, TodoValidation } from '@/validations/TodoValidation';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { TodoForm } from './TodoForm';
 

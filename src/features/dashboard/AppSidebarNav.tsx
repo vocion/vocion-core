@@ -1,8 +1,8 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ComponentPropsWithoutRef } from 'react';
-import Link from 'next/link';
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
+import { Link } from '@/libs/I18nNavigation';
 
 export const AppSidebarNav = (props: {
   label?: string;

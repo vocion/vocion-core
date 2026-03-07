@@ -1,26 +1,30 @@
 'use client';
 
-import { useLocale } from 'next-intl';
-import { useRouter } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { usePathname } from '@/libs/I18nNavigation';
+import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { AppConfig } from '@/utils/AppConfig';
 
 export const LocaleSwitcher = () => {
+  const t = useTranslations('LocaleSwitcher');
   const router = useRouter();
   const pathname = usePathname();
   const locale = useLocale();
 
-  const handleChange = (value: string) => {
-    router.push(`/${value}${pathname}`);
-    router.refresh(); // Ensure the page takes the new locale into account related to the issue #395
+  const handleChange = (newLocale: string) => {
+    if (newLocale === locale) {
+      return;
+    }
+
+    const { search } = window.location;
+    router.push(`${pathname}${search}`, { locale: newLocale, scroll: false });
   };
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="lang-switcher">
+        <Button variant="ghost" size="icon" aria-label={t('button_label')}>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             className="size-6 stroke-current stroke-2"
@@ -37,7 +41,7 @@ export const LocaleSwitcher = () => {
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuRadioGroup value={locale} onValueChange={handleChange}>
-          {AppConfig.locales.map(elt => (
+          {AppConfig.i18n.locales.map(elt => (
             <DropdownMenuRadioItem key={elt.id} value={elt.id}>
               {elt.name}
             </DropdownMenuRadioItem>

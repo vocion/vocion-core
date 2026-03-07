@@ -12,6 +12,15 @@
     "community": "Communauté",
     "company": "Entreprise"
   },
+  "LocaleSwitcher": {
+    "button_label": "Changer de langue"
+  },
+  "ThemeSwitcher": {
+    "button_label": "Changer de thème",
+    "theme_light_label": "Clair",
+    "theme_dark_label": "Sombre",
+    "theme_system_label": "Système"
+  },
   "Hero": {
     "follow_twitter": "Suivez @Ixartz sur Twitter",
     "title": "Le parfait <important>SaaS template</important> pour construire et mettre à l'échelle votre entreprise en toute simplicité.",

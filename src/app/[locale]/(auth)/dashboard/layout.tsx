@@ -6,12 +6,12 @@ import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { AppConfig } from '@/utils/AppConfig';
 
-type ILayoutProps = {
+type DashboardLayoutProps = {
   params: Promise<{ locale: string }>;
   children: React.ReactNode;
 };
 
-export async function generateMetadata(props: ILayoutProps): Promise<Metadata> {
+export async function generateMetadata(props: DashboardLayoutProps): Promise<Metadata> {
   const { locale } = await props.params;
   const t = await getTranslations({
     locale,
@@ -24,7 +24,7 @@ export async function generateMetadata(props: ILayoutProps): Promise<Metadata> {
   };
 }
 
-export default async function DashboardLayout(props: ILayoutProps) {
+export default async function DashboardLayout(props: DashboardLayoutProps) {
   const { locale } = await props.params;
   setRequestLocale(locale);
 

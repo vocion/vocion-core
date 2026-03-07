@@ -2,11 +2,10 @@ import { Button } from '@/components/ui/button';
 
 /**
  * A toggle button to show/hide component in small screen.
- * @component
- * @params props - Component props.
- * @params props.onClick - Function to run when the button is clicked.
+ * @param props - The properties for the component.
+ * @param props.onClick - Function to run when the button is clicked.
  */
-const ToggleMenuButton = (props: {
+const MenuToggle = (props: {
   onClick?: () => void;
 }) => (
   <Button
@@ -28,4 +27,4 @@ const ToggleMenuButton = (props: {
   </Button>
 );
 
-export { ToggleMenuButton };
+export { MenuToggle };
