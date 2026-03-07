@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'next/link';
-import { ToggleMenuButton } from '@/components/ToggleMenuButton';
+import { MenuToggle } from '@/components/MenuToggle';
 import { useMenu } from '@/hooks/UseMenu';
+import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 
 export const CenteredMenu = (props: {
@@ -10,10 +10,10 @@ export const CenteredMenu = (props: {
   children: React.ReactNode;
   rightMenu: React.ReactNode;
 }) => {
-  const { showMenu, handleToggleMenu } = useMenu();
+  const { isMenuOpen, toggleMenu } = useMenu();
 
   const navClass = cn('max-lg:w-full max-lg:bg-secondary max-lg:p-5', {
-    'max-lg:hidden': !showMenu,
+    'max-lg:hidden': !isMenuOpen,
   });
 
   return (
@@ -21,7 +21,7 @@ export const CenteredMenu = (props: {
       <Link href="/">{props.logo}</Link>
 
       <div className="lg:hidden">
-        <ToggleMenuButton onClick={handleToggleMenu} />
+        <MenuToggle onClick={toggleMenu} />
       </div>
 
       <nav className={cn('rounded-t-xl max-lg:mt-2', navClass)}>

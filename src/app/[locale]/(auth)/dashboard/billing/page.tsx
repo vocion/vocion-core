@@ -1,12 +1,12 @@
 import { Protect } from '@clerk/nextjs';
 import { getTranslations } from 'next-intl/server';
-import Link from 'next/link';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { ProtectFallback } from '@/features/auth/ProtectFallback';
 import { BillingOptions } from '@/features/billing/BillingOptions';
 import { CurrentPlanDetails } from '@/features/billing/CurrentPlanDetails';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { Link } from '@/libs/I18nNavigation';
 import { determineSubscriptionPlan } from '@/services/BillingService';
 import { getStripeSubscription } from '@/services/OrganizationService';
 import { ORG_ROLE } from '@/types/Auth';

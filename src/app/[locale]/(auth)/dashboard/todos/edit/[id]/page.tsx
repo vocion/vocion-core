@@ -6,6 +6,7 @@ import { EditTodoForm } from '@/features/todo/EditTodoForm';
 import { getTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
+import { TodoIdValidation } from '@/validations/TodoValidation';
 
 export default async function EditTodoPage(props: {
   params: Promise<{ id: number; locale: string }>;
@@ -14,6 +15,11 @@ export default async function EditTodoPage(props: {
   const { id, locale } = await props.params;
 
   if (!has({ role: ORG_ROLE.ADMIN })) {
+    redirect('/dashboard/todos');
+  }
+
+  const todoIdResult = TodoIdValidation.safeParse(id);
+  if (!todoIdResult.success) {
     redirect('/dashboard/todos');
   }
 

@@ -7,7 +7,7 @@ test.describe('I18n', () => {
 
       await expect(page.getByText('The perfect SaaS template to build')).toBeVisible();
 
-      await page.getByRole('button', { name: 'lang-switcher' }).click();
+      await page.getByRole('button', { name: 'Change language' }).click();
       await page.getByText('Français').click();
 
       await expect(page.getByText('Le parfait SaaS template pour construire')).toBeVisible();

@@ -1,5 +1,5 @@
-import type { Todo } from '@/types/Todo';
-import { and, eq } from 'drizzle-orm';
+import type { EditTodoInput, TodoInput } from '@/validations/TodoValidation';
+import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { todoSchema } from '@/models/Schema';
 
@@ -12,11 +12,11 @@ export const getTodoList = (orgId: string) => {
       message: true,
       createdAt: true,
     },
-    orderBy: (todo, { asc }) => [asc(todo.createdAt)],
+    orderBy: asc(todoSchema.createdAt),
   });
 };
 
-export const createTodo = (todo: Omit<Todo, 'id' | 'createdAt'>, orgId: string) => {
+export const createTodo = (todo: TodoInput, orgId: string) => {
   return db
     .insert(todoSchema)
     .values({ ...todo, ownerId: orgId })
@@ -34,10 +34,11 @@ export const getTodo = (todoId: number, orgId: string) => {
   });
 };
 
-export const updateTodo = (todo: Omit<Todo, 'createdAt'>, orgId: string) => {
+export const updateTodo = (todo: EditTodoInput, orgId: string) => {
   return db
     .update(todoSchema)
-    .set(todo)
+    // Only update mutable fields, never attempt to update the primary key and owner.
+    .set({ title: todo.title, message: todo.message })
     .where(and(eq(todoSchema.id, todo.id), eq(todoSchema.ownerId, orgId)))
     .returning();
 };

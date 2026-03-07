@@ -1,10 +1,10 @@
 import { ArrowRightIcon, TwitterLogoIcon } from '@radix-ui/react-icons';
 import { useTranslations } from 'next-intl';
-import Link from 'next/link';
 import { badgeVariants } from '@/components/ui/badgeVariants';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { CenteredHero } from '@/features/landing/CenteredHero';
 import { Section } from '@/features/landing/Section';
+import { Link } from '@/libs/I18nNavigation';
 
 export const Hero = () => {
   const t = useTranslations('Hero');

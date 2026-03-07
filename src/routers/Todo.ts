@@ -1,8 +1,9 @@
-import { ORPCError, os } from '@orpc/server';
+import { os } from '@orpc/server';
 import { logger } from '@/libs/Logger';
 import { createTodo, deleteTodo, updateTodo } from '@/services/TodoService';
 import { ORG_ROLE } from '@/types/Auth';
 import { DeleteTodoValidation, EditTodoValidation, TodoValidation } from '@/validations/TodoValidation';
+import { ApiError } from './ApiError';
 import { guardAuth, guardRole } from './AuthGuards';
 
 export const create = os
@@ -27,7 +28,7 @@ export const edit = os
     const result = await updateTodo(input, orgId);
 
     if (result.length === 0) {
-      throw new ORPCError('Todo not found', { status: 404 });
+      throw ApiError.notFound();
     }
 
     logger.info('A todo has been updated');
@@ -43,7 +44,7 @@ export const remove = os
     const result = await deleteTodo(input.id, orgId);
 
     if (result.length === 0) {
-      throw new ORPCError('Todo not found', { status: 404 });
+      throw ApiError.notFound();
     }
 
     logger.info('A todo entry has been deleted');
