@@ -365,9 +365,9 @@ const CitationBadge = ({ num, sourceType, document: doc }: {
       >
         {color ? label : num}
       </a>
-      {/* Hover popover */}
+      {/* Hover popover — shows below to avoid clipping at top */}
       {showPopover && doc && (
-        <div className="absolute bottom-full left-0 z-50 mb-1.5 w-72 rounded-lg border border-border bg-popover p-3 shadow-lg">
+        <div className="absolute top-full left-0 z-[100] mt-1.5 w-72 rounded-lg border border-border bg-popover p-3 shadow-lg">
           <div className="flex items-center gap-2">
             {color && (
               <span
