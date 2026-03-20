@@ -18,7 +18,7 @@ services:
       - ../../../.env
     environment:
       - CELERY_WORKER_DOCFETCHING_CONCURRENCY=1
-      - CELERY_WORKER_DOCPROCESSING_CONCURRENCY=1
+      - CELERY_WORKER_DOCPROCESSING_CONCURRENCY=2
       - ENABLE_OPENSEARCH_INDEXING_FOR_ONYX=false
     volumes:
       - ../../backend/onyx/connectors/zoom:/app/onyx/connectors/zoom:ro

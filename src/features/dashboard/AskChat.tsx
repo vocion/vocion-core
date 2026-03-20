@@ -68,7 +68,7 @@ const ThinkingPanel = ({ steps, seconds }: { steps: ThinkingStep[]; seconds?: nu
   const stepCount = steps.length;
 
   return (
-    <div className="mb-3">
+    <div className="mb-3" data-thinking-panel>
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -86,9 +86,9 @@ const ThinkingPanel = ({ steps, seconds }: { steps: ThinkingStep[]; seconds?: nu
         </span>
       </button>
       {open && (
-        <div className="mt-2 ml-1 space-y-3 border-l-2 border-border/50 pl-4">
+        <div className="mt-2 ml-1 space-y-3 border-l-2 border-border/50 pl-4" data-thinking-steps>
           {steps.map((step, i) => (
-            <div key={i}>
+            <div key={i} data-step-index={i} className="transition-all">
               {step.type === 'thinking' && step.content && (
                 <div>
                   <div className="mb-1 text-xs font-semibold text-muted-foreground">Thinking</div>
@@ -384,9 +384,27 @@ const CitationBadge = ({ num, sourceType, document: doc, onOpenSidebar }: {
         : (
             <button
               type="button"
-              onClick={() => onOpenSidebar?.()}
-              className="mx-0.5 inline-flex size-5 items-center justify-center rounded-full bg-muted align-middle text-[10px] font-semibold text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary"
-              title={`Source ${num}`}
+              onClick={() => {
+                // Open thinking panel and highlight the referenced step
+                const panel = document.querySelector('[data-thinking-panel]');
+                if (panel) {
+                  // Click to open if closed
+                  const toggle = panel.querySelector('button');
+                  const isOpen = panel.querySelector('[data-thinking-steps]');
+                  if (!isOpen && toggle) toggle.click();
+                  // Highlight the step
+                  setTimeout(() => {
+                    const step = panel.querySelector(`[data-step-index="${Number(num) - 1}"]`);
+                    if (step) {
+                      step.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      step.classList.add('ring-2', 'ring-primary/50', 'rounded-md');
+                      setTimeout(() => step.classList.remove('ring-2', 'ring-primary/50', 'rounded-md'), 2000);
+                    }
+                  }, 100);
+                }
+              }}
+              className="mx-0.5 inline-flex size-5 cursor-pointer items-center justify-center rounded-full bg-muted align-middle text-[10px] font-semibold text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary"
+              title={`View thinking step ${num}`}
             >
               {num}
             </button>
@@ -1125,18 +1143,16 @@ export const AskChat = () => {
                     <button type="button" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" title="Regenerate">
                       <RefreshCw className="size-3.5" />
                     </button>
-                    {msg.citationCount !== undefined && msg.citationCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowSidebar(!showSidebar)}
-                        className="ml-2 inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      >
-                        <Search className="size-3" />
-                        {msg.citationCount}
-                        {' '}
-                        sources
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowSidebar(!showSidebar)}
+                      className="ml-2 inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <Search className="size-3" />
+                      {msg.citationCount && msg.citationCount > 0
+                        ? `${msg.citationCount} sources`
+                        : 'Sources'}
+                    </button>
                   </div>
                 )}
               </div>
@@ -1213,7 +1229,7 @@ export const AskChat = () => {
       </div>
 
       {/* Context drawer — Onyx-style source cards, hidden by default */}
-      <div className={`w-80 shrink-0 rounded-md border border-border transition-all ${showSidebar && activeDocuments.length > 0 ? 'hidden lg:block' : 'hidden'}`}>
+      <div className={`w-80 shrink-0 rounded-md border border-border transition-all ${showSidebar ? 'hidden lg:block' : 'hidden'}`}>
         <div className="border-b border-border px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-sm font-semibold">
@@ -1235,6 +1251,11 @@ export const AskChat = () => {
           </div>
         </div>
         <div className="max-h-[calc(100vh-20rem)] space-y-1.5 overflow-y-auto p-2">
+          {activeDocuments.length === 0 && (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              No sources found for this query. Try a different search or check that connectors are indexed.
+            </div>
+          )}
           {activeDocuments.map((doc, i) => {
             const color = sourceColors[doc.source_type] ?? '#888';
             const label = sourceLabels[doc.source_type] ?? doc.source_type;
