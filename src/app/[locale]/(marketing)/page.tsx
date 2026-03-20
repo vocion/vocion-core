@@ -8,7 +8,6 @@ import { Footer } from '@/templates/Footer';
 import { Hero } from '@/templates/Hero';
 import { Navbar } from '@/templates/Navbar';
 import { Pricing } from '@/templates/Pricing';
-import { Sponsors } from '@/templates/Sponsors';
 
 type IndexProps = {
   params: Promise<{ locale: string }>;
@@ -36,7 +35,6 @@ export default async function Index(props: IndexProps) {
       <DemoBanner />
       <Navbar />
       <Hero />
-      <Sponsors />
       <Features />
       <Pricing />
       <FAQ />

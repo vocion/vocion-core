@@ -7,6 +7,10 @@ import { stripe } from '@/libs/Stripe';
 import { processWebhookEvent } from '@/services/BillingService';
 
 export const POST = async (request: Request) => {
+  if (!stripe || !Env.STRIPE_WEBHOOK_SECRET) {
+    return NextResponse.json({ error: 'Stripe not configured' }, { status: 501 });
+  }
+
   const body = await request.text();
   const signature = (await headers()).get('Stripe-Signature');
 

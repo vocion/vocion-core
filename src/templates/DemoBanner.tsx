@@ -3,8 +3,8 @@ import { Link } from '@/libs/I18nNavigation';
 
 export const DemoBanner = () => (
   <StickyBanner>
-    Live Demo of Vocion SaaS -
+    CoreContext is in private beta.
     {' '}
-    <Link href="/sign-up">Explore the User Dashboard</Link>
+    <Link href="/sign-up">Request early access</Link>
   </StickyBanner>
 );

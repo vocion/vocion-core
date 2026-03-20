@@ -1,0 +1,4 @@
+# Onyx repo is cloned at runtime, don't track it
+onyx-repo/
+# Environment secrets for Onyx docker compose
+.env

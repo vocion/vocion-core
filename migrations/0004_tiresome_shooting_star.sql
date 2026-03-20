@@ -1,0 +1,1 @@
+ALTER TABLE "skill" ADD COLUMN "status" text DEFAULT 'active';

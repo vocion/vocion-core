@@ -9,8 +9,15 @@ import { AppConfig, PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
 import { getBaseUrl, MILLISECONDS_IN_ONE_DAY } from '@/utils/Helpers';
 import { getStripeCustomerId, updateStripeSubscription, upsertStripeCustomerId } from './OrganizationService';
 
+const requireStripe = () => {
+  if (!stripe) {
+    throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY to enable billing.');
+  }
+  return stripe;
+};
+
 const retrieveSubscriptionAndUpdate = async (subscriptionId: string) => {
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const subscription = await requireStripe().subscriptions.retrieve(subscriptionId);
   const customerId = subscription.customer;
 
   if (
@@ -65,7 +72,7 @@ export const createOrRetrieveCustomer = async (orgId: string) => {
     return customerId;
   }
 
-  const stripeCustomer = await stripe.customers.create({
+  const stripeCustomer = await requireStripe().customers.create({
     metadata: {
       organizationId: orgId,
     },
@@ -91,7 +98,7 @@ export const createCheckoutSession = (
 ) => {
   const baseUrl = getBaseUrl();
 
-  return stripe.checkout.sessions.create({
+  return requireStripe().checkout.sessions.create({
     ui_mode: 'hosted',
     mode: 'subscription',
     line_items: [
@@ -114,7 +121,7 @@ export const createBillingPortal = (
 ) => {
   const baseUrl = getBaseUrl();
 
-  return stripe.billingPortal.sessions.create({
+  return requireStripe().billingPortal.sessions.create({
     customer: customerId,
     return_url: `${baseUrl}/dashboard/billing`,
     locale: toStripeLocale(locale),

@@ -3,7 +3,6 @@ import { NextIntlClientProvider } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
 import { ThemeProvider } from 'next-themes';
 import { notFound } from 'next/navigation';
-import { DemoBadge } from '@/components/DemoBadge';
 import { routing } from '@/libs/I18nRouting';
 import '@/styles/global.css';
 
@@ -64,8 +63,6 @@ export default async function RootLayout(props: {
         >
           <NextIntlClientProvider>
             {props.children}
-
-            <DemoBadge />
           </NextIntlClientProvider>
         </ThemeProvider>
       </body>

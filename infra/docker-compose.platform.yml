@@ -1,0 +1,235 @@
+# CoreContext Platform Services
+# Langfuse (LLM observability) + Temporal (workflows) + OTel Collector
+#
+# Onyx runs separately via infra/onyx/ (too many services to combine)
+#
+# Usage:
+#   docker compose -f infra/docker-compose.platform.yml -p corecontext-platform up -d
+#
+# Ports:
+#   Langfuse UI:     http://localhost:3200
+#   Temporal UI:     http://localhost:8233
+#   Temporal gRPC:   localhost:7233
+#   OTel Collector:  localhost:4317 (gRPC), localhost:4318 (HTTP)
+
+services:
+  # ================================================================
+  # LANGFUSE - LLM Observability, Prompt Tracking, Evals, Feedback
+  # ================================================================
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:3
+    container_name: corecontext-langfuse-web
+    restart: unless-stopped
+    ports:
+      - '3200:3000'
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_started
+      langfuse-redis:
+        condition: service_healthy
+    environment: &langfuse-env
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: 'false'
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: '6379'
+      REDIS_AUTH: langfuse-redis-pw
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: langfuse-minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: langfuse-minio-secret
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'true'
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: langfuse-minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: langfuse-minio-secret
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
+      NEXTAUTH_URL: http://localhost:3200
+      NEXTAUTH_SECRET: corecontext-langfuse-secret-change-me
+      SALT: corecontext-langfuse-salt-change-me
+      ENCRYPTION_KEY: 9bf2e54550467e89297157670d9545b438a647653e23abecaeaf682cac0e6e1d
+      LANGFUSE_INIT_ORG_ID: corecontext
+      LANGFUSE_INIT_ORG_NAME: CoreContext
+      LANGFUSE_INIT_PROJECT_ID: ziggy
+      LANGFUSE_INIT_PROJECT_NAME: Ziggy
+      LANGFUSE_INIT_USER_EMAIL: admin@corecontext.com
+      LANGFUSE_INIT_USER_PASSWORD: corecontext-admin
+      LANGFUSE_INIT_USER_NAME: Admin
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-corecontext-ziggy
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-corecontext-ziggy
+    networks:
+      - corecontext
+
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:3
+    container_name: corecontext-langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_started
+      langfuse-redis:
+        condition: service_healthy
+    environment:
+      <<: *langfuse-env
+    networks:
+      - corecontext
+
+  langfuse-postgres:
+    image: docker.io/postgres:17-alpine
+    container_name: corecontext-langfuse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U langfuse]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - corecontext
+
+  langfuse-clickhouse:
+    image: docker.io/clickhouse/clickhouse-server
+    container_name: corecontext-langfuse-clickhouse
+    restart: unless-stopped
+    user: '101:101'
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - langfuse_ch_data:/var/lib/clickhouse
+      - langfuse_ch_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: [CMD, wget, --no-verbose, --tries=1, --spider, 'http://localhost:8123/ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+    networks:
+      - corecontext
+
+  langfuse-minio:
+    image: docker.io/minio/minio
+    container_name: corecontext-langfuse-minio
+    restart: unless-stopped
+    entrypoint: sh -c 'mkdir -p /data/langfuse && minio server /data --console-address ":9001"'
+    environment:
+      MINIO_ROOT_USER: langfuse-minio
+      MINIO_ROOT_PASSWORD: langfuse-minio-secret
+    volumes:
+      - langfuse_minio_data:/data
+    networks:
+      - corecontext
+
+  langfuse-redis:
+    image: docker.io/redis:7-alpine
+    container_name: corecontext-langfuse-redis
+    restart: unless-stopped
+    command: redis-server --requirepass langfuse-redis-pw
+    healthcheck:
+      test: [CMD, redis-cli, -a, langfuse-redis-pw, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - corecontext
+
+  # ================================================================
+  # TEMPORAL - Durable Workflow Orchestration
+  # ================================================================
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: corecontext-temporal
+    restart: unless-stopped
+    ports:
+      - '7233:7233'
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development.yaml
+    volumes:
+      - ./temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
+    networks:
+      - corecontext
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: corecontext-temporal-ui
+    restart: unless-stopped
+    ports:
+      - '8233:8080'
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    networks:
+      - corecontext
+
+  temporal-postgres:
+    image: docker.io/postgres:17-alpine
+    container_name: corecontext-temporal-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - temporal_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U temporal]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - corecontext
+
+  # ================================================================
+  # OPENTELEMETRY COLLECTOR - Traces, Metrics, Logs
+  # ================================================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: corecontext-otel-collector
+    restart: unless-stopped
+    ports:
+      - '4317:4317' # OTLP gRPC
+      - '4318:4318' # OTLP HTTP
+    volumes:
+      - ./otel/otel-config.yml:/etc/otelcol-contrib/config.yaml
+    networks:
+      - corecontext
+
+volumes:
+  langfuse_pg_data:
+  langfuse_ch_data:
+  langfuse_ch_logs:
+  langfuse_minio_data:
+  temporal_pg_data:
+
+networks:
+  corecontext:
+    driver: bridge
