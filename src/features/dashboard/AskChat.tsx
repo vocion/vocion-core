@@ -339,16 +339,28 @@ const sourceLabels: Record<string, string> = {
 /* ------------------------------------------------------------------ */
 /* Citation badge with hover popover                                   */
 /* ------------------------------------------------------------------ */
-const CitationBadge = ({ num, sourceType, document: doc }: {
+const CitationBadge = ({ num, sourceType, document: doc, onOpenSidebar }: {
   num: string;
   onClick?: () => void;
   sourceType?: string;
   document?: OnyxDocument;
+  onOpenSidebar?: () => void;
 }) => {
   const [showPopover, setShowPopover] = useState(false);
   const color = sourceType ? sourceColors[sourceType] : undefined;
-  const label = sourceType ? (sourceLabels[sourceType] ?? sourceType.replace('_', ' ')) : num;
+  const label = sourceType ? (sourceLabels[sourceType] ?? sourceType.replace('_', ' ')) : null;
   const link = doc?.link;
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (link) {
+      // Let the link open naturally
+    } else {
+      e.preventDefault();
+      onOpenSidebar?.();
+    }
+    // Always open sidebar on click
+    onOpenSidebar?.();
+  };
 
   return (
     <span
@@ -356,16 +368,29 @@ const CitationBadge = ({ num, sourceType, document: doc }: {
       onMouseEnter={() => setShowPopover(true)}
       onMouseLeave={() => setShowPopover(false)}
     >
-      <a
-        href={link || '#'}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mx-0.5 inline-flex h-5 items-center gap-1 rounded px-1.5 align-middle text-[11px] font-medium no-underline transition-opacity hover:opacity-80"
-        style={color ? { backgroundColor: `${color}18`, color } : undefined}
-        onClick={e => !link && e.preventDefault()}
-      >
-        {color ? label : num}
-      </a>
+      {label && color
+        ? (
+            <a
+              href={link || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mx-0.5 inline-flex h-5 items-center gap-1 rounded px-1.5 align-middle text-[11px] font-medium no-underline transition-opacity hover:opacity-80"
+              style={{ backgroundColor: `${color}18`, color }}
+              onClick={handleClick}
+            >
+              {label}
+            </a>
+          )
+        : (
+            <button
+              type="button"
+              onClick={() => onOpenSidebar?.()}
+              className="mx-0.5 inline-flex size-5 items-center justify-center rounded-full bg-muted align-middle text-[10px] font-semibold text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary"
+              title={`Source ${num}`}
+            >
+              {num}
+            </button>
+          )}
       {/* Hover popover — shows below to avoid clipping at top */}
       {showPopover && doc && (
         <div className="absolute top-full left-0 z-[100] mt-1.5 w-72 rounded-lg border border-border bg-popover p-3 shadow-lg">
@@ -407,6 +432,7 @@ function renderWithCitations(
   onCitationClick?: (n: number) => void,
   documents?: OnyxDocument[],
   onAction?: (msg: string) => void,
+  onOpenSidebar?: () => void,
 ): React.ReactNode {
   if (!children) {
     return children;
@@ -415,7 +441,7 @@ function renderWithCitations(
   // Process arrays of children
   if (Array.isArray(children)) {
     return children.map((child, i) => (
-      <span key={i}>{renderWithCitations(child, onCitationClick, documents, onAction)}</span>
+      <span key={i}>{renderWithCitations(child, onCitationClick, documents, onAction, onOpenSidebar)}</span>
     ));
   }
 
@@ -453,6 +479,7 @@ function renderWithCitations(
           sourceType={doc?.source_type}
           document={doc}
           onClick={() => onCitationClick?.(Number.parseInt(num, 10))}
+          onOpenSidebar={onOpenSidebar}
         />,
       );
     } else if (match[2]) {
@@ -485,7 +512,7 @@ function renderWithCitations(
 /* ------------------------------------------------------------------ */
 /* Markdown renderer                                                  */
 /* ------------------------------------------------------------------ */
-const MarkdownContent = ({ content, onCitationClick, documents, onAction }: { content: string; onCitationClick?: (n: number) => void; documents?: OnyxDocument[]; onAction?: (msg: string) => void }) => {
+const MarkdownContent = ({ content, onCitationClick, documents, onAction, onOpenSidebar }: { content: string; onCitationClick?: (n: number) => void; documents?: OnyxDocument[]; onAction?: (msg: string) => void; onOpenSidebar?: () => void }) => {
   // Convert citation markers to a safe unicode format that survives markdown parsing
   // Handles: <cite>N</cite>, [[N]](url), [N] (standalone number in brackets)
   // Also convert <<discovery:Name|id>> business object markers
@@ -516,16 +543,16 @@ const MarkdownContent = ({ content, onCitationClick, documents, onAction }: { co
           ),
           // Intercept text nodes to render citation markers as badges
           p: ({ children, ...props }) => {
-            return <p {...props}>{renderWithCitations(children, onCitationClick, documents, onAction)}</p>;
+            return <p {...props}>{renderWithCitations(children, onCitationClick, documents, onAction, onOpenSidebar)}</p>;
           },
           td: ({ children, ...props }) => {
-            return <td className="border-t border-border/50 px-3 py-2" {...props}>{renderWithCitations(children, onCitationClick, documents, onAction)}</td>;
+            return <td className="border-t border-border/50 px-3 py-2" {...props}>{renderWithCitations(children, onCitationClick, documents, onAction, onOpenSidebar)}</td>;
           },
           li: ({ children, ...props }) => {
-            return <li className="my-0.5" {...props}>{renderWithCitations(children, onCitationClick, documents, onAction)}</li>;
+            return <li className="my-0.5" {...props}>{renderWithCitations(children, onCitationClick, documents, onAction, onOpenSidebar)}</li>;
           },
           strong: ({ children, ...props }) => {
-            return <strong {...props}>{renderWithCitations(children, onCitationClick, documents, onAction)}</strong>;
+            return <strong {...props}>{renderWithCitations(children, onCitationClick, documents, onAction, onOpenSidebar)}</strong>;
           },
           ol: ({ children, ...props }) => {
             return <ol className="my-2 list-decimal pl-6" {...props}>{children}</ol>;
@@ -1063,7 +1090,7 @@ export const AskChat = () => {
                         const preText = msg.content.slice(0, msg.content.indexOf('[Skill:'));
                         return (
                           <>
-                            {preText.trim() && <MarkdownContent content={preText} onCitationClick={handleCitationClick} documents={msg.documents} onAction={sendAgentMessage} />}
+                            {preText.trim() && <MarkdownContent content={preText} onCitationClick={handleCitationClick} documents={msg.documents} onAction={sendAgentMessage} onOpenSidebar={() => setShowSidebar(true)} />}
                             <div className="mt-3">
                               <ApprovalCard
                                 title={`Draft: ${approvalMatch[1]}`}
@@ -1076,7 +1103,7 @@ export const AskChat = () => {
                           </>
                         );
                       }
-                      return <MarkdownContent content={msg.content} onCitationClick={handleCitationClick} documents={msg.documents} onAction={sendAgentMessage} />;
+                      return <MarkdownContent content={msg.content} onCitationClick={handleCitationClick} documents={msg.documents} onAction={sendAgentMessage} onOpenSidebar={() => setShowSidebar(true)} />;
                     })()
                   : <div className="text-[15px] font-medium">{msg.content}</div>}
                 {msg.role === 'assistant' && (
@@ -1135,7 +1162,7 @@ export const AskChat = () => {
                 />
 
                 {streamingPhase === 'answering' && streamingAnswer && (
-                  <MarkdownContent content={streamingAnswer} onCitationClick={handleCitationClick} documents={activeDocuments} onAction={sendAgentMessage} />
+                  <MarkdownContent content={streamingAnswer} onCitationClick={handleCitationClick} documents={activeDocuments} onAction={sendAgentMessage} onOpenSidebar={() => setShowSidebar(true)} />
                 )}
 
                 {streamingPhase === 'idle' && !streamingAnswer && completedSteps.length === 0 && (
