@@ -172,18 +172,28 @@ const LiveThinking = ({
   searchDocs: OnyxDocument[];
   elapsed: number;
 }) => {
+  const [expanded, setExpanded] = useState(false);
   const isActive = phase === 'thinking' || phase === 'searching';
   if (!isActive && steps.length === 0) {
     return null;
   }
   if (phase === 'answering') {
-    // Collapse once answer starts
     return steps.length > 0 ? <ThinkingPanel steps={steps} seconds={elapsed} /> : null;
   }
 
+  // Latest step summary for collapsed view
+  const latestStep = steps[steps.length - 1];
+  const latestSummary = thinkingText
+    || (latestStep?.type === 'search' && latestStep.queries?.[0] ? `Searching: ${latestStep.queries[0]}` : '')
+    || (latestStep?.content ?? '');
+
   return (
     <div className="mb-3">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+      >
         <Loader2 className="size-3 animate-spin" />
         <span className="font-medium">
           Reading
@@ -196,8 +206,13 @@ const LiveThinking = ({
             steps
           </span>
         )}
-      </div>
+        {!expanded && latestSummary && (
+          <span className="max-w-xs truncate text-muted-foreground/50">{latestSummary}</span>
+        )}
+        {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+      </button>
 
+      {expanded && (
       <div className="mt-2 ml-1 space-y-3 border-l-2 border-border/50 pl-4">
         {/* Completed steps */}
         {steps.map((step, i) => (
@@ -309,6 +324,7 @@ const LiveThinking = ({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };
