@@ -6,6 +6,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Badge } from '@/components/ui/badge';
 import { ApprovalCard } from '@/features/dashboard/ApprovalCard';
+import { ContextMenu } from '@/features/dashboard/ContextMenu';
 
 type OnyxDocument = {
   document_id: string;
@@ -400,12 +401,12 @@ const CitationBadge = ({ num, sourceType, document: doc }: {
 /* ------------------------------------------------------------------ */
 /* Citation rendering helper                                          */
 /* ------------------------------------------------------------------ */
-const CITE_REGEX = /\u200Bcite:(\d+)\u200B/g;
 
 function renderWithCitations(
   children: React.ReactNode,
   onCitationClick?: (n: number) => void,
   documents?: OnyxDocument[],
+  onAction?: (msg: string) => void,
 ): React.ReactNode {
   if (!children) {
     return children;
@@ -414,7 +415,7 @@ function renderWithCitations(
   // Process arrays of children
   if (Array.isArray(children)) {
     return children.map((child, i) => (
-      <span key={i}>{renderWithCitations(child, onCitationClick, documents)}</span>
+      <span key={i}>{renderWithCitations(child, onCitationClick, documents, onAction)}</span>
     ));
   }
 
@@ -423,32 +424,54 @@ function renderWithCitations(
     return children;
   }
 
-  if (!CITE_REGEX.test(children)) {
+  // Combined regex for both citations and business object markers
+  const COMBINED = /\u200Bcite:(\d+)\u200B|\u200Bobj:(discovery|deal|account):([^:]*):([^\u200B]*)\u200B/g;
+
+  if (!COMBINED.test(children)) {
     return children;
   }
 
-  // Split on citation markers and interleave with badges
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match;
-  const regex = new RegExp(CITE_REGEX.source, 'g');
+  const regex = new RegExp(COMBINED.source, 'g');
 
   while ((match = regex.exec(children)) !== null) {
     if (match.index > lastIndex) {
       parts.push(children.slice(lastIndex, match.index));
     }
-    const num = match[1]!;
-    const docIndex = Number.parseInt(num, 10) - 1;
-    const doc = documents?.[docIndex];
-    parts.push(
-      <CitationBadge
-        key={`cite-${match.index}`}
-        num={num}
-        sourceType={doc?.source_type}
-        document={doc}
-        onClick={() => onCitationClick?.(Number.parseInt(num, 10))}
-      />,
-    );
+
+    if (match[1]) {
+      // Citation marker: cite:N
+      const num = match[1];
+      const docIndex = Number.parseInt(num, 10) - 1;
+      const doc = documents?.[docIndex];
+      parts.push(
+        <CitationBadge
+          key={`cite-${match.index}`}
+          num={num}
+          sourceType={doc?.source_type}
+          document={doc}
+          onClick={() => onCitationClick?.(Number.parseInt(num, 10))}
+        />,
+      );
+    } else if (match[2]) {
+      // Business object marker: obj:type:name:id
+      const objType = match[2];
+      const objName = match[3] ?? '';
+      parts.push(
+        <ContextMenu
+          key={`obj-${match.index}`}
+          title={objName}
+          objectType={`${objType}_call`}
+          sourceType="zoom"
+          onAction={onAction ?? (() => {})}
+        >
+          <strong>{objName}</strong>
+        </ContextMenu>,
+      );
+    }
+
     lastIndex = regex.lastIndex;
   }
 
@@ -462,13 +485,15 @@ function renderWithCitations(
 /* ------------------------------------------------------------------ */
 /* Markdown renderer                                                  */
 /* ------------------------------------------------------------------ */
-const MarkdownContent = ({ content, onCitationClick, documents }: { content: string; onCitationClick?: (n: number) => void; documents?: OnyxDocument[] }) => {
+const MarkdownContent = ({ content, onCitationClick, documents, onAction }: { content: string; onCitationClick?: (n: number) => void; documents?: OnyxDocument[]; onAction?: (msg: string) => void }) => {
   // Convert citation markers to a safe unicode format that survives markdown parsing
   // Handles: <cite>N</cite>, [[N]](url), [N] (standalone number in brackets)
+  // Also convert <<discovery:Name|id>> business object markers
   const processed = content
     .replace(/<cite>(\d+)<\/cite>/g, '\u200Bcite:$1\u200B')
     .replace(/\[\[(\d+)\]\]\([^)]*\)/g, '\u200Bcite:$1\u200B')
-    .replace(/(?<!\[)(?<!\()\[(\d{1,2})\](?!\()/g, '\u200Bcite:$1\u200B');
+    .replace(/(?<!\[)(?<!\()\[(\d{1,2})\](?!\()/g, '\u200Bcite:$1\u200B')
+    .replace(/<<(discovery|deal|account):([^|>]+?)(?:\|([^>]+?))?>>​?/g, '\u200Bobj:$1:$2:$3\u200B');
 
   return (
     <div className="prose dark:prose-invert prose-p:my-2 prose-headings:mb-2 prose-headings:mt-5 prose-headings:font-semibold prose-headings:text-base prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-primary prose-strong:font-semibold prose-strong:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-sm prose-code:before:content-none prose-code:after:content-none max-w-none overflow-hidden text-[15px] leading-relaxed" style={{ overflowWrap: 'anywhere' }}>
@@ -491,16 +516,16 @@ const MarkdownContent = ({ content, onCitationClick, documents }: { content: str
           ),
           // Intercept text nodes to render citation markers as badges
           p: ({ children, ...props }) => {
-            return <p {...props}>{renderWithCitations(children, onCitationClick, documents)}</p>;
+            return <p {...props}>{renderWithCitations(children, onCitationClick, documents, onAction)}</p>;
           },
           td: ({ children, ...props }) => {
-            return <td className="border-t border-border/50 px-3 py-2" {...props}>{renderWithCitations(children, onCitationClick, documents)}</td>;
+            return <td className="border-t border-border/50 px-3 py-2" {...props}>{renderWithCitations(children, onCitationClick, documents, onAction)}</td>;
           },
           li: ({ children, ...props }) => {
-            return <li className="my-0.5" {...props}>{renderWithCitations(children, onCitationClick, documents)}</li>;
+            return <li className="my-0.5" {...props}>{renderWithCitations(children, onCitationClick, documents, onAction)}</li>;
           },
           strong: ({ children, ...props }) => {
-            return <strong {...props}>{renderWithCitations(children, onCitationClick, documents)}</strong>;
+            return <strong {...props}>{renderWithCitations(children, onCitationClick, documents, onAction)}</strong>;
           },
           ol: ({ children, ...props }) => {
             return <ol className="my-2 list-decimal pl-6" {...props}>{children}</ol>;
@@ -1038,7 +1063,7 @@ export const AskChat = () => {
                         const preText = msg.content.slice(0, msg.content.indexOf('[Skill:'));
                         return (
                           <>
-                            {preText.trim() && <MarkdownContent content={preText} onCitationClick={handleCitationClick} documents={msg.documents} />}
+                            {preText.trim() && <MarkdownContent content={preText} onCitationClick={handleCitationClick} documents={msg.documents} onAction={sendAgentMessage} />}
                             <div className="mt-3">
                               <ApprovalCard
                                 title={`Draft: ${approvalMatch[1]}`}
@@ -1051,7 +1076,7 @@ export const AskChat = () => {
                           </>
                         );
                       }
-                      return <MarkdownContent content={msg.content} onCitationClick={handleCitationClick} documents={msg.documents} />;
+                      return <MarkdownContent content={msg.content} onCitationClick={handleCitationClick} documents={msg.documents} onAction={sendAgentMessage} />;
                     })()
                   : <div className="text-[15px] font-medium">{msg.content}</div>}
                 {msg.role === 'assistant' && (
@@ -1110,7 +1135,7 @@ export const AskChat = () => {
                 />
 
                 {streamingPhase === 'answering' && streamingAnswer && (
-                  <MarkdownContent content={streamingAnswer} onCitationClick={handleCitationClick} documents={activeDocuments} />
+                  <MarkdownContent content={streamingAnswer} onCitationClick={handleCitationClick} documents={activeDocuments} onAction={sendAgentMessage} />
                 )}
 
                 {streamingPhase === 'idle' && !streamingAnswer && completedSteps.length === 0 && (
