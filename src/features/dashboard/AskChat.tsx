@@ -1278,7 +1278,7 @@ export const AskChat = () => {
             const isHighlighted = highlightedSource === i + 1;
             return (
               <a
-                key={doc.document_id || i}
+                key={`${doc.document_id}-${i}`}
                 href={doc.link || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
