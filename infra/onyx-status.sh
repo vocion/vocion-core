@@ -9,9 +9,11 @@ while true; do
   echo "========================================="
   echo ""
 
-  # Vespa doc count
+  # Vespa doc count + health
   VESPA=$(curl -s "http://localhost:8081/search/?yql=select+documentid+from+danswer_chunk_nomic_ai_nomic_embed_text_v1+where+true+limit+0&hits=0" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('root',{}).get('fields',{}).get('totalCount', 0))" 2>/dev/null || echo "?")
-  echo "  Vespa Index: ${VESPA} chunks"
+  VESPA_HEALTH=$(curl -s "http://localhost:8081/state/v1/health" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status',{}).get('code','?'))" 2>/dev/null || echo "down")
+  REPLAY=$(docker logs --since 10s onyx-stack-index-1 2>&1 | grep "replay.progress" | tail -1 | python3 -c "import sys,json; line=sys.stdin.read(); start=line.find('\"progress\":'); end=line.find(',',start); print(f'{float(line[start+11:end])*100:.0f}%') if start>0 else print('')" 2>/dev/null)
+  echo "  Vespa: ${VESPA} chunks | health: ${VESPA_HEALTH}${REPLAY:+ | replay: ${REPLAY}}"
   echo ""
 
   # Active indexing attempts
