@@ -67,7 +67,38 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ connectors: enriched });
+    // Get indexing status for progress display
+    let indexingByConnector: Record<number, any> = {};
+    try {
+      const idxRes = await fetch(`${ONYX_URL}/manage/admin/connector/indexing-status`, {
+        headers: { Authorization: `Bearer ${key}` },
+        cache: 'no-store',
+      });
+      if (idxRes.ok) {
+        const idxData = await idxRes.json();
+        for (const item of (Array.isArray(idxData) ? idxData : [])) {
+          const connId = item?.connector?.id;
+          const latest = item?.latest_index_attempt;
+          if (connId !== undefined && latest) {
+            indexingByConnector[connId] = {
+              status: latest.status,
+              docsIndexed: latest.total_docs_indexed ?? 0,
+              batchesCompleted: latest.completed_batches ?? 0,
+              failures: latest.total_failures_batch_level ?? 0,
+              newDocs: latest.new_docs_indexed ?? 0,
+            };
+          }
+        }
+      }
+    } catch { /* skip */ }
+
+    // Add indexing data to enriched connectors
+    const withIndexing = enriched.map((c: any) => ({
+      ...c,
+      indexing: indexingByConnector[c.id] ?? null,
+    }));
+
+    return NextResponse.json({ connectors: withIndexing });
   } catch (err: any) {
     return NextResponse.json({ connectors: [], error: err.message });
   }
