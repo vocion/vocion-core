@@ -10,6 +10,7 @@ export const AppSidebarNav = (props: {
     title: string;
     url: string;
     icon: LucideIcon;
+    disabled?: boolean;
   }[];
 } & ComponentPropsWithoutRef<typeof SidebarGroup>) => {
   const { toggleSidebar, isMobile } = useSidebar();
@@ -21,19 +22,28 @@ export const AppSidebarNav = (props: {
         <SidebarMenu>
           {props.items.map(item => (
             <SidebarMenuItem key={item.title}>
-              <SidebarMenuButton
-                asChild
-                onClick={() => {
-                  if (isMobile) {
-                    toggleSidebar();
-                  }
-                }}
-              >
-                <Link href={item.url}>
-                  <item.icon />
-                  <span>{item.title}</span>
-                </Link>
-              </SidebarMenuButton>
+              {item.disabled
+                ? (
+                    <SidebarMenuButton disabled className="pointer-events-none opacity-40">
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </SidebarMenuButton>
+                  )
+                : (
+                    <SidebarMenuButton
+                      asChild
+                      onClick={() => {
+                        if (isMobile) {
+                          toggleSidebar();
+                        }
+                      }}
+                    >
+                      <Link href={item.url}>
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  )}
             </SidebarMenuItem>
           ))}
         </SidebarMenu>

@@ -1,0 +1,48 @@
+# CoreContext port overrides for Onyx
+# Remaps Onyx ports to avoid conflicts with CoreContext app (port 3000, 5432)
+
+services:
+  nginx:
+    ports:
+      !override
+        - '3100:80'
+
+  api_server:
+    ports:
+      - '8080:8080'
+    environment:
+      - SHOW_EXTRA_CONNECTORS=true
+
+  background:
+    env_file:
+      - ../../../.env
+    environment:
+      - CELERY_WORKER_DOCFETCHING_CONCURRENCY=1
+      - CELERY_WORKER_DOCPROCESSING_CONCURRENCY=1
+      - ENABLE_OPENSEARCH_INDEXING_FOR_ONYX=false
+    volumes:
+      - ../../backend/onyx/connectors/zoom:/app/onyx/connectors/zoom:ro
+
+  web_server:
+    environment:
+      - NEXT_PUBLIC_SHOW_EXTRA_CONNECTORS=true
+
+  relational_db:
+    ports:
+      !override
+        - '5433:5432'
+
+  cache:
+    ports:
+      !override
+        - '6380:6379'
+
+  flower:
+    image: mher/flower:latest
+    container_name: onyx-flower
+    ports:
+      - '5555:5555'
+    environment:
+      - CELERY_BROKER_URL=redis://cache:6379/15
+    depends_on:
+      - cache

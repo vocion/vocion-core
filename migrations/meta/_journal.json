@@ -8,6 +8,48 @@
       "when": 1752756899577,
       "tag": "0000_init-db",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773944112226,
+      "tag": "0001_strange_machine_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773950426354,
+      "tag": "0002_spicy_bloodstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1773951272866,
+      "tag": "0003_glamorous_overlord",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1773960352513,
+      "tag": "0004_tiresome_shooting_star",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1773963555012,
+      "tag": "0005_loud_iron_monger",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1773964901573,
+      "tag": "0006_red_ultimatum",
+      "breakpoints": true
     }
   ]
 }

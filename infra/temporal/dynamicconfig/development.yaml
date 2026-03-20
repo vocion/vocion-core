@@ -1,0 +1,5 @@
+# Temporal dynamic config - development defaults
+frontend.keepAliveMaxConnectionAge:
+  - value: 5m
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
