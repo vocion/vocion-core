@@ -107,6 +107,39 @@ async function getOnyxConnectorStats(): Promise<Record<string, unknown>> {
   }
 }
 
+async function getIndexingStatus(): Promise<Record<string, unknown>> {
+  try {
+    // Query Onyx's PostgreSQL via the background container
+    const res = await fetch('http://localhost:8080/manage/admin/connector/indexing-status', {
+      headers: { Authorization: `Bearer ${process.env.ONYX_API_ADMIN_KEY || process.env.ONYX_API_KEY || ''}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    const data = await res.json();
+
+    // Parse the indexing status into a useful summary
+    const attempts = Array.isArray(data) ? data : [];
+    const active = attempts.filter((a: any) => {
+      const latest = a.latest_index_attempt;
+      return latest && (latest.status === 'in_progress' || latest.status === 'not_started');
+    });
+
+    return {
+      activeAttempts: active.map((a: any) => ({
+        source: a.connector?.source ?? '?',
+        name: a.connector?.name ?? '?',
+        status: a.latest_index_attempt?.status ?? '?',
+        docsIndexed: a.latest_index_attempt?.total_docs_indexed ?? 0,
+        batchesCompleted: a.latest_index_attempt?.completed_batches ?? 0,
+        failures: a.latest_index_attempt?.total_failures_batch_level ?? 0,
+      })),
+      totalConnectors: attempts.length,
+    };
+  } catch {
+    return { error: 'Could not fetch indexing status' };
+  }
+}
+
 async function getDbStats(): Promise<Record<string, unknown>> {
   try {
     // Use dynamic import to avoid issues with server components
@@ -135,7 +168,7 @@ export async function GET() {
 
   const onyxUrl = process.env.ONYX_API_URL || 'http://localhost:8080';
 
-  const [services, vespaStats, connectorStats, dbStats] = await Promise.all([
+  const [services, vespaStats, connectorStats, dbStats, indexingStatus] = await Promise.all([
     Promise.all([
       checkService('Onyx API', `${onyxUrl}/health`, 'http://localhost:3100'),
       checkService('Vespa Search', 'http://localhost:8081/state/v1/health', 'http://localhost:8081'),
@@ -147,11 +180,13 @@ export async function GET() {
     getVespaStats(),
     getOnyxConnectorStats(),
     getDbStats(),
+    getIndexingStatus(),
   ]);
 
   return new Response(JSON.stringify({
     services,
     vespa: vespaStats,
+    indexing: indexingStatus,
     connectors: connectorStats,
     db: dbStats,
     timestamp: new Date().toISOString(),

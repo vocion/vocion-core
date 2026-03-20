@@ -12,11 +12,25 @@ type ServiceCheck = {
   details?: Record<string, unknown>;
 };
 
+type IndexingAttempt = {
+  source: string;
+  name: string;
+  status: string;
+  docsIndexed: number;
+  batchesCompleted: number;
+  failures: number;
+};
+
 type StatusData = {
   services: ServiceCheck[];
   vespa: Record<string, unknown>;
   connectors: Record<string, unknown>;
   db: Record<string, unknown>;
+  indexing: {
+    activeAttempts?: IndexingAttempt[];
+    totalConnectors?: number;
+    error?: string;
+  };
   timestamp: string;
 };
 
@@ -213,6 +227,44 @@ export const SystemStatus = () => {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Indexing Pipeline */}
+      <div className="rounded-lg border border-border p-4">
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+          <Activity className="size-4" />
+          Indexing Pipeline
+        </div>
+        {data.indexing?.error
+          ? <div className="text-sm text-muted-foreground">{data.indexing.error}</div>
+          : data.indexing?.activeAttempts && data.indexing.activeAttempts.length > 0
+            ? (
+                <div className="space-y-2">
+                  {data.indexing.activeAttempts.map((attempt: any, i: number) => {
+                    const isRunning = attempt.status === 'in_progress';
+                    return (
+                      <div key={i} className={`flex items-center justify-between rounded-md p-2 text-sm ${isRunning ? 'bg-green-50 dark:bg-green-950/20' : 'bg-muted/30'}`}>
+                        <div className="flex items-center gap-2">
+                          {isRunning
+                            ? <div className="size-2 animate-pulse rounded-full bg-green-500" />
+                            : <div className="size-2 rounded-full bg-muted-foreground/30" />}
+                          <span className="font-medium">{attempt.source}</span>
+                          <span className="text-xs text-muted-foreground">{attempt.name}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                          <span>{attempt.docsIndexed} docs</span>
+                          <span>{attempt.batchesCompleted} batches</span>
+                          {attempt.failures > 0 && <span className="text-red-500">{attempt.failures} fails</span>}
+                          <span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${isRunning ? 'bg-green-100 text-green-800' : 'bg-muted text-muted-foreground'}`}>
+                            {attempt.status}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            : <div className="text-sm text-muted-foreground">No active indexing</div>}
       </div>
 
       {/* Quick links */}
