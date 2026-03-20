@@ -1,7 +1,7 @@
 {
   "Index": {
-    "meta_title": "SaaS Template - Le template SaaS parfait pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
-    "meta_description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec Next.js, TypeScript, Shadcn UI et Tailwind CSS."
+    "meta_title": "CoreContext - Le template SaaS parfait pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
+    "meta_description": "CoreContext aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
   },
   "Navbar": {
     "sign_in": "Se connecter",
@@ -22,28 +22,28 @@
     "theme_system_label": "Système"
   },
   "Hero": {
-    "follow_twitter": "Suivez @Ixartz sur Twitter",
-    "title": "Le parfait <important>SaaS template</important> pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
-    "description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec Next.js, TypeScript, Shadcn UI et Tailwind CSS.",
+    "follow_twitter": "Suivez @CoreContext sur Twitter",
+    "title": "Le parfait <important>CoreContext</important> pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
+    "description": "CoreContext aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
     "primary_button": "Démarrer",
-    "secondary_button": "Acheter Next.js SaaS Boilerplate"
+    "secondary_button": "Découvrir CoreContext"
   },
   "Features": {
     "section_subtitle": "Fonctionnalités",
-    "section_title": "Débloquer le plein potentiel du SaaS Template",
-    "section_description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec Next.js, TypeScript, Shadcn UI et Tailwind CSS.",
+    "section_title": "Libérez le plein potentiel de CoreContext",
+    "section_description": "CoreContext aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
     "feature1_title": "Next.js",
     "feature2_title": "React",
     "feature3_title": "Tailwind CSS",
     "feature4_title": "TypeScript",
     "feature5_title": "Shadcn UI",
     "feature6_title": "ESLint",
-    "feature_description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec Next.js, TypeScript, Shadcn UI et Tailwind CSS."
+    "feature_description": "CoreContext aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
   },
   "Pricing": {
     "section_subtitle": "Fonctionnalités",
-    "section_title": "Débloquer le plein potentiel du SaaS Template",
-    "section_description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec Next.js, TypeScript, Shadcn UI et Tailwind CSS.",
+    "section_title": "Libérez le plein potentiel de CoreContext",
+    "section_description": "CoreContext aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
     "button_text": "Démarrer"
   },
   "PricingPlan": {
@@ -69,7 +69,7 @@
   "CTA": {
     "title": "Vous êtes prêt?",
     "description": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-    "button_text": "Acheter Next.js SaaS Boilerplate"
+    "button_text": "Découvrir CoreContext"
   },
   "Footer": {
     "product": "Produit",
@@ -93,25 +93,141 @@
     "meta_description": "Créez un compte sans effort grâce à notre processus d'inscription intuitif."
   },
   "DashboardLayout": {
-    "main_section_label": "Menu principal",
+    "main_section_label": "Espace de travail",
+    "context_section_label": "Contexte",
     "organization_section_label": "Organisation",
-    "home": "Accueil",
-    "todos": "Todos",
+    "home": "Vue d'ensemble",
+    "ask": "Demander",
+    "chat": "Chat",
+    "search": "Rechercher",
+    "skills": "Compétences",
+    "workflows": "Workflows",
+    "runs": "Historique",
+    "connectors": "Connecteurs",
+    "objects": "Objets",
+    "domains": "Domaines",
     "members": "Membres",
+    "audit": "Journal d'audit",
     "billing": "Facturation",
     "settings": "Réglages",
+    "agents_section_label": "Agents",
+    "ziggy": "Ziggy",
     "support": "Support",
     "feedback": "Commentaires"
   },
   "Dashboard": {
-    "meta_title": "Tableau de bord du SaaS Template",
-    "meta_description": "Un template gratuit et open-source de landing page pour votre entreprise SaaS, construit avec Next.js, TypeScript, Shadcn UI et Tailwind CSS."
+    "meta_title": "Tableau de bord du CoreContext",
+    "meta_description": "CoreContext aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
   },
   "DashboardIndex": {
-    "message_state_title": "C'est parti",
-    "message_state_description": "Vous pouvez personnaliser cette page en modifiant le fichier dans <code>dashboard/page.tsx</code>",
-    "message_state_button": "Acheter Next.js SaaS Boilerplate",
-    "max_message": "Ou, besoin d'une stack d'auth auto-hébergée (Better Auth) ? Essayez <url></url>."
+    "welcome_title": "Bienvenue sur CoreContext",
+    "welcome_description": "Votre plateforme de contexte d'entreprise. Connectez vos systèmes, mappez vos objets métier et obtenez des réponses fondées.",
+    "stat_connectors": "Connecteurs",
+    "stat_objects": "Objets",
+    "stat_domains": "Domaines",
+    "stat_members": "Membres",
+    "quick_actions_title": "Actions rapides",
+    "action_add_connector": "Ajouter un connecteur",
+    "action_add_connector_desc": "Connecter un nouveau système source",
+    "action_map_objects": "Mapper les objets",
+    "action_map_objects_desc": "Définir les mappages d'objets métier",
+    "action_manage_domains": "Gérer les domaines",
+    "action_manage_domains_desc": "Configurer les domaines de connaissances",
+    "action_invite_members": "Inviter des membres",
+    "action_invite_members_desc": "Ajouter des membres à votre espace de travail",
+    "phase2_title": "Prochainement en Phase 2",
+    "phase2_ask": "Demander - Espace conversationnel avec réponses fondées",
+    "phase2_search": "Rechercher - Trouver des documents, enregistrements et preuves",
+    "phase2_skills": "Compétences - Actions et requêtes métier réutilisables",
+    "phase2_runs": "Historique - Suivre les exécutions de compétences et workflows"
+  },
+  "Connectors": {
+    "title_bar": "Connecteurs",
+    "title_bar_description": "Connecter et gérer vos systèmes sources",
+    "add_connector": "Ajouter un connecteur",
+    "section_active": "Connecteurs actifs",
+    "section_active_description": "Systèmes sources actuellement connectés",
+    "section_available": "Connecteurs disponibles",
+    "section_available_description": "Systèmes sources que vous pouvez connecter",
+    "status_connected": "Connecté",
+    "status_syncing": "Synchronisation",
+    "status_error": "Erreur",
+    "no_connectors": "Aucun connecteur configuré. Ajoutez votre premier connecteur pour commencer l'ingestion de données.",
+    "last_sync": "Dernière synchro",
+    "documents": "documents"
+  },
+  "Objects": {
+    "title_bar": "Objets métier",
+    "title_bar_description": "Mapper les objets métier canoniques à travers les systèmes sources",
+    "add_object": "Ajouter un objet",
+    "section_types": "Types d'objets",
+    "section_types_description": "Définitions de types d'objets enregistrées pour cet espace de travail",
+    "section_objects": "Instances d'objets",
+    "section_objects_description": "Objets métier reliant des documents à travers les systèmes sources",
+    "no_types": "Aucun type d'objet défini",
+    "no_types_description": "Définissez des types d'objets comme Appel découverte, Affaire ou Compte pour mapper le contexte métier.",
+    "no_objects": "Aucun objet métier créé",
+    "no_objects_description": "Créez des objets pour relier transcriptions Zoom, fiches HubSpot, emails et plus en contexte métier unifié.",
+    "sources": "sources",
+    "mappings": "mappages"
+  },
+  "Domains": {
+    "title_bar": "Domaines de connaissances",
+    "title_bar_description": "Organiser le contexte par domaine métier",
+    "add_domain": "Ajouter un domaine",
+    "section_domains": "Domaines",
+    "section_domains_description": "Les domaines regroupent connecteurs, objets et compétences associés",
+    "no_domains": "Aucun domaine configuré. Créez des domaines pour organiser votre contexte par domaine métier.",
+    "connectors": "connecteurs",
+    "objects": "objets",
+    "owner": "Propriétaire"
+  },
+  "Audit": {
+    "title_bar": "Journal d'audit",
+    "title_bar_description": "Suivre toutes les actions et événements de votre espace de travail",
+    "section_recent": "Événements récents",
+    "section_recent_description": "Dernières entrées du journal d'audit",
+    "no_events": "Aucun événement d'audit. Les événements apparaîtront ici au fur et à mesure de l'utilisation de la plateforme.",
+    "event_user": "Utilisateur",
+    "event_action": "Action",
+    "event_resource": "Ressource",
+    "event_time": "Heure"
+  },
+  "Ask": {
+    "title": "Demander",
+    "description": "Obtenez des réponses fondées sur le contexte de votre entreprise",
+    "coming_soon_features_1": "Réponses en streaming avec citations sourcées",
+    "coming_soon_features_2": "Panneau de contexte avec exploration des preuves",
+    "coming_soon_features_3": "Contrôles de périmètre pour systèmes, domaines et période",
+    "coming_soon_features_4": "Suggestions de suivi et historique des conversations",
+    "coming_soon_features_5": "Contexte sauvegardé et épinglé"
+  },
+  "Search": {
+    "title": "Rechercher",
+    "description": "Trouver des documents, enregistrements et preuves dans tous les systèmes connectés",
+    "coming_soon_features_1": "Recherche plein texte dans tous les connecteurs",
+    "coming_soon_features_2": "Filtrer par source, auteur, date et tags",
+    "coming_soon_features_3": "Classement des résultats par objet métier",
+    "coming_soon_features_4": "Cartes de preuves avec métadonnées",
+    "coming_soon_features_5": "Sauvegarder et partager les résultats"
+  },
+  "Skills": {
+    "title": "Compétences",
+    "description": "Requêtes et actions métier réutilisables pour votre équipe",
+    "coming_soon_features_1": "Compétences de requête : résumer des comptes, trouver des escalades, extraire des preuves",
+    "coming_soon_features_2": "Catalogue de compétences avec formulaires et affichage des résultats",
+    "coming_soon_features_3": "Périmètre de récupération par compétence",
+    "coming_soon_features_4": "Historique des versions et retour en arrière",
+    "coming_soon_features_5": "Jeux d'évaluation et suivi qualité"
+  },
+  "Runs": {
+    "title": "Historique des exécutions",
+    "description": "Suivre chaque exécution de compétence et workflow dans votre espace de travail",
+    "coming_soon_features_1": "Historique complet avec statut, entrées et sorties",
+    "coming_soon_features_2": "Filtrer par compétence, utilisateur, date et statut",
+    "coming_soon_features_3": "Relancer et comparer les exécutions passées",
+    "coming_soon_features_4": "Boîte de réception des tâches d'approbation",
+    "coming_soon_features_5": "Capture de feedback par exécution"
   },
   "Billing": {
     "title_bar": "Facturation",

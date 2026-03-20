@@ -1,7 +1,23 @@
 'use client';
 
 import { OrganizationSwitcher } from '@clerk/nextjs';
-import { CirclePlus, CreditCard, Home, LifeBuoy, Send, Settings, Users } from 'lucide-react';
+import {
+  Activity,
+  Bot,
+  CreditCard,
+  Database,
+  GitBranch,
+  HeartPulse,
+  Home,
+  Layers,
+  LifeBuoy,
+  MessageSquare,
+  Plug,
+  Send,
+  Settings,
+  Users,
+  Zap,
+} from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
@@ -30,7 +46,6 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
             elements: {
               organizationSwitcherTrigger: 'w-64 md:w-60 justify-between',
               organizationSwitcherPopoverRootBox: {
-                // WORKAROUND: conflict with Shadcn Sidebar, solution from https://github.com/clerk/javascript/issues/3739
                 pointerEvents: 'auto',
               },
             },
@@ -42,14 +57,49 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           label={t('main_section_label')}
           items={[
             {
-              title: t('home'),
-              url: '/dashboard',
-              icon: Home,
+              title: t('chat'),
+              url: '/dashboard/chat',
+              icon: MessageSquare,
             },
             {
-              title: t('todos'),
-              url: '/dashboard/todos',
-              icon: CirclePlus,
+              title: t('skills'),
+              url: '/dashboard/skills',
+              icon: Zap,
+            },
+            {
+              title: t('workflows'),
+              url: '/dashboard/runs',
+              icon: GitBranch,
+            },
+          ]}
+        />
+        <AppSidebarNav
+          label={t('agents_section_label')}
+          items={[
+            {
+              title: t('ziggy'),
+              url: '/dashboard/ziggy',
+              icon: Bot,
+            },
+          ]}
+        />
+        <AppSidebarNav
+          label={t('context_section_label')}
+          items={[
+            {
+              title: t('connectors'),
+              url: '/dashboard/connectors',
+              icon: Plug,
+            },
+            {
+              title: t('objects'),
+              url: '/dashboard/objects',
+              icon: Database,
+            },
+            {
+              title: t('domains'),
+              url: '/dashboard/domains',
+              icon: Layers,
             },
           ]}
         />
@@ -57,19 +107,34 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           label={t('organization_section_label')}
           items={[
             {
-              title: t('billing'),
-              url: '/dashboard/billing',
-              icon: CreditCard,
-            },
-            {
               title: t('members'),
               url: '/dashboard/organization-profile/organization-members',
               icon: Users,
             },
             {
+              title: t('home'),
+              url: '/dashboard',
+              icon: Home,
+            },
+            {
+              title: t('audit'),
+              url: '/dashboard/audit',
+              icon: Activity,
+            },
+            {
+              title: t('billing'),
+              url: '/dashboard/billing',
+              icon: CreditCard,
+            },
+            {
               title: t('settings'),
               url: '/dashboard/organization-profile',
               icon: Settings,
+            },
+            {
+              title: 'System Status',
+              url: '/dashboard/admin',
+              icon: HeartPulse,
             },
           ]}
         />
@@ -77,12 +142,12 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           items={[
             {
               title: t('support'),
-              url: 'mailto:contact@creativedesignsguru.com',
+              url: 'mailto:support@corecontext.com',
               icon: LifeBuoy,
             },
             {
               title: t('feedback'),
-              url: 'mailto:contact@creativedesignsguru.com',
+              url: 'mailto:feedback@corecontext.com',
               icon: Send,
             },
           ]}
