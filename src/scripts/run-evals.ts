@@ -102,6 +102,32 @@ const evalCases: EvalCase[] = [
       },
     ],
   },
+  {
+    name: 'Permanent: Discovery calls week of March 16, 2026',
+    input: 'What discovery calls did I have the week of March 16, 2026?',
+    checks: [
+      {
+        name: 'Searches Zoom source',
+        fn: (_, toolCalls) => toolCalls.some((tc: any) => tc.tool === 'search_onyx'),
+      },
+      {
+        name: 'Response includes Dr. K or Unmuted (Mar 19)',
+        fn: (response) => /Dr\.?\s*K|Unmuted/i.test(response),
+      },
+      {
+        name: 'Response includes Matt Hurst (Mar 17)',
+        fn: (response) => /Matt\s*Hurst/i.test(response),
+      },
+      {
+        name: 'Response includes dates (Mar 17, Mar 19, etc.)',
+        fn: (response) => /Mar\s*(1[6-9]|2[0-2])/.test(response),
+      },
+      {
+        name: 'No raw URLs',
+        fn: (response) => !response.includes('https://us06web.zoom.us'),
+      },
+    ],
+  },
 ];
 
 async function runAgent(message: string): Promise<{ response: string; toolCalls: any[] }> {
