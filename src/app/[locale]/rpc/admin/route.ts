@@ -82,11 +82,18 @@ async function getVespaStats(): Promise<Record<string, unknown>> {
       signal: AbortSignal.timeout(5000),
     });
     const data = await res.json();
+    const totalDocuments = data?.root?.fields?.totalCount ?? 0;
+
+    // Check health for more detail
+    const healthRes = await fetch('http://localhost:8081/state/v1/health', { signal: AbortSignal.timeout(3000) });
+    const health = await healthRes.json();
+
     return {
-      totalDocuments: data?.root?.fields?.totalCount ?? 0,
+      totalDocuments,
+      status: health?.status?.code ?? 'unknown',
     };
   } catch {
-    return { totalDocuments: 'unknown' };
+    return { totalDocuments: 'unknown', status: 'down' };
   }
 }
 
