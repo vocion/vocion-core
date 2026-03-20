@@ -75,6 +75,7 @@ const SourceIcon = ({ source }: { source: string }) => {
 
 export const LiveConnectors = () => {
   const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [vespaChunks, setVespaChunks] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,6 +84,7 @@ export const LiveConnectors = () => {
       const res = await fetch('/rpc/onyx/connectors');
       const data = await res.json();
       setConnectors(data.connectors || []);
+      setVespaChunks(data.vespaChunks ?? 0);
       setError(data.error || null);
     } catch {
       setError('Failed to fetch connector status');
@@ -140,7 +142,12 @@ export const LiveConnectors = () => {
           <div className="text-sm text-muted-foreground">
             <span className="font-semibold text-foreground">{totalDocs.toLocaleString()}</span>
             {' '}
-            total docs indexed
+            docs in DB
+          </div>
+          <div className="text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">{vespaChunks.toLocaleString()}</span>
+            {' '}
+            searchable chunks
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -216,28 +223,27 @@ export const LiveConnectors = () => {
                 </span>
               </div>
 
-              {/* Indexing progress */}
-              {c.indexing && (
-                <div className="mt-3 rounded-md bg-muted/30 p-3">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      {c.indexing.status === 'in_progress'
-                        ? <div className="size-2 animate-pulse rounded-full bg-green-500" />
-                        : c.indexing.status === 'not_started'
-                          ? <div className="size-2 rounded-full bg-amber-400" />
-                          : <div className="size-2 rounded-full bg-muted-foreground/30" />}
-                      <span className="font-medium">
-                        {c.indexing.status === 'in_progress' ? 'Indexing...' : c.indexing.status === 'not_started' ? 'Queued' : c.indexing.status}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-muted-foreground">
-                      <span>{c.indexing.docsIndexed.toLocaleString()} docs</span>
-                      <span>{c.indexing.batchesCompleted} batches</span>
-                      {c.indexing.failures > 0 && <span className="text-red-500">{c.indexing.failures} failures</span>}
-                    </div>
+              {/* Indexing status bar */}
+              <div className="mt-3 rounded-md bg-muted/30 p-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    {c.lastAttemptStatus === 'in_progress'
+                      ? <><div className="size-2 animate-pulse rounded-full bg-green-500" /><span className="font-medium text-green-700">Indexing</span></>
+                      : c.lastAttemptStatus === 'not_started'
+                        ? <><div className="size-2 rounded-full bg-amber-400" /><span className="font-medium text-amber-700">Queued</span></>
+                        : c.lastAttemptStatus === 'success'
+                          ? <><div className="size-2 rounded-full bg-green-500" /><span className="text-muted-foreground">Up to date</span></>
+                          : c.lastAttemptStatus === 'canceled'
+                            ? <><div className="size-2 rounded-full bg-muted-foreground/30" /><span className="text-muted-foreground">Idle (last: canceled)</span></>
+                            : <><div className="size-2 rounded-full bg-muted-foreground/30" /><span className="text-muted-foreground">{c.lastAttemptStatus ?? 'No data'}</span></>}
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    {c.indexing && c.indexing.docsIndexed > 0 && (
+                      <span>{c.indexing.docsIndexed.toLocaleString()} processing</span>
+                    )}
                   </div>
                 </div>
-              )}
+              </div>
 
               {c.inRepeatedError && (
                 <div className="mt-2 rounded-md bg-red-500/5 px-3 py-1.5 text-xs text-red-600 dark:text-red-400">
