@@ -4,6 +4,14 @@ import { ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 
+type IndexingProgress = {
+  status: string;
+  docsIndexed: number;
+  batchesCompleted: number;
+  failures: number;
+  newDocs: number;
+};
+
 type Connector = {
   id: number;
   name: string;
@@ -14,6 +22,7 @@ type Connector = {
   lastIndexed: string | null;
   refreshFreq: number | null;
   inRepeatedError: boolean;
+  indexing: IndexingProgress | null;
 };
 
 const statusConfig: Record<string, { label: string; className: string }> = {
@@ -202,10 +211,33 @@ export const LiveConnectors = () => {
                   </div>
                 </div>
 
-                <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${s.className}`}>
-                  {s.label}
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${s?.className ?? ''}`}>
+                  {s?.label ?? c.status}
                 </span>
               </div>
+
+              {/* Indexing progress */}
+              {c.indexing && (
+                <div className="mt-3 rounded-md bg-muted/30 p-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      {c.indexing.status === 'in_progress'
+                        ? <div className="size-2 animate-pulse rounded-full bg-green-500" />
+                        : c.indexing.status === 'not_started'
+                          ? <div className="size-2 rounded-full bg-amber-400" />
+                          : <div className="size-2 rounded-full bg-muted-foreground/30" />}
+                      <span className="font-medium">
+                        {c.indexing.status === 'in_progress' ? 'Indexing...' : c.indexing.status === 'not_started' ? 'Queued' : c.indexing.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                      <span>{c.indexing.docsIndexed.toLocaleString()} docs</span>
+                      <span>{c.indexing.batchesCompleted} batches</span>
+                      {c.indexing.failures > 0 && <span className="text-red-500">{c.indexing.failures} failures</span>}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {c.inRepeatedError && (
                 <div className="mt-2 rounded-md bg-red-500/5 px-3 py-1.5 text-xs text-red-600 dark:text-red-400">
