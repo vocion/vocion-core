@@ -12,6 +12,7 @@ export async function POST(request: Request) {
   const message = body.message as string;
   const agentSlug = (body.agent_slug as string) || 'ziggy';
   const stream = body.stream !== false; // default true
+  const conversationHistory = (body.conversation_history as Array<{ role: string; content: string }>) ?? [];
 
   if (!message) {
     return new Response(JSON.stringify({ error: 'Message required' }), { status: 400 });
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
   if (!stream) {
     // Non-streaming mode (backward compat)
     try {
-      const result = await runAgent({ orgId, agentSlug, message, userId });
+      const result = await runAgent({ orgId, agentSlug, message, userId, conversationHistory: conversationHistory as any[] });
       return new Response(JSON.stringify({
         response: result.response,
         trace_id: result.traceId,
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
           agentSlug,
           message,
           userId,
+          conversationHistory: conversationHistory as any[],
           onEvent: send,
         });
 

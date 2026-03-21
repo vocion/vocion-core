@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server';
 import { eq } from 'drizzle-orm';
-import { ArrowLeft, Database, Shield } from 'lucide-react';
+import { ArrowLeft, BookOpen, Database, Layers, Shield } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -100,6 +100,32 @@ export default async function ObjectTypeDetailPage(props: {
               <div className="text-xs text-muted-foreground">How the system identifies this object type from raw documents</div>
               <div className="mt-3 rounded-md bg-muted/50 p-4 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
                 {classPrompt}
+              </div>
+            </div>
+          )}
+
+          {/* Business Rules */}
+          {classPrompt && (
+            <div className="rounded-lg border border-border p-5">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                <BookOpen className="size-4" />
+                Business Rules
+              </div>
+              <div className="mb-3 text-xs text-muted-foreground">
+                Classification logic applied to this object type
+              </div>
+              <div className="rounded-md bg-muted/50 p-4 text-sm leading-relaxed whitespace-pre-wrap">
+                {classPrompt}
+              </div>
+              <div className="mt-4 flex items-center gap-2">
+                <Layers className="size-3.5 text-blue-500" />
+                <span className="text-xs text-muted-foreground">Domain:</span>
+                <Link
+                  href="/dashboard/domains"
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Sales
+                </Link>
               </div>
             </div>
           )}
@@ -204,9 +230,25 @@ export default async function ObjectTypeDetailPage(props: {
           {objType.schema && (
             <div className="rounded-lg border border-border p-5">
               <div className="mb-3 text-sm font-semibold">Metadata Schema</div>
-              <code className="block max-h-48 overflow-y-auto rounded-md bg-muted/50 p-3 text-xs">
-                {JSON.stringify(objType.schema, null, 2)}
-              </code>
+              <pre className="max-h-48 overflow-y-auto rounded-md bg-muted/50 p-3 font-mono text-xs leading-relaxed text-muted-foreground">
+                {(() => {
+                  const schema = objType.schema as Record<string, unknown>;
+                  const props = (schema.properties ?? schema) as Record<string, unknown>;
+                  return Object.entries(props).map(([key, val]) => {
+                    if (val && typeof val === 'object' && 'type' in (val as Record<string, unknown>)) {
+                      const typeDef = val as Record<string, unknown>;
+                      if (typeDef.type === 'array' && typeDef.items && typeof typeDef.items === 'object' && 'type' in (typeDef.items as Record<string, unknown>)) {
+                        return `${key}: ${String((typeDef.items as Record<string, unknown>).type)}[]`;
+                      }
+                      if (typeDef.format) {
+                        return `${key}: ${String(typeDef.format)}`;
+                      }
+                      return `${key}: ${String(typeDef.type)}`;
+                    }
+                    return `${key}: ${String(val)}`;
+                  }).join('\n');
+                })()}
+              </pre>
             </div>
           )}
 

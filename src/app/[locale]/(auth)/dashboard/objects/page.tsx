@@ -1,5 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
-import { ChevronRight, Database, FileText, Link2, Phone } from 'lucide-react';
+import { CheckCircle, ChevronRight, Database, FileText, Link2, Phone } from 'lucide-react';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
@@ -71,32 +71,54 @@ export default async function ObjectsPage(props: {
             )
           : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {objectTypes.map(objType => (
-                  <Link
-                    key={objType.id}
-                    href={`/dashboard/objects/type/${objType.slug}`}
-                    className="rounded-lg border border-border p-4 transition-all hover:border-primary/30 hover:bg-muted/50 hover:shadow-sm"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="flex size-8 items-center justify-center rounded-md bg-primary/10 text-primary">
-                        {typeIcons[objType.slug] ?? <Database className="size-4" />}
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold">{objType.label}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {countByType[objType.id] ?? 0}
-                          {' '}
-                          {(countByType[objType.id] ?? 0) === 1 ? 'instance' : 'instances'}
+                {objectTypes.map((objType) => {
+                  // Configured = has classification rules (the key signal that this type is actually set up)
+                  const isConfigured = !!(objType.classificationPrompt && objType.classificationPrompt.trim().length > 0);
+                  return (
+                    <Link
+                      key={objType.id}
+                      href={`/dashboard/objects/type/${objType.slug}`}
+                      className="group rounded-lg border border-border p-4 transition-all hover:border-primary/30 hover:bg-muted/50 hover:shadow-sm"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="flex size-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+                          {typeIcons[objType.slug] ?? <Database className="size-4" />}
                         </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold">{objType.label}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {countByType[objType.id] ?? 0}
+                            {' '}
+                            {(countByType[objType.id] ?? 0) === 1 ? 'instance' : 'instances'}
+                          </div>
+                        </div>
+                        <ChevronRight className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
-                    </div>
-                    {objType.description && (
-                      <div className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                        {objType.description}
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        {isConfigured
+                          ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                <CheckCircle className="size-3" />
+                                Configured
+                              </span>
+                            )
+                          : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                Unconfigured
+                              </span>
+                            )}
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                          Sales
+                        </span>
                       </div>
-                    )}
-                  </Link>
-                ))}
+                      {objType.description && (
+                        <div className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                          {objType.description}
+                        </div>
+                      )}
+                    </Link>
+                  );
+                })}
               </div>
             )}
       </DashboardSection>
