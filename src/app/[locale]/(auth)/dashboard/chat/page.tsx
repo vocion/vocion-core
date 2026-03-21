@@ -1,6 +1,5 @@
 import { setRequestLocale } from 'next-intl/server';
-import { Badge } from '@/components/ui/badge';
-import { AskChat } from '@/features/dashboard/AskChat';
+import { AskChat, NewChatButton } from '@/features/dashboard/AskChat';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 
 export default async function ChatPage(props: {
@@ -13,7 +12,7 @@ export default async function ChatPage(props: {
     <div className="flex h-[calc(100vh-8rem)] flex-col">
       <div className="flex items-center justify-between">
         <TitleBar title="Chat" description="Talk to your agents, grounded in enterprise context" />
-        <Badge variant="secondary">Live</Badge>
+        <NewChatButton />
       </div>
       <AskChat />
     </div>

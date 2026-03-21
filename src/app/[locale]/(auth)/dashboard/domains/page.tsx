@@ -120,16 +120,24 @@ export default async function DomainsPage(props: {
                   BUSINESS OBJECTS
                 </div>
                 <div className="space-y-1.5">
-                  {salesDomain.objectTypes.map(t => (
-                    <Link
-                      key={t.slug}
-                      href="/dashboard/objects"
-                      className={`flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors hover:bg-muted ${t.count === 0 ? 'opacity-50' : ''}`}
-                    >
-                      <span className={t.count > 0 ? 'font-medium' : 'text-muted-foreground'}>{t.label}</span>
-                      <span className="text-xs text-muted-foreground">{t.count}</span>
-                    </Link>
-                  ))}
+                  {salesDomain.objectTypes.map((t) => {
+                    const hasRules = !!(t.classificationPrompt && (t.classificationPrompt as string).trim().length > 0);
+                    return (
+                      <Link
+                        key={t.slug}
+                        href={`/dashboard/objects/type/${t.slug}`}
+                        className="flex items-center justify-between rounded-md px-2 py-1 text-sm transition-colors hover:bg-muted"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className={hasRules ? 'font-medium text-primary' : 'text-muted-foreground'}>{t.label}</span>
+                          {hasRules && (
+                            <span className="size-1.5 rounded-full bg-green-500" title="Configured" />
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">{t.count}</span>
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -181,15 +189,22 @@ export default async function DomainsPage(props: {
                     BUSINESS RULES
                   </div>
                   {salesDomain.businessRules.length > 0
-                    ? salesDomain.businessRules.map(r => (
-                        <div key={r.objectType} className="rounded-md px-2 py-1 text-sm">
-                          <div className="font-medium">{r.objectType}</div>
-                          <div className="line-clamp-2 text-[11px] text-muted-foreground">
-                            {r.prompt.slice(0, 100)}
-                            ...
-                          </div>
-                        </div>
-                      ))
+                    ? salesDomain.businessRules.map((r) => {
+                        const matchingType = salesDomain.objectTypes.find(t => t.label === r.objectType);
+                        return (
+                          <Link
+                            key={r.objectType}
+                            href={matchingType ? `/dashboard/objects/type/${matchingType.slug}` : '/dashboard/objects'}
+                            className="block rounded-md px-2 py-1 text-sm transition-colors hover:bg-muted"
+                          >
+                            <div className="font-medium text-primary hover:underline">{r.objectType}</div>
+                            <div className="line-clamp-2 text-[11px] text-muted-foreground">
+                              {r.prompt.slice(0, 100)}
+                              ...
+                            </div>
+                          </Link>
+                        );
+                      })
                     : <div className="text-xs text-muted-foreground">No classification rules defined</div>}
                 </div>
               </div>

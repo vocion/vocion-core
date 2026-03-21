@@ -50,6 +50,16 @@ function buildTools(agent: {
               items: { type: 'string' },
               description: `Optional: limit to specific sources. Available: ${(agent.connectorSources ?? []).join(', ')}`,
             },
+            metadata_filters: {
+              type: 'object',
+              description: 'Optional: filter by document metadata key-value pairs. Example: {"call_type": "discovery"} to find only discovery calls.',
+              additionalProperties: { type: 'string' },
+            },
+            time_filter: {
+              type: 'string',
+              enum: ['past_day', 'past_week', 'past_month'],
+              description: 'Optional: limit results to a recent time window.',
+            },
           },
           required: ['query'],
         },
@@ -114,6 +124,69 @@ function buildTools(agent: {
     });
   }
 
+  if (skillSlugs.includes('find_related_conversations')) {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'find_related_conversations',
+        description: 'Search Gmail, Slack, and HubSpot notes to find conversations related to a specific call, deal, or topic. Run multiple searches to cover different angles (person name, company, topic). Returns email threads, Slack messages, and CRM notes.',
+        parameters: {
+          type: 'object',
+          properties: {
+            topic: { type: 'string', description: 'The topic, person, company, or call title to search for' },
+            queries: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Multiple search queries to run (e.g., person name, company name, deal topic). Each query searches Gmail, Slack, and HubSpot.',
+            },
+          },
+          required: ['topic'],
+        },
+      },
+    });
+  }
+
+  if (skillSlugs.includes('search_everything')) {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'search_everything',
+        description: 'Comprehensive search across ALL connected sources — Gmail, Slack, HubSpot records, Google Drive docs, and Zoom calls. Use when you need to find everything related to a topic, person, or deal across all systems.',
+        parameters: {
+          type: 'object',
+          properties: {
+            topic: { type: 'string', description: 'The topic, person, company, or deal to search for' },
+            queries: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Multiple search queries for comprehensive coverage',
+            },
+          },
+          required: ['topic'],
+        },
+      },
+    });
+  }
+
+  if (skillSlugs.includes('draft_mvp_proposal')) {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'run_draft_mvp_proposal',
+        description: 'Generate a complete MVP mobile app build proposal based on a discovery call. Creates a detailed 12-section proposal with executive summary, scope, architecture, timeline, and engagement model. The proposal will be generated as a Gamma presentation.',
+        parameters: {
+          type: 'object',
+          properties: {
+            discovery_summary: { type: 'string', description: 'The structured discovery summary or call transcript context' },
+            prospect_name: { type: 'string', description: 'Prospect name' },
+            prospect_company: { type: 'string', description: 'Company or project name' },
+          },
+          required: ['discovery_summary', 'prospect_name'],
+        },
+      },
+    });
+  }
+
   return tools;
 }
 
@@ -129,13 +202,16 @@ type SearchConfig = {
 };
 
 /**
- * Apply recency decay and source weighting to search results.
+ * Apply recency decay, source weighting, and metadata boosting to search results.
  * Recency: score * decay^(days_old)
  * Source: score * sourceWeight
+ * Metadata: boost/penalize based on call_type when query indicates discovery intent
  * @param docs
  * @param config
+ * @param queryIntent
+ * @param queryIntent.wantsDiscovery
  */
-function reRankResults(docs: any[], config: SearchConfig): any[] {
+function reRankResults(docs: any[], config: SearchConfig, queryIntent?: { wantsDiscovery?: boolean }): any[] {
   const now = Date.now();
   const decay = config.recencyDecay ?? 1.0; // 1.0 = no decay
   const sourceWeights = config.sourceWeights ?? {};
@@ -157,6 +233,33 @@ function reRankResults(docs: any[], config: SearchConfig): any[] {
     const sourceType = doc.source_type ?? '';
     const weight = sourceWeights[sourceType] ?? 1.0;
     score *= weight;
+
+    // Metadata-aware boosting for call_type
+    const callType = doc.metadata?.call_type ?? '';
+    if (queryIntent?.wantsDiscovery) {
+      if (callType === 'discovery') {
+        score *= 3.0;
+      } // Strong boost for discovery calls
+      else if (callType === 'internal') {
+        score *= 0.1;
+      } // Heavy penalty for internal
+      else if (callType === 'check-in') {
+        score *= 0.2;
+      } // Penalty for check-ins
+      else if (callType === 'kickoff') {
+        score *= 0.3;
+      } // Penalty for kickoffs
+      else if (callType === 'interview') {
+        score *= 0.15;
+      } // Penalty for interviews
+      else if (callType === 'other') {
+        score *= 0.4;
+      } // Mild penalty for other
+      // No call_type metadata = slight penalty (likely untranscribed)
+      else if (!callType && sourceType === 'zoom') {
+        score *= 0.5;
+      }
+    }
 
     return { ...doc, _adjustedScore: score };
   });
@@ -180,6 +283,9 @@ async function executeTool(
       let results: any;
       const query = args.query as string;
       let sourceFilter = args.source_types as string[] | undefined;
+      let metadataFilters = args.metadata_filters as Record<string, string> | undefined;
+      const timeFilter = args.time_filter as string | undefined;
+
       // Smart source filtering: if query mentions calls/meetings/zoom, prioritize Zoom
       if (!sourceFilter) {
         const callKeywords = /\b(call|calls|meeting|meetings|zoom|transcript|recording|discovery|intro)\b/i;
@@ -188,12 +294,42 @@ async function executeTool(
         }
       }
 
+      // Smart metadata filtering: if query mentions "discovery", add call_type filter
+      if (!metadataFilters) {
+        const discoveryKeywords = /\b(discovery\s+call|discovery\s+calls|discovery\s+meeting|discovery\s+meetings)\b/i;
+        if (discoveryKeywords.test(query)) {
+          metadataFilters = { call_type: 'discovery' };
+        }
+      }
+
+      // Compute time_cutoff ISO string from time_filter
+      let timeCutoff: string | undefined;
+      if (timeFilter) {
+        const now = new Date();
+        switch (timeFilter) {
+          case 'past_day':
+            now.setDate(now.getDate() - 1);
+            break;
+          case 'past_week':
+            now.setDate(now.getDate() - 7);
+            break;
+          case 'past_month':
+            now.setMonth(now.getMonth() - 1);
+            break;
+        }
+        timeCutoff = now.toISOString();
+      }
+
       try {
         results = await search({
           query,
-          search_filters: sourceFilter
-            ? { source_type: sourceFilter }
+          search_filters: (sourceFilter || timeCutoff)
+            ? {
+                ...(sourceFilter ? { source_type: sourceFilter } : {}),
+                ...(timeCutoff ? { time_cutoff: timeCutoff } : {}),
+              }
             : undefined,
+          metadata_filters: metadataFilters,
         });
       } catch (err: any) {
         if (err.message?.includes('503') || err.message?.includes('Vespa')) {
@@ -206,12 +342,17 @@ async function executeTool(
         return 'No results found for this query.';
       }
 
-      // Apply recency decay + source weighting
+      // Detect intent for metadata-aware re-ranking
+      const discoveryIntent = /\b(discovery|intro|prospect)\b/i.test(query);
+
+      // Apply recency decay + source weighting + metadata boosting
       const maxResults = searchConfig?.maxResults ?? 15;
-      const docs = reRankResults(rawDocs, searchConfig ?? {}).slice(0, maxResults);
+      const docs = reRankResults(rawDocs, searchConfig ?? {}, { wantsDiscovery: discoveryIntent }).slice(0, maxResults);
 
       // Log search results AFTER re-ranking
-      console.log(`[search_onyx] query="${query}" source=${sourceFilter ?? 'all'} raw=${rawDocs.length} reranked=${docs.length}`);
+      const metaStr = metadataFilters ? ` meta=${JSON.stringify(metadataFilters)}` : '';
+      const timeStr = timeFilter ? ` time=${timeFilter}` : '';
+      console.log(`[search_onyx] query="${query}" source=${sourceFilter ?? 'all'}${metaStr}${timeStr} raw=${rawDocs.length} reranked=${docs.length}`);
       for (const doc of docs.slice(0, 8)) {
         const ct = doc.metadata?.call_type ?? '-';
         const origScore = doc.score?.toFixed(0) ?? '-';
@@ -229,7 +370,7 @@ async function executeTool(
             semantic_identifier: doc.semantic_identifier ?? doc.document_id ?? '',
             link: doc.link ?? '',
             source_type: doc.source_type ?? 'unknown',
-            blurb: (doc.blurb ?? doc.content ?? '').slice(0, 200),
+            blurb: (doc.blurb ?? doc.content ?? '').slice(0, 2000),
             metadata: doc.metadata ?? {},
             updated_at: doc.updated_at ?? doc.last_modified ?? '',
           })),
@@ -308,7 +449,205 @@ async function executeTool(
         input: { ...args, sender_name: args.sender_name ?? 'Chris' },
         userId,
       });
-      return `[Skill: ${result.skill.name} | Run #${result.runId} | Status: ${result.skill.requiresApproval === 'true' ? 'PENDING APPROVAL' : 'auto'}]\n\n${result.output}`;
+      const status = result.skill.requiresApproval === 'true' ? 'pending' : 'auto';
+
+      // Emit structured skill result so frontend can render EmailDraftCard
+      if (emit) {
+        emit({
+          type: 'skill_result',
+          skillResult: {
+            skillName: result.skill.name,
+            skillSlug: result.skill.slug,
+            runId: result.runId,
+            content: result.output,
+            status: status as 'pending' | 'auto',
+            prospectName: args.prospect_name as string | undefined,
+            prospectCompany: args.prospect_company as string | undefined,
+          },
+        });
+      }
+
+      // Return a short summary to the LLM — the full draft is emitted via skill_result event
+      // and rendered as an EmailDraftCard in the UI. We don't want the LLM to echo the full email.
+      return `[Email draft generated and displayed to user — Run #${result.runId}. Do NOT repeat the email content in your response. Just acknowledge the draft was created and offer to adjust it.]`;
+    }
+
+    case 'run_draft_mvp_proposal': {
+      const result = await executeSkill({
+        orgId,
+        skillSlug: 'draft_mvp_proposal',
+        input: args,
+        userId,
+      });
+
+      console.log(`[Proposal] Output length: ${result.output.length}, first 200 chars: ${result.output.slice(0, 200)}`);
+
+      // Emit skill result for UI rendering
+      if (emit) {
+        emit({
+          type: 'skill_result',
+          skillResult: {
+            skillName: result.skill.name,
+            skillSlug: result.skill.slug,
+            runId: result.runId,
+            content: result.output,
+            status: result.skill.requiresApproval === 'true' ? 'pending' : 'auto',
+            prospectName: args.prospect_name as string | undefined,
+            prospectCompany: args.prospect_company as string | undefined,
+          },
+        });
+      }
+
+      // Gamma presentation is now triggered on-demand from the ProposalCard UI
+      return `[Proposal generated and displayed to user — Run #${result.runId}. Do NOT repeat the proposal content. Acknowledge the proposal was created and mention they can send it to Gamma for a presentation.]`;
+    }
+
+    case 'find_related_conversations': {
+      // Multi-query search across Gmail, Slack, HubSpot
+      const topic = args.topic as string;
+      const queries = (args.queries as string[] | undefined) ?? [topic];
+      const conversationSources = ['gmail', 'slack', 'hubspot'];
+
+      const allDocs: any[] = [];
+      const seenIds = new Set<string>();
+
+      for (const query of queries.slice(0, 4)) {
+        try {
+          const results = await search({
+            query,
+            search_filters: { source_type: conversationSources },
+          });
+          const docs = results.top_documents ?? results.results ?? [];
+          for (const doc of docs) {
+            const id = doc.document_id ?? doc.semantic_identifier;
+            if (!seenIds.has(id)) {
+              seenIds.add(id);
+              allDocs.push(doc);
+            }
+          }
+        } catch (err: any) {
+          console.log(`[find_related_conversations] query="${query}" error: ${err.message}`);
+        }
+      }
+
+      if (allDocs.length === 0) {
+        return `No related conversations found for "${topic}" in Gmail, Slack, or HubSpot.`;
+      }
+
+      // Re-rank and emit
+      const ranked = reRankResults(allDocs, searchConfig ?? {}).slice(0, 15);
+
+      if (emit) {
+        emit({
+          type: 'documents',
+          documents: ranked.map((doc: any) => ({
+            document_id: doc.document_id ?? '',
+            semantic_identifier: doc.semantic_identifier ?? doc.document_id ?? '',
+            link: doc.link ?? '',
+            source_type: doc.source_type ?? 'unknown',
+            blurb: (doc.blurb ?? doc.content ?? '').slice(0, 2000),
+            metadata: doc.metadata ?? {},
+            updated_at: doc.updated_at ?? doc.last_modified ?? '',
+          })),
+        });
+      }
+
+      console.log(`[find_related_conversations] topic="${topic}" queries=${queries.length} results=${ranked.length}`);
+
+      return ranked.map((doc: any, i: number) => {
+        const blurb = doc.blurb ?? doc.content ?? '';
+        const title = doc.semantic_identifier ?? doc.document_id;
+        const source = doc.source_type ?? 'unknown';
+        const rawDate = doc.updated_at ?? doc.last_modified ?? doc.doc_updated_at;
+        let dateStr = '';
+        if (rawDate) {
+          try {
+            dateStr = new Date(rawDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+          } catch { /* */ }
+        }
+        return [
+          `[${i + 1}] **${title}** [${source}]`,
+          dateStr ? `   ${dateStr}` : '',
+          `   ${blurb.slice(0, 400)}`,
+        ].filter(Boolean).join('\n');
+      }).join('\n\n');
+    }
+
+    case 'search_everything': {
+      // Comprehensive multi-query search across ALL sources
+      const topic = args.topic as string;
+      const queries = (args.queries as string[] | undefined) ?? [topic];
+
+      const allDocs: any[] = [];
+      const seenIds = new Set<string>();
+
+      for (const query of queries.slice(0, 4)) {
+        try {
+          const results = await search({ query }); // No source filter = all sources
+          const docs = results.top_documents ?? results.results ?? [];
+          for (const doc of docs) {
+            const id = doc.document_id ?? doc.semantic_identifier;
+            if (!seenIds.has(id)) {
+              seenIds.add(id);
+              allDocs.push(doc);
+            }
+          }
+        } catch (err: any) {
+          console.log(`[search_everything] query="${query}" error: ${err.message}`);
+        }
+      }
+
+      if (allDocs.length === 0) {
+        return `No results found for "${topic}" across any connected sources.`;
+      }
+
+      const ranked = reRankResults(allDocs, searchConfig ?? {}).slice(0, 20);
+
+      if (emit) {
+        emit({
+          type: 'documents',
+          documents: ranked.map((doc: any) => ({
+            document_id: doc.document_id ?? '',
+            semantic_identifier: doc.semantic_identifier ?? doc.document_id ?? '',
+            link: doc.link ?? '',
+            source_type: doc.source_type ?? 'unknown',
+            blurb: (doc.blurb ?? doc.content ?? '').slice(0, 2000),
+            metadata: doc.metadata ?? {},
+            updated_at: doc.updated_at ?? doc.last_modified ?? '',
+          })),
+        });
+      }
+
+      // Group by source for summary
+      const bySource = new Map<string, number>();
+      for (const doc of ranked) {
+        const s = doc.source_type ?? 'unknown';
+        bySource.set(s, (bySource.get(s) ?? 0) + 1);
+      }
+      const sourceSummary = [...bySource.entries()].map(([s, n]) => `${n} from ${s}`).join(', ');
+
+      console.log(`[search_everything] topic="${topic}" queries=${queries.length} results=${ranked.length} (${sourceSummary})`);
+
+      return `Found ${ranked.length} results (${sourceSummary}):\n\n${ranked.map((doc: any, i: number) => {
+        const blurb = doc.blurb ?? doc.content ?? '';
+        const title = doc.semantic_identifier ?? doc.document_id;
+        const source = doc.source_type ?? 'unknown';
+        const metadata = doc.metadata ?? {};
+        const rawDate = doc.updated_at ?? doc.last_modified ?? doc.doc_updated_at;
+        let dateStr = '';
+        if (rawDate) {
+          try {
+            dateStr = new Date(rawDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+          } catch { /* */ }
+        }
+        const duration = metadata.duration_minutes ? `${metadata.duration_minutes} min` : '';
+        const metaParts = [dateStr, duration].filter(Boolean).join(' · ');
+        return [
+          `[${i + 1}] **${title}** [${source}]`,
+          metaParts ? `   ${metaParts}` : '',
+          `   ${blurb.slice(0, 400)}`,
+        ].filter(Boolean).join('\n');
+      }).join('\n\n')}`;
     }
 
     default:
@@ -329,7 +668,7 @@ export type SearchDocument = {
 };
 
 export type AgentEvent = {
-  type: 'thinking' | 'tool_start' | 'tool_end' | 'answering' | 'response_delta' | 'done' | 'error' | 'documents';
+  type: 'thinking' | 'tool_start' | 'tool_end' | 'answering' | 'response_delta' | 'done' | 'error' | 'documents' | 'skill_result';
   tool?: string;
   input?: Record<string, unknown>;
   output?: string;
@@ -338,6 +677,16 @@ export type AgentEvent = {
   traceId?: string;
   toolCalls?: Array<{ tool: string; input: Record<string, unknown> }>;
   documents?: SearchDocument[];
+  // For skill_result events
+  skillResult?: {
+    skillName: string;
+    skillSlug: string;
+    runId: number;
+    content: string;
+    status: 'pending' | 'auto';
+    prospectName?: string;
+    prospectCompany?: string;
+  };
 };
 
 export async function runAgent(opts: {

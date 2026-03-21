@@ -76,7 +76,7 @@ export async function executeSkill(opts: {
     model: skill.model ?? 'gpt-4o',
     temperature: Number(skill.temperature ?? 0.3),
     messages: [{ role: 'user', content: prompt }],
-    max_completion_tokens: 2000,
+    max_completion_tokens: skill.slug === 'draft_mvp_proposal' ? 8000 : 2000,
   });
 
   const output = completion.choices[0]?.message?.content ?? '';

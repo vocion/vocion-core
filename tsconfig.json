@@ -80,6 +80,7 @@
   // Files to include/exclude from the project
   "exclude": [
     "node_modules",
+    "infra",
     "**/*.spec.ts",
     "**/*.e2e.ts"
   ],
