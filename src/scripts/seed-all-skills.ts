@@ -105,6 +105,27 @@ const skills = [
     model: 'gpt-5.4-mini',
     temperature: '0.3',
   },
+  // Conversation & search skills (active)
+  {
+    slug: 'find_related_conversations',
+    name: 'Find Related Conversations',
+    description: 'Search Gmail, Slack, and HubSpot notes to find conversations, threads, and messages related to a specific call, deal, or topic. Returns relevant email threads, Slack messages, and CRM notes.',
+    category: 'query',
+    requiresApproval: 'false',
+    status: 'active',
+    model: 'gpt-5.4-mini',
+    temperature: '0.2',
+  },
+  {
+    slug: 'search_everything',
+    name: 'Search Everything',
+    description: 'Comprehensive search across all connected sources — Gmail, Slack, HubSpot records, Google Drive docs, and Zoom calls — to find everything related to a topic, person, or deal.',
+    category: 'query',
+    requiresApproval: 'false',
+    status: 'active',
+    model: 'gpt-5.4-mini',
+    temperature: '0.2',
+  },
 ];
 
 async function main() {

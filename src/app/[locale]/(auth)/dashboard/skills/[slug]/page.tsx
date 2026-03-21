@@ -1,5 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
-import { ArrowLeft, CheckCircle2, Clock, Search, Send, Zap } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, Clock, ExternalLink, Search, Send, Sparkles, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -128,6 +128,92 @@ export default async function SkillDetailPage(props: {
               </div>
             </div>
           )}
+
+          {/* Few-Shot Examples — extracted from prompt */}
+          {(() => {
+            const prompt = skill.promptTemplate;
+            const exampleBlocks: Array<{ title: string; content: string }> = [];
+            // eslint-disable-next-line regexp/no-super-linear-backtracking
+            const exampleMatches = prompt.matchAll(/### Example \d+:?\s*(.+)\n([\s\S]*?)(?=### Example|\n---|\n## |$)/g);
+            for (const m of exampleMatches) {
+              exampleBlocks.push({ title: m[1]!.trim(), content: m[2]!.trim() });
+            }
+            if (exampleBlocks.length === 0) {
+              return null;
+            }
+            return (
+              <div className="rounded-lg border border-border p-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <BookOpen className="size-4 text-primary" />
+                  <div className="text-sm font-semibold">Few-Shot Examples</div>
+                  <Badge variant="outline" className="text-[10px]">
+                    {exampleBlocks.length}
+                    {' '}
+                    examples
+                  </Badge>
+                </div>
+                <div className="space-y-4">
+                  {exampleBlocks.map((ex, i) => (
+                    <details key={i} className="group rounded-md border border-border">
+                      <summary className="flex cursor-pointer items-center gap-2 px-4 py-2.5 text-sm font-medium hover:bg-muted/30">
+                        <Sparkles className="size-3.5 text-primary" />
+                        {ex.title}
+                      </summary>
+                      <div className="border-t border-border/50 px-4 py-3">
+                        <pre className="text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">{ex.content}</pre>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Case Studies Referenced — extracted from prompt */}
+          {(() => {
+            const prompt = skill.promptTemplate;
+            const caseStudies: Array<{ name: string; description: string }> = [];
+            const csMatches = prompt.matchAll(/- \*\*(.+?)\*\* — (.+)/g);
+            for (const m of csMatches) {
+              caseStudies.push({ name: m[1]!.trim(), description: m[2]!.trim() });
+            }
+            if (caseStudies.length === 0) {
+              return null;
+            }
+            return (
+              <div className="rounded-lg border border-border p-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <ExternalLink className="size-4 text-primary" />
+                  <div className="text-sm font-semibold">Case Studies Referenced</div>
+                  <Badge variant="outline" className="text-[10px]">
+                    {caseStudies.length}
+                    {' '}
+                    studies
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {caseStudies.map((cs, i) => (
+                    <div key={i} className="flex items-start gap-2 rounded-md bg-muted/30 p-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium">{cs.name}</div>
+                        <div className="text-xs text-muted-foreground">{cs.description}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <a href="https://www.metacto.com/case-studies" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                    <ExternalLink className="size-3" />
+                    metacto.com/case-studies
+                  </a>
+                  <a href="https://clutch.co/profile/metacto" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                    <ExternalLink className="size-3" />
+                    clutch.co/profile/metacto
+                  </a>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Sidebar */}

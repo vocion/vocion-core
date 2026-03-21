@@ -103,6 +103,8 @@ export type SearchRequest = {
     time_cutoff?: string;
     tags?: string[];
   };
+  /** Key-value metadata filters passed to Onyx as document_filter_list */
+  metadata_filters?: Record<string, string>;
 };
 
 export async function search(request: SearchRequest): Promise<any> {
@@ -123,6 +125,13 @@ export async function search(request: SearchRequest): Promise<any> {
   }
   if (request.search_filters?.tags) {
     (body.filters as Record<string, unknown>).tags = request.search_filters.tags;
+  }
+
+  // Metadata filters: Onyx accepts document_filter_list as array of {field, value} pairs
+  if (request.metadata_filters && Object.keys(request.metadata_filters).length > 0) {
+    (body.filters as Record<string, unknown>).document_filter_list = Object.entries(
+      request.metadata_filters,
+    ).map(([field, value]) => ({ field_name: field, field_value: value }));
   }
 
   const res = await fetch(`${getBaseUrl()}/admin/search`, {
@@ -160,12 +169,61 @@ export async function listConnectors(): Promise<any[]> {
 
 export async function getConnectorStatus(): Promise<any[]> {
   const res = await fetch(`${getBaseUrl()}/manage/admin/connector/indexing-status`, {
-    headers: headers(),
+    method: 'POST',
+    headers: adminHeaders(),
+    body: JSON.stringify({}),
   });
 
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Onyx connector status error (${res.status}): ${text}`);
+  }
+
+  return res.json();
+}
+
+export async function triggerReindex(connectorId: number, credentialIds: number[], fromBeginning: boolean): Promise<any> {
+  const res = await fetch(`${getBaseUrl()}/manage/admin/connector/run-once`, {
+    method: 'POST',
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      connector_id: connectorId,
+      credential_ids: credentialIds,
+      from_beginning: fromBeginning,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Onyx reindex error (${res.status}): ${text}`);
+  }
+
+  return res.json();
+}
+
+export async function updateCcPairStatus(ccPairId: number, status: 'ACTIVE' | 'PAUSED'): Promise<any> {
+  const res = await fetch(`${getBaseUrl()}/manage/admin/cc-pair/${ccPairId}/status`, {
+    method: 'PUT',
+    headers: adminHeaders(),
+    body: JSON.stringify({ status }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Onyx status update error (${res.status}): ${text}`);
+  }
+
+  return res.json();
+}
+
+export async function getCcPairErrors(ccPairId: number): Promise<any> {
+  const res = await fetch(`${getBaseUrl()}/manage/admin/cc-pair/${ccPairId}/errors?page_size=5`, {
+    headers: adminHeaders(),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Onyx errors fetch error (${res.status}): ${text}`);
   }
 
   return res.json();
