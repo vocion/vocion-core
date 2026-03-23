@@ -1,10 +1,13 @@
 import { auth } from '@clerk/nextjs/server';
-import { createGeneration, waitForGeneration } from '@/libs/gamma/client';
+import { checkGeneration, createGeneration } from '@/libs/gamma/client';
 
+/**
+ * POST: Start a Gamma generation. Returns immediately with generationId.
+ */
 export async function POST(request: Request) {
   const { userId, orgId } = await auth();
   if (!userId || !orgId) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const body = await request.json();
@@ -12,7 +15,7 @@ export async function POST(request: Request) {
   const numCards = (body.numCards as number) ?? 14;
 
   if (!content) {
-    return new Response(JSON.stringify({ error: 'Content required' }), { status: 400 });
+    return Response.json({ error: 'Content required' }, { status: 400 });
   }
 
   try {
@@ -23,20 +26,40 @@ export async function POST(request: Request) {
       numCards,
     });
 
-    // Poll for the real Gamma URL (typically completes in 10-30s)
-    const result = await waitForGeneration(generationId);
-
-    if (result.status === 'failed') {
-      throw new Error(result.error ?? 'Gamma generation failed');
-    }
-
-    return new Response(JSON.stringify({
-      generationId,
-      url: result.gammaUrl ?? `https://gamma.app/docs/${generationId}`,
-      exportUrl: result.exportUrl,
-    }), { headers: { 'Content-Type': 'application/json' } });
+    return Response.json({ generationId });
   } catch (err: any) {
-    console.error('[Gamma RPC]', err.message);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+    console.error('[Gamma RPC] create failed:', err.message);
+    return Response.json({ error: err.message }, { status: 500 });
+  }
+}
+
+/**
+ * GET: Check a generation's current status. Returns gammaUrl when completed.
+ */
+export async function GET(request: Request) {
+  const { userId, orgId } = await auth();
+  if (!userId || !orgId) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const generationId = searchParams.get('id');
+
+  if (!generationId) {
+    return Response.json({ error: 'id parameter required' }, { status: 400 });
+  }
+
+  try {
+    const result = await checkGeneration(generationId);
+
+    return Response.json({
+      generationId,
+      status: result.status,
+      url: result.gammaUrl,
+      exportUrl: result.exportUrl,
+    });
+  } catch (err: any) {
+    console.error('[Gamma RPC] status check failed:', err.message);
+    return Response.json({ error: err.message }, { status: 500 });
   }
 }
