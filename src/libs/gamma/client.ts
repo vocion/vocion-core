@@ -60,6 +60,22 @@ export async function createGeneration(request: GenerationRequest): Promise<{ ge
 }
 
 /**
+ * Check the current status of a generation (single request, no polling).
+ */
+export async function checkGeneration(generationId: string): Promise<GenerationStatus> {
+  const res = await fetch(`${GAMMA_BASE_URL}/v1.0/generations/${generationId}`, {
+    headers: headers(),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gamma status error (${res.status}): ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
  * Poll for generation status until completed or failed.
  * Returns the final status with gammaUrl.
  * @param generationId
