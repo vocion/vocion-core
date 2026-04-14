@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import { getCurrentContextSha } from '@/libs/context';
 import { db } from '@/libs/DB';
@@ -118,4 +118,83 @@ export async function executeSkill(opts: {
     traceId: trace.id,
     skill: { name: skill.name, slug: skill.slug, requiresApproval: skill.requiresApproval },
   };
+}
+
+/**
+ * List skill_run rows for an org, newest first. Primarily for MCP
+ * runtime.list_runs and the upcoming review queue.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.status
+ * @param opts.skillSlug
+ * @param opts.limit
+ */
+export async function listSkillRuns(opts: {
+  orgId: string;
+  status?: 'pending' | 'approved' | 'rejected' | 'auto';
+  skillSlug?: string;
+  limit?: number;
+}): Promise<Array<typeof skillRunSchema.$inferSelect>> {
+  const filters = [eq(skillRunSchema.orgId, opts.orgId)];
+  if (opts.status) {
+    filters.push(eq(skillRunSchema.status, opts.status));
+  }
+  if (opts.skillSlug) {
+    const skill = await getSkill(opts.orgId, opts.skillSlug);
+    if (!skill) {
+      return [];
+    }
+    filters.push(eq(skillRunSchema.skillId, skill.id));
+  }
+  return db
+    .select()
+    .from(skillRunSchema)
+    .where(and(...filters))
+    .orderBy(desc(skillRunSchema.createdAt))
+    .limit(opts.limit ?? 50);
+}
+
+/**
+ * Get a single skill run, scoped to an org. Returns null if not found or cross-tenant.
+ * @param orgId
+ * @param runId
+ */
+export async function getSkillRun(orgId: string, runId: number): Promise<typeof skillRunSchema.$inferSelect | null> {
+  const [row] = await db
+    .select()
+    .from(skillRunSchema)
+    .where(and(eq(skillRunSchema.id, runId), eq(skillRunSchema.orgId, orgId)));
+  return row ?? null;
+}
+
+/**
+ * Mark a skill run as approved. Only valid transition from `pending`.
+ * Auto-status runs can't be approved (they weren't gated).
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.reviewedBy
+ */
+export async function approveSkillRun(opts: { orgId: string; runId: number; reviewedBy: string }): Promise<typeof skillRunSchema.$inferSelect | null> {
+  return transitionStatus(opts.orgId, opts.runId, 'approved', opts.reviewedBy);
+}
+
+export async function rejectSkillRun(opts: { orgId: string; runId: number; reviewedBy: string; reason?: string }): Promise<typeof skillRunSchema.$inferSelect | null> {
+  return transitionStatus(opts.orgId, opts.runId, 'rejected', opts.reviewedBy);
+}
+
+async function transitionStatus(orgId: string, runId: number, to: 'approved' | 'rejected', reviewedBy: string) {
+  const current = await getSkillRun(orgId, runId);
+  if (!current) {
+    return null;
+  }
+  if (current.status !== 'pending') {
+    throw new Error(`run ${runId} is ${current.status}, only pending runs can be ${to}`);
+  }
+  const [updated] = await db
+    .update(skillRunSchema)
+    .set({ status: to, reviewedBy, reviewedAt: new Date() })
+    .where(and(eq(skillRunSchema.id, runId), eq(skillRunSchema.orgId, orgId)))
+    .returning();
+  return updated ?? null;
 }
