@@ -20,14 +20,8 @@ import {
   reject,
   resume,
 } from './Review';
-import { create, edit, remove } from './Todo';
 
 export const router = {
-  todo: {
-    create,
-    edit,
-    remove,
-  },
   businessObject: {
     listTypes,
     createType,
