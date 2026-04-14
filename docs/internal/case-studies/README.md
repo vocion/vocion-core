@@ -1,8 +1,8 @@
 # MetaCTO Case Studies
 
-How MetaCTO uses CoreContext. Specs for each agent deployment — connectors, object model, skills, workflows, sprint plans. These are *instance* documents; the platform itself is described in the parent `requirements/` directory.
+How MetaCTO uses CoreContext. Specs for each agent deployment — connectors, object model, skills, workflows, sprint plans. These are *instance* documents; the platform itself is described under `/requirements/`.
 
-If/when MetaCTO's context extracts to a separate `metacto-context` repo (Phase 8), these docs move with it.
+**Internal only.** Part of `docs/internal/` — not for OSS consumers. If MetaCTO's context extracts to a separate `metacto-context` repo (Phase 8), these docs move with it.
 
 ## Ziggy — Sales Ops Agent (case study 1)
 

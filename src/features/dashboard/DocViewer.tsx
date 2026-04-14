@@ -15,9 +15,11 @@ type Props = {
   /** Repo-relative path of the current doc, e.g. `docs/mcp.md` or `README.md` */
   currentPath: string;
   content: string;
+  /** Base URL for rewritten cross-doc links. `/dashboard/docs` (in-app) or `/docs` (public). */
+  linkBase?: string;
 };
 
-export function DocViewer({ currentPath, content }: Props) {
+export function DocViewer({ currentPath, content, linkBase = '/dashboard/docs' }: Props) {
   const currentDir = currentPath === 'README.md' ? '' : dirname(currentPath);
 
   return (
@@ -26,8 +28,8 @@ export function DocViewer({ currentPath, content }: Props) {
         remarkPlugins={[remarkGfm]}
         components={{
           a: ({ href, children, ...rest }) => {
-            const rewritten = rewriteLink(href ?? '', currentDir);
-            if (rewritten.startsWith('/dashboard/docs')) {
+            const rewritten = rewriteLink(href ?? '', currentDir, linkBase);
+            if (rewritten.startsWith(linkBase)) {
               return <Link href={rewritten}>{children}</Link>;
             }
             return (
@@ -49,32 +51,30 @@ export function DocViewer({ currentPath, content }: Props) {
  * External (http/https/mailto) and absolute-to-root links pass through.
  * @param href
  * @param currentDir
+ * @param linkBase
  */
-function rewriteLink(href: string, currentDir: string): string {
+function rewriteLink(href: string, currentDir: string, linkBase: string): string {
   if (!href) {
     return href;
   }
   if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:') || href.startsWith('#')) {
     return href;
   }
-  // Already a /dashboard/docs link — leave it
-  if (href.startsWith('/dashboard/docs')) {
+  if (href.startsWith(linkBase)) {
     return href;
   }
 
-  // Handle explicit anchors within md files: `./foo.md#section`
   const [pathPart, anchor] = href.split('#', 2);
   if (!pathPart) {
     return href;
   }
 
   if (!pathPart.endsWith('.md') && !pathPart.endsWith('/')) {
-    // Not a markdown link — return as-is (image, PDF, etc.)
     return href;
   }
 
   const resolved = normalize(join(currentDir, pathPart));
   const slug = resolved.replace(/\/$/, '').replace(/\.md$/, '');
-  const url = slug === 'README' ? '/dashboard/docs' : `/dashboard/docs/${slug}`;
+  const url = slug === 'README' ? linkBase : `${linkBase}/${slug}`;
   return anchor ? `${url}#${anchor}` : url;
 }
