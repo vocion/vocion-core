@@ -10,7 +10,6 @@ import {
   Database,
   GitBranch,
   HeartPulse,
-  Home,
   LifeBuoy,
   Map,
   MessageSquare,
@@ -106,7 +105,6 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           ]}
         />
         <AppSidebarNav
-          label={t('organization_section_label')}
           items={[
             {
               title: t('members'),
@@ -114,14 +112,9 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               icon: Users,
             },
             {
-              title: t('home'),
-              url: '/dashboard',
-              icon: Home,
-            },
-            {
-              title: t('audit'),
-              url: '/dashboard/audit',
-              icon: Activity,
+              title: t('settings'),
+              url: '/dashboard/organization-profile',
+              icon: Settings,
             },
             {
               title: t('billing'),
@@ -129,19 +122,15 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               icon: CreditCard,
             },
             {
-              title: t('settings'),
-              url: '/dashboard/organization-profile',
-              icon: Settings,
+              title: t('audit'),
+              url: '/dashboard/audit',
+              icon: Activity,
             },
             {
               title: 'System Status',
               url: '/dashboard/admin',
               icon: HeartPulse,
             },
-          ]}
-        />
-        <AppSidebarNav
-          items={[
             {
               title: 'Roadmap',
               url: '/dashboard/roadmap',
