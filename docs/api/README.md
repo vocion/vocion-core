@@ -2,7 +2,22 @@
 
 A tenant-scoped REST API for reading primitives, ingesting objects, triggering runs, and polling results. Use this when you have an existing system that should push data into Compiles and/or consume results — without running an agent conversation and without speaking MCP.
 
-> **Status:** design-complete, ship in Phase 2.5. The surface below is the contract we'll build against; individual endpoints will land incrementally.
+## What's live today
+
+Read endpoints are shipped and callable from any logged-in Clerk session. Bearer-token auth (`cmp_live_...`) ships with Phase 2.5.
+
+| Status | Endpoint |
+|---|---|
+| ✓ live | `GET /api/v1/agents` · `/api/v1/agents/:slug` |
+| ✓ live | `GET /api/v1/skills` · `/api/v1/skills/:slug` |
+| ✓ live | `GET /api/v1/workflows` · `/api/v1/workflows/:slug` |
+| ✓ live | `GET /api/v1/objects/types` |
+| ✓ live | `GET /api/v1/runs/:id` |
+| Phase 2.5 | All `POST` / `PATCH` / `DELETE` endpoints |
+| Phase 2.5 | `cmp_live_...` Bearer tokens |
+| Phase 2.5 | Webhooks + SSE streaming |
+
+For now, authenticate using your Clerk session cookie (browser) or a Clerk session token (server). Everything scoped to your active Clerk organization.
 
 ## When to use the API vs MCP vs A2A
 
