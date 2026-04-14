@@ -8,15 +8,15 @@ If CoreContext goes public (Phase 8), this directory stays private (either exclu
 
 | File | Purpose |
 |---|---|
-| [progress.md](./progress.md) | Running log of what's shipped, in flight, queued. Commit list, decision log, test + infra status. |
+| [roadmap.md](./roadmap.md) | Phased delivery plan — Phase 1 through 9 |
+| [progress.md](./progress.md) | Running log: shipped, in flight, queued. Commit list, decision log, test + infra status. |
 | [customer-onboarding.md](./customer-onboarding.md) | MetaCTO's build-up process for each new customer deployment |
 | [managed-operations.md](./managed-operations.md) | MetaCTO's managed-ops service offering — recurring revenue model, tuning, evals, training |
 | [case-studies/](./case-studies/README.md) | Per-customer agent specs — Ziggy (sales ops), Algren (NINJIO account manager), future customers |
 
 ## Public / external docs live elsewhere
 
-- [`/README.md`](../../README.md) — product pitch + quick start
-- [`/ROADMAP.md`](../../ROADMAP.md) — phased delivery plan
+- [`/README.md`](../../README.md) — product pitch + quick start (does not link to roadmap)
 - [`/docs/`](../) — platform dev docs (MCP, plugins, workflows, self-hosted install)
 - [`/requirements/`](../../requirements/README.md) — platform architecture, object model, RBAC, etc.
 - [`/context/README.md`](../../context/README.md) — context-as-code authoring guide
