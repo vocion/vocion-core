@@ -1,38 +1,38 @@
 # Product Surfaces
 
-The chat UI should be a work UI, not just a chat app.
+Spec for the in-product UI surfaces. Each entry is tagged with status:
 
-## 1. Conversation Pane (Ask)
+- ✓ shipped
+- ◐ partial
+- ◇ planned
 
-The obvious piece, but not the whole product.
+The chat UI is a *work* UI, not just a chat app. Surfaces compose: an answer in Ask should be one click from the action that follows from it.
 
-Requirements:
-- Streaming answers
-- Source-backed citations
-- Follow-up suggestions
-- Visible scope controls
-- Saved/pinned context
-- Thread history
+## 1. Conversation Pane (Ask) ◐
 
-## 2. Context Drawer
+The obvious piece, but not the whole product. Today it's the Ziggy chat at `/dashboard/ziggy`; the broader Ask surface is partial.
 
-Critical for trust. Every answer should be explorable through a right-side panel.
+| Requirement | Status |
+|---|---|
+| Streaming answers | ✓ |
+| Source-backed citations | ✓ |
+| Follow-up suggestions | ◇ |
+| Visible scope controls | ◐ |
+| Saved/pinned context | ◇ |
+| Thread history | ◐ |
 
-Shows:
-- Source documents
-- Slack threads
-- CRM/account records
-- Tickets
-- Linked business objects
-- Related runs or prior answers
+## 2. Context Drawer ◐
+
+Critical for trust. Every answer should be explorable through a side panel surfacing the evidence.
+
+Shows: source documents · Slack/Teams threads · CRM/account records · tickets · linked business objects · related runs or prior answers. Today the Ziggy sidebar shows source cards; the unified drawer pattern across Ask + Search is planned.
 
 The user should be able to navigate the evidence, not just click raw links.
 
-## 3. Action Bar
+## 3. Action Bar ◇
 
-Where you win deals. Every useful answer should have nearby next steps.
+Where answers turn into work. Every useful answer should have nearby next steps:
 
-Actions:
 - Create ticket
 - Send follow-up
 - Update CRM record
@@ -40,38 +40,30 @@ Actions:
 - Route to approver
 - Open workflow
 
-## 4. Workflow Mode
+The contextual-action UX (business-object markup `<<discovery:...>>` rendered as hover popovers) is the start of this.
 
-Not every job should be done in chat. Add a structured mode for:
+## 4. Foundation ✓
 
-- Guided forms
-- Repeatable processes
-- Approvals
-- Long-running jobs
-- Multi-step runs
+The business-context view at `/dashboard/foundation`. Renders connectors, object types + counts, source systems, and (coming) relationships, rules, system-of-record decisions, data-quality findings. This is the unified Context Map deliverable.
 
-Examples:
-- Process inbound lead
-- Generate weekly report
-- Audit account
-- Prepare QBR
-- Summarize incident and open follow-ups
+## 5. Skills ◐
 
-## 5. Source and Scope Controls
+Catalog at `/dashboard/skills`. Today: list + per-skill detail + run-now form. Planned: edit-in-place (read-through to git), run history per skill.
 
-Trust rises when users can clearly control:
+## 6. Workflows ◐
 
-- Which systems are in scope
-- Which teams/projects are in scope
-- Time range
-- Specific business object
-- Assistant/skill used
+Today: list + run start via MCP `workflow_run_start`. Planned: in-product trigger + run history at `/dashboard/runs`. Workflow builder UI is Phase 7 (meta-agent generates workflows from natural language).
 
-Onyx already has search-side filtering for sources, dates, authors, and tags. Build on that into the main product surface.
+## 7. Review Queue ✓
 
-## 6. Memory and Session State
+`/dashboard/review` — one queue for every pending decision: skill drafts awaiting approval and workflow runs paused at `approve` steps. Approve, reject, resume, cancel from one surface. Mirrored in MCP via `runtime_approve_draft` etc.
 
-Users need:
+## 8. Source + Scope Controls ◐
+
+Trust rises when users can clearly control which systems / teams / time range / business object / agent is in scope. Onyx provides the search-side filters today; the unified scope-control UX is planned.
+
+## 9. Memory + Session State ◇
+
 - Recent searches
 - Saved workflows
 - Pinned objects
@@ -79,46 +71,25 @@ Users need:
 - Draft outputs
 - Reopened prior runs
 
-## 7. Feedback
+## 10. Feedback ◇
 
-Every surface should collect:
-- Thumbs up/down
-- "Wrong source"
-- "Stale answer"
-- "Missing system"
-- "Bad action"
-- Freeform correction
+Every surface should collect: thumbs up/down · "wrong source" · "stale answer" · "missing system" · "bad action" · freeform correction. Feeds the improvement loop ([Phase 4](../docs/internal/roadmap.md)).
 
-This becomes the eval pipeline and tuning loop.
+## 11. Docs ✓
 
-## Build Priority
+In-product viewer at `/dashboard/docs` — renders every markdown file under `docs/`, `requirements/`, `context/`. Internal-only docs (`docs/internal/`) shown only to authenticated users; public docs site at `/docs` filters those out.
 
-### Build Now
-- Chat/work interface
-- Context drawer
-- Search results with filters
-- Skill catalog
-- Run history
-- Approvals inbox
-- Connectors page
-- Business object mapping page
-- Feedback capture
-- Admin analytics
+## 12. Connectors ✓
 
-### Build Soon After
-- Workflow builder
-- Trigger and hook configuration
-- Domain dashboards
-- Saved scopes and saved views
-- Reusable templates
-- Compare answers across assistants or models
+`/dashboard/connectors` — connector + indexing status, sourced from Onyx admin API today, pgvector-native next.
 
-### Keep Mostly Internal at First
-- Raw prompt editor
-- Chunking/embedding settings
-- Retrieval weights
-- Model routing
-- Secret management
-- Low-level connector retries
+## What stays out of the default UI
 
-These are managed service territory.
+These are managed-service territory and admin-only at first:
+
+- Raw prompt editor (use git + `context:apply` instead)
+- Chunking / embedding settings (configured via `retrieval.yaml`)
+- Retrieval weights (config, not UI)
+- Model routing (per-skill `provider` field in YAML)
+- Secret management (env or vault, not in-app)
+- Low-level connector retries (handled by the connector plugin)
