@@ -23,7 +23,7 @@ import {
 import { useLocale, useTranslations } from 'next-intl';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
-import { Logo } from '@/templates/Logo';
+import { CompilesLogo } from '@/templates/CompilesLogo';
 import { getI18nPath } from '@/utils/Helpers';
 
 export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
@@ -34,7 +34,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
     <Sidebar {...props}>
       <SidebarHeader className="pt-5">
         <div className="flex justify-center pb-3">
-          <Logo />
+          <CompilesLogo />
         </div>
 
         <OrganizationSwitcher

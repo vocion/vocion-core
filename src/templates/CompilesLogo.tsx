@@ -1,12 +1,9 @@
 /**
- * Compiles.ai brand mark + wordmark — used in marketing pages.
+ * Compiles.ai brand mark + wordmark — used in marketing pages and dashboard.
  *
  * The mark is a cairn: four stones stacked, slightly off-axis. Solid fill
  * in `currentColor` so it picks up the surrounding text color (works in
  * both light and dark themes, in nav header, in inverted footer, etc).
- *
- * The dashboard / app continues to use the CoreContext `<Logo />` from
- * `Logo.tsx`. This component is the public-brand surface only.
  * @param props
  * @param props.isTextHidden
  * @param props.size

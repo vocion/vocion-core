@@ -19,7 +19,7 @@ export default async function ZiggyPage(props: {
       <div className="flex items-start justify-between">
         <TitleBar
           title="Ziggy"
-          description="Sales operations agent for MetaCTO. First packaged agent on the CoreContext platform."
+          description="Sales operations agent for MetaCTO. First packaged agent on the Compiles.ai platform."
         />
         <Badge variant="outline">Case Study</Badge>
       </div>

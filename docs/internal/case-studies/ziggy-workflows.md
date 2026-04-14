@@ -59,21 +59,22 @@ Steps:
   9. Create follow-up task
 ```
 
-## 5. Daily Inbox Scan
+## 5. Sales Inbox Triage (multi-daily)
 ```
-Trigger: Scheduled (daily, 8am)
+Trigger: Scheduled (every 3 hours during business hours, 8am–6pm ET)
 Steps:
-  1. Scan Gmail inbox for sales-related threads
-  2. Classify each thread: needs response / FYI / escalation
-  3. For "needs response": draft response, queue for HITL
-  4. For "escalation": create escalation item, notify Chris
-  5. For "FYI": summarize and log
-  6. Update deal context with new information
+  1. Scan Gmail inbox for sales-related threads since last run
+  2. Classify each thread: needs_response / fyi / escalation / cold
+  3. For "needs_response": draft reply with deal context, queue for HITL
+  4. For "escalation": post to Chris's Slack DM, no auto-reply
+  5. For "fyi": summarize, log to deal record, no draft
+  6. For "cold": link to cold-deal touch-base workflow
+  7. Update HubSpot deal context with new information
 ```
 
-## 6. Aging Pipeline Review
+## 6. Aging Pipeline Review (daily)
 ```
-Trigger: Scheduled (daily, 9am)
+Trigger: Scheduled (daily, 9am ET)
 Steps:
   1. Query HubSpot for deals by stage and last activity
   2. Identify: cold leads (7+ days), stalled proposals (5+ days),
@@ -82,6 +83,69 @@ Steps:
   4. Draft follow-up messages where appropriate
   5. Queue recommendations for HITL review
   6. Auto-create internal reminders for high-priority items
+```
+
+## 7. Cold Deal Touch-Base (weekly)
+```
+Trigger: Scheduled (Monday 7am ET) OR upstream from Sales Inbox Triage
+Steps:
+  1. Query HubSpot for deals matching cold-state buckets:
+     - discovery_held + no_proposal_appt (no follow-up call booked)
+     - proposal_sent + no_response (>5 business days)
+     - nda_sent + not_signed (>7 days)
+     - intro_call_no_show + no_reschedule
+     - any_stage + last_touch >14 days
+  2. For each cold deal: pull last interaction context (last call summary,
+     last email, deal stage, dollar amount)
+  3. Pick the right touch-base template based on bucket + dollar value
+  4. Draft a personalized touch-base email referencing prior thread
+  5. -> HITL: review batch in /dashboard/review (one row per deal)
+  6. On approve: send via Gmail; log activity to HubSpot deal
+  7. Schedule next touch-base in 7 days if still cold
+```
+
+## 8. Weekly HubSpot Hygiene (weekly, HITL-heavy)
+```
+Trigger: Scheduled (Friday 4pm ET) OR manual before sales meeting
+Steps:
+  1. Query all open deals
+  2. Run hygiene checks per deal:
+     - Missing or stale required fields (close_date, deal_amount, stage,
+       next_step, primary_contact)
+  3. Detect anomalies:
+     - Stage older than typical for this deal type
+     - Close date in the past
+     - Conflicting source data (HubSpot deal stage vs Zoom evidence vs
+       email evidence)
+     - Duplicate or merge candidates
+  4. For each issue: propose a fix (update field, advance/regress stage,
+     suggest merge)
+  5. -> HITL: bulk-review proposed updates in /dashboard/review
+  6. On approve: write changes to HubSpot, log audit trail
+  7. Generate hygiene report (what was fixed, what's still flagged)
+```
+
+## 9. Weekly Pipeline Report (Mondays before sales meeting)
+```
+Trigger: Scheduled (Monday 8am ET, before weekly sales sync)
+Steps:
+  1. Pull pipeline snapshot from HubSpot
+     - Open deals by stage, value, age
+     - Won/lost since last week
+     - New deals created
+     - Stage movements (forward + backward)
+  2. Pull recent activity context
+     - Discovery calls held since last meeting
+     - Proposals sent
+     - No-shows and rescheduled meetings
+  3. Identify discussion-worthy items:
+     - Top 5 deals by value (with status + risks)
+     - Stuck deals needing decisions
+     - Wins to celebrate, losses to debrief
+     - Capacity / commit signals
+  4. Generate meeting brief (Markdown + Gamma deck)
+  5. -> HITL: review brief, edit highlights
+  6. On approve: post to #sales Slack channel + email to attendees
 ```
 
 ## HITL Checkpoints (Required)
