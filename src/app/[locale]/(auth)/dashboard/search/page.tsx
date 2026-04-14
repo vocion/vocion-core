@@ -66,9 +66,6 @@ const mockResults = [
   },
 ];
 
-const _systemFilters = ['All Systems', 'Slack', 'Google Drive', 'Salesforce', 'Jira', 'Zendesk', 'Notion', 'GitHub'];
-const _domainFilters = ['All Domains', 'Sales', 'Support', 'Product', 'Engineering'];
-
 export default async function SearchPage(props: {
   params: Promise<{ locale: string }>;
 }) {
