@@ -1,0 +1,30 @@
+{
+  "name": "@compiles/plugin-transcript-highlights",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Reference plugin — extracts structured highlights from long transcripts. Demonstrates chunking, multi-pass LLM, typed output.",
+  "license": "Apache-2.0",
+  "keywords": [
+    "compiles",
+    "compiles-plugin",
+    "transcript",
+    "highlights",
+    "llm"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "README.md",
+    "src"
+  ],
+  "peerDependencies": {
+    "@compiles/sdk": "^0.1.0",
+    "zod": "^4.0.0"
+  }
+}
