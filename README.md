@@ -1,335 +1,143 @@
 # Compiles Core
 
-> Brand: **Compiles** · This package: `@compiles/core`
+> `@compiles/core` — the open framework for production AI workflows.
 
-**Open framework for production AI workflows.** Compiles turns a messy business process into a measurable AI operating system — context as code, skills as plugins, review surfaces built in.
+Context as code. Skills as plugins. Review surfaces built in.
 
-This repo is `@compiles/core` — the framework. The full platform is layered:
+## What this is
+
+Compiles Core is a Next.js app + Postgres schema + MCP server + workflow runner. You author **five things** — Sources, Objects, Skills, Workflows, Agents — as YAML + markdown in git, apply them to the database, and get a typed runtime with a review queue, observability, and a plugin ecosystem.
+
+## Layered architecture
+
+This repo is `@compiles/core`. The full platform is layered:
 
 | Layer | npm | Purpose |
 |---|---|---|
-| **Compiles Core** | `@compiles/core` | this repo · framework + dashboard + Postgres schema + MCP server + workflow runner |
-| **Compiles SDK** | `@compiles/sdk` | stable plugin contract — Skill, Source, PluginContext (currently in `src/libs/plugins/`, extracts to its own package in Phase B) |
-| **Compiles Plugins** | `@compiles/plugin-*` | connectors + skills, one repo each, independently versioned |
-| **Compiles Starter** | (separate repo) | forkable example install — quick start in 10 minutes |
-| **Compiles Cloud** | — | hosted commercial offering (MetaCTO) |
+| `@compiles/core` | this repo | Framework, dashboard, Postgres schema, MCP server, workflow runner |
+| `@compiles/sdk` | `packages/sdk` | Stable plugin contract — Skill, PluginManifest, LLM client types |
+| `@compiles/plugin-*` | `packages/plugins/*` | Connectors + skills shipped as separate npm packages |
+| `compiles-starter` | separate repo (planned) | Forkable example install — quick start in 10 minutes |
 
 See [`docs/repo-architecture.md`](./docs/repo-architecture.md) for the full layered model + versioning + compatibility rules.
 
----
+## The five primitives
 
-## Vision
+Everything you author lives in `context/<org>/` as YAML + markdown:
 
-Every serious AI engagement produces the same five artifacts (workflow blueprint, context map, economics baseline, live review surface, launch scorecard). Today those artifacts live in slide decks, Notion pages, and bespoke code. Compiles Core is the runtime where they live natively — so every engagement ships the same deliverables, every client gets a reviewable audit trail, and every workflow improvement compounds across the install base.
-
-Three bets:
-
-1. **Context belongs in git, not a database.** Business objects, prompts, workflow blueprints, retrieval tuning — all versioned markdown/YAML. The DB holds runtime state (skill runs, drafts, approvals) only.
-2. **Skills and sources are plugins.** A published SDK with typed contracts means a partner can ship a HubSpot connector or a proposal skill without touching core.
-3. **Open core beats closed product.** MetaCTO's moat is the operating model and the install base, not the code. OSS core accelerates adoption; managed cloud + implementation is the revenue engine.
-
----
-
-## Product Strategy
-
-**Position:** the open context platform for AI operations. Same category shape as Dagster (data orchestration), Temporal (durable workflows), Langfuse (LLM ops) — OSS runtime, commercial cloud, services on top.
-
-**Buyer experience:** one validated workflow, one review surface, a clear expansion path. Platform handles the plumbing (context, retrieval, skills, review UI, evals, observability, reporting) so every engagement can spend its weeks on workflow design and change management, not infrastructure.
-
-**Moats:**
-
-- Methodology encoded in the platform (5 artifacts = platform primitives)
-- Plugin ecosystem (network effect on connectors + skills)
-- Monthly review becomes a generated report, not billable hours
-- Client context repo = portable deliverable the client actually owns
-
-**Economic model:**
-
-| Tier | What | Pricing |
+| Primitive | Path | Shape |
 |---|---|---|
-| OSS | Core runtime + core plugins | Free (Apache 2.0) |
-| Cloud | Hosted Compiles Core, managed Postgres/pgvector, evals-as-a-service, auto-scale | $/workflow-run + $/seat |
-| Implementation | MetaCTO engagements (Sprint → Continuous Ops) | $45K sprints → $15K/mo retainer |
-| Private plugins | Client-specific connectors, proprietary skills | Engagement or license |
+| **Source** | `context/<org>/sources/<slug>/source.yaml` | Auth, retrieval overrides, indexing filters |
+| **Object** | `context/<org>/objects/<slug>/type.yaml` | Business entity (Account, Deal, …) with source weights |
+| **Skill** | `context/<org>/skills/<slug>/skill.yaml` + `prompt.md` | LLM-powered unit of work, typed input/output |
+| **Workflow** | `context/<org>/workflows/<slug>/workflow.yaml` | Sequence of skills + HITL approve gates |
+| **Agent** | `context/<org>/agents/<slug>.yaml` + `<slug>.system-prompt.md` | LLM orchestrator wiring skills + workflows |
 
----
+Apply to DB with `npm run context:apply`. Every apply records a `context_version` audit row; every `skill_run` stamps the `context_sha` so any output traces back to the exact prompts that produced it.
 
-## Architecture
+## Plugin contract
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│  Client Context Repo (git, per-client)                         │
-│  business-objects/  skills/  prompts/  retrieval.yaml  evals/  │
-└──────────────────────────────┬─────────────────────────────────┘
-                               │ apply / read-through
-┌──────────────────────────────▼─────────────────────────────────┐
-│  Compiles Core Runtime (Apache 2.0)                              │
-│  Agent loop · Skill engine · Review UI · Plugin SDK · Auth     │
-│  Retrieval pipeline (pgvector + FTS + RRF, config-driven)      │
-└─────┬──────────────────┬──────────────────┬───────────────────┘
-      │                  │                  │
-  ┌───▼────┐       ┌─────▼──────┐     ┌─────▼──────┐
-  │ Core   │       │ Client     │     │ Runtime    │
-  │ Plugins│       │ Plugins    │     │ State (PG) │
-  │ (OSS)  │       │ (private)  │     │ skill_runs │
-  └────────┘       └────────────┘     └────────────┘
-```
-
-### Four tiers of code and data
-
-| Tier | Location | Content | Versioning |
-|---|---|---|---|
-| **Core** | `corecontext/core` (OSS) | Agent orchestrator, skill runtime, review UI, plugin SDK, retrieval pipeline, business-object model, skill_run persistence, auth, multi-tenant | semver |
-| **Core plugins** | `@corecontext/plugin-*` (OSS) | Zoom, Slack, HubSpot, Apollo, Gmail, Drive, proposal-to-Gamma, research, summarize | independent semver |
-| **Client plugins** | `@clientname/plugin-*` (private) | Proprietary connectors, custom skills, client-specific UI overrides | semver |
-| **Client context** | `client-*-context` git repo | Business objects, domains, prompts, workflow blueprints, retrieval config, eval fixtures, economics baseline, plugin enablement | git SHA |
-| **Runtime state** | Platform Postgres | skill_run history, drafts, approvals, user activity, feedback | append-only, immutable |
-
-**Rule:** if a second client would use it, it's core. If the client owns it, it's context. If it's proprietary IP, it's a private plugin. Runtime state is never in git.
-
----
-
-## Plugin Model
-
-A plugin is an npm package that exports a manifest. Core loads manifests at boot and registers skills and sources via a typed contract. Plugins run sandboxed with a scoped context (tenant, secrets, retrieval client, db client).
-
-### Skill contract
+A plugin is an npm package that exports a manifest. Core loads manifests at boot via `@compiles/sdk`. Typed, distributable, independently versioned.
 
 ```ts
-export const proposalSkill: Skill = {
-  id: 'proposal.generate',
-  version: '1.0.0',
-  input: z.object({ objectId: z.string(), style: z.enum(['standard', 'deep']) }),
-  output: z.object({ draftId: z.string(), gammaUrl: z.string().optional() }),
-  async run(ctx, input) { /* ... */ },
-  review: ProposalReviewCard, // React component for human-in-loop
-  evals: [/* fixtures + expected outputs */],
-};
+import type { PluginManifest } from '@compiles/sdk';
+import { defineSkill } from '@compiles/sdk';
+import { z } from 'zod';
+
+const highlights = defineSkill({
+  slug: 'transcript_highlights',
+  name: 'Transcript Highlights',
+  version: '0.1.0',
+  provider: 'openai',
+  requiresApproval: false,
+  inputSchema: z.object({ transcript: z.string() }),
+  outputSchema: z.object({ highlights: z.array(z.object({ quote: z.string() })) }),
+  async run(ctx, input) {
+    // ... multi-pass LLM, chunking, whatever you need
+  },
+});
+
+export default {
+  id: 'acme.samples',
+  version: '0.1.0',
+  skills: [highlights],
+} satisfies PluginManifest;
 ```
 
-### Source contract
+See [`docs/plugins.md`](./docs/plugins.md) for the full authoring guide.
 
-```ts
-export const hubspotSource: Source = {
-  id: 'hubspot',
-  version: '1.0.0',
-  auth: { type: 'oauth2', scopes: ['contacts.read', 'deals.read'] },
-  async fetch(ctx, cursor) { /* ... */ },
-  transform(raw) { /* → documents + business_objects */ },
-  retrieval: { /* defaults, overridable by client context */ },
-};
-```
-
-### Plugin enablement (client context)
-
-```yaml
-# client-context/plugins.yaml
-sources:
-  - id: hubspot
-    version: ^1.0.0
-    config:
-      portal_id: ${secrets.hubspot_portal_id}
-  - id: zoom
-    version: ^1.0.0
-
-skills:
-  - id: proposal.generate
-    version: ^1.0.0
-    input_defaults:
-      style: deep
-```
-
----
-
-## Retrieval as Config (replaces Onyx)
-
-**Today:** Onyx — 12-container stack (Vespa, OpenSearch, Redis, multiple Postgres, embedding models, indexing workers). Heavy, opaque, AGPL-adjacent, hard to tune per client.
-
-**Target:** Postgres-native retrieval with a config-driven pipeline. Everything MIT / Apache / PostgreSQL-licensed. Drops from 12 containers to **zero new infra** (reuses the Postgres we already run).
-
-### Stack
-
-| Concern | Component | License |
-|---|---|---|
-| Vector store | `pgvector` | PostgreSQL |
-| Keyword search | Postgres FTS (`tsvector` + GIN) | PostgreSQL |
-| Hybrid ranking | Reciprocal rank fusion (SQL) | — |
-| Embedding | Pluggable (OpenAI, Voyage, Cohere, Ollama, vLLM) | API / Apache |
-| Reranker | Pluggable (Voyage, Cohere, bge local) | API / Apache |
-| Chunking | `@corecontext/chunker` (recursive, semantic, fixed) | Apache 2.0 |
-| Ingestion | Plugin sources → normalized `Document` shape | Apache 2.0 |
-
-### Config (client context)
-
-```yaml
-# client-context/retrieval.yaml
-embedder:
-  provider: openai
-  model: text-embedding-3-large
-  dimensions: 3072
-  batch_size: 96
-
-chunking:
-  strategy: recursive
-  size: 1200
-  overlap: 200
-  respect_boundaries: [heading, paragraph]
-
-vector:
-  store: pgvector
-  index: hnsw
-  m: 16
-  ef_construction: 64
-  ef_search: 80
-
-keyword:
-  store: postgres_fts
-  language: english
-  boost_fields: {title: 2.0, body: 1.0}
-
-hybrid:
-  method: rrf
-  k_constant: 60
-  vector_weight: 1.0
-  keyword_weight: 0.6
-
-rerank:
-  enabled: true
-  provider: voyage
-  model: rerank-2
-  top_n_input: 40
-  top_n_output: 8
-
-query:
-  k_nearest: 8
-  similarity_threshold: 0.3
-  max_context_tokens: 8000
-
-# Per-source overrides
-overrides:
-  sources:
-    zoom:
-      chunking: {size: 2000, overlap: 300} # longer transcripts
-      rerank: {top_n_output: 4}
-  domains:
-    sales:
-      embedder: {model: text-embedding-3-small} # cost optimization
-```
-
-Every skill_run persists the retrieval config SHA and hit set, so "why did the agent retrieve X on March 3rd" is answerable six months later.
-
----
-
-## Observability, Reporting, Measurement
-
-All three feed from one event stream.
-
-- **Events:** skills and sources emit typed spans + domain events (`skill.started`, `retrieval.completed`, `draft.approved`, `draft.rejected`, etc.)
-- **Transport:** OpenTelemetry → your backend of choice (Langfuse, Honeycomb, Datadog, or Postgres tables for OSS default)
-- **Economics instrumentation:** every skill_run records `baseline_cost_usd`, `assisted_time_seconds`, `approval_outcome` — makes the monthly Launch Scorecard a SQL query, not a deck-building exercise
-- **Git SHA linkage:** every skill_run stores `context_sha` + plugin versions — full audit trail
-- **Auto-generated deliverables:** Context Map PDF, Workflow Blueprint, Launch Scorecard all generate from `client-context/` + runtime tables. The 5 standard artifacts are byproducts, not billable hours.
-
----
-
-## What's shipped
-
-- ✓ **Context-as-code** — agents, skills, object types, workflows in `context/<org>/` as YAML + markdown; idempotent apply; full audit trail
-- ✓ **MCP server** (stdio) — author + run from Claude Code, Cursor, Zed, Continue, claude.ai
-- ✓ **Plugin SDK v0.1** — typed `Skill<Input, Output>` contract; pluggable LLM provider (OpenAI, Anthropic, Vertex/Azure stubs)
-- ✓ **Workflow primitive** — sequential steps with HITL approve gates; resumable from any interface
-- ✓ **Review queue** at `/dashboard/review` — pending skill drafts + paused workflow runs
-- ✓ **In-product docs viewer** at `/dashboard/docs`
-
-Roadmap, decisions, and live progress are tracked internally — see `/dashboard/docs` after signing in.
-
----
-
-## Licensing
-
-**Open core. Permissive.** The runtime is free; cloud operation and bespoke IP are commercial.
-
-| Artifact | License | Rationale |
-|---|---|---|
-| Compiles Core (runtime, SDK, review UI) | **Apache 2.0** | Patent grant matters for enterprise adoption; wide community adoption (Dagster, Langchain, Hugging Face precedent) |
-| Core plugins (Zoom, HubSpot, proposal, etc.) | **Apache 2.0** | Same rationale; encourages forks and customization |
-| MetaCTO Cloud control plane | **BSL 1.1 → Apache 2.0 after 4 years** | Prevents hyperscaler from hosting competitive SaaS while the market forms; auto-converts to Apache for long-term trust |
-| Client plugins (proprietary connectors, custom skills) | **Commercial** (per-engagement or license) | Client or MetaCTO IP |
-| Client context repos | **Owned by client** | Portable deliverable; MetaCTO has write access under engagement |
-| MetaCTO methodology docs (ECE Wiki, playbooks) | **CC BY-NC 4.0** or proprietary | Brand/IP protection without preventing public reference |
-
-**Trademark:** "Compiles" and MetaCTO logos held by MetaCTO, Inc. Forks must rebrand.
-
----
-
-## Getting Started
+## Getting started
 
 ```bash
+# 1. Clone + install
+git clone <repo-url>
+cd compiles-core
 npm install
-cp .env.example .env.local       # Fill in API keys
-docker compose up -d postgres    # Postgres 16 + pgvector
+
+# 2. Configure env
+cp packages/core/.env.example packages/core/.env.local
+# Edit .env.local — at minimum set DATABASE_URL, Clerk keys, and one LLM provider key
+
+# 3. Start Postgres + Onyx (retrieval stack)
+npm run dev:up
+
+# 4. Apply schema + reference context
 npm run db:migrate
-npm run context:apply            # sync context/<org>/ → DB (agents, skills, object types)
-npm run dev:next                 # http://localhost:3000
+npm run context:apply
+
+# 5. Run dev server
+npm run dev:next
+# → http://localhost:3000
 ```
 
-### Edit client context
+Full install topology, env vars, production deploy, and troubleshooting: [`docs/self-hosted.md`](./docs/self-hosted.md).
 
-All prompts, skills, agents, and object types live in `context/<org>/` as YAML + markdown. Edit a file, then run `npm run context:apply` to sync. See [`context/README.md`](./context/README.md) for the authoring guide.
+## MCP server
+
+Author skills + workflows and inspect runs from Claude Code, Cursor, Zed, or any MCP client:
 
 ```bash
-npm run context:check            # validate + diff (no writes)
-npm run context:apply            # sync to DB, records context_version audit row
-npm run context:export           # (bootstrap) dump current DB rows to context/<org>/
+claude mcp add compiles -- npm --prefix /abs/path/to/compiles-core run mcp:serve
 ```
 
-### Run evals
+Full tool reference: [`docs/mcp.md`](./docs/mcp.md).
 
-```bash
-npx tsx src/scripts/run-evals.ts
+## Retrieval
+
+pgvector + Postgres FTS with a config-driven hybrid pipeline. Swap embedders, rerankers, chunking strategies per-org or per-source via `context/<org>/retrieval.yaml` — no code change needed. (Onyx is wired today; pgvector-native pipeline lands in Phase 5.)
+
+## Tech stack
+
+- **Framework:** Next.js 16 (App Router), React 19, TypeScript strict
+- **Database:** PostgreSQL 16 + Drizzle ORM
+- **Auth:** Clerk (multi-tenant, RBAC via Clerk organizations)
+- **LLM:** OpenAI, Anthropic — swappable per skill via the `provider` field
+- **Retrieval:** Onyx (deprecating) → pgvector-native (next)
+- **Observability:** Langfuse (LLM traces), OpenTelemetry (spans + metrics)
+- **Workflows:** in-process durable step runner on Postgres
+
+## Repo layout
+
+```
+packages/
+├── core/                        # Next.js app + Postgres schema + MCP + workflow runner
+├── sdk/                         # @compiles/sdk — stable plugin contract
+└── plugins/
+    └── transcript-highlights/   # Reference sample plugin
+
+context/<org>/                   # Tenant-owned YAML + markdown (per-tenant context repo)
+docs/                            # Concepts, guides, reference
 ```
 
----
+## License
 
-## Tech Stack (current)
+Apache 2.0.
 
-- **Framework:** Next.js 16, React 19, TypeScript
-- **Database:** PostgreSQL + Drizzle ORM
-- **Auth:** Clerk (multi-tenant, RBAC)
-- **Agent LLM:** GPT-5.4 (tool calling, streaming)
-- **Skills LLM:** GPT-5.4-mini
-- **Retrieval (today):** Onyx (deprecating); pgvector-native pipeline next
-- **Observability:** Langfuse (LLM traces); OpenTelemetry collector for spans + metrics
-- **Workflows:** in-process durable step runner on Postgres; Temporal adapter for scale-out
+## Contributing
 
----
+Conventional commits (enforced by commitlint + lefthook):
 
-## Ports
-
-| Service | Port | URL |
-|---|---|---|
-| Compiles Core | 3000 | http://localhost:3000 |
-| Postgres | 5432 | — |
-| Onyx UI (deprecating) | 3100 | http://localhost:3100 |
-| Langfuse (optional) | 3200 | http://localhost:3200 |
-
----
-
-## Case Study: Ziggy (Sales Ops Agent)
-
-Ziggy is the first packaged agent on Compiles, dogfooding MetaCTO's own sales operations. As of Phase 1, Ziggy's prompts, skills, and object types all live in `context/metacto/` — git-tracked, reviewable, and detached from app code.
-
-**What Ziggy does:**
-- Finds and classifies discovery calls from Zoom transcripts
-- Generates structured summaries with prospect, budget, timeline, next steps
-- Drafts capabilities follow-up emails and proposal decks (Gamma)
-- Searches across HubSpot, Gmail, Zoom, Google Drive
-
----
-
-## Conventional Commits
-
-| Type | Description |
+| Type | Purpose |
 |---|---|
 | `feat` | New feature |
 | `fix` | Bug fix |
@@ -338,8 +146,4 @@ Ziggy is the first packaged agent on Compiles, dogfooding MetaCTO's own sales op
 | `test` | Tests |
 | `chore` | Build/tooling |
 
----
-
-## License
-
-Currently proprietary — MetaCTO, Inc. Relicensing to Apache 2.0 targeted for Phase 5 (Q2 2027).
+Run `npm run check:types`, `npm test`, `npm run lint` before committing. Pre-commit hook handles auto-fix + type check + unused-dep check.
