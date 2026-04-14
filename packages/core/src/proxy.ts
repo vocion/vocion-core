@@ -15,6 +15,12 @@ const isProtectedRoute = createRouteMatcher([
   '/:locale/rpc(.*)',
 ]);
 
+// /api/v1 runs Clerk middleware to populate the auth context, but the
+// route handler decides how to respond (returns 401 JSON instead of 307
+// redirect to the sign-in page). So it's NOT on the protected-route
+// matcher — we don't want auth.protect() to kick in.
+const isApiRoute = createRouteMatcher(['/api/v1(.*)']);
+
 const isAuthPage = createRouteMatcher([
   '/sign-in(.*)',
   '/:locale/sign-in(.*)',
@@ -26,6 +32,13 @@ export default async function proxy(
   request: NextRequest,
   event: NextFetchEvent,
 ) {
+  // API routes: populate Clerk context so the route handler can call
+  // auth(), but don't run i18n or auth.protect() — return JSON errors
+  // from the handler instead.
+  if (isApiRoute(request)) {
+    return clerkMiddleware(async () => NextResponse.next())(request, event);
+  }
+
   // Clerk keyless mode doesn't work with i18n, this is why we need to run the middleware conditionally
   if (
     isAuthPage(request) || isProtectedRoute(request)
@@ -70,7 +83,10 @@ export default async function proxy(
 
 export const config = {
   // Match all pathnames except for
-  // - … if they start with `/_next`, `/_vercel` or `monitoring`
+  // - … if they start with `/_next`, `/_vercel`, `monitoring`, or `/api` (REST API routes handle their own auth)
   // - … the ones containing a dot (e.g. `favicon.ico`)
-  matcher: '/((?!_next|_vercel|monitoring|.*\\..*).*)',
+  matcher: [
+    '/((?!_next|_vercel|monitoring|api|.*\\..*).*)',
+    '/api/v1/:path*', // run Clerk middleware on /api/v1 for auth
+  ],
 };
