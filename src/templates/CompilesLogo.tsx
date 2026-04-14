@@ -9,19 +9,23 @@
  * @param props.size
  */
 export const CompilesLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' | 'lg' }) => {
-  const sizeClass
+  const iconSize
     = props.size === 'sm'
-      ? 'size-6 text-base'
+      ? 'size-5'
       : props.size === 'lg'
-        ? 'size-10 text-2xl'
-        : 'size-8 text-xl';
+        ? 'size-9'
+        : 'size-7';
+  const textSize
+    = props.size === 'sm'
+      ? 'text-base'
+      : props.size === 'lg'
+        ? 'text-2xl'
+        : 'text-lg';
 
   return (
-    <div className={`flex items-center font-semibold tracking-tight ${sizeClass}`}>
+    <div className={`inline-flex items-center font-semibold tracking-tight ${textSize}`}>
       <svg
-        className="mr-2 shrink-0"
-        width="100%"
-        height="100%"
+        className={`mr-2 shrink-0 ${iconSize}`}
         viewBox="0 0 24 24"
         fill="currentColor"
         xmlns="http://www.w3.org/2000/svg"
