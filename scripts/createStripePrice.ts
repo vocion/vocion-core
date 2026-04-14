@@ -3,6 +3,10 @@ import { stripe } from '@/libs/Stripe';
 import { AppConfig, PLAN_ID, PricingPlanList } from '@/utils/AppConfig';
 
 const createStripePrice = async (plan: PricingPlan) => {
+  if (!stripe) {
+    throw new Error('Stripe is not configured — set STRIPE_SECRET_KEY');
+  }
+
   const product = await stripe.products.create({
     name: `${AppConfig.name} - ${plan.id}`,
   });

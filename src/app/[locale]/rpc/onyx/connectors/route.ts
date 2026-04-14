@@ -49,7 +49,7 @@ export async function GET() {
     }> = await statusRes.json();
 
     // Also get connector list for refresh_freq
-    let connectorList: Array<{ id: number; source: string; refresh_freq: number | null; credential_ids: number[] }> = [];
+    let connectorList: Array<{ id: number; source: string; refresh_freq: number | null; credential_ids: number[]; time_updated?: string | null }> = [];
     try {
       const connRes = await fetch(`${ONYX_URL}/manage/connector`, {
         headers: { Authorization: `Bearer ${key}` },
