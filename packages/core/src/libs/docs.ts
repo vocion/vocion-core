@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { join, relative } from 'node:path';
+import { getRepoRoot } from './repo-root';
 
 /**
  * Static markdown discovery for the in-product docs viewer.
@@ -14,7 +15,7 @@ import { join, relative, resolve } from 'node:path';
  * The root README is served at `/dashboard/docs` (no slug).
  */
 
-const ROOT = resolve(process.cwd());
+const ROOT = getRepoRoot();
 const ROOTS = ['docs', 'requirements', 'context'];
 
 export type DocEntry = {
@@ -118,7 +119,7 @@ export function isRoadmapPath(relPath: string): boolean {
  */
 export function readDoc(slug: string): { path: string; content: string } | null {
   const path = slug === '' || slug === 'README' ? 'README.md' : `${slug}.md`;
-  const abs = resolve(ROOT, path);
+  const abs = join(ROOT, path);
   if (!abs.startsWith(ROOT)) {
     return null; // path traversal guard
   }

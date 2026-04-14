@@ -3,6 +3,7 @@ import type { AgentManifest, ContextManifest, ObjectTypeManifest, SkillManifest,
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { fromRepoRoot } from '@/libs/repo-root';
 import {
   AgentManifestSchema,
   ContextManifestSchema,
@@ -33,7 +34,7 @@ export type LoadedContext = {
  * @param contextPath
  */
 export function loadContext(contextPath: string): LoadedContext {
-  const abs = resolve(contextPath);
+  const abs = resolve(contextPath.startsWith('/') ? contextPath : fromRepoRoot(contextPath));
   const manifest = loadManifest(abs);
   const files: string[] = [];
 
