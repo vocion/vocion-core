@@ -5,8 +5,8 @@ import { Footer } from '@/templates/Footer';
 import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
-  title: 'Use cases — CoreContext',
-  description: 'How teams use CoreContext: sales ops, customer success, support, product intelligence.',
+  title: 'Use cases — Compiles.ai',
+  description: 'How teams use Compiles.ai: sales ops, customer success, support, product intelligence.',
 };
 
 const cases = [
