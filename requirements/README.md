@@ -16,10 +16,13 @@ Two categories:
 | [product-surfaces.md](./product-surfaces.md) | UI surfaces: Ask, Search, Skills, Workflows, Governance, Review |
 | [skills.md](./skills.md) | Skill system design, types, schema, productization |
 | [rbac.md](./rbac.md) | Roles, permissions, access control model |
-| [roadmap.md](./roadmap.md) | Phased roadmap (also mirrored in root `../README.md`) |
-| [sprints.md](./sprints.md) | Sprint-level breakdown |
 | [customer-onboarding.md](./customer-onboarding.md) | Build-up process for new customer deployments |
 | [managed-operations.md](./managed-operations.md) | Ongoing managed services: tuning, evals, training, ops |
+
+**Roadmap + status** — phased delivery plan and live progress are not here. See:
+
+- [`../ROADMAP.md`](../ROADMAP.md) — phase-by-phase delivery plan (single source of truth)
+- [`../docs/progress.md`](../docs/progress.md) — live status: shipped, in flight, queued, decision log
 
 ## MetaCTO case studies
 
