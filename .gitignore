@@ -37,6 +37,9 @@ yarn-error.log*
 .env.production
 .env*.local
 
+# npm auth (tokens — never commit)
+.npmrc
+
 # Sentry Config File
 .env.sentry-build-plugin
 
