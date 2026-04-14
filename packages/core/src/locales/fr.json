@@ -193,15 +193,6 @@
     "event_resource": "Ressource",
     "event_time": "Heure"
   },
-  "Ask": {
-    "title": "Demander",
-    "description": "Obtenez des réponses fondées sur le contexte de votre entreprise",
-    "coming_soon_features_1": "Réponses en streaming avec citations sourcées",
-    "coming_soon_features_2": "Panneau de contexte avec exploration des preuves",
-    "coming_soon_features_3": "Contrôles de périmètre pour systèmes, domaines et période",
-    "coming_soon_features_4": "Suggestions de suivi et historique des conversations",
-    "coming_soon_features_5": "Contexte sauvegardé et épinglé"
-  },
   "Search": {
     "title": "Rechercher",
     "description": "Trouver des documents, enregistrements et preuves dans tous les systèmes connectés",

@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server';
 import { eq } from 'drizzle-orm';
-import { ArrowLeft, BookOpen, Database, Layers, Shield } from 'lucide-react';
+import { ArrowLeft, BookOpen, Database, Shield } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -116,16 +116,6 @@ export default async function ObjectTypeDetailPage(props: {
               </div>
               <div className="rounded-md bg-muted/50 p-4 text-sm leading-relaxed whitespace-pre-wrap">
                 {classPrompt}
-              </div>
-              <div className="mt-4 flex items-center gap-2">
-                <Layers className="size-3.5 text-blue-500" />
-                <span className="text-xs text-muted-foreground">Domain:</span>
-                <Link
-                  href="/dashboard/domains"
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  Sales
-                </Link>
               </div>
             </div>
           )}

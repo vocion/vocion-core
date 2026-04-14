@@ -24,6 +24,7 @@ const config: KnipConfig = {
     'packages/core/src/components/DemoBadge.tsx',
     'packages/core/src/features/dashboard/ComingSoon.tsx',
     'packages/core/tests/**/*.ts',
+    'packages/core/.next/**',
     'packages/plugins/**/src/index.ts',
     'infra/onyx/onyx-repo/**',
   ],
@@ -31,7 +32,13 @@ const config: KnipConfig = {
   ignoreDependencies: [
     '@commitlint/types',
     '@clerk/types',
+    '@hookform/resolvers', // used by ignored shadcn ui file
     '@radix-ui/react-accordion', // used by ignored shadcn ui file
+    '@radix-ui/react-icons', // used by ignored shadcn ui file
+    '@radix-ui/react-label', // used by ignored shadcn ui file
+    '@tanstack/react-table', // used by ignored shadcn ui file
+    'radix-ui', // used by ignored shadcn ui file
+    'react-hook-form', // used by ignored shadcn ui file
     '@swc/helpers', // Avoid error in CI: "`npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync."
     'checkly', // used in .github/workflows/checkly.yml
     '@tailwindcss/typography', // loaded via `@plugin` in global.css
