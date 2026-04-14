@@ -105,12 +105,12 @@ function writeSkillTool(config: McpConfig): ToolModule {
   return {
     name: 'context_write_skill',
     title: 'Create or update a skill',
-    description: 'Write a skill manifest + prompt to context/<org>/skills/. Auto-commits + auto-applies unless disabled. Returns files written, new context SHA, and the apply diff.',
+    description: 'Write a skill manifest + prompt to context/<org>/skills/. Writes to disk + auto-applies to DB. Git is external — pass autoCommit=true to opt in. Returns files written, new context SHA, and the apply diff.',
     inputSchema: {
       manifest: toolShape(SkillManifestSchema, ['promptFile']),
       prompt_md: z.string().describe('the prompt template — supports {{variables}}'),
       autoApply: z.boolean().default(true).describe('apply to DB after writing (default true)'),
-      autoCommit: z.boolean().default(true).describe('git commit after writing (default true)'),
+      autoCommit: z.boolean().default(false).describe('git commit after writing (default false; git is external responsibility)'),
       commitMessage: z.string().optional().describe('override default commit message'),
     },
     handler: async (input) => {
@@ -129,12 +129,12 @@ function writeAgentTool(config: McpConfig): ToolModule {
   return {
     name: 'context_write_agent',
     title: 'Create or update an agent',
-    description: 'Write an agent manifest + system prompt. Auto-commits + auto-applies unless disabled.',
+    description: 'Write an agent manifest + system prompt. Writes to disk + auto-applies to DB. Git is external — pass autoCommit=true to opt in.',
     inputSchema: {
       manifest: toolShape(AgentManifestSchema, ['systemPromptFile']),
       system_prompt_md: z.string().describe('the system prompt'),
       autoApply: z.boolean().default(true),
-      autoCommit: z.boolean().default(true),
+      autoCommit: z.boolean().default(false),
       commitMessage: z.string().optional(),
     },
     handler: async (input) => {
@@ -153,12 +153,12 @@ function writeObjectTypeTool(config: McpConfig): ToolModule {
   return {
     name: 'context_write_object_type',
     title: 'Create or update a business object type',
-    description: 'Write an object type manifest (schema, source relevance, classification prompt). Auto-commits + auto-applies unless disabled.',
+    description: 'Write an object type manifest (schema, source relevance, classification prompt). Writes to disk + auto-applies to DB. Git is external — pass autoCommit=true to opt in.',
     inputSchema: {
       manifest: toolShape(ObjectTypeManifestSchema, ['classificationPromptFile']),
       classification_prompt_md: z.string().optional().describe('optional classification prompt'),
       autoApply: z.boolean().default(true),
-      autoCommit: z.boolean().default(true),
+      autoCommit: z.boolean().default(false),
       commitMessage: z.string().optional(),
     },
     handler: async (input) => {
@@ -182,7 +182,7 @@ function deleteTool(config: McpConfig): ToolModule {
       kind: z.enum(['agent', 'skill', 'objectType']),
       slug: z.string(),
       autoApply: z.boolean().default(true),
-      autoCommit: z.boolean().default(true),
+      autoCommit: z.boolean().default(false),
       commitMessage: z.string().optional(),
     },
     handler: async (input) => {
