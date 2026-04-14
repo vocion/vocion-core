@@ -15,6 +15,5 @@ Platform-level specs — what CoreContext *is*. Architecture, object model, surf
 ## Related
 
 - [`/README.md`](../README.md) — product pitch + quick start
-- [`/ROADMAP.md`](../ROADMAP.md) — phased delivery plan
 - [`/docs/`](../docs) — platform dev docs (MCP, plugins, workflows, self-hosted install)
-- [`/docs/internal/`](../docs/internal) — MetaCTO-only planning, progress log, case studies (not for OSS consumers)
+- [`/docs/internal/`](../docs/internal) — MetaCTO-only planning, roadmap, progress log, case studies (not for OSS consumers)
