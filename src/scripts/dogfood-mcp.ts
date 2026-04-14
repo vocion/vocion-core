@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { readConfig } from '@/interfaces/mcp/config';
 import { buildServer } from '@/interfaces/mcp/server';
+import { loadPlugins } from '@/libs/plugins';
 /**
  * Dogfood the MCP server end-to-end against the real DB + real context repo.
  *
@@ -32,6 +33,12 @@ async function main(): Promise<void> {
   const config = readConfig();
   console.log(`→ contextPath: ${config.contextPath}`);
   console.log(`→ orgId: ${config.orgId}`);
+
+  const pluginResult = await loadPlugins({ orgId: config.orgId });
+  console.log(`→ plugins loaded: ${pluginResult.loaded.map(p => p.pluginId).join(', ') || '(none)'}`);
+  if (pluginResult.errors.length > 0) {
+    console.log(`  plugin errors: ${pluginResult.errors.map(e => e.source).join(', ')}`);
+  }
   console.log();
 
   const server = buildServer(config);
@@ -87,8 +94,15 @@ async function main(): Promise<void> {
     const diff = await call<{ counts: { skills: { unchanged: number } } }>(client, 'context_diff');
     console.log(`\n4. context_diff → skills unchanged=${diff.counts.skills.unchanged}`);
 
-    // 5. Clean up
-    console.log('\n5. context_delete — removing mcp_dogfood_demo…');
+    // 5. Plugins list — verify any loaded plugins show up via MCP
+    const plugins = await call<{ plugins: Array<{ id: string; version: string }>; skills: Array<{ slug: string; pluginId: string }> }>(client, 'plugins_list');
+    console.log(`\n5. plugins_list → ${plugins.plugins.length} plugin(s), ${plugins.skills.length} skill(s)`);
+    for (const s of plugins.skills) {
+      console.log(`   ${s.pluginId} :: ${s.slug}`);
+    }
+
+    // 6. Clean up
+    console.log('\n6. context_delete — removing mcp_dogfood_demo…');
     const deleted = await call<{ removed: string[]; dbRowsDeleted: number }>(client, 'context_delete', { kind: 'skill', slug: 'mcp_dogfood_demo' });
     console.log(`   removed ${deleted.removed.length} files, ${deleted.dbRowsDeleted} db rows`);
 

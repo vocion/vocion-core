@@ -13,6 +13,8 @@ const config: KnipConfig = {
     'src/services/**/*.ts',
     'src/scripts/**/*.ts',
     'src/libs/context/**',
+    'src/libs/plugins/**',
+    'src/plugins/**',
     'src/features/dashboard/ApprovalCard.tsx',
     'src/features/dashboard/DraftCard.tsx',
     'src/features/landing/CenteredHero.tsx',

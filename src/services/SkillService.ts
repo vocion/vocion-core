@@ -1,8 +1,11 @@
+import type { AnySkill, PluginContext } from '@/libs/plugins';
 import { and, desc, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import { getCurrentContextSha } from '@/libs/context';
 import { db } from '@/libs/DB';
 import { langfuse } from '@/libs/Langfuse';
+import { search as onyxSearch } from '@/libs/onyx/client';
+import { pluginRegistry } from '@/libs/plugins';
 import { skillRunSchema, skillSchema } from '@/models/Schema';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
@@ -50,6 +53,13 @@ export async function executeSkill(opts: {
   traceId: string;
   skill: { name: string; slug: string; requiresApproval: string | null };
 }> {
+  // Plugins take precedence — a registered plugin slug overrides the DB prompt row.
+  // Falls back to prompt-only execution when no plugin is registered.
+  const plugin = pluginRegistry.getSkill(opts.skillSlug);
+  if (plugin) {
+    return executePluginSkill(opts, plugin);
+  }
+
   const skill = await getSkill(opts.orgId, opts.skillSlug);
   if (!skill) {
     throw new Error(`Skill "${opts.skillSlug}" not found`);
@@ -118,6 +128,132 @@ export async function executeSkill(opts: {
     traceId: trace.id,
     skill: { name: skill.name, slug: skill.slug, requiresApproval: skill.requiresApproval },
   };
+}
+
+/**
+ * Execute a plugin-registered skill. Validates input + output via the plugin's
+ * Zod schemas, builds a scoped PluginContext, runs the handler, persists the
+ * result in skill_run (lazy-upserting a skill row so downstream queries that
+ * join skill_run → skill keep working).
+ * @param opts
+ * @param opts.orgId
+ * @param opts.skillSlug
+ * @param opts.input
+ * @param opts.userId
+ * @param plugin
+ */
+async function executePluginSkill(
+  opts: { orgId: string; skillSlug: string; input: Record<string, unknown>; userId?: string },
+  plugin: AnySkill,
+): Promise<{ runId: number; output: string; traceId: string; skill: { name: string; slug: string; requiresApproval: string | null } }> {
+  const inputParsed = plugin.inputSchema.safeParse(opts.input);
+  if (!inputParsed.success) {
+    throw new Error(`invalid input for plugin skill "${plugin.slug}": ${inputParsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+  }
+
+  const trace = langfuse.trace({
+    name: `skill:${plugin.slug}`,
+    input: opts.input,
+    metadata: { orgId: opts.orgId, pluginVersion: plugin.version, kind: 'plugin' },
+  });
+
+  const contextSha = await getCurrentContextSha(opts.orgId);
+
+  const ctx: PluginContext = {
+    orgId: opts.orgId,
+    openai,
+    contextSha,
+    invokedBy: opts.userId ?? 'mcp',
+    log: (level, message, fields) => {
+      trace.event({ name: `${level}:${message}`, metadata: fields });
+    },
+    retrieve: async (query, options) => {
+      const result = await onyxSearch({
+        query,
+        search_filters: options?.sources ? { source_type: options.sources } : undefined,
+      });
+      const k = options?.k ?? 8;
+      const top = ((result?.top_documents ?? []) as Array<Record<string, unknown>>).slice(0, k);
+      return top.map(d => ({
+        documentId: String(d.document_id ?? ''),
+        identifier: String(d.semantic_identifier ?? ''),
+        source: String(d.source_type ?? ''),
+        blurb: String(d.blurb ?? ''),
+        link: (d.link as string | null | undefined) ?? null,
+        score: Number(d.score ?? 0),
+        updatedAt: (d.updated_at as string | null | undefined) ?? null,
+      }));
+    },
+  };
+
+  const startTime = Date.now();
+  let output: unknown;
+  try {
+    output = await plugin.run(ctx, inputParsed.data);
+  } catch (err) {
+    trace.update({ output: { error: err instanceof Error ? err.message : String(err) } });
+    await langfuse.flushAsync();
+    throw err;
+  }
+  const elapsed = Date.now() - startTime;
+
+  const outputParsed = plugin.outputSchema.safeParse(output);
+  if (!outputParsed.success) {
+    throw new Error(`plugin "${plugin.slug}" returned invalid output: ${outputParsed.error.issues.map(i => i.message).join('; ')}`);
+  }
+
+  trace.update({ output: { elapsed_ms: elapsed, preview: JSON.stringify(output).slice(0, 500) } });
+
+  // Ensure a skill row exists so skill_run.skill_id FK is satisfied.
+  const skillRow = await upsertPluginSkillRow(opts.orgId, plugin);
+
+  const outputStr = typeof output === 'string' ? output : JSON.stringify(output);
+  const [run] = await db.insert(skillRunSchema).values({
+    orgId: opts.orgId,
+    skillId: skillRow.id,
+    input: opts.input,
+    output: outputStr,
+    status: plugin.requiresApproval ? 'pending' : 'auto',
+    langfuseTraceId: trace.id,
+    contextSha,
+    createdBy: opts.userId,
+  }).returning();
+
+  await langfuse.flushAsync();
+
+  return {
+    runId: run!.id,
+    output: outputStr,
+    traceId: trace.id,
+    skill: { name: plugin.name, slug: plugin.slug, requiresApproval: plugin.requiresApproval ? 'true' : 'false' },
+  };
+}
+
+/**
+ * Lazily create or update the skill DB row for a plugin. Keeps plugin-driven
+ * skills visible in the same catalog as context-authored ones without
+ * requiring a manual context:apply.
+ * @param orgId
+ * @param plugin
+ */
+async function upsertPluginSkillRow(orgId: string, plugin: AnySkill) {
+  const existing = await getSkill(orgId, plugin.slug);
+  if (existing) {
+    return existing;
+  }
+  const [row] = await db.insert(skillSchema).values({
+    orgId,
+    slug: plugin.slug,
+    name: plugin.name,
+    description: plugin.description ?? null,
+    promptTemplate: `[plugin: ${plugin.slug}@${plugin.version}]`,
+    category: plugin.category ?? 'query',
+    status: 'active',
+    requiresApproval: plugin.requiresApproval ? 'true' : 'false',
+    model: 'plugin',
+    version: 1,
+  }).returning();
+  return row!;
 }
 
 /**
