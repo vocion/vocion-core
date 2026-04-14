@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import process from 'node:process';
+import { fromRepoRoot } from '@/libs/repo-root';
 
 /**
  * Read the files that back a primitive instance from the tenant context
@@ -51,7 +52,7 @@ function detectLanguage(fileName: string): 'yaml' | 'markdown' {
 export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): PrimitiveFilesResult | null {
   const dirName = slugToDirname(slug);
   const contextPath = getContextPath();
-  const base = resolve(process.cwd(), contextPath);
+  const base = fromRepoRoot(contextPath);
 
   if (!existsSync(base)) {
     return null;
