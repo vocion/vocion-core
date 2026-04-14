@@ -22,7 +22,7 @@ const locales = [
 
 // FIXME: Update this configuration file based on your project information
 export const AppConfig = {
-  name: 'CoreContext',
+  name: 'Compiles.ai',
   sidebarCookieName: 'sidebar:state',
   i18n: {
     locales,

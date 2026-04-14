@@ -925,7 +925,7 @@ const MarkdownContent = ({ content, onCitationClick, documents, onAction, onOpen
     .replace(/<<(discovery|deal|account):(.*?)(?:\|\w*)?>>\u200B?/g, 'DISCO_$1_$2_ENDDISCO');
 
   return (
-    <div className="prose dark:prose-invert prose-p:my-2 prose-headings:mb-2 prose-headings:mt-5 prose-headings:font-semibold prose-headings:text-base prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-primary prose-strong:font-semibold prose-strong:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-sm prose-code:before:content-none prose-code:after:content-none max-w-none overflow-hidden text-[15px] leading-relaxed" style={{ overflowWrap: 'anywhere' }}>
+    <div className="prose max-w-none overflow-hidden text-[15px] leading-relaxed dark:prose-invert prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-base prose-headings:font-semibold prose-p:my-2 prose-a:text-primary prose-strong:font-semibold prose-strong:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-sm prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5" style={{ overflowWrap: 'anywhere' }}>
       <Markdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -1217,7 +1217,7 @@ export const AskChat = () => {
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Error: Could not connect to CoreContext. Is Onyx running?',
+        content: 'Error: Could not connect to Compiles.ai. Is Onyx running?',
       }]);
     } finally {
       setLoading(false);
