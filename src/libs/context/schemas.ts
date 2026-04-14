@@ -70,6 +70,76 @@ export const SkillManifestSchema = z.object({
 );
 export type SkillManifest = z.infer<typeof SkillManifestSchema>;
 
+/* ----------------------------------------------------------------
+ * Workflow manifest
+ * ---------------------------------------------------------------- */
+
+const InterpolatableStringSchema = z.string().describe(
+  'supports {{input.x}}, {{steps.name.output.y}}, {{trigger.y}}',
+);
+
+/**
+ * Step types (v1):
+ *   - `skill`   — invoke a skill with interpolated input
+ *   - `approve` — HITL pause; workflow resumes after runtime_approve
+ *   - `action`  — connector-backed action (v1 = registered stubs only)
+ */
+const SkillStepSchema = z.object({
+  name: SlugSchema,
+  type: z.literal('skill').default('skill'),
+  skill: z.string().describe('skill slug to invoke'),
+  input: z.record(z.string(), z.unknown()).default({}),
+  /** Optional — persist this step's output into named variable (defaults to step name). */
+  outputAs: z.string().optional(),
+});
+
+const ApproveStepSchema = z.object({
+  name: SlugSchema,
+  type: z.literal('approve'),
+  prompt: z.string().describe('what is being approved — shown in the review queue'),
+  /** Optional — reference to prior step whose output is being reviewed. */
+  reviews: z.string().optional(),
+});
+
+const ActionStepSchema = z.object({
+  name: SlugSchema,
+  type: z.literal('action'),
+  action: z.string().describe('registered action id, e.g. `gmail.send_email`'),
+  input: z.record(z.string(), z.unknown()).default({}),
+});
+
+const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, ApproveStepSchema, ActionStepSchema]);
+
+const ManualTriggerSchema = z.object({
+  type: z.literal('manual').default('manual'),
+});
+const EventTriggerSchema = z.object({
+  type: z.literal('event'),
+  /** e.g. `object.created`, `skill.completed`, `external.zoom.meeting_ended` */
+  event: z.string(),
+  filter: z.record(z.string(), z.unknown()).optional(),
+});
+
+const WorkflowTriggerSchema = z.discriminatedUnion('type', [ManualTriggerSchema, EventTriggerSchema]);
+
+export const WorkflowManifestSchema = z.object({
+  slug: SlugSchema,
+  name: z.string(),
+  description: z.string().optional(),
+  status: z.enum(['active', 'disabled', 'draft']).default('active'),
+  version: z.number().int().positive().default(1),
+  trigger: WorkflowTriggerSchema,
+  steps: z.array(WorkflowStepSchema).min(1),
+  /** Optional input JSON Schema for manual triggers. */
+  inputSchema: z.record(z.string(), z.unknown()).optional(),
+});
+export type WorkflowManifest = z.infer<typeof WorkflowManifestSchema>;
+export type WorkflowStep = z.infer<typeof WorkflowStepSchema>;
+export type WorkflowTrigger = z.infer<typeof WorkflowTriggerSchema>;
+
+// Re-export InterpolatableStringSchema for step authors who want to type inputs explicitly.
+export { InterpolatableStringSchema };
+
 export const ObjectTypeManifestSchema = z.object({
   slug: SlugSchema,
   label: z.string(),

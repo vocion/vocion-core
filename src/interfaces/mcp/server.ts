@@ -5,6 +5,7 @@ import { contextTools } from './tools/context-tools';
 import { dataTools } from './tools/data-tools';
 import { pluginTools } from './tools/plugin-tools';
 import { runtimeTools, skillRunDetailTool } from './tools/runtime-tools';
+import { workflowTools } from './tools/workflow-tools';
 
 /**
  * Create an MCP server wired to the CoreContext runtime.
@@ -30,6 +31,7 @@ export function buildServer(config: McpConfig): McpServer {
     skillRunDetailTool(config),
     ...dataTools(config),
     ...pluginTools(config),
+    ...workflowTools(config),
   ];
 
   for (const tool of tools) {

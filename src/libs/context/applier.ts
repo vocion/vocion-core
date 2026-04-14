@@ -1,7 +1,7 @@
-import type { LoadedAgent, LoadedContext, LoadedObjectType, LoadedSkill } from './loader';
+import type { LoadedAgent, LoadedContext, LoadedObjectType, LoadedSkill, LoadedWorkflow } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { agentSchema, businessObjectTypeSchema, contextVersionSchema, skillSchema } from '@/models/Schema';
+import { agentSchema, businessObjectTypeSchema, contextVersionSchema, skillSchema, workflowSchema } from '@/models/Schema';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -21,6 +21,7 @@ export type ApplyResult = {
     agents: ResourceCounts;
     skills: ResourceCounts;
     objectTypes: ResourceCounts;
+    workflows: ResourceCounts;
   };
   errors: Array<{ resource: string; slug: string; message: string }>;
   versionId: number | null;
@@ -36,6 +37,7 @@ export async function applyContext(loaded: LoadedContext, opts: ApplyOptions = {
     agents: blank(),
     skills: blank(),
     objectTypes: blank(),
+    workflows: blank(),
   };
 
   // Object types first — agents and skills may reference them
@@ -63,6 +65,15 @@ export async function applyContext(loaded: LoadedContext, opts: ApplyOptions = {
       bump(counts.agents, outcome);
     } catch (err) {
       errors.push({ resource: 'agent', slug: agent.slug, message: (err as Error).message });
+    }
+  }
+
+  for (const workflow of loaded.workflows) {
+    try {
+      const outcome = await upsertWorkflow(orgId, workflow, dryRun);
+      bump(counts.workflows, outcome);
+    } catch (err) {
+      errors.push({ resource: 'workflow', slug: workflow.slug, message: (err as Error).message });
     }
   }
 
@@ -210,6 +221,61 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     await db.update(agentSchema).set(payload).where(eq(agentSchema.id, existing.id));
   }
   return 'updated';
+}
+
+async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, dryRun: boolean): Promise<UpsertOutcome> {
+  const [existing] = await db
+    .select()
+    .from(workflowSchema)
+    .where(and(eq(workflowSchema.orgId, orgId), eq(workflowSchema.slug, workflow.slug)));
+
+  const payload = {
+    orgId,
+    slug: workflow.slug,
+    name: workflow.name,
+    description: workflow.description ?? null,
+    version: workflow.version,
+    status: workflow.status,
+    trigger: workflow.trigger as unknown as Record<string, unknown>,
+    steps: workflow.steps as unknown as Array<Record<string, unknown>>,
+    inputSchema: workflow.inputSchema ?? null,
+  };
+
+  if (!existing) {
+    if (!dryRun) {
+      await db.insert(workflowSchema).values(payload);
+    }
+    return 'created';
+  }
+
+  if (isWorkflowEqual(existing, payload)) {
+    return 'unchanged';
+  }
+
+  if (!dryRun) {
+    await db.update(workflowSchema).set(payload).where(eq(workflowSchema.id, existing.id));
+  }
+  return 'updated';
+}
+
+function isWorkflowEqual(a: typeof workflowSchema.$inferSelect, b: Record<string, unknown>): boolean {
+  return canonical({
+    name: a.name,
+    description: a.description,
+    version: a.version,
+    status: a.status,
+    trigger: a.trigger,
+    steps: a.steps,
+    inputSchema: a.inputSchema,
+  }) === canonical({
+    name: b.name,
+    description: b.description,
+    version: b.version,
+    status: b.status,
+    trigger: b.trigger,
+    steps: b.steps,
+    inputSchema: b.inputSchema,
+  });
 }
 
 function blank(): ResourceCounts {
