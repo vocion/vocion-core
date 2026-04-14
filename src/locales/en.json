@@ -1,7 +1,7 @@
 {
   "Index": {
-    "meta_title": "CoreContext - Enterprise context platform for teams that need answers, not search results",
-    "meta_description": "CoreContext connects your systems, maps your business objects, and gives your team grounded answers, governed actions, and automated workflows."
+    "meta_title": "Compiles.ai - Enterprise context platform for teams that need answers, not search results",
+    "meta_description": "Compiles.ai connects your systems, maps your business objects, and gives your team grounded answers, governed actions, and automated workflows."
   },
   "Navbar": {
     "sign_in": "Sign In",
@@ -24,7 +24,7 @@
   "Hero": {
     "badge": "Now in private beta",
     "title": "Every answer grounded. <important>Every action governed.</important>",
-    "description": "CoreContext is the managed enterprise platform that connects your systems, maps your business objects, and lets your team ask questions, get cited answers, and take action — all within your policy boundaries.",
+    "description": "Compiles.ai is the managed enterprise platform that connects your systems, maps your business objects, and lets your team ask questions, get cited answers, and take action — all within your policy boundaries.",
     "proof1": "40+ connectors",
     "proof2": "Source-cited answers",
     "proof3": "Human-in-the-loop",
@@ -72,14 +72,14 @@
     "next_renew_date": "Your subscription renews on {date}"
   },
   "FAQ": {
-    "question1": "What systems does CoreContext connect to?",
-    "answer1": "CoreContext supports 40+ connectors out of the box including Slack, Google Drive, Salesforce, HubSpot, Jira, Zendesk, Notion, Confluence, GitHub, and more. We can also ingest custom data via API or file upload.",
+    "question1": "What systems does Compiles.ai connect to?",
+    "answer1": "Compiles.ai supports 40+ connectors out of the box including Slack, Google Drive, Salesforce, HubSpot, Jira, Zendesk, Notion, Confluence, GitHub, and more. We can also ingest custom data via API or file upload.",
     "question2": "How is this different from enterprise search?",
-    "answer2": "Enterprise search finds documents. CoreContext understands your business. We map canonical business objects across systems, so when you ask about an account, you get context from your CRM, email, tickets, Slack, and docs in one grounded answer. Then you can take action directly.",
+    "answer2": "Enterprise search finds documents. Compiles.ai understands your business. We map canonical business objects across systems, so when you ask about an account, you get context from your CRM, email, tickets, Slack, and docs in one grounded answer. Then you can take action directly.",
     "question3": "What does 'managed' mean?",
     "answer3": "We handle connector operations, relevance tuning, prompt engineering, skill development, eval loops, and ongoing improvement. You get a team that makes the platform smarter every week, not just software you have to figure out yourself.",
     "question4": "Can I control what the AI can and cannot do?",
-    "answer4": "Yes. CoreContext has three permission layers: data visibility (who sees what), action execution (who can run what), and approval policies (what needs human sign-off). Every action is audited. You set the boundaries.",
+    "answer4": "Yes. Compiles.ai has three permission layers: data visibility (who sees what), action execution (who can run what), and approval policies (what needs human sign-off). Every action is audited. You set the boundaries.",
     "question5": "What are Skills?",
     "answer5": "Skills are packaged business capabilities. A skill combines a prompt, retrieval scope, input variables, allowed actions, and quality evals into one reusable unit. Examples: summarize an account, draft a follow-up email, generate a proposal, triage a support ticket.",
     "question6": "How do workflows and agents relate?",
@@ -135,11 +135,11 @@
     "feedback": "Feedback"
   },
   "Dashboard": {
-    "meta_title": "CoreContext Dashboard",
-    "meta_description": "CoreContext helps teams build, manage, and scale their business with contextual intelligence."
+    "meta_title": "Compiles.ai Dashboard",
+    "meta_description": "Compiles.ai helps teams build, manage, and scale their business with contextual intelligence."
   },
   "DashboardIndex": {
-    "welcome_title": "Welcome to CoreContext",
+    "welcome_title": "Welcome to Compiles.ai",
     "welcome_description": "Your enterprise context platform. Connect systems, map business objects, and get grounded answers.",
     "stat_connectors": "Connectors",
     "stat_objects": "Objects",
