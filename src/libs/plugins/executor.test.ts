@@ -1,7 +1,9 @@
+import process from 'node:process';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
+import { resetLLMClients } from '@/libs/llm';
 import { skillRunSchema, skillSchema } from '@/models/Schema';
 import { executeSkill } from '@/services/SkillService';
 import { defineSkill } from './contract';
@@ -45,6 +47,7 @@ describe('plugin skill execution via SkillService', () => {
 
   beforeEach(() => {
     pluginRegistry.clear();
+    resetLLMClients();
   });
 
   afterEach(async () => {
@@ -132,6 +135,42 @@ describe('plugin skill execution via SkillService', () => {
     await expect(executeSkill({ orgId: ORG, skillSlug: 'strict_skill', input: { must: -1 } }))
       .rejects
       .toThrow(/invalid input/);
+  });
+
+  it('passes the provider-bound llm client through ctx', async () => {
+    // Needed so getLLMClient('openai') doesn't throw.
+    const originalKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'sk-test-provider';
+    let receivedProvider: string | undefined;
+    try {
+      pluginRegistry.register(
+        { id: 'test.provider', version: '1.0.0' },
+        [defineSkill({
+          slug: 'provider_check',
+          name: 'Provider Check',
+          version: '1.0.0',
+          provider: 'openai',
+          requiresApproval: false,
+          inputSchema: z.object({}),
+          outputSchema: z.object({ provider: z.string() }),
+          async run(ctx) {
+            receivedProvider = ctx.llm.provider;
+            return { provider: ctx.llm.provider };
+          },
+        })],
+      );
+
+      const result = await executeSkill({ orgId: ORG, skillSlug: 'provider_check', input: {} });
+
+      expect(receivedProvider).toBe('openai');
+      expect(JSON.parse(result.output)).toEqual({ provider: 'openai' });
+    } finally {
+      if (originalKey === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = originalKey;
+      }
+    }
   });
 
   it('rejects plugin output that fails the Zod schema', async () => {

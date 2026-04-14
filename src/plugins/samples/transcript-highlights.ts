@@ -42,6 +42,7 @@ const transcriptHighlights = defineSkill({
   description: 'Extract structured highlights from a long transcript, optionally biased by theme. Chunks long inputs, makes a pass per chunk, then ranks and dedupes.',
   version: '0.1.0',
   category: 'query',
+  provider: 'openai', // swap to `anthropic` with one-line change — skill code is unchanged
   requiresApproval: false,
   inputSchema: Input,
   outputSchema: Output,
@@ -69,15 +70,15 @@ Respond as minified JSON:
 Transcript chunk:
 ${chunk}`;
 
-      const completion = await ctx.openai.chat.completions.create({
+      const completion = await ctx.llm.generate({
         model: 'gpt-5.4-mini',
         temperature: 0.2,
         messages: [{ role: 'user', content: prompt }],
-        max_completion_tokens: 1200,
-        response_format: { type: 'json_object' },
+        maxTokens: 1200,
+        responseFormat: 'json_object',
       });
 
-      const raw = completion.choices[0]?.message?.content ?? '{"highlights":[]}';
+      const raw = completion.content || '{"highlights":[]}';
       try {
         const parsed = JSON.parse(raw) as { highlights?: Array<{ theme: string; quote: string; speaker?: string; importance: 'critical' | 'high' | 'normal' }> };
         if (Array.isArray(parsed.highlights)) {
