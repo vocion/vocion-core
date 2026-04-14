@@ -7,7 +7,7 @@ const exampleEvents = [
   { user: 'chris@metacto.com', action: 'domain.created', resource: 'Sales domain', time: '5 minutes ago' },
   { user: 'chris@metacto.com', action: 'object.created', resource: 'Account object', time: '8 minutes ago' },
   { user: 'chris@metacto.com', action: 'member.invited', resource: 'team@metacto.com', time: '15 minutes ago' },
-  { user: 'chris@metacto.com', action: 'workspace.created', resource: 'CoreContext workspace', time: '1 hour ago' },
+  { user: 'chris@metacto.com', action: 'workspace.created', resource: 'Compiles.ai workspace', time: '1 hour ago' },
 ];
 
 export default async function AuditPage(props: {

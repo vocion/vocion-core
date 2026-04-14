@@ -121,7 +121,9 @@ async function getIndexingStatus(): Promise<Record<string, unknown>> {
       headers: { Authorization: `Bearer ${process.env.ONYX_API_ADMIN_KEY || process.env.ONYX_API_KEY || ''}` },
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return { error: `HTTP ${res.status}` };
+    if (!res.ok) {
+      return { error: `HTTP ${res.status}` };
+    }
     const data = await res.json();
 
     // Parse the indexing status into a useful summary
@@ -163,7 +165,7 @@ async function getDbStats(): Promise<Record<string, unknown>> {
       objects: objects.length,
     };
   } catch {
-    return { error: 'Could not connect to CoreContext DB' };
+    return { error: 'Could not connect to Compiles.ai DB' };
   }
 }
 
@@ -182,7 +184,7 @@ export async function GET() {
       checkService('Langfuse', 'http://localhost:3200/api/public/health', 'http://localhost:3200'),
       checkService('Temporal UI', 'http://localhost:8233', 'http://localhost:8233'),
       checkTcpService('Redis (Onyx)', 'onyx-stack-cache-1', 'localhost', 6380, ''),
-      checkService('CoreContext App', 'http://localhost:3000', 'http://localhost:3000'),
+      checkService('Compiles.ai App', 'http://localhost:3000', 'http://localhost:3000'),
     ]),
     getVespaStats(),
     getOnyxConnectorStats(),
