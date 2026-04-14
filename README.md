@@ -1,6 +1,6 @@
 # CoreContext
 
-**The open delivery OS for AI workflows.** CoreContext turns a messy business process into a measurable AI operating system — context as code, skills as plugins, review surfaces built in.
+**The open context platform for AI operations.** CoreContext turns a messy business process into a measurable AI operating system — context as code, skills as plugins, review surfaces built in.
 
 ---
 
@@ -18,7 +18,7 @@ Three bets:
 
 ## Product Strategy
 
-**Position:** the delivery OS for AI workflows. Same category shape as Dagster (data orchestration), Temporal (durable workflows), Langfuse (LLM ops) — OSS runtime, commercial cloud, services on top.
+**Position:** the open context platform for AI operations. Same category shape as Dagster (data orchestration), Temporal (durable workflows), Langfuse (LLM ops) — OSS runtime, commercial cloud, services on top.
 
 **Buyer experience:** one validated workflow, one review surface, a clear expansion path. Platform handles the plumbing (context, retrieval, skills, review UI, evals, observability, reporting) so every engagement can spend its weeks on workflow design and change management, not infrastructure.
 

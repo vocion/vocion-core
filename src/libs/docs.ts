@@ -28,7 +28,7 @@ export type DocEntry = {
   group: string;
 };
 
-export function listDocs(): DocEntry[] {
+export function listDocs(opts: { publicOnly?: boolean } = {}): DocEntry[] {
   const entries: DocEntry[] = [{
     path: 'README.md',
     slug: '',
@@ -43,6 +43,9 @@ export function listDocs(): DocEntry[] {
         continue;
       }
       const rel = relative(ROOT, file);
+      if (opts.publicOnly && isInternalPath(rel)) {
+        continue;
+      }
       entries.push({
         path: rel,
         slug: rel.slice(0, -3), // strip .md
@@ -58,6 +61,15 @@ export function listDocs(): DocEntry[] {
     }
     return a.path.localeCompare(b.path);
   });
+}
+
+/**
+ * Is a doc path considered internal (MetaCTO-only) and therefore hidden from
+ * the public `/docs` site? Rule: anything under `docs/internal/`.
+ * @param relPath
+ */
+export function isInternalPath(relPath: string): boolean {
+  return relPath.startsWith('docs/internal/');
 }
 
 /**
@@ -113,14 +125,17 @@ function readTitle(abs: string, fallback: string): string {
 }
 
 function groupFor(rel: string): string {
-  const first = rel.split('/')[0]!;
-  if (rel.startsWith('requirements/metacto/')) {
-    return 'requirements/metacto';
+  if (rel.startsWith('docs/internal/case-studies/')) {
+    return 'docs/internal/case-studies';
   }
+  if (rel.startsWith('docs/internal/')) {
+    return 'docs/internal';
+  }
+  const first = rel.split('/')[0]!;
   return first;
 }
 
-const GROUP_ORDER = ['root', 'docs', 'requirements', 'requirements/metacto', 'context'];
+const GROUP_ORDER = ['root', 'docs', 'requirements', 'context', 'docs/internal', 'docs/internal/case-studies'];
 function orderOf(group: string): number {
   const idx = GROUP_ORDER.indexOf(group);
   return idx === -1 ? 99 : idx;
