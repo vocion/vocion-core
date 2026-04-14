@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import process from 'node:process';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { loadPlugins } from '@/libs/plugins';
 import { readConfig } from './config';
 import { startServer } from './server';
 import 'dotenv/config';
@@ -16,6 +17,14 @@ import 'dotenv/config';
  */
 async function main(): Promise<void> {
   const config = readConfig();
+
+  // Discover + register plugins before accepting connections so the first
+  // tool call sees the full catalog.
+  const pluginResult = await loadPlugins({ orgId: config.orgId });
+  for (const err of pluginResult.errors) {
+    console.error(`[corecontext-mcp] plugin error: ${err.source} — ${err.message}`);
+  }
+
   const transport = new StdioServerTransport();
   const server = await startServer(transport, config);
 
