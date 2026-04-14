@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": [],
+  "debugId": "b87506d0-e04e-fb5a-827e-58418cc7077d",
+  "sections": [
+    {"offset": {"line": 5, "column": 0}, "map": {"version":3,"file":"turbopack:///[project]/metacto/metacto-internal/context-stack/node_modules/@opentelemetry/resources/build/esm/detectors/platform/node/machine-id/getMachineId-unsupported.js","sources":["file:///private/var/www/metacto/metacto-internal/context-stack/node_modules/%40opentelemetry/resources/src/detectors/platform/node/machine-id/getMachineId-unsupported.ts"],"sourcesContent":["/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\n\nimport { diag } from '@opentelemetry/api';\n\nexport async function getMachineId(): Promise<string | undefined> {\n  diag.debug('could not read machine-id: unsupported platform');\n  return undefined;\n}\n"],"names":[],"mappings":";;;;AAAA;;;GAGG,CAEH,OAAO,EAAE,IAAI,EAAE,MAAM,oBAAoB,CAAC;;AAEnC,KAAK,UAAU,YAAY;IAChC,wOAAI,CAAC,KAAK,CAAC,iDAAiD,CAAC,CAAC;IAC9D,OAAO,SAAS,CAAC;AACnB,CAAC"}}]
+}
