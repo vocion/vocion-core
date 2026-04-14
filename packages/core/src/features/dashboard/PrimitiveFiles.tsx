@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, GitBranch } from 'lucide-react';
+import { AlertCircle, FileText, GitBranch } from 'lucide-react';
 import { useState } from 'react';
 
 type PrimitiveFile = {
@@ -12,6 +12,8 @@ type PrimitiveFile = {
 type Props = {
   files: PrimitiveFile[];
   editInGitPath: string;
+  dirty?: boolean;
+  dirtyFiles?: string[];
 };
 
 /**
@@ -22,8 +24,10 @@ type Props = {
  * @param root0
  * @param root0.files
  * @param root0.editInGitPath
+ * @param root0.dirty
+ * @param root0.dirtyFiles
  */
-export function PrimitiveFiles({ files, editInGitPath }: Props) {
+export function PrimitiveFiles({ files, editInGitPath, dirty = false, dirtyFiles = [] }: Props) {
   const [active, setActive] = useState(0);
   const current = files[active];
   if (!current) {
@@ -56,24 +60,35 @@ export function PrimitiveFiles({ files, editInGitPath }: Props) {
             );
           })}
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          <GitBranch className="size-3" />
-          <span className="font-mono">{editInGitPath}</span>
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+          {dirty && (
+            <span
+              className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-400"
+              title={dirtyFiles.length > 0 ? `Uncommitted changes in ${dirtyFiles.length} file${dirtyFiles.length === 1 ? '' : 's'}:\n${dirtyFiles.slice(0, 10).join('\n')}` : 'Uncommitted changes in context repo'}
+            >
+              <AlertCircle className="size-3" />
+              dirty
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1">
+            <GitBranch className="size-3" />
+            <span className="font-mono">{editInGitPath}</span>
+          </span>
         </div>
       </div>
       <pre className="max-h-[600px] overflow-auto rounded-b-lg p-4 font-mono text-xs leading-relaxed text-foreground">
         <code>{current.content}</code>
       </pre>
       <div className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-        Read-only · Edit in
+        Read-only · Edit
         {' '}
         <code className="rounded bg-muted px-1 font-mono">{fileName}</code>
         {' '}
-        then run
+        locally, run
         {' '}
         <code className="rounded bg-muted px-1 font-mono">npm run context:apply</code>
         {' '}
-        to sync.
+        to sync. Commit + push is your call.
       </div>
     </div>
   );
