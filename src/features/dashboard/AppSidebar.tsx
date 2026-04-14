@@ -78,11 +78,6 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               url: '/dashboard/review',
               icon: CheckSquare,
             },
-            {
-              title: 'Docs',
-              url: '/dashboard/docs',
-              icon: BookOpen,
-            },
           ]}
         />
         <AppSidebarNav
@@ -152,6 +147,11 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
         />
         <AppSidebarNav
           items={[
+            {
+              title: 'Docs',
+              url: '/dashboard/docs',
+              icon: BookOpen,
+            },
             {
               title: t('support'),
               url: 'mailto:support@corecontext.com',
