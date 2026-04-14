@@ -1,8 +1,4 @@
-import { Pool } from 'pg';
-
-const ORG_ID = 'org_3B7f6cPKTKnJOExO55asDaUVAay';
-
-const PROMPT_TEMPLATE = `You are drafting a client-ready MVP mobile app build proposal for MetaCTO.
+You are drafting a client-ready MVP mobile app build proposal for MetaCTO.
 Write as a senior technical founder, a delivery-focused product architect who has shipped production systems and understands scope control and engineering tradeoffs. This must read like Chris Fitkin (CEO) wrote it. Not like a consultant. Not like marketing.
 
 ## NON-NEGOTIABLE STYLE RULES
@@ -96,85 +92,4 @@ Discovery Summary:
 Prospect: {{prospect_name}}
 Company/Project: {{prospect_company}}
 
-Generate the complete proposal now, following the structure above.`;
-
-const INPUT_SCHEMA = {
-  type: 'object',
-  required: ['discovery_summary', 'prospect_name'],
-  properties: {
-    discovery_summary: {
-      type: 'string',
-      description: 'The structured discovery summary or full call transcript context',
-    },
-    prospect_name: {
-      type: 'string',
-      description: 'Prospect name',
-    },
-    prospect_company: {
-      type: 'string',
-      description: 'Company or project name',
-    },
-  },
-};
-
-async function main() {
-  const pool = new Pool({ connectionString: 'postgresql://postgres:postgres@127.0.0.1:5432/corecontext' });
-
-  const existing = await pool.query('SELECT id FROM skill WHERE slug = $1 AND org_id = $2', ['draft_mvp_proposal', ORG_ID]);
-  if (existing.rows.length > 0) {
-    await pool.query(
-      `UPDATE skill SET
-         name = $1, description = $2, prompt_template = $3, input_schema = $4,
-         model = $5, temperature = $6, category = $7, requires_approval = $8, status = $9, version = 2
-       WHERE slug = 'draft_mvp_proposal' AND org_id = $10`,
-      [
-        'Draft MVP Proposal',
-        'Generate a complete MVP mobile app build proposal based on a discovery call. Follows MetaCTO standard 4-month/$90K template with transcript-driven customization. Includes executive summary, scope, architecture, timeline, and engagement model.',
-        PROMPT_TEMPLATE,
-        JSON.stringify(INPUT_SCHEMA),
-        'gpt-5.4',
-        '0.3',
-        'mutation',
-        'true',
-        'active',
-        ORG_ID,
-      ],
-    );
-    console.log('Updated: draft_mvp_proposal');
-  } else {
-    await pool.query(
-      `INSERT INTO skill (org_id, slug, name, description, prompt_template, input_schema, model, temperature, category, requires_approval, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [
-        ORG_ID,
-        'draft_mvp_proposal',
-        'Draft MVP Proposal',
-        'Generate a complete MVP mobile app build proposal based on a discovery call. Follows MetaCTO standard 4-month/$90K template with transcript-driven customization.',
-        PROMPT_TEMPLATE,
-        JSON.stringify(INPUT_SCHEMA),
-        'gpt-5.4',
-        '0.3',
-        'mutation',
-        'true',
-        'active',
-      ],
-    );
-    console.log('Created: draft_mvp_proposal');
-  }
-
-  // Add to Ziggy's skill list
-  const ziggy = await pool.query('SELECT skill_slugs FROM agent WHERE slug = \'ziggy\'');
-  if (ziggy.rows.length > 0) {
-    const slugs = JSON.parse(ziggy.rows[0].skill_slugs ?? '[]');
-    if (!slugs.includes('draft_mvp_proposal')) {
-      slugs.push('draft_mvp_proposal');
-      await pool.query('UPDATE agent SET skill_slugs = $1 WHERE slug = $2', [JSON.stringify(slugs), 'ziggy']);
-      console.log('Added draft_mvp_proposal to Ziggy skills');
-    }
-  }
-
-  console.log(`Prompt: ${PROMPT_TEMPLATE.length} chars`);
-  await pool.end();
-}
-
-main().catch(console.error);
+Generate the complete proposal now, following the structure above.

@@ -26,6 +26,7 @@ export default defineConfig({
         test: {
           name: 'ui',
           include: ['**/*.test.tsx', 'src/hooks/**/*.test.ts'],
+          exclude: ['node_modules/**', 'infra/**', 'dist/**', '.next/**'],
           browser: {
             enabled: true,
             headless: true,

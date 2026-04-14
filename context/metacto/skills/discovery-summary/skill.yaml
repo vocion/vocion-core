@@ -1,0 +1,24 @@
+slug: discovery_summary
+name: Discovery Summary
+description: Analyze a Zoom discovery call transcript and produce a structured summary with prospect info, pain points, product goals, features, tech stack, budget, timeline, and next steps.
+category: query
+status: active
+version: 1
+model: gpt-5.4-mini
+temperature: '0.2'
+requiresApproval: false
+promptFile: prompt.md
+inputSchema:
+  type: object
+  required:
+    - transcript
+  properties:
+    host:
+      type: string
+      description: Host email
+    transcript:
+      type: string
+      description: The full call transcript text
+    meeting_title:
+      type: string
+      description: Meeting title from Zoom

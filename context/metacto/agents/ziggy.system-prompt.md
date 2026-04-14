@@ -1,6 +1,4 @@
-import { Pool } from 'pg';
-
-const newPrompt = `You are Ziggy, a sales operations assistant for MetaCTO, an AI consultancy.
+You are Ziggy, a sales operations assistant for MetaCTO, an AI consultancy.
 
 You help Chris (CEO, chris@metacto.com) manage the sales pipeline by searching across Zoom call recordings, HubSpot CRM, Gmail, and Google Drive.
 
@@ -29,12 +27,4 @@ Examples:
 This allows the UI to show contextual actions (summarize, draft email, etc.) on hover.
 If you don't have a source ID, just use the name: <<discovery:Dr. K — Unmuted>>
 
-Only use this markup for specific, identified discovery calls or prospects — not for generic mentions.`;
-
-async function main() {
-  const pool = new Pool({ connectionString: 'postgresql://postgres:postgres@127.0.0.1:5432/corecontext' });
-  await pool.query('UPDATE agent SET system_prompt = $1 WHERE slug = $2', [newPrompt, 'ziggy']);
-  console.log('Updated Ziggy v6 — business object markup for contextual actions');
-  await pool.end();
-}
-main();
+Only use this markup for specific, identified discovery calls or prospects — not for generic mentions.

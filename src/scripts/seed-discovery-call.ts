@@ -1,11 +1,10 @@
 /**
- * Seed script: creates the "Discovery Call" business object type
- * and a sample instance linked to a real Zoom document.
+ * Seeds a sample Discovery Call business_object instance + Zoom document links
+ * for local demos and E2E tests. Runtime data only — business_object_type
+ * definitions now live in context/<org>/objects/ and are applied via
+ * `npm run context:apply`.
  *
- * Usage:
- *   npx tsx src/scripts/seed-discovery-call.ts
- *
- * Requires DATABASE_URL in .env.local
+ * Usage: npx tsx src/scripts/seed-discovery-call.ts
  */
 
 import dotenv from 'dotenv';

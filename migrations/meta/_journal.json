@@ -50,6 +50,13 @@
       "when": 1773964901573,
       "tag": "0006_red_ultimatum",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776182793297,
+      "tag": "0007_spotty_scarlet_witch",
+      "breakpoints": true
     }
   ]
 }

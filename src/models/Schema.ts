@@ -201,6 +201,8 @@ export const skillRunSchema = pgTable('skill_run', {
   status: text('status').default('pending'),
   /** Langfuse trace ID for observability */
   langfuseTraceId: text('langfuse_trace_id'),
+  /** Context version SHA active when this run executed — links to context_version.sha */
+  contextSha: text('context_sha'),
   /** Who ran it */
   createdBy: text('created_by'),
   /** Who approved/rejected it */
@@ -275,5 +277,34 @@ export const agentSchema = pgTable(
   },
   table => [
     uniqueIndex('agent_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Context Versioning — git-backed context-as-code audit trail        */
+/* ------------------------------------------------------------------ */
+
+/** Audit record for each `context:apply` — ties skill_run history to a specific context SHA. */
+export const contextVersionSchema = pgTable(
+  'context_version',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** git SHA of the context directory (or computed hash when not in a git repo) */
+    sha: text('sha').notNull(),
+    /** Absolute or repo-relative path applied from */
+    sourcePath: text('source_path'),
+    /** apply | failed */
+    status: text('status').default('applied').notNull(),
+    /** Per-resource counts: { agents: {created, updated, unchanged}, skills: {...}, objectTypes: {...} } */
+    summary: jsonb('summary').$type<Record<string, Record<string, number>>>().default({}),
+    /** Any non-fatal errors surfaced during apply */
+    errors: jsonb('errors').$type<Array<{ resource: string; slug: string; message: string }>>().default([]),
+    /** User ID who triggered the apply (or 'system' for automated) */
+    appliedBy: text('applied_by'),
+    appliedAt: timestamp('applied_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('context_version_org_applied_idx').on(table.orgId, table.appliedAt),
   ],
 );

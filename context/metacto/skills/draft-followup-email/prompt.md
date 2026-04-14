@@ -1,8 +1,4 @@
-import { Pool } from 'pg';
-
-const ORG_ID = 'org_3B7f6cPKTKnJOExO55asDaUVAay';
-
-const PROMPT_TEMPLATE = `You are writing as Chris Fitkin, CEO of MetaCTO. This is a follow-up email after a discovery call.
+You are writing as Chris Fitkin, CEO of MetaCTO. This is a follow-up email after a discovery call.
 
 ## CRITICAL RULES — Read these first
 - Write in FIRST PERSON as Chris. Say "I" not "we" or "MetaCTO". "I enjoyed", "I think", "I'm attaching".
@@ -35,7 +31,7 @@ const PROMPT_TEMPLATE = `You are writing as Chris Fitkin, CEO of MetaCTO. This i
    - "I'll send over a mutual NDA. Once that's in place, let's schedule a deeper call: https://chris.metacto.com/"
    - "Once I've reviewed your materials, I'll come back with a recommended MVP scope. In the meantime, here's my calendar if you'd like to get something on the books: https://chris.metacto.com/"
 
-6. **Sign-off** — Always "Best,\\nChris" — never "Best regards" or "Sincerely" or "Looking forward"
+6. **Sign-off** — Always "Best,\nChris" — never "Best regards" or "Sincerely" or "Looking forward"
 
 ## Chris's Goals in Every Follow-Up
 1. **Reflect deep listening** — Demonstrate understanding of their business, goals, and specific features/requirements they discussed
@@ -195,63 +191,4 @@ Subject: [subject line]
 [email body]
 
 Best,
-{{sender_name}}`;
-
-const INPUT_SCHEMA = {
-  type: 'object',
-  required: ['discovery_summary', 'prospect_name'],
-  properties: {
-    discovery_summary: {
-      type: 'string',
-      description: 'The structured discovery summary or call transcript context',
-    },
-    prospect_name: {
-      type: 'string',
-      description: 'Prospect first name',
-    },
-    prospect_company: {
-      type: 'string',
-      description: 'Prospect company or project name',
-    },
-    sender_name: {
-      type: 'string',
-      description: 'Sender name (default: Chris)',
-    },
-  },
-};
-
-async function main() {
-  const pool = new Pool({ connectionString: 'postgresql://postgres:postgres@127.0.0.1:5432/corecontext' });
-
-  // Update the skill with new prompt, model, and input schema
-  const result = await pool.query(
-    `UPDATE skill SET
-       prompt_template = $1,
-       input_schema = $2,
-       model = $3,
-       temperature = $4,
-       description = $5,
-       version = 2
-     WHERE slug = 'draft_followup_email' AND org_id = $6
-     RETURNING id, name, slug`,
-    [
-      PROMPT_TEMPLATE,
-      JSON.stringify(INPUT_SCHEMA),
-      'gpt-5.4',
-      '0.35', // Slightly lower temp for more consistent voice
-      'Draft a capabilities follow-up email after a discovery call. Uses Chris\'s actual email voice, references relevant MetaCTO case studies, and includes the capabilities deck. Few-shot examples from real sent emails ensure consistent tone and structure.',
-      ORG_ID,
-    ],
-  );
-
-  if (result.rowCount === 0) {
-    console.error('Skill not found — check org_id and slug');
-  } else {
-    console.log(`Updated: ${result.rows[0].slug} → model=gpt-4o, temp=0.35, version=2.0`);
-    console.log(`Prompt: ${PROMPT_TEMPLATE.length} chars with 4 few-shot examples`);
-  }
-
-  await pool.end();
-}
-
-main().catch(console.error);
+{{sender_name}}

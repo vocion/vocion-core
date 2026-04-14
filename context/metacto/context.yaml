@@ -1,0 +1,7 @@
+version: 1
+orgId: org_3B7f6cPKTKnJOExO55asDaUVAay
+name: metacto
+description: Exported context for metacto on 2026-04-14T16:16:55.120Z
+defaults:
+  model: gpt-5.4-mini
+  temperature: '0.3'

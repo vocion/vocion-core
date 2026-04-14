@@ -91,7 +91,21 @@ src/
 ├── types/                 # TypeScript types
 ├── utils/AppConfig.ts     # App name, pricing plans, locale config
 └── locales/               # Translation files (en.json, fr.json)
+
+context/                   # Git-backed client context (Phase 1+)
+└── <org>/                 # Per-tenant agents, skills, object types — YAML + MD
 ```
+
+## Context as Code
+
+Client-specific prompts, agent config, skill definitions, and business object schemas live in `context/<org>/` as YAML + markdown — never hardcoded in TS. Edit the files, then:
+
+```bash
+npm run context:check      # validate + diff
+npm run context:apply      # sync to DB; records a context_version row
+```
+
+Every `skill_run` stamps the active `context_sha` so you can trace any output back to the exact prompts that produced it. See `context/README.md` for authoring.
 
 ## Multi-Tenancy
 
