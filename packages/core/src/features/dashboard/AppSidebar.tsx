@@ -15,8 +15,6 @@ import {
   MessageSquare,
   Plug,
   Send,
-  Settings,
-  Users,
   Zap,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -105,17 +103,9 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           ]}
         />
         <AppSidebarNav
+          label="Admin"
+          className="mt-auto"
           items={[
-            {
-              title: t('members'),
-              url: '/dashboard/organization-profile/organization-members',
-              icon: Users,
-            },
-            {
-              title: t('settings'),
-              url: '/dashboard/organization-profile',
-              icon: Settings,
-            },
             {
               title: t('billing'),
               url: '/dashboard/billing',
@@ -126,8 +116,13 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               url: '/dashboard/audit',
               icon: Activity,
             },
+          ]}
+        />
+        <AppSidebarNav
+          label="Developer"
+          items={[
             {
-              title: 'System Status',
+              title: 'System',
               url: '/dashboard/admin',
               icon: HeartPulse,
             },
@@ -141,6 +136,10 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               url: '/dashboard/docs',
               icon: BookOpen,
             },
+          ]}
+        />
+        <AppSidebarNav
+          items={[
             {
               title: t('support'),
               url: 'mailto:support@compiles.ai',
@@ -152,7 +151,6 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               icon: Send,
             },
           ]}
-          className="mt-auto"
         />
       </SidebarContent>
       <SidebarRail />
