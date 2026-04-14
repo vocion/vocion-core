@@ -29,12 +29,12 @@ export default async function ReviewPage(props: {
 
   if (!orgId) {
     return (
-      <div className="p-8">
-        <TitleBar title="Review Queue" description="Pending drafts and paused workflows that need a decision." />
+      <>
+        <TitleBar title="Reviews" description="Pending drafts and paused workflows that need a decision." />
         <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">
           Sign in to an organization to see the review queue.
         </div>
-      </div>
+      </>
     );
   }
 
@@ -58,13 +58,16 @@ export default async function ReviewPage(props: {
     reviewedAt: r.reviewedAt,
   }));
 
+  const total = skillRuns.length + workflowRuns.length;
   return (
-    <div className="p-6">
+    <>
       <TitleBar
-        title="Review Queue"
-        description={`${skillRuns.length + workflowRuns.length} items need attention — pending skill drafts and paused workflow runs.`}
+        title="Reviews"
+        description={total === 0
+          ? 'No items need attention — pending skill drafts and paused workflow runs will surface here.'
+          : `${total} ${total === 1 ? 'item needs' : 'items need'} attention — pending skill drafts and paused workflow runs.`}
       />
       <ReviewQueue initialSkillRuns={skillRuns} initialWorkflowRuns={workflowRuns} />
-    </div>
+    </>
   );
 }

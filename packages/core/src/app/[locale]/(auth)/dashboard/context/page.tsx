@@ -9,27 +9,24 @@ import { Link } from '@/libs/I18nNavigation';
 import { agentSchema, businessObjectSchema, businessObjectTypeSchema, skillSchema, workflowSchema } from '@/models/Schema';
 
 /**
- * Foundation Dashboard — the unified Context Map view.
- *
- * v1 surfaces what we have today (Object Types, Objects, Agents, Skills,
- * Workflows, Connectors counts). Placeholders mark what's coming next as
- * new context primitives land (Relationships, Rules, System-of-Record,
- * Data Quality log). Aligns the in-product nav with the ECE wiki's
- * Foundation Layer framing.
+ * Context dashboard — cross-cutting overview of every authored primitive
+ * for the current tenant. Surfaces counts today; future additions
+ * (relationships, business rules, system-of-record policy, data-quality
+ * findings) expand as new context shapes land.
  * @param props
  * @param props.params
  */
-export default async function FoundationPage(props: { params: Promise<{ locale: string }> }) {
+export default async function ContextPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
   const { orgId } = await auth();
 
   if (!orgId) {
     return (
-      <div className="p-8">
-        <TitleBar title="Foundation" description="The business-context layer that grounds every AI output." />
-        <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">Sign in to an organization to view the Foundation.</div>
-      </div>
+      <>
+        <TitleBar title="Context" description="The authored layer that grounds every AI output." />
+        <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">Sign in to an organization to view the Context map.</div>
+      </>
     );
   }
 
@@ -54,7 +51,7 @@ export default async function FoundationPage(props: { params: Promise<{ locale: 
   }
 
   return (
-    <div className="p-6">
+    <>
       <TitleBar
         title="Context"
         description="The authored layer that grounds every AI output. Everything here lives in git as YAML + markdown."
@@ -124,16 +121,16 @@ export default async function FoundationPage(props: { params: Promise<{ locale: 
       <section className="rounded-lg border border-dashed border-border bg-muted/30 p-5">
         <h2 className="text-lg font-semibold">Coming next</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          The Foundation Layer will expand to cover the full Context Map — object-to-object relationships, business rules, system-of-record decisions, and data-quality findings. Tracked as Phase 3.5 work.
+          Primitives on the roadmap as new shapes of context land.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <UpcomingCard icon={Share2} title="Relationships" description="Object-to-object cardinality + sync direction. `discovery_call` belongs-to `deal` — diagrammed and versioned." />
-          <UpcomingCard icon={Scale} title="Rules & constraints" description="Business rules per object type: lead scoring, lifecycle transitions, required-field-by-stage enforcement, dedup logic." />
-          <UpcomingCard icon={CheckCircle2} title="System-of-record" description="Per-field ownership + conflict-resolution policy across source systems." />
-          <UpcomingCard icon={AlertTriangle} title="Data quality + ambiguities" description="Runtime log of findings and unresolved decisions awaiting stakeholder input." />
+          <UpcomingCard icon={Share2} title="Relationships" description="Object-to-object cardinality + sync direction, versioned alongside object types." />
+          <UpcomingCard icon={Scale} title="Rules & constraints" description="Per-object-type business rules: lifecycle transitions, required fields, dedup logic." />
+          <UpcomingCard icon={CheckCircle2} title="System-of-record" description="Per-field ownership + conflict-resolution policy across connected sources." />
+          <UpcomingCard icon={AlertTriangle} title="Data quality" description="Runtime log of findings and unresolved decisions awaiting stakeholder input." />
         </div>
       </section>
-    </div>
+    </>
   );
 }
 
