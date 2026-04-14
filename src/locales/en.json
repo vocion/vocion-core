@@ -113,7 +113,7 @@
   },
   "DashboardLayout": {
     "main_section_label": "Workspace",
-    "context_section_label": "Context",
+    "context_section_label": "Foundation",
     "organization_section_label": "Organization",
     "home": "Overview",
     "ask": "Ask",
