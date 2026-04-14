@@ -17,12 +17,12 @@ Dogfooding MetaCTO's own sales pipeline. Active, running against real Zoom/HubSp
 | [ziggy-skills.md](./ziggy-skills.md) | Query, mutation, and composite skills |
 | [ziggy-sprints.md](./ziggy-sprints.md) | Delivery plan with milestones |
 
-## NINJIO — Account Manager (case study 2)
+## Algren — NINJIO Customer Account Agent (case study 2)
 
-Exec-sponsor assistant for MetaCTO's NINJIO customer account. Scoped differently than Ziggy — single account focus, Teams + Slack heavy, meeting prep + weekly health.
+Exec-sponsor assistant for MetaCTO's NINJIO customer account. Scoped differently than Ziggy — single account focus, Teams + Slack heavy, meeting prep + weekly health. Named for Nathan Algren (*The Last Samurai*), the outsider captain who crosses into another world and learns it from the inside.
 
 | File | Description |
 |---|---|
-| [ninjio-account-manager.md](./ninjio-account-manager.md) | Agent spec, workflows, connectors, architecture (template + business_object row) |
+| [ninjio-account-manager.md](./ninjio-account-manager.md) | Algren's spec, workflows, connectors, per-customer agent architecture |
 
-**Architecture note:** `account-manager` is a *template* agent. NINJIO, and any future customer account, is a `business_object` row with `type=account`. One agent definition, N per-customer instances. See the NINJIO doc for details.
+**Architecture note:** each customer account gets its own named agent (NINJIO = Algren, future customers get their own). Skills and workflows are shared across accounts by slug reference. Per-customer data (channels, cadence, stakeholders) lives in a `business_object` row of `type=account`. See the spec for details.

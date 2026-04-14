@@ -123,15 +123,17 @@ c4126d9 feat: mcp server + auto-apply for phase 2 interface layer
   - Website + Clutch case-study connectors → refactor `draft_followup_email` to retrieve case studies dynamically instead of the hardcoded library
   - Activate more disabled skills as evidence accumulates
 
-## MetaCTO — NINJIO Account Manager
+## MetaCTO — Algren (NINJIO Customer Account Agent)
 
 - **Status:** spec only — no code
 - **Spec:** [`requirements/metacto/ninjio-account-manager.md`](../requirements/metacto/ninjio-account-manager.md)
-- **Architecture:** `account-manager` is a template agent; NINJIO is a `business_object` row with `type=account`. One agent, N customer instances.
+- **Name:** Nathan Algren — *The Last Samurai*. The outsider captain who crosses into another world and learns it from the inside. Fitting for an agent embedded in a customer relationship.
+- **Architecture:** each customer account gets its own named agent (NINJIO → Algren). Skills + workflows shared across accounts by slug reference. Per-account data in `business_object` row (`type=account`), new `context/metacto/accounts/<slug>.yaml` primitive.
 - **Prereqs to build:**
   - Microsoft Graph source plugin (Teams chats + calendar + email + recordings)
   - Multi-workspace Slack support
   - Plugin SDK v0.2 (for `meeting_prep_pack` complexity)
+  - New context primitive: object instances (`accounts/*.yaml` → seeded `business_object` rows on apply)
 - **Workflows planned:** `account_meeting_prep`, `account_daily_triage`, `account_weekly_summary`
 
 ---

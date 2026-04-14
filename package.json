@@ -102,6 +102,7 @@
     "@storybook/nextjs-vite": "^10.2.15",
     "@swc/helpers": "^0.5.19",
     "@tailwindcss/postcss": "^4.2.1",
+    "@tailwindcss/typography": "^0.5.19",
     "@types/node": "^25.3.5",
     "@types/pg": "^8.18.0",
     "@types/react": "^19.2.14",

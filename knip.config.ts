@@ -31,6 +31,7 @@ const config: KnipConfig = {
     '@commitlint/types',
     '@clerk/types',
     '@swc/helpers', // Avoid error in CI: "`npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync."
+    '@tailwindcss/typography', // loaded via `@plugin` in global.css
     'conventional-changelog-conventionalcommits',
     'vite',
   ],
