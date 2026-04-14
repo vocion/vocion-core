@@ -1,28 +1,33 @@
-# NINJIO Account Manager
+# Algren — Customer Account Agent for NINJIO
 
-Second case study on top of CoreContext after Ziggy (sales ops). Where Ziggy manages the sales pipeline, this agent manages a single high-value customer account — MetaCTO's relationship with NINJIO — acting as Chris's exec-sponsor assistant: reviewing noise, producing meeting prep, flagging what needs his attention, and summarizing account health weekly.
+Second case study on top of CoreContext after Ziggy. Where Ziggy runs the sales pipeline, **Algren** runs a single high-value customer account relationship — acting as the exec-sponsor's assistant: reviewing noise across every channel, producing meeting prep, flagging what needs attention, summarizing account health weekly.
 
-**Status:** spec only. No code yet. Triggers Phase 3 Connectors work (Teams) + Phase 4 feedback loop.
+**The name:** Nathan Algren — the American captain in *The Last Samurai* who, sent to modernize the Japanese army, instead crosses over and learns their world from the inside. Algren the agent is the exec's embedded operator in the NINJIO relationship — fluent in both MetaCTO's delivery posture and NINJIO's operations. Ziggy-sibling naming: one name, memorable, a specific personality. Bonus: NINJIO teaches cybersecurity through ninja framing, so sending a Last Samurai agent into it is on-brand.
 
-## Architecture decision: account-manager is a template, not one agent per customer
+**Status:** spec only. No code yet. Triggers Phase 2 Teams connector work + Phase 4 feedback loop.
 
-**Decision:** Ship a single agent slug `account-manager`. Each customer account is a row in `business_object` with `type_slug = 'account'`. When the agent is invoked, it's scoped by `account_id` (passed at run start or inferred from context).
+## Architecture decision: per-customer named agent, shared skills + workflows
 
-### Why template, not per-customer agent
+**Decision:** Each customer account gets its own agent definition (YAML) with a clever per-customer name. Skills and workflows are shared across accounts by slug reference — authored once, reused everywhere. The customer-specific context (channels, cadence, stakeholders) lives in a `business_object` row of `type=account` and is injected into the agent's prompt at runtime.
 
-- **Scales to N customers without N agent prompts.** When MetaCTO adds Acme as a second customer, it's a new `business_object` row + new connector credentials, not a new agent definition.
-- **Account-specific config lives in `business_object.metadata`.** Channel IDs, recurring meeting cadence, stakeholder list, escalation policies — all structured per-account data.
-- **Prompts stay generic.** The system prompt says "you are a customer success AI for the account identified by `{{account.name}}`" — interpolated at runtime from the account object.
-- **Skills are reusable.** `meeting_prep_pack` works for any account; pass the right `account_id`.
+NINJIO's agent is Algren. A future customer "Acme" would get its own agent ("Gatsby", "Watson", whatever fits their brand) — same skills, same workflows, different name + per-account data.
+
+### Why per-customer agent, not one shared template
+
+- **Personality matters in a relationship-centric role.** The exec sponsor is the human; the agent is its extension. A named persona per account is more legible than "account_manager #47."
+- **Small incremental cost.** Agent manifest is YAML + one markdown system prompt — 30 lines per account. Everything heavy (skills, workflows) is shared.
+- **Still scales.** Adding a customer = new `agents/<name>.yaml` + new `accounts/<slug>.yaml` + new connector OAuth. No new skills, no new workflows.
+- **Easier to iterate tone.** Each account's system prompt can reflect the specific relationship dynamics (formal vs casual, technical vs exec, cadence preferences) without fighting a shared template.
 
 ### What lives where
 
 | Where | What |
 |---|---|
-| `context/metacto/agents/account-manager.yaml` | Agent template: system prompt, skill list, connector types, search defaults |
-| `business_object` table, `type_slug=account` | Per-customer row: NINJIO metadata (Slack workspace id, Teams tenant id, stakeholders, SLA tier, ...) |
-| Skill runtime | Takes `account_id` as input; skills resolve the `business_object` and scope retrieval accordingly |
-| `context/metacto/workflows/account-*` | Per-workflow orchestrations (prep pack, triage, weekly summary) — also take `account_id` as input |
+| `context/metacto/agents/algren.yaml` | NINJIO's agent: name, system prompt, shared skill + workflow slugs, connector sources |
+| `context/metacto/accounts/ninjio.yaml` | NINJIO account data (new primitive — seeds a `business_object` row on context:apply) — Slack + Teams IDs, stakeholders, renewal date, recurring meetings |
+| `business_object` row, `type=account` | Runtime representation of the NINJIO account — what Algren's skills operate on |
+| Shared `context/metacto/skills/meeting_prep_pack/` etc. | Skills authored once, called by Algren, Gatsby, and any future account agent |
+| Shared `context/metacto/workflows/account_*` | Same pattern for workflows — authored once, parametrized by `account_id` at run start |
 
 NINJIO becomes `business_object` row:
 
@@ -170,19 +175,18 @@ Chris asked: "can/should it learn and be self-improving — after-meeting feedba
 - **Teams connector** = Phase 2b work (after Slack bot or as its own thing) OR ships as a source plugin once Plugin SDK v0.2 lands
 - **Multi-workspace Slack** = Phase 2 connector enhancement
 - **Feedback loop** = new Phase 4 (proposed)
-- **`account-manager` agent + NINJIO data + workflows** = lands after connectors + Plugin SDK v0.2
+- **Algren agent + NINJIO data + workflows** = lands after connectors + Plugin SDK v0.2
 
 ## First build slice (when we start)
 
-When this agent gets built, the minimum viable sequence:
+When Algren gets built, the minimum viable sequence:
 
 1. Add Teams connector (Microsoft Graph) as a source plugin
-2. Seed `business_object` NINJIO account row via context-as-code? — or via admin UI?
-   (Probably a new `context/metacto/accounts/ninjio.yaml` → seeded as `business_object` on apply — new context primitive or extend object definition)
-3. Author `context/metacto/agents/account-manager.yaml` with account-aware system prompt
+2. Seed `business_object` NINJIO account row via context-as-code — new `context/metacto/accounts/ninjio.yaml` → seeded as `business_object` on apply (new context primitive: object instances)
+3. Author `context/metacto/agents/algren.yaml` with account-aware system prompt
 4. Ship `meeting_prep_pack` as a plugin skill
 5. Ship `account_meeting_prep` workflow (manual trigger)
-6. Dogfood on real NINJIO weekly meeting
+6. Dogfood Algren on the real NINJIO weekly meeting
 7. Collect feedback → iterate prompts
 
 Daily triage + weekly summary come after prep pack is validated.
