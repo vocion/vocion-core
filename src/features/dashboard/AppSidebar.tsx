@@ -13,6 +13,7 @@ import {
   Home,
   Layers,
   LifeBuoy,
+  Map,
   MessageSquare,
   Plug,
   Send,
@@ -34,7 +35,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
     <Sidebar {...props}>
       <SidebarHeader className="pt-5">
         <div className="flex justify-center pb-3">
-          <CompilesLogo />
+          <CompilesLogo size="sm" />
         </div>
 
         <OrganizationSwitcher
@@ -74,7 +75,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               icon: GitBranch,
             },
             {
-              title: 'Review Queue',
+              title: 'Reviews',
               url: '/dashboard/review',
               icon: CheckSquare,
             },
@@ -148,18 +149,23 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
         <AppSidebarNav
           items={[
             {
+              title: 'Roadmap',
+              url: '/dashboard/roadmap',
+              icon: Map,
+            },
+            {
               title: 'Docs',
               url: '/dashboard/docs',
               icon: BookOpen,
             },
             {
               title: t('support'),
-              url: 'mailto:support@corecontext.com',
+              url: 'mailto:support@compiles.ai',
               icon: LifeBuoy,
             },
             {
               title: t('feedback'),
-              url: 'mailto:feedback@corecontext.com',
+              url: 'mailto:feedback@compiles.ai',
               icon: Send,
             },
           ]}

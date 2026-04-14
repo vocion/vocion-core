@@ -28,13 +28,35 @@ export type DocEntry = {
   group: string;
 };
 
-export function listDocs(opts: { publicOnly?: boolean } = {}): DocEntry[] {
-  const entries: DocEntry[] = [{
-    path: 'README.md',
-    slug: '',
-    title: readTitle(join(ROOT, 'README.md'), 'CoreContext'),
-    group: 'root',
-  }];
+/**
+ * `kind` controls which slice of docs the viewer shows:
+ *
+ *   - `public`   — dev-consumable docs only: `docs/*` (excluding `internal/`)
+ *                  + `context/*`. Used by the public `/docs` site and the
+ *                  in-app Docs link in the dashboard footer.
+ *
+ *   - `roadmap`  — internal/strategy view: `docs/internal/*` (roadmap,
+ *                  progress, case studies, MetaCTO ops) + `requirements/*`
+ *                  (architecture, object model, RBAC, etc — platform spec).
+ *                  Used by the in-app Roadmap link.
+ *
+ *   - `all`      — everything. Default for backwards compat; not currently
+ *                  routed to.
+ */
+type DocsKind = 'public' | 'roadmap' | 'all';
+
+export function listDocs(opts: { kind?: DocsKind; publicOnly?: boolean } = {}): DocEntry[] {
+  const kind: DocsKind = opts.kind ?? (opts.publicOnly ? 'public' : 'all');
+
+  const entries: DocEntry[] = [];
+  if (kind === 'public' || kind === 'all') {
+    entries.push({
+      path: 'README.md',
+      slug: '',
+      title: readTitle(join(ROOT, 'README.md'), 'CoreContext'),
+      group: 'root',
+    });
+  }
 
   for (const root of ROOTS) {
     const abs = join(ROOT, root);
@@ -43,7 +65,7 @@ export function listDocs(opts: { publicOnly?: boolean } = {}): DocEntry[] {
         continue;
       }
       const rel = relative(ROOT, file);
-      if (opts.publicOnly && isInternalPath(rel)) {
+      if (!includeInKind(rel, kind)) {
         continue;
       }
       entries.push({
@@ -63,6 +85,16 @@ export function listDocs(opts: { publicOnly?: boolean } = {}): DocEntry[] {
   });
 }
 
+function includeInKind(rel: string, kind: DocsKind): boolean {
+  if (kind === 'all') {
+    return true;
+  }
+  if (kind === 'public') {
+    return !isInternalPath(rel) && !rel.startsWith('requirements/');
+  }
+  return isInternalPath(rel) || rel.startsWith('requirements/');
+}
+
 /**
  * Is a doc path considered internal (MetaCTO-only) and therefore hidden from
  * the public `/docs` site? Rule: anything under `docs/internal/`.
@@ -70,6 +102,14 @@ export function listDocs(opts: { publicOnly?: boolean } = {}): DocEntry[] {
  */
 export function isInternalPath(relPath: string): boolean {
   return relPath.startsWith('docs/internal/');
+}
+
+/**
+ * Roadmap = internal docs + requirements/ specs.
+ * @param relPath
+ */
+export function isRoadmapPath(relPath: string): boolean {
+  return isInternalPath(relPath) || relPath.startsWith('requirements/');
 }
 
 /**
