@@ -234,7 +234,7 @@ export const ZiggyTabs = ({ config }: { config: AgentConfig | null }) => {
         {/* What is Ziggy */}
         <div className="rounded-lg border border-border p-5">
           <div className="text-sm leading-relaxed text-muted-foreground">
-            An agent in CoreContext is a
+            An agent in Compiles.ai is a
             {' '}
             <strong className="text-foreground">packaged configuration</strong>
             {' '}
@@ -531,7 +531,7 @@ export const ZiggyTabs = ({ config }: { config: AgentConfig | null }) => {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {[
             { name: 'search_onyx', desc: 'Semantic search across all connected sources with smart filtering, recency decay, and source weighting', status: 'live', type: 'query' },
-            { name: 'lookup_objects', desc: 'Browse structured business objects (discovery calls, deals, accounts) from the CoreContext database', status: 'live', type: 'query' },
+            { name: 'lookup_objects', desc: 'Browse structured business objects (discovery calls, deals, accounts) from the Compiles.ai database', status: 'live', type: 'query' },
             { name: 'run_discovery_summary', desc: 'Analyze Zoom transcript into structured summary with prospect, budget, timeline, and next steps', status: 'live', type: 'skill' },
             { name: 'run_draft_followup_email', desc: 'Draft capabilities follow-up email in Chris\'s voice with case study references. Requires approval.', status: 'live', type: 'skill' },
             { name: 'run_draft_mvp_proposal', desc: '12-section MVP proposal with transcript-driven customization. Requires approval. Send to Gamma for deck.', status: 'live', type: 'skill' },

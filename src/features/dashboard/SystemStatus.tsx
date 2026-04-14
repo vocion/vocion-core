@@ -212,11 +212,11 @@ export const SystemStatus = () => {
           </div>
         </div>
 
-        {/* CoreContext DB */}
+        {/* Compiles.ai DB */}
         <div className="rounded-lg border border-border p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
             <Database className="size-4" />
-            CoreContext Database
+            Compiles.ai Database
           </div>
           <div className="space-y-1">
             {Object.entries(data.db).map(([k, v]) => (
@@ -252,9 +252,23 @@ export const SystemStatus = () => {
                           <span className="text-xs text-muted-foreground">{attempt.name}</span>
                         </div>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                          <span>{attempt.docsIndexed} docs</span>
-                          <span>{attempt.batchesCompleted} batches</span>
-                          {attempt.failures > 0 && <span className="text-red-500">{attempt.failures} fails</span>}
+                          <span>
+                            {attempt.docsIndexed}
+                            {' '}
+                            docs
+                          </span>
+                          <span>
+                            {attempt.batchesCompleted}
+                            {' '}
+                            batches
+                          </span>
+                          {attempt.failures > 0 && (
+                            <span className="text-red-500">
+                              {attempt.failures}
+                              {' '}
+                              fails
+                            </span>
+                          )}
                           <span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${isRunning ? 'bg-green-100 text-green-800' : 'bg-muted text-muted-foreground'}`}>
                             {attempt.status}
                           </span>
@@ -272,7 +286,7 @@ export const SystemStatus = () => {
         <div className="mb-3 text-sm font-semibold">Platform Links</div>
         <div className="flex flex-wrap gap-2">
           {[
-            { label: 'CoreContext', url: 'http://localhost:3000' },
+            { label: 'Compiles.ai', url: 'http://localhost:3000' },
             { label: 'Onyx Admin', url: 'http://localhost:3100' },
             { label: 'Onyx API Docs', url: 'http://localhost:8080/api/docs' },
             { label: 'Langfuse', url: 'http://localhost:3200' },
