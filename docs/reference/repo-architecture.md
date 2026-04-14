@@ -146,7 +146,7 @@ Pattern borrowed from Backstage (its `app-config.yaml` package versioning) and L
 
 ## Related
 
-- [`/docs/plugins.md`](./plugins.md) — plugin authoring guide
-- [`/docs/self-hosted.md`](./self-hosted.md) — install topology + deployment
-- [`/docs/mcp.md`](./mcp.md) — MCP server reference
-- [`/context/README.md`](../context/README.md) — context-as-code authoring
+- [Writing a plugin](../guides/writing-a-plugin.md) — plugin authoring guide
+- [Self-hosting](../guides/self-hosting.md) — install topology + deployment
+- [MCP reference](./mcp.md) — MCP server tools
+- [Authoring context](../guides/authoring-context.md) — context-as-code workflow
