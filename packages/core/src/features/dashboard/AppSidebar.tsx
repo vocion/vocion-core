@@ -11,7 +11,6 @@ import {
   GitBranch,
   HeartPulse,
   Home,
-  Layers,
   LifeBuoy,
   Map,
   MessageSquare,
@@ -65,14 +64,9 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               icon: MessageSquare,
             },
             {
-              title: t('skills'),
-              url: '/dashboard/skills',
-              icon: Zap,
-            },
-            {
-              title: t('workflows'),
-              url: '/dashboard/runs',
-              icon: GitBranch,
+              title: 'Search',
+              url: '/dashboard/search',
+              icon: BookOpen,
             },
             {
               title: 'Reviews',
@@ -82,22 +76,22 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           ]}
         />
         <AppSidebarNav
-          label={t('agents_section_label')}
-          items={[
-            {
-              title: t('ziggy'),
-              url: '/dashboard/ziggy',
-              icon: Bot,
-            },
-          ]}
-        />
-        <AppSidebarNav
           label={t('context_section_label')}
           items={[
             {
-              title: t('connectors'),
-              url: '/dashboard/connectors',
-              icon: Plug,
+              title: 'Agents',
+              url: '/dashboard/agents',
+              icon: Bot,
+            },
+            {
+              title: t('skills'),
+              url: '/dashboard/skills',
+              icon: Zap,
+            },
+            {
+              title: t('workflows'),
+              url: '/dashboard/workflows',
+              icon: GitBranch,
             },
             {
               title: t('objects'),
@@ -105,9 +99,9 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               icon: Database,
             },
             {
-              title: t('domains'),
-              url: '/dashboard/domains',
-              icon: Layers,
+              title: t('connectors'),
+              url: '/dashboard/sources',
+              icon: Plug,
             },
           ]}
         />

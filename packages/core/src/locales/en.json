@@ -113,7 +113,7 @@
   },
   "DashboardLayout": {
     "main_section_label": "Workspace",
-    "context_section_label": "Foundation",
+    "context_section_label": "Context",
     "organization_section_label": "Organization",
     "home": "Overview",
     "ask": "Ask",
@@ -122,7 +122,7 @@
     "skills": "Skills",
     "workflows": "Workflows",
     "runs": "Run History",
-    "connectors": "Connectors",
+    "connectors": "Sources",
     "objects": "Objects",
     "domains": "Domains",
     "members": "Members",
@@ -211,15 +211,6 @@
     "event_action": "Action",
     "event_resource": "Resource",
     "event_time": "Time"
-  },
-  "Ask": {
-    "title": "Ask",
-    "description": "Get answers grounded in your enterprise context",
-    "coming_soon_features_1": "Streaming answers with source-backed citations",
-    "coming_soon_features_2": "Context drawer with evidence exploration",
-    "coming_soon_features_3": "Scope controls for systems, domains, and time range",
-    "coming_soon_features_4": "Follow-up suggestions and thread history",
-    "coming_soon_features_5": "Saved and pinned context"
   },
   "Search": {
     "title": "Search",
