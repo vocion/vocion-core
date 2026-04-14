@@ -222,34 +222,46 @@ All three feed from one event stream.
 
 Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live client work.
 
-### Phase 1 — Context-as-Code (Q2 2026)
+### Phase 1 — Context-as-Code ✓ (Q2 2026)
 
-Pull hardcoded client data out of the app. Everything MetaCTO-specific moves to a `metacto-context` repo.
+Pull hardcoded client data out of the app into `context/<org>/` — YAML + markdown, git-versioned.
 
-- [ ] `client-context/` repo scaffold + schema
-- [ ] Apply/reconcile job: repo → DB on push
-- [ ] Read-through mode for prompts + business rules (dev loop)
-- [ ] `context_sha` column on `skill_run`
-- [ ] Move MetaCTO (Ziggy) context to its own repo; dogfood
-- [ ] Docs: authoring guide + templating
+- [x] `context/<org>/` scaffold + schema
+- [x] Apply/reconcile job: repo → DB, idempotent
+- [x] `context_version` table + `skill_run.context_sha` audit trail
+- [x] MetaCTO (Ziggy) context extracted; legacy seed scripts retired
+- [x] Authoring guide (`context/README.md`)
 
-**Exit criteria:** MetaCTO/Ziggy runs entirely from git-backed context. No client-specific strings in core.
+**Exit criteria met:** Ziggy runs entirely from git-backed context. No client-specific strings in core.
 
-### Phase 2 — Plugin SDK v1 (Q3 2026)
+### Phase 2 — Universal Interface Layer (Q3 2026)
 
-Extract skills and sources from the monorepo into the plugin contract.
+Make CoreContext accessible from wherever you already work. Skills, context, and review queues are shared across channels.
+
+- [ ] **MCP server** (stdio + HTTP+OAuth) — Claude Code, Claude app, Cursor, Zed, Continue
+- [ ] **ChatGPT Actions + listed GPT** — OAuth, OpenAPI spec auto-generated from oRPC
+- [ ] **Slack bot** — slash commands, DMs, interactive approval messages
+- [ ] **Teams bot** — Bot Framework adapter (stretch)
+- [ ] **Auto-apply + versioning** — MCP writes to `context/<org>/`, auto-commits, applies; every write creates a `context_version` row
+- [ ] **Approve/reject surface** — `runtime.approve_draft` / `reject_draft` as first-class tools
+
+**Exit criteria:** Chris can build + modify Ziggy from Claude Code via MCP. A skill run started in Slack shows up in the same review queue as one started in the web UI.
+
+### Phase 3 — Plugin SDK v1 (Q4 2026)
+
+Extract skills and sources from the monorepo into a publishable plugin contract. Prerequisite for ecosystem + for a meta-agent that composes them.
 
 - [ ] `@corecontext/sdk` package: Skill, Source, manifest, sandbox
-- [ ] Migrate existing skills (proposal, enrichment, summarize) to plugins
-- [ ] Migrate connectors (Zoom, Gmail, Drive, HubSpot) to Source plugins
+- [ ] Migrate existing skills to plugins
+- [ ] Migrate connectors to Source plugins
 - [ ] Plugin hot-reload in dev, semver resolution in prod
 - [ ] Eval harness runs plugin evals on CI for every PR
 
 **Exit criteria:** a partner can publish a skill or source without a core PR.
 
-### Phase 3 — Native Retrieval (Q4 2026)
+### Phase 4 — Native Retrieval (Q1 2027)
 
-Replace Onyx with the pgvector-native pipeline.
+Replace Onyx with the pgvector-native pipeline. Cleaner substrate for the conversational bootstrap and for the eventual OSS release.
 
 - [ ] pgvector schema + HNSW index
 - [ ] Postgres FTS layer
@@ -257,11 +269,11 @@ Replace Onyx with the pgvector-native pipeline.
 - [ ] Pluggable embedder + reranker interfaces + default implementations
 - [ ] `retrieval.yaml` config, per-source/per-domain overrides
 - [ ] Migration tool: existing Onyx index → pgvector
-- [ ] Deprecate Onyx containers; doc migration path for existing deployments
+- [ ] Deprecate Onyx containers
 
-**Exit criteria:** zero Onyx dependency in new deployments; feature parity on search quality; measured cost drop.
+**Exit criteria:** zero Onyx dependency in new deployments; feature parity on search quality.
 
-### Phase 4 — Auto-Generated Deliverables (Q1 2027)
+### Phase 5 — Auto-Generated Deliverables (Q2 2027)
 
 Turn the 5 standard artifacts into platform output.
 
@@ -273,7 +285,20 @@ Turn the 5 standard artifacts into platform output.
 
 **Exit criteria:** a MetaCTO ops lead generates the monthly review deck with one click.
 
-### Phase 5 — OSS Launch + MetaCTO Cloud (Q2 2027)
+### Phase 6 — Conversational Bootstrap / WOW (Q3 2027)
+
+The magic moment. User connects sources, describes a workflow in natural language, and CoreContext builds it — skill YAML, prompt MD, workflow YAML, all PR-reviewable. Sits after Plugin SDK + Native Retrieval so the meta-agent has a clean, composable substrate underneath.
+
+- [ ] **Workflow primitive** — new YAML type: trigger → steps → action, composes skills/objects
+- [ ] **Meta-agent** — a special skill with write access to `context/<org>/`; takes NL intent, emits manifests, uses all the MCP write tools
+- [ ] **Self-service OAuth** — users connect Gmail/HubSpot/DocuSign themselves (no admin config)
+- [ ] **Onboarding stepper** — connect → ingest → chat → build, with live progress
+- [ ] **Sample workflow library** — import templates (Ziggy-style skills as starting points)
+- [ ] **Preview-on-real-data** — "I just built this. Here's what it would do on your last 5 discovery calls. Keep?"
+
+**Exit criteria:** a prospect goes from cold to running their first AI workflow in under 10 minutes.
+
+### Phase 7 — OSS Launch + MetaCTO Cloud (Q4 2027)
 
 - [ ] Public repo + Apache 2.0 license
 - [ ] Docs site, getting-started, contributor guide
@@ -283,7 +308,7 @@ Turn the 5 standard artifacts into platform output.
 
 **Exit criteria:** OSS stars trending; first non-MetaCTO contributor PR merged; first paid cloud customer.
 
-### Phase 6 — Ecosystem + Enterprise (Q3 2027+)
+### Phase 8 — Ecosystem + Enterprise (Q1 2028+)
 
 - [ ] Plugin marketplace (listings, signing, permission scopes)
 - [ ] SSO/SAML, SCIM, audit export, data residency regions
@@ -314,12 +339,12 @@ Turn the 5 standard artifacts into platform output.
 
 | Today | Problem | Replacement | When |
 |---|---|---|---|
-| Onyx (AGPL-ish, 12 containers, opaque tuning) | Heavy, license-adjacent, hard to customize per client | pgvector + Postgres FTS + RRF + pluggable embed/rerank | Phase 3 |
-| Hardcoded prompts in TS files | Not reviewable, no version history, client-specific strings in core | `client-context/prompts/*.md` with git history | Phase 1 |
-| Business objects seeded via migration scripts | Opaque, coupled to schema changes, no per-client variance | `client-context/business-objects/*.yaml` applied at boot | Phase 1 |
-| Skills as imports in app code | Can't be shipped by third parties, hot-reload impossible | Plugin SDK with manifest + sandbox | Phase 2 |
-| Langfuse (external SaaS) as only observability | Lock-in; not OSS-compatible by default | OpenTelemetry → pluggable backend (Langfuse/Honeycomb/Postgres) | Phase 3 |
-| Temporal (heavy for our scale) | Over-provisioned for current workflow complexity | In-process durable step runner on Postgres; Temporal adapter for scale-out | Phase 4 |
+| Onyx (AGPL-ish, 12 containers, opaque tuning) | Heavy, license-adjacent, hard to customize per client | pgvector + Postgres FTS + RRF + pluggable embed/rerank | Phase 4 |
+| Hardcoded prompts in TS files | Not reviewable, no version history, client-specific strings in core | `context/<org>/prompts/*.md` with git history | Phase 1 ✓ |
+| Business objects seeded via migration scripts | Opaque, coupled to schema changes, no per-client variance | `context/<org>/objects/*.yaml` applied at boot | Phase 1 ✓ |
+| Skills as imports in app code | Can't be shipped by third parties, hot-reload impossible | Plugin SDK with manifest + sandbox | Phase 3 |
+| Langfuse (external SaaS) as only observability | Lock-in; not OSS-compatible by default | OpenTelemetry → pluggable backend (Langfuse/Honeycomb/Postgres) | Phase 4 |
+| Temporal (heavy for our scale) | Over-provisioned for current workflow complexity | In-process durable step runner on Postgres; Temporal adapter for scale-out | Phase 5 |
 
 ---
 
