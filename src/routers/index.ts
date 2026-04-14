@@ -10,6 +10,16 @@ import {
   remove as removeObject,
   update as updateObject,
 } from './BusinessObject';
+import {
+  approve,
+  cancel,
+  getRun,
+  getWorkflowRunRoute,
+  listPendingSkillRuns,
+  listWorkflowRunsRoute,
+  reject,
+  resume,
+} from './Review';
 import { create, edit, remove } from './Todo';
 
 export const router = {
@@ -29,5 +39,15 @@ export const router = {
     addLink,
     removeLink,
     generateSummary,
+  },
+  review: {
+    listSkillRuns: listPendingSkillRuns,
+    getSkillRun: getRun,
+    approveSkillRun: approve,
+    rejectSkillRun: reject,
+    listWorkflowRuns: listWorkflowRunsRoute,
+    getWorkflowRun: getWorkflowRunRoute,
+    resumeWorkflow: resume,
+    cancelWorkflow: cancel,
   },
 };

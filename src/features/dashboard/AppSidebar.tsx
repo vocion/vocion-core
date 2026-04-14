@@ -4,6 +4,7 @@ import { OrganizationSwitcher } from '@clerk/nextjs';
 import {
   Activity,
   Bot,
+  CheckSquare,
   CreditCard,
   Database,
   GitBranch,
@@ -70,6 +71,11 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               title: t('workflows'),
               url: '/dashboard/runs',
               icon: GitBranch,
+            },
+            {
+              title: 'Review Queue',
+              url: '/dashboard/review',
+              icon: CheckSquare,
             },
           ]}
         />
