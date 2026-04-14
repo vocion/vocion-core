@@ -330,19 +330,24 @@ npm install
 cp .env.example .env.local       # Fill in API keys
 docker compose up -d postgres    # Postgres 16 + pgvector
 npm run db:migrate
+npm run context:apply            # sync context/<org>/ → DB (agents, skills, object types)
 npm run dev:next                 # http://localhost:3000
+```
+
+### Edit client context
+
+All prompts, skills, agents, and object types live in `context/<org>/` as YAML + markdown. Edit a file, then run `npm run context:apply` to sync. See [`context/README.md`](./context/README.md) for the authoring guide.
+
+```bash
+npm run context:check            # validate + diff (no writes)
+npm run context:apply            # sync to DB, records context_version audit row
+npm run context:export           # (bootstrap) dump current DB rows to context/<org>/
 ```
 
 ### Run evals
 
 ```bash
 npx tsx src/scripts/run-evals.ts
-```
-
-### Apply client context (Phase 1+)
-
-```bash
-CONTEXT_REPO=../metacto-context npm run context:apply
 ```
 
 ---
@@ -373,7 +378,7 @@ CONTEXT_REPO=../metacto-context npm run context:apply
 
 ## Case Study: Ziggy (Sales Ops Agent)
 
-Ziggy is the first packaged agent on CoreContext, dogfooding MetaCTO's own sales operations. It also drives the platform roadmap — Phase 1's context-repo work starts with extracting MetaCTO's context from the app into `metacto-context/`.
+Ziggy is the first packaged agent on CoreContext, dogfooding MetaCTO's own sales operations. As of Phase 1, Ziggy's prompts, skills, and object types all live in `context/metacto/` — git-tracked, reviewable, and detached from app code.
 
 **What Ziggy does:**
 - Finds and classifies discovery calls from Zoom transcripts

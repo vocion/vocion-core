@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
+import { getCurrentContextSha } from '@/libs/context';
 import { db } from '@/libs/DB';
 import { langfuse } from '@/libs/Langfuse';
 import { skillRunSchema, skillSchema } from '@/models/Schema';
@@ -94,7 +95,10 @@ export async function executeSkill(opts: {
     output: { result: output.slice(0, 500), elapsed_ms: elapsed },
   });
 
-  // Store run
+  // Store run — stamp with the active context SHA so we can answer
+  // "which prompt version produced this output" after context edits.
+  const contextSha = await getCurrentContextSha(opts.orgId);
+
   const [run] = await db.insert(skillRunSchema).values({
     orgId: opts.orgId,
     skillId: skill.id,
@@ -102,6 +106,7 @@ export async function executeSkill(opts: {
     output,
     status: skill.requiresApproval === 'true' ? 'pending' : 'auto',
     langfuseTraceId: trace.id,
+    contextSha,
     createdBy: opts.userId,
   }).returning();
 

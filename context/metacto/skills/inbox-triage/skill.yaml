@@ -1,0 +1,10 @@
+slug: inbox_triage
+name: Inbox Triage
+description: 'Scan recent Gmail threads and classify them: needs response, FYI, escalation, or follow-up.'
+category: query
+status: disabled
+version: 1
+model: gpt-5.4-mini
+temperature: '0.2'
+requiresApproval: false
+promptFile: prompt.md
