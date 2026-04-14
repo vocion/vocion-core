@@ -7,7 +7,7 @@ import { Footer } from '@/templates/Footer';
 import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
-  title: 'CoreContext — Build production AI systems, not prompt spaghetti',
+  title: 'Compiles.ai — Build production AI systems, not prompt spaghetti',
   description: 'Open runtime for AI workflows with versioned context, typed plugins, human review, and full audit trails. Build once, run from Slack, Claude Code, ChatGPT, or your own app. Apache 2.0, self-hostable.',
 };
 
@@ -99,7 +99,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            CoreContext is an open runtime for AI workflows with versioned context, typed plugins, human review, and full audit trails.
+            Compiles.ai is an open runtime for AI workflows with versioned context, typed plugins, human review, and full audit trails.
             Build once. Run from Slack, Claude Code, ChatGPT, or your own app.
           </p>
 
@@ -126,7 +126,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
               Most teams ship AI by stitching prompts into app code, bots, and internal tools. Then things drift.
               Nobody knows what changed. Outputs are hard to explain. Approval steps happen in DMs. Every interface has its own logic.
             </p>
-            <p className="mt-4">CoreContext gives you one runtime for AI work that needs to survive production.</p>
+            <p className="mt-4">Compiles.ai gives you one runtime for AI work that needs to survive production.</p>
           </div>
         </section>
 
@@ -254,7 +254,7 @@ plugins/
         <section className="mt-24 rounded-2xl border border-border bg-muted/30 p-8 sm:p-12">
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Open core by default</h2>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted-foreground">
-            CoreContext is Apache 2.0 licensed and designed to run on your infrastructure. Use your own model providers,
+            Compiles.ai is Apache 2.0 licensed and designed to run on your infrastructure. Use your own model providers,
             retrieval stack, and deployment setup. Add managed services only if and when you want them.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
@@ -275,7 +275,7 @@ plugins/
             <div>
               <h2 className="text-lg font-semibold">Need help shipping it in a real business?</h2>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                MetaCTO uses CoreContext to design and deploy production AI workflows for operating teams, support orgs, and internal platforms.
+                MetaCTO uses Compiles.ai to design and deploy production AI workflows for operating teams, support orgs, and internal platforms.
                 If you want help implementing, hosting, or customizing it, work with the team behind the platform.
               </p>
             </div>

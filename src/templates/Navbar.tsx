@@ -5,7 +5,7 @@ import { buttonVariants } from '@/components/ui/buttonVariants';
 import { CenteredMenu } from '@/features/landing/CenteredMenu';
 import { Section } from '@/features/landing/Section';
 import { Link } from '@/libs/I18nNavigation';
-import { Logo } from './Logo';
+import { CompilesLogo } from './CompilesLogo';
 
 export const Navbar = () => {
   const t = useTranslations('Navbar');
@@ -13,7 +13,11 @@ export const Navbar = () => {
   return (
     <Section className="px-3 py-6">
       <CenteredMenu
-        logo={<Logo />}
+        logo={(
+          <Link href="/" className="hover:opacity-80">
+            <CompilesLogo />
+          </Link>
+        )}
         rightMenu={(
           <>
             <li>
