@@ -1,6 +1,6 @@
 # Roadmap
 
-Single source of truth for phased delivery. Live status (what shipped, what's in flight, decision log) lives in [`docs/progress.md`](./docs/progress.md).
+**Internal — MetaCTO team only.** Single source of truth for phased delivery. Not shown in the public docs site. Live status (shipped, in flight, decision log) lives in [`progress.md`](./progress.md).
 
 Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live client work.
 
@@ -11,8 +11,8 @@ Pull hardcoded client data out of the app into `context/<org>/` — YAML + markd
 - [x] `context/<org>/` scaffold + schema
 - [x] Apply/reconcile job: repo → DB, idempotent
 - [x] `context_version` table + `skill_run.context_sha` audit trail
-- [x] First reference tenant extracted (MetaCTO Ziggy — see [`requirements/metacto/`](./requirements/metacto/README.md)); legacy seed scripts retired
-- [x] Authoring guide ([`context/README.md`](./context/README.md))
+- [x] First reference tenant extracted (MetaCTO Ziggy — see [`case-studies/`](./case-studies/README.md)); legacy seed scripts retired
+- [x] Authoring guide ([`context/README.md`](../../context/README.md))
 
 **Exit criteria met:** the reference tenant runs entirely from git-backed context. No client-specific strings in core.
 

@@ -1,74 +1,101 @@
 # Product Overview
 
-## What CoreContext Is
+## What CoreContext is
 
-A managed enterprise context platform that connects systems, maps business objects, enforces policy, exposes governed skills and workflows, and continuously improves answer quality and action reliability.
+An open runtime for AI workflows that need to survive production. Versioned context, typed plugins, human review, full audit trail. Build once, run from Slack, Claude Code, ChatGPT, or your own app.
 
-## One-Line Definition
+Apache 2.0. Self-hostable on Postgres. Pluggable retrieval and LLM provider. No forced cloud.
 
-MetaCTO delivers a managed enterprise work interface over company context and actions, powered by Onyx underneath and wrapped in MetaCTO's own policy, object, workflow, and improvement layers.
+## What it is not
 
-## What the Customer Should Feel
+- Not a chatbot
+- Not a managed-only SaaS
+- Not vendor-locked to one model host or one retrieval backend
+- Not a black box — every output traces back to the exact prompt version that produced it
+
+## What the customer should feel
 
 - "This knows our business"
-- "This respects our boundaries"
-- "This can do work, not just answer"
-- "This keeps getting better"
+- "I can review what it does before it does it"
+- "I can explain any output, even six months later"
+- "I can run this on my infrastructure"
 
-## What CoreContext Is Not
+## What the customer sees
 
-- Not "Onyx installed"
-- Not a RAG demo
-- Not a chat app
-- The customer should never see "embeddings," "vector search," or "retrieval"
+Six clear surfaces, not infrastructure:
 
-## Positioning
+| Surface | Purpose |
+|---|---|
+| **Chat** | Conversational workspace powered by agents — answers, skill invocation, contextual actions |
+| **Foundation** | The business-context layer — connectors, object types, objects, relationships, rules |
+| **Skills** | Reusable, typed capabilities — query, mutation, composite |
+| **Workflows** | Triggered sequences composing skills with explicit human-in-the-loop gates |
+| **Review queue** | One queue for every pending decision — drafts, paused workflows |
+| **Docs** | In-product reference for every primitive, plus authoring guides |
 
-Onyx is the context engine, not the customer product. The product MetaCTO sells is the managed layer above Onyx: object mapping, policy enforcement, skill governance, workflow orchestration, and continuous improvement.
+## The five planes
 
-## Five Things Being Built
+1. **Context plane** — connectors, retrieval, citations, search. Pluggable backend (Onyx today, pgvector + Postgres FTS native next).
+2. **Business context model** — canonical object types + instances + relationships + business rules. Authored as YAML in `context/<org>/`, applied to DB.
+3. **Execution plane** — skills (prompt-only or typed plugins), workflows (trigger → steps → action), agents (persona + scope).
+4. **Control plane** — policies, RBAC, approval queue, audit trail (`context_version` SHA stamped on every `skill_run`).
+5. **Improvement loop** — feedback per run, eval harness, prompt-improvement meta-skill (proposes PR-style diffs, never auto-applies).
 
-1. **Context plane** - Connectors, indexing, retrieval, citations, search
-2. **Business context model** - Canonical objects, mappings, glossary, domain boundaries
-3. **Execution plane** - Skills, actions, approvals, workflows, automations
-4. **Control plane** - Policies, RBAC, connector health, audit, analytics, feedback
-5. **Managed improvement loop** - Evals, tuning, training, rollout, adoption, governance
+## What an agent is in CoreContext
 
-## What Is an Agent in CoreContext
-
-An agent is a **packaged configuration, not code**. It's a persona + scope + capabilities stored as a database row.
+An agent is a **packaged configuration**, not bespoke code. It lives in `context/<org>/agents/<slug>.yaml` plus a markdown system prompt.
 
 | Component | What it is |
 |---|---|
-| **System prompt** | Identity, tone, rules, boundaries |
-| **Skills** | Which skills this agent can invoke |
-| **Connectors** | Which data sources it can search (Onyx source_type filter) |
-| **Object types** | Which business objects it can read/create |
-| **Document sets** | Scoped corpus (optional) |
-| **Approval rules** | What requires HITL vs auto-run |
-| **Model config** | Which LLM, temperature, max tokens |
-| **Eval set** | Gold-standard test cases |
-| **Langfuse project** | Observability scope |
+| `systemPrompt` | Identity, tone, rules, boundaries (markdown file) |
+| `skills` | Slugs of skills this agent can invoke |
+| `connectorSources` | Source types this agent can search |
+| `objectTypes` | Business object types this agent can read/create |
+| `searchConfig` | Recency decay, source weights, result limits |
+| `fewShotExamples` | Quality + style anchors |
+| `model` + `temperature` | LLM defaults |
+| `approvalPolicy` | What requires HITL vs auto-run |
 
-When a user selects an agent in Chat:
-1. CC loads the agent's config from DB
-2. Assembles system prompt + tool definitions (scoped to that agent's skills/connectors/objects)
-3. Runs the CC agent loop with that config
-4. Traces to the agent's Langfuse project
+A user invocation:
 
-An agent is NOT: a deployed microservice, a fine-tuned model, a LangGraph graph (that's the shared execution engine), or a Temporal workflow (agents can trigger those).
+1. Runtime loads the agent config from DB (synced from `context/<org>/agents/`)
+2. Assembles system prompt + tool definitions scoped to the agent's skills/connectors/object types
+3. Runs the agent loop with that config
+4. Records the run in `skill_run`, stamped with `context_sha`
+5. Traces to Langfuse if configured
 
-**For builders:** create an agent by configuring DB rows. Change behavior by editing prompts, not deploying code.
-**For customers:** each team gets agents configured for their domain. Same platform, different config.
+**An agent is NOT:** a deployed microservice, a fine-tuned model, a special framework. Editing an agent is editing YAML + markdown. No code change, no deploy.
 
-## What the Customer Sees
+## What a skill is
 
-Five clear surfaces, not infrastructure:
+Two flavors, same execution surface:
 
-| Surface | Purpose |
-|---------|---------|
-| **Chat** | Conversational workspace powered by agents — answers, skills, and actions |
-| **Search** | Result-first interface for finding source material, records, and evidence |
-| **Skills** | Reusable business actions and queries — packaged repeatable value |
-| **Workflows** | Structured multi-step processes with forms, approvals, and run history |
-| **Governance** | Connectors, access, object mapping, policies, analytics, and audit |
+- **Prompt skill** — `context/<org>/skills/<slug>/skill.yaml` + `prompt.md`. Authored by humans (or the meta-agent). Templated `{{vars}}` interpolation, one LLM call.
+- **Plugin skill** — TypeScript module exporting a typed `Skill<Input, Output>`. Authored by developers. Custom logic, multi-step pipelines, validated I/O via Zod.
+
+If a plugin and a prompt skill share a slug, the plugin wins. Clean upgrade path: start with a prompt; promote to a plugin when logic outgrows it.
+
+## What a workflow is
+
+A YAML manifest at `context/<org>/workflows/<slug>/workflow.yaml`:
+
+- **Trigger** — `manual`, `event` (planned: `schedule`, `webhook`)
+- **Steps** — sequential. Step types: `skill`, `approve` (HITL pause), `action` (connector side effect)
+- **Interpolation** — `{{input.x}}` / `{{steps.name.output.y}}` / `{{trigger.y}}`
+- **Pause + resume** — `approve` step pauses the run; `runtime_resume_workflow` continues it from any interface
+
+Every workflow run records per-step results, the active context SHA, and links back to the underlying skill runs.
+
+## Audience split
+
+CoreContext is for developers, platform engineers, AI engineers, and technical founders who want leverage without losing control. The MetaCTO services arm exists for non-developer buyers who need someone to design + ship + run AI systems for them. They're complementary: CoreContext is the runtime; MetaCTO is one (of many possible) implementation partner.
+
+## Related
+
+- [`tech-stack.md`](./tech-stack.md) — current stack + rationale
+- [`architecture.md`](./architecture.md) — system layers + boundaries
+- [`object-model.md`](./object-model.md) — first-class objects + their relationships
+- [`skills.md`](./skills.md) — skill system design + types
+- [`product-surfaces.md`](./product-surfaces.md) — UI surface specs
+- [`rbac.md`](./rbac.md) — access control model
+- [`/docs/`](../docs) — install guide, MCP reference, plugin SDK guide, workflow guide

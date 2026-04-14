@@ -218,25 +218,16 @@ All three feed from one event stream.
 
 ---
 
-## Roadmap
+## What's shipped
 
-Full phase-by-phase plan is in [`ROADMAP.md`](./ROADMAP.md). Live status (what shipped, what's in flight) lives in [`docs/progress.md`](./docs/progress.md).
+- ✓ **Context-as-code** — agents, skills, object types, workflows in `context/<org>/` as YAML + markdown; idempotent apply; full audit trail
+- ✓ **MCP server** (stdio) — author + run from Claude Code, Cursor, Zed, Continue, claude.ai
+- ✓ **Plugin SDK v0.1** — typed `Skill<Input, Output>` contract; pluggable LLM provider (OpenAI, Anthropic, Vertex/Azure stubs)
+- ✓ **Workflow primitive** — sequential steps with HITL approve gates; resumable from any interface
+- ✓ **Review queue** at `/dashboard/review` — pending skill drafts + paused workflow runs
+- ✓ **In-product docs viewer** at `/dashboard/docs`
 
-At a glance:
-
-| Phase | Focus | Status |
-|---|---|---|
-| 1 | Context-as-code (YAML + MD, audit trail) | ✓ shipped |
-| 2 | Universal interface layer (MCP, ChatGPT, Slack, Teams, A2A) | partial ✓ (MCP stdio + review UI) |
-| 3 | Plugin SDK (typed contract, pluggable LLM provider) | partial ✓ (v0.1) |
-| 4 | Feedback + self-improvement loop | queued |
-| 5 | Native retrieval (pgvector + Postgres FTS + RRF, Vertex/Azure adapters) | queued |
-| 6 | Auto-generated deliverables (5 standard artifacts) | queued |
-| 7 | Conversational bootstrap / WOW demo (meta-agent, outbound A2A) | workflow primitive ✓ |
-| 8 | OSS launch + MetaCTO Cloud | queued |
-| 9 | Ecosystem + enterprise (marketplace, SSO, RBAC, residency) | queued |
-
-Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live client work.
+Roadmap, decisions, and live progress are tracked internally — see `/dashboard/docs` after signing in.
 
 ---
 
@@ -254,20 +245,6 @@ Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live
 | MetaCTO methodology docs (ECE Wiki, playbooks) | **CC BY-NC 4.0** or proprietary | Brand/IP protection without preventing public reference |
 
 **Trademark:** "CoreContext" and MetaCTO logos held by MetaCTO, Inc. Forks must rebrand.
-
----
-
-## What We Use Today That Gets Replaced
-
-| Today | Problem | Replacement | When |
-|---|---|---|---|
-| Onyx (AGPL-ish, 12 containers, opaque tuning) | Heavy, license-adjacent, hard to customize per client | pgvector + Postgres FTS + RRF + pluggable embed/rerank; Vertex/Azure backends opt-in | Phase 5 |
-| Hardcoded prompts in TS files | Not reviewable, no version history, client-specific strings in core | `context/<org>/prompts/*.md` with git history | Phase 1 ✓ |
-| Business objects seeded via migration scripts | Opaque, coupled to schema changes, no per-client variance | `context/<org>/objects/*.yaml` applied at boot | Phase 1 ✓ |
-| Skills as imports in app code | Can't be shipped by third parties, hot-reload impossible | Plugin SDK with manifest + sandbox | Phase 3 (v0.1 ✓) |
-| Langfuse (external SaaS) as only observability | Lock-in; not OSS-compatible by default | OpenTelemetry → pluggable backend (Langfuse/Honeycomb/Postgres) | Phase 5 |
-| Temporal (heavy for our scale) | Over-provisioned for current workflow complexity | In-process durable step runner on Postgres (shipped, v1); Temporal adapter for scale-out | Phase 7 |
-| Static prompts, no learning | Drafts get approved/rejected with zero feedback loop; prompts drift out of date | `skill_run.feedback` + `improve_skill` meta-skill proposing PR-style prompt diffs | Phase 4 |
 
 ---
 
@@ -307,9 +284,9 @@ npx tsx src/scripts/run-evals.ts
 - **Auth:** Clerk (multi-tenant, RBAC)
 - **Agent LLM:** GPT-5.4 (tool calling, streaming)
 - **Skills LLM:** GPT-5.4-mini
-- **Retrieval (today):** Onyx → (Phase 3) pgvector + Postgres FTS
-- **Observability (today):** Langfuse → (Phase 3) OpenTelemetry
-- **Workflows (today):** Temporal → (Phase 4) pluggable durable step runner
+- **Retrieval (today):** Onyx (deprecating); pgvector-native pipeline next
+- **Observability:** Langfuse (LLM traces); OpenTelemetry collector for spans + metrics
+- **Workflows:** in-process durable step runner on Postgres; Temporal adapter for scale-out
 
 ---
 
