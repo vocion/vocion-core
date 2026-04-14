@@ -8,7 +8,7 @@ import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
   title: 'CoreContext — Solve real business problems with AI',
-  description: 'The open delivery OS for AI workflows. Context as code, plugins for everything, review queue built in. Talk to it from Claude Code, Slack, ChatGPT, or the web.',
+  description: 'The open context platform for AI operations. Context as code, plugins for everything, review queue built in. Talk to it from Claude Code, Slack, ChatGPT, or the web.',
 };
 
 type Block = {
@@ -82,7 +82,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
         <div className="text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">
             <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
-            Open delivery OS for AI workflows
+            Open context platform for AI operations
           </div>
 
           <h1 className="mt-6 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
@@ -123,8 +123,12 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
                 <div className="flex size-10 items-center justify-center rounded-lg bg-foreground/5 text-foreground">
                   <Icon className="size-5" />
                 </div>
-                <div className="mt-4 text-sm text-muted-foreground">{block.problem}</div>
-                <h3 className="mt-2 text-lg leading-snug font-semibold">{block.benefit}</h3>
+                <h3 className="mt-4 text-lg leading-snug font-semibold">{block.benefit}</h3>
+                <div className="mt-2 text-xs tracking-wide text-muted-foreground/80 uppercase">
+                  Replaces:
+                  {' '}
+                  <span className="tracking-normal text-muted-foreground normal-case">{block.problem}</span>
+                </div>
                 <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{block.detail}</p>
               </article>
             );
