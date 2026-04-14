@@ -19,7 +19,7 @@ This repo is `@compiles/core`. The full platform is layered:
 | `@compiles/plugin-*` | `packages/plugins/*` | Connectors + skills shipped as separate npm packages |
 | `compiles-starter` | separate repo (planned) | Forkable example install — quick start in 10 minutes |
 
-See [`docs/repo-architecture.md`](./docs/repo-architecture.md) for the full layered model + versioning + compatibility rules.
+See [`docs/reference/repo-architecture.md`](./docs/reference/repo-architecture.md) for the full layered model + versioning + compatibility rules.
 
 ## The five primitives
 
@@ -64,7 +64,7 @@ export default {
 } satisfies PluginManifest;
 ```
 
-See [`docs/plugins.md`](./docs/plugins.md) for the full authoring guide.
+See [`docs/guides/writing-a-plugin.md`](./docs/guides/writing-a-plugin.md) for the full authoring guide.
 
 ## Getting started
 
@@ -90,7 +90,7 @@ npm run dev:next
 # → http://localhost:3000
 ```
 
-Full install topology, env vars, production deploy, and troubleshooting: [`docs/self-hosted.md`](./docs/self-hosted.md).
+Full install topology, env vars, production deploy, and troubleshooting: [`docs/guides/self-hosting.md`](./docs/guides/self-hosting.md).
 
 ## MCP server
 
@@ -100,7 +100,7 @@ Author skills + workflows and inspect runs from Claude Code, Cursor, Zed, or any
 claude mcp add compiles -- npm --prefix /abs/path/to/compiles-core run mcp:serve
 ```
 
-Full tool reference: [`docs/mcp.md`](./docs/mcp.md).
+Full tool reference: [`docs/reference/mcp.md`](./docs/reference/mcp.md).
 
 ## Retrieval
 
@@ -132,6 +132,13 @@ docs/                            # Concepts, guides, reference
 ## License
 
 Apache 2.0.
+
+## Docs
+
+- [`docs/README.md`](./docs/README.md) — docs index
+- [`docs/concepts/`](./docs/concepts/) — the five building blocks, one page each (~15 min read end-to-end)
+- [`docs/guides/`](./docs/guides/) — quickstart, authoring, plugin, self-hosting, tenant extraction
+- [`docs/reference/`](./docs/reference/) — MCP tools, repo architecture, retrieval config, auth
 
 ## Contributing
 
