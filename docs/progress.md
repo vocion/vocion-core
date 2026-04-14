@@ -89,15 +89,15 @@ _nothing — feel free to start the next one_
 ## Commits this session
 
 ```
-[pending]  feat: review queue ui + oRPC mutations
-6fea02e    feat: workflow primitive — triggered skill+approve+action sequences
-5ab00e0    feat: plugin sdk v0.1 — typed skill contract + dual-path execution
-c4126d9    feat: mcp server + auto-apply for phase 2 interface layer
-8380861    feat: phase 1 — context-as-code, apply CLI, context_sha audit trail
-6a6f5c9    docs: product strategy and roadmap — open-core, plugin-first, MIT retrieval
+b908a31 feat: review queue ui at /dashboard/review
+6fea02e feat: workflow primitive — triggered skill+approve+action sequences
+5ab00e0 feat: plugin sdk v0.1 — typed skill contract + dual-path execution
+c4126d9 feat: mcp server + auto-apply for phase 2 interface layer
+8380861 feat: phase 1 — context-as-code, apply CLI, context_sha audit trail
+6a6f5c9 docs: product strategy and roadmap — open-core, plugin-first, MIT retrieval
 ```
 
-Not pushed to `origin/main`.
+6 commits ahead of `origin/main` — not pushed.
 
 ## Vertex / Azure AI Foundry stance
 
