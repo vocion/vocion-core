@@ -15,11 +15,14 @@ export type McpConfig = {
 };
 
 export function readConfig(): McpConfig {
-  const orgId = process.env.CORECONTEXT_ORG_ID ?? process.env.SEED_ORG_ID;
+  // COMPILES_ORG_ID is the canonical env var; CORECONTEXT_ORG_ID is a legacy
+  // alias kept for one release after the @compiles/core rename.
+  const orgId = process.env.COMPILES_ORG_ID ?? process.env.CORECONTEXT_ORG_ID ?? process.env.SEED_ORG_ID;
   if (!orgId) {
-    throw new Error('CORECONTEXT_ORG_ID is required (or SEED_ORG_ID fallback)');
+    throw new Error('COMPILES_ORG_ID is required (or SEED_ORG_ID fallback)');
   }
-  const contextPath = resolve(process.env.CONTEXT_PATH ?? `context/${process.env.CORECONTEXT_ORG_NAME ?? 'metacto'}`);
+  const orgName = process.env.COMPILES_ORG_NAME ?? process.env.CORECONTEXT_ORG_NAME ?? 'metacto';
+  const contextPath = resolve(process.env.CONTEXT_PATH ?? `context/${orgName}`);
 
   return {
     orgId,

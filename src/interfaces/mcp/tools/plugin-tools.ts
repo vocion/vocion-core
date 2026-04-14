@@ -4,7 +4,7 @@ import { loadPlugins, pluginRegistry } from '@/libs/plugins';
 
 /**
  * Plugin tools: discovery + dev-time reload. Reloading re-imports every
- * plugin specifier from `CORECONTEXT_PLUGINS` — Node's ESM loader caches
+ * plugin specifier from `COMPILES_PLUGINS` — Node's ESM loader caches
  * imports, so reload works well when pointing at npm packages whose code
  * hasn't changed, but edits to local-path plugins may need a server restart
  * to pick up. Good enough for v0.1.
