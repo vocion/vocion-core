@@ -138,16 +138,9 @@ See [`context/README.md`](../context/README.md) for authoring.
 
 ## LLM providers
 
-CoreContext supports multiple LLM hosts; each plugin skill picks one via the `provider` field.
+CoreContext supports multiple LLM hosts; each plugin skill picks one via the `provider` field. **Set at least one provider's API key** — `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` — or skill execution will throw on first invocation.
 
-| Provider | Status | Required env |
-|---|---|---|
-| `openai` | ✓ shipped | `OPENAI_API_KEY` |
-| `anthropic` | ✓ shipped | `ANTHROPIC_API_KEY` |
-| `vertex` | roadmap (Phase 5) | (GCP creds, coming) |
-| `azure-openai` | roadmap (Phase 5) | (endpoint + key, coming) |
-
-If a skill declares `provider: anthropic` and you haven't set `ANTHROPIC_API_KEY`, the first invocation throws with a clear message. The platform never silently falls back.
+Full provider table + per-skill manifest example: [`plugins.md` → Pluggable LLM provider](./plugins.md#pluggable-llm-provider). The platform never silently falls back to a default; missing creds throw with a clear message.
 
 ## MCP server
 
