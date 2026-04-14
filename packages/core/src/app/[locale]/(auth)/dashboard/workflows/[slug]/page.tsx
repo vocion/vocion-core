@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { getContextDirtyState } from '@/libs/context/dirty';
 import { readPrimitiveFiles } from '@/libs/context/reader';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkflow } from '@/services/WorkflowService';
@@ -25,6 +26,7 @@ export default async function WorkflowDetailPage(props: {
   }
 
   const sourceFiles = readPrimitiveFiles('workflow', slug);
+  const dirtyState = getContextDirtyState();
 
   return (
     <>
@@ -97,7 +99,12 @@ export default async function WorkflowDetailPage(props: {
       {sourceFiles && (
         <section>
           <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Source files</h2>
-          <PrimitiveFiles files={sourceFiles.files} editInGitPath={sourceFiles.editInGitPath} />
+          <PrimitiveFiles
+            files={sourceFiles.files}
+            editInGitPath={sourceFiles.editInGitPath}
+            dirty={dirtyState.dirty}
+            dirtyFiles={dirtyState.changedFiles}
+          />
         </section>
       )}
     </>

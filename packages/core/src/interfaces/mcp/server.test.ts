@@ -112,7 +112,7 @@ describe('MCP server (end-to-end)', () => {
     try {
       const { client, server } = await setupClientServer(scratch.contextDir);
       try {
-        // Write a skill
+        // Write a skill — opt into autoCommit since default is now false
         const writeResult = await client.callTool({
           name: 'context_write_skill',
           arguments: {
@@ -126,6 +126,7 @@ describe('MCP server (end-to-end)', () => {
               requiresApproval: false,
             },
             prompt_md: 'Say hello to {{name}}.',
+            autoCommit: true,
           },
         });
         const write = parseToolResult<{
