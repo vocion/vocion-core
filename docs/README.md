@@ -22,6 +22,16 @@ Walk-throughs for recurring tasks:
 - **[Self-hosting](./guides/self-hosting.md)** — running Compiles on your own infra
 - **[Extracting a tenant repo](./guides/extract-tenant.md)** — splitting `context/<org>/` into its own git repo
 
+## API
+
+Programmatic access for external systems — push objects, trigger runs, poll results, register webhooks:
+
+- **[Overview](./api/README.md)** — when to use the API vs MCP vs A2A
+- **[Authentication](./api/authentication.md)** — tenant-scoped Bearer tokens
+- **[Primitives](./api/primitives.md)** — CRUD on Agents, Skills, Workflows, Objects, Sources
+- **[Runs](./api/runs.md)** — trigger, poll, approve, cancel
+- **[Webhooks](./api/webhooks.md)** — subscribe to completion + approval events
+
 ## Reference
 
 Stable interfaces you'll return to:
@@ -29,7 +39,7 @@ Stable interfaces you'll return to:
 - **[MCP tool reference](./reference/mcp.md)** — every tool the MCP server exposes
 - **[Repo architecture](./reference/repo-architecture.md)** — the layered model (core / SDK / plugins / starter / install)
 - **[Retrieval config](./reference/retrieval-config.md)** — every knob in `retrieval.yaml`
-- **[Authentication](./reference/authentication.md)** — Clerk + oRPC auth guards
+- **[Authentication](./reference/authentication.md)** — Clerk + oRPC auth guards (for web + server-side code)
 
 ## License
 
