@@ -9,7 +9,9 @@ import { pluginRegistry } from './registry';
  *
  * Two sources (checked in order):
  *
- *   1. `CORECONTEXT_PLUGINS` env var — comma-separated module specifiers.
+ *   1. `COMPILES_PLUGINS` env var — comma-separated module specifiers.
+ *      (Legacy: `CORECONTEXT_PLUGINS` still works for one release with a
+ *      deprecation warning; remove in v2.)
  *      Absolute or relative paths (resolved from cwd) OR package names
  *      installed in node_modules. Each entry is imported as an ES module
  *      and its default export is validated as `PluginManifest`.
@@ -51,7 +53,13 @@ export type LoadResult = {
 
 export async function loadPlugins(opts: { orgId: string; env?: Readonly<Record<string, string | undefined>> } = { orgId: '' }): Promise<LoadResult> {
   const env = opts.env ?? process.env;
-  const spec = env.CORECONTEXT_PLUGINS ?? '';
+  // COMPILES_PLUGINS is the canonical env var. CORECONTEXT_PLUGINS is the
+  // legacy alias kept for one release after the @compiles/core rename;
+  // remove in v2.
+  const spec = env.COMPILES_PLUGINS ?? env.CORECONTEXT_PLUGINS ?? '';
+  if (env.CORECONTEXT_PLUGINS && !env.COMPILES_PLUGINS) {
+    console.warn('[compiles] CORECONTEXT_PLUGINS is deprecated; rename to COMPILES_PLUGINS');
+  }
   const specifiers = spec.split(',').map(s => s.trim()).filter(Boolean);
 
   const loaded: LoadResult['loaded'] = [];

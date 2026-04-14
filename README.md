@@ -1,12 +1,26 @@
-# CoreContext
+# Compiles Core
 
-**The open context platform for AI operations.** CoreContext turns a messy business process into a measurable AI operating system — context as code, skills as plugins, review surfaces built in.
+> Brand: **Compiles** · This package: `@compiles/core`
+
+**Open framework for production AI workflows.** Compiles turns a messy business process into a measurable AI operating system — context as code, skills as plugins, review surfaces built in.
+
+This repo is `@compiles/core` — the framework. The full platform is layered:
+
+| Layer | npm | Purpose |
+|---|---|---|
+| **Compiles Core** | `@compiles/core` | this repo · framework + dashboard + Postgres schema + MCP server + workflow runner |
+| **Compiles SDK** | `@compiles/sdk` | stable plugin contract — Skill, Source, PluginContext (currently in `src/libs/plugins/`, extracts to its own package in Phase B) |
+| **Compiles Plugins** | `@compiles/plugin-*` | connectors + skills, one repo each, independently versioned |
+| **Compiles Starter** | (separate repo) | forkable example install — quick start in 10 minutes |
+| **Compiles Cloud** | — | hosted commercial offering (MetaCTO) |
+
+See [`docs/repo-architecture.md`](./docs/repo-architecture.md) for the full layered model + versioning + compatibility rules.
 
 ---
 
 ## Vision
 
-Every serious AI engagement produces the same five artifacts (workflow blueprint, context map, economics baseline, live review surface, launch scorecard). Today those artifacts live in slide decks, Notion pages, and bespoke code. CoreContext is the runtime where they live natively — so every engagement ships the same deliverables, every client gets a reviewable audit trail, and every workflow improvement compounds across the install base.
+Every serious AI engagement produces the same five artifacts (workflow blueprint, context map, economics baseline, live review surface, launch scorecard). Today those artifacts live in slide decks, Notion pages, and bespoke code. Compiles Core is the runtime where they live natively — so every engagement ships the same deliverables, every client gets a reviewable audit trail, and every workflow improvement compounds across the install base.
 
 Three bets:
 
@@ -34,7 +48,7 @@ Three bets:
 | Tier | What | Pricing |
 |---|---|---|
 | OSS | Core runtime + core plugins | Free (Apache 2.0) |
-| Cloud | Hosted CoreContext, managed Postgres/pgvector, evals-as-a-service, auto-scale | $/workflow-run + $/seat |
+| Cloud | Hosted Compiles Core, managed Postgres/pgvector, evals-as-a-service, auto-scale | $/workflow-run + $/seat |
 | Implementation | MetaCTO engagements (Sprint → Continuous Ops) | $45K sprints → $15K/mo retainer |
 | Private plugins | Client-specific connectors, proprietary skills | Engagement or license |
 
@@ -49,7 +63,7 @@ Three bets:
 └──────────────────────────────┬─────────────────────────────────┘
                                │ apply / read-through
 ┌──────────────────────────────▼─────────────────────────────────┐
-│  CoreContext Runtime (Apache 2.0)                              │
+│  Compiles Core Runtime (Apache 2.0)                              │
 │  Agent loop · Skill engine · Review UI · Plugin SDK · Auth     │
 │  Retrieval pipeline (pgvector + FTS + RRF, config-driven)      │
 └─────┬──────────────────┬──────────────────┬───────────────────┘
@@ -237,14 +251,14 @@ Roadmap, decisions, and live progress are tracked internally — see `/dashboard
 
 | Artifact | License | Rationale |
 |---|---|---|
-| CoreContext core (runtime, SDK, review UI) | **Apache 2.0** | Patent grant matters for enterprise adoption; wide community adoption (Dagster, Langchain, Hugging Face precedent) |
+| Compiles Core (runtime, SDK, review UI) | **Apache 2.0** | Patent grant matters for enterprise adoption; wide community adoption (Dagster, Langchain, Hugging Face precedent) |
 | Core plugins (Zoom, HubSpot, proposal, etc.) | **Apache 2.0** | Same rationale; encourages forks and customization |
 | MetaCTO Cloud control plane | **BSL 1.1 → Apache 2.0 after 4 years** | Prevents hyperscaler from hosting competitive SaaS while the market forms; auto-converts to Apache for long-term trust |
 | Client plugins (proprietary connectors, custom skills) | **Commercial** (per-engagement or license) | Client or MetaCTO IP |
 | Client context repos | **Owned by client** | Portable deliverable; MetaCTO has write access under engagement |
 | MetaCTO methodology docs (ECE Wiki, playbooks) | **CC BY-NC 4.0** or proprietary | Brand/IP protection without preventing public reference |
 
-**Trademark:** "CoreContext" and MetaCTO logos held by MetaCTO, Inc. Forks must rebrand.
+**Trademark:** "Compiles" and MetaCTO logos held by MetaCTO, Inc. Forks must rebrand.
 
 ---
 
@@ -294,7 +308,7 @@ npx tsx src/scripts/run-evals.ts
 
 | Service | Port | URL |
 |---|---|---|
-| CoreContext | 3000 | http://localhost:3000 |
+| Compiles Core | 3000 | http://localhost:3000 |
 | Postgres | 5432 | — |
 | Onyx UI (deprecating) | 3100 | http://localhost:3100 |
 | Langfuse (optional) | 3200 | http://localhost:3200 |
@@ -303,7 +317,7 @@ npx tsx src/scripts/run-evals.ts
 
 ## Case Study: Ziggy (Sales Ops Agent)
 
-Ziggy is the first packaged agent on CoreContext, dogfooding MetaCTO's own sales operations. As of Phase 1, Ziggy's prompts, skills, and object types all live in `context/metacto/` — git-tracked, reviewable, and detached from app code.
+Ziggy is the first packaged agent on Compiles, dogfooding MetaCTO's own sales operations. As of Phase 1, Ziggy's prompts, skills, and object types all live in `context/metacto/` — git-tracked, reviewable, and detached from app code.
 
 **What Ziggy does:**
 - Finds and classifies discovery calls from Zoom transcripts
