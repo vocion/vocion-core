@@ -1,5 +1,6 @@
 import type OpenAI from 'openai';
 import type { z } from 'zod';
+import type { LLMClient, LLMProviderName } from '@/libs/llm';
 
 /**
  * Plugin SDK — v0.1 contract.
@@ -33,7 +34,19 @@ import type { z } from 'zod';
 export type PluginContext = {
   /** Clerk org id — scope for any multi-tenant data access. */
   readonly orgId: string;
-  /** Shared OpenAI client. Rate-limited and observability-wrapped upstream. */
+  /**
+   * Generic pluggable LLM client bound to the skill's declared `provider`
+   * (defaults to `openai`). Prefer this over `ctx.openai` — the LLM host
+   * switches from openai → anthropic/vertex/azure-openai via one skill-
+   * manifest field, with no code change inside the skill.
+   */
+  readonly llm: LLMClient;
+  /**
+   * Direct OpenAI client. Kept for back-compat + access to features not
+   * yet in the generic `LLMClient` interface (tool calling, streaming,
+   * assistants API). Will be deprecated when the generic interface covers
+   * those.
+   */
   readonly openai: OpenAI;
   /** Active context SHA — stamped on skill_run for audit. Null if no context applied. */
   readonly contextSha: string | null;
@@ -80,6 +93,13 @@ export type Skill<Input = unknown, Output = unknown> = {
   readonly version: string;
   /** `query` (read-only) | `mutation` (may cause side effects) | `composite` */
   readonly category?: 'query' | 'mutation' | 'composite';
+  /**
+   * LLM provider for `ctx.llm`. Defaults to `openai`. Override per-skill
+   * to use Anthropic, Vertex, or Azure OpenAI. The provider must have its
+   * credentials configured in env (e.g. `ANTHROPIC_API_KEY`) or the first
+   * invocation throws.
+   */
+  readonly provider?: LLMProviderName;
   /**
    * Whether the output needs human review before any downstream action.
    * When true, skill_run.status = 'pending' until approved.

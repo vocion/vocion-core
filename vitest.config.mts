@@ -47,6 +47,11 @@ export default defineConfig({
     env: {
       ...loadEnv('', process.cwd(), ''), // Expose .env variables to Node.js
       BILLING_PLAN_ENV: 'test',
+      // Default fake LLM keys so getLLMClient() can construct mocked SDK
+      // instances without aborting on missing env. Tests that want to assert
+      // "missing key throws" override these explicitly.
+      OPENAI_API_KEY: 'sk-test-fixture',
+      ANTHROPIC_API_KEY: 'sk-ant-test-fixture',
     },
   },
   define: {

@@ -14,6 +14,7 @@ const config: KnipConfig = {
     'src/scripts/**/*.ts',
     'src/libs/context/**',
     'src/libs/plugins/**',
+    'src/libs/llm/**',
     'src/plugins/**',
     'src/features/dashboard/ApprovalCard.tsx',
     'src/features/dashboard/DraftCard.tsx',

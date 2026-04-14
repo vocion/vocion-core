@@ -74,11 +74,45 @@ export default manifest;
 | Field | Purpose |
 |---|---|
 | `orgId` | Clerk org — scope any multi-tenant data |
-| `openai` | Shared OpenAI client (already rate-limited + traced) |
+| `llm` | **Pluggable LLM client** bound to the skill's declared `provider` (openai/anthropic/vertex/azure-openai). Swap providers with a one-line manifest change. See below. |
+| `openai` | Direct OpenAI client. Kept for back-compat + access to features not yet in the generic interface (tool calling, streaming, assistants API). Prefer `ctx.llm` when possible. |
 | `contextSha` | Active context SHA, stamped on `skill_run` for audit |
 | `invokedBy` | `userId`, `'mcp'`, `'scheduled'`, etc. |
 | `log(level, msg, fields?)` | Structured log → goes to Langfuse trace |
 | `retrieve(query, {sources?, k?})` | Run retrieval via the platform's configured backend (Onyx today, pgvector Phase 5). Don't call Onyx directly — the wrapper applies your org's `retrieval.yaml` config. |
+
+### Pluggable LLM provider
+
+Set `provider` on the skill manifest to route `ctx.llm` through a different model host:
+
+```ts
+defineSkill({
+  slug: 'my_skill',
+  // ...
+  provider: 'anthropic', // openai (default) | anthropic | vertex | azure-openai
+  async run(ctx, input) {
+    const res = await ctx.llm.generate({
+      model: 'claude-sonnet-4-5',
+      messages: [{ role: 'user', content: 'hi' }],
+      temperature: 0.3,
+      maxTokens: 512,
+      responseFormat: 'json_object', // optional
+    });
+    return { text: res.content };
+  },
+});
+```
+
+Provider requirements:
+
+| Provider | Required env | Status |
+|---|---|---|
+| `openai` | `OPENAI_API_KEY` | ✓ shipped |
+| `anthropic` | `ANTHROPIC_API_KEY` | ✓ shipped |
+| `vertex` | (Phase 5 — GCP creds) | not yet implemented |
+| `azure-openai` | (Phase 5 — endpoint + key) | not yet implemented |
+
+The `generate` method returns `{ content, usage?: {inputTokens, outputTokens}, finishReason? }`. Tool calling isn't in the generic interface yet — reach for `ctx.openai` directly if you need it.
 
 ### Manifest shapes — eager vs lazy
 

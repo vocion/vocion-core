@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import { getCurrentContextSha } from '@/libs/context';
 import { db } from '@/libs/DB';
 import { langfuse } from '@/libs/Langfuse';
+import { getLLMClient } from '@/libs/llm';
 import { search as onyxSearch } from '@/libs/onyx/client';
 import { pluginRegistry } from '@/libs/plugins';
 import { skillRunSchema, skillSchema } from '@/models/Schema';
@@ -159,9 +160,15 @@ async function executePluginSkill(
 
   const contextSha = await getCurrentContextSha(opts.orgId);
 
+  // Resolve the LLM client for the skill's declared provider. Lazy-initialised
+  // per process + provider; throws with a clear message if the chosen provider
+  // is missing its API key.
+  const llm = getLLMClient(plugin.provider ?? 'openai');
+
   const ctx: PluginContext = {
     orgId: opts.orgId,
     openai,
+    llm,
     contextSha,
     invokedBy: opts.userId ?? 'mcp',
     log: (level, message, fields) => {
