@@ -1,11 +1,6 @@
-# CoreContext Requirements
+# CoreContext Platform Requirements
 
-Two categories:
-
-- **Platform** (this directory, top-level) — what CoreContext *is*. Architecture, object model, product surfaces, RBAC, customer onboarding, managed-ops services. Generic to the runtime.
-- **MetaCTO case studies** (`./metacto/`) — how MetaCTO *uses* CoreContext. Per-agent specs, connectors, workflows, sprint plans. Moves with the customer, not the platform.
-
-## Platform
+Platform-level specs — what CoreContext *is*. Architecture, object model, surfaces, RBAC. Generic to the runtime; these docs travel with the open-source product.
 
 | File | Description |
 |---|---|
@@ -16,16 +11,10 @@ Two categories:
 | [product-surfaces.md](./product-surfaces.md) | UI surfaces: Ask, Search, Skills, Workflows, Governance, Review |
 | [skills.md](./skills.md) | Skill system design, types, schema, productization |
 | [rbac.md](./rbac.md) | Roles, permissions, access control model |
-| [customer-onboarding.md](./customer-onboarding.md) | Build-up process for new customer deployments |
-| [managed-operations.md](./managed-operations.md) | Ongoing managed services: tuning, evals, training, ops |
 
-**Roadmap + status** — phased delivery plan and live progress are not here. See:
+## Related
 
-- [`../ROADMAP.md`](../ROADMAP.md) — phase-by-phase delivery plan (single source of truth)
-- [`../docs/progress.md`](../docs/progress.md) — live status: shipped, in flight, queued, decision log
-
-## MetaCTO case studies
-
-See [metacto/README.md](./metacto/README.md) for the index.
-
-Live status of what's shipped + what's next lives in [`../docs/progress.md`](../docs/progress.md).
+- [`/README.md`](../README.md) — product pitch + quick start
+- [`/ROADMAP.md`](../ROADMAP.md) — phased delivery plan
+- [`/docs/`](../docs) — platform dev docs (MCP, plugins, workflows, self-hosted install)
+- [`/docs/internal/`](../docs/internal) — MetaCTO-only planning, progress log, case studies (not for OSS consumers)

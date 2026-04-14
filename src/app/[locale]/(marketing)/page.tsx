@@ -1,45 +1,16 @@
-import type { Metadata } from 'next';
-import { getTranslations, setRequestLocale } from 'next-intl/server';
-import { CTA } from '@/templates/CTA';
-import { DemoBanner } from '@/templates/DemoBanner';
-import { FAQ } from '@/templates/FAQ';
-import { Features } from '@/templates/Features';
-import { Footer } from '@/templates/Footer';
-import { Hero } from '@/templates/Hero';
-import { Navbar } from '@/templates/Navbar';
-import { Pricing } from '@/templates/Pricing';
+import { redirect } from 'next/navigation';
 
 type IndexProps = {
   params: Promise<{ locale: string }>;
 };
 
-export async function generateMetadata(props: IndexProps): Promise<Metadata> {
-  const { locale } = await props.params;
-  const t = await getTranslations({
-    locale,
-    namespace: 'Index',
-  });
-
-  return {
-    title: t('meta_title'),
-    description: t('meta_description'),
-  };
-}
-
+/**
+ * Logged-out landing → the /solve marketing page. Authenticated users are
+ * caught upstream by middleware and routed to /dashboard instead, so this
+ * redirect only fires for the public homepage hit.
+ * @param props
+ */
 export default async function Index(props: IndexProps) {
   const { locale } = await props.params;
-  setRequestLocale(locale);
-
-  return (
-    <>
-      <DemoBanner />
-      <Navbar />
-      <Hero />
-      <Features />
-      <Pricing />
-      <FAQ />
-      <CTA />
-      <Footer />
-    </>
-  );
-};
+  redirect(`/${locale}/solve`);
+}

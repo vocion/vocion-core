@@ -4,6 +4,8 @@ import Link from 'next/link';
 type Props = {
   entries: DocEntry[];
   currentSlug: string;
+  /** Base route for generated links — `/dashboard/docs` (in-app) or `/docs` (public). */
+  publicBasePath?: string;
 };
 
 /**
@@ -13,8 +15,9 @@ type Props = {
  * @param root0
  * @param root0.entries
  * @param root0.currentSlug
+ * @param root0.publicBasePath
  */
-export function DocsSidebar({ entries, currentSlug }: Props) {
+export function DocsSidebar({ entries, currentSlug, publicBasePath = '/dashboard/docs' }: Props) {
   const groups = groupBy(entries);
 
   return (
@@ -28,7 +31,7 @@ export function DocsSidebar({ entries, currentSlug }: Props) {
             {items.map(entry => (
               <li key={entry.path}>
                 <Link
-                  href={entry.slug === '' ? '/dashboard/docs' : `/dashboard/docs/${entry.slug}`}
+                  href={entry.slug === '' ? publicBasePath : `${publicBasePath}/${entry.slug}`}
                   className={
                     entry.slug === currentSlug
                       ? 'block rounded bg-accent px-2 py-1 font-medium text-accent-foreground'
@@ -62,8 +65,9 @@ function labelFor(group: string): string {
     case 'root': return 'Start here';
     case 'docs': return 'Platform dev docs';
     case 'requirements': return 'Platform requirements';
-    case 'requirements/metacto': return 'MetaCTO case studies';
     case 'context': return 'Context authoring';
+    case 'docs/internal': return 'Internal — MetaCTO';
+    case 'docs/internal/case-studies': return 'Internal — Case studies';
     default: return group;
   }
 }
