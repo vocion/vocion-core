@@ -185,7 +185,7 @@ Or add to `.mcp.json`:
 
 ### Other MCP clients
 
-Point any stdio-capable client at `tsx src/interfaces/mcp/bin.ts`. See [`docs/mcp.md`](./mcp.md) for the full tool reference.
+Point any stdio-capable client at `tsx src/interfaces/mcp/bin.ts`. See [MCP reference](../reference/mcp.md) for the full tool reference.
 
 ## Plugins
 
@@ -196,7 +196,7 @@ export COMPILES_PLUGINS=@acme/plugin-a,./local-plugins/my-skill.ts
 npm run mcp:serve
 ```
 
-Authoring guide: [`docs/plugins.md`](./plugins.md).
+Authoring guide: [Writing a plugin](./writing-a-plugin.md).
 
 ## Production deployment
 
