@@ -6,8 +6,22 @@ Running log of what's shipped, in flight, and queued. Source of truth for "where
 
 Split by scope:
 
-- [**Platform**](#platform) — CoreContext runtime (generic, shipped as the open-core product)
-- [**Case studies**](#case-studies) — MetaCTO's own deployments (Ziggy, NINJIO); lives alongside but tracked separately. Specs in [`requirements/metacto/`](../requirements/metacto/README.md).
+- [**Platform**](#platform) — `@compiles/core` runtime (generic, shipped as the open-core product)
+- [**Case studies**](#case-studies) — MetaCTO's own deployments (Ziggy, Algren); lives alongside but tracked separately. Specs in [`requirements/metacto/`](../requirements/metacto/README.md).
+
+---
+
+## 2026-04-14 — Session highlights
+
+- **Repo rebranded + pushed**: `@compiles/core` in package.json, layered repo architecture documented, private repo up at `compiles-ai/compiles-core`
+- **Phase B shipped** (npm workspaces): `packages/core` (app), `packages/sdk` (@compiles/sdk stable contract), `packages/plugins/transcript-highlights` (reference sample). Imports at contract boundary switch to `@compiles/sdk`; runtime stays in core.
+- **Sidebar + routes reorg**: Workspace (Chat/Search/Reviews) + Context (Agents/Skills/Workflows/Objects/Sources) + bottom Admin + Developer. Kill routes: `/dashboard/domains`, `/dashboard/ziggy`, `/dashboard/ask`, `/dashboard/todos`.
+- **Primitives canonical shape**: every primitive catalog + drilldown shares TitleBar, stats strip, instance grid, and ends with the new `PrimitiveFiles` viewer that renders the backing YAML + markdown. Minimal color, slug-forward, opacity for non-active.
+- **Git externalized from app**: MCP `context_write_*` tools now default `autoCommit: false`. Dashboard shows a "dirty" badge when `context/<org>/` has uncommitted changes. User's responsibility to commit + push.
+- **Search rebuilt**: real Onyx-backed hybrid retrieval demo at `/dashboard/search`. Audit page: drops MetaCTO mock, honest empty state.
+- **Docs restructured**: `docs/concepts/` (one page per building block — source, object, skill, workflow, agent), `docs/guides/` (quickstart, authoring-context, writing-a-plugin, self-hosting, extract-tenant), `docs/reference/` (mcp, repo-architecture, retrieval-config, authentication).
+- **README rewritten**: OSS-only scope; methodology/BSL/ECE refs removed.
+- **Tenant extraction path documented**: `docs/guides/extract-tenant.md` covers `git subtree split` + `CONTEXT_PATH` handoff.
 
 ---
 
