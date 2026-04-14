@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import process from 'node:process';
 import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
+import { fromRepoRoot } from '@/libs/repo-root';
 import { guardAuth } from './AuthGuards';
 
 /**
@@ -61,7 +62,7 @@ export const readPrimitive = os
     await guardAuth();
     const { kind, slug } = input;
     const dirName = slugToDirname(slug);
-    const base = resolve(process.cwd(), CONTEXT_PATH);
+    const base = fromRepoRoot(CONTEXT_PATH);
 
     if (!existsSync(base)) {
       throw new ORPCError('NOT_FOUND', { message: `Context path not found: ${CONTEXT_PATH}` });
