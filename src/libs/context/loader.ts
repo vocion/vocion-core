@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod';
-import type { AgentManifest, ContextManifest, ObjectTypeManifest, SkillManifest } from './schemas';
+import type { AgentManifest, ContextManifest, ObjectTypeManifest, SkillManifest, WorkflowManifest } from './schemas';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
@@ -8,18 +8,21 @@ import {
   ContextManifestSchema,
   ObjectTypeManifestSchema,
   SkillManifestSchema,
+  WorkflowManifestSchema,
 } from './schemas';
 import { computeContextSha } from './sha';
 
 export type LoadedAgent = AgentManifest & { resolvedSystemPrompt: string; sourceFile: string };
 export type LoadedSkill = SkillManifest & { resolvedPromptTemplate: string; sourceFile: string };
 export type LoadedObjectType = ObjectTypeManifest & { resolvedClassificationPrompt: string | null; sourceFile: string };
+export type LoadedWorkflow = WorkflowManifest & { sourceFile: string };
 
 export type LoadedContext = {
   manifest: ContextManifest;
   agents: LoadedAgent[];
   skills: LoadedSkill[];
   objectTypes: LoadedObjectType[];
+  workflows: LoadedWorkflow[];
   sha: string;
   sourcePath: string;
   fileCount: number;
@@ -63,9 +66,18 @@ export function loadContext(contextPath: string): LoadedContext {
       return { ...parsed, resolvedClassificationPrompt, sourceFile: file };
     });
 
+  const workflows = walkDir(join(abs, 'workflows'))
+    .filter(f => (basename(f) === 'workflow.yaml' || basename(f) === 'workflow.yml'))
+    .map((file) => {
+      files.push(file);
+      const parsed = parseFile(file, WorkflowManifestSchema, 'workflow');
+      return { ...parsed, sourceFile: file };
+    });
+
   assertUniqueSlugs(agents, 'agent');
   assertUniqueSlugs(skills, 'skill');
   assertUniqueSlugs(objectTypes, 'object type');
+  assertUniqueSlugs(workflows, 'workflow');
 
   const sha = computeContextSha(abs, files);
 
@@ -74,6 +86,7 @@ export function loadContext(contextPath: string): LoadedContext {
     agents,
     skills,
     objectTypes,
+    workflows,
     sha,
     sourcePath: abs,
     fileCount: files.length + 1,

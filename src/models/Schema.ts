@@ -281,6 +281,99 @@ export const agentSchema = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Workflows — orchestrations that compose skills + HITL + actions    */
+/* ------------------------------------------------------------------ */
+
+/** Workflow definitions — trigger + ordered steps. */
+export const workflowSchema = pgTable(
+  'workflow',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    /** Semver, advanced manually. */
+    version: integer('version').default(1),
+    /** `active` | `disabled` | `draft` */
+    status: text('status').default('active'),
+    /**
+     * Trigger config — JSONB since the shape differs per trigger type.
+     * Shapes: { type: 'manual' } | { type: 'event', event: 'object.created', filter?: {...} } | (future) schedule/webhook.
+     */
+    trigger: jsonb('trigger').$type<Record<string, unknown>>().notNull(),
+    /**
+     * Array of step definitions. Each: { name, type, ...typeSpecific }.
+     * Step types: `skill` (run a skill), `approve` (HITL gate), `action` (connector action, v1 stubbed).
+     */
+    steps: jsonb('steps').$type<Array<Record<string, unknown>>>().notNull(),
+    /** Default input schema for manual triggers — JSON Schema. */
+    inputSchema: jsonb('input_schema').$type<Record<string, unknown>>(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('workflow_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
+
+/** Workflow execution instances. */
+export const workflowRunSchema = pgTable('workflow_run', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  workflowId: integer('workflow_id').notNull().references(() => workflowSchema.id, { onDelete: 'cascade' }),
+  /** Initial input provided at start (from the trigger). */
+  input: jsonb('input').$type<Record<string, unknown>>().default({}),
+  /** Context around what caused this run (event payload, trigger metadata). */
+  triggerContext: jsonb('trigger_context').$type<Record<string, unknown>>().default({}),
+  /** `running` | `paused` | `completed` | `failed` | `cancelled` */
+  status: text('status').default('running').notNull(),
+  /**
+   * Step-indexed results — { [step_name]: { status, output, startedAt, finishedAt, error?, skillRunId? } }.
+   * JSONB so we can write partial state as we go; promoted to normalized rows in v2 if needed.
+   */
+  stepResults: jsonb('step_results').$type<Record<string, {
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'awaiting_approval';
+    output?: unknown;
+    startedAt?: string;
+    finishedAt?: string;
+    error?: string;
+    skillRunId?: number;
+  }>>().default({}),
+  /** Index of the current step (0-based). Null when completed/failed. */
+  currentStep: integer('current_step').default(0),
+  /** When paused, why — e.g. `awaiting_approval:step_name`. */
+  pauseReason: text('pause_reason'),
+  /** Set when pause happens, cleared on resume. */
+  pausedAt: timestamp('paused_at', { mode: 'date' }),
+  /** Error message if status=failed. */
+  error: text('error'),
+  /** Context SHA active when the run started — stamped for audit. */
+  contextSha: text('context_sha'),
+  createdBy: text('created_by'),
+  completedAt: timestamp('completed_at', { mode: 'date' }),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+});
+
+export const workflowRelations = relations(workflowSchema, ({ many }) => ({
+  runs: many(workflowRunSchema),
+}));
+
+export const workflowRunRelations = relations(workflowRunSchema, ({ one }) => ({
+  workflow: one(workflowSchema, {
+    fields: [workflowRunSchema.workflowId],
+    references: [workflowSchema.id],
+  }),
+}));
+
+/* ------------------------------------------------------------------ */
 /* Context Versioning — git-backed context-as-code audit trail        */
 /* ------------------------------------------------------------------ */
 
