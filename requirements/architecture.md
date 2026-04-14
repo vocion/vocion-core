@@ -1,125 +1,98 @@
 # Architecture
 
-## System Boundaries
+## System layers
 
 ```
-Customer Browser / API Client
-        │
-        ▼
-┌─────────────────────────────────┐
-│  CoreContext API Layer          │  ← Product boundary
-│  (Next.js App Router + oRPC)   │
-│                                 │
-│  Auth (Clerk) · RBAC · Audit   │
-│  Feedback · Usage · Routing    │
-└────────┬──────────┬────────────┘
-         │          │
-         ▼          ▼
-┌────────────┐ ┌──────────────┐
-│   Onyx     │ │  Temporal    │
-│            │ │              │
-│  Ingest    │ │  Workflows   │
-│  Retrieve  │ │  Approvals   │
-│  Search    │ │  Schedules   │
-│  Agents    │ │  Retries     │
-│  Actions   │ │  Events      │
-│  Citations │ │  Long jobs   │
-└────────────┘ └──────────────┘
-         │          │
-         ▼          ▼
-┌────────────────────────────────┐
-│  LangGraph                     │
-│  Multi-step reasoning          │
-│  Skill selection               │
-│  Stateful runs                 │
-│  Human-in-the-loop             │
-└────────────────────────────────┘
-         │
-         ▼
-┌────────────────────────────────┐
-│  Observability                 │
-│  OpenTelemetry + Langfuse      │
-│  Traces · Metrics · Evals     │
-└────────────────────────────────┘
-         │
-         ▼
-┌────────────────────────────────┐
-│  AWS Infrastructure            │
-│  Compute · Storage · Secrets   │
-│  Queues · Network              │
-└────────────────────────────────┘
+                     ┌─────────────────────────────────────────────────────┐
+                     │  Interfaces (channels)                              │
+                     │  Web UI · MCP (stdio) · ChatGPT · Slack · Teams · A2A │
+                     └─────────────────┬───────────────────────────────────┘
+                                       │
+                     ┌─────────────────▼───────────────────────────────────┐
+                     │  CoreContext Runtime                                │
+                     │  (Next.js App Router · oRPC · Postgres · Drizzle)   │
+                     │                                                     │
+                     │  Auth (Clerk) · RBAC · Audit · Review queue         │
+                     └──────┬────────────────┬──────────────┬──────────────┘
+                            │                │              │
+                  ┌─────────▼───────┐  ┌─────▼────┐  ┌─────▼──────────┐
+                  │  Context-as-code│  │ Plugins  │  │  Workflows     │
+                  │  agents/skills/ │  │ Skills + │  │  Sequential    │
+                  │  object types/  │  │ Sources  │  │  steps + HITL  │
+                  │  workflows      │  │ (npm)    │  │  approve gates │
+                  │  YAML + MD      │  │          │  │                │
+                  └─────────┬───────┘  └─────┬────┘  └─────┬──────────┘
+                            │                │              │
+                  ┌─────────▼────────────────▼──────────────▼──────────┐
+                  │  Service layer (TypeScript)                        │
+                  │  AgentService · SkillService · WorkflowService     │
+                  │  BusinessObjectService · ReviewQueue               │
+                  └────────────────┬─────────────────────────────┬─────┘
+                                   │                             │
+                       ┌───────────▼────────┐         ┌──────────▼─────────┐
+                       │  Retrieval         │         │  LLM providers     │
+                       │  Onyx today        │         │  OpenAI ✓          │
+                       │  pgvector + FTS    │         │  Anthropic ✓       │
+                       │  Vertex / Azure    │         │  Vertex (stub)     │
+                       │  Search (planned)  │         │  Azure-OpenAI(stub)│
+                       └────────────────────┘         └────────────────────┘
+                                   │                             │
+                       ┌───────────▼─────────────────────────────▼─────────┐
+                       │  Observability (OpenTelemetry + Langfuse)         │
+                       │  Spans · Metrics · LLM traces · Eval runs          │
+                       └────────────────────────────────────────────────────┘
 ```
 
-## Key Architecture Decisions
+## Key architecture decisions
 
-### CoreContext owns the agent orchestration loop (decided 2026-03-19)
-- CoreContext's LLM agent is the "brain" — it decides what to do, what tools to call, what skills to run
-- Onyx is demoted to a **retrieval tool** (`search_onyx`) — one capability among many, not the orchestrator
-- Chat requests go to a **CC agent endpoint** that has tools: `search_onyx`, `run_skill`, `create_object`, `present_for_approval`
-- This is the product differentiator: not better search, but understanding business context and taking action
-- **Rejected alternative:** Onyx MCP server (makes CC a plugin to Onyx's agent loop, not a product)
+### Context as code (decided 2026-04-14, shipped Phase 1)
 
-### Implementation phases for the agent layer
-1. **Sprint 2:** Simple CC router with tool calls — LLM with tools for search + skill execution (~100 lines)
-2. **Sprint 3:** LangGraph for multi-step flows — discovery → summary → email → approve
-3. **Sprint 4:** Temporal for scheduled/durable workflows — daily inbox scan, aging pipeline review
+Every agent / skill / object type / workflow lives in `context/<org>/` as YAML + markdown. The DB stores runtime state (skill runs, drafts, approvals) only. `context:apply` is idempotent + records a `context_version` row stamped on every subsequent `skill_run`. Six months later you can answer "which prompt produced this output?" with one SQL join + a `git show <sha>`.
 
-### Onyx is the retrieval substrate, not the product surface
-- All client requests go through CoreContext API
-- CoreContext API calls Onyx search/retrieval APIs as one tool among many
-- Onyx can be swapped without customer-facing changes
-- Onyx handles: document ingestion, chunking, embedding, hybrid search, citations
-- CoreContext handles: agent reasoning, skill execution, object mapping, approval, observability
+### CoreContext owns the orchestration loop
 
-### Three permission layers
-1. **Data visibility** - who can see which data
-2. **Skill/action execution** - who can run which skills and actions
-3. **Workflow approval** - who can approve which workflows
+The platform's runtime — agents, skills, workflows, review queue — is the product. Retrieval (Onyx today; pgvector next) is a tool, not the orchestrator. We do not build on top of vendor-managed agent frameworks (Vertex Agent Builder, Azure Foundry Prompt Flow); we wrap them as backends if customers need them.
 
-### Product-level RBAC in CoreContext, not Onyx
-- Onyx RBAC is enterprise-gated and limited
-- CoreContext maintains its own role/permission model
-- Onyx permissions are a secondary enforcement layer, not primary
+### Skills are dual-path (decided 2026-04-14, shipped Phase 3 v0.1)
 
-### Temporal for durability, LangGraph for reasoning
-- Temporal handles the operational side: retries, schedules, approvals, long jobs
-- LangGraph handles the cognitive side: multi-step reasoning, skill selection, memory
-- They compose: a Temporal workflow step can invoke a LangGraph agent run
+Skills come in two flavors:
 
-### Business object mapping lives in CoreContext
-- Onyx indexes documents; CoreContext maps business reality
-- Canonical objects (Account, Deal, Ticket, Project) span multiple source systems
-- Object mapping is the primary differentiator
+- **Prompt skills** — YAML manifest + `prompt.md` template. Generic prompt runner interpolates and calls the LLM.
+- **Plugin skills** — typed TypeScript modules implementing `Skill<Input, Output>`. Custom logic, multi-LLM-call, structured I/O.
 
-## Data Flow
+If both exist for the same slug, the plugin wins. Same `skill_run` table, same review queue, same audit trail.
 
-### Chat Flow (agent-first)
-1. User submits message via CoreContext Chat UI
-2. CoreContext API authenticates, checks permissions
-3. Message sent to **CC agent endpoint** — an LLM with tool definitions
-4. Agent reasons about intent and calls tools as needed:
-   - `search_onyx(query, filters)` — hybrid search over indexed documents
-   - `run_skill(slug, input)` — execute a CC skill (e.g. discovery_summary, draft_followup)
-   - `lookup_object(type, query)` — find business objects by type/metadata
-   - `create_object(type, data)` — create a new business object with linked documents
-   - `present_for_approval(content, type)` — queue output for human review
-5. Each tool call is traced in Langfuse (input, output, latency, model)
-6. Agent composes final response from tool results
-7. Response streamed to user with evidence panel + skill outputs + approval actions
-8. Logged to audit trail
+### Pluggable LLM provider (shipped Phase 3 v0.1)
 
-### Action Flow
-1. User triggers action from answer context or skill catalog
-2. CoreContext API checks action permissions
-3. If approval required, Temporal creates approval task
-4. On approval (or if none needed), CoreContext calls Onyx action or direct API
-5. Result logged to audit + run history
-6. User notified of outcome
+Each plugin skill declares `provider: openai | anthropic | vertex | azure-openai`. The runtime resolves a `LLMClient` per skill at execution time. Switching providers is a one-line manifest change; the skill code is unchanged.
 
-### Workflow Flow
-1. Trigger fires (manual, scheduled, event-driven)
-2. Temporal starts workflow execution
-3. Each step may invoke LangGraph for reasoning or Onyx for retrieval/action
-4. Human checkpoints pause for approval
-5. Run history and status visible in UI
-6. Completion triggers hooks/notifications
+### Workflows are sequential + pause-resumable (shipped Phase 7 work, pulled forward)
+
+Workflows compose skills with explicit `approve` gates. Step types: `skill`, `approve`, `action`. Triggers: `manual`, `event` (planned: `schedule`, `webhook`). Execution writes per-step state to `workflow_run.step_results`; on an approve step, the run pauses and any interface can resume it.
+
+### Multi-channel by design
+
+Skills, workflows, and the review queue are channel-agnostic. The same skill run started from Slack appears in the same review queue as one started in the web UI or via MCP from Claude Code. Adapters per channel (MCP shipped; ChatGPT/Slack/Teams/A2A queued) wrap the same service layer.
+
+### Open core, self-host friendly
+
+Apache 2.0 runtime. Postgres for state. Pluggable retrieval + LLM providers. No managed-only features in the core. MetaCTO Cloud (BSL → Apache after 4 years) and managed services exist alongside, never inside.
+
+## Boundaries
+
+| Concern | Where it lives |
+|---|---|
+| **What CoreContext knows** (prompts, skill defs, agent personas, schemas) | `context/<org>/` — git, applied to DB |
+| **What CoreContext did** (skill runs, workflow runs, drafts, approvals) | DB — append-only, audit-trail-friendly |
+| **Plugins** (typed code, packaged) | npm packages or local paths via `CORECONTEXT_PLUGINS` env |
+| **Secrets** (OAuth tokens, API keys) | `.env` + secret managers — never in context-as-code |
+| **Per-instance business data** (NINJIO Account row, specific discovery call) | DB business_object — runtime state, not config |
+
+## What's out of scope (today)
+
+- **Vendor agent frameworks as foundation** — Vertex Agent Builder, Foundry Prompt Flow. We wrap, don't depend.
+- **Tool calling in the generic LLM interface** — provider-specific shape divergence. Plugins reach for `ctx.openai` directly when needed.
+- **Plugin sandboxing** — plugins run in-process. v0.3 adds isolation for cloud-published third-party plugins.
+- **Streaming inside workflow steps** — workflows are step-grained; intra-step streaming uses the LLM client directly.
+
+See [`overview.md`](./overview.md) for product framing, [`tech-stack.md`](./tech-stack.md) for component choices, [`object-model.md`](./object-model.md) for the data model.
