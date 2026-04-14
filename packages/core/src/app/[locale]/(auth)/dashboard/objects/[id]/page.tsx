@@ -18,15 +18,6 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 
-const sourceConfig: Record<string, { color: string; bg: string; label: string }> = {
-  zoom: { color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200', label: 'Zoom' },
-  gmail: { color: 'text-red-700', bg: 'bg-red-50 border-red-200', label: 'Gmail' },
-  hubspot: { color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200', label: 'HubSpot' },
-  google_drive: { color: 'text-green-700', bg: 'bg-green-50 border-green-200', label: 'Google Drive' },
-  slack: { color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200', label: 'Slack' },
-  google_calendar: { color: 'text-cyan-700', bg: 'bg-cyan-50 border-cyan-200', label: 'Google Calendar' },
-};
-
 const roleLabels: Record<string, string> = {
   transcript: 'Transcript',
   recording: 'Recording',
@@ -140,44 +131,37 @@ export default async function ObjectDetailPage(props: {
               </Badge>
             </div>
             <div className="space-y-2">
-              {obj.documentLinks.map((link) => {
-                const src = sourceConfig[link.sourceType] ?? {
-                  color: 'text-gray-700',
-                  bg: 'bg-gray-50 border-gray-200',
-                  label: link.sourceType,
-                };
-                return (
-                  <div
-                    key={link.id}
-                    className={`flex items-center gap-3 rounded-md border p-3 ${src.bg}`}
-                  >
-                    <div className={`flex size-8 items-center justify-center rounded-md bg-white/80 ${src.color}`}>
-                      <FileText className="size-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className={`text-sm font-medium ${src.color}`}>
-                        {link.semanticIdentifier ?? link.onyxDocumentId}
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant="outline" className="text-[10px]">
-                          {src.label}
-                        </Badge>
-                        <span>{roleLabels[link.role] ?? link.role}</span>
-                      </div>
-                    </div>
-                    {link.link && (
-                      <a
-                        href={link.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-white/80 hover:text-foreground"
-                      >
-                        <ExternalLink className="size-4" />
-                      </a>
-                    )}
+              {obj.documentLinks.map(link => (
+                <div
+                  key={link.id}
+                  className="flex items-center gap-3 rounded-md border border-border bg-background p-3"
+                >
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                    <FileText className="size-4" />
                   </div>
-                );
-              })}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">
+                      {link.semanticIdentifier ?? link.onyxDocumentId}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline" className="font-mono text-[10px]">
+                        {link.sourceType}
+                      </Badge>
+                      <span>{roleLabels[link.role] ?? link.role}</span>
+                    </div>
+                  </div>
+                  {link.link && (
+                    <a
+                      href={link.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <ExternalLink className="size-4" />
+                    </a>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 
