@@ -7,15 +7,9 @@ import { Link } from '@/libs/I18nNavigation';
 import { listSkills } from '@/services/SkillService';
 
 const categoryIcons: Record<string, React.ReactNode> = {
-  query: <Search className="size-4" />,
-  mutation: <Send className="size-4" />,
-  composite: <Zap className="size-4" />,
-};
-
-const categoryLabels: Record<string, string> = {
-  query: 'Query',
-  mutation: 'Action',
-  composite: 'Composite',
+  query: <Search className="size-4 text-primary" />,
+  mutation: <Send className="size-4 text-primary" />,
+  composite: <Zap className="size-4 text-primary" />,
 };
 
 export default async function SkillsPage(props: {
@@ -26,113 +20,78 @@ export default async function SkillsPage(props: {
   const { orgId } = await auth();
 
   const skills = orgId ? await listSkills(orgId) : [];
-
-  const activeSkills = skills.filter(s => s.status === 'active');
-  const disabledSkills = skills.filter(s => s.status !== 'active');
+  const active = skills.filter(s => s.status === 'active');
+  const hitl = skills.filter(s => s.requiresApproval === 'true');
 
   return (
     <>
       <TitleBar
         title="Skills"
-        description="Configurable LLM-powered capabilities for your agents"
+        description="LLM-powered units of work with typed I/O, authored in context/<org>/skills/. Prompt or plugin form — same contract."
       />
 
-      {/* Stats */}
       <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4">
-        <div className="rounded-lg border border-border p-3 text-center">
-          <div className="text-xl font-bold">{skills.length}</div>
-          <div className="text-[11px] text-muted-foreground">Total Skills</div>
-        </div>
-        <div className="rounded-lg border border-border p-3 text-center">
-          <div className="text-xl font-bold text-green-600">{activeSkills.length}</div>
-          <div className="text-[11px] text-muted-foreground">Active</div>
-        </div>
-        <div className="rounded-lg border border-border p-3 text-center">
-          <div className="text-xl font-bold text-muted-foreground">{disabledSkills.length}</div>
-          <div className="text-[11px] text-muted-foreground">Planned</div>
-        </div>
-        <div className="hidden rounded-lg border border-border p-3 text-center sm:block">
-          <div className="text-xl font-bold">{skills.filter(s => s.requiresApproval === 'true').length}</div>
-          <div className="text-[11px] text-muted-foreground">Require HITL</div>
-        </div>
+        <Stat label="Total" value={skills.length} />
+        <Stat label="Active" value={active.length} />
+        <Stat label="Inactive" value={skills.length - active.length} />
+        <Stat label="Require HITL" value={hitl.length} />
       </div>
 
-      {/* Active Skills */}
-      {activeSkills.length > 0 && (
-        <div className="mb-6">
-          <div className="mb-3 text-sm font-semibold">Active Skills</div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {activeSkills.map(skill => (
-              <Link
-                key={skill.id}
-                href={`/dashboard/skills/${skill.slug}`}
-                className="rounded-lg border border-green-200 bg-green-50/30 p-4 transition-all hover:border-green-300 hover:shadow-sm dark:border-green-900 dark:bg-green-950/20"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+      {skills.length === 0
+        ? (
+            <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              No skills defined yet. Add to
+              {' '}
+              <code className="rounded bg-muted px-1 font-mono">context/&lt;org&gt;/skills/</code>
+              {' '}
+              and run
+              {' '}
+              <code className="rounded bg-muted px-1 font-mono">npm run context:apply</code>
+              .
+            </div>
+          )
+        : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {skills.map(skill => (
+                <Link
+                  key={skill.id}
+                  href={`/dashboard/skills/${skill.slug}`}
+                  className={`rounded-lg border border-border bg-background p-4 transition hover:border-primary/30 ${skill.status !== 'active' ? 'opacity-60' : ''}`}
+                >
+                  <div className="mb-2 flex items-center gap-2">
                     {categoryIcons[skill.category ?? 'query']}
-                    <span className="font-semibold">{skill.name}</span>
+                    <span className="text-sm font-medium">{skill.name}</span>
+                    <Badge variant={skill.status === 'active' ? 'default' : 'secondary'} className="ml-auto">{skill.status}</Badge>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    {skill.requiresApproval === 'true'
-                      ? <Badge variant="outline" className="text-[9px] text-amber-600">HITL</Badge>
-                      : <Badge variant="outline" className="text-[9px] text-green-600">Auto</Badge>}
-                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-medium text-green-800">Active</span>
+                  <div className="mb-2 font-mono text-[11px] text-muted-foreground">{skill.slug}</div>
+                  {skill.description && <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{skill.description}</p>}
+                  <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <span className="font-mono">{skill.model}</span>
+                    <span>·</span>
+                    <span>
+                      v
+                      {skill.version}
+                    </span>
+                    {skill.requiresApproval === 'true' && (
+                      <>
+                        <span>·</span>
+                        <Badge variant="outline" className="text-[10px]">HITL</Badge>
+                      </>
+                    )}
                   </div>
-                </div>
-                <div className="mt-2 text-sm text-muted-foreground">{skill.description}</div>
-                <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
-                  <span>
-                    Model:
-                    {skill.model}
-                  </span>
-                  <span>
-                    Temp:
-                    {skill.temperature}
-                  </span>
-                  <span>
-                    v
-                    {skill.version}
-                  </span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 font-medium">{categoryLabels[skill.category ?? 'query']}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Planned Skills */}
-      {disabledSkills.length > 0 && (
-        <div>
-          <div className="mb-3 text-sm font-semibold text-muted-foreground">Planned Skills</div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {disabledSkills.map(skill => (
-              <div
-                key={skill.id}
-                className="rounded-lg border border-border p-4 opacity-60"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {categoryIcons[skill.category ?? 'query']}
-                    <span className="font-medium">{skill.name}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {skill.requiresApproval === 'true'
-                      ? <Badge variant="outline" className="text-[9px] text-amber-600">HITL</Badge>
-                      : <Badge variant="outline" className="text-[9px] text-green-600">Auto</Badge>}
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[9px] font-medium text-muted-foreground">Planned</span>
-                  </div>
-                </div>
-                <div className="mt-2 text-sm text-muted-foreground">{skill.description}</div>
-                <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
-                  <span>{categoryLabels[skill.category ?? 'query']}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+                </Link>
+              ))}
+            </div>
+          )}
     </>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-border p-3 text-center">
+      <div className="text-xl font-bold">{value}</div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+    </div>
   );
 }
