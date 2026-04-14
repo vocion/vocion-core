@@ -236,7 +236,7 @@ Pull hardcoded client data out of the app into `context/<org>/` — YAML + markd
 
 ### Phase 2 — Universal Interface Layer (Q3 2026) — partial ✓
 
-Make CoreContext accessible from wherever you already work. Skills, context, and review queues are shared across channels.
+Make CoreContext accessible from wherever you already work. Skills, context, and review queues are shared across channels. *Channels* means both human-facing (Claude Code, Slack, ChatGPT, web) and agent-facing (A2A protocol for agent-to-agent handoff).
 
 - [x] **MCP server (stdio)** — Claude Code, Claude app, Cursor, Zed, Continue (shipped 2026-04-14)
 - [x] **Auto-apply + versioning** — MCP writes to `context/<org>/`, auto-commits, applies; every write creates a `context_version` row
@@ -245,8 +245,9 @@ Make CoreContext accessible from wherever you already work. Skills, context, and
 - [ ] **ChatGPT Actions + listed GPT** — OAuth, OpenAPI spec auto-generated from oRPC
 - [ ] **Slack bot** — slash commands, DMs, interactive approval messages
 - [ ] **Teams bot** — Bot Framework adapter
+- [ ] **A2A protocol server (inbound)** — serve our agents via Google's A2A spec + compatible emerging standards so Claude / ChatGPT / LangGraph / other-platform agents can hand off tasks to a CoreContext agent. Task lifecycle, capability discovery, auth.
 
-**Exit criteria:** Chris can build + modify Ziggy from Claude Code via MCP (done ✓). A skill run started in Slack shows up in the same review queue as one started in the web UI (pending Slack adapter).
+**Exit criteria:** Chris can build + modify Ziggy from Claude Code via MCP (done ✓). A skill run started in Slack shows up in the same review queue as one started in the web UI (pending Slack adapter). External agents can invoke a CoreContext agent via A2A and get a task id back.
 
 ### Phase 3 — Plugin SDK v1 (Q4 2026)
 
@@ -309,12 +310,13 @@ The magic moment. User connects sources, describes a workflow in natural languag
 - [x] **Workflow primitive** — trigger → steps → action, composes skills/objects (shipped 2026-04-14 — pulled forward)
 - [ ] **Meta-agent** — a special skill with write access to `context/<org>/`; takes NL intent, emits manifests, uses all the MCP write tools
 - [ ] **Event bus wiring** — workflow triggers: event, schedule, webhook (schema exists; bus doesn't)
+- [ ] **New workflow step type `agent_call` (outbound A2A)** — invoke an external A2A-speaking agent as a step; long-running tasks polled until complete; output flows to subsequent steps. Complements the Phase 2 inbound A2A server so workflows can orchestrate external agents, not just our own skills.
 - [ ] **Self-service OAuth** — users connect Gmail/HubSpot/DocuSign themselves (no admin config)
 - [ ] **Onboarding stepper** — connect → ingest → chat → build, with live progress
 - [ ] **Sample workflow library** — import templates (Ziggy-style skills as starting points)
 - [ ] **Preview-on-real-data** — "I just built this. Here's what it would do on your last 5 discovery calls. Keep?"
 
-**Exit criteria:** a prospect goes from cold to running their first AI workflow in under 10 minutes.
+**Exit criteria:** a prospect goes from cold to running their first AI workflow in under 10 minutes. Workflows can call external A2A agents alongside our own skills, making us orchestration-neutral.
 
 ### Phase 8 — OSS Launch + MetaCTO Cloud (Q1 2028)
 

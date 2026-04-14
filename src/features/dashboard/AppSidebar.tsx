@@ -3,6 +3,7 @@
 import { OrganizationSwitcher } from '@clerk/nextjs';
 import {
   Activity,
+  BookOpen,
   Bot,
   CheckSquare,
   CreditCard,
@@ -76,6 +77,11 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               title: 'Review Queue',
               url: '/dashboard/review',
               icon: CheckSquare,
+            },
+            {
+              title: 'Docs',
+              url: '/dashboard/docs',
+              icon: BookOpen,
             },
           ]}
         />
