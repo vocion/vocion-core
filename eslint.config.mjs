@@ -29,7 +29,7 @@ export default antfu(
 
     // Ignored paths
     ignores: [
-      'migrations/**/*',
+      'packages/core/migrations/**/*',
     ],
   },
   // --- Accessibility Rules ---
@@ -39,7 +39,7 @@ export default antfu(
   {
     settings: {
       tailwindcss: {
-        config: `${dirname(fileURLToPath(import.meta.url))}/src/styles/global.css`,
+        config: `${dirname(fileURLToPath(import.meta.url))}/packages/core/src/styles/global.css`,
       },
     },
   },
