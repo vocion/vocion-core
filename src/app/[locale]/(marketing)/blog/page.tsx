@@ -5,8 +5,8 @@ import { Footer } from '@/templates/Footer';
 import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
-  title: 'Blog — CoreContext',
-  description: 'Writing from the CoreContext team on AI operations, context-as-code, and the delivery of agentic workflows.',
+  title: 'Blog — Compiles.ai',
+  description: 'Writing from the Compiles.ai team on AI operations, context-as-code, and the delivery of agentic workflows.',
 };
 
 export default async function BlogPage(props: { params: Promise<{ locale: string }> }) {

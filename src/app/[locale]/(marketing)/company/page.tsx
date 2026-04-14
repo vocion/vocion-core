@@ -4,8 +4,8 @@ import { Footer } from '@/templates/Footer';
 import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
-  title: 'Company — CoreContext',
-  description: 'CoreContext is built by MetaCTO — a product engineering studio turning AI experiments into operational systems.',
+  title: 'Company — Compiles.ai',
+  description: 'Compiles.ai is built by MetaCTO — a product engineering studio turning AI experiments into operational systems.',
 };
 
 export default async function CompanyPage(props: { params: Promise<{ locale: string }> }) {
@@ -18,12 +18,12 @@ export default async function CompanyPage(props: { params: Promise<{ locale: str
       <div className="mx-auto max-w-3xl px-6 py-24">
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Company</h1>
         <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
-          CoreContext is built by
+          Compiles.ai is built by
           {' '}
           <strong className="text-foreground">MetaCTO</strong>
           {' '}
           — a product engineering studio
-          that turns AI experiments into operational systems. We dogfood CoreContext on our own sales pipeline and
+          that turns AI experiments into operational systems. We dogfood Compiles.ai on our own sales pipeline and
           customer accounts; the platform is what we needed to exist and decided to build.
         </p>
 
@@ -39,7 +39,7 @@ export default async function CompanyPage(props: { params: Promise<{ locale: str
             <h2 className="text-lg font-semibold">Why this exists</h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               Every engagement needed the same substrate: context as code, skills as plugins, workflows with humans in
-              the loop, one review queue. CoreContext is that substrate, open-sourced, so the work is portable and the
+              the loop, one review queue. Compiles.ai is that substrate, open-sourced, so the work is portable and the
               ecosystem can grow beyond one studio.
             </p>
           </div>
