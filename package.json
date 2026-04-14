@@ -1,5 +1,5 @@
 {
-  "name": "corecontext",
+  "name": "@compiles/core",
   "author": "Vocion (https://github.com/vocion)",
   "engines": {
     "node": ">=20"
