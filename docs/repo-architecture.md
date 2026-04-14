@@ -1,0 +1,152 @@
+# Repo Architecture
+
+Compiles is layered across four kinds of repos. Each layer has a clear job, ships independently, and pins the layer below it.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  client install repos                                     │
+│  pin core + plugin versions, mount client context,        │
+│  hold deploy config + secrets                             │
+│  e.g. acme-compiles · metacto-compiles                    │
+└──────────────────────────────────────────────────────────┘
+                            ▲
+                            │  uses
+┌──────────────────────────────────────────────────────────┐
+│  compiles-starter                                         │
+│  forkable example install. empty context, sample plugins, │
+│  docker-compose, "run in 10 minutes" focus                │
+└──────────────────────────────────────────────────────────┘
+                            ▲
+                            │  uses
+┌──────────────────────────────────────────────────────────┐
+│  @compiles/plugin-* (one repo each)                       │
+│  slack · gmail · hubspot · zoom · proposal-gamma · …      │
+│  independent semver, ship to npm                          │
+└──────────────────────────────────────────────────────────┘
+                            ▲
+                            │  imports
+┌──────────────────────────────────────────────────────────┐
+│  @compiles/sdk                                            │
+│  Skill · Source · PluginContext · PluginManifest          │
+│  the stable plugin contract. semver-pinned by core +      │
+│  every plugin.                                            │
+└──────────────────────────────────────────────────────────┘
+                            ▲
+                            │  re-exports + provides runtime
+┌──────────────────────────────────────────────────────────┐
+│  @compiles/core                                           │
+│  Next.js app + Postgres schema + service layer + MCP +    │
+│  workflow runner + review queue. the framework.           │
+└──────────────────────────────────────────────────────────┘
+```
+
+## What's a layer for
+
+| Layer | Purpose | Versioned how |
+|---|---|---|
+| **`@compiles/core`** | The runtime. Hosts skills + workflows + the dashboard. Apache 2.0. | semver. major bump = breaking SDK or schema change. |
+| **`@compiles/sdk`** | Stable plugin contract. Imported by core and by every plugin. | semver. core declares a `peerDependencies` range; every plugin declares the same. |
+| **`@compiles/plugin-*`** | Connectors + skills shipped as separate npm packages. Each in its own repo. | independent semver. plugin manifest declares a `coreVersion` range; loader checks at boot. |
+| **`compiles-starter`** | Forkable example app. The "I want to try this" entry point. | semver tracking the latest core minor. |
+| **`<client>-compiles`** | Real production install. Pins exact versions, mounts client context, holds deploy config + secrets. | calver or per-deployment tags, owner's call. |
+
+## Why layered
+
+Same reasons as Backstage, Logstash, Kong, OpenSearch:
+
+- **Independent release cadence.** Slack plugin can ship a fix today without waiting for core. Core can ship without breaking every plugin.
+- **Forkability.** A client install is a small repo that a non-core team can own. It depends on stable npm packages, not a sprawling monorepo they have to keep in sync.
+- **Ecosystem.** Anyone can publish `@your-org/compiles-plugin-thing`. The contract is stable; the fork tax is low.
+- **Audit + supply-chain.** Each repo has its own CI, signing, release notes. A vulnerability in one plugin doesn't force a core release.
+
+## Where things live today (Phase A — pre-extraction)
+
+We're in the **rename phase**. Logical structure is set; physical extraction is staged across phases:
+
+| Logical | Physical (today) | Becomes (Phase B/C) |
+|---|---|---|
+| `@compiles/core` | the root of this repo (`@compiles/core` in `package.json`) | same path, no move needed |
+| `@compiles/sdk` | `src/libs/plugins/` | extracted to `packages/sdk/` (Phase B), then own repo (Phase C) |
+| `@compiles/plugin-transcript-highlights` | `src/plugins/samples/transcript-highlights.ts` | `packages/plugins/transcript-highlights/` (Phase B), then own repo (Phase C) |
+| `compiles-starter` | does not exist yet | derived from a stripped fork of core (Phase C) |
+| `metacto-compiles` | `context/metacto/` + `docs/internal/case-studies/` | own repo at OSS launch (Phase C) |
+
+## Phasing
+
+### Phase A (in progress)
+
+Naming + docs only. Validates the model before mechanical changes.
+
+- [x] `package.json` `name` → `@compiles/core`
+- [x] env vars: `COMPILES_*` canonical, `CORECONTEXT_*` aliased for one release
+- [x] this doc + plugin authoring guide updated to reference the layered model
+- [ ] homepage copy updated to talk about Compiles Core / Plugins / Starter / Cloud
+
+### Phase B — workspace conversion (next)
+
+Restructure into npm workspaces in this repo. Lets us publish `@compiles/sdk` and one plugin as separate npm packages without yet committing to separate GitHub repos.
+
+```
+packages/
+├── core/                          # current src/, the Next.js app
+├── sdk/                           # extracted from src/libs/plugins/
+└── plugins/
+    └── transcript-highlights/     # extracted from src/plugins/samples/
+```
+
+### Phase C — split into separate repos
+
+Once workspaces are working, `git subtree split` each `packages/*` into its own GitHub repo. Replace workspace deps with npm version pins. Create `compiles-starter` and `metacto-compiles` from stripped copies. This is OSS-launch work (Phase 8 on the internal roadmap).
+
+## Compatibility model
+
+Each plugin declares two compatibility signals:
+
+1. **`peerDependencies` on `@compiles/sdk`** — npm-enforced at install time
+   ```json
+   { "peerDependencies": { "@compiles/sdk": "^1.0.0" } }
+   ```
+
+2. **`coreVersion` field in the plugin manifest** — runtime-enforced at boot
+   ```ts
+   export default {
+     id: 'acme.tools',
+     version: '1.2.0',
+     coreVersion: '>=1.4 <2',
+     skills: [/* ... */],
+   };
+   ```
+
+The loader checks `coreVersion` at boot. Mismatch → log warning + skip; hard break → refuse to load with a clear error.
+
+Pattern borrowed from Backstage (its `app-config.yaml` package versioning) and Logstash (its plugin gem dependency model).
+
+## Versioning rules
+
+| Change | Bump |
+|---|---|
+| New optional Skill manifest field | sdk: minor · core: minor |
+| Required Skill manifest field | sdk: major · core: major (peer range bump) |
+| Drizzle schema change requiring migration | core: minor (with migration) or major (if breaking api) |
+| New step type in workflow runner | core: minor |
+| Plugin loader API change | sdk: major |
+| New plugin internal logic | plugin: minor or patch |
+
+## Naming conventions
+
+| Thing | Format |
+|---|---|
+| Core npm package | `@compiles/core` |
+| SDK npm package | `@compiles/sdk` |
+| Built-in plugin npm package | `@compiles/plugin-<name>` |
+| Third-party plugin npm package | `@<org>/compiles-plugin-<name>` (recommended) |
+| GitHub repo (built-in plugin) | `compiles-plugin-<name>` |
+| Starter | `compiles-starter` |
+| Client install repo | `<client-slug>-compiles` |
+
+## Related
+
+- [`/docs/plugins.md`](./plugins.md) — plugin authoring guide
+- [`/docs/self-hosted.md`](./self-hosted.md) — install topology + deployment
+- [`/docs/mcp.md`](./mcp.md) — MCP server reference
+- [`/context/README.md`](../context/README.md) — context-as-code authoring

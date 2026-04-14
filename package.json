@@ -1,5 +1,5 @@
 {
-  "name": "corecontext",
+  "name": "@compiles/core",
   "author": "Ixartz (https://github.com/ixartz)",
   "engines": {
     "node": ">=20"
