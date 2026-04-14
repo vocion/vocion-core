@@ -1,3 +1,30 @@
+# CoreContext local dev stack — one entrypoint.
+#
+# Quick start:
+#   npm run dev:up         # brings up everything below + Onyx
+#   npm run dev:down       # tears it all down
+#
+# Or piecemeal:
+#   docker compose up -d                  # this file: app DB + platform (Langfuse + Temporal)
+#   npm run dev:onyx:up                   # 12-container Onyx retrieval stack (separate project)
+#
+# Ports surfaced on the host:
+#   :3000   Next.js app       (run with `npm run dev:next`)
+#   :5432   App Postgres
+#   :3200   Langfuse UI
+#   :8233   Temporal UI
+#   :7233   Temporal gRPC
+#   :4317   OTel Collector (gRPC)
+#   :4318   OTel Collector (HTTP)
+#   :3100   Onyx UI            (only when dev:onyx:up has run)
+#   :8080   Onyx API            (ditto)
+
+include:
+  # Langfuse (LLM observability) + Temporal (workflows) + OTel Collector.
+  # Lives in infra/ because the file is large; included here so a single
+  # `docker compose up` boots the platform alongside the app DB.
+  - infra/docker-compose.platform.yml
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,6 +38,11 @@ services:
       POSTGRES_DB: corecontext
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres -d corecontext]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   pgdata:
