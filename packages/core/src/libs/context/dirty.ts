@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
-import process from 'node:process';
+import { fromRepoRoot } from '@/libs/repo-root';
 import { getContextPath } from './reader';
 
 /**
@@ -21,7 +20,7 @@ export type ContextDirtyState = {
 
 export function getContextDirtyState(): ContextDirtyState {
   const contextPath = getContextPath();
-  const base = resolve(process.cwd(), contextPath);
+  const base = fromRepoRoot(contextPath);
 
   if (!existsSync(base)) {
     return { isGitRepo: false, dirty: false, changedFiles: [], error: `context path not found: ${contextPath}` };
