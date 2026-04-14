@@ -54,7 +54,7 @@ Pending for v0.2:
 
 - [ ] Extract to `@corecontext/sdk` npm package
 - [ ] Source contract (connectors)
-- [ ] Pluggable LLM provider (`openai | anthropic | vertex | azure-openai`)
+- [x] Pluggable LLM provider (`openai | anthropic | vertex | azure-openai`) — openai + anthropic shipped; vertex + azure-openai placeholders
 - [ ] Review UI components shipped via plugins
 - [ ] Eval harness wired to CI
 
@@ -76,16 +76,17 @@ _nothing — ready to start next_
 
 ## Queued
 
-- **Pluggable LLM provider on plugin skills** (small, high-leverage)
 - **Feedback + Self-Improvement Loop (new Phase 4)** — `skill_run.feedback` + `improve_skill` meta-skill proposing PR-style prompt diffs. Platform-wide. Unblocks every skill + agent.
 - **MCP HTTP + OAuth transport**
+- **Vertex + Azure-OpenAI LLM adapters** — placeholders exist; ship when an enterprise customer needs them
 - **ChatGPT Actions + GPT**
 - **Slack bot** (+ multi-workspace OAuth)
 - **Teams / Microsoft Graph source plugin** (Teams chats + calendar + mail + recordings)
+- **Event bus for workflow triggers** — enables event/schedule/webhook triggers (schema exists)
 
 ## Test + infra status
 
-- **51 tests** passing (12 test files): writer (6), auto-commit (5), MCP server (4), plugin loader (5), plugin executor (4), WorkflowService (9), existing services (18)
+- **65 tests** passing (14 test files): writer (6), auto-commit (5), MCP server (4), plugin loader (5), plugin executor (5), WorkflowService (9), LLM registry (7), LLM adapters (7), existing services (18)
 - Pre-commit hooks: lint + check-types + knip all green
 - `next build --turbopack` passes
 - Docker Postgres 16 on `:5432`; PGLite mock for unit tests
