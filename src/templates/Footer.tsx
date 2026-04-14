@@ -2,8 +2,7 @@ import { useTranslations } from 'next-intl';
 import { CenteredFooter } from '@/features/landing/CenteredFooter';
 import { Section } from '@/features/landing/Section';
 import { Link } from '@/libs/I18nNavigation';
-import { AppConfig } from '@/utils/AppConfig';
-import { Logo } from './Logo';
+import { CompilesLogo } from './CompilesLogo';
 
 export const Footer = () => {
   const t = useTranslations('Footer');
@@ -11,8 +10,8 @@ export const Footer = () => {
   return (
     <Section className="pt-0 pb-16">
       <CenteredFooter
-        logo={<Logo />}
-        name={AppConfig.name}
+        logo={<CompilesLogo />}
+        name="Compiles.ai"
         iconList={(
           <>
             <li>
@@ -84,23 +83,23 @@ export const Footer = () => {
         )}
       >
         <li>
-          <Link href="/sign-up">{t('product')}</Link>
+          <Link href="/solve">{t('product')}</Link>
         </li>
 
         <li>
-          <Link href="/sign-up">{t('docs')}</Link>
+          <Link href="/docs">{t('docs')}</Link>
         </li>
 
         <li>
-          <Link href="/sign-up">{t('blog')}</Link>
+          <Link href="/blog">{t('blog')}</Link>
         </li>
 
         <li>
-          <Link href="/sign-up">{t('community')}</Link>
+          <Link href="/use-cases">{t('community')}</Link>
         </li>
 
         <li>
-          <Link href="/sign-up">{t('company')}</Link>
+          <Link href="/company">{t('company')}</Link>
         </li>
       </CenteredFooter>
     </Section>
