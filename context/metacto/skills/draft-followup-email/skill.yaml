@@ -1,0 +1,28 @@
+slug: draft_followup_email
+name: Draft Follow-up Email
+description: Draft a capabilities follow-up email after a discovery call. Uses Chris's actual email voice, references relevant MetaCTO case studies, and includes the capabilities deck. Few-shot examples from real sent emails ensure consistent tone and structure.
+category: mutation
+status: active
+version: 2
+model: gpt-5.4
+temperature: '0.35'
+requiresApproval: true
+promptFile: prompt.md
+inputSchema:
+  type: object
+  required:
+    - discovery_summary
+    - prospect_name
+  properties:
+    sender_name:
+      type: string
+      description: 'Sender name (default: Chris)'
+    prospect_name:
+      type: string
+      description: Prospect first name
+    prospect_company:
+      type: string
+      description: Prospect company or project name
+    discovery_summary:
+      type: string
+      description: The structured discovery summary or call transcript context
