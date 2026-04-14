@@ -24,7 +24,6 @@ const config: KnipConfig = {
     'packages/core/src/components/DemoBadge.tsx',
     'packages/core/src/features/dashboard/ComingSoon.tsx',
     'packages/core/tests/**/*.ts',
-    'packages/core/.next/**',
     'packages/plugins/**/src/index.ts',
     'infra/onyx/onyx-repo/**',
   ],
