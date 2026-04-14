@@ -3,7 +3,9 @@ import { ArrowLeft, BookOpen, CheckCircle2, Clock, ExternalLink, Search, Send, S
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { readPrimitiveFiles } from '@/libs/context/reader';
 import { Link } from '@/libs/I18nNavigation';
 import { getSkill } from '@/services/SkillService';
 
@@ -27,6 +29,8 @@ export default async function SkillDetailPage(props: {
   if (!skill) {
     return notFound();
   }
+
+  const sourceFiles = readPrimitiveFiles('skill', slug);
 
   const inputSchema = skill.inputSchema as Record<string, unknown> | null;
   const properties = (inputSchema?.properties ?? {}) as Record<string, { type?: string; description?: string }>;
@@ -272,6 +276,13 @@ export default async function SkillDetailPage(props: {
           </div>
         </div>
       </div>
+
+      {sourceFiles && (
+        <section className="mt-8">
+          <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Source files</h2>
+          <PrimitiveFiles files={sourceFiles.files} editInGitPath={sourceFiles.editInGitPath} />
+        </section>
+      )}
     </>
   );
 }
