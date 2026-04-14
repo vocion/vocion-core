@@ -55,7 +55,7 @@ const STARTERS: Record<string, Starter> = {
   README.md`,
     demoFlow: [
       '/draft-followup @lead in Slack',
-      'CoreContext drafts the email',
+      'Compiles.ai drafts the email',
       'Posts a preview with Approve / Edit / Reject',
       'Approve → goes out via Gmail',
       'Audit trail visible at /dashboard/review',
@@ -73,7 +73,7 @@ const STARTERS: Record<string, Starter> = {
       'Confidence check — low confidence or refund detected → require approval',
       'Approved reply sent; everything logged',
     ],
-    whyItWorks: 'High-volume pain point, immediate workload reduction. Shows that CoreContext is not just text generation — it handles control flow + human review. Bonus: "Know exactly why the AI responded this way" from the audit trail.',
+    whyItWorks: 'High-volume pain point, immediate workload reduction. Shows that Compiles.ai is not just text generation — it handles control flow + human review. Bonus: "Know exactly why the AI responded this way" from the audit trail.',
     flow: [
       'Webhook from your help desk → workflow trigger',
       'summarize_ticket skill runs',
@@ -152,10 +152,10 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   const { slug } = await props.params;
   const s = STARTERS[slug];
   if (!s) {
-    return { title: 'Starter — CoreContext' };
+    return { title: 'Starter — Compiles.ai' };
   }
   return {
-    title: `${s.title} — CoreContext starter`,
+    title: `${s.title} — Compiles.ai starter`,
     description: s.positioning,
   };
 }
