@@ -208,6 +208,12 @@ export const skillRunSchema = pgTable('skill_run', {
   /** Who approved/rejected it */
   reviewedBy: text('reviewed_by'),
   reviewedAt: timestamp('reviewed_at', { mode: 'date' }),
+  /** Optional thumb up/down captured alongside approve/reject or later. */
+  rating: text('rating'),
+  /** Free-form note from the reviewer explaining the rating. */
+  feedbackNote: text('feedback_note'),
+  feedbackBy: text('feedback_by'),
+  feedbackAt: timestamp('feedback_at', { mode: 'date' }),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
 
@@ -354,6 +360,11 @@ export const workflowRunSchema = pgTable('workflow_run', {
   /** Context SHA active when the run started — stamped for audit. */
   contextSha: text('context_sha'),
   createdBy: text('created_by'),
+  /** Post-hoc feedback — thumb up/down + optional note. */
+  rating: text('rating'),
+  feedbackNote: text('feedback_note'),
+  feedbackBy: text('feedback_by'),
+  feedbackAt: timestamp('feedback_at', { mode: 'date' }),
   completedAt: timestamp('completed_at', { mode: 'date' }),
   updatedAt: timestamp('updated_at', { mode: 'date' })
     .defaultNow()

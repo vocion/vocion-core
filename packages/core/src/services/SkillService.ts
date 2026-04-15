@@ -270,17 +270,22 @@ async function upsertPluginSkillRow(orgId: string, plugin: AnySkill) {
  * @param opts.orgId
  * @param opts.status
  * @param opts.skillSlug
+ * @param opts.rating
  * @param opts.limit
  */
 export async function listSkillRuns(opts: {
   orgId: string;
   status?: 'pending' | 'approved' | 'rejected' | 'auto';
   skillSlug?: string;
+  rating?: 'up' | 'down';
   limit?: number;
 }): Promise<Array<typeof skillRunSchema.$inferSelect>> {
   const filters = [eq(skillRunSchema.orgId, opts.orgId)];
   if (opts.status) {
     filters.push(eq(skillRunSchema.status, opts.status));
+  }
+  if (opts.rating) {
+    filters.push(eq(skillRunSchema.rating, opts.rating));
   }
   if (opts.skillSlug) {
     const skill = await getSkill(opts.orgId, opts.skillSlug);
@@ -318,15 +323,45 @@ export async function getSkillRun(orgId: string, runId: number): Promise<typeof 
  * @param opts.runId
  * @param opts.reviewedBy
  */
-export async function approveSkillRun(opts: { orgId: string; runId: number; reviewedBy: string }): Promise<typeof skillRunSchema.$inferSelect | null> {
-  return transitionStatus(opts.orgId, opts.runId, 'approved', opts.reviewedBy);
+export type FeedbackInput = {
+  rating?: 'up' | 'down' | null;
+  note?: string | null;
+};
+
+export async function approveSkillRun(opts: { orgId: string; runId: number; reviewedBy: string; feedback?: FeedbackInput }): Promise<typeof skillRunSchema.$inferSelect | null> {
+  return transitionStatus(opts.orgId, opts.runId, 'approved', opts.reviewedBy, opts.feedback);
 }
 
-export async function rejectSkillRun(opts: { orgId: string; runId: number; reviewedBy: string; reason?: string }): Promise<typeof skillRunSchema.$inferSelect | null> {
-  return transitionStatus(opts.orgId, opts.runId, 'rejected', opts.reviewedBy);
+export async function rejectSkillRun(opts: { orgId: string; runId: number; reviewedBy: string; feedback?: FeedbackInput }): Promise<typeof skillRunSchema.$inferSelect | null> {
+  return transitionStatus(opts.orgId, opts.runId, 'rejected', opts.reviewedBy, opts.feedback);
 }
 
-async function transitionStatus(orgId: string, runId: number, to: 'approved' | 'rejected', reviewedBy: string) {
+/**
+ * Submit (or update) post-hoc feedback on any skill run — works after
+ * approve/reject, doesn't change status. Useful for "was this useful?"
+ * surveys or rating auto-run skills that never hit the review queue.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.submittedBy
+ * @param opts.rating
+ * @param opts.note
+ */
+export async function submitSkillRunFeedback(opts: { orgId: string; runId: number; submittedBy: string; rating?: 'up' | 'down' | null; note?: string | null }): Promise<typeof skillRunSchema.$inferSelect | null> {
+  const [updated] = await db
+    .update(skillRunSchema)
+    .set({
+      rating: opts.rating ?? null,
+      feedbackNote: opts.note ?? null,
+      feedbackBy: opts.submittedBy,
+      feedbackAt: new Date(),
+    })
+    .where(and(eq(skillRunSchema.id, opts.runId), eq(skillRunSchema.orgId, opts.orgId)))
+    .returning();
+  return updated ?? null;
+}
+
+async function transitionStatus(orgId: string, runId: number, to: 'approved' | 'rejected', reviewedBy: string, feedback?: FeedbackInput) {
   const current = await getSkillRun(orgId, runId);
   if (!current) {
     return null;
@@ -334,9 +369,22 @@ async function transitionStatus(orgId: string, runId: number, to: 'approved' | '
   if (current.status !== 'pending') {
     throw new Error(`run ${runId} is ${current.status}, only pending runs can be ${to}`);
   }
+  const now = new Date();
   const [updated] = await db
     .update(skillRunSchema)
-    .set({ status: to, reviewedBy, reviewedAt: new Date() })
+    .set({
+      status: to,
+      reviewedBy,
+      reviewedAt: now,
+      ...(feedback?.rating !== undefined || feedback?.note !== undefined
+        ? {
+            rating: feedback.rating ?? null,
+            feedbackNote: feedback.note ?? null,
+            feedbackBy: reviewedBy,
+            feedbackAt: now,
+          }
+        : {}),
+    })
     .where(and(eq(skillRunSchema.id, runId), eq(skillRunSchema.orgId, orgId)))
     .returning();
   return updated ?? null;
