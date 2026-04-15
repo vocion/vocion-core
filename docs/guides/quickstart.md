@@ -108,5 +108,5 @@ Now everything you author under `context/<your-org>/` is scoped to your Clerk or
 ## Next
 
 - [Authoring context](./authoring-context.md) — the full edit + apply loop
-- [Concepts](../concepts/) — read all five building blocks (~15 min, best ROI)
+- [Concepts](../concepts/) — read all five resources (~15 min, best ROI)
 - [Writing a plugin](./writing-a-plugin.md) — when a prompt skill isn't enough
