@@ -258,20 +258,35 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
             <code>
               {`context/<org>/
   sources/
-    hubspot/source.yaml
+    hubspot/
+      source.yaml
+      filters.yaml
+      README.md
   objects/
-    deal/type.yaml
+    deal/
+      type.yaml
+      classification-prompt.md
+      evals.yaml
   skills/
     draft_followup/
       skill.yaml
       prompt.md
+      evals.yaml
+      README.md
   workflows/
-    discovery_followup/workflow.yaml
+    discovery_followup/
+      workflow.yaml
+      evals.yaml
   agents/
-    ziggy.yaml
-    ziggy.system-prompt.md`}
+    ziggy/
+      agent.yaml
+      system-prompt.md
+      evals.yaml`}
             </code>
           </pre>
+          <p className="col-span-full mt-4 text-center text-xs text-muted-foreground/80 lg:col-start-2">
+            Same folder pattern across every building block: structured definition · LLM-facing content · evals · notes. Easy to author, easy to diff, easy to test.
+          </p>
         </section>
 
         {/* Operating flow */}

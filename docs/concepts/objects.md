@@ -8,9 +8,17 @@ An Object type declares a business entity once; every document that mentions it 
 
 Instances (e.g., "Acme Corp") live as rows in the `business_object` table, one per tenant, linked to documents in your Sources. An Agent asked "what's happening with Acme?" retrieves *the Acme Corp row*, not ten emails that all partially describe it.
 
-## Where it lives
+## Folder shape
 
-A type is authored in `context/<org>/objects/<slug>/type.yaml`:
+```
+context/<org>/objects/<slug>/
+├── type.yaml                   # structured definition (required)
+├── classification-prompt.md    # tells the classifier how to recognize this type (optional)
+├── evals.yaml                  # classification fixtures (recommended)
+└── README.md                   # optional — rationale, edge cases
+```
+
+### `type.yaml`
 
 ```yaml
 slug: deal
@@ -24,7 +32,13 @@ sourceRelevance:
   google_drive: 1.2
 ```
 
-With an optional `classification-prompt.md` that tells the classifier *how* to recognize this type of object in a document.
+### `classification-prompt.md`
+
+Optional. Tells the `classify_business_object` skill how to recognize *this kind* of object in a document. Free-form markdown — the LLM sees it verbatim.
+
+### `evals.yaml`
+
+Classification fixtures — document in, yes/no out, which instance it should link to. See [Evals](../guides/evals.md) for the full shape.
 
 ## Runtime
 
@@ -42,3 +56,4 @@ With an optional `classification-prompt.md` that tells the classifier *how* to r
 
 - [Authoring context](../guides/authoring-context.md) — the editor + apply cycle
 - [Skills](./skills.md) — the LLM-powered capabilities that read and mutate Objects
+- [Evals](../guides/evals.md) — classification fixtures
