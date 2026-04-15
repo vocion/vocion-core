@@ -8,6 +8,7 @@ model: gpt-5.4
 temperature: '0.35'
 requiresApproval: true
 promptFile: prompt.md
+scriptFile: postprocess.js
 inputSchema:
   type: object
   required:

@@ -3,8 +3,10 @@ import { ArrowLeft, Search, Send, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { PrimitiveActivity } from '@/features/dashboard/PrimitiveActivity';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { getSkillActivity } from '@/libs/activity';
 import { getContextDirtyState } from '@/libs/context/dirty';
 import { readPrimitiveFiles } from '@/libs/context/reader';
 import { Link } from '@/libs/I18nNavigation';
@@ -33,6 +35,7 @@ export default async function SkillDetailPage(props: {
 
   const sourceFiles = readPrimitiveFiles('skill', slug);
   const dirtyState = getContextDirtyState();
+  const activity = await getSkillActivity(orgId, slug);
 
   const inputSchema = skill.inputSchema as Record<string, unknown> | null;
   const properties = (inputSchema?.properties ?? {}) as Record<string, { type?: string; description?: string }>;
@@ -75,6 +78,8 @@ export default async function SkillDetailPage(props: {
         <Config label="Category" value={skill.category ?? 'query'} />
         <Config label="Version" value={`v${skill.version}`} />
       </div>
+
+      <PrimitiveActivity kind="skill" slug={slug} {...activity} />
 
       {Object.keys(properties).length > 0 && (
         <section className="mb-6 rounded-lg border border-border bg-background p-4">

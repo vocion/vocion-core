@@ -3,8 +3,10 @@ import { ArrowLeft, GitBranch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { PrimitiveActivity } from '@/features/dashboard/PrimitiveActivity';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { getWorkflowActivity } from '@/libs/activity';
 import { getContextDirtyState } from '@/libs/context/dirty';
 import { readPrimitiveFiles } from '@/libs/context/reader';
 import { Link } from '@/libs/I18nNavigation';
@@ -27,6 +29,7 @@ export default async function WorkflowDetailPage(props: {
 
   const sourceFiles = readPrimitiveFiles('workflow', slug);
   const dirtyState = getContextDirtyState();
+  const activity = await getWorkflowActivity(orgId, slug);
 
   return (
     <>
@@ -61,6 +64,8 @@ export default async function WorkflowDetailPage(props: {
         )}
         description={workflow.description}
       />
+
+      <PrimitiveActivity kind="workflow" slug={slug} {...activity} />
 
       <div className="mb-6 rounded-lg border border-border bg-background p-4">
         <div className="mb-3 text-sm font-semibold">Steps</div>
