@@ -31,7 +31,7 @@ Define:
 - Approval boundaries (which actions need approval, by whom)
 - Auth mode per connector (shared auth vs per-user auth)
 
-Onyx actions support both shared auth and per-user auth. CoreContext's policy layer decides what is allowed for whom.
+Onyx actions support both shared auth and per-user auth. Vocion's policy layer decides what is allowed for whom.
 
 ## 4. Object Mapping
 

@@ -1,6 +1,6 @@
-# CoreContext Platform Requirements
+# Vocion Platform Requirements
 
-Platform-level specs — what CoreContext *is*. Architecture, object model, surfaces, RBAC. Generic to the runtime; these docs travel with the open-source product.
+Platform-level specs — what Vocion *is*. Architecture, object model, surfaces, RBAC. Generic to the runtime; these docs travel with the open-source product.
 
 | File | Description |
 |---|---|
