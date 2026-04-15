@@ -70,7 +70,7 @@ Every invocation:
 2. Renders the prompt / runs the code in a Langfuse-traced span.
 3. Validates `output`, writes a `skill_run` row with the `context_sha` stamped in.
 4. If `requiresApproval: true`, the run lands in the Review Queue before any downstream action.
-5. Captures rating + note (optional) at review or post-hoc — see [feedback + audit](../guides/feedback-and-audit.md).
+5. Captures rating + note (optional) at review or post-hoc — see [feedback + audit](../guides/feedback-and-logs.md).
 
 ## Connection to other resources
 
@@ -83,4 +83,4 @@ Every invocation:
 - [Authoring context](../guides/authoring-context.md) — the edit + apply cycle for prompt skills
 - [Writing a plugin](../guides/writing-a-plugin.md) — shipping a Skill as an npm package
 - [Evals](../guides/evals.md) — fixtures + CI regression gating
-- [Feedback + audit](../guides/feedback-and-audit.md) — ratings, the improvement loop
+- [Feedback + audit](../guides/feedback-and-logs.md) — ratings, the improvement loop

@@ -32,8 +32,8 @@ export default async function AuditPage(props: {
   if (!orgId) {
     return (
       <>
-        <TitleBar title="Audit" description="Every run, approval, and rating — scoped to this tenant." />
-        <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">Sign in to view the audit timeline.</div>
+        <TitleBar title="Logs" description="Every run, approval, and rating — scoped to this tenant." />
+        <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">Sign in to view the logs.</div>
       </>
     );
   }
@@ -120,7 +120,7 @@ export default async function AuditPage(props: {
   return (
     <>
       <TitleBar
-        title="Audit"
+        title="Logs"
         description="Every run, approval, and rating — scoped to this tenant. Each row traces to the exact context SHA that produced it."
       />
 
@@ -133,18 +133,18 @@ export default async function AuditPage(props: {
 
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground">Filter:</span>
-        <FilterPill href="/dashboard/audit" active={!kindFilter && !statusFilter && !ratingFilter}>All</FilterPill>
-        <FilterPill href="/dashboard/audit?kind=skill" active={kindFilter === 'skill'}>Skills</FilterPill>
-        <FilterPill href="/dashboard/audit?kind=workflow" active={kindFilter === 'workflow'}>Workflows</FilterPill>
+        <FilterPill href="/dashboard/logs" active={!kindFilter && !statusFilter && !ratingFilter}>All</FilterPill>
+        <FilterPill href="/dashboard/logs?kind=skill" active={kindFilter === 'skill'}>Skills</FilterPill>
+        <FilterPill href="/dashboard/logs?kind=workflow" active={kindFilter === 'workflow'}>Workflows</FilterPill>
         <span className="mx-1 text-muted-foreground/40">·</span>
-        <FilterPill href="/dashboard/audit?status=approved" active={statusFilter === 'approved'}>Approved</FilterPill>
-        <FilterPill href="/dashboard/audit?status=rejected" active={statusFilter === 'rejected'}>Rejected</FilterPill>
-        <FilterPill href="/dashboard/audit?status=pending" active={statusFilter === 'pending'}>Pending</FilterPill>
-        <FilterPill href="/dashboard/audit?status=completed" active={statusFilter === 'completed'}>Completed</FilterPill>
-        <FilterPill href="/dashboard/audit?status=failed" active={statusFilter === 'failed'}>Failed</FilterPill>
+        <FilterPill href="/dashboard/logs?status=approved" active={statusFilter === 'approved'}>Approved</FilterPill>
+        <FilterPill href="/dashboard/logs?status=rejected" active={statusFilter === 'rejected'}>Rejected</FilterPill>
+        <FilterPill href="/dashboard/logs?status=pending" active={statusFilter === 'pending'}>Pending</FilterPill>
+        <FilterPill href="/dashboard/logs?status=completed" active={statusFilter === 'completed'}>Completed</FilterPill>
+        <FilterPill href="/dashboard/logs?status=failed" active={statusFilter === 'failed'}>Failed</FilterPill>
         <span className="mx-1 text-muted-foreground/40">·</span>
-        <FilterPill href="/dashboard/audit?rating=up" active={ratingFilter === 'up'}>👍</FilterPill>
-        <FilterPill href="/dashboard/audit?rating=down" active={ratingFilter === 'down'}>👎</FilterPill>
+        <FilterPill href="/dashboard/logs?rating=up" active={ratingFilter === 'up'}>👍</FilterPill>
+        <FilterPill href="/dashboard/logs?rating=down" active={ratingFilter === 'down'}>👎</FilterPill>
       </div>
 
       {rows.length === 0
