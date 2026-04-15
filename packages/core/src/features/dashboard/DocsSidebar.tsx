@@ -11,16 +11,20 @@ type Props = {
 /**
  * Parent-child relationships between groups — used to render child
  * groups indented under their parent's section header instead of as
- * their own top-level nav block.
+ * their own top-level nav block. Supports arbitrary nesting depth.
  */
 const PARENT_OF: Record<string, string> = {
-  'docs/internal/case-studies': 'docs/internal',
+  'docs/internal/use-cases': 'docs/internal',
+  'docs/internal/use-cases/case-studies': 'docs/internal/use-cases',
+  'docs/internal/use-cases/case-studies/ziggy': 'docs/internal/use-cases/case-studies',
+  'docs/internal/use-cases/case-studies/algren': 'docs/internal/use-cases/case-studies',
 };
 
 /**
  * Left-rail nav for the docs viewer. Top-level groups get a section
- * header; child groups (e.g. `case-studies` under `docs/internal`) get
- * an indented subheader under their parent instead of a separate block.
+ * header; child groups render indented under their parent's block.
+ * Recurses so grandchildren (e.g. per-agent case-study folders) nest
+ * properly under their case-studies parent.
  * @param root0
  * @param root0.entries
  * @param root0.currentSlug
@@ -29,48 +33,74 @@ const PARENT_OF: Record<string, string> = {
 export function DocsSidebar({ entries, currentSlug, publicBasePath = '/dashboard/docs' }: Props) {
   const groups = groupBy(entries);
   const groupMap = new Map(groups);
-  const renderedAsChild = new Set(Object.keys(PARENT_OF));
+  const topLevelGroups = groups
+    .map(([g]) => g)
+    .filter(g => !(g in PARENT_OF) || !groupMap.has(PARENT_OF[g]!));
 
   return (
     <nav className="space-y-6 text-sm">
-      {groups
-        .filter(([group]) => !renderedAsChild.has(group) || !groupMap.has(PARENT_OF[group]!))
-        .map(([group, items]) => {
-          const childGroups = Object.entries(PARENT_OF)
-            .filter(([, parent]) => parent === group)
-            .map(([child]) => child)
-            .filter(child => groupMap.has(child));
-
-          return (
-            <div key={group}>
-              <div className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                {labelFor(group)}
-              </div>
-              <ul className="space-y-0.5">
-                {items.map(entry => (
-                  <li key={entry.path}>
-                    <DocLink entry={entry} currentSlug={currentSlug} publicBasePath={publicBasePath} />
-                  </li>
-                ))}
-              </ul>
-              {childGroups.map(child => (
-                <div key={child} className="mt-3 border-l border-border/60 pl-3">
-                  <div className="mb-1.5 text-[10px] font-semibold tracking-wide text-muted-foreground/70 uppercase">
-                    {labelFor(child)}
-                  </div>
-                  <ul className="space-y-0.5">
-                    {(groupMap.get(child) ?? []).map(entry => (
-                      <li key={entry.path}>
-                        <DocLink entry={entry} currentSlug={currentSlug} publicBasePath={publicBasePath} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          );
-        })}
+      {topLevelGroups.map(group => (
+        <GroupBlock
+          key={group}
+          group={group}
+          groupMap={groupMap}
+          currentSlug={currentSlug}
+          publicBasePath={publicBasePath}
+          depth={0}
+        />
+      ))}
     </nav>
+  );
+}
+
+function GroupBlock({
+  group,
+  groupMap,
+  currentSlug,
+  publicBasePath,
+  depth,
+}: {
+  group: string;
+  groupMap: Map<string, DocEntry[]>;
+  currentSlug: string;
+  publicBasePath: string;
+  depth: number;
+}) {
+  const items = groupMap.get(group) ?? [];
+  const children = Object.entries(PARENT_OF)
+    .filter(([, parent]) => parent === group)
+    .map(([child]) => child)
+    .filter(child => groupMap.has(child));
+
+  const headingClass = depth === 0
+    ? 'mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground'
+    : 'mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70';
+
+  const wrapperClass = depth === 0 ? '' : 'mt-3 border-l border-border/60 pl-3';
+
+  return (
+    <div className={wrapperClass}>
+      <div className={headingClass}>{labelFor(group)}</div>
+      {items.length > 0 && (
+        <ul className="space-y-0.5">
+          {items.map(entry => (
+            <li key={entry.path}>
+              <DocLink entry={entry} currentSlug={currentSlug} publicBasePath={publicBasePath} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {children.map(child => (
+        <GroupBlock
+          key={child}
+          group={child}
+          groupMap={groupMap}
+          currentSlug={currentSlug}
+          publicBasePath={publicBasePath}
+          depth={depth + 1}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -111,7 +141,10 @@ function labelFor(group: string): string {
     case 'docs': return 'Overview';
     case 'requirements': return 'Platform spec';
     case 'docs/internal': return 'Roadmap & ops';
-    case 'docs/internal/case-studies': return 'Case studies';
+    case 'docs/internal/use-cases': return 'Use cases';
+    case 'docs/internal/use-cases/case-studies': return 'Case studies';
+    case 'docs/internal/use-cases/case-studies/ziggy': return 'Ziggy — sales ops';
+    case 'docs/internal/use-cases/case-studies/algren': return 'Algren — customer account';
     default: return group;
   }
 }
