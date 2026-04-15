@@ -1,8 +1,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { and, desc, eq } from 'drizzle-orm';
-import { ExternalLink, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
+import { FeedbackButtons } from '@/features/dashboard/FeedbackButtons';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
@@ -179,8 +180,7 @@ export default async function AuditPage(props: {
                         <StatusBadge status={r.status} />
                       </td>
                       <td className="px-3 py-2">
-                        {r.rating === 'up' && <ThumbsUp className="size-3.5 text-primary" />}
-                        {r.rating === 'down' && <ThumbsDown className="size-3.5 text-destructive" />}
+                        <FeedbackButtons runId={r.id} kind={r.kind} initialRating={r.rating} compact />
                       </td>
                       <td className="px-3 py-2 font-mono text-muted-foreground">
                         {r.contextSha ? r.contextSha.slice(0, 7) : '—'}

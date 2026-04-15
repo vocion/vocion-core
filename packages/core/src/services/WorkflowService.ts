@@ -404,6 +404,30 @@ export async function listWorkflows(orgId: string) {
   return db.select().from(workflowSchema).where(eq(workflowSchema.orgId, orgId));
 }
 
+/**
+ * Submit (or update) post-hoc feedback on a workflow run. Works on any
+ * status — the feedback columns are independent of lifecycle state.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.submittedBy
+ * @param opts.rating
+ * @param opts.note
+ */
+export async function submitWorkflowRunFeedback(opts: { orgId: string; runId: number; submittedBy: string; rating?: 'up' | 'down' | null; note?: string | null }): Promise<typeof workflowRunSchema.$inferSelect | null> {
+  const [updated] = await db
+    .update(workflowRunSchema)
+    .set({
+      rating: opts.rating ?? null,
+      feedbackNote: opts.note ?? null,
+      feedbackBy: opts.submittedBy,
+      feedbackAt: new Date(),
+    })
+    .where(and(eq(workflowRunSchema.id, opts.runId), eq(workflowRunSchema.orgId, opts.orgId)))
+    .returning();
+  return updated ?? null;
+}
+
 export async function getWorkflow(orgId: string, slug: string): Promise<WorkflowManifest | null> {
   const [row] = await db.select().from(workflowSchema).where(and(eq(workflowSchema.orgId, orgId), eq(workflowSchema.slug, slug)));
   if (!row) {
