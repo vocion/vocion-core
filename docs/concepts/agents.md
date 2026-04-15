@@ -45,7 +45,7 @@ A user message routes to the Agent's `chat.completions` call with:
 
 The Agent decides whether to answer directly, call a Skill, or start a Workflow. Every decision is a Langfuse trace; every Skill run stamps the active context SHA.
 
-## Connection to other primitives
+## Connection to other building blocks
 
 - **[Skills](./skills.md)** — the Agent's tools
 - **[Workflows](./workflows.md)** — multi-step procedures the Agent can trigger

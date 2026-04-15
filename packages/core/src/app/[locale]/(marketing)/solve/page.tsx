@@ -7,11 +7,11 @@ import { Footer } from '@/templates/Footer';
 import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
-  title: 'Vocion — five primitives for production AI workflows',
+  title: 'Vocion — five building blocks for production AI workflows',
   description: 'Open framework for AI systems that hold up in production: context as code, typed plugins, human review, and full audit trails. Apache 2.0, self-hostable.',
 };
 
-const primitives = [
+const blocks = [
   {
     icon: Plug,
     name: 'Source',
@@ -43,7 +43,7 @@ const principles = [
   {
     icon: GitBranch,
     title: 'Context as code',
-    body: 'Every primitive lives in git as YAML + markdown. Review changes with PRs, not screenshots and guesswork.',
+    body: 'Every building block lives in git as YAML + markdown. Review changes with PRs, not screenshots and guesswork.',
   },
   {
     icon: ShieldCheck,
@@ -107,7 +107,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
           </div>
 
           <h1 className="mt-6 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-            Five primitives for production AI workflows.
+            Five building blocks for production AI workflows.
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground">
@@ -129,16 +129,16 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
           </div>
         </section>
 
-        {/* The five primitives — the spine of the product */}
+        {/* The five building blocks — the spine of the product */}
         <section className="mt-24">
           <div className="text-center">
-            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Five primitives. Everything else is runtime.</h2>
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Five building blocks. Everything else is runtime.</h2>
             <p className="mx-auto mt-3 max-w-2xl text-base text-muted-foreground">
               Read all five and you understand Vocion. They're the only things you author — every skill run, workflow, and agent decision composes from them.
             </p>
           </div>
           <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            {primitives.map((p) => {
+            {blocks.map((p) => {
               const Icon = p.icon;
               return (
                 <Link
@@ -165,7 +165,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
               Most teams ship AI by stitching prompts into app code, bots, and internal tools. Then things drift. Nobody knows what changed. Outputs are hard to explain. Approvals happen in DMs. Every interface has its own copy of the logic.
             </p>
             <p>
-              Vocion gives you one runtime for AI work that needs to survive production — same primitives from CLI to Slack to your own app, with a review queue and an audit trail underneath everything.
+              Vocion gives you one runtime for AI work that needs to survive production — same building blocks from CLI to Slack to your own app, with a review queue and an audit trail underneath everything.
             </p>
           </div>
         </section>
