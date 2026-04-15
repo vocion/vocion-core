@@ -46,6 +46,25 @@ export type DocEntry = {
  */
 type DocsKind = 'public' | 'roadmap' | 'all';
 
+/**
+ * Three entry-point docs are consolidated into a single "Get started"
+ * block at the top of the sidebar: the repo README (what is Vocion),
+ * the docs index (how these docs are organized), and the quickstart
+ * (zero → first skill run in 10 min). Order is preserved via
+ * GET_STARTED_PRIORITY.
+ */
+const GET_STARTED_PATHS = new Set([
+  'README.md',
+  'docs/README.md',
+  'docs/guides/quickstart.md',
+]);
+
+const GET_STARTED_PRIORITY: Record<string, number> = {
+  'README.md': 0,
+  'docs/README.md': 1,
+  'docs/guides/quickstart.md': 2,
+};
+
 export function listDocs(opts: { kind?: DocsKind; publicOnly?: boolean } = {}): DocEntry[] {
   const kind: DocsKind = opts.kind ?? (opts.publicOnly ? 'public' : 'all');
 
@@ -81,6 +100,11 @@ export function listDocs(opts: { kind?: DocsKind; publicOnly?: boolean } = {}): 
   return entries.sort((a, b) => {
     if (a.group !== b.group) {
       return orderOf(a.group) - orderOf(b.group);
+    }
+    // 'get-started' entries have a hand-picked ordering so they read
+    // "Vocion → Docs overview → Quickstart" regardless of path sort.
+    if (a.group === 'get-started') {
+      return (GET_STARTED_PRIORITY[a.path] ?? 99) - (GET_STARTED_PRIORITY[b.path] ?? 99);
     }
     return a.path.localeCompare(b.path);
   });
@@ -168,6 +192,9 @@ function readTitle(abs: string, fallback: string): string {
 }
 
 function groupFor(rel: string): string {
+  if (GET_STARTED_PATHS.has(rel)) {
+    return 'get-started';
+  }
   if (rel.startsWith('docs/internal/case-studies/')) {
     return 'docs/internal/case-studies';
   }
@@ -193,12 +220,13 @@ function groupFor(rel: string): string {
 }
 
 const GROUP_ORDER = [
-  'root',
-  'docs',
+  'get-started',
   'docs/concepts',
   'docs/guides',
   'docs/api',
   'docs/reference',
+  'root',
+  'docs',
   'requirements',
   'docs/internal',
   'docs/internal/case-studies',
