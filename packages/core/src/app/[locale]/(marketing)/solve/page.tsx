@@ -7,7 +7,7 @@ import { Footer } from '@/templates/Footer';
 import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
-  title: 'Compiles.ai — five primitives for production AI workflows',
+  title: 'Vocion — five primitives for production AI workflows',
   description: 'Open framework for AI systems that hold up in production: context as code, typed plugins, human review, and full audit trails. Apache 2.0, self-hostable.',
 };
 
@@ -111,7 +111,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
           </h1>
 
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            Compiles is an open framework for teams that need AI to hold up in production — versioned context, typed plugins, human review, and a complete audit trail, reachable from every interface you already use.
+            Vocion is an open framework for teams that need AI to hold up in production — versioned context, typed plugins, human review, and a complete audit trail, reachable from every interface you already use.
           </p>
 
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
@@ -122,7 +122,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
             <Link href="/docs" className={buttonVariants({ size: 'lg', variant: 'outline' })}>
               Read the docs
             </Link>
-            <a href="https://github.com/compiles-ai/compiles-core" target="_blank" rel="noreferrer" className={buttonVariants({ size: 'lg', variant: 'ghost' })}>
+            <a href="https://github.com/vocion/core" target="_blank" rel="noreferrer" className={buttonVariants({ size: 'lg', variant: 'ghost' })}>
               <Github className="mr-2 size-4" />
               Source
             </a>
@@ -134,7 +134,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
           <div className="text-center">
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Five primitives. Everything else is runtime.</h2>
             <p className="mx-auto mt-3 max-w-2xl text-base text-muted-foreground">
-              Read all five and you understand Compiles. They're the only things you author — every skill run, workflow, and agent decision composes from them.
+              Read all five and you understand Vocion. They're the only things you author — every skill run, workflow, and agent decision composes from them.
             </p>
           </div>
           <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -165,7 +165,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
               Most teams ship AI by stitching prompts into app code, bots, and internal tools. Then things drift. Nobody knows what changed. Outputs are hard to explain. Approvals happen in DMs. Every interface has its own copy of the logic.
             </p>
             <p>
-              Compiles gives you one runtime for AI work that needs to survive production — same primitives from CLI to Slack to your own app, with a review queue and an audit trail underneath everything.
+              Vocion gives you one runtime for AI work that needs to survive production — same primitives from CLI to Slack to your own app, with a review queue and an audit trail underneath everything.
             </p>
           </div>
         </section>
@@ -244,7 +244,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
             <p className="mt-4 text-base leading-relaxed text-muted-foreground">
               Start with prompt-defined skills in YAML + markdown. Promote to typed plugins via
               {' '}
-              <code className="rounded bg-muted px-1 font-mono text-sm">@compiles/sdk</code>
+              <code className="rounded bg-muted px-1 font-mono text-sm">@vocion/sdk</code>
               {' '}
               when the logic gets complex. No migration; same slug, same history, cleaner upgrade path.
             </p>
@@ -291,13 +291,13 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
         <section className="mt-24 rounded-2xl border border-border bg-muted/30 p-8 sm:p-12">
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Open core by default.</h2>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted-foreground">
-            Compiles is Apache 2.0 and designed to run on your infrastructure. Use your own model providers, retrieval stack, and deployment setup. Add managed services only if and when you want them.
+            Vocion is Apache 2.0 and designed to run on your infrastructure. Use your own model providers, retrieval stack, and deployment setup. Add managed services only if and when you want them.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/docs/docs/guides/self-hosting" className={buttonVariants({ variant: 'outline' })}>
               Self-host guide
             </Link>
-            <a href="https://github.com/compiles-ai/compiles-core" target="_blank" rel="noreferrer" className={buttonVariants({ variant: 'outline' })}>
+            <a href="https://github.com/vocion/core" target="_blank" rel="noreferrer" className={buttonVariants({ variant: 'outline' })}>
               <Github className="mr-2 size-4" />
               View source
             </a>
@@ -310,7 +310,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
             <div>
               <h2 className="text-lg font-semibold">Need help shipping it in a real business?</h2>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                MetaCTO uses Compiles to design and deploy production AI workflows for operating teams, support orgs, and internal platforms. If you want help implementing, hosting, or customizing it, work with the team behind the platform.
+                MetaCTO uses Vocion to design and deploy production AI workflows for operating teams, support orgs, and internal platforms. If you want help implementing, hosting, or customizing it, work with the team behind the platform.
               </p>
             </div>
             <div className="flex gap-2">

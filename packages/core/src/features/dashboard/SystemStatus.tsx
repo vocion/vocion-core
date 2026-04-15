@@ -212,11 +212,11 @@ export const SystemStatus = () => {
           </div>
         </div>
 
-        {/* Compiles.ai DB */}
+        {/* Vocion DB */}
         <div className="rounded-lg border border-border p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
             <Database className="size-4" />
-            Compiles.ai Database
+            Vocion Database
           </div>
           <div className="space-y-1">
             {Object.entries(data.db).map(([k, v]) => (
@@ -286,7 +286,7 @@ export const SystemStatus = () => {
         <div className="mb-3 text-sm font-semibold">Platform Links</div>
         <div className="flex flex-wrap gap-2">
           {[
-            { label: 'Compiles.ai', url: 'http://localhost:3000' },
+            { label: 'Vocion', url: 'http://localhost:3000' },
             { label: 'Onyx Admin', url: 'http://localhost:3100' },
             { label: 'Onyx API Docs', url: 'http://localhost:8080/api/docs' },
             { label: 'Langfuse', url: 'http://localhost:3200' },

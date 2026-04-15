@@ -1,11 +1,11 @@
 # Skills
 
-> A **Skill** is a single LLM-powered unit of work with typed input and output. It's the smallest composable capability in Compiles.
+> A **Skill** is a single LLM-powered unit of work with typed input and output. It's the smallest composable capability in Vocion.
 
 Skills come in two forms:
 
 1. **Prompt skills** — a YAML manifest + a `prompt.md` template. Authored in `context/<org>/skills/`. Runs the template through an LLM, returns a string (or structured JSON if the prompt asks for it).
-2. **Plugin skills** — a TypeScript module implementing the `Skill<Input, Output>` contract from `@compiles/sdk`. Can do anything a TS module can: multi-pass LLM, chunking, external API calls, deterministic post-processing.
+2. **Plugin skills** — a TypeScript module implementing the `Skill<Input, Output>` contract from `@vocion/sdk`. Can do anything a TS module can: multi-pass LLM, chunking, external API calls, deterministic post-processing.
 
 Both kinds register the same slug; the runtime picks whichever exists. Plugins win ties (so a partner can upgrade a prompt-only skill to code-powered without migration).
 

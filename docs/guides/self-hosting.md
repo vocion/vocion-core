@@ -1,19 +1,19 @@
 # Self-Hosted Installation
 
-Runtime is Apache 2.0. These are the steps for standing up Compiles Core on your own infrastructure — local dev, a single VPS, or a Kubernetes cluster. Same codebase, same data model, same MCP surface as Compiles Cloud.
+Runtime is Apache 2.0. These are the steps for standing up Vocion on your own infrastructure — local dev, a single VPS, or a Kubernetes cluster. Same codebase, same data model, same MCP surface as Vocion Cloud.
 
-If you'd rather we run it for you, see [Compiles Cloud](https://www.metacto.com).
+If you'd rather we run it for you, see [Vocion Cloud](https://www.metacto.com).
 
 ## Install topology
 
-Compiles is layered. You'll touch up to four kinds of repos:
+Vocion is layered. You'll touch up to four kinds of repos:
 
 ```
-@compiles/core ─────►  framework + dashboard + Postgres schema   (this repo)
-@compiles/sdk ──────►  plugin contract                           (npm package)
-@compiles/plugin-* ─►  plugins, one per repo                     (npm packages)
-compiles-starter ───►  forkable example install                  (separate repo)
-<client>-compiles ──►  your production install                   (you own this)
+@vocion/core ─────►  framework + dashboard + Postgres schema   (this repo)
+@vocion/sdk ──────►  plugin contract                           (npm package)
+@vocion/plugin-* ─►  plugins, one per repo                     (npm packages)
+vocion-starter ───►  forkable example install                  (separate repo)
+<client>-vocion ──►  your production install                   (you own this)
 ```
 
 For local dev (this guide), you only need core + whatever plugins you want. Full layering doc: [`./repo-architecture.md`](./repo-architecture.md).
@@ -81,9 +81,9 @@ Full list lives in `.env.example`. The essential ones:
 | `ANTHROPIC_API_KEY` | Enables skills with `provider: anthropic` |
 | `ONYX_API_URL` + `ONYX_API_KEY` | Retrieval backend (until Phase 5 native pgvector lands) |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | LLM observability |
-| `COMPILES_ORG_ID` | Default org for MCP server (otherwise uses Clerk session) |
+| `VOCION_ORG_ID` | Default org for MCP server (otherwise uses Clerk session) |
 | `CONTEXT_PATH` | Path to context directory. Default `context/metacto` |
-| `COMPILES_PLUGINS` | Comma-separated plugin specifiers — npm packages or local paths |
+| `VOCION_PLUGINS` | Comma-separated plugin specifiers — npm packages or local paths |
 
 ### Optional
 
@@ -152,7 +152,7 @@ See [`context/README.md`](../context/README.md) for authoring.
 
 ## LLM providers
 
-Compiles Core supports multiple LLM hosts; each plugin skill picks one via the `provider` field. **Set at least one provider's API key** — `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` — or skill execution will throw on first invocation.
+Vocion supports multiple LLM hosts; each plugin skill picks one via the `provider` field. **Set at least one provider's API key** — `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` — or skill execution will throw on first invocation.
 
 Full provider table + per-skill manifest example: [`plugins.md` → Pluggable LLM provider](./plugins.md#pluggable-llm-provider). The platform never silently falls back to a default; missing creds throw with a clear message.
 
@@ -175,7 +175,7 @@ Or add to `.mcp.json`:
       "command": "npm",
       "args": ["--prefix", "/abs/path", "run", "mcp:serve"],
       "env": {
-        "COMPILES_ORG_ID": "org_...",
+        "VOCION_ORG_ID": "org_...",
         "OPENAI_API_KEY": "sk-..."
       }
     }
@@ -189,10 +189,10 @@ Point any stdio-capable client at `tsx src/interfaces/mcp/bin.ts`. See [MCP refe
 
 ## Plugins
 
-Plugins are npm packages (or local paths) that register additional skills. Install via the `COMPILES_PLUGINS` env var:
+Plugins are npm packages (or local paths) that register additional skills. Install via the `VOCION_PLUGINS` env var:
 
 ```bash
-export COMPILES_PLUGINS=@acme/plugin-a,./local-plugins/my-skill.ts
+export VOCION_PLUGINS=@acme/plugin-a,./local-plugins/my-skill.ts
 npm run mcp:serve
 ```
 
@@ -239,16 +239,16 @@ Back up Postgres. That's where every skill run, approval decision, context versi
 
 ## Multi-tenant setup
 
-Out of the box, Compiles Core is multi-tenant — each Clerk organization is its own tenant. Rows are scoped by `org_id` via Clerk auth guards, and each org has its own `context/<org>/` directory applied independently.
+Out of the box, Vocion is multi-tenant — each Clerk organization is its own tenant. Rows are scoped by `org_id` via Clerk auth guards, and each org has its own `context/<org>/` directory applied independently.
 
 To onboard a new tenant:
 
 1. Create the Clerk organization
 2. Create `context/<new-org>/context.yaml` + empty subdirectories
-3. `CONTEXT_PATH=context/<new-org> COMPILES_ORG_ID=<clerk-org-id> npm run context:apply`
+3. `CONTEXT_PATH=context/<new-org> VOCION_ORG_ID=<clerk-org-id> npm run context:apply`
 4. (Optional) seed objects via scripts or admin UI
 
-Each tenant can have its own plugins enabled via `COMPILES_PLUGINS` — if you're running multi-tenant from one process, list the union. Per-tenant plugin enablement is planned for Phase 3 v0.3.
+Each tenant can have its own plugins enabled via `VOCION_PLUGINS` — if you're running multi-tenant from one process, list the union. Per-tenant plugin enablement is planned for Phase 3 v0.3.
 
 ## Observability
 
@@ -280,7 +280,7 @@ Your `CONTEXT_PATH` is wrong or `context/<org>/context.yaml` is missing. The loa
 Env not getting loaded. If running via `npm run mcp:serve`, the `dotenv -c --` prefix should handle it. Direct `tsx src/interfaces/mcp/bin.ts` requires the env already exported.
 
 **Plugin loader errors on first boot.**
-The specifier in `COMPILES_PLUGINS` must resolve as a Node ES module — either an npm package name or an absolute/relative path to a `.js`, `.mjs`, or `.ts` file. The loader logs every failure + still starts with whatever did load.
+The specifier in `VOCION_PLUGINS` must resolve as a Node ES module — either an npm package name or an absolute/relative path to a `.js`, `.mjs`, or `.ts` file. The loader logs every failure + still starts with whatever did load.
 
 **Workflows get stuck at "paused".**
 Paused workflows are waiting for approval. Visit `/dashboard/review` or call `workflow_run_resume` via MCP.

@@ -11,8 +11,8 @@ Zero to your first skill run in 10 minutes.
 ## 1. Clone + install
 
 ```bash
-git clone <your-compiles-core-url>
-cd compiles-core
+git clone <your-vocion-core-url>
+cd vocion-core
 npm install
 ```
 
@@ -25,7 +25,7 @@ cp packages/core/.env.example packages/core/.env.local
 Edit `packages/core/.env.local` — at minimum:
 
 ```bash
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/compiles
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/vocion
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
 CLERK_SECRET_KEY=sk_test_...
 OPENAI_API_KEY=sk-...
@@ -100,7 +100,7 @@ EOF
 Point the runtime at it:
 
 ```bash
-CONTEXT_PATH=context/<your-org> COMPILES_ORG_ID=<clerk-org-id> npm run context:apply
+CONTEXT_PATH=context/<your-org> VOCION_ORG_ID=<clerk-org-id> npm run context:apply
 ```
 
 Now everything you author under `context/<your-org>/` is scoped to your Clerk organization. When you're ready to split it into its own git repo, see [extract-tenant.md](./extract-tenant.md).

@@ -7,7 +7,7 @@ import type { LLMClient, LLMProviderName } from './llm';
  *
  * A plugin is a typed, distributable unit of capability. v0.1 covers Skills
  * (input → work → output); v0.2 adds Sources (data ingestion + connector auth)
- * and a separate `@corecontext/sdk` package. For now the types live in-tree
+ * and a separate `@vocion/sdk` package. For now the types live in-tree
  * so we can iterate without npm publishing friction.
  *
  * Two kinds of "skills" coexist:

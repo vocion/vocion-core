@@ -165,7 +165,7 @@ async function getDbStats(): Promise<Record<string, unknown>> {
       objects: objects.length,
     };
   } catch {
-    return { error: 'Could not connect to Compiles.ai DB' };
+    return { error: 'Could not connect to Vocion DB' };
   }
 }
 
@@ -184,7 +184,7 @@ export async function GET() {
       checkService('Langfuse', 'http://localhost:3200/api/public/health', 'http://localhost:3200'),
       checkService('Temporal UI', 'http://localhost:8233', 'http://localhost:8233'),
       checkTcpService('Redis (Onyx)', 'onyx-stack-cache-1', 'localhost', 6380, ''),
-      checkService('Compiles.ai App', 'http://localhost:3000', 'http://localhost:3000'),
+      checkService('Vocion App', 'http://localhost:3000', 'http://localhost:3000'),
     ]),
     getVespaStats(),
     getOnyxConnectorStats(),

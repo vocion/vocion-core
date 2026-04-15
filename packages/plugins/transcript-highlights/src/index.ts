@@ -1,5 +1,5 @@
-import type { PluginManifest } from '@compiles/sdk';
-import { defineSkill } from '@compiles/sdk';
+import type { PluginManifest } from '@vocion/sdk';
+import { defineSkill } from '@vocion/sdk';
 import { z } from 'zod';
 
 /**

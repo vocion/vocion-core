@@ -1217,7 +1217,7 @@ export const AskChat = () => {
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Error: Could not connect to Compiles.ai. Is Onyx running?',
+        content: 'Error: Could not connect to Vocion. Is Onyx running?',
       }]);
     } finally {
       setLoading(false);

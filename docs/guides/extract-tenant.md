@@ -1,6 +1,6 @@
 # Extracting a tenant context repo
 
-Compiles is designed so every tenant's authored content — Sources, Objects, Skills, Workflows, Agents — lives in a **separate git repo** (a "tenant context repo" or `<client>-compiles`). Core runs the platform; the context repo holds the work.
+Vocion is designed so every tenant's authored content — Sources, Objects, Skills, Workflows, Agents — lives in a **separate git repo** (a "tenant context repo" or `<client>-vocion`). Core runs the platform; the context repo holds the work.
 
 During early dev, a tenant's content typically lives alongside core in `context/<org>/` for convenience. When you're ready to split it out (phase C — OSS launch, or earlier for client separation), this doc walks through the extraction.
 
@@ -31,8 +31,8 @@ Core is tenant-agnostic by design. Points of contact:
 | Signal | Default | Override |
 |---|---|---|
 | `CONTEXT_PATH` env var | `context/metacto` | Any path (absolute or relative) |
-| `COMPILES_ORG_NAME` env var | `metacto` | Your tenant slug |
-| `COMPILES_ORG_ID` env var | (from Clerk session) | Clerk org id for MCP or scripts |
+| `VOCION_ORG_NAME` env var | `metacto` | Your tenant slug |
+| `VOCION_ORG_ID` env var | (from Clerk session) | Clerk org id for MCP or scripts |
 
 No core code references `metacto` except as a default; change the env vars and everything re-points.
 
@@ -43,7 +43,7 @@ Assumes tenant content today lives at `context/metacto/` in this repo.
 ### 1. Split the history
 
 ```bash
-# From compiles-core repo root
+# From vocion-core repo root
 git subtree split --prefix=context/metacto -b metacto-split
 ```
 
@@ -53,26 +53,26 @@ This creates a local branch `metacto-split` containing only the commits that tou
 
 ```bash
 # Create the new GitHub repo (private or public)
-gh repo create compiles-ai/metacto-compiles --private --description "MetaCTO tenant context for Compiles"
+gh repo create vocion/metacto-vocion --private --description "MetaCTO tenant context for Vocion"
 
 # Push the split branch as main
-git push git@github.com:compiles-ai/metacto-compiles.git metacto-split:main
+git push git@github.com:vocion/metacto-vocion.git metacto-split:main
 ```
 
 ### 3. Clone + layout the new repo
 
 ```bash
-git clone git@github.com:compiles-ai/metacto-compiles.git
-cd metacto-compiles
+git clone git@github.com:vocion/metacto-vocion.git
+cd metacto-vocion
 
 # The split landed everything at root — no context/metacto/ prefix anymore.
-# Optional: add a README + .gitignore + CI + a Compiles version pin.
+# Optional: add a README + .gitignore + CI + a Vocion version pin.
 ```
 
 Typical tenant repo layout after the split:
 
 ```
-metacto-compiles/
+metacto-vocion/
 ├── README.md
 ├── context.yaml
 ├── sources/
@@ -87,8 +87,8 @@ metacto-compiles/
 In the core install (local dev or production), update `.env.local`:
 
 ```bash
-CONTEXT_PATH=/absolute/path/to/metacto-compiles
-COMPILES_ORG_NAME=metacto
+CONTEXT_PATH=/absolute/path/to/metacto-vocion
+VOCION_ORG_NAME=metacto
 ```
 
 Then:
@@ -102,7 +102,7 @@ Same behavior, content now version-controlled separately.
 ### 5. Clean up the core repo
 
 ```bash
-# From compiles-core
+# From vocion-core
 git rm -r context/metacto
 git commit -m "chore: extract metacto tenant to its own repo"
 git push
@@ -118,7 +118,7 @@ The tenant repo becomes the source of truth. Core is the runtime.
 
 ## Versioning + drift
 
-- Tenant repo pins a compatible `@compiles/core` range in its `context.yaml`:
+- Tenant repo pins a compatible `@vocion/core` range in its `context.yaml`:
   ```yaml
   coreVersion: '>=0.1 <1.0'
   ```
@@ -129,8 +129,8 @@ The tenant repo becomes the source of truth. Core is the runtime.
 
 Core is multi-tenant out of the box. To onboard a second tenant:
 
-1. Create `<other>-compiles` repo (same layout).
-2. Set `CONTEXT_PATH=/path/to/<other>-compiles` + `COMPILES_ORG_NAME=<other>` + `COMPILES_ORG_ID=<clerk-org-id>`.
+1. Create `<other>-vocion` repo (same layout).
+2. Set `CONTEXT_PATH=/path/to/<other>-vocion` + `VOCION_ORG_NAME=<other>` + `VOCION_ORG_ID=<clerk-org-id>`.
 3. `npm run context:apply` — each tenant's rows are scoped by `org_id` automatically.
 
 Running two tenants from one process today means setting those env vars in the invoking shell (MCP session, cron, script). Per-request tenant switching (cloud-style) lands in Phase 3 v0.3.
