@@ -6,6 +6,7 @@ import {
   getWorkflowRun,
   listWorkflowRuns,
   resumeWorkflow,
+  submitWorkflowRunFeedback,
 } from '@/services/WorkflowService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -38,6 +39,7 @@ const ApproveInput = z.object({
 });
 const FeedbackInput = z.object({
   id: z.number().int().positive(),
+  kind: z.enum(['skill', 'workflow']).default('skill'),
   rating: z.enum(['up', 'down']).nullable().optional(),
   note: z.string().optional(),
 });
@@ -94,7 +96,8 @@ export const submitFeedback = os
   .input(FeedbackInput)
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
-    const run = await submitSkillRunFeedback({
+    const submit = input.kind === 'workflow' ? submitWorkflowRunFeedback : submitSkillRunFeedback;
+    const run = await submit({
       orgId,
       runId: input.id,
       submittedBy: 'web',

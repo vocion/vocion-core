@@ -68,7 +68,12 @@ async function runPostprocessScript(
     throw new Error(`scriptFile not found: ${relPath}`);
   }
 
-  const mod = await import(/* @vite-ignore */ `file://${absPath}?t=${Date.now()}`) as { default?: (output: unknown, input: Record<string, unknown>, ctx: { orgId: string; skillSlug: string; userId?: string }) => unknown };
+  // Opt out of bundler static analysis — this is a runtime file:// import
+  // of an untracked user script, not a dependency. Turbopack honors
+  // `turbopackIgnore`; webpack honors `webpackIgnore`. Both need to be
+  // present or a Next build blows up with "can't resolve <dynamic>".
+  const url = `file://${absPath}?t=${Date.now()}`;
+  const mod = await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ url) as { default?: (output: unknown, input: Record<string, unknown>, ctx: { orgId: string; skillSlug: string; userId?: string }) => unknown };
   const fn = mod.default;
   if (typeof fn !== 'function') {
     throw new TypeError(`scriptFile ${relPath} must have a default export function`);

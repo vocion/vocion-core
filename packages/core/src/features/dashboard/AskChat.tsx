@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import { Badge } from '@/components/ui/badge';
 import { ContextMenu } from '@/features/dashboard/ContextMenu';
 import { EmailDraftCard } from '@/features/dashboard/EmailDraftCard';
+import { FeedbackButtons } from '@/features/dashboard/FeedbackButtons';
 import { ProposalCard } from '@/features/dashboard/ProposalCard';
 
 type OnyxDocument = {
@@ -1583,6 +1584,10 @@ export const AskChat = () => {
                                     prospectCompany={sr.prospectCompany}
                                   />
                                 )}
+                            <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                              <span>Rate this output:</span>
+                              <FeedbackButtons runId={sr.runId} kind="skill" compact />
+                            </div>
                           </div>
                         ))}
                       </>
@@ -1741,6 +1746,10 @@ export const AskChat = () => {
                             prospectCompany={sr.prospectCompany}
                           />
                         )}
+                    <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span>Rate this output:</span>
+                      <FeedbackButtons runId={sr.runId} kind="skill" compact />
+                    </div>
                   </div>
                 ))}
 
