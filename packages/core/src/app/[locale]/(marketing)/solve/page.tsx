@@ -52,7 +52,7 @@ const flow = [
   { n: '02', title: 'Apply', body: 'Reconcile authored context into the runtime and stamp a new context version.' },
   { n: '03', title: 'Run', body: 'Trigger from web, Slack, Teams, CLI, your app, or a scheduled workflow.' },
   { n: '04', title: 'Review', body: 'Drafts and paused workflows land in one queue. Approve, reject, revise, resume.' },
-  { n: '05', title: 'Audit', body: 'Trace any output back to the exact context version, inputs, retrieval hits, and runtime path that produced it.' },
+  { n: '05', title: 'Log', body: 'Trace any output back to the exact context version, inputs, retrieval hits, and runtime path that produced it.' },
 ];
 
 const sources = ['Gmail', 'HubSpot', 'Zoom', 'Slack', 'Postgres', 'Stripe', 'Zendesk', 'Google Drive', 'Notion', 'Salesforce', 'Custom REST', 'Webhooks'];
