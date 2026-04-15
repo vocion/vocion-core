@@ -60,7 +60,7 @@ The Agent decides whether to answer directly, call a Skill, or start a Workflow.
 
 Chat responses can be rated (👍/👎) inline — see [feedback + audit](../guides/feedback-and-audit.md).
 
-## Connection to other building blocks
+## Connection to other resources
 
 - **[Skills](./skills.md)** — the Agent's tools
 - **[Workflows](./workflows.md)** — multi-step procedures the Agent can trigger

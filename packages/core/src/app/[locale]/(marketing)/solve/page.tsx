@@ -142,10 +142,10 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
         {/* Core idea */}
         <section className="mt-28">
           <div className="text-center">
-            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Five building blocks to author AI work.</h2>
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Five resources to author AI work.</h2>
             <h2 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">One runtime to operate it.</h2>
             <p className="mx-auto mt-5 max-w-2xl text-base text-muted-foreground">
-              Vocion stays small on purpose. These five building blocks are the authoring surface. Everything else is runtime.
+              Vocion stays small on purpose. These five resources are the authoring surface. Everything else is runtime.
             </p>
           </div>
           <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -236,7 +236,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
           <div>
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Review changes in PRs, not screenshots.</h2>
             <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-              Every building block lives in git as YAML and markdown.
+              Every resource lives in git as YAML and markdown.
             </p>
             <ol className="mt-6 space-y-1.5 text-sm">
               <li>
@@ -285,7 +285,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
             </code>
           </pre>
           <p className="col-span-full mt-4 text-center text-xs text-muted-foreground/80 lg:col-start-2">
-            Same folder pattern across every building block: structured definition · LLM-facing content · evals · notes. Easy to author, easy to diff, easy to test.
+            Same folder pattern across every resource: structured definition · LLM-facing content · evals · notes. Easy to author, easy to diff, easy to test.
           </p>
         </section>
 

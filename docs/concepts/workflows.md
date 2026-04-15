@@ -67,7 +67,7 @@ Start a workflow → steps execute sequentially → on `approve` step, run pause
 
 Every run is query-able by status, rating, context SHA — see the [audit timeline](../guides/feedback-and-audit.md).
 
-## Connection to other building blocks
+## Connection to other resources
 
 - **[Skills](./skills.md)** — every `skill` step invokes one
 - **[Agents](./agents.md)** — an Agent often kicks off a Workflow rather than running a one-shot skill
