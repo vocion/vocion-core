@@ -30,7 +30,7 @@ Everything here is live on `main`.
 ### Feedback + audit loop (capture side)
 - [x] `skill_run` + `workflow_run` schema: `rating`, `feedbackNote`, `feedbackBy`, `feedbackAt`
 - [x] Review queue captures rating + note on approve/reject
-- [x] `/dashboard/audit` — browsable timeline, filter by kind/status/rating
+- [x] `/dashboard/logs` — browsable timeline, filter by kind/status/rating
 - [x] Inline `FeedbackButtons` in audit rows + every chat skill-run output
 - [x] `POST /api/v1/runs/:id/feedback` endpoint (idempotent)
 

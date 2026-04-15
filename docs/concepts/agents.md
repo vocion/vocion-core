@@ -58,7 +58,7 @@ A user message routes to the Agent's `chat.completions` call with:
 
 The Agent decides whether to answer directly, call a Skill, or start a Workflow. Every decision is a Langfuse trace; every Skill run stamps the active context SHA.
 
-Chat responses can be rated (👍/👎) inline — see [feedback + audit](../guides/feedback-and-audit.md).
+Chat responses can be rated (👍/👎) inline — see [feedback + audit](../guides/feedback-and-logs.md).
 
 ## Connection to other resources
 
@@ -71,4 +71,4 @@ Chat responses can be rated (👍/👎) inline — see [feedback + audit](../gui
 - [Quickstart](../guides/quickstart.md) — talk to an Agent
 - [Authoring context](../guides/authoring-context.md) — tweaking the system prompt
 - [Evals](../guides/evals.md) — conversation-level regression tests
-- [Feedback + audit](../guides/feedback-and-audit.md) — rating agent answers
+- [Feedback + audit](../guides/feedback-and-logs.md) — rating agent answers

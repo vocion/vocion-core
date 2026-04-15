@@ -1,4 +1,4 @@
-# Feedback + audit
+# Feedback + logs
 
 Every run — skill or workflow — records:
 
@@ -8,7 +8,7 @@ Every run — skill or workflow — records:
 - Who created it, who reviewed it
 - **Rating** (👍 / 👎) + **note**, captured during review or post-hoc
 
-That's the feedback loop. Ratings flow into improvement workflows; the audit timeline makes every decision inspectable.
+That's the feedback loop. Ratings flow into improvement workflows; the logs view makes every decision inspectable.
 
 ## Capturing feedback
 
@@ -37,9 +37,9 @@ Same endpoint for down-ratings: `{"rating":"down","note":"..."}`. Passing `"rati
 
 Post-hoc feedback is idempotent — posting the same body twice is a no-op. The `feedbackAt` timestamp updates on each call.
 
-## Audit timeline
+## Logs view
 
-`/dashboard/audit` lists every run in reverse-chronological order for the current tenant. Columns: when, kind (skill/workflow), slug, status, rating, context SHA, who triggered it, link to the primitive drilldown.
+`/dashboard/logs` lists every run in reverse-chronological order for the current tenant. Columns: when, kind (skill/workflow), slug, status, rating, context SHA, who triggered it, link to the primitive drilldown.
 
 Filters (via URL params, all stackable):
 
