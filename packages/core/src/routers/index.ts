@@ -20,6 +20,7 @@ import {
   listWorkflowRunsRoute,
   reject,
   resume,
+  submitFeedback,
 } from './Review';
 
 export const router = {
@@ -43,6 +44,7 @@ export const router = {
     getSkillRun: getRun,
     approveSkillRun: approve,
     rejectSkillRun: reject,
+    submitFeedback,
     listWorkflowRuns: listWorkflowRunsRoute,
     getWorkflowRun: getWorkflowRunRoute,
     resumeWorkflow: resume,
