@@ -1,10 +1,10 @@
 # Plugin SDK (v0.1)
 
-Plugins are the executable counterpart to context-as-code. A **prompt skill** (Phase 1) is YAML + `prompt.md` — Compiles Core runs the LLM for you. A **plugin skill** (Phase 3) is a typed TypeScript module where *you* do the work: custom logic, multi-step pipelines, external API calls, structured output.
+Plugins are the executable counterpart to context-as-code. A **prompt skill** (Phase 1) is YAML + `prompt.md` — Vocion runs the LLM for you. A **plugin skill** (Phase 3) is a typed TypeScript module where *you* do the work: custom logic, multi-step pipelines, external API calls, structured output.
 
 Both kinds coexist. The same `runtime_run_skill` MCP tool runs either; the same `skill_run` table records either. If a plugin registers a skill with the same slug as a prompt skill, **the plugin wins** — a clean upgrade path with zero migration.
 
-**Status:** v0.1. In-tree types at `src/libs/plugins/`. v0.2 extracts them to `@compiles/sdk`.
+**Status:** v0.1. In-tree types at `src/libs/plugins/`. v0.2 extracts them to `@vocion/sdk`.
 
 ## When to write a plugin
 
@@ -62,7 +62,7 @@ const mySkill = defineSkill({
 export const manifest: PluginManifest = {
   id: 'acme.transcript-tools',
   version: '0.1.0',
-  description: 'Acme transcript skills for Compiles Core.',
+  description: 'Acme transcript skills for Vocion.',
   skills: [mySkill],
 };
 
@@ -146,17 +146,17 @@ Use the factory form when a plugin needs env/config read at boot (per-org, per-d
 
 ## Installation
 
-Plugins are discovered via the `COMPILES_PLUGINS` env var — comma-separated module specifiers.
+Plugins are discovered via the `VOCION_PLUGINS` env var — comma-separated module specifiers.
 
 ```bash
 # Local path (absolute or relative to cwd)
-export COMPILES_PLUGINS=./src/plugins/samples/transcript-highlights.ts
+export VOCION_PLUGINS=./src/plugins/samples/transcript-highlights.ts
 
 # Published npm package
-export COMPILES_PLUGINS=@acme/compiles-plugin-transcript-tools
+export VOCION_PLUGINS=@acme/vocion-plugin-transcript-tools
 
 # Multiple, comma-separated
-export COMPILES_PLUGINS=./local-plugin.ts,@acme/plugin-a,@metacto/plugin-b
+export VOCION_PLUGINS=./local-plugin.ts,@acme/plugin-a,@metacto/plugin-b
 ```
 
 Add to the MCP client config alongside `DATABASE_URL` and `OPENAI_API_KEY`:
@@ -168,8 +168,8 @@ Add to the MCP client config alongside `DATABASE_URL` and `OPENAI_API_KEY`:
       "command": "npm",
       "args": ["--prefix", "/abs/path/to/context-stack", "run", "mcp:serve"],
       "env": {
-        "CORECONTEXT_ORG_ID": "org_...",
-        "COMPILES_PLUGINS": "./src/plugins/samples/transcript-highlights.ts"
+        "VOCION_ORG_ID": "org_...",
+        "VOCION_PLUGINS": "./src/plugins/samples/transcript-highlights.ts"
       }
     }
   }
@@ -245,7 +245,7 @@ See `src/plugins/samples/transcript-highlights.ts`. Demonstrates:
 Enable it:
 
 ```bash
-export COMPILES_PLUGINS=./src/plugins/samples/transcript-highlights.ts
+export VOCION_PLUGINS=./src/plugins/samples/transcript-highlights.ts
 npm run mcp:serve
 ```
 
@@ -255,12 +255,12 @@ Then from Claude Code: *"run the transcript_highlights skill on the last discove
 
 - `Skill.version` is plugin-side semver (separate from prompt skill `version` in DB)
 - If plugin slug matches a DB prompt slug → plugin wins
-- If two plugins register the same slug → last-registered wins (and a warning logs). Load order follows the `COMPILES_PLUGINS` env order.
+- If two plugins register the same slug → last-registered wins (and a warning logs). Load order follows the `VOCION_PLUGINS` env order.
 - Unregistering is restart only (v0.1). `plugins_reload` clears + re-imports.
 
 ## Roadmap
 
 - **v0.1** (here) — Skill contract, loader, registry, dual-path execution, sample plugin
-- **v0.2** — Separate npm package `@compiles/sdk`, Source contract for connectors, review UI components, eval harness wired to CI
+- **v0.2** — Separate npm package `@vocion/sdk`, Source contract for connectors, review UI components, eval harness wired to CI
 - **v0.3** — `plugins.yaml` in `context/<org>/` for declarative enablement + config, sandboxing for cloud deployments
 - **v1.0** — Public SDK, plugin marketplace registry, signing + permission scopes (Phase 8)

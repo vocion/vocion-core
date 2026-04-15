@@ -1,4 +1,4 @@
-import type { LLMClient, LLMProviderName } from '@compiles/sdk';
+import type { LLMClient, LLMProviderName } from '@vocion/sdk';
 import process from 'node:process';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';

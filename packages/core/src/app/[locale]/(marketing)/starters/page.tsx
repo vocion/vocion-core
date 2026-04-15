@@ -6,7 +6,7 @@ import { Footer } from '@/templates/Footer';
 import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
-  title: 'Starter projects — Compiles.ai',
+  title: 'Starter projects — Vocion',
   description: 'Drop-in AI workflows you can run in 10 minutes. Sales follow-up, support reply drafting, weekly business reporting.',
 };
 

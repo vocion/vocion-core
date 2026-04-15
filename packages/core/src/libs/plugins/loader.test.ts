@@ -7,7 +7,7 @@ import { pluginRegistry } from './registry';
 
 /**
  * Writes a plugin module to disk and returns its absolute path so we can
- * pass it in COMPILES_PLUGINS. Uses .mjs so Node loads it as ESM without
+ * pass it in VOCION_PLUGINS. Uses .mjs so Node loads it as ESM without
  * needing tsx/config.
  * @param dir
  * @param name
@@ -43,7 +43,7 @@ const hello = {
 export default { id: 'test.hello', version: '0.0.1', skills: [hello] };
 `);
 
-      const result = await loadPlugins({ orgId: 'test', env: { COMPILES_PLUGINS: path } });
+      const result = await loadPlugins({ orgId: 'test', env: { VOCION_PLUGINS: path } });
 
       expect(result.errors).toEqual([]);
       expect(result.loaded).toEqual([{ pluginId: 'test.hello', skills: ['plugin_hello'] }]);
@@ -76,7 +76,7 @@ export default {
 };
 `);
 
-      const result = await loadPlugins({ orgId: 'org_xyz', env: { COMPILES_PLUGINS: path } });
+      const result = await loadPlugins({ orgId: 'org_xyz', env: { VOCION_PLUGINS: path } });
 
       expect(result.errors).toEqual([]);
       expect(pluginRegistry.getSkill('factory_org_xyz')).not.toBeNull();
@@ -100,7 +100,7 @@ export default {
 `);
       const bad = writePlugin(dir, 'bad', 'export default { not: "a manifest" };');
 
-      const result = await loadPlugins({ orgId: 'test', env: { COMPILES_PLUGINS: [good, bad].join(',') } });
+      const result = await loadPlugins({ orgId: 'test', env: { VOCION_PLUGINS: [good, bad].join(',') } });
 
       expect(result.loaded.map(l => l.pluginId)).toContain('test.good');
       expect(result.errors.some(e => e.source === bad)).toBe(true);
@@ -111,7 +111,7 @@ export default {
   });
 
   it('returns empty when no plugins configured', async () => {
-    const result = await loadPlugins({ orgId: 'test', env: { COMPILES_PLUGINS: '' } });
+    const result = await loadPlugins({ orgId: 'test', env: { VOCION_PLUGINS: '' } });
 
     expect(result.loaded).toEqual([]);
     expect(result.errors).toEqual([]);
@@ -121,7 +121,7 @@ export default {
     const dir = mkdtempSync(join(tmpdir(), 'cc-plugin-noop-'));
     try {
       const path = writePlugin(dir, 'empty', `export default { id: 'test.empty', version: '1' };`);
-      const result = await loadPlugins({ orgId: 'test', env: { COMPILES_PLUGINS: path } });
+      const result = await loadPlugins({ orgId: 'test', env: { VOCION_PLUGINS: path } });
 
       expect(result.errors.length).toBe(1);
       expect(result.errors[0]!.message).toMatch(/skills|register/);

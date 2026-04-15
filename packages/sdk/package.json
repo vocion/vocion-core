@@ -1,11 +1,11 @@
 {
-  "name": "@compiles/sdk",
+  "name": "@vocion/sdk",
   "type": "module",
   "version": "0.1.0",
-  "description": "Stable plugin contract for Compiles — Skill, PluginManifest, LLM client types.",
+  "description": "Stable plugin contract for Vocion — Skill, PluginManifest, LLM client types.",
   "license": "Apache-2.0",
   "keywords": [
-    "compiles",
+    "vocion",
     "ai",
     "agents",
     "plugin",
