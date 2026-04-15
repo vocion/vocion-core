@@ -87,7 +87,7 @@ export default async function UseCasesPage(props: {
         <header className="mb-10 max-w-3xl">
           <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Use cases</h1>
           <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
-            Fifty workflows real teams run every week — across industries, departments, and complexity levels. Each one composes the same five building blocks: Sources, Objects, Skills, Workflows, Agents.
+            Fifty workflows real teams run every week — across industries, departments, and complexity levels. Each one composes the same five resources: Sources, Objects, Skills, Workflows, Agents.
           </p>
           <p className="mt-3 text-sm text-muted-foreground/80">
             {USE_CASES.length}

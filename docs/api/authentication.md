@@ -34,9 +34,9 @@ Authorization: Bearer cmp_live_...
 
 | Scope | What it permits |
 |---|---|
-| `read:all` | `GET` on any building block or run within the tenant |
+| `read:all` | `GET` on any resource or run within the tenant |
 | `read:skills` | Narrow: only `GET /agents`, `/skills` |
-| `write:building blocks` | `POST`/`PATCH` on building block CRUD (equivalent to context-as-code writes) |
+| `write:resources` | `POST`/`PATCH` on resource CRUD (equivalent to context-as-code writes) |
 | `run:invoke` | `POST /skills/:slug/runs`, `POST /workflows/:slug/runs` |
 | `run:approve` | Approve/reject pending runs |
 

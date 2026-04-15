@@ -72,7 +72,7 @@ Every invocation:
 4. If `requiresApproval: true`, the run lands in the Review Queue before any downstream action.
 5. Captures rating + note (optional) at review or post-hoc — see [feedback + audit](../guides/feedback-and-audit.md).
 
-## Connection to other building blocks
+## Connection to other resources
 
 - **[Objects](./objects.md)** — skills typically read/write object records
 - **[Workflows](./workflows.md)** — chain multiple skills + HITL gates

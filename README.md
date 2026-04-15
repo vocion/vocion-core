@@ -21,7 +21,7 @@ This repo is `@vocion/core`. The full platform is layered:
 
 See [`docs/reference/repo-architecture.md`](./docs/reference/repo-architecture.md) for the full layered model + versioning + compatibility rules.
 
-## The five building blocks
+## The five resources
 
 Everything you author lives in `context/<org>/` as YAML + markdown:
 
@@ -136,7 +136,7 @@ Apache 2.0.
 ## Docs
 
 - [`docs/README.md`](./docs/README.md) — docs index
-- [`docs/concepts/`](./docs/concepts/) — the five building blocks, one page each (~15 min read end-to-end)
+- [`docs/concepts/`](./docs/concepts/) — the five resources, one page each (~15 min read end-to-end)
 - [`docs/guides/`](./docs/guides/) — quickstart, authoring, plugin, self-hosting, tenant extraction
 - [`docs/reference/`](./docs/reference/) — MCP tools, repo architecture, retrieval config, auth
 

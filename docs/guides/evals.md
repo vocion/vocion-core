@@ -1,6 +1,6 @@
 # Evals
 
-Every building block folder gets an optional `evals.yaml` — test fixtures that catch regressions before they hit production.
+Every resource folder gets an optional `evals.yaml` — test fixtures that catch regressions before they hit production.
 
 ## Why alongside the primitive
 
@@ -8,7 +8,7 @@ Putting evals in the same folder as `skill.yaml` + `prompt.md` (or `workflow.yam
 
 - A change to the prompt and its test cases lives in the same commit
 - `git mv` moves the whole thing atomically
-- CI walks `context/**/evals.yaml` — one rule, every building block tested
+- CI walks `context/**/evals.yaml` — one rule, every resource tested
 - Human reviewers see prompt + fixtures side-by-side in a PR
 
 No separate `/tests/` tree. No separate eval harness to learn.
