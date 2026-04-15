@@ -16,13 +16,16 @@ Vocion has exactly five things you author. Each lives in your tenant's `context/
 
 Walk-throughs for recurring tasks:
 
-- **[Quickstart](./guides/quickstart.md)** — zero to your first skill run in 10 minutes
-- **[Authoring context](./guides/authoring-context.md)** — editing the YAML + markdown that grounds your AI
-- **[Evals](./guides/evals.md)** — fixtures alongside each building block; CI catches regressions
-- **[Feedback + audit](./guides/feedback-and-audit.md)** — rating runs, browsing the timeline, closing the loop
-- **[Writing a plugin](./guides/writing-a-plugin.md)** — shipping a Skill as an npm package via `@vocion/sdk`
-- **[Self-hosting](./guides/self-hosting.md)** — running Vocion on your own infra
-- **[Extracting a tenant repo](./guides/extract-tenant.md)** — splitting `context/<org>/` into its own git repo
+Ordered from first-touch to deepest:
+
+1. **[Quickstart](./guides/quickstart.md)** — zero to your first skill run in 10 minutes
+2. **[Worked example: discovery follow-up](./guides/example-discovery-followup.md)** — a real workflow end-to-end (source → object → skills → workflow → agent → audit)
+3. **[Authoring context](./guides/authoring-context.md)** — editing the YAML + markdown that grounds your AI
+4. **[Evals](./guides/evals.md)** — fixtures alongside each building block; CI catches regressions
+5. **[Feedback + audit](./guides/feedback-and-audit.md)** — rating runs, browsing the timeline, closing the loop
+6. **[Writing a plugin](./guides/writing-a-plugin.md)** — shipping a Skill as an npm package via `@vocion/sdk`
+7. **[Self-hosting](./guides/self-hosting.md)** — running Vocion on your own infra
+8. **[Extracting a tenant repo](./guides/extract-tenant.md)** — splitting `context/<org>/` into its own git repo
 
 ## API
 

@@ -91,7 +91,9 @@ function includeInKind(rel: string, kind: DocsKind): boolean {
     return true;
   }
   if (kind === 'public') {
-    return !isInternalPath(rel) && !rel.startsWith('requirements/');
+    // Public docs viewer only surfaces docs/ content (excluding internal/).
+    // requirements/ is platform spec; context/ is tenant-owned prompt content.
+    return !isInternalPath(rel) && !rel.startsWith('requirements/') && !rel.startsWith('context/');
   }
   return isInternalPath(rel) || rel.startsWith('requirements/');
 }
@@ -172,11 +174,35 @@ function groupFor(rel: string): string {
   if (rel.startsWith('docs/internal/')) {
     return 'docs/internal';
   }
+  // Finer grouping within docs/ so Concepts / Guides / API / Reference
+  // each get their own sidebar section instead of one flat blob.
+  if (rel.startsWith('docs/concepts/')) {
+    return 'docs/concepts';
+  }
+  if (rel.startsWith('docs/guides/')) {
+    return 'docs/guides';
+  }
+  if (rel.startsWith('docs/api/')) {
+    return 'docs/api';
+  }
+  if (rel.startsWith('docs/reference/')) {
+    return 'docs/reference';
+  }
   const first = rel.split('/')[0]!;
   return first;
 }
 
-const GROUP_ORDER = ['root', 'docs', 'requirements', 'context', 'docs/internal', 'docs/internal/case-studies'];
+const GROUP_ORDER = [
+  'root',
+  'docs',
+  'docs/concepts',
+  'docs/guides',
+  'docs/api',
+  'docs/reference',
+  'requirements',
+  'docs/internal',
+  'docs/internal/case-studies',
+];
 function orderOf(group: string): number {
   const idx = GROUP_ORDER.indexOf(group);
   return idx === -1 ? 99 : idx;

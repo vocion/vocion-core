@@ -63,9 +63,12 @@ function groupBy(entries: DocEntry[]): Array<[string, DocEntry[]]> {
 function labelFor(group: string): string {
   switch (group) {
     case 'root': return 'Start here';
-    case 'docs': return 'Dev guides';
+    case 'docs': return 'Overview';
+    case 'docs/concepts': return 'Concepts';
+    case 'docs/guides': return 'Guides';
+    case 'docs/api': return 'API';
+    case 'docs/reference': return 'Reference';
     case 'requirements': return 'Platform spec';
-    case 'context': return 'Context authoring';
     case 'docs/internal': return 'Roadmap & ops';
     case 'docs/internal/case-studies': return 'Case studies';
     default: return group;
