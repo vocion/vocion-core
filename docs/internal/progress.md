@@ -44,7 +44,7 @@ Commit: `8380861`
 
 Commit: `c4126d9` (MCP) + `b908a31` (review queue UI)
 
-- [x] **MCP server (stdio)** — 15+ tools across `context_*`, `runtime_*`, `objects_*`, `search_*`, `plugins_*`, `workflow_*`. Install via `claude mcp add corecontext`.
+- [x] **MCP server (stdio)** — 15+ tools across `context_*`, `runtime_*`, `objects_*`, `search_*`, `plugins_*`, `workflow_*`. Install via `claude mcp add vocion`.
 - [x] **Auto-apply + versioning** — every `write_*` tool validates → writes → git commits (`chore(context):`) → applies → records `context_version` in one atomic call
 - [x] **Review queue UI** at `/dashboard/review` — pending skill_runs + paused workflow_runs, approve/reject/resume/cancel buttons, inline detail view
 - [ ] **MCP HTTP + OAuth transport** — needed for cloud/multi-tenant

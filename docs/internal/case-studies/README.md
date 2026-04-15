@@ -1,6 +1,6 @@
 # MetaCTO Case Studies
 
-How MetaCTO uses CoreContext. Specs for each agent deployment — connectors, object model, skills, workflows, sprint plans. These are *instance* documents; the platform itself is described under `/requirements/`.
+How MetaCTO uses Vocion. Specs for each agent deployment — connectors, object model, skills, workflows, sprint plans. These are *instance* documents; the platform itself is described under `/requirements/`.
 
 **Internal only.** Part of `docs/internal/` — not for OSS consumers. If MetaCTO's context extracts to a separate `metacto-context` repo (Phase 8), these docs move with it.
 
