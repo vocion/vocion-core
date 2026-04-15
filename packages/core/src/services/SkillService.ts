@@ -1,4 +1,7 @@
 import type { AnySkill, PluginContext } from '@/libs/plugins';
+import { existsSync } from 'node:fs';
+import { extname, join } from 'node:path';
+import process from 'node:process';
 import { and, desc, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import { getCurrentContextSha } from '@/libs/context';
@@ -7,6 +10,7 @@ import { langfuse } from '@/libs/Langfuse';
 import { getLLMClient } from '@/libs/llm';
 import { search as onyxSearch } from '@/libs/onyx/client';
 import { pluginRegistry } from '@/libs/plugins';
+import { fromRepoRoot } from '@/libs/repo-root';
 import { skillRunSchema, skillSchema } from '@/models/Schema';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
@@ -22,6 +26,65 @@ export const listSkills = (orgId: string) => {
     where: eq(skillSchema.orgId, orgId),
   });
 };
+
+/**
+ * Dynamic-import + execute a postprocess script for a prompt skill.
+ *
+ * Scripts live alongside the skill's prompt.md in
+ * `context/<org>/skills/<slug>/<scriptFile>`. They export a default
+ * function `(output, input, ctx) => output`. Script cache is per-process;
+ * dev reload via plugins_reload-style mechanism lands in a follow-up.
+ *
+ * scriptFile may be just a filename (resolved under the skill dir) or
+ * a path including the skill-dir prefix. Only .js and .mjs are supported
+ * today; .ts requires a compile step we haven't wired yet.
+ * @param scriptFile
+ * @param rawOutput
+ * @param opts
+ * @param opts.orgId
+ * @param opts.skillSlug
+ * @param opts.input
+ * @param opts.userId
+ */
+async function runPostprocessScript(
+  scriptFile: string,
+  rawOutput: string,
+  opts: { orgId: string; skillSlug: string; input: Record<string, unknown>; userId?: string },
+): Promise<string> {
+  const ext = extname(scriptFile).toLowerCase();
+  if (ext !== '.js' && ext !== '.mjs') {
+    throw new Error(`scriptFile must be .js or .mjs (got ${ext || 'none'})`);
+  }
+
+  const contextPath = process.env.CONTEXT_PATH ?? 'context/metacto';
+  const slugDir = opts.skillSlug.replace(/_/g, '-');
+  // Accept either a bare filename ("postprocess.js") or a full path.
+  const relPath = scriptFile.includes('/')
+    ? scriptFile
+    : join(contextPath, 'skills', slugDir, scriptFile);
+  const absPath = fromRepoRoot(relPath);
+
+  if (!existsSync(absPath)) {
+    throw new Error(`scriptFile not found: ${relPath}`);
+  }
+
+  const mod = await import(/* @vite-ignore */ `file://${absPath}?t=${Date.now()}`) as { default?: (output: unknown, input: Record<string, unknown>, ctx: { orgId: string; skillSlug: string; userId?: string }) => unknown };
+  const fn = mod.default;
+  if (typeof fn !== 'function') {
+    throw new TypeError(`scriptFile ${relPath} must have a default export function`);
+  }
+
+  const result = await fn(rawOutput, opts.input, {
+    orgId: opts.orgId,
+    skillSlug: opts.skillSlug,
+    userId: opts.userId,
+  });
+
+  if (typeof result !== 'string') {
+    throw new TypeError(`postprocess return must be a string (got ${typeof result})`);
+  }
+  return result;
+}
 
 /**
  * Interpolate {{variables}} in a prompt template.
@@ -91,16 +154,30 @@ export async function executeSkill(opts: {
     max_completion_tokens: skill.slug === 'draft_mvp_proposal' ? 8000 : 2000,
   });
 
-  const output = completion.choices[0]?.message?.content ?? '';
+  const rawOutput = completion.choices[0]?.message?.content ?? '';
   const elapsed = Date.now() - startTime;
 
   generation.end({
-    output,
+    output: rawOutput,
     usage: {
       input: completion.usage?.prompt_tokens,
       output: completion.usage?.completion_tokens,
     },
   });
+
+  // Optional postprocess script — lives in the skill's context folder as
+  // e.g. `postprocess.js`. Default export is called `(output, input, ctx)`
+  // and returns the transformed output. Used for cheap deterministic
+  // cleanup (strip LLM preambles, normalize whitespace, redact PII).
+  let output = rawOutput;
+  if (skill.scriptFile) {
+    try {
+      output = await runPostprocessScript(skill.scriptFile, rawOutput, opts);
+    } catch (err) {
+      trace.event({ name: 'postprocess_error', metadata: { error: err instanceof Error ? err.message : String(err), scriptFile: skill.scriptFile } });
+      // Fail soft — postprocess errors shouldn't drop the run; log and ship raw.
+    }
+  }
 
   trace.update({
     output: { result: output.slice(0, 500), elapsed_ms: elapsed },

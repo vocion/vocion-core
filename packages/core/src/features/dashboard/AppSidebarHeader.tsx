@@ -1,7 +1,7 @@
 'use client';
 
 import { UserButton } from '@clerk/nextjs';
-import { Activity, BookOpen, CreditCard, HeartPulse, LifeBuoy, Map, Send } from 'lucide-react';
+import { BookOpen, CreditCard, HeartPulse, LifeBuoy, Map, Send } from 'lucide-react';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { SidebarTrigger } from '@/components/ui/sidebar';
@@ -34,7 +34,6 @@ export const AppSidebarHeader = () => (
         >
           <UserButton.MenuItems>
             <UserButton.Link label="Billing" labelIcon={<CreditCard className="size-4" />} href="/dashboard/billing" />
-            <UserButton.Link label="Audit" labelIcon={<Activity className="size-4" />} href="/dashboard/audit" />
             <UserButton.Link label="System" labelIcon={<HeartPulse className="size-4" />} href="/dashboard/admin" />
             <UserButton.Link label="Docs" labelIcon={<BookOpen className="size-4" />} href="/dashboard/docs" />
             <UserButton.Link label="Roadmap" labelIcon={<Map className="size-4" />} href="/dashboard/roadmap" />

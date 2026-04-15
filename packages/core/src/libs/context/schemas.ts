@@ -63,6 +63,7 @@ export const SkillManifestSchema = z.object({
   requiresApproval: z.boolean().default(true),
   promptFile: z.string().optional().describe('path to markdown prompt template, relative to skill file'),
   promptTemplate: z.string().optional(),
+  scriptFile: z.string().optional().describe('path to .js/.ts postprocess module, relative to skill file. default export: (output, input, ctx) => output'),
   inputSchema: z.record(z.string(), z.unknown()).optional(),
 }).refine(
   v => !!(v.promptFile || v.promptTemplate),
