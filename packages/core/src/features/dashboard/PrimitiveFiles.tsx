@@ -79,16 +79,16 @@ export function PrimitiveFiles({ files, editInGitPath, dirty = false, dirtyFiles
       <pre className="max-h-[600px] overflow-auto rounded-b-lg p-4 font-mono text-xs leading-relaxed text-foreground">
         <code>{current.content}</code>
       </pre>
-      <div className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-        Read-only · Edit
-        {' '}
-        <code className="rounded bg-muted px-1 font-mono">{fileName}</code>
-        {' '}
-        locally, run
-        {' '}
-        <code className="rounded bg-muted px-1 font-mono">npm run context:apply</code>
-        {' '}
-        to sync. Commit + push is your call.
+      <div className="flex items-center justify-between border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+        <span>
+          {files.length}
+          {' '}
+          file
+          {files.length === 1 ? '' : 's'}
+          {' · '}
+          <span className="font-mono">{fileName}</span>
+        </span>
+        <span className="text-muted-foreground/60">In-app editing coming soon</span>
       </div>
     </div>
   );

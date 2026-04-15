@@ -25,6 +25,7 @@ const config: KnipConfig = {
     'packages/core/src/features/dashboard/ComingSoon.tsx',
     'packages/core/tests/**/*.ts',
     'packages/plugins/**/src/index.ts',
+    'context/**/*.js', // skill postprocess scripts — loaded via dynamic import
     'infra/onyx/onyx-repo/**',
   ],
   // Dependencies to ignore during analysis
