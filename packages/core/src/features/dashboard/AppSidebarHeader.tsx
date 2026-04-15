@@ -1,3 +1,5 @@
+'use client';
+
 import { UserButton } from '@clerk/nextjs';
 import { Activity, BookOpen, CreditCard, HeartPulse, LifeBuoy, Map, Send } from 'lucide-react';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
