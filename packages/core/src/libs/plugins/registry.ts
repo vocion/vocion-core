@@ -1,4 +1,4 @@
-import type { AnySkill, PluginManifest } from '@compiles/sdk';
+import type { AnySkill, PluginManifest } from '@vocion/sdk';
 
 /**
  * Process-wide plugin registry. Loaded once at boot via `loadPlugins()` and

@@ -14,7 +14,7 @@ import {
 import { useLocale, useTranslations } from 'next-intl';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
-import { CompilesLogo } from '@/templates/CompilesLogo';
+import { VocionLogo } from '@/templates/VocionLogo';
 import { getI18nPath } from '@/utils/Helpers';
 
 export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
@@ -25,7 +25,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
     <Sidebar {...props}>
       <SidebarHeader className="pt-5">
         <div className="flex justify-center pb-3">
-          <CompilesLogo size="sm" />
+          <VocionLogo size="sm" />
         </div>
 
         <OrganizationSwitcher
@@ -103,7 +103,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           {' '}
           {new Date().getFullYear()}
           {' '}
-          Compiles.ai · Apache 2.0
+          Vocion · Apache 2.0
         </div>
       </SidebarFooter>
       <SidebarRail />

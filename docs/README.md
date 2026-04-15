@@ -1,10 +1,10 @@
-# Compiles docs
+# Vocion docs
 
-This is the developer documentation for `@compiles/core` — the framework layer. If you're looking for a hosted platform, see [compiles.ai](https://compiles.ai).
+This is the developer documentation for `@vocion/core` — the framework layer. If you're looking for a hosted platform, see [vocion.ai](https://vocion.ai).
 
 ## The five building blocks
 
-Compiles has exactly five things you author. Each lives in your tenant's `context/<org>/` directory as YAML + markdown. Read all five (~15 minutes) and you understand Compiles.
+Vocion has exactly five things you author. Each lives in your tenant's `context/<org>/` directory as YAML + markdown. Read all five (~15 minutes) and you understand Vocion.
 
 - **[Sources](./concepts/sources.md)** — connected systems that feed raw data in
 - **[Objects](./concepts/objects.md)** — the business entities your tenant cares about
@@ -18,8 +18,8 @@ Walk-throughs for recurring tasks:
 
 - **[Quickstart](./guides/quickstart.md)** — zero to your first skill run in 10 minutes
 - **[Authoring context](./guides/authoring-context.md)** — editing the YAML + markdown that grounds your AI
-- **[Writing a plugin](./guides/writing-a-plugin.md)** — shipping a Skill as an npm package via `@compiles/sdk`
-- **[Self-hosting](./guides/self-hosting.md)** — running Compiles on your own infra
+- **[Writing a plugin](./guides/writing-a-plugin.md)** — shipping a Skill as an npm package via `@vocion/sdk`
+- **[Self-hosting](./guides/self-hosting.md)** — running Vocion on your own infra
 - **[Extracting a tenant repo](./guides/extract-tenant.md)** — splitting `context/<org>/` into its own git repo
 
 ## API

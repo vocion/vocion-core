@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import type { LLMClient, LLMOptions, LLMResponse } from '@compiles/sdk';
+import type { LLMClient, LLMOptions, LLMResponse } from '@vocion/sdk';
 
 /**
  * Anthropic adapter. Maps our generic `messages` array onto Anthropic's

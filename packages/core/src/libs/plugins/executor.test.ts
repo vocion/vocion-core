@@ -1,5 +1,5 @@
 import process from 'node:process';
-import { defineSkill } from '@compiles/sdk';
+import { defineSkill } from '@vocion/sdk';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';

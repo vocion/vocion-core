@@ -1,23 +1,23 @@
-# Compiles Core
+# Vocion
 
-> `@compiles/core` — the open framework for production AI workflows.
+> `@vocion/core` — the open framework for production AI workflows.
 
 Context as code. Skills as plugins. Review surfaces built in.
 
 ## What this is
 
-Compiles Core is a Next.js app + Postgres schema + MCP server + workflow runner. You author **five things** — Sources, Objects, Skills, Workflows, Agents — as YAML + markdown in git, apply them to the database, and get a typed runtime with a review queue, observability, and a plugin ecosystem.
+Vocion is a Next.js app + Postgres schema + MCP server + workflow runner. You author **five things** — Sources, Objects, Skills, Workflows, Agents — as YAML + markdown in git, apply them to the database, and get a typed runtime with a review queue, observability, and a plugin ecosystem.
 
 ## Layered architecture
 
-This repo is `@compiles/core`. The full platform is layered:
+This repo is `@vocion/core`. The full platform is layered:
 
 | Layer | npm | Purpose |
 |---|---|---|
-| `@compiles/core` | this repo | Framework, dashboard, Postgres schema, MCP server, workflow runner |
-| `@compiles/sdk` | `packages/sdk` | Stable plugin contract — Skill, PluginManifest, LLM client types |
-| `@compiles/plugin-*` | `packages/plugins/*` | Connectors + skills shipped as separate npm packages |
-| `compiles-starter` | separate repo (planned) | Forkable example install — quick start in 10 minutes |
+| `@vocion/core` | this repo | Framework, dashboard, Postgres schema, MCP server, workflow runner |
+| `@vocion/sdk` | `packages/sdk` | Stable plugin contract — Skill, PluginManifest, LLM client types |
+| `@vocion/plugin-*` | `packages/plugins/*` | Connectors + skills shipped as separate npm packages |
+| `vocion-starter` | separate repo (planned) | Forkable example install — quick start in 10 minutes |
 
 See [`docs/reference/repo-architecture.md`](./docs/reference/repo-architecture.md) for the full layered model + versioning + compatibility rules.
 
@@ -37,11 +37,11 @@ Apply to DB with `npm run context:apply`. Every apply records a `context_version
 
 ## Plugin contract
 
-A plugin is an npm package that exports a manifest. Core loads manifests at boot via `@compiles/sdk`. Typed, distributable, independently versioned.
+A plugin is an npm package that exports a manifest. Core loads manifests at boot via `@vocion/sdk`. Typed, distributable, independently versioned.
 
 ```ts
-import type { PluginManifest } from '@compiles/sdk';
-import { defineSkill } from '@compiles/sdk';
+import type { PluginManifest } from '@vocion/sdk';
+import { defineSkill } from '@vocion/sdk';
 import { z } from 'zod';
 
 const highlights = defineSkill({
@@ -71,7 +71,7 @@ See [`docs/guides/writing-a-plugin.md`](./docs/guides/writing-a-plugin.md) for t
 ```bash
 # 1. Clone + install
 git clone <repo-url>
-cd compiles-core
+cd vocion-core
 npm install
 
 # 2. Configure env
@@ -97,7 +97,7 @@ Full install topology, env vars, production deploy, and troubleshooting: [`docs/
 Author skills + workflows and inspect runs from Claude Code, Cursor, Zed, or any MCP client:
 
 ```bash
-claude mcp add compiles -- npm --prefix /abs/path/to/compiles-core run mcp:serve
+claude mcp add vocion -- npm --prefix /abs/path/to/vocion-core run mcp:serve
 ```
 
 Full tool reference: [`docs/reference/mcp.md`](./docs/reference/mcp.md).
@@ -121,7 +121,7 @@ pgvector + Postgres FTS with a config-driven hybrid pipeline. Swap embedders, re
 ```
 packages/
 ├── core/                        # Next.js app + Postgres schema + MCP + workflow runner
-├── sdk/                         # @compiles/sdk — stable plugin contract
+├── sdk/                         # @vocion/sdk — stable plugin contract
 └── plugins/
     └── transcript-highlights/   # Reference sample plugin
 

@@ -1,7 +1,7 @@
 {
   "Index": {
-    "meta_title": "Compiles.ai - Le template SaaS parfait pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
-    "meta_description": "Compiles.ai aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
+    "meta_title": "Vocion - Le template SaaS parfait pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
+    "meta_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
   },
   "Navbar": {
     "sign_in": "Se connecter",
@@ -22,28 +22,28 @@
     "theme_system_label": "Système"
   },
   "Hero": {
-    "follow_twitter": "Suivez @Compiles.ai sur Twitter",
-    "title": "Le parfait <important>Compiles.ai</important> pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
-    "description": "Compiles.ai aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
+    "follow_twitter": "Suivez @Vocion sur Twitter",
+    "title": "Le parfait <important>Vocion</important> pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
+    "description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
     "primary_button": "Démarrer",
-    "secondary_button": "Découvrir Compiles.ai"
+    "secondary_button": "Découvrir Vocion"
   },
   "Features": {
     "section_subtitle": "Fonctionnalités",
-    "section_title": "Libérez le plein potentiel de Compiles.ai",
-    "section_description": "Compiles.ai aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
+    "section_title": "Libérez le plein potentiel de Vocion",
+    "section_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
     "feature1_title": "Next.js",
     "feature2_title": "React",
     "feature3_title": "Tailwind CSS",
     "feature4_title": "TypeScript",
     "feature5_title": "Shadcn UI",
     "feature6_title": "ESLint",
-    "feature_description": "Compiles.ai aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
+    "feature_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
   },
   "Pricing": {
     "section_subtitle": "Fonctionnalités",
-    "section_title": "Libérez le plein potentiel de Compiles.ai",
-    "section_description": "Compiles.ai aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
+    "section_title": "Libérez le plein potentiel de Vocion",
+    "section_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
     "button_text": "Démarrer"
   },
   "PricingPlan": {
@@ -69,7 +69,7 @@
   "CTA": {
     "title": "Vous êtes prêt?",
     "description": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-    "button_text": "Découvrir Compiles.ai"
+    "button_text": "Découvrir Vocion"
   },
   "Footer": {
     "product": "Produit",
@@ -116,11 +116,11 @@
     "feedback": "Commentaires"
   },
   "Dashboard": {
-    "meta_title": "Tableau de bord du Compiles.ai",
-    "meta_description": "Compiles.ai aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
+    "meta_title": "Tableau de bord du Vocion",
+    "meta_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
   },
   "DashboardIndex": {
-    "welcome_title": "Bienvenue sur Compiles.ai",
+    "welcome_title": "Bienvenue sur Vocion",
     "welcome_description": "Votre plateforme de contexte d'entreprise. Connectez vos systèmes, mappez vos objets métier et obtenez des réponses fondées.",
     "stat_connectors": "Connecteurs",
     "stat_objects": "Objets",

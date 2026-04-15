@@ -7,5 +7,5 @@ export type {
   PluginRegistrationEnv,
   RetrievalHit,
   Skill,
-} from '@compiles/sdk';
-export { defineSkill } from '@compiles/sdk';
+} from '@vocion/sdk';
+export { defineSkill } from '@vocion/sdk';

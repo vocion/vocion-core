@@ -1,6 +1,6 @@
 # API
 
-A tenant-scoped REST API for reading primitives, ingesting objects, triggering runs, and polling results. Use this when you have an existing system that should push data into Compiles and/or consume results — without running an agent conversation and without speaking MCP.
+A tenant-scoped REST API for reading primitives, ingesting objects, triggering runs, and polling results. Use this when you have an existing system that should push data into Vocion and/or consume results — without running an agent conversation and without speaking MCP.
 
 ## What's live today
 
@@ -25,7 +25,7 @@ For now, authenticate using your Clerk session cookie (browser) or a Clerk sessi
 |---|---|---|
 | **[MCP](../reference/mcp.md)** | You're an LLM-driven agent (Claude, Cursor, Zed) authoring + running inside a developer IDE | stdio (today), HTTP+OAuth (Phase 2) |
 | **REST API** (this) | You're an external system or backend service that wants typed CRUD + run control | HTTPS + Bearer token |
-| **A2A** | You're an agent speaking the A2A protocol and want to hand off tasks to a Compiles agent | HTTPS + capability discovery |
+| **A2A** | You're an agent speaking the A2A protocol and want to hand off tasks to a Vocion agent | HTTPS + capability discovery |
 
 One workflow can be triggered from any of them; outputs land in the same `skill_run` / `workflow_run` tables and surface in the same review queue.
 
@@ -33,28 +33,28 @@ One workflow can be triggered from any of them; outputs land in the same `skill_
 
 ```bash
 # 1. Create an API token in the dashboard (Admin → API tokens)
-export COMPILES_TOKEN=cmp_live_...
+export VOCION_TOKEN=cmp_live_...
 
 # 2. List your agents
-curl -H "Authorization: Bearer $COMPILES_TOKEN" \
-  https://your-compiles-install/api/v1/agents
+curl -H "Authorization: Bearer $VOCION_TOKEN" \
+  https://your-vocion-install/api/v1/agents
 
 # 3. Push a new object (e.g. a field-notes upload from a mobile app)
-curl -X POST -H "Authorization: Bearer $COMPILES_TOKEN" \
+curl -X POST -H "Authorization: Bearer $VOCION_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title":"Site 4821 inspection","metadata":{"siteId":"4821","inspector":"mtorres"},"content":"..."}' \
-  https://your-compiles-install/api/v1/objects/inspection/instances
+  https://your-vocion-install/api/v1/objects/inspection/instances
 
 # 4. Trigger the workflow it feeds
-curl -X POST -H "Authorization: Bearer $COMPILES_TOKEN" \
+curl -X POST -H "Authorization: Bearer $VOCION_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"input":{"objectId":"obj_123"}}' \
-  https://your-compiles-install/api/v1/workflows/inspection_review/runs
+  https://your-vocion-install/api/v1/workflows/inspection_review/runs
 # → { "runId": 987, "status": "running" }
 
 # 5. Poll for the result
-curl -H "Authorization: Bearer $COMPILES_TOKEN" \
-  https://your-compiles-install/api/v1/runs/987
+curl -H "Authorization: Bearer $VOCION_TOKEN" \
+  https://your-vocion-install/api/v1/runs/987
 # → { "status": "paused", "pausedAt": "review", "reviewUrl": "..." }
 ```
 

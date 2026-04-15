@@ -7,4 +7,4 @@ export type {
   LLMOptions,
   LLMProviderName,
   LLMResponse,
-} from '@compiles/sdk';
+} from '@vocion/sdk';
