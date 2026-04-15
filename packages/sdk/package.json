@@ -24,7 +24,7 @@
     "src"
   ],
   "peerDependencies": {
-    "openai": "^6.0.0",
+    "openai": "^6.34.0",
     "zod": "^4.0.0"
   }
 }
