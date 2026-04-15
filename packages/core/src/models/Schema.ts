@@ -164,6 +164,13 @@ export const skillSchema = pgTable(
     description: text('description'),
     /** The system/user prompt template. Supports {{variable}} interpolation. */
     promptTemplate: text('prompt_template').notNull(),
+    /**
+     * Optional path to a postprocess script (e.g. `postprocess.js`)
+     * stored in the skill's context folder. When set, the runtime imports
+     * it after the prompt runs and calls `default(output, input, ctx)` to
+     * transform the output before it lands in the review queue.
+     */
+    scriptFile: text('script_file'),
     /** JSON Schema describing expected input variables */
     inputSchema: jsonb('input_schema').$type<Record<string, unknown>>(),
     /** LLM model to use (e.g. gpt-4o, claude-sonnet-4-20250514) */
