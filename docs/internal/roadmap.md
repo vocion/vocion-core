@@ -124,14 +124,39 @@ Skills, context, and review queues reachable from wherever people already work. 
 
 ### Phase 4 — Self-improvement loop (finish)
 
-*Capture side shipped, improvement side open.* Closes the Iteration arc of the operating loop (Feedback → Audit → Evals → **Iteration** → Measurement). Measurement is its own phase later — see [Phase 8](#phase-8--measurement--economics).
+*Capture side partially shipped (rating + note), improvement side open.* Closes the Iteration arc of the operating loop (Feedback → Audit → Evals → **Iteration** → Measurement). Measurement is its own phase later — see [Phase 9](#phase-9--measurement--economics). Improvement runs across all five resources (skill, agent, workflow, object type, evals), not just skill prompts.
 
-- [ ] Post-hoc feedback link in outbound emails ("was this useful?" → rating page)
-- [ ] `improve_skill` meta-skill — reads last N runs + feedback + evals, proposes a prompt diff on a branch
+**Capture every signal, not just thumbs**
+
+The signal worth most is what humans actually *did* with the draft, not what they rated it.
+
+- [ ] `skill_run.editedOutput` — when a reviewer approves with edits, capture both the LLM output and the edited version sent. The diff is the single highest-quality training signal we get.
+- [ ] Existing rating (`up`/`down`) + free-text note — already shipped
+- [ ] Post-hoc feedback link in outbound emails — recipient rates the result days later from a unique URL
+- [ ] Conversational correction extractor — when a user follows up in chat with "no, the budget was 50k not 100k" or "rewrite shorter," parse the correction against the prior turn's skill output; record as implicit feedback
+- [ ] Workflow-level feedback rollup — `workflow_run` aggregates feedback from every `skill_run` it composed, so improvements can target the workflow shape, not just individual skills
+- [ ] Reviewer-attribution metadata — feedback carries who, when, on what context_sha, with which channel (web / Slack / chat / email)
+
+**Improvement meta-skills** (same pattern across resources: read runs + feedback + evals → propose diff on a branch → human approves PR → merge re-applies context)
+
+- [ ] `improve_skill` — reads last N runs + ratings + edit-diffs + chat corrections, proposes `prompt.md` diff
+- [ ] `improve_agent` — proposes `system-prompt.md` changes when an agent's voice/scope drifts from feedback
+- [ ] `improve_workflow` — proposes step reorder, missing approval gates, or removed steps when reviewers consistently bypass / reject the same step
+- [ ] `improve_object_type` — proposes classification-prompt changes when objects get misclassified
+- [ ] `improve_evals` — turns failed runs + edit-diffs into new `evals.yaml` fixtures so today's regression becomes tomorrow's CI gate
+
+**Cross-resource feedback router**
+
+- [ ] `classify_feedback` skill — for each thumb-down or edit, classifies whether the root cause sits in the skill prompt, the agent prompt, the workflow shape, the object classification, or missing evals; routes to the right `improve_*` meta-skill
+- [ ] Per-resource improvement candidates queue — `/dashboard/review/improvements` shows pending PR-style proposals grouped by resource
+
+**Eval + harness**
+
 - [ ] Eval harness auto-walks `context/**/evals.yaml`, grades substring/regex/JSON-field/rubric assertions, fails PR on regression
-- [ ] `skill_improvement_review` workflow — weekly scheduled run that surfaces candidates
+- [ ] Fixture promotion — failed runs (with reviewer's edited output as expected) one-click promote into `evals.yaml`
+- [ ] `skill_improvement_review` workflow — weekly scheduled run that surfaces candidates across all resources
 
-**Exit:** a skill that's underperforming shows up on a weekly report with an auto-drafted prompt-improvement PR ready for human approval.
+**Exit:** a thumb-down with note (or an edit, or a chat correction) on any resource produces a classified, routed improvement PR within a week, with a generated eval fixture so the regression can't recur silently.
 
 ### Phase 5 — Plugin SDK v1 + connector pack
 The plugin contract validated by shipping the connectors the landing page names. "Real business systems, not toy demos" requires the connectors actually exist.
