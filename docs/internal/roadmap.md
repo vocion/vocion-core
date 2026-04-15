@@ -101,8 +101,10 @@ Skills, context, and review queues reachable from wherever people already work. 
 **Exit:** a skill run started from any channel lands in the same review queue *and* pings the right reviewer on their preferred channel. External A2A agents can invoke a Vocion agent and poll for task completion.
 
 ### Phase 3 — Native retrieval
-*Highest operational payoff.* Replace Onyx with a pgvector-native pipeline. Onyx's 12 containers are the single biggest friction in every install — and the "self-host anywhere" promise is hollow until they're gone.
 
+*Highest operational payoff.* Replace Onyx with a pgvector-native pipeline. Onyx's 12 containers are the single biggest friction in every install — and the "self-host anywhere" promise is hollow until they're gone. Also lights up workflow-scoped retrieval primitives so multi-step workflows stop re-retrieving overlapping evidence at every step.
+
+**Pipeline rewrite**
 - [ ] pgvector schema + HNSW index
 - [ ] Postgres FTS layer
 - [ ] RRF hybrid ranker
@@ -112,7 +114,13 @@ Skills, context, and review queues reachable from wherever people already work. 
 - [ ] Migration tool: existing Onyx index → pgvector
 - [ ] Deprecate Onyx containers
 
-**Exit:** zero Onyx dependency in new deployments; feature parity on search quality; fresh-install quickstart actually runs in 10 minutes on a laptop.
+**Workflow-scoped retrieval** (avoid raw RAG at every step)
+- [ ] Workflow-scoped retrieval cache — same `retrieve(query)` inside the same `workflow_run` returns cached chunks; cache key includes `workflow_run_id` + query + filters
+- [ ] First-class `retrieve` step type — `kind: retrieve, query: '{{input.deal}}', limit: 20` produces `{{steps.fetch.output.chunks}}` for downstream skills to interpolate as evidence instead of re-retrieving
+- [ ] Per-step `freshness: '5m'` opt-in — bypasses cache when stale (matters for long-running durable workflows, see [Phase 6](#phase-6--triggers--durable-runner))
+- [ ] Retrieval audit — every `retrieve` call (cached or fresh) recorded against `workflow_run` for reproducibility
+
+**Exit:** zero Onyx dependency in new deployments; feature parity on search quality; fresh-install quickstart actually runs in 10 minutes on a laptop. A 5-step workflow with overlapping evidence needs makes one retrieval pass, not five.
 
 ### Phase 4 — Self-improvement loop (finish)
 
