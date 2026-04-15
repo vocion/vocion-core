@@ -140,7 +140,7 @@ WHERE sr.id = <run_id>;
 
 - **stdio transport only.** HTTP+OAuth (for claude.ai, Cursor Cloud, etc.) lands next.
 - **Single org per process.** The server is scoped to one `VOCION_ORG_ID`. Multi-tenant HTTP version is Phase 2b.
-- **No workflow primitive yet.** Workflows (triggers + steps + actions) come in Phase 3 with the conversational bootstrap.
+- **No workflow building block yet.** Workflows (triggers + steps + actions) come in Phase 3 with the conversational bootstrap.
 - **Search goes to Onyx.** Phase 5 swaps to native pgvector.
 
 ## Extending

@@ -1,6 +1,6 @@
 # API
 
-A tenant-scoped REST API for reading primitives, ingesting objects, triggering runs, and polling results. Use this when you have an existing system that should push data into Vocion and/or consume results — without running an agent conversation and without speaking MCP.
+A tenant-scoped REST API for reading building blocks, ingesting objects, triggering runs, and polling results. Use this when you have an existing system that should push data into Vocion and/or consume results — without running an agent conversation and without speaking MCP.
 
 ## What's live today
 
@@ -61,14 +61,14 @@ curl -H "Authorization: Bearer $VOCION_TOKEN" \
 ## Spec
 
 - [Authentication](./authentication.md) — token issuing + rotation + scopes
-- [Primitives](./primitives.md) — CRUD on Agent, Skill, Workflow, Object, Source
+- [Building blocks](./building blocks.md) — CRUD on Agent, Skill, Workflow, Object, Source
 - [Runs](./runs.md) — triggering + polling + resume
 - [Webhooks](./webhooks.md) — register URL + filter, receive completion events
 
 ## Principles
 
 - **Tenant-scoped by default.** Every token belongs to one Clerk org; every request implicitly scoped to that org. Cross-tenant read/write is not possible.
-- **Same primitives everywhere.** The API surface mirrors the five concepts ([Source](../concepts/sources.md), [Object](../concepts/objects.md), [Skill](../concepts/skills.md), [Workflow](../concepts/workflows.md), [Agent](../concepts/agents.md)). If you understand the concepts, the API is already familiar.
+- **Same building blocks everywhere.** The API surface mirrors the five concepts ([Source](../concepts/sources.md), [Object](../concepts/objects.md), [Skill](../concepts/skills.md), [Workflow](../concepts/workflows.md), [Agent](../concepts/agents.md)). If you understand the concepts, the API is already familiar.
 - **Idempotency keys** on all POST endpoints. Replay-safe.
 - **Versioned under `/api/v1`.** Breaking changes land under `/api/v2` with a deprecation window.
 - **OpenAPI 3.1 spec** published at `/api/v1/openapi.json` — generate client SDKs with any tool that speaks OpenAPI.

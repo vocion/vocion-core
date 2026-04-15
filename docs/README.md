@@ -28,7 +28,7 @@ Programmatic access for external systems — push objects, trigger runs, poll re
 
 - **[Overview](./api/README.md)** — when to use the API vs MCP vs A2A
 - **[Authentication](./api/authentication.md)** — tenant-scoped Bearer tokens
-- **[Primitives](./api/primitives.md)** — CRUD on Agents, Skills, Workflows, Objects, Sources
+- **[Building blocks](./api/building blocks.md)** — CRUD on Agents, Skills, Workflows, Objects, Sources
 - **[Runs](./api/runs.md)** — trigger, poll, approve, cancel
 - **[Webhooks](./api/webhooks.md)** — subscribe to completion + approval events
 
