@@ -21,11 +21,11 @@ This repo is `@vocion/core`. The full platform is layered:
 
 See [`docs/reference/repo-architecture.md`](./docs/reference/repo-architecture.md) for the full layered model + versioning + compatibility rules.
 
-## The five primitives
+## The five building blocks
 
 Everything you author lives in `context/<org>/` as YAML + markdown:
 
-| Primitive | Path | Shape |
+| Block | Path | Shape |
 |---|---|---|
 | **Source** | `context/<org>/sources/<slug>/source.yaml` | Auth, retrieval overrides, indexing filters |
 | **Object** | `context/<org>/objects/<slug>/type.yaml` | Business entity (Account, Deal, …) with source weights |
