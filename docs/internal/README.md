@@ -1,8 +1,8 @@
 # Internal Docs
 
-MetaCTO-specific planning, tracking, and case studies. **Not public** — these docs are for the MetaCTO team running CoreContext, not for OSS consumers.
+MetaCTO-specific planning, tracking, and case studies. **Not public** — these docs are for the MetaCTO team running Vocion, not for OSS consumers.
 
-If CoreContext goes public (Phase 8), this directory stays private (either excluded from the public website build or moved to a separate private repo).
+If Vocion goes public (Phase 8), this directory stays private (either excluded from the public website build or moved to a separate private repo).
 
 ## What lives here
 

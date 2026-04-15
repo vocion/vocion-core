@@ -2,11 +2,11 @@
 
 ## What Ziggy Is
 
-Ziggy is the first packaged GTM agent built on the CoreContext platform. It acts as a sales coordinator + proposal ops specialist + follow-up analyst for MetaCTO.
+Ziggy is the first packaged GTM agent built on the Vocion platform. It acts as a sales coordinator + proposal ops specialist + follow-up analyst for MetaCTO.
 
 ## Positioning
 
-- **CoreContext** = the reusable enterprise context platform (connectors, objects, skills, workflows, HITL, observability)
+- **Vocion** = the reusable enterprise context platform (connectors, objects, skills, workflows, HITL, observability)
 - **Ziggy** = the first vertical package built on top of it (Sales Ops / RevOps)
 
 ## What Ziggy Can Do (End State)

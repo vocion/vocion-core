@@ -1,6 +1,6 @@
 # Algren — Customer Account Agent for NINJIO
 
-Second case study on top of CoreContext after Ziggy. Where Ziggy runs the sales pipeline, **Algren** runs a single high-value customer account relationship — acting as the exec-sponsor's assistant: reviewing noise across every channel, producing meeting prep, flagging what needs attention, summarizing account health weekly.
+Second case study on top of Vocion after Ziggy. Where Ziggy runs the sales pipeline, **Algren** runs a single high-value customer account relationship — acting as the exec-sponsor's assistant: reviewing noise across every channel, producing meeting prep, flagging what needs attention, summarizing account health weekly.
 
 **The name:** Nathan Algren — the American captain in *The Last Samurai* who, sent to modernize the Japanese army, instead crosses over and learns their world from the inside. Algren the agent is the exec's embedded operator in the NINJIO relationship — fluent in both MetaCTO's delivery posture and NINJIO's operations. Ziggy-sibling naming: one name, memorable, a specific personality. Bonus: NINJIO teaches cybersecurity through ninja framing, so sending a Last Samurai agent into it is on-brand.
 
@@ -194,6 +194,6 @@ Daily triage + weekly summary come after prep pack is validated.
 ## Open questions
 
 - **Seeding business objects via context-as-code?** Today `context/` covers agents/skills/object-types/workflows but NOT object *instances*. Should per-account data be a context primitive (YAML seeds), or a runtime admin UI write? Probably YAML for the permanent metadata (channel IDs etc.) and runtime for transient status.
-- **Slack multi-workspace:** does each customer get their own OAuth install, or do we federate under a single CoreContext app?
+- **Slack multi-workspace:** does each customer get their own OAuth install, or do we federate under a single Vocion app?
 - **Teams recording access:** Microsoft Graph permissions for Teams recordings require tenant-admin consent. Need to scope carefully — NINJIO controls their tenant, MetaCTO needs per-customer consent setup.
 - **Where does the prep pack get delivered?** Teams DM to Chris? Email? A dedicated web UI view? The agent shouldn't care — channel is an adapter decision.
