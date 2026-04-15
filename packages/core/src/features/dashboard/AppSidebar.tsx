@@ -66,8 +66,8 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               icon: CheckSquare,
             },
             {
-              title: 'Audit',
-              url: '/dashboard/audit',
+              title: 'Logs',
+              url: '/dashboard/logs',
               icon: Activity,
             },
           ]}

@@ -28,7 +28,7 @@ export function PrimitiveActivity(props: Props) {
           Recent activity
         </div>
         <Link
-          href={`/dashboard/audit?kind=${props.kind}`}
+          href={`/dashboard/logs?kind=${props.kind}`}
           className="text-[11px] text-muted-foreground hover:text-foreground"
         >
           View all →
