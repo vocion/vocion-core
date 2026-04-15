@@ -22,7 +22,7 @@ Ordered from first-touch to deepest:
 2. **[Worked example: discovery follow-up](./guides/example-discovery-followup.md)** — a real workflow end-to-end (source → object → skills → workflow → agent → audit)
 3. **[Authoring context](./guides/authoring-context.md)** — editing the YAML + markdown that grounds your AI
 4. **[Evals](./guides/evals.md)** — fixtures alongside each resource; CI catches regressions
-5. **[Feedback + audit](./guides/feedback-and-audit.md)** — rating runs, browsing the timeline, closing the loop
+5. **[Feedback + logs](./guides/feedback-and-logs.md)** — rating runs, browsing the timeline, closing the loop
 6. **[Writing a plugin](./guides/writing-a-plugin.md)** — shipping a Skill as an npm package via `@vocion/sdk`
 7. **[Self-hosting](./guides/self-hosting.md)** — running Vocion on your own infra
 8. **[Extracting a tenant repo](./guides/extract-tenant.md)** — splitting `context/<org>/` into its own git repo
