@@ -9,7 +9,7 @@
                      └─────────────────┬───────────────────────────────────┘
                                        │
                      ┌─────────────────▼───────────────────────────────────┐
-                     │  CoreContext Runtime                                │
+                     │  Vocion Runtime                                │
                      │  (Next.js App Router · oRPC · Postgres · Drizzle)   │
                      │                                                     │
                      │  Auth (Clerk) · RBAC · Audit · Review queue         │
@@ -49,7 +49,7 @@
 
 Every agent / skill / object type / workflow lives in `context/<org>/` as YAML + markdown. The DB stores runtime state (skill runs, drafts, approvals) only. `context:apply` is idempotent + records a `context_version` row stamped on every subsequent `skill_run`. Six months later you can answer "which prompt produced this output?" with one SQL join + a `git show <sha>`.
 
-### CoreContext owns the orchestration loop
+### Vocion owns the orchestration loop
 
 The platform's runtime — agents, skills, workflows, review queue — is the product. Retrieval (Onyx today; pgvector next) is a tool, not the orchestrator. We do not build on top of vendor-managed agent frameworks (Vertex Agent Builder, Azure Foundry Prompt Flow); we wrap them as backends if customers need them.
 
@@ -82,8 +82,8 @@ Apache 2.0 runtime. Postgres for state. Pluggable retrieval + LLM providers. No 
 
 | Concern | Where it lives |
 |---|---|
-| **What CoreContext knows** (prompts, skill defs, agent personas, schemas) | `context/<org>/` — git, applied to DB |
-| **What CoreContext did** (skill runs, workflow runs, drafts, approvals) | DB — append-only, audit-trail-friendly |
+| **What Vocion knows** (prompts, skill defs, agent personas, schemas) | `context/<org>/` — git, applied to DB |
+| **What Vocion did** (skill runs, workflow runs, drafts, approvals) | DB — append-only, audit-trail-friendly |
 | **Plugins** (typed code, packaged) | npm packages or local paths via `CORECONTEXT_PLUGINS` env |
 | **Secrets** (OAuth tokens, API keys) | `.env` + secret managers — never in context-as-code |
 | **Per-instance business data** (NINJIO Account row, specific discovery call) | DB business_object — runtime state, not config |

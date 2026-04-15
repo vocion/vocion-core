@@ -1,6 +1,6 @@
 # RBAC Model
 
-Even when using Onyx Enterprise features, keep product-level RBAC in CoreContext's own control plane.
+Even when using Onyx Enterprise features, keep product-level RBAC in Vocion's own control plane.
 
 ## Roles
 
@@ -29,12 +29,12 @@ Even when using Onyx Enterprise features, keep product-level RBAC in CoreContext
 
 - Onyx RBAC and document access controls are enterprise-gated
 - API token support is evolving toward user-scoped tokens (not yet available)
-- CoreContext API layer must remain the source of truth for who can do what
+- Vocion API layer must remain the source of truth for who can do what
 - Onyx permissions are secondary enforcement, not primary
 
 ## Clerk Integration
 
 - Workspace maps to Clerk Organization
 - Users managed via Clerk
-- Roles stored in CoreContext DB, checked at API layer
-- Clerk provides auth tokens; CoreContext resolves permissions
+- Roles stored in Vocion DB, checked at API layer
+- Clerk provides auth tokens; Vocion resolves permissions
