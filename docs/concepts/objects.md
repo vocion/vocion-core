@@ -46,7 +46,7 @@ Classification fixtures — document in, yes/no out, which instance it should li
 - `generate_summary` skill keeps the object's `summary` field fresh based on linked documents.
 - Any Skill can call `ctx.retrieve('Acme Corp', { sources: ['hubspot'] })` + resolve matches back to the object row.
 
-## Connection to other building blocks
+## Connection to other resources
 
 - **[Sources](./sources.md)** — `sourceRelevance` weights which connectors are most authoritative for this object type
 - **[Skills](./skills.md)** — typically take an `objectId` as input and update the object's fields as output

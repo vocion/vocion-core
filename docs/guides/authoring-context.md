@@ -60,7 +60,7 @@ git commit -m "feat(skill): add discovery_summary"
 git push
 ```
 
-The dashboard shows a small **dirty** badge on building block pages when your context repo has uncommitted changes.
+The dashboard shows a small **dirty** badge on resource pages when your context repo has uncommitted changes.
 
 ## Multi-tenant
 
