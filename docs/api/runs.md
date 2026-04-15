@@ -176,4 +176,4 @@ Valid `rating` values: `"up"`, `"down"`, `null` (clears). Note is optional. Idem
 
 Works on any skill run regardless of status — `pending`, `approved`, `rejected`, or `auto` (skills that never hit the review queue). Useful for "was this useful?" post-hoc surveys.
 
-See [Feedback + audit](../guides/feedback-and-logs.md) for the full loop.
+See [Feedback + logs](../guides/feedback-and-logs.md) for the full loop.
