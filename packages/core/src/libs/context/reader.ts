@@ -16,9 +16,12 @@ import { fromRepoRoot } from '@/libs/repo-root';
 export type PrimitiveKind = 'skill' | 'workflow' | 'object' | 'agent' | 'source';
 
 export type PrimitiveFile = {
+  /** Path relative to the context dir, e.g. `skills/discovery-summary/prompt.md` */
   path: string;
+  /** Full repo-relative path used by the writeFile oRPC route, e.g. `context/metacto/skills/discovery-summary/prompt.md` */
+  fullPath: string;
   content: string;
-  language: 'yaml' | 'markdown';
+  language: 'yaml' | 'markdown' | 'javascript';
 };
 
 export type PrimitiveFilesResult = {
@@ -45,8 +48,14 @@ function kindDir(kind: PrimitiveKind): string {
   }
 }
 
-function detectLanguage(fileName: string): 'yaml' | 'markdown' {
-  return fileName.endsWith('.md') ? 'markdown' : 'yaml';
+function detectLanguage(fileName: string): 'yaml' | 'markdown' | 'javascript' {
+  if (fileName.endsWith('.md')) {
+    return 'markdown';
+  }
+  if (fileName.endsWith('.js') || fileName.endsWith('.mjs')) {
+    return 'javascript';
+  }
+  return 'yaml';
 }
 
 export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): PrimitiveFilesResult | null {
@@ -69,6 +78,7 @@ export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): Primitive
       .filter(name => existsSync(join(agentDir, name)))
       .map(name => ({
         path: `agents/${name}`,
+        fullPath: `${contextPath}/agents/${name}`,
         content: readFileSync(join(agentDir, name), 'utf-8'),
         language: detectLanguage(name),
       }));
@@ -84,7 +94,7 @@ export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): Primitive
     return null;
   }
 
-  const fileNames = readdirSync(dir).filter(n => n.endsWith('.yaml') || n.endsWith('.md'));
+  const fileNames = readdirSync(dir).filter(n => n.endsWith('.yaml') || n.endsWith('.md') || n.endsWith('.js') || n.endsWith('.mjs'));
   if (fileNames.length === 0) {
     return null;
   }
@@ -100,6 +110,7 @@ export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): Primitive
 
   const files = fileNames.map(n => ({
     path: `${kindDir(kind)}/${dirName}/${n}`,
+    fullPath: `${contextPath}/${kindDir(kind)}/${dirName}/${n}`,
     content: readFileSync(join(dir, n), 'utf-8'),
     language: detectLanguage(n),
   }));

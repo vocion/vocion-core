@@ -10,7 +10,7 @@ import {
   remove as removeObject,
   update as updateObject,
 } from './BusinessObject';
-import { readPrimitive } from './Context';
+import { readPrimitive, writeFile } from './Context';
 import {
   approve,
   cancel,
@@ -38,6 +38,7 @@ export const router = {
   },
   context: {
     readPrimitive,
+    writeFile,
   },
   review: {
     listSkillRuns: listPendingSkillRuns,
