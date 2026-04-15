@@ -18,6 +18,8 @@ Walk-throughs for recurring tasks:
 
 - **[Quickstart](./guides/quickstart.md)** — zero to your first skill run in 10 minutes
 - **[Authoring context](./guides/authoring-context.md)** — editing the YAML + markdown that grounds your AI
+- **[Evals](./guides/evals.md)** — fixtures alongside each building block; CI catches regressions
+- **[Feedback + audit](./guides/feedback-and-audit.md)** — rating runs, browsing the timeline, closing the loop
 - **[Writing a plugin](./guides/writing-a-plugin.md)** — shipping a Skill as an npm package via `@vocion/sdk`
 - **[Self-hosting](./guides/self-hosting.md)** — running Vocion on your own infra
 - **[Extracting a tenant repo](./guides/extract-tenant.md)** — splitting `context/<org>/` into its own git repo

@@ -9,9 +9,19 @@ Skills come in two forms:
 
 Both kinds register the same slug; the runtime picks whichever exists. Plugins win ties (so a partner can upgrade a prompt-only skill to code-powered without migration).
 
-## Where it lives
+## Folder shape
 
-A prompt skill: `context/<org>/skills/<slug>/skill.yaml` + `prompt.md`:
+```
+context/<org>/skills/<slug>/
+├── skill.yaml         # structured definition (required)
+├── prompt.md          # prompt template (prompt skills only)
+├── evals.yaml         # test fixtures (recommended)
+└── README.md          # optional — rationale, gotchas, examples
+```
+
+Everything about a skill lives in its folder. `git mv` a skill anywhere, `git log` walks only its history.
+
+### `skill.yaml`
 
 ```yaml
 slug: discovery_summary
@@ -29,7 +39,28 @@ inputSchema:
     transcript: {type: string}
 ```
 
-A plugin skill ships in an npm package. See [writing a plugin](../guides/writing-a-plugin.md).
+### `prompt.md`
+
+Handlebars-style `{{variables}}` interpolated from input. Full markdown — the LLM sees it verbatim.
+
+### `evals.yaml`
+
+Fixtures the skill is tested against. See [Evals](../guides/evals.md) for the full shape — each fixture has an input and a set of assertions (substring, regex, JSON-field, or LLM rubric).
+
+```yaml
+fixtures:
+  - name: acme_discovery_call
+    input:
+      transcript: '...'
+    expect:
+      - field: prospect
+        equals: Acme Corp
+      - rubric: summary mentions both pain points discussed
+```
+
+### `README.md` (optional)
+
+Free-form notes. Why was this skill authored? What's the edge case that tripped everyone up in Q3? What's the tuning story? Human-readable, not parsed.
 
 ## Runtime
 
@@ -39,6 +70,7 @@ Every invocation:
 2. Renders the prompt / runs the code in a Langfuse-traced span.
 3. Validates `output`, writes a `skill_run` row with the `context_sha` stamped in.
 4. If `requiresApproval: true`, the run lands in the Review Queue before any downstream action.
+5. Captures rating + note (optional) at review or post-hoc — see [feedback + audit](../guides/feedback-and-audit.md).
 
 ## Connection to other building blocks
 
@@ -50,3 +82,5 @@ Every invocation:
 
 - [Authoring context](../guides/authoring-context.md) — the edit + apply cycle for prompt skills
 - [Writing a plugin](../guides/writing-a-plugin.md) — shipping a Skill as an npm package
+- [Evals](../guides/evals.md) — fixtures + CI regression gating
+- [Feedback + audit](../guides/feedback-and-audit.md) — ratings, the improvement loop
