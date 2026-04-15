@@ -38,8 +38,8 @@ export const AppSidebarHeader = () => (
             <UserButton.Link label="System" labelIcon={<HeartPulse className="size-4" />} href="/dashboard/admin" />
             <UserButton.Link label="Docs" labelIcon={<BookOpen className="size-4" />} href="/dashboard/docs" />
             <UserButton.Link label="Roadmap" labelIcon={<Map className="size-4" />} href="/dashboard/roadmap" />
-            <UserButton.Link label="Support" labelIcon={<LifeBuoy className="size-4" />} href="mailto:support@compiles.ai" />
-            <UserButton.Link label="Feedback" labelIcon={<Send className="size-4" />} href="mailto:feedback@compiles.ai" />
+            <UserButton.Link label="Support" labelIcon={<LifeBuoy className="size-4" />} href="mailto:support@vocion.ai" />
+            <UserButton.Link label="Feedback" labelIcon={<Send className="size-4" />} href="mailto:feedback@vocion.ai" />
           </UserButton.MenuItems>
         </UserButton>
       </li>

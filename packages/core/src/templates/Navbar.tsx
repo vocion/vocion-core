@@ -5,7 +5,7 @@ import { buttonVariants } from '@/components/ui/buttonVariants';
 import { CenteredMenu } from '@/features/landing/CenteredMenu';
 import { Section } from '@/features/landing/Section';
 import { Link } from '@/libs/I18nNavigation';
-import { CompilesLogo } from './CompilesLogo';
+import { VocionLogo } from './VocionLogo';
 
 export const Navbar = () => {
   const t = useTranslations('Navbar');
@@ -15,7 +15,7 @@ export const Navbar = () => {
       <CenteredMenu
         logo={(
           <Link href="/" className="hover:opacity-80">
-            <CompilesLogo />
+            <VocionLogo />
           </Link>
         )}
         rightMenu={(

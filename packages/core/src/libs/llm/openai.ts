@@ -1,4 +1,4 @@
-import type { LLMClient, LLMOptions, LLMResponse } from '@compiles/sdk';
+import type { LLMClient, LLMOptions, LLMResponse } from '@vocion/sdk';
 import type OpenAI from 'openai';
 
 /**

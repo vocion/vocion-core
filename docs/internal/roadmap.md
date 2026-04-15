@@ -10,8 +10,8 @@ Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live
 
 Framing changes that aren't a "phase" but reorganized everything:
 
-- [x] **Rebrand** from CoreContext → Compiles. `@compiles/core` on npm scope, `compiles-ai/compiles-core` on GitHub.
-- [x] **Layered repo architecture** — `@compiles/core` (runtime), `@compiles/sdk` (stable contract), `@compiles/plugin-*` (connectors + skills), `compiles-starter` (forkable install), `<client>-compiles` (tenant). Spec: [`docs/reference/repo-architecture.md`](../reference/repo-architecture.md).
+- [x] **Rebrand** from CoreContext → Vocion. `@vocion/core` on npm scope, `vocion/core` on GitHub.
+- [x] **Layered repo architecture** — `@vocion/core` (runtime), `@vocion/sdk` (stable contract), `@vocion/plugin-*` (connectors + skills), `vocion-starter` (forkable install), `<client>-vocion` (tenant). Spec: [`docs/reference/repo-architecture.md`](../reference/repo-architecture.md).
 - [x] **Five primitives** vocabulary — Source, Object, Skill, Workflow, Agent. One page per primitive in public docs; canonical card shape in the dashboard catalog + drilldown pages.
 - [x] **npm workspaces** (Phase B of repo architecture) — `packages/core`, `packages/sdk`, `packages/plugins/transcript-highlights`.
 - [x] **Docs IA** — `docs/concepts/`, `docs/guides/`, `docs/reference/` (and `docs/api/` as of this phase).
@@ -35,7 +35,7 @@ Pull hardcoded client data out of the app into `context/<org>/` — YAML + markd
 
 ## Phase 2 — Universal Interface Layer (Q3 2026) — partial ✓
 
-Make Compiles reachable from wherever people already work. Skills, context, and review queues are shared across channels. *Channels* means both human-facing (Claude Code, Slack, ChatGPT, web) and machine-facing (HTTP API + A2A for agent handoff).
+Make Vocion reachable from wherever people already work. Skills, context, and review queues are shared across channels. *Channels* means both human-facing (Claude Code, Slack, ChatGPT, web) and machine-facing (HTTP API + A2A for agent handoff).
 
 - [x] **MCP server (stdio)** — Claude Code, Claude app, Cursor, Zed, Continue (shipped 2026-04-14)
 - [x] **Approve/reject surface** — `runtime_approve_draft` / `reject_draft` as MCP tools, plus web UI at `/dashboard/review`
@@ -44,9 +44,9 @@ Make Compiles reachable from wherever people already work. Skills, context, and 
 - [ ] **ChatGPT Actions + listed GPT** — OAuth, OpenAPI spec auto-generated from oRPC
 - [ ] **Slack bot** — slash commands, DMs, interactive approval messages
 - [ ] **Teams bot** — Bot Framework adapter
-- [ ] **A2A protocol server (inbound)** — serve our agents via Google's A2A spec so external agents can hand off tasks to a Compiles agent. Task lifecycle, capability discovery, auth.
+- [ ] **A2A protocol server (inbound)** — serve our agents via Google's A2A spec so external agents can hand off tasks to a Vocion agent. Task lifecycle, capability discovery, auth.
 
-**Exit criteria:** a skill run started from any channel shows up in the same review queue. External agents can invoke a Compiles agent via A2A and get a task id back.
+**Exit criteria:** a skill run started from any channel shows up in the same review queue. External agents can invoke a Vocion agent via A2A and get a task id back.
 
 ---
 
@@ -61,10 +61,10 @@ The non-agent, non-chat integration story: a tenant has their own system (constr
 - [ ] **Run triggers** — `POST /api/v1/skills/:slug/runs`, `POST /api/v1/workflows/:slug/runs` start a run, return `run_id` + status
 - [ ] **Run polling** — `GET /api/v1/runs/:id` returns status + output (or null while pending)
 - [ ] **Run streaming** — optional SSE endpoint for long-running workflows
-- [ ] **Webhooks out** — tenant can register URL + filter; Compiles POSTs on skill-run completion, workflow-approval-needed, workflow-completed
+- [ ] **Webhooks out** — tenant can register URL + filter; Vocion POSTs on skill-run completion, workflow-approval-needed, workflow-completed
 - [ ] **Docs site** — `docs/api/` peer to concepts/guides/reference with auth, primitive CRUD, run lifecycle, webhooks, idempotency keys, rate limits
 
-**Exit criteria:** a backend engineer with zero Compiles knowledge can, in 30 minutes: issue a token, POST an object, trigger a workflow, poll for the result, and receive a webhook when a human approves an intermediate draft.
+**Exit criteria:** a backend engineer with zero Vocion knowledge can, in 30 minutes: issue a token, POST an object, trigger a workflow, poll for the result, and receive a webhook when a human approves an intermediate draft.
 
 ---
 
@@ -74,8 +74,8 @@ Extract skills and sources from the monorepo into a publishable plugin contract.
 
 - [x] v0.1 — Skill contract, registry, loader, dual-path execution, sample plugin (shipped 2026-04-14)
 - [x] Pluggable LLM provider on plugin skills (`openai | anthropic | vertex | azure-openai`) — openai + anthropic shipped; vertex + azure placeholders
-- [x] v0.2 — Extracted to `@compiles/sdk` as an npm workspace (`packages/sdk`). Public npm publish pending.
-- [ ] `@compiles/sdk` published to npm (placeholder `@compiles/core@0.0.0` reserves scope)
+- [x] v0.2 — Extracted to `@vocion/sdk` as an npm workspace (`packages/sdk`). Public npm publish pending.
+- [ ] `@vocion/sdk` published to npm (placeholder `@vocion/core@0.0.0` reserves scope)
 - [ ] Source contract for connectors (Teams, HubSpot, DocuSign, Gamma as first plugins)
 - [ ] Review UI components shipped via plugins
 - [ ] Plugin hot-reload in dev, semver resolution in prod
@@ -137,7 +137,7 @@ Turn the 5 standard artifacts (Workflow Blueprint, Context Map, Economics Baseli
 
 ## Phase 7 — Conversational Bootstrap / WOW (Q4 2027)
 
-The magic moment. User connects sources, describes a workflow in natural language, and Compiles builds it — skill YAML, prompt MD, workflow YAML, all PR-reviewable. Sits after Plugin SDK + Native Retrieval + Feedback Loop so the meta-agent has a clean, composable, self-correcting substrate underneath.
+The magic moment. User connects sources, describes a workflow in natural language, and Vocion builds it — skill YAML, prompt MD, workflow YAML, all PR-reviewable. Sits after Plugin SDK + Native Retrieval + Feedback Loop so the meta-agent has a clean, composable, self-correcting substrate underneath.
 
 - [x] **Workflow primitive** — trigger → steps → action, composes skills/objects (shipped 2026-04-14 — pulled forward)
 - [ ] **Meta-agent** — a special skill with write access to `context/<org>/`; takes NL intent, emits manifests, uses the MCP write tools
@@ -156,7 +156,7 @@ The magic moment. User connects sources, describes a workflow in natural languag
 
 - [ ] Public repo + Apache 2.0 license
 - [x] Tenant extraction path documented ([`docs/guides/extract-tenant.md`](../guides/extract-tenant.md))
-- [ ] Actually split `context/metacto/` → `metacto-compiles` repo via `git subtree split`
+- [ ] Actually split `context/metacto/` → `metacto-vocion` repo via `git subtree split`
 - [ ] MetaCTO Cloud beta: hosted Postgres + pgvector, managed evals, SSO
 - [ ] Reference installs: 3 external clients running OSS in production
 - [ ] Launch blog + conference talk

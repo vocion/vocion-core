@@ -143,9 +143,9 @@ These are the strongest roadmap forcing functions. They demand plugins, typed da
 - #50 Trigger from internal app, review in web queue, audit in dashboard
 
 ### Best for API + external-integration story
-- #26 Construction site inspections — their existing field-notes app posts to Compiles, triggers workflow, polls result
+- #26 Construction site inspections — their existing field-notes app posts to Vocion, triggers workflow, polls result
 - #27 Shipment exceptions — OMS webhooks in, status back
-- #29 Store performance — POS system pushes nightly, Compiles replies with action plan
+- #29 Store performance — POS system pushes nightly, Vocion replies with action plan
 - #43 Underwriting — loan-origination system posts application, polls for decision
 - #49 Supply chain exceptions — ERP event bus in, routing webhook out
 
@@ -180,7 +180,7 @@ For every realized use case, produce:
 - **Who it's for** — industry + department
 - **What goes in** — sources + systems
 - **What comes out** — artifacts + decisions + approvals
-- **Why Compiles fits** — versioned context, human review, audit trail, typed plugins, self-hosting
+- **Why Vocion fits** — versioned context, human review, audit trail, typed plugins, self-hosting
 - **The stack** — list of Sources / Objects / Skills / Workflows / Agent that compose it
 
 Example:

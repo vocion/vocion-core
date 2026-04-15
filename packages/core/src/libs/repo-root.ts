@@ -10,7 +10,7 @@ import process from 'node:process';
  * repo root. cwd depends on how a script was invoked — `npm run ...
  * --workspace` lands in `packages/core/`, while direct `npm ... ` from
  * root stays at root. Rather than guess, walk up from cwd until we find
- * the umbrella package.json (`"name": "compiles"` + `"workspaces"`).
+ * the umbrella package.json (`"name": "vocion"` + `"workspaces"`).
  *
  * Result is memoized per process.
  */
@@ -27,7 +27,7 @@ export function getRepoRoot(): string {
     if (existsSync(pkgPath)) {
       try {
         const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { name?: string; workspaces?: unknown };
-        if (pkg.name === 'compiles' && pkg.workspaces) {
+        if (pkg.name === 'vocion' && pkg.workspaces) {
           cached = dir;
           return dir;
         }

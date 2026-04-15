@@ -10,7 +10,7 @@ POST /api/v1/webhooks
 
 ```json
 {
-  "url": "https://your-app.com/compiles-events",
+  "url": "https://your-app.com/vocion-events",
   "events": ["run.completed", "run.paused_for_review", "run.failed"],
   "filter": {
     "skillSlug": "inspection_review",
@@ -36,7 +36,7 @@ Your `secret` is used to sign every delivery. Store it in your secret manager.
 
 ## Delivery
 
-Compiles `POST`s to your URL with JSON body:
+Vocion `POST`s to your URL with JSON body:
 
 ```json
 {
@@ -56,10 +56,10 @@ Compiles `POST`s to your URL with JSON body:
 
 ## Signature verification
 
-Every delivery carries an `X-Compiles-Signature` header:
+Every delivery carries an `X-Vocion-Signature` header:
 
 ```
-X-Compiles-Signature: t=1744654200,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
+X-Vocion-Signature: t=1744654200,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
 ```
 
 Verify:

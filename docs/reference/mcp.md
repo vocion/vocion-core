@@ -19,7 +19,7 @@ Or add to `~/.claude/mcp.json` (or project-level `.mcp.json`):
       "command": "npm",
       "args": ["--prefix", "/absolute/path/to/context-stack", "run", "mcp:serve"],
       "env": {
-        "CORECONTEXT_ORG_ID": "org_3B7f6cPKTKnJOExO55asDaUVAay",
+        "VOCION_ORG_ID": "org_3B7f6cPKTKnJOExO55asDaUVAay",
         "CONTEXT_PATH": "/absolute/path/to/context-stack/context/metacto"
       }
     }
@@ -29,7 +29,7 @@ Or add to `~/.claude/mcp.json` (or project-level `.mcp.json`):
 
 Required env:
 
-- `CORECONTEXT_ORG_ID` — Clerk org id the server acts on (or fall back to `SEED_ORG_ID`)
+- `VOCION_ORG_ID` — Clerk org id the server acts on (or fall back to `SEED_ORG_ID`)
 - `DATABASE_URL` — Postgres connection string
 - `OPENAI_API_KEY` — required only for `runtime_run_skill`
 
@@ -139,7 +139,7 @@ WHERE sr.id = <run_id>;
 ## Limitations (today)
 
 - **stdio transport only.** HTTP+OAuth (for claude.ai, Cursor Cloud, etc.) lands next.
-- **Single org per process.** The server is scoped to one `CORECONTEXT_ORG_ID`. Multi-tenant HTTP version is Phase 2b.
+- **Single org per process.** The server is scoped to one `VOCION_ORG_ID`. Multi-tenant HTTP version is Phase 2b.
 - **No workflow primitive yet.** Workflows (triggers + steps + actions) come in Phase 3 with the conversational bootstrap.
 - **Search goes to Onyx.** Phase 5 swaps to native pgvector.
 
