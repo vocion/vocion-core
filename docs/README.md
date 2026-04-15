@@ -1,6 +1,6 @@
-# Vocion docs
+# Docs overview
 
-This is the developer documentation for `@vocion/core` — the framework layer. If you're looking for a hosted platform, see [vocion.ai](https://vocion.ai).
+The developer documentation for `@vocion/core` — the framework layer. If you're looking for a hosted platform, see [vocion.ai](https://vocion.ai).
 
 ## The five resources
 
