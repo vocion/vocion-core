@@ -20,7 +20,7 @@ Pragmatic choices for a Postgres-native, self-hostable AI runtime. No exotic dep
 |---|---|---|
 | **LLM clients** | OpenAI SDK + Anthropic SDK | Direct provider clients per skill via the `LLMClient` adapter |
 | **Plugin LLM provider** | `provider: openai \| anthropic \| vertex \| azure-openai` | Per-skill manifest field; vertex + azure are planned stubs |
-| **Plugin contract** | `Skill<Input, Output>` (Zod-validated) | Typed I/O at the plugin boundary. v0.2 extracts to `@corecontext/sdk` |
+| **Plugin contract** | `Skill<Input, Output>` (Zod-validated) | Typed I/O at the plugin boundary. v0.2 extracts to `@vocion/sdk` |
 | **Workflow runner** | In-process step runner on Postgres | One row per run; pause-resume on approve steps. Temporal adapter planned for scale-out |
 | **Context-as-code** | YAML + markdown + Zod | Authored in repo, applied via idempotent reconcile job |
 

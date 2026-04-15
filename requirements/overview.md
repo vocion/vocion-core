@@ -1,6 +1,6 @@
 # Product Overview
 
-## What CoreContext is
+## What Vocion is
 
 An open runtime for AI workflows that need to survive production. Versioned context, typed plugins, human review, full audit trail. Build once, run from Slack, Claude Code, ChatGPT, or your own app.
 
@@ -41,7 +41,7 @@ Six clear surfaces, not infrastructure:
 4. **Control plane** — policies, RBAC, approval queue, audit trail (`context_version` SHA stamped on every `skill_run`).
 5. **Improvement loop** — feedback per run, eval harness, prompt-improvement meta-skill (proposes PR-style diffs, never auto-applies).
 
-## What an agent is in CoreContext
+## What an agent is in Vocion
 
 An agent is a **packaged configuration**, not bespoke code. It lives in `context/<org>/agents/<slug>.yaml` plus a markdown system prompt.
 
@@ -88,7 +88,7 @@ Every workflow run records per-step results, the active context SHA, and links b
 
 ## Audience split
 
-CoreContext is for developers, platform engineers, AI engineers, and technical founders who want leverage without losing control. The MetaCTO services arm exists for non-developer buyers who need someone to design + ship + run AI systems for them. They're complementary: CoreContext is the runtime; MetaCTO is one (of many possible) implementation partner.
+Vocion is for developers, platform engineers, AI engineers, and technical founders who want leverage without losing control. The MetaCTO services arm exists for non-developer buyers who need someone to design + ship + run AI systems for them. They're complementary: Vocion is the runtime; MetaCTO is one (of many possible) implementation partner.
 
 ## Related
 
