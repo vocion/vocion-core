@@ -257,4 +257,4 @@ Every one of these is a seam you can extend. Add more skills to Ziggy; add more 
 - [Concepts](../concepts/) — read the five resources top-to-bottom
 - [Authoring context](./authoring-context.md) — the edit-apply loop details
 - [Evals](./evals.md) — gating prompt changes with fixtures
-- [Feedback + audit](./feedback-and-logs.md) — closing the loop
+- [Feedback + logs](./feedback-and-logs.md) — closing the loop
