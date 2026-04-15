@@ -52,8 +52,8 @@ const principles = [
   },
   {
     icon: Eye,
-    title: 'Full audit trail',
-    body: 'Every run stamps the active context SHA. Any output traces back to the exact prompts + code that produced it.',
+    title: 'Full audit trail + feedback loop',
+    body: 'Every run stamps the active context SHA and captures an optional rating + note. Browsable timeline; feedback feeds the improvement loop.',
   },
   {
     icon: Puzzle,
@@ -66,8 +66,8 @@ const flow = [
   { n: '01', title: 'Author', body: 'Edit a skill.yaml or prompt.md in your editor.' },
   { n: '02', title: 'Apply', body: 'npm run context:apply reconciles YAML → DB and stamps a new context version.' },
   { n: '03', title: 'Run', body: 'Trigger from Claude Code, Slack, ChatGPT, the dashboard, or a scheduled workflow.' },
-  { n: '04', title: 'Review', body: 'Drafts + paused workflows land in one queue. Approve, reject, resume.' },
-  { n: '05', title: 'Audit', body: 'Every run records inputs, outputs, trace spans, retrieval hits, context SHA.' },
+  { n: '04', title: 'Review', body: 'Drafts + paused workflows land in one queue. Approve, reject, rate 👍/👎 with an optional note.' },
+  { n: '05', title: 'Audit', body: 'Every run stamped with context SHA + rating + feedback. Browsable timeline, query-able via API, fuel for the improvement loop.' },
 ];
 
 const starters = [

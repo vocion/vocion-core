@@ -1,6 +1,6 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { approveSkillRun, getSkillRun, listSkillRuns, rejectSkillRun } from '@/services/SkillService';
+import { approveSkillRun, getSkillRun, listSkillRuns, rejectSkillRun, submitSkillRunFeedback } from '@/services/SkillService';
 import {
   cancelWorkflow,
   getWorkflowRun,
@@ -31,6 +31,16 @@ const ListWorkflowRunsInput = z.object({
 const RunIdInput = z.object({ id: z.number().int().positive() });
 const RejectInput = z.object({ id: z.number().int().positive(), reason: z.string().optional() });
 const CancelInput = z.object({ id: z.number().int().positive(), reason: z.string().optional() });
+const ApproveInput = z.object({
+  id: z.number().int().positive(),
+  rating: z.enum(['up', 'down']).nullable().optional(),
+  note: z.string().optional(),
+});
+const FeedbackInput = z.object({
+  id: z.number().int().positive(),
+  rating: z.enum(['up', 'down']).nullable().optional(),
+  note: z.string().optional(),
+});
 
 export const listPendingSkillRuns = os
   .input(ListSkillRunsInput)
@@ -56,10 +66,13 @@ export const getRun = os
   });
 
 export const approve = os
-  .input(RunIdInput)
+  .input(ApproveInput)
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
-    const run = await approveSkillRun({ orgId, runId: input.id, reviewedBy: 'web' });
+    const feedback = input.rating !== undefined || input.note !== undefined
+      ? { rating: input.rating, note: input.note }
+      : undefined;
+    const run = await approveSkillRun({ orgId, runId: input.id, reviewedBy: 'web', feedback });
     if (!run) {
       throw ApiError.notFound();
     }
@@ -70,7 +83,24 @@ export const reject = os
   .input(RejectInput)
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
-    const run = await rejectSkillRun({ orgId, runId: input.id, reviewedBy: 'web', reason: input.reason });
+    const run = await rejectSkillRun({ orgId, runId: input.id, reviewedBy: 'web', feedback: input.reason ? { note: input.reason, rating: 'down' } : undefined });
+    if (!run) {
+      throw ApiError.notFound();
+    }
+    return run;
+  });
+
+export const submitFeedback = os
+  .input(FeedbackInput)
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const run = await submitSkillRunFeedback({
+      orgId,
+      runId: input.id,
+      submittedBy: 'web',
+      rating: input.rating,
+      note: input.note,
+    });
     if (!run) {
       throw ApiError.notFound();
     }

@@ -124,7 +124,7 @@ function rejectTool(config: McpConfig): ToolModule {
     },
     handler: async (input) => {
       const { run_id, reviewed_by, reason } = input as { run_id: number; reviewed_by: string; reason?: string };
-      const run = await rejectSkillRun({ orgId: config.orgId, runId: run_id, reviewedBy: reviewed_by, reason });
+      const run = await rejectSkillRun({ orgId: config.orgId, runId: run_id, reviewedBy: reviewed_by, feedback: reason ? { note: reason, rating: 'down' } : undefined });
       if (!run) {
         return { error: `run ${run_id} not found` };
       }
