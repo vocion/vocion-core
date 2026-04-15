@@ -195,15 +195,9 @@ function groupFor(rel: string): string {
   if (GET_STARTED_PATHS.has(rel)) {
     return 'get-started';
   }
-  // Per-agent case-study subgroups
-  if (rel.startsWith('docs/internal/use-cases/case-studies/ziggy/')) {
-    return 'docs/internal/use-cases/case-studies/ziggy';
-  }
-  if (rel.startsWith('docs/internal/use-cases/case-studies/algren/')) {
-    return 'docs/internal/use-cases/case-studies/algren';
-  }
-  if (rel.startsWith('docs/internal/use-cases/case-studies/')) {
-    return 'docs/internal/use-cases/case-studies';
+  // Roadmap group: the roadmap itself plus the changelog of what's shipped.
+  if (rel === 'docs/internal/roadmap.md' || rel === 'docs/internal/changelog.md') {
+    return 'roadmap';
   }
   if (rel.startsWith('docs/internal/use-cases/')) {
     return 'docs/internal/use-cases';
@@ -231,18 +225,20 @@ function groupFor(rel: string): string {
 
 const GROUP_ORDER = [
   'get-started',
+  // Roadmap viewer order: roadmap (default) + changelog, then use cases,
+  // then platform spec. Public-docs groups (concepts/guides/api/reference)
+  // are after the roadmap-only block — they're never present in the same
+  // listing, so order between the two blocks is informational only.
+  'roadmap',
+  'docs/internal/use-cases',
+  'requirements',
   'docs/concepts',
   'docs/guides',
   'docs/api',
   'docs/reference',
   'root',
   'docs',
-  'requirements',
   'docs/internal',
-  'docs/internal/use-cases',
-  'docs/internal/use-cases/case-studies',
-  'docs/internal/use-cases/case-studies/ziggy',
-  'docs/internal/use-cases/case-studies/algren',
 ];
 function orderOf(group: string): number {
   const idx = GROUP_ORDER.indexOf(group);

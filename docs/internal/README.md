@@ -9,10 +9,8 @@ If Vocion goes public (Phase 8), this directory stays private (either excluded f
 | File | Purpose |
 |---|---|
 | [roadmap.md](./roadmap.md) | Phased delivery plan — Phase 1 through 9 |
-| [progress.md](./progress.md) | Running log: shipped, in flight, queued. Commit list, decision log, test + infra status. |
-| [customer-onboarding.md](./customer-onboarding.md) | MetaCTO's build-up process for each new customer deployment |
-| [managed-operations.md](./managed-operations.md) | MetaCTO's managed-ops service offering — recurring revenue model, tuning, evals, training |
-| [use-cases/](./use-cases/README.md) | Workflow catalog (50 items) + per-customer case studies (Ziggy, Algren) |
+| [changelog.md](./changelog.md) | Running log: shipped, in flight, queued. Commit list, decision log, test + infra status. |
+| [use-cases/](./use-cases/README.md) | Workflow catalog (50 items) + per-agent case studies (Ziggy, Algren) |
 
 ## Public / external docs live elsewhere
 

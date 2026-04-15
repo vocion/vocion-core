@@ -1,4 +1,4 @@
-# Overview — Algren (customer account, NINJIO)
+# Algren — customer account
 
 Second case study on top of Vocion after Ziggy. Where Ziggy runs the sales pipeline, **Algren** runs a single high-value customer account relationship — acting as the exec-sponsor's assistant: reviewing noise across every channel, producing meeting prep, flagging what needs attention, summarizing account health weekly.
 
