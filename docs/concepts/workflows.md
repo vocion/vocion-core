@@ -65,7 +65,7 @@ End-to-end fixtures — feed an input, assert on final output + intermediate ste
 
 Start a workflow → steps execute sequentially → on `approve` step, run pauses. Approver reviews at `/dashboard/review`, clicks approve/reject, optionally rates 👍/👎 with a note. Approve resumes the run from the step after; reject marks it failed. Durable by design — in-flight state lives in Postgres, not memory.
 
-Every run is query-able by status, rating, context SHA — see the [audit timeline](../guides/feedback-and-logs.md).
+Every run is query-able by status, rating, context SHA — see the [logs view](../guides/feedback-and-logs.md).
 
 ## Connection to other resources
 
@@ -78,4 +78,4 @@ Every run is query-able by status, rating, context SHA — see the [audit timeli
 - [Quickstart](../guides/quickstart.md) — run your first workflow end-to-end
 - [Authoring context](../guides/authoring-context.md) — the edit + apply cycle
 - [Evals](../guides/evals.md) — fixtures catch breakage before prod
-- [Feedback + audit](../guides/feedback-and-logs.md) — rating runs, measuring outcomes
+- [Feedback + logs](../guides/feedback-and-logs.md) — rating runs, measuring outcomes
