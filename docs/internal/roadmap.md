@@ -13,14 +13,15 @@ Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live
 3. [Phase 3 — Native retrieval](#phase-3--native-retrieval)
 4. [Phase 4 — Self-improvement loop (finish)](#phase-4--self-improvement-loop-finish)
 5. [Phase 5 — Plugin SDK v1 + connector pack](#phase-5--plugin-sdk-v1--connector-pack)
-6. [Phase 6 — Public API (write side)](#phase-6--public-api-write-side)
-7. [Phase 7 — Conversational bootstrap](#phase-7--conversational-bootstrap)
-8. [Phase 8 — Measurement + economics](#phase-8--measurement--economics)
-9. [Phase 9 — OSS launch](#phase-9--oss-launch)
-10. [Phase 10 — Vocion Cloud (proprietary)](#phase-10--vocion-cloud-proprietary)
-11. [Phase 11 — Ecosystem](#phase-11--ecosystem)
-12. [Phase 12 — Enterprise (proprietary)](#phase-12--enterprise-proprietary)
-13. [First-12 workflows as forcing functions](#first-12-workflows-as-forcing-functions)
+6. [Phase 6 — Triggers + durable runner](#phase-6--triggers--durable-runner)
+7. [Phase 7 — Public API (write side)](#phase-7--public-api-write-side)
+8. [Phase 8 — Conversational bootstrap](#phase-8--conversational-bootstrap)
+9. [Phase 9 — Measurement + economics](#phase-9--measurement--economics)
+10. [Phase 10 — OSS launch](#phase-10--oss-launch)
+11. [Phase 11 — Vocion Cloud (proprietary)](#phase-11--vocion-cloud-proprietary)
+12. [Phase 12 — Ecosystem](#phase-12--ecosystem)
+13. [Phase 13 — Enterprise (proprietary)](#phase-13--enterprise-proprietary)
+14. [First-12 workflows as forcing functions](#first-12-workflows-as-forcing-functions)
 
 ---
 
@@ -135,26 +136,49 @@ The plugin contract validated by shipping the connectors the landing page names.
 
 **Exit:** an outside developer can publish a skill or source plugin to npm without a core PR; the 12 connectors named on the landing page either ship in core or have a published plugin.
 
-### Phase 6 — Public API (write side)
-*Read side shipped.* Delivers on "run from your own app" + "API triggers" + scheduled-job promises.
+### Phase 6 — Triggers + durable runner
+
+Workflows today only run on manual + naive event invocation against a Postgres-backed sequential runner. This phase lights up every trigger source the landing page implies ("scheduled jobs, API triggers, your own app") and swaps the runner under the hood for a durable one without changing `workflow.yaml`.
+
+**Trigger sources** (each as a source plugin where it makes sense)
+- [ ] Schedule (cron) — `workflow.yaml` `trigger: { kind: schedule, cron: '0 9 * * MON' }`
+- [ ] Webhook (inbound HTTP) — tenant-registered endpoint + signature verification + payload→object mapping
+- [ ] Event bus (in-app) — workflows publish + subscribe; chains run-to-run without external infra
+- [ ] Queue subscriber — SQS, Pub/Sub, Kafka, Redis Streams; message → workflow input
+- [ ] Postgres CDC — `LISTEN/NOTIFY` or `pg_logical` row-watch; insert/update fires a workflow
+- [ ] SMS / voice — Twilio inbound message + call as trigger source
+- [ ] Email inbound — SES / SendGrid inbound parse → workflow with the email as input object
+- [ ] A2A inbound (already in Phase 2) wired to workflow trigger, not just skill run
+- [ ] `agent_call` step type — workflows invoke external A2A agents (outbound; previously slated for Phase 7)
+
+**Durable runner**
+- [ ] Swap Postgres-sequential runner for a durable execution engine (Temporal-compatible interface; default backend Temporal OSS, pluggable to Inngest / Restate / DBOS)
+- [ ] Existing `workflow.yaml` API unchanged — runner is an implementation detail
+- [ ] Long-running step support — hours/days, survives process restart
+- [ ] Retry policy per step (exponential backoff, max attempts, dead-letter)
+- [ ] `workflow_run` records get a runner-side correlation id for cross-system tracing
+
+**Exit:** a webhook from Stripe → Postgres CDC notification → workflow runs across an SQS queue subscriber and a scheduled re-check three days later, all observable as a single resumable workflow run; when the OS restarts mid-run, it picks up exactly where it left off.
+
+### Phase 7 — Public API (write side)
+
+*Read side shipped.* Delivers on "run from your own app" + "API triggers" promises.
 
 - [ ] Tenant-scoped Bearer tokens (`vcn_live_...`) — dashboard-issued, hashed at rest, per-token audit
 - [ ] `POST` / `PATCH` on all resource CRUD — equivalent to context-as-code writes
 - [ ] `POST /api/v1/objects/:slug/instances` — object ingest
-- [ ] `POST /api/v1/skills/:slug/runs` + `/workflows/:slug/runs` — run triggers
+- [ ] `POST /api/v1/skills/:slug/runs` + `/workflows/:slug/runs` — run triggers (same path the trigger sources call internally)
 - [ ] SSE streaming for long workflows
 - [ ] Outgoing webhooks — tenant-registered URL + filter + HMAC-signed delivery
-- [ ] Scheduled triggers — `workflow.yaml` `trigger: { kind: schedule, cron: '0 9 * * MON' }`
 - [ ] OpenAPI 3.1 spec auto-generated
 
 **Exit:** a backend engineer with zero Vocion knowledge can, in 30 min, issue a token, POST an object, trigger a workflow, poll for the result, and receive a webhook when a human approves.
 
-### Phase 7 — Conversational bootstrap
-User describes a workflow in natural language, Vocion builds it. Sits after Plugin SDK + native retrieval + feedback so the meta-agent works on a clean, composable, self-correcting substrate.
+### Phase 8 — Conversational bootstrap
+
+User describes a workflow in natural language, Vocion builds it. Sits after Plugin SDK + retrieval + triggers + feedback so the meta-agent works on a clean, composable, self-correcting substrate.
 
 - [ ] Meta-agent — privileged skill with write access to `context/<org>/`; takes NL intent, emits manifests, uses MCP write tools
-- [ ] Event bus wiring — workflow triggers (event, webhook) on top of Phase 6 schedule triggers
-- [ ] `agent_call` step type (outbound A2A) — workflows invoke external A2A agents
 - [ ] Self-service OAuth — users connect Gmail/HubSpot/DocuSign without admin config
 - [ ] Onboarding stepper — connect → ingest → chat → build with live progress
 - [ ] Sample workflow library — import from `use-cases/catalog.md` as starting templates
@@ -162,7 +186,7 @@ User describes a workflow in natural language, Vocion builds it. Sits after Plug
 
 **Exit:** a cold prospect goes from sign-up to running their first workflow in under 10 minutes.
 
-### Phase 8 — Measurement + economics
+### Phase 9 — Measurement + economics
 
 Closes the operating loop the landing page promises ("track run volume, approval rate, latency, and cost so the workflow can be improved, not just admired"). The data already exists in `skill_run` + `workflow_run`; this phase surfaces it.
 
@@ -181,13 +205,13 @@ Closes the operating loop the landing page promises ("track run volume, approval
 
 **Exit:** any workflow has a one-click view of run volume, quality trend, cost per run, and ROI; admins can set budget caps and get alerted before they're breached.
 
-### Phase 9 — OSS launch
+### Phase 10 — OSS launch
 *Open-source under Apache 2.0.*
 
 - [ ] Public repo + Apache 2.0 license
 - [x] Tenant extraction path documented ([`docs/guides/extract-tenant.md`](../guides/extract-tenant.md))
 - [ ] Split `context/metacto/` → `metacto-vocion` repo via `git subtree split`
-- [ ] Strip billing + auth-provider lock-in from core (Stripe code moves to the proprietary Cloud module — see Phase 10)
+- [ ] Strip billing + auth-provider lock-in from core (Stripe code moves to the proprietary Cloud module — see Phase 11)
 - [ ] 3 external reference installs running OSS in production
 - [ ] Launch blog + conference talk
 
@@ -210,7 +234,7 @@ The remaining phases interleave OSS and proprietary work. The split:
 
 ---
 
-### Phase 10 — Vocion Cloud *(proprietary)*
+### Phase 11 — Vocion Cloud *(proprietary)*
 
 *Ships alongside OSS launch.* Hosted offering. Extracts hosting and billing from core into a private module so the OSS install stays clean.
 
@@ -239,7 +263,7 @@ The remaining phases interleave OSS and proprietary work. The split:
 
 **Exit:** first paid Cloud customer self-serves through signup → connector → first skill run → invoiced — without MetaCTO touching the workspace.
 
-### Phase 11 — Ecosystem
+### Phase 12 — Ecosystem
 
 Plugin marketplace + community incentives. Sits after Cloud because the marketplace needs both an OSS user base *and* paying customers to drive plugin demand.
 
@@ -251,7 +275,7 @@ Plugin marketplace + community incentives. Sits after Cloud because the marketpl
 
 **Exit:** an outside developer ships a connector plugin to the marketplace and a separate org installs it without MetaCTO involvement.
 
-### Phase 12 — Enterprise *(proprietary)*
+### Phase 13 — Enterprise *(proprietary)*
 
 *Paid tier on top of Cloud (or self-hosted with commercial license).* Identity, access control, BYOM, BYOK, compliance. Sold as an add-on to Cloud or as a self-hosted enterprise license.
 
