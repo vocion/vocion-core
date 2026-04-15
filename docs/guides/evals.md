@@ -145,5 +145,5 @@ Keep rubric models cheap. They see the skill's output + the rubric, not the full
 
 ## Next
 
-- [Feedback + audit](./feedback-and-audit.md) — evals ride on the same rails as 👍/👎 ratings from real runs
+- [Feedback + logs](./feedback-and-logs.md) — evals ride on the same rails as 👍/👎 ratings from real runs
 - [Skills](../concepts/skills.md) — the main place evals pay for themselves
