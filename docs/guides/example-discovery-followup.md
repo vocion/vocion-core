@@ -2,7 +2,7 @@
 
 A concrete, copy-paste build of one workflow end-to-end: a prospect finishes a discovery call, Vocion summarizes the transcript, drafts a follow-up email in your voice, waits for your approval, and then (in v2) sends it.
 
-Uses every building block. Takes ~30 minutes if you have Zoom + Gmail already connected as Sources.
+Uses every resource. Takes ~30 minutes if you have Zoom + Gmail already connected as Sources.
 
 ## What you'll end up with
 
@@ -254,7 +254,7 @@ Every one of these is a seam you can extend. Add more skills to Ziggy; add more 
 
 ## Related
 
-- [Concepts](../concepts/) — read the five building blocks top-to-bottom
+- [Concepts](../concepts/) — read the five resources top-to-bottom
 - [Authoring context](./authoring-context.md) — the edit-apply loop details
 - [Evals](./evals.md) — gating prompt changes with fixtures
 - [Feedback + audit](./feedback-and-audit.md) — closing the loop

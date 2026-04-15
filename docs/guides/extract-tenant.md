@@ -112,7 +112,7 @@ The history of `context/metacto/` is preserved in both repos (core sees the dele
 
 ## Writing back from core to the tenant repo
 
-The MCP `context_write_*` tools + the in-app Building block Editor both honor `CONTEXT_PATH`. They write to whatever directory you've pointed at, auto-commit with `chore(context): <summary>` in that repo, and call `context:apply` to sync the DB.
+The MCP `context_write_*` tools + the in-app Resource Editor both honor `CONTEXT_PATH`. They write to whatever directory you've pointed at, auto-commit with `chore(context): <summary>` in that repo, and call `context:apply` to sync the DB.
 
 The tenant repo becomes the source of truth. Core is the runtime.
 

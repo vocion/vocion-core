@@ -1,6 +1,6 @@
-# Building blocks API
+# Resources API
 
-CRUD on the five authored building blocks. Mirrors the [concepts](../concepts/) one-for-one.
+CRUD on the five authored resources. Mirrors the [concepts](../concepts/) one-for-one.
 
 All paths below are relative to `https://<your-install>/api/v1/`.
 
@@ -10,7 +10,7 @@ All paths below are relative to `https://<your-install>/api/v1/`.
 |---|---|---|
 | `GET` | `/agents` | List all agents for the tenant |
 | `GET` | `/agents/:slug` | Get one agent + its wired skills + workflows |
-| `POST` | `/agents` | Create an agent (requires `write:building blocks`) |
+| `POST` | `/agents` | Create an agent (requires `write:resources`) |
 | `PATCH` | `/agents/:slug` | Update fields or the system prompt |
 
 **Example: list**
