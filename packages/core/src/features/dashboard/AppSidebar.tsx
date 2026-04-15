@@ -12,7 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
-import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { CompilesLogo } from '@/templates/CompilesLogo';
 import { getI18nPath } from '@/utils/Helpers';
@@ -97,6 +97,15 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           ]}
         />
       </SidebarContent>
+      <SidebarFooter className="px-4 pb-3 text-[11px] text-muted-foreground/70">
+        <div>
+          ©
+          {' '}
+          {new Date().getFullYear()}
+          {' '}
+          Compiles.ai · Apache 2.0
+        </div>
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );
