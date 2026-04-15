@@ -6,7 +6,7 @@ import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
   title: 'Use cases — Vocion',
-  description: 'How teams compose the five primitives into production AI: sales ops, customer success, support, product intelligence.',
+  description: 'How teams compose the five building blocks into production AI: sales ops, customer success, support, product intelligence.',
 };
 
 type Shape = {
@@ -83,7 +83,7 @@ export default async function UseCasesPage(props: { params: Promise<{ locale: st
         <div className="text-center">
           <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Use cases</h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
-            The framework is generic. The use cases are where it earns its keep. Every one is the same five primitives — Sources, Objects, Skills, Workflows, Agents — composed differently.
+            The framework is generic. The use cases are where it earns its keep. Every one is the same five building blocks — Sources, Objects, Skills, Workflows, Agents — composed differently.
           </p>
         </div>
 
