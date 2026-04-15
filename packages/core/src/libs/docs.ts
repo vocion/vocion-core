@@ -195,8 +195,18 @@ function groupFor(rel: string): string {
   if (GET_STARTED_PATHS.has(rel)) {
     return 'get-started';
   }
-  if (rel.startsWith('docs/internal/case-studies/')) {
-    return 'docs/internal/case-studies';
+  // Per-agent case-study subgroups
+  if (rel.startsWith('docs/internal/use-cases/case-studies/ziggy/')) {
+    return 'docs/internal/use-cases/case-studies/ziggy';
+  }
+  if (rel.startsWith('docs/internal/use-cases/case-studies/algren/')) {
+    return 'docs/internal/use-cases/case-studies/algren';
+  }
+  if (rel.startsWith('docs/internal/use-cases/case-studies/')) {
+    return 'docs/internal/use-cases/case-studies';
+  }
+  if (rel.startsWith('docs/internal/use-cases/')) {
+    return 'docs/internal/use-cases';
   }
   if (rel.startsWith('docs/internal/')) {
     return 'docs/internal';
@@ -229,7 +239,10 @@ const GROUP_ORDER = [
   'docs',
   'requirements',
   'docs/internal',
-  'docs/internal/case-studies',
+  'docs/internal/use-cases',
+  'docs/internal/use-cases/case-studies',
+  'docs/internal/use-cases/case-studies/ziggy',
+  'docs/internal/use-cases/case-studies/algren',
 ];
 function orderOf(group: string): number {
   const idx = GROUP_ORDER.indexOf(group);
