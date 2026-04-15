@@ -12,7 +12,7 @@ If Vocion goes public (Phase 8), this directory stays private (either excluded f
 | [progress.md](./progress.md) | Running log: shipped, in flight, queued. Commit list, decision log, test + infra status. |
 | [customer-onboarding.md](./customer-onboarding.md) | MetaCTO's build-up process for each new customer deployment |
 | [managed-operations.md](./managed-operations.md) | MetaCTO's managed-ops service offering — recurring revenue model, tuning, evals, training |
-| [case-studies/](./case-studies/README.md) | Per-customer agent specs — Ziggy (sales ops), Algren (NINJIO account manager), future customers |
+| [use-cases/](./use-cases/README.md) | Workflow catalog (50 items) + per-customer case studies (Ziggy, Algren) |
 
 ## Public / external docs live elsewhere
 

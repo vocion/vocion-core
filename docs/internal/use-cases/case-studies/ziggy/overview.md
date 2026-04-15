@@ -1,4 +1,4 @@
-# Ziggy - Sales Operations Agent
+# Overview — Ziggy (sales ops)
 
 ## What Ziggy Is
 

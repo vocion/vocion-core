@@ -1,4 +1,4 @@
-# Ziggy Object Model
+# Object model
 
 ## Core Sales Objects
 

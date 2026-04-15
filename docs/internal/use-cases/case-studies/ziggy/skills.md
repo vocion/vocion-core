@@ -1,4 +1,4 @@
-# Ziggy Skills
+# Skills
 
 ## Query Skills (Read-Only)
 

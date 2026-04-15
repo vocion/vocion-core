@@ -1,4 +1,4 @@
-# Ziggy Workflows
+# Workflows
 
 All workflows use Temporal for durability (retries, schedules, approvals, pauses).
 

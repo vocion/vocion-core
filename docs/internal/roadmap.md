@@ -1,6 +1,6 @@
 # Roadmap
 
-**Internal — MetaCTO team only.** Single source of truth for phased delivery. Not shown in the public docs. Live status lives in [`progress.md`](./progress.md); forcing-function workflow list in [`use-case-catalog.md`](./use-case-catalog.md).
+**Internal — MetaCTO team only.** Single source of truth for phased delivery. Not shown in the public docs. Live status lives in [`progress.md`](./progress.md); forcing-function workflow list in [`use-cases/catalog.md`](./use-cases/catalog.md).
 
 Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live client work.
 
@@ -145,7 +145,7 @@ User describes a workflow in natural language, Vocion builds it. Sits after Plug
 - [ ] `agent_call` step type (outbound A2A) — workflows invoke external A2A agents
 - [ ] Self-service OAuth — users connect Gmail/HubSpot/DocuSign without admin config
 - [ ] Onboarding stepper — connect → ingest → chat → build with live progress
-- [ ] Sample workflow library — import from `use-case-catalog.md` as starting templates
+- [ ] Sample workflow library — import from `use-cases/catalog.md` as starting templates
 - [ ] Preview-on-real-data — "here's what this would've done on your last 5 calls; keep?"
 
 **Exit:** a cold prospect goes from sign-up to running their first workflow in under 10 minutes.
@@ -175,7 +175,7 @@ User describes a workflow in natural language, Vocion builds it. Sits after Plug
 
 ## First-12 workflows as forcing functions
 
-Pulled from [`use-case-catalog.md`](./use-case-catalog.md) — selected for breadth across industry, department, and platform capability. Each one, when realized, becomes a public marketing case study on `/use-cases`.
+Pulled from [`use-cases/catalog.md`](./use-cases/catalog.md) — selected for breadth across industry, department, and platform capability. Each one, when realized, becomes a public marketing case study on `/use-cases`.
 
 1. Sales proposal decks from call transcripts (L4 · review + audit)
 2. Support reply drafting with exception review (L4 · conditional routing)
