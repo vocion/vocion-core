@@ -36,7 +36,7 @@ retrieval:
 
 Source runtime is provided by Onyx (deprecating) today, with a pgvector-native pipeline landing in Phase 5. UI lives at `/dashboard/sources`. The authorable YAML shape above is the Phase 5 target; until then, Sources are configured in the Onyx admin UI and referenced by slug from skills and objects.
 
-## Connection to other primitives
+## Connection to other building blocks
 
 - **[Objects](./objects.md)** declare per-source relevance weights via `sourceRelevance`. A Deal object might weight `hubspot: 2.0, gmail: 1.5`.
 - **[Skills](./skills.md)** filter retrieval by source via `ctx.retrieve(query, { sources: ['hubspot', 'gmail'] })`.

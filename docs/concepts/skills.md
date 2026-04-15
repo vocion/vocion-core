@@ -40,7 +40,7 @@ Every invocation:
 3. Validates `output`, writes a `skill_run` row with the `context_sha` stamped in.
 4. If `requiresApproval: true`, the run lands in the Review Queue before any downstream action.
 
-## Connection to other primitives
+## Connection to other building blocks
 
 - **[Objects](./objects.md)** — skills typically read/write object records
 - **[Workflows](./workflows.md)** — chain multiple skills + HITL gates
