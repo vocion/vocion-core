@@ -27,7 +27,7 @@ Everything here is live on `main`.
 - [x] Pluggable LLM providers (OpenAI, Anthropic live; Vertex + Azure placeholder)
 - [x] JS postprocess sidecar — `scriptFile:` in skill.yaml imports + runs a per-skill transform after the LLM call
 
-### Feedback + audit loop (capture side)
+### Feedback + logs loop (capture side)
 - [x] `skill_run` + `workflow_run` schema: `rating`, `feedbackNote`, `feedbackBy`, `feedbackAt`
 - [x] Review queue captures rating + note on approve/reject
 - [x] `/dashboard/logs` — browsable timeline, filter by kind/status/rating
