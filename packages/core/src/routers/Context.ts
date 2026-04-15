@@ -1,9 +1,11 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { Buffer } from 'node:buffer';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import process from 'node:process';
 import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
-import { fromRepoRoot } from '@/libs/repo-root';
+import { applyContext, loadContext } from '@/libs/context';
+import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
 import { guardAuth } from './AuthGuards';
 
 /**
@@ -116,4 +118,64 @@ export const readPrimitive = os
     }));
 
     return { files, contextPath: CONTEXT_PATH, editInGitPath: `${CONTEXT_PATH}/${kindDir(kind)}/${dirName}` };
+  });
+
+const WriteInput = z.object({
+  path: z.string().min(1).describe('repo-relative path under CONTEXT_PATH, e.g. context/metacto/skills/discovery-summary/prompt.md'),
+  content: z.string(),
+});
+
+const WriteOutput = z.object({
+  path: z.string(),
+  bytesWritten: z.number(),
+  applied: z.object({
+    versionId: z.number().nullable(),
+    sha: z.string().nullable(),
+  }),
+});
+
+const ALLOWED_EXTS = new Set(['.yaml', '.yml', '.md', '.js', '.mjs', '.json']);
+
+export const writeFile = os
+  .input(WriteInput)
+  .output(WriteOutput)
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const repoRoot = getRepoRoot();
+    const contextBase = fromRepoRoot(CONTEXT_PATH);
+    const absTarget = fromRepoRoot(input.path);
+
+    // Containment guard: target must be inside the configured CONTEXT_PATH.
+    // Prevents path traversal (../../etc/passwd) and cross-tenant writes.
+    const relFromContext = relative(contextBase, absTarget);
+    if (relFromContext.startsWith('..') || relFromContext.startsWith('/')) {
+      throw new ORPCError('FORBIDDEN', { message: `path escapes CONTEXT_PATH: ${input.path}` });
+    }
+
+    // Extension allowlist — no arbitrary file creation.
+    const ext = absTarget.slice(absTarget.lastIndexOf('.')).toLowerCase();
+    if (!ALLOWED_EXTS.has(ext)) {
+      throw new ORPCError('VALIDATION_FAILED', { message: `extension not allowed: ${ext}. Allowed: ${[...ALLOWED_EXTS].join(', ')}` });
+    }
+
+    // Write (mkdir -p first in case the folder is new)
+    mkdirSync(dirname(absTarget), { recursive: true });
+    writeFileSync(absTarget, input.content, 'utf-8');
+
+    // Apply to DB so the dashboard reflects the change immediately.
+    let applied: { versionId: number | null; sha: string | null } = { versionId: null, sha: null };
+    try {
+      const loaded = loadContext(CONTEXT_PATH);
+      const result = await applyContext(loaded, { orgId });
+      applied = { versionId: result.versionId, sha: loaded.sha };
+    } catch (err) {
+      // Write succeeded; apply failed. Return the write but surface the error.
+      throw new ORPCError('APPLY_FAILED', { message: err instanceof Error ? err.message : String(err) });
+    }
+
+    return {
+      path: relative(repoRoot, absTarget),
+      bytesWritten: Buffer.byteLength(input.content, 'utf-8'),
+      applied,
+    };
   });
