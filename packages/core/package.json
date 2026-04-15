@@ -1,8 +1,8 @@
 {
-  "name": "@compiles/core",
+  "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Compiles Core — Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=20"
@@ -43,7 +43,6 @@
     "@clerk/localizations": "^3.37.2",
     "@clerk/nextjs": "^6.39.0",
     "@clerk/themes": "^2.4.57",
-    "@compiles/sdk": "*",
     "@hookform/resolvers": "^5.2.2",
     "@logtape/logtape": "^2.0.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -61,6 +60,7 @@
     "@sentry/nextjs": "^10.42.0",
     "@t3-oss/env-nextjs": "^0.13.10",
     "@tanstack/react-table": "^8.21.3",
+    "@vocion/sdk": "*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",

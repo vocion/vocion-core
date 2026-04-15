@@ -50,7 +50,7 @@ Drilldown pages (`/dashboard/skills/<slug>`, `/dashboard/agents/<slug>`, …) re
 
 ## Git workflow
 
-Compiles does not commit for you. Your context directory is a normal git repo:
+Vocion does not commit for you. Your context directory is a normal git repo:
 
 ```bash
 # after editing + applying
@@ -64,7 +64,7 @@ The dashboard shows a small **dirty** badge on primitive pages when your context
 
 ## Multi-tenant
 
-Each tenant gets its own `context/<org>/` directory (or, for production, its own git repo — see [extract-tenant](./extract-tenant.md)). Set `CONTEXT_PATH` and `COMPILES_ORG_NAME` to point at the tenant you're working on; `context:apply` scopes writes by `orgId` automatically.
+Each tenant gets its own `context/<org>/` directory (or, for production, its own git repo — see [extract-tenant](./extract-tenant.md)). Set `CONTEXT_PATH` and `VOCION_ORG_NAME` to point at the tenant you're working on; `context:apply` scopes writes by `orgId` automatically.
 
 ## Next
 

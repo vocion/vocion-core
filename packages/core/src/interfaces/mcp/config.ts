@@ -15,13 +15,11 @@ export type McpConfig = {
 };
 
 export function readConfig(): McpConfig {
-  // COMPILES_ORG_ID is the canonical env var; CORECONTEXT_ORG_ID is a legacy
-  // alias kept for one release after the @compiles/core rename.
-  const orgId = process.env.COMPILES_ORG_ID ?? process.env.CORECONTEXT_ORG_ID ?? process.env.SEED_ORG_ID;
+  const orgId = process.env.VOCION_ORG_ID ?? process.env.SEED_ORG_ID;
   if (!orgId) {
-    throw new Error('COMPILES_ORG_ID is required (or SEED_ORG_ID fallback)');
+    throw new Error('VOCION_ORG_ID is required (or SEED_ORG_ID fallback)');
   }
-  const orgName = process.env.COMPILES_ORG_NAME ?? process.env.CORECONTEXT_ORG_NAME ?? 'metacto';
+  const orgName = process.env.VOCION_ORG_NAME ?? 'metacto';
   const contextPath = resolve(process.env.CONTEXT_PATH ?? `context/${orgName}`);
 
   return {
@@ -29,7 +27,7 @@ export function readConfig(): McpConfig {
     contextPath,
     autoCommit: process.env.CONTEXT_AUTO_COMMIT !== 'false',
     autoApply: process.env.CONTEXT_AUTO_APPLY !== 'false',
-    serverName: 'corecontext',
+    serverName: 'vocion',
     serverVersion: '0.1.0',
   };
 }

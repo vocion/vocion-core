@@ -1,6 +1,6 @@
 # Sources
 
-> A **Source** is a connected system that feeds raw data into Compiles — Zoom transcripts, Gmail threads, HubSpot records, Google Drive documents, Slack messages, or your own internal systems.
+> A **Source** is a connected system that feeds raw data into Vocion — Zoom transcripts, Gmail threads, HubSpot records, Google Drive documents, Slack messages, or your own internal systems.
 
 ## What it does
 

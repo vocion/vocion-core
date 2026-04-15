@@ -5,7 +5,7 @@ import { Footer } from '@/templates/Footer';
 import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
-  title: 'Use cases — Compiles.ai',
+  title: 'Use cases — Vocion',
   description: 'How teams compose the five primitives into production AI: sales ops, customer success, support, product intelligence.',
 };
 
