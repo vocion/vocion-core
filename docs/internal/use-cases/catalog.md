@@ -1,4 +1,4 @@
-# Use-case catalog
+# Catalog
 
 **Internal — MetaCTO team only.** A forcing-function list of 50 business workflows, organized by complexity. Each one doubles as (a) a roadmap driver — does the platform let you build this? — and (b) marketing content once shipped.
 

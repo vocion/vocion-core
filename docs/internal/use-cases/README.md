@@ -8,12 +8,10 @@ Two views of the same thing — the workflows Vocion is built to run.
 
 ## Case studies
 
-Per-customer agent deployments. Each agent is one realized use-case composed of Sources, Objects, Skills, Workflows, and a named Agent identity.
+Per-agent deployments. Each agent is one realized use-case composed of Sources, Objects, Skills, Workflows, and a named Agent identity.
 
-- [**Ziggy**](./case-studies/ziggy/overview.md) — MetaCTO's own sales-ops agent. First case study; dogfood. 13 skills, 1 workflow, 4 object types across Zoom, Gmail, HubSpot, Google Drive.
-- [**Algren**](./case-studies/algren/overview.md) — customer account agent for NINJIO. Second case study; exec-sponsor assistant running against a single high-value relationship.
-
-[Case study index →](./case-studies/README.md)
+- [**Ziggy**](./ziggy.md) — MetaCTO's own sales-ops agent. First case study; dogfood. 13 skills, 1 workflow, 4 object types across Zoom, Gmail, HubSpot, Google Drive.
+- [**Algren**](./algren.md) — customer account agent for NINJIO. Second case study; exec-sponsor assistant running against a single high-value relationship.
 
 ## Where the rest lives
 
