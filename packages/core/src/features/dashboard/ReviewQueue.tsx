@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle, Clock, GitBranch, RotateCw, Sparkles, XCircle } from 'lucide-react';
+import { CheckCircle, Clock, GitBranch, RotateCw, Sparkles, ThumbsDown, ThumbsUp, XCircle } from 'lucide-react';
 import { useState, useTransition } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -97,11 +97,11 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
     };
   }
 
-  const approveSkill = (id: number) => runAction(async () => {
-    await client.review.approveSkillRun({ id });
+  const approveSkill = (id: number, feedback?: { rating?: 'up' | 'down' | null; note?: string }) => runAction(async () => {
+    await client.review.approveSkillRun({ id, rating: feedback?.rating, note: feedback?.note });
   });
-  const rejectSkill = (id: number) => runAction(async () => {
-    await client.review.rejectSkillRun({ id });
+  const rejectSkill = (id: number, note?: string) => runAction(async () => {
+    await client.review.rejectSkillRun({ id, reason: note });
   });
   const resumeWorkflow = (id: number) => runAction(async () => {
     await client.review.resumeWorkflow({ id });
@@ -167,8 +167,8 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
                 run={run}
                 isOpen={openId === `sk-${run.id}`}
                 onToggle={() => setOpenId(openId === `sk-${run.id}` ? null : `sk-${run.id}`)}
-                onApprove={() => approveSkill(run.id)}
-                onReject={() => rejectSkill(run.id)}
+                onApprove={fb => approveSkill(run.id, fb)}
+                onReject={note => rejectSkill(run.id, note)}
                 busy={pending}
               />
             ))}
@@ -190,11 +190,13 @@ function SkillRunCard({
   run: SkillRunRow;
   isOpen: boolean;
   onToggle: () => void;
-  onApprove: () => void;
-  onReject: () => void;
+  onApprove: (feedback: { rating?: 'up' | 'down' | null; note?: string }) => void;
+  onReject: (note?: string) => void;
   busy: boolean;
 }) {
   const created = typeof run.createdAt === 'string' ? new Date(run.createdAt) : run.createdAt;
+  const [rating, setRating] = useState<'up' | 'down' | null>(null);
+  const [note, setNote] = useState('');
   return (
     <div className="rounded-md border border-border bg-background">
       <button type="button" className="flex w-full items-center gap-3 p-3 text-left hover:bg-muted/50" onClick={onToggle}>
@@ -242,12 +244,40 @@ function SkillRunCard({
               <code>{run.langfuseTraceId}</code>
             </div>
           )}
-          <div className="flex gap-2 pt-2">
-            <Button size="sm" onClick={onApprove} disabled={busy}>
+          <div className="rounded-md border border-border bg-muted/30 p-3">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">Rating (optional)</div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setRating(rating === 'up' ? null : 'up')}
+                className={`inline-flex size-8 items-center justify-center rounded-md border transition ${rating === 'up' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                aria-label="Thumb up"
+              >
+                <ThumbsUp className="size-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setRating(rating === 'down' ? null : 'down')}
+                className={`inline-flex size-8 items-center justify-center rounded-md border transition ${rating === 'down' ? 'border-destructive bg-destructive/10 text-destructive' : 'border-border text-muted-foreground hover:text-foreground'}`}
+                aria-label="Thumb down"
+              >
+                <ThumbsDown className="size-4" />
+              </button>
+              <input
+                type="text"
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                placeholder="Optional note — what was good/off?"
+                className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary/50"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button size="sm" onClick={() => onApprove({ rating, note: note.trim() || undefined })} disabled={busy}>
               <CheckCircle className="mr-1 size-4" />
               Approve
             </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={onReject}>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => onReject(note.trim() || undefined)}>
               <XCircle className="mr-1 size-4" />
               Reject
             </Button>

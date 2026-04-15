@@ -140,4 +140,40 @@ Retry with the same key + different body → `409 CONFLICT`.
 GET /api/v1/runs?status=paused&kind=workflow&limit=50
 ```
 
-Filters: `status`, `kind` (skill|workflow), `skillSlug`, `workflowSlug`, `agentSlug`, `createdAfter`.
+Filters: `status`, `kind` (skill|workflow), `rating` (up|down), `skillSlug`, `workflowSlug`, `agentSlug`, `createdAfter`.
+
+Returns a merged stream of skill + workflow runs for the tenant, sorted by `createdAt` desc:
+
+```json
+{
+  "runs": [
+    {
+      "kind": "skill",
+      "id": 987,
+      "slug": "discovery_summary",
+      "status": "approved",
+      "rating": "up",
+      "feedbackNote": "Matched the prospect's language well",
+      "contextSha": "a8d1795",
+      "createdBy": "chris",
+      "createdAt": "2026-04-15T07:22:00Z"
+    }
+  ]
+}
+```
+
+## Feedback
+
+```
+POST /api/v1/runs/:id/feedback
+```
+
+```json
+{ "rating": "up", "note": "Customer used this verbatim" }
+```
+
+Valid `rating` values: `"up"`, `"down"`, `null` (clears). Note is optional. Idempotent — posting the same body twice is a no-op; the `feedbackAt` timestamp updates on each call.
+
+Works on any skill run regardless of status — `pending`, `approved`, `rejected`, or `auto` (skills that never hit the review queue). Useful for "was this useful?" post-hoc surveys.
+
+See [Feedback + audit](../guides/feedback-and-audit.md) for the full loop.
