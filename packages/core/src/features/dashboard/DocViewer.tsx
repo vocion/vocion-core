@@ -1,6 +1,7 @@
 import { dirname, join, normalize } from 'node:path';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
+import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 
 /**
@@ -26,6 +27,7 @@ export function DocViewer({ currentPath, content, linkBase = '/dashboard/docs' }
     <article className="prose max-w-none prose-neutral dark:prose-invert">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSlug]}
         components={{
           a: ({ href, children, ...rest }) => {
             const rewritten = rewriteLink(href ?? '', currentDir, linkBase);

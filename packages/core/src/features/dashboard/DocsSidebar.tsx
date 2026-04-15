@@ -13,12 +13,7 @@ type Props = {
  * groups indented under their parent's section header instead of as
  * their own top-level nav block. Supports arbitrary nesting depth.
  */
-const PARENT_OF: Record<string, string> = {
-  'docs/internal/use-cases': 'docs/internal',
-  'docs/internal/use-cases/case-studies': 'docs/internal/use-cases',
-  'docs/internal/use-cases/case-studies/ziggy': 'docs/internal/use-cases/case-studies',
-  'docs/internal/use-cases/case-studies/algren': 'docs/internal/use-cases/case-studies',
-};
+const PARENT_OF: Record<string, string> = {};
 
 /**
  * Left-rail nav for the docs viewer. Top-level groups get a section
@@ -31,7 +26,8 @@ const PARENT_OF: Record<string, string> = {
  * @param root0.publicBasePath
  */
 export function DocsSidebar({ entries, currentSlug, publicBasePath = '/dashboard/docs' }: Props) {
-  const groups = groupBy(entries);
+  const filtered = entries.filter(e => keepInSidebar(e));
+  const groups = groupBy(filtered);
   const groupMap = new Map(groups);
   const topLevelGroups = groups
     .map(([g]) => g)
@@ -140,11 +136,21 @@ function labelFor(group: string): string {
     case 'root': return 'Start here';
     case 'docs': return 'Overview';
     case 'requirements': return 'Platform spec';
-    case 'docs/internal': return 'Roadmap & ops';
+    case 'roadmap': return 'Roadmap';
+    case 'docs/internal': return 'Internal';
     case 'docs/internal/use-cases': return 'Use cases';
-    case 'docs/internal/use-cases/case-studies': return 'Case studies';
-    case 'docs/internal/use-cases/case-studies/ziggy': return 'Ziggy — sales ops';
-    case 'docs/internal/use-cases/case-studies/algren': return 'Algren — customer account';
     default: return group;
   }
+}
+
+/**
+ * Per-folder README.md files are hidden — the group header already labels
+ * the section. The root README is the project README, so keep it.
+ * @param entry
+ */
+function keepInSidebar(entry: DocEntry): boolean {
+  if (entry.path === 'README.md') {
+    return true;
+  }
+  return !entry.path.endsWith('/README.md');
 }
