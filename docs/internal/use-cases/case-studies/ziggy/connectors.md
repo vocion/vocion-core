@@ -1,4 +1,4 @@
-# Ziggy Connectors & Actions
+# Connectors & actions
 
 ## Required Connectors
 

@@ -69,7 +69,7 @@ We're in the **rename phase**. Logical structure is set; physical extraction is 
 | `@vocion/sdk` | `src/libs/plugins/` | extracted to `packages/sdk/` (Phase B), then own repo (Phase C) |
 | `@vocion/plugin-transcript-highlights` | `src/plugins/samples/transcript-highlights.ts` | `packages/plugins/transcript-highlights/` (Phase B), then own repo (Phase C) |
 | `vocion-starter` | does not exist yet | derived from a stripped fork of core (Phase C) |
-| `metacto-vocion` | `context/metacto/` + `docs/internal/case-studies/` | own repo at OSS launch (Phase C) |
+| `metacto-vocion` | `context/metacto/` + `docs/internal/use-cases/case-studies/` | own repo at OSS launch (Phase C) |
 
 ## Phasing
 

@@ -1,4 +1,4 @@
-# Ziggy Sprint Plan
+# Sprint plan
 
 2-week sprints. Assumes platform foundation (Phase 1) is in progress in parallel.
 
