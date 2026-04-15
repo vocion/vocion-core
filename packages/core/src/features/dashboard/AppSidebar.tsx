@@ -2,19 +2,13 @@
 
 import { OrganizationSwitcher } from '@clerk/nextjs';
 import {
-  Activity,
   BookOpen,
   Bot,
   CheckSquare,
-  CreditCard,
   Database,
   GitBranch,
-  HeartPulse,
-  LifeBuoy,
-  Map,
   MessageSquare,
   Plug,
-  Send,
   Zap,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -99,56 +93,6 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
               title: t('connectors'),
               url: '/dashboard/sources',
               icon: Plug,
-            },
-          ]}
-        />
-        <AppSidebarNav
-          label="Admin"
-          className="mt-auto"
-          items={[
-            {
-              title: t('billing'),
-              url: '/dashboard/billing',
-              icon: CreditCard,
-            },
-            {
-              title: t('audit'),
-              url: '/dashboard/audit',
-              icon: Activity,
-            },
-          ]}
-        />
-        <AppSidebarNav
-          label="Developer"
-          items={[
-            {
-              title: 'System',
-              url: '/dashboard/admin',
-              icon: HeartPulse,
-            },
-            {
-              title: 'Roadmap',
-              url: '/dashboard/roadmap',
-              icon: Map,
-            },
-            {
-              title: 'Docs',
-              url: '/dashboard/docs',
-              icon: BookOpen,
-            },
-          ]}
-        />
-        <AppSidebarNav
-          items={[
-            {
-              title: t('support'),
-              url: 'mailto:support@compiles.ai',
-              icon: LifeBuoy,
-            },
-            {
-              title: t('feedback'),
-              url: 'mailto:feedback@compiles.ai',
-              icon: Send,
             },
           ]}
         />
