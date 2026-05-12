@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server';
 import { Search, Send, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
@@ -41,16 +42,12 @@ export default async function SkillsPage(props: {
 
       {skills.length === 0
         ? (
-            <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-              No skills defined yet. Add to
-              {' '}
-              <code className="rounded bg-muted px-1 font-mono">context/&lt;org&gt;/skills/</code>
-              {' '}
-              and run
-              {' '}
-              <code className="rounded bg-muted px-1 font-mono">npm run context:apply</code>
-              .
-            </div>
+            <EmptyState
+              icon={Zap}
+              title="No operations yet"
+              description="Operations are single LLM-powered units of work with typed inputs and outputs. Author one in context/<org>/operations/ and run npm run context:apply."
+              action={{ label: 'How to author an operation', href: '/dashboard/docs/docs/concepts/skills' }}
+            />
           )
         : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

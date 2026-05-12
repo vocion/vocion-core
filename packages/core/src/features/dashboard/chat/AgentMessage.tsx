@@ -4,6 +4,7 @@ import type { AgentRun, ChatMessage, OnyxDocument } from './types';
 import { Sparkles } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { ToolBreadcrumb } from './ToolBreadcrumb';
 
 /**
@@ -76,6 +77,11 @@ export function AgentMessage({ message, timestamp }: AgentMessageProps) {
             );
           })}
         </div>
+        {message.confidence && (
+          <div className="mt-2 flex justify-end">
+            <ConfidenceIndicator level={message.confidence} />
+          </div>
+        )}
       </div>
     </div>
   );
