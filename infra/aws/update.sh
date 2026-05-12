@@ -60,7 +60,9 @@ docker compose \
   -p vocion up -d --no-deps app worker
 
 log "applying any new migrations"
-docker compose -p vocion exec -T app sh -c 'cd packages/core && node node_modules/drizzle-kit/bin.cjs migrate' || true
+# Use the psql-based applier (drizzle-kit isn't in the runtime image —
+# Next.js standalone trims devDeps).
+bash /opt/vocion/infra/aws/apply-migrations.sh || log "WARN: migrations failed; check above"
 
 log "applying latest context"
 docker compose -p vocion exec -T app sh -c 'cd packages/core && node src/scripts/apply-context.js' || true
