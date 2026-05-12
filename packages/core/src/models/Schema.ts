@@ -183,6 +183,15 @@ export const skillSchema = pgTable(
     category: text('category').default('query'),
     /** Status: active, disabled, draft */
     status: text('status').default('active'),
+    /**
+     * Kind of operation (v0.2). `operation` (default) is a typed
+     * Zod-validated single LLM call or plugin invocation — what this
+     * table has always represented. `playbook-ref` will be used in a
+     * later phase if a playbook needs a DB-row mirror; today the
+     * playbook table is the canonical store and this column is
+     * future-proofing.
+     */
+    kind: text('kind').default('operation').notNull(),
     version: integer('version').default(1),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -194,6 +203,12 @@ export const skillSchema = pgTable(
     uniqueIndex('skill_org_slug_idx').on(table.orgId, table.slug),
   ],
 );
+
+/**
+ * v0.2 — canonical TS alias. The underlying Postgres table stays `skill`
+ *  (renaming risks data loss) but new code should reference this name.
+ */
+export const operationSchema = skillSchema;
 
 /** Skill execution runs with Langfuse trace IDs */
 export const skillRunSchema = pgTable('skill_run', {
@@ -234,6 +249,49 @@ export const skillRunRelations = relations(skillRunSchema, ({ one }) => ({
     references: [skillSchema.id],
   }),
 }));
+
+/** v0.2 canonical alias — see {@link operationSchema}. */
+export const operationRunSchema = skillRunSchema;
+
+/* ------------------------------------------------------------------ */
+/* Playbooks — markdown + YAML procedural guides for agents           */
+/* ------------------------------------------------------------------ */
+
+// A Playbook is content (markdown body) + metadata (YAML frontmatter
+// validated by PlaybookManifestSchema). The body lives in
+// context/<org>/playbooks/<slug>/SKILL.md plus arbitrary sibling
+// resources. The DB row is a catalog entry so we can filter by tags
+// (per-agent mount) and list in the UI without re-reading every file.
+
+export const playbookSchema = pgTable(
+  'playbook',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    /** Per-agent mount filter. Empty array = all agents see it. */
+    tags: jsonb('tags').$type<string[]>().default([]).notNull(),
+    /** Full frontmatter snapshot (for catalog UI). */
+    frontmatter: jsonb('frontmatter').$type<Record<string, unknown>>().default({}).notNull(),
+    /** SHA-256 of the SKILL.md body (not the frontmatter). Used to detect file changes on re-apply. */
+    contentSha: text('content_sha').notNull(),
+    /** Paths of sibling resource files (REFERENCE.html, COMPONENTS.md, etc.) relative to the playbook folder. */
+    sourceFiles: jsonb('source_files').$type<string[]>().default([]).notNull(),
+    /** Optional license string. */
+    license: text('license'),
+    version: integer('version').default(1).notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('playbook_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
 
 /* ------------------------------------------------------------------ */
 /* Agents — packaged persona + scope + capabilities                   */
@@ -276,6 +334,40 @@ export const agentSchema = pgTable(
       output: string;
       label?: string;
     }>>().default([]),
+    /**
+     * Sub-agent definitions (v0.2 — deepagents `SubAgent` shape).
+     * Each entry compiles into a child agent the parent can dispatch
+     * via the `task("name", "...")` tool.
+     */
+    subagents: jsonb('subagents').$type<Array<{
+      name: string;
+      description: string;
+      systemPrompt: string;
+      tools?: string[];
+      model?: string;
+    }>>().default([]).notNull(),
+    /**
+     * Playbook-tag filter (v0.2). Empty array = mount every playbook
+     * in this org. Non-empty = mount only playbooks whose `tags` field
+     * intersects this set. Used by services/playbooks/mount.ts.
+     */
+    playbookTags: jsonb('playbook_tags').$type<string[]>().default([]).notNull(),
+    /**
+     * Learning-step ownership (v0.2). Names of the per-step rule
+     * buckets this agent reads from + can write to. Each entry must
+     * match a row in `learning_step.name`. (Phase 5 wires the table;
+     * the column is added here so the agent schema is complete in v0.2.)
+     */
+    learningSteps: jsonb('learning_steps').$type<string[]>().default([]).notNull(),
+    /**
+     * Empty-state suggestions shown in the chat UI when no prior
+     * turn exists. Mirrors rev-ai's `suggestions: [{label, prompt}]`.
+     */
+    suggestions: jsonb('suggestions').$type<Array<{ label: string; prompt: string }>>().default([]).notNull(),
+    /** CSS color name for the agent's chat header / sidebar (v0.2). */
+    accent: text('accent'),
+    /** Short tagline shown above the chat title (v0.2). */
+    eyebrow: text('eyebrow'),
     /** Langfuse project ID for observability */
     langfuseProjectId: text('langfuse_project_id'),
     /** Icon name (lucide) */
@@ -419,3 +511,428 @@ export const contextVersionSchema = pgTable(
     uniqueIndex('context_version_org_applied_idx').on(table.orgId, table.appliedAt),
   ],
 );
+
+/* ------------------------------------------------------------------ */
+/* Learnings — per-step rule store (Phase 5)                          */
+/* ------------------------------------------------------------------ */
+
+// Each `learning_step` is a named bucket (e.g. global, meeting_triage,
+// proposal_drafting). Per-step rules live in `learning` rows. Steps are
+// whitelisted via context (`context/<org>/learnings/<step>.yaml`) so we
+// don't drift into a junk drawer of near-duplicates. See rev-ai's
+// /var/www/metacto/spinutech/kickoff-demo/server/learnings.py for the
+// originating pattern.
+
+export const learningStepSchema = pgTable(
+  'learning_step',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Step slug, e.g. `meeting_triage`. Lowercased, alpha+underscore. */
+    name: text('name').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull(),
+    /** Optional intro shown above the rule list in `/learnings/<step>.md`. */
+    preamble: text('preamble'),
+    /** Which agent slugs own / read this step. */
+    agentSlugs: jsonb('agent_slugs').$type<string[]>().default([]).notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('learning_step_org_name_idx').on(table.orgId, table.name),
+  ],
+);
+
+export const learningSchema = pgTable(
+  'learning',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    stepId: integer('step_id').notNull().references(() => learningStepSchema.id, { onDelete: 'cascade' }),
+    /** The rule text — typically one-paragraph directive. */
+    ruleText: text('rule_text').notNull(),
+    /** Where the rule came from: 'manual', 'feedback:<id>', 'self-improver:<run_id>', etc. */
+    source: text('source'),
+    createdBy: text('created_by'),
+    /** Optional last-applied timestamp for staleness UI; updated when the agent reads the step. */
+    lastUsedAt: timestamp('last_used_at', { mode: 'date' }),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+);
+
+export const learningStepRelations = relations(learningStepSchema, ({ many }) => ({
+  rules: many(learningSchema),
+}));
+
+export const learningRelations = relations(learningSchema, ({ one }) => ({
+  step: one(learningStepSchema, {
+    fields: [learningSchema.stepId],
+    references: [learningStepSchema.id],
+  }),
+}));
+
+/* ------------------------------------------------------------------ */
+/* Conversations — persistent chat threads (Phase 5)                  */
+/* ------------------------------------------------------------------ */
+
+// Mirrors rev-ai's server/conversations.py 1:1 — one row per thread,
+// one row per turn, runs_json stores the [{type:'text'|'tool', ...}]
+// breadcrumb array the UI replays. Tool runs are intentionally dropped
+// from the history that gets replayed back to the agent (UI-only).
+
+export const conversationSchema = pgTable(
+  'conversation',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    agentSlug: text('agent_slug').notNull(),
+    title: text('title').notNull(),
+    createdBy: text('created_by'),
+    messageCount: integer('message_count').default(0).notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
+  ],
+);
+
+export const conversationMessageSchema = pgTable('conversation_message', {
+  id: serial('id').primaryKey(),
+  conversationId: integer('conversation_id')
+    .notNull()
+    .references(() => conversationSchema.id, { onDelete: 'cascade' }),
+  /** 'user' | 'assistant' */
+  role: text('role').notNull(),
+  /** Rendered text content the agent sees on history replay. */
+  content: text('content').notNull().default(''),
+  /**
+   * Structured breadcrumb array for the chat UI: a series of text
+   * runs interleaved with tool breadcrumbs. Tool entries are dropped
+   * when this row is replayed as history to the agent.
+   */
+  runsJson: jsonb('runs_json').$type<Array<
+    | { type: 'text'; text: string }
+    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string }
+  >>(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+});
+
+export const conversationRelations = relations(conversationSchema, ({ many }) => ({
+  messages: many(conversationMessageSchema),
+}));
+
+export const conversationMessageRelations = relations(conversationMessageSchema, ({ one }) => ({
+  conversation: one(conversationSchema, {
+    fields: [conversationMessageSchema.conversationId],
+    references: [conversationSchema.id],
+  }),
+}));
+
+/* ------------------------------------------------------------------ */
+/* Feedback jobs — async worker queue (Phase 6)                       */
+/* ------------------------------------------------------------------ */
+
+// Drive comment events / Slack reactions / manual UI feedback all
+// land in this table for the comment-feedback worker to classify and
+// act on. At-least-once delivery via FOR UPDATE SKIP LOCKED.
+
+/* ------------------------------------------------------------------ */
+/* Evals — gold-standard datasets + run history (Phase 7)             */
+/* ------------------------------------------------------------------ */
+
+// One dataset = N test cases authored in context. Running a dataset
+// produces an eval_run row and N eval_case_result rows scored by an
+// LLM judge. Determinism: temperature=0 + contextSha stamped on every
+// run so prompt changes show as eval drift.
+
+export const evalDatasetSchema = pgTable(
+  'eval_dataset',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    /** Which agent slug this dataset targets. Required — datasets are agent-scoped. */
+    agentSlug: text('agent_slug').notNull(),
+    description: text('description'),
+    /** Test cases. Each: input + optional expectedOutput + optional rubric. */
+    items: jsonb('items').$type<Array<{
+      input: string;
+      expectedOutput?: string;
+      rubric?: string;
+      tags?: string[];
+    }>>().default([]).notNull(),
+    version: integer('version').default(1).notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('eval_dataset_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
+
+export const evalRunSchema = pgTable('eval_run', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  datasetId: integer('dataset_id').notNull().references(() => evalDatasetSchema.id, { onDelete: 'cascade' }),
+  agentSlug: text('agent_slug').notNull(),
+  /** Context SHA active when the dataset was run — for drift attribution. */
+  contextSha: text('context_sha'),
+  /** running | succeeded | failed */
+  status: text('status').default('running').notNull(),
+  metrics: jsonb('metrics').$type<{
+    passRate?: number;
+    toolCallCount?: number;
+    medianLatencyMs?: number;
+    failed?: number;
+  }>().default({}).notNull(),
+  startedAt: timestamp('started_at', { mode: 'date' }).defaultNow().notNull(),
+  completedAt: timestamp('completed_at', { mode: 'date' }),
+});
+
+export const evalCaseResultSchema = pgTable('eval_case_result', {
+  id: serial('id').primaryKey(),
+  runId: integer('run_id').notNull().references(() => evalRunSchema.id, { onDelete: 'cascade' }),
+  itemIndex: integer('item_index').notNull(),
+  /** Free-form input echoed for context. */
+  input: text('input').notNull(),
+  output: text('output'),
+  /** 0..1 score from the judge. */
+  score: text('score'),
+  /** pass | fail | error */
+  verdict: text('verdict'),
+  rationale: text('rationale'),
+  /** Langfuse trace id for drill-down. */
+  traceId: text('trace_id'),
+  latencyMs: integer('latency_ms'),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+});
+
+export const evalDatasetRelations = relations(evalDatasetSchema, ({ many }) => ({
+  runs: many(evalRunSchema),
+}));
+export const evalRunRelations = relations(evalRunSchema, ({ one, many }) => ({
+  dataset: one(evalDatasetSchema, {
+    fields: [evalRunSchema.datasetId],
+    references: [evalDatasetSchema.id],
+  }),
+  results: many(evalCaseResultSchema),
+}));
+
+/* ------------------------------------------------------------------ */
+/* Agent budgets — per-period spend caps (Phase 7)                    */
+/* ------------------------------------------------------------------ */
+
+export const agentBudgetSchema = pgTable(
+  'agent_budget',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    agentSlug: text('agent_slug').notNull(),
+    /** daily | monthly */
+    period: text('period').default('daily').notNull(),
+    /** Tokens consumed in the current period (sum of input + output). */
+    currentTokens: bigint('current_tokens', { mode: 'number' }).default(0).notNull(),
+    /** Dollars (in USD cents to keep math integer-safe). */
+    currentCents: bigint('current_cents', { mode: 'number' }).default(0).notNull(),
+    /** Soft cap — warn but don't refuse. */
+    softTokenLimit: bigint('soft_token_limit', { mode: 'number' }),
+    softCentsLimit: bigint('soft_cents_limit', { mode: 'number' }),
+    /** Hard cap — refuse new runs. */
+    hardTokenLimit: bigint('hard_token_limit', { mode: 'number' }),
+    hardCentsLimit: bigint('hard_cents_limit', { mode: 'number' }),
+    /** When the current period began. Worker resets on rollover. */
+    periodStartedAt: timestamp('period_started_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('agent_budget_org_slug_period_idx').on(table.orgId, table.agentSlug, table.period),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Sources / Connectors framework (v0.3 — Phase G)                    */
+/* ------------------------------------------------------------------ */
+
+// Five tables. source_definition is the catalog (one row per plugin slug);
+// source_install is per-org enablement; source_credential holds the encrypted
+// OAuth/API-key blobs; source_dek wraps the KMS data-encryption keys;
+// source_audit is an append-only log of every credential lifecycle event.
+
+export const sourceDefinitionSchema = pgTable(
+  'source_definition',
+  {
+    id: serial('id').primaryKey(),
+    /** Plugin slug, e.g. `hubspot`, `google_drive_native`. */
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    version: text('version').notNull(),
+    /** `oauth2` | `api_key` | `none`. */
+    authType: text('auth_type').notNull(),
+    /** `org` | `user` | `both`. */
+    scope: text('scope').notNull(),
+    /** Reverse-DNS plugin id (PluginManifest.id) — useful for "uninstall this whole plugin". */
+    pluginId: text('plugin_id').notNull(),
+    /** Brand tokens (color, lucideIcon, iconUrl) for the catalog UI. */
+    brand: jsonb('brand').$type<{ color?: string; lucideIcon?: string; iconUrl?: string }>().default({}),
+    /** OAuth scopes the plugin declares (for the install consent screen). */
+    oauthScopes: jsonb('oauth_scopes').$type<string[]>().default([]),
+    /** Hide from the public catalog (still installable via API). */
+    discoverable: text('discoverable').default('true').notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('source_definition_slug_idx').on(table.slug),
+  ],
+);
+
+export const sourceInstallSchema = pgTable(
+  'source_install',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** FK-by-slug to source_definition.slug (loose — definitions can be re-registered). */
+    sourceSlug: text('source_slug').notNull(),
+    /** Clerk user id of the admin who installed. */
+    installedBy: text('installed_by').notNull(),
+    installedAt: timestamp('installed_at', { mode: 'date' }).defaultNow().notNull(),
+    /** Soft-disable without losing credentials/audit. */
+    disabled: text('disabled').default('false').notNull(),
+    /** Per-install configuration (validated against Source.configSchema). */
+    config: jsonb('config').$type<Record<string, unknown>>().default({}),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('source_install_org_slug_idx').on(table.orgId, table.sourceSlug),
+  ],
+);
+
+/**
+ * KMS-wrapped data encryption keys, one per tenant. In dev mode the
+ * `wrappedDek` is the master key directly (no KMS wrap); in production
+ * it's the KMS-encrypted ciphertext.
+ */
+export const sourceDekSchema = pgTable(
+  'source_dek',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** KMS key ARN that wrapped this DEK. Null in dev / localVault. */
+    kmsKeyArn: text('kms_key_arn'),
+    /** Wrapped DEK bytes (KMS ciphertext blob in production; raw master key in dev). */
+    wrappedDek: text('wrapped_dek').notNull(),
+    algorithm: text('algorithm').default('AES_256_GCM').notNull(),
+    rotatedAt: timestamp('rotated_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('source_dek_org_active_idx').on(table.orgId, table.createdAt),
+  ],
+);
+
+export const sourceCredentialSchema = pgTable('source_credential', {
+  id: serial('id').primaryKey(),
+  installId: integer('install_id')
+    .notNull()
+    .references(() => sourceInstallSchema.id, { onDelete: 'cascade' }),
+  /** Null for org-wide credentials; set for user-scope credentials. */
+  userId: text('user_id'),
+  /** Human label shown in the UI, e.g. "chris@metacto.com". */
+  displayName: text('display_name').notNull(),
+  /** FK to the DEK used to encrypt `ciphertext`. */
+  dekId: integer('dek_id')
+    .notNull()
+    .references(() => sourceDekSchema.id, { onDelete: 'restrict' }),
+  /** AES-256-GCM ciphertext of the JSON-encoded RawCredentials. */
+  ciphertext: text('ciphertext').notNull(),
+  /** AES-256-GCM nonce (12 bytes, base64). */
+  nonce: text('nonce').notNull(),
+  /** AES-256-GCM auth tag (16 bytes, base64). */
+  authTag: text('auth_tag').notNull(),
+  /** Token expiry as supplied by the provider (unix seconds). */
+  expiresAt: timestamp('expires_at', { mode: 'date' }),
+  lastRefreshedAt: timestamp('last_refreshed_at', { mode: 'date' }),
+  revokedAt: timestamp('revoked_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+});
+
+export const sourceAuditSchema = pgTable('source_audit', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  userId: text('user_id'),
+  /** `installed` | `uninstalled` | `connected` | `refreshed` | `revoked` | `failed_auth`. */
+  event: text('event').notNull(),
+  installId: integer('install_id'),
+  credentialId: integer('credential_id'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  at: timestamp('at', { mode: 'date' }).defaultNow().notNull(),
+});
+
+export const sourceInstallRelations = relations(sourceInstallSchema, ({ many }) => ({
+  credentials: many(sourceCredentialSchema),
+}));
+
+export const sourceCredentialRelations = relations(sourceCredentialSchema, ({ one }) => ({
+  install: one(sourceInstallSchema, {
+    fields: [sourceCredentialSchema.installId],
+    references: [sourceInstallSchema.id],
+  }),
+  dek: one(sourceDekSchema, {
+    fields: [sourceCredentialSchema.dekId],
+    references: [sourceDekSchema.id],
+  }),
+}));
+
+export const feedbackJobSchema = pgTable('feedback_job', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  /** Source system: 'drive', 'slack', 'onyx', 'manual'. */
+  source: text('source').notNull(),
+  /** External identifier — Drive comment id, Slack ts, etc. (idempotency key). */
+  externalId: text('external_id').notNull(),
+  /** Raw payload from the source. Worker re-fetches authoritative state. */
+  payload: jsonb('payload').$type<Record<string, unknown>>().default({}).notNull(),
+  /** queued | processing | classified | applied | failed | ignored */
+  status: text('status').default('queued').notNull(),
+  /** Classifier output once processed. */
+  classification: jsonb('classification').$type<{
+    bucket: 'edit' | 'rule' | 'both' | 'ignore';
+    editSummary?: string;
+    ruleText?: string;
+    targetSlug?: string;
+  }>(),
+  attempts: integer('attempts').default(0).notNull(),
+  error: text('error'),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+});

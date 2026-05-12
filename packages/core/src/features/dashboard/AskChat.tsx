@@ -985,7 +985,7 @@ type AgentOption = {
 };
 
 const AGENTS: AgentOption[] = [
-  { slug: 'ziggy', name: 'Ziggy', icon: 'bot', placeholder: 'Ask Ziggy anything about your sales pipeline...' },
+  { slug: 'sales-assistant', name: 'Sales Assistant', icon: 'bot', placeholder: 'Ask the Sales Assistant about your pipeline, recent calls, or open deals…' },
   { slug: '__search__', name: 'Search Only', icon: 'search', placeholder: 'Search across your connected systems...' },
 ];
 

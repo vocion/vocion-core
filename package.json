@@ -40,6 +40,17 @@
     "build-storybook": "npm run build-storybook --workspace @vocion/core",
     "stripe:listen": "npm run stripe:listen --workspace @vocion/core",
     "stripe:setup-price": "npm run stripe:setup-price --workspace @vocion/core",
+    "docker:build": "docker build -t vocion-app:latest -f packages/core/Dockerfile .",
+    "docker:run": "docker run --rm -p 3000:3000 --env-file packages/core/.env.local vocion-app:latest",
+    "aws:up": "echo 'Run on the EC2 instance: sudo bash /opt/vocion/infra/aws/bootstrap.sh' && exit 1",
+    "aws:update": "echo 'Run on the EC2 instance: sudo bash /opt/vocion/infra/aws/update.sh' && exit 1",
+    "tofu:init": "cd infra/terraform && tofu init",
+    "tofu:fmt": "cd infra/terraform && tofu fmt -recursive",
+    "tofu:validate": "cd infra/terraform && tofu validate",
+    "tofu:plan": "cd infra/terraform && tofu plan",
+    "tofu:apply": "cd infra/terraform && tofu apply",
+    "tofu:destroy": "cd infra/terraform && tofu destroy",
+    "tofu:output": "cd infra/terraform && tofu output",
     "commit": "commit"
   },
   "devDependencies": {

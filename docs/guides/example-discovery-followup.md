@@ -28,7 +28,7 @@ context/<org>/
 │       ├── workflow.yaml
 │       └── evals.yaml
 └── agents/
-    └── ziggy/
+    └── sales-assistant/
         ├── agent.yaml
         └── system-prompt.md
 ```
@@ -206,9 +206,9 @@ steps:
 Optional — wire this workflow into a named agent so your team can trigger it from chat.
 
 ```yaml
-# context/<org>/agents/ziggy/agent.yaml
-slug: ziggy
-name: Ziggy
+# context/<org>/agents/sales-assistant/agent.yaml
+slug: sales-assistant
+name: Sales Assistant
 description: Sales agent — discovery, drafting, proposal generation
 active: true
 model: gpt-5.4
@@ -227,7 +227,7 @@ In chat, say:
 
 > "start the discovery follow-up workflow on my last Acme call"
 
-Ziggy picks the `discovery_followup` workflow. Step 1 runs `discovery_summary`. Step 2 runs `draft_followup_email`. Step 3 pauses at the approval gate — the draft lands in `/dashboard/review`. You approve, it sends.
+the Sales Assistant picks the `discovery_followup` workflow. Step 1 runs `discovery_summary`. Step 2 runs `draft_followup_email`. Step 3 pauses at the approval gate — the draft lands in `/dashboard/review`. You approve, it sends.
 
 ## 8 — Audit
 
@@ -250,7 +250,7 @@ Notice the email was too formal. Edit `skills/draft-followup-email/prompt.md` di
 - Audit trail with rating + feedback
 - In-app editing
 
-Every one of these is a seam you can extend. Add more skills to Ziggy; add more steps to the workflow; add a second agent with a different wire-up. The shape stays the same.
+Every one of these is a seam you can extend. Add more skills to the Sales Assistant; add more steps to the workflow; add a second agent with a different wire-up. The shape stays the same.
 
 ## Related
 

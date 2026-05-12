@@ -1,8 +1,8 @@
 {
   "name": "@vocion/sdk",
   "type": "module",
-  "version": "0.1.0",
-  "description": "Stable plugin contract for Vocion — Skill, PluginManifest, LLM client types.",
+  "version": "0.3.0",
+  "description": "Stable plugin contract for Vocion — Operation + Source + PluginManifest + LLM client types. v0.3: adds Source plugin contract (OAuth2 + API key, org + user scope, pull + retrieve + healthCheck) for connector authors.",
   "license": "Apache-2.0",
   "keywords": [
     "vocion",

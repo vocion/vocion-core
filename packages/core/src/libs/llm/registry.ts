@@ -54,3 +54,15 @@ export function resetLLMClients(): void {
   openaiSingleton = null;
   anthropicSingleton = null;
 }
+
+/* ------------------------------------------------------------------ */
+/* Role-based LangChain chat-model factory (re-export)                 */
+/* ------------------------------------------------------------------ */
+
+// Role API for LangChain BaseChatModel selection. Used by the deepagents
+// runtime (Phase 4) and any other LangChain-based call site. The
+// provider-neutral LLMClient above stays the contract for plugin skills
+// (ctx.llm); buildChatModel is the contract for agent runtimes.
+
+export type { BuildChatModelOptions, LangChainProvider, ModelRole } from './langchain';
+export { buildChatModel, withPromptCache } from './langchain';

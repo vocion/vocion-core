@@ -3,11 +3,13 @@ import { and, desc, eq } from 'drizzle-orm';
 import { ExternalLink } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
+import { StatusPill } from '@/components/ui/status-pill';
 import { FeedbackButtons } from '@/features/dashboard/FeedbackButtons';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { skillRunSchema, skillSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
+import { isRunStatus } from '@/types/Status';
 
 type Row = {
   kind: 'skill' | 'workflow';
@@ -225,10 +227,9 @@ function StatusBadge({ status }: { status: string | null }) {
   if (!status) {
     return <span className="text-muted-foreground">—</span>;
   }
-  const variant = status === 'approved' || status === 'completed'
-    ? 'default'
-    : status === 'rejected' || status === 'failed'
-      ? 'destructive'
-      : 'outline';
-  return <Badge variant={variant as 'default' | 'destructive' | 'outline'}>{status}</Badge>;
+  if (!isRunStatus(status)) {
+    // Unknown status — render the raw string so we don't silently drop signal.
+    return <span className="text-xs text-muted-foreground">{status}</span>;
+  }
+  return <StatusPill status={status} size="sm" />;
 }

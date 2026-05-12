@@ -1,3 +1,4 @@
+import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
   addLink,
   create as createObject,
@@ -11,6 +12,30 @@ import {
   update as updateObject,
 } from './BusinessObject';
 import { readPrimitive, writeFile } from './Context';
+import {
+  append as appendConvMessage,
+  create as createConv,
+  get as getConv,
+  list as listConvs,
+  remove as removeConv,
+  rename as renameConv,
+} from './Conversations';
+import {
+  runDetail as evalRunDetail,
+  get as getEval,
+  runs as listEvalRuns,
+  list as listEvals,
+  run as runEval,
+} from './Evals';
+import {
+  add as addLearning,
+  check as checkLearning,
+  get as getLearning,
+  listLearningSteps,
+  remove as removeLearning,
+  update as updateLearning,
+} from './Learnings';
+import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import {
   approve,
   cancel,
@@ -39,6 +64,37 @@ export const router = {
   context: {
     readPrimitive,
     writeFile,
+  },
+  playbooks: {
+    list: listPlaybooks,
+    get: getPlaybook,
+  },
+  conversations: {
+    list: listConvs,
+    get: getConv,
+    create: createConv,
+    delete: removeConv,
+    rename: renameConv,
+    append: appendConvMessage,
+  },
+  learnings: {
+    listSteps: listLearningSteps,
+    get: getLearning,
+    check: checkLearning,
+    add: addLearning,
+    update: updateLearning,
+    remove: removeLearning,
+  },
+  evals: {
+    list: listEvals,
+    get: getEval,
+    run: runEval,
+    runs: listEvalRuns,
+    runDetail: evalRunDetail,
+  },
+  budgets: {
+    get: getBudget,
+    upsert: upsertBudget,
   },
   review: {
     listSkillRuns: listPendingSkillRuns,

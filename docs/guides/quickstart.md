@@ -46,7 +46,7 @@ npm run db:migrate
 npm run context:apply
 ```
 
-The first `context:apply` seeds the reference tenant at `context/metacto/` — one agent (Ziggy), 13 skills, 4 object types, 1 workflow. You can swap in your own tenant later by setting `CONTEXT_PATH`.
+The first `context:apply` seeds the reference tenant at `context/metacto/` — one agent (the Sales Assistant), 13 skills, 4 object types, 1 workflow. You can swap in your own tenant later by setting `CONTEXT_PATH`.
 
 ## 5. Run the dev server
 
@@ -58,11 +58,11 @@ Open **http://localhost:3000** and sign in via Clerk.
 
 ## 6. Talk to an agent
 
-Head to **/dashboard/chat** and ask Ziggy:
+Head to **/dashboard/chat** and ask the Sales Assistant:
 
 > *"Summarize the last discovery call."*
 
-Ziggy will:
+the Sales Assistant will:
 
 1. Route through the `search_everything` skill (retrieval across your Sources)
 2. Pick `discovery_summary` from its wired skill catalog
@@ -82,7 +82,7 @@ Apply the change:
 npm run context:apply
 ```
 
-Talk to Ziggy again — the new prompt is live. Every `skill_run` stamps the new `context_sha`, so any output traces back to the exact commit.
+Talk to the Sales Assistant again — the new prompt is live. Every `skill_run` stamps the new `context_sha`, so any output traces back to the exact commit.
 
 ## 8. Ship it to your own tenant
 

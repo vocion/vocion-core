@@ -1,0 +1,1 @@
+ALTER TABLE "skill" ADD COLUMN "kind" text DEFAULT 'operation' NOT NULL;

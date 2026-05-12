@@ -1,0 +1,41 @@
+# Vocion production Caddyfile (Phase F).
+#
+# Caddy handles TLS termination via Let's Encrypt automatically. Point
+# VOCION_HOSTNAME in .env.production at your domain (e.g. app.vocion.ai)
+# and Caddy provisions the cert on first boot.
+#
+# To run without TLS during initial setup (e.g. before DNS resolves),
+# replace `{$VOCION_HOSTNAME}` with `:80` for an HTTP-only site block.
+
+{$VOCION_HOSTNAME} {
+    encode gzip zstd
+
+    # Streaming endpoints — disable Caddy's buffering for SSE.
+    @sse {
+        path /*/rpc/agent/stream*
+    }
+    handle @sse {
+        reverse_proxy app:3000 {
+            flush_interval -1
+        }
+    }
+
+    # Everything else.
+    handle {
+        reverse_proxy app:3000
+    }
+
+    # Standard security headers.
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    }
+}
+
+# www → apex 301 redirect. Let's Encrypt provisions the cert
+# automatically; `redir` preserves the request path + query.
+www.{$VOCION_HOSTNAME} {
+    redir https://{$VOCION_HOSTNAME}{uri} 301
+}
