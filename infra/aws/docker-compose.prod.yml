@@ -10,9 +10,8 @@
 #     -f infra/aws/docker-compose.prod.yml \
 #     -p vocion up -d
 #
-# Onyx (12-container retrieval stack) lives in its own compose project
-# at infra/onyx/onyx-repo/deployment/docker_compose. The bootstrap
-# script (infra/aws/bootstrap.sh) brings it up in parallel.
+# Retrieval is native pgvector (L.6 — no external service). The
+# `postgres` service in docker-compose.yml uses the pgvector image.
 #
 # Secrets are pulled from infra/aws/.env.production (operator-managed,
 # never committed). See infra/aws/.env.production.example for the

@@ -1,10 +1,10 @@
-# CoreContext Platform Services
+# Vocion Platform Services
 # Langfuse (LLM observability) + Temporal (workflows) + OTel Collector
 #
-# Onyx runs separately via infra/onyx/ (too many services to combine)
+# Retrieval lives in the app Postgres (pgvector, see L.1). Onyx is gone.
 #
 # Usage:
-#   docker compose -f infra/docker-compose.platform.yml -p corecontext-platform up -d
+#   docker compose -f infra/docker-compose.platform.yml -p vocion-platform up -d
 #
 # Ports:
 #   Langfuse UI:     http://localhost:3200
