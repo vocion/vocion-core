@@ -1,7 +1,7 @@
 'use client';
 
 import type { AgentRun, ChatMessage, OnyxDocument } from './types';
-import { Sparkles } from 'lucide-react';
+import { AlertCircle, FileText, Sparkles } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
@@ -28,6 +28,8 @@ export type AgentMessageProps = {
   timestamp?: number;
   onDocumentClick?: (doc: OnyxDocument, num: string) => void;
   onCitationClick?: (n: number) => void;
+  /** Optional handler when the "Sources · N" pill is clicked. Opens the SourcesPanel. */
+  onShowSources?: () => void;
 };
 
 function formatTime(ts: number | undefined): string {
@@ -38,9 +40,11 @@ function formatTime(ts: number | undefined): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-export function AgentMessage({ message, timestamp }: AgentMessageProps) {
+export function AgentMessage({ message, timestamp, onShowSources }: AgentMessageProps) {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
+  const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
+  const hasToolError = runs.some(r => r.type === 'tool' && r.state === 'error');
 
   return (
     <div className="flex gap-3">
@@ -48,9 +52,25 @@ export function AgentMessage({ message, timestamp }: AgentMessageProps) {
         <Sparkles className="size-4" aria-hidden="true" />
       </div>
       <div className="max-w-2xl min-w-0 flex-1">
-        <div className="text-[11px] tracking-wider text-muted-foreground uppercase">
-          Sales Assistant
-          {timestamp ? <span className="ml-2 tracking-normal normal-case">{formatTime(timestamp)}</span> : null}
+        <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
+          <span>Sales Assistant</span>
+          {timestamp && <span className="tracking-normal normal-case">{formatTime(timestamp)}</span>}
+          {sourceCount > 0 && (
+            <button
+              type="button"
+              onClick={onShowSources}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] tracking-normal normal-case text-foreground/80 transition hover:border-primary/30 hover:text-foreground"
+            >
+              <FileText className="size-2.5" aria-hidden />
+              Sources · {sourceCount}
+            </button>
+          )}
+          {hasToolError && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal normal-case text-[var(--brand-fail)]">
+              <AlertCircle className="size-2.5" aria-hidden />
+              Tool error
+            </span>
+          )}
         </div>
         <div className="mt-2 text-sm leading-relaxed">
           {runs.map((run, i) => {
@@ -61,11 +81,16 @@ export function AgentMessage({ message, timestamp }: AgentMessageProps) {
                 </div>
               );
             }
+            // N.4: full first 2 input args legible (2-line clamp in the
+            // breadcrumb component); output preview truncated to ~80 chars.
             const inputPreview = run.input
               ? Object.entries(run.input)
-                  .slice(0, 1)
-                  .map(([k, v]) => `${k}=${typeof v === 'string' ? `"${v.slice(0, 40)}"` : JSON.stringify(v).slice(0, 40)}`)
+                  .slice(0, 2)
+                  .map(([k, v]) => `${k}=${typeof v === 'string' ? `"${v}"` : JSON.stringify(v)}`)
                   .join(', ')
+              : undefined;
+            const outputPreview = run.output
+              ? (run.output.length > 80 ? `${run.output.slice(0, 80)}…` : run.output)
               : undefined;
             return (
               <ToolBreadcrumb
@@ -73,6 +98,7 @@ export function AgentMessage({ message, timestamp }: AgentMessageProps) {
                 name={run.name}
                 state={run.state ?? 'done'}
                 inputPreview={inputPreview}
+                outputPreview={outputPreview}
               />
             );
           })}
