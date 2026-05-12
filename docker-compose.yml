@@ -27,7 +27,11 @@ include:
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector/pgvector:pg16 = Postgres 16 + pgvector preinstalled.
+    # Required for Phase L native retrieval (migration 0019). The
+    # alternative `postgres:16-alpine` would require building the
+    # extension from source on container start.
+    image: pgvector/pgvector:pg16
     container_name: corecontext-postgres
     restart: unless-stopped
     ports:
