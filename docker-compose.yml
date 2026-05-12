@@ -1,23 +1,17 @@
-# CoreContext local dev stack — one entrypoint.
+# Vocion local dev stack — one entrypoint.
 #
 # Quick start:
-#   npm run dev:up         # brings up everything below + Onyx
-#   npm run dev:down       # tears it all down
-#
-# Or piecemeal:
-#   docker compose up -d                  # this file: app DB + platform (Langfuse + Temporal)
-#   npm run dev:onyx:up                   # 12-container Onyx retrieval stack (separate project)
+#   docker compose up -d   # app DB + platform (Langfuse + Temporal)
+#   npm run dev:next       # start Next.js against the running stack
 #
 # Ports surfaced on the host:
 #   :3000   Next.js app       (run with `npm run dev:next`)
-#   :5432   App Postgres
+#   :5432   App Postgres + pgvector (native retrieval, see L.1)
 #   :3200   Langfuse UI
 #   :8233   Temporal UI
 #   :7233   Temporal gRPC
 #   :4317   OTel Collector (gRPC)
 #   :4318   OTel Collector (HTTP)
-#   :3100   Onyx UI            (only when dev:onyx:up has run)
-#   :8080   Onyx API            (ditto)
 
 include:
   # Langfuse (LLM observability) + Temporal (workflows) + OTel Collector.
