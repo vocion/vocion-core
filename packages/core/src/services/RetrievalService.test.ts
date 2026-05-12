@@ -17,13 +17,14 @@ vi.mock('@/libs/retrieval/embedder', () => {
   return {
     embed: vi.fn(async (texts: string[]) => {
       return texts.map((t) => {
-        const vec = Array.from({ length: 1536 }).fill(0);
+        const vec: number[] = new Array(1536).fill(0);
         // Trivial bag-of-chars projection: pin a few stable dims off
         // the text so similar strings get similar vectors. Good
         // enough for "the planet doc is closer to 'mars' than the
         // recipe doc" assertions.
         for (let i = 0; i < t.length; i++) {
-          vec[t.charCodeAt(i) % 1536] += 1;
+          const idx = t.charCodeAt(i) % 1536;
+          vec[idx] = (vec[idx] ?? 0) + 1;
         }
         const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1;
         return vec.map(v => v / norm);

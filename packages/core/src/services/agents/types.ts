@@ -50,6 +50,7 @@ export type AgentEvent
     | { type: 'answering' }
     | { type: 'response_delta'; delta: string }
     | { type: 'documents'; documents: SearchDocument[] }
+    | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     | { type: 'done'; response: string; traceId?: string }
