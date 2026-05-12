@@ -13,7 +13,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import { getCurrentContextSha } from '@/libs/context';
 import { db } from '@/libs/DB';
-import { cleanUsageDetails, langfuse, traceFor } from '@/libs/Langfuse';
+import { cleanUsageDetails, langfuse, pushScore, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { getLLMClient } from '@/libs/llm';
 import { search as onyxSearch } from '@/libs/onyx/client';
@@ -457,6 +457,18 @@ export async function submitSkillRunFeedback(opts: { orgId: string; runId: numbe
     })
     .where(and(eq(skillRunSchema.id, opts.runId), eq(skillRunSchema.orgId, opts.orgId)))
     .returning();
+  // Mirror the rating into Langfuse as a `user-thumbs` score on the
+  // associated trace. Per the Langfuse user-feedback skill: keep the
+  // name signal-source-shaped (not "quality"), BOOLEAN dataType, 1/0.
+  // Skipping when rating is cleared (null) — Langfuse scores append-only.
+  if (updated?.rating === 'up' || updated?.rating === 'down') {
+    pushScore({
+      traceId: updated.langfuseTraceId,
+      name: 'user-thumbs',
+      value: updated.rating === 'up' ? 1 : 0,
+      comment: updated.feedbackNote,
+    });
+  }
   return updated ?? null;
 }
 
@@ -486,5 +498,26 @@ async function transitionStatus(orgId: string, runId: number, to: 'approved' | '
     })
     .where(and(eq(skillRunSchema.id, runId), eq(skillRunSchema.orgId, orgId)))
     .returning();
+
+  // Forward the review signal to Langfuse as two distinct scores —
+  // `review-decision` captures the approve/reject signal; `user-thumbs`
+  // captures the optional rating. Keeping them separate lets dashboards
+  // tell "approved despite a thumbs-down" from "approved with applause".
+  if (updated?.langfuseTraceId) {
+    pushScore({
+      traceId: updated.langfuseTraceId,
+      name: 'review-decision',
+      value: to === 'approved' ? 1 : 0,
+      comment: feedback?.note,
+    });
+    if (feedback?.rating === 'up' || feedback?.rating === 'down') {
+      pushScore({
+        traceId: updated.langfuseTraceId,
+        name: 'user-thumbs',
+        value: feedback.rating === 'up' ? 1 : 0,
+        comment: feedback.note,
+      });
+    }
+  }
   return updated ?? null;
 }
