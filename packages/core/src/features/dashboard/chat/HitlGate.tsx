@@ -1,7 +1,8 @@
 'use client';
 
 import type { HitlGatePayload } from './types';
-import { CircleCheck, CircleX, ShieldQuestion } from 'lucide-react';
+import { CircleCheck, CircleX, Clock, ShieldQuestion, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 /**
  * Human-in-the-loop approval gate (Phase C).
@@ -20,9 +21,38 @@ export type HitlGateProps = {
   onApprove: () => void;
   onReject: () => void;
   disabled?: boolean;
+  /** When the gate appeared. Drives the live "Waiting Nm" clock. Defaults to now. */
+  pausedAt?: number;
+  /** Who's allowed to approve. e.g. "org:admin". Falls back to a generic line. */
+  approverRole?: string;
 };
 
-export function HitlGate({ gate, onApprove, onReject, disabled = false }: HitlGateProps) {
+function useElapsed(since: number | undefined) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  if (!since) {
+    return null;
+  }
+  const ms = Math.max(0, now - since);
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) {
+    return 'just now';
+  }
+  if (m < 60) {
+    return `${m}m`;
+  }
+  const h = Math.floor(m / 60);
+  if (h < 24) {
+    return `${h}h ${m % 60}m`;
+  }
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
+export function HitlGate({ gate, onApprove, onReject, disabled = false, pausedAt, approverRole = 'org:admin' }: HitlGateProps) {
+  const elapsed = useElapsed(pausedAt);
   return (
     <div className="mx-auto max-w-3xl px-6">
       <div className="rounded-2xl border-2 border-brand-amber/40 bg-brand-amber-tint p-5">
@@ -36,7 +66,19 @@ export function HitlGate({ gate, onApprove, onReject, disabled = false }: HitlGa
               {' '}
               {gate.name}
             </div>
-            <div className="mt-1 text-sm font-medium text-foreground">{gate.question}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-brand-amber-deep/80">
+              {elapsed && (
+                <span className="inline-flex items-center gap-1">
+                  <Clock className="size-3" aria-hidden />
+                  Waiting {elapsed}
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1">
+                <Users className="size-3" aria-hidden />
+                Anyone with {approverRole} can approve
+              </span>
+            </div>
+            <div className="mt-2 text-sm font-medium text-foreground">{gate.question}</div>
             {gate.payload && Object.keys(gate.payload).length > 0 && (
               <pre className="mt-3 overflow-x-auto rounded-lg border border-brand-amber/30 bg-background p-3 font-mono text-xs">
                 {JSON.stringify(gate.payload, null, 2)}
