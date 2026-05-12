@@ -3,7 +3,7 @@
   "workspaces": {
     ".": {
       "entry": ["docker-compose.yml", "infra/**/*.{yml,yaml,sh,tf}"],
-      "ignore": ["infra/terraform/**", "infra/onyx/**"]
+      "ignore": ["infra/terraform/**"]
     },
     "packages/core": {
       "entry": [

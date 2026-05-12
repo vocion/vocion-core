@@ -16,7 +16,6 @@
 
 import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
-import process from 'node:process';
 import { tool as makeTool } from '@langchain/core/tools';
 import { createDeepAgent, StateBackend } from 'deepagents';
 import { eq } from 'drizzle-orm';
@@ -26,7 +25,6 @@ import { buildChatModel } from '@/libs/llm';
 import { agentSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
 import { mountPlaybooks } from '@/services/playbooks/mount';
-import { findRelatedConversationsTool } from './tools/findRelatedConversations';
 import { requestHumanReviewTool } from './tools/hitl';
 import {
   addLearningTool,
@@ -39,9 +37,7 @@ import {
 import { lookupObjectsTool } from './tools/lookupObjects';
 import { runOperationTool } from './tools/runOperation';
 import { listRecentRunsTool, listRunFeedbackTool } from './tools/runs';
-import { searchEverythingTool } from './tools/searchEverything';
 import { searchKnowledgeTool } from './tools/searchKnowledge';
-import { searchOnyxTool } from './tools/searchOnyx';
 
 /* ------------------------------------------------------------------ */
 /* LRU cache of compiled graphs                                        */
@@ -113,16 +109,13 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   // Tools: built-ins from createDeepAgent (ls/read_file/.../task/write_todos)
   // plus our domain-specific tools below.
   //
-  // `VOCION_RETRIEVAL=native` swaps the Onyx-backed search_onyx tool for
-  // the pgvector-backed search_knowledge tool. The model sees only one
-  // search-* tool at a time so the prompt + few-shot patterns keep
-  // working. Default stays on Onyx until L.6 cuts the dependency over.
-  const useNativeRetrieval = process.env.VOCION_RETRIEVAL === 'native';
+  // Retrieval is the native pgvector path (`search_knowledge`). The
+  // legacy Onyx tools (`search_onyx`, `search_everything`,
+  // `find_related_conversations`) were removed in L.6. Source-typed
+  // retrieval comes back via M.1's Source SDK + per-connector slugs.
   const tools = [
-    useNativeRetrieval ? searchKnowledgeTool(ctx) : searchOnyxTool(ctx),
+    searchKnowledgeTool(ctx),
     lookupObjectsTool(ctx),
-    findRelatedConversationsTool(ctx),
-    searchEverythingTool(ctx),
     runOperationTool(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),

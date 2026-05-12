@@ -30,7 +30,7 @@ export default async function SearchPage(props: {
   if (query) {
     try {
       const data = await search({ query });
-      results = (data?.top_documents ?? data?.documents ?? []) as SearchDoc[];
+      results = (data?.top_documents ?? data?.results ?? []) as SearchDoc[];
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
