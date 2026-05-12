@@ -41,6 +41,13 @@ import {
 
 export type SearchMode = 'vector' | 'keyword' | 'hybrid';
 
+export type SearchEvent =
+  | { type: 'retrieval.started'; mode: SearchMode; query: string }
+  | { type: 'retrieval.candidates'; vector: number; keyword: number }
+  | { type: 'retrieval.fused'; kept: number }
+  | { type: 'retrieval.reranking'; candidates: number }
+  | { type: 'retrieval.complete'; hits: number };
+
 export type SearchOptions = {
   orgId: string;
   /** Optional user identifier for trace tagging. Use 'system' / 'agent' / 'eval' for non-interactive paths. */
@@ -54,6 +61,18 @@ export type SearchOptions = {
   sourceSlug?: string;
   /** Filter to a list of source slugs. */
   sourceSlugs?: string[];
+  /**
+   * When true, run a second-stage LLM rerank over the fused candidates.
+   * Adds ~500ms + tokens; quality boost is most noticeable when the
+   * query is fuzzy ("tell me about ...") rather than literal.
+   */
+  rerank?: boolean;
+  /**
+   * Optional progress callback. Chat surfaces use this to keep the
+   * ThinkingPanel summary live ("Searching · 22 candidates · reranking...").
+   * Safe to omit for non-interactive callers (evals, batch jobs).
+   */
+  onEvent?: (event: SearchEvent) => void;
 };
 
 export type SearchHit = {
@@ -94,33 +113,62 @@ export async function search(query: string, opts: SearchOptions): Promise<Search
     metadata: { perArm, sourceSlug: opts.sourceSlug, sourceSlugs: opts.sourceSlugs },
   });
 
+  const emit = opts.onEvent ?? (() => {});
+  emit({ type: 'retrieval.started', mode, query });
+
   try {
     const sourceFilter = await resolveSourceFilter(opts);
     if (sourceFilter && sourceFilter.length === 0) {
       // Caller filtered to a source that doesn't exist for this org.
       trace.update({ output: { hits: 0, reason: 'no-matching-source' } });
+      emit({ type: 'retrieval.complete', hits: 0 });
       return [];
     }
 
     let vectorHits: RawHit[] = [];
     let keywordHits: RawHit[] = [];
 
-    if (mode === 'vector' || mode === 'hybrid') {
-      vectorHits = await vectorSearch(query, opts.orgId, sourceFilter, perArm);
-    }
-    if (mode === 'keyword' || mode === 'hybrid') {
-      keywordHits = await keywordSearch(query, opts.orgId, sourceFilter, perArm);
-    }
+    // Run vector + keyword in parallel for hybrid; sequential awaits
+    // (the previous shape) double-paid latency for no reason.
+    const armResults = await Promise.all([
+      (mode === 'vector' || mode === 'hybrid')
+        ? vectorSearch(query, opts.orgId, sourceFilter, perArm)
+        : Promise.resolve([] as RawHit[]),
+      (mode === 'keyword' || mode === 'hybrid')
+        ? keywordSearch(query, opts.orgId, sourceFilter, perArm)
+        : Promise.resolve([] as RawHit[]),
+    ]);
+    vectorHits = armResults[0];
+    keywordHits = armResults[1];
+    emit({ type: 'retrieval.candidates', vector: vectorHits.length, keyword: keywordHits.length });
 
-    const fused = fuse(mode, vectorHits, keywordHits, k);
+    // For rerank we pull a larger fused candidate set (2*k) then trim
+    // after the model reorders. Keeps the rerank pass meaningful.
+    const fuseLimit = opts.rerank ? Math.min(k * 2, 20) : k;
+    const fused = fuse(mode, vectorHits, keywordHits, fuseLimit);
+    emit({ type: 'retrieval.fused', kept: fused.length });
     if (fused.length === 0) {
       trace.update({ output: { hits: 0 } });
+      emit({ type: 'retrieval.complete', hits: 0 });
       return [];
     }
 
     const detailed = await hydrate(fused);
-    trace.update({ output: { hits: detailed.length, mode } });
-    return detailed;
+    let finalHits = detailed;
+    if (opts.rerank && detailed.length > 1) {
+      emit({ type: 'retrieval.reranking', candidates: detailed.length });
+      const { rerank } = await import('@/libs/retrieval/reranker');
+      finalHits = await rerank(query, detailed, {
+        orgId: opts.orgId,
+        parentSlug: opts.sourceSlug,
+        keep: k,
+      });
+    } else {
+      finalHits = detailed.slice(0, k);
+    }
+    trace.update({ output: { hits: finalHits.length, mode, reranked: !!opts.rerank } });
+    emit({ type: 'retrieval.complete', hits: finalHits.length });
+    return finalHits;
   } finally {
     void langfuse.flushAsync();
   }
