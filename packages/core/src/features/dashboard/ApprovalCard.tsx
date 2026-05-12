@@ -1,16 +1,18 @@
 'use client';
 
+import type { RunStatus } from '@/types/Status';
 import { Check, Edit3, X } from 'lucide-react';
 import { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { StatusPill } from '@/components/ui/status-pill';
 
 type ApprovalCardProps = {
   title: string;
   skillName: string;
   runId: number;
   content: string;
-  status: 'pending' | 'approved' | 'rejected' | 'auto';
+  status: Extract<RunStatus, 'pending' | 'approved' | 'rejected' | 'auto'>;
   onApprove?: (editedContent: string) => void;
   onReject?: () => void;
 };
@@ -38,27 +40,20 @@ export const ApprovalCard = ({
     onReject?.();
   };
 
-  const statusColors: Record<string, string> = {
-    pending: 'border-amber-200 bg-amber-50/30 dark:border-amber-900 dark:bg-amber-950/10',
-    approved: 'border-green-200 bg-green-50/30 dark:border-green-900 dark:bg-green-950/10',
-    rejected: 'border-red-200 bg-red-50/30 dark:border-red-900 dark:bg-red-950/10',
+  // Card border tone tracks the StatusPill tone — uses the same
+  // design tokens so the visual language stays consistent.
+  const cardBorder: Record<typeof status, string> = {
+    pending: 'border-[var(--brand-borderline)]/30 bg-[var(--brand-borderline-bg)]/30',
+    approved: 'border-[var(--brand-pass)]/30 bg-[var(--brand-pass-bg)]/30',
+    rejected: 'border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30',
     auto: 'border-border bg-background',
   };
 
-  const statusBadges: Record<string, { label: string; style: string }> = {
-    pending: { label: 'Pending Approval', style: 'bg-amber-100 text-amber-800' },
-    approved: { label: 'Approved', style: 'bg-green-100 text-green-800' },
-    rejected: { label: 'Rejected', style: 'bg-red-100 text-red-800' },
-    auto: { label: 'Auto-Run', style: 'bg-muted text-muted-foreground' },
-  };
-
-  const badge = statusBadges[status] ?? statusBadges.pending!;
-
   return (
-    <div className={`rounded-lg border-2 p-5 ${statusColors[status] ?? ''}`}>
-      <div className="flex items-center justify-between">
+    <div className={`rounded-xl border p-5 ${cardBorder[status]}`}>
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold">{title}</div>
+          <div className="font-display text-sm font-semibold">{title}</div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>
               Skill:
@@ -70,9 +65,7 @@ export const ApprovalCard = ({
             </span>
           </div>
         </div>
-        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${badge.style}`}>
-          {badge.label}
-        </span>
+        <StatusPill status={status} />
       </div>
 
       {/* Content */}
@@ -124,10 +117,10 @@ export const ApprovalCard = ({
       )}
 
       {status === 'approved' && (
-        <div className="mt-3 text-xs text-green-600">Approved — ready to send</div>
+        <div className="mt-3 text-xs text-[var(--brand-pass)]">Approved — ready to send</div>
       )}
       {status === 'rejected' && (
-        <div className="mt-3 text-xs text-red-600">Rejected — draft discarded</div>
+        <div className="mt-3 text-xs text-[var(--brand-fail)]">Rejected — draft discarded</div>
       )}
     </div>
   );

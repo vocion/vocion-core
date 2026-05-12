@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import matter from 'gray-matter';
 import { getRepoRoot } from './repo-root';
 
 /**
@@ -23,10 +24,28 @@ export type DocEntry = {
   path: string;
   /** URL slug (path minus `.md`). e.g. `docs/mcp`, `README`. Empty string for root README. */
   slug: string;
-  /** Display title (first H1 or the filename) */
+  /** Display title — frontmatter `title`, falling back to first H1 or the filename. */
   title: string;
+  /** Sidebar label — frontmatter `nav_label` if set, else title. */
+  navLabel: string;
+  /** Sidebar sort key within group — frontmatter `nav_order`, default 100. */
+  navOrder: number;
+  /** SEO description — frontmatter `description`, falling back to first paragraph. */
+  description: string;
   /** Group key for sidebar — `"root"` | `"docs"` | `"requirements"` | `"requirements/metacto"` | `"context"` */
   group: string;
+};
+
+/**
+ * Parsed frontmatter shape. All fields optional — a missing
+ * frontmatter block degrades to "title from H1, description from
+ * first paragraph, default nav_order".
+ */
+type Frontmatter = {
+  title?: string;
+  description?: string;
+  nav_label?: string;
+  nav_order?: number;
 };
 
 /**
@@ -70,12 +89,7 @@ export function listDocs(opts: { kind?: DocsKind; publicOnly?: boolean } = {}): 
 
   const entries: DocEntry[] = [];
   if (kind === 'public' || kind === 'all') {
-    entries.push({
-      path: 'README.md',
-      slug: '',
-      title: readTitle(join(ROOT, 'README.md'), 'CoreContext'),
-      group: 'root',
-    });
+    entries.push(buildEntry('README.md', join(ROOT, 'README.md'), 'root', 'CoreContext'));
   }
 
   for (const root of ROOTS) {
@@ -88,12 +102,7 @@ export function listDocs(opts: { kind?: DocsKind; publicOnly?: boolean } = {}): 
       if (!includeInKind(rel, kind)) {
         continue;
       }
-      entries.push({
-        path: rel,
-        slug: rel.slice(0, -3), // strip .md
-        title: readTitle(file, rel),
-        group: groupFor(rel),
-      });
+      entries.push(buildEntry(rel, file, groupFor(rel), rel));
     }
   }
 
@@ -106,8 +115,59 @@ export function listDocs(opts: { kind?: DocsKind; publicOnly?: boolean } = {}): 
     if (a.group === 'get-started') {
       return (GET_STARTED_PRIORITY[a.path] ?? 99) - (GET_STARTED_PRIORITY[b.path] ?? 99);
     }
+    // Frontmatter nav_order first, then path-alphabetical as a stable tiebreaker.
+    if (a.navOrder !== b.navOrder) {
+      return a.navOrder - b.navOrder;
+    }
     return a.path.localeCompare(b.path);
   });
+}
+
+function buildEntry(rel: string, abs: string, group: string, fallbackTitle: string): DocEntry {
+  const { fm, body } = readFrontmatter(abs);
+  const titleFromH1 = firstH1(body);
+  const title = fm.title?.trim() || titleFromH1 || fallbackTitle;
+  const description = fm.description?.trim() || firstParagraph(body) || '';
+  return {
+    path: rel,
+    slug: rel === 'README.md' ? '' : rel.slice(0, -3),
+    title,
+    navLabel: fm.nav_label?.trim() || title,
+    navOrder: typeof fm.nav_order === 'number' ? fm.nav_order : 100,
+    description,
+    group,
+  };
+}
+
+function readFrontmatter(abs: string): { fm: Frontmatter; body: string } {
+  try {
+    const raw = readFileSync(abs, 'utf-8');
+    const parsed = matter(raw);
+    return { fm: (parsed.data ?? {}) as Frontmatter, body: parsed.content ?? '' };
+  } catch {
+    return { fm: {}, body: '' };
+  }
+}
+
+function firstH1(body: string): string | null {
+  const match = /^# ([^\n]+)$/m.exec(body);
+  return match?.[1]?.trim() ?? null;
+}
+
+function firstParagraph(body: string): string | null {
+  // Skip the H1 + blank line; capture the first paragraph that isn't
+  // a heading or a fenced-code block. Used as the SEO description
+  // fallback — keep it short.
+  const withoutHeadings = body
+    .split('\n')
+    .filter(line => !line.startsWith('#') && !line.startsWith('```'))
+    .join('\n');
+  const para = withoutHeadings.split(/\n\s*\n/).find(p => p.trim().length > 0);
+  if (!para) {
+    return null;
+  }
+  const oneLine = para.replace(/\s+/g, ' ').trim();
+  return oneLine.length > 160 ? `${oneLine.slice(0, 157)}…` : oneLine;
 }
 
 function includeInKind(rel: string, kind: DocsKind): boolean {
@@ -143,15 +203,20 @@ export function isRoadmapPath(relPath: string): boolean {
  * Read the body of a doc by slug. Returns null if not found or outside ROOT.
  * @param slug
  */
-export function readDoc(slug: string): { path: string; content: string } | null {
+export function readDoc(slug: string): { path: string; content: string; frontmatter: Frontmatter } | null {
   const path = slug === '' || slug === 'README' ? 'README.md' : `${slug}.md`;
   const abs = join(ROOT, path);
   if (!abs.startsWith(ROOT)) {
     return null; // path traversal guard
   }
   try {
-    const content = readFileSync(abs, 'utf8');
-    return { path, content };
+    const raw = readFileSync(abs, 'utf8');
+    const parsed = matter(raw);
+    return {
+      path,
+      content: parsed.content ?? '',
+      frontmatter: (parsed.data ?? {}) as Frontmatter,
+    };
   } catch {
     return null;
   }
@@ -178,17 +243,6 @@ function walk(dir: string): string[] {
     }
   }
   return out;
-}
-
-function readTitle(abs: string, fallback: string): string {
-  try {
-    const content = readFileSync(abs, 'utf8');
-    const match = /^# ([^\n]+)$/m.exec(content);
-    if (match && match[1]) {
-      return match[1].trim();
-    }
-  } catch { /* fall through */ }
-  return fallback;
 }
 
 function groupFor(rel: string): string {

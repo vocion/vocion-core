@@ -23,8 +23,8 @@ curl -H "Authorization: Bearer $TOKEN" https://.../api/v1/agents
 {
   "agents": [
     {
-      "slug": "ziggy",
-      "name": "Ziggy",
+      "slug": "sales-assistant",
+      "name": "the Sales Assistant",
       "description": "Sales agent — discovery, deal analysis, proposals",
       "active": true,
       "skillSlugs": ["discovery_summary", "draft_followup_email", "..."],

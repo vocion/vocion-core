@@ -1,5 +1,6 @@
 import type { DocEntry } from '@/libs/docs';
 import Link from 'next/link';
+import { DocsSearch } from './DocsSearch';
 
 type Props = {
   entries: DocEntry[];
@@ -35,6 +36,7 @@ export function DocsSidebar({ entries, currentSlug, publicBasePath = '/dashboard
 
   return (
     <nav className="space-y-6 text-sm">
+      <DocsSearch />
       {topLevelGroups.map(group => (
         <GroupBlock
           key={group}

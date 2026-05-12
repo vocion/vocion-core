@@ -2,7 +2,7 @@
 
 Skills are the unit of productization. A skill is a typed, named, versioned capability — something the platform can run with structured input and structured output, with optional human approval before its output is released.
 
-This doc is the **product spec** for skills (concept-level). For the **developer guide** to authoring plugin skills, see [`/docs/plugins.md`](../docs/plugins.md). For prompt-skill authoring, see [`/context/README.md`](../context/README.md#add-a-new-skill).
+This doc is the **product spec** for skills (concept-level). For the **developer guide** to authoring plugin skills, see [`writing-a-plugin.md`](../docs/guides/writing-a-plugin.md). For prompt-skill authoring, see [`/context/README.md`](../context/README.md#add-a-new-skill).
 
 ## What a skill carries
 
@@ -67,11 +67,11 @@ Sample plugin shipped:
 
 - `transcript_highlights` — chunking + multi-LLM-call + structured output (in `src/plugins/samples/`)
 
-For Algren's NINJIO-account work (planned): `meeting_prep_pack`, `urgency_classifier`, `account_health_summary`, `thread_sentiment`, `stakeholder_activity_summary`. See [internal case study](../docs/internal/case-studies/ninjio-account-manager.md).
+For Algren's NINJIO-account work (planned): `meeting_prep_pack`, `urgency_classifier`, `account_health_summary`, `thread_sentiment`, `stakeholder_activity_summary`. See [internal case study](../docs/internal/use-cases/algren.md).
 
 ## Related
 
-- [`/docs/plugins.md`](../docs/plugins.md) — plugin SDK developer guide (typed contract, registry, executor, evals)
+- [`writing-a-plugin.md`](../docs/guides/writing-a-plugin.md) — plugin SDK developer guide (typed contract, registry, executor, evals)
 - [`/context/README.md`](../context/README.md) — prompt-skill authoring guide
 - [`object-model.md`](./object-model.md) — what skills operate on (business object types)
 - [`product-surfaces.md`](./product-surfaces.md) — `/dashboard/skills` UI spec

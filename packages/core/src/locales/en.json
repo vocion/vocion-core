@@ -1,7 +1,7 @@
 {
   "Index": {
-    "meta_title": "Vocion - Enterprise context platform for teams that need answers, not search results",
-    "meta_description": "Vocion connects your systems, maps your business objects, and gives your team grounded answers, governed actions, and automated workflows."
+    "meta_title": "Vocion — the open framework for production-ready agents and agentic workflows",
+    "meta_description": "Build, ship, and observe AI work in your own infra. Git-backed context, typed plugins, MCP-native, full observability. Open source. No vendor lock-in."
   },
   "Navbar": {
     "sign_in": "Sign In",
@@ -21,40 +21,6 @@
     "theme_dark_label": "Dark",
     "theme_system_label": "System"
   },
-  "Hero": {
-    "badge": "Now in private beta",
-    "title": "Every answer grounded. <important>Every action governed.</important>",
-    "description": "Vocion is the managed enterprise platform that connects your systems, maps your business objects, and lets your team ask questions, get cited answers, and take action — all within your policy boundaries.",
-    "proof1": "40+ connectors",
-    "proof2": "Source-cited answers",
-    "proof3": "Human-in-the-loop",
-    "proof4": "Managed for you",
-    "primary_button": "Request Access",
-    "secondary_button": "See How It Works"
-  },
-  "Features": {
-    "section_subtitle": "Platform",
-    "section_title": "Five surfaces. One platform. Zero tab-switching.",
-    "section_description": "Everything your team needs to find answers, take action, and automate work across every system you use.",
-    "feature1_title": "Ask",
-    "feature1_description": "Get grounded answers with source-backed citations. Every response links to the evidence so your team trusts what they read.",
-    "feature2_title": "Search",
-    "feature2_description": "Find source material, records, and evidence across every connected system. Filter by source, author, date, or business object.",
-    "feature3_title": "Skills",
-    "feature3_description": "Packaged, reusable business queries and actions. Summarize an account, draft a follow-up, generate a report. One click.",
-    "feature4_title": "Workflows",
-    "feature4_description": "Multi-step processes with forms, approvals, and run history. Handle proposals, onboarding, triage, and reviews without spreadsheets.",
-    "feature5_title": "Governance",
-    "feature5_description": "Connectors, access policies, object mapping, and audit trails. Know who accessed what, when, and why.",
-    "feature6_title": "Agents",
-    "feature6_description": "Vertical agents that operate within your policy boundaries. Sales ops, support triage, customer success. Human-in-the-loop when it matters."
-  },
-  "Pricing": {
-    "section_subtitle": "Pricing",
-    "section_title": "Start free. Scale as you grow.",
-    "section_description": "Every plan includes the full platform. Upgrade for more connectors, team members, and managed services.",
-    "button_text": "Get Started"
-  },
   "PricingPlan": {
     "free_plan_name": "Starter",
     "premium_plan_name": "Team",
@@ -70,25 +36,6 @@
     "plan_interval_month": "month",
     "plan_interval_year": "year",
     "next_renew_date": "Your subscription renews on {date}"
-  },
-  "FAQ": {
-    "question1": "What systems does Vocion connect to?",
-    "answer1": "Vocion supports 40+ connectors out of the box including Slack, Google Drive, Salesforce, HubSpot, Jira, Zendesk, Notion, Confluence, GitHub, and more. We can also ingest custom data via API or file upload.",
-    "question2": "How is this different from enterprise search?",
-    "answer2": "Enterprise search finds documents. Vocion understands your business. We map canonical business objects across systems, so when you ask about an account, you get context from your CRM, email, tickets, Slack, and docs in one grounded answer. Then you can take action directly.",
-    "question3": "What does 'managed' mean?",
-    "answer3": "We handle connector operations, relevance tuning, prompt engineering, skill development, eval loops, and ongoing improvement. You get a team that makes the platform smarter every week, not just software you have to figure out yourself.",
-    "question4": "Can I control what the AI can and cannot do?",
-    "answer4": "Yes. Vocion has three permission layers: data visibility (who sees what), action execution (who can run what), and approval policies (what needs human sign-off). Every action is audited. You set the boundaries.",
-    "question5": "What are Skills?",
-    "answer5": "Skills are packaged business capabilities. A skill combines a prompt, retrieval scope, input variables, allowed actions, and quality evals into one reusable unit. Examples: summarize an account, draft a follow-up email, generate a proposal, triage a support ticket.",
-    "question6": "How do workflows and agents relate?",
-    "answer6": "Agents handle conversational, reasoning-heavy tasks. Workflows handle structured, multi-step processes with approvals, retries, and schedules. They compose together: a workflow step can invoke an agent for reasoning, and an agent can trigger a workflow for durable execution."
-  },
-  "CTA": {
-    "title": "Stop searching. Start knowing.",
-    "description": "Connect your systems, map your business, and give your team answers they can act on. We handle the rest.",
-    "button_text": "Request Access"
   },
   "Footer": {
     "product": "Product",
@@ -113,24 +60,34 @@
   },
   "DashboardLayout": {
     "main_section_label": "Workspace",
+    "capabilities_section_label": "Capabilities",
     "context_section_label": "Context",
     "organization_section_label": "Organization",
+    "agents_section_label": "Agents",
+    "settings_section_label": "Settings",
     "home": "Overview",
     "ask": "Ask",
     "chat": "Chat",
     "search": "Search",
-    "skills": "Skills",
+    "review": "Review",
+    "logs": "Logs",
+    "observability": "Observability",
+    "operations": "Operations",
+    "skills": "Operations",
+    "playbooks": "Playbooks",
+    "learnings": "Learnings",
+    "evals": "Evals",
     "workflows": "Workflows",
     "runs": "Run History",
     "connectors": "Sources",
     "objects": "Objects",
     "domains": "Domains",
+    "docs": "Docs",
     "members": "Members",
     "audit": "Audit Log",
     "billing": "Billing",
     "settings": "Settings",
-    "agents_section_label": "Agents",
-    "ziggy": "Ziggy",
+    "ziggy": "Sales Assistant",
     "support": "Support",
     "feedback": "Feedback"
   },

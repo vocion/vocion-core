@@ -31,17 +31,20 @@ vi.mock('openai', () => ({
   },
 }));
 
-vi.mock('@/libs/Langfuse', () => ({
-  langfuse: {
-    trace: () => ({
-      id: 'test-trace',
-      generation: () => ({ end: vi.fn() }),
-      update: vi.fn(),
-      event: vi.fn(),
-    }),
-    flushAsync: vi.fn(async () => {}),
-  },
-}));
+vi.mock('@/libs/Langfuse', () => {
+  const fakeTrace = () => ({
+    id: 'test-trace',
+    generation: () => ({ end: vi.fn() }),
+    span: () => ({ end: vi.fn() }),
+    update: vi.fn(),
+    event: vi.fn(),
+  });
+  return {
+    langfuse: { trace: fakeTrace, flushAsync: vi.fn(async () => {}) },
+    traceFor: fakeTrace,
+    cleanUsageDetails: (x: Record<string, number | undefined>) => x,
+  };
+});
 
 const ORG = 'test_org_workflow';
 

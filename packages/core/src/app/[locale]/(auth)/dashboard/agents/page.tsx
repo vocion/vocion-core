@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { Bot } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import { Badge } from '@/components/ui/badge';
+import { StatusPill } from '@/components/ui/status-pill';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
 import { listAgents } from '@/services/AgentService';
@@ -46,7 +46,9 @@ export default async function AgentsPage(props: {
                   <div className="mb-2 flex items-center gap-2">
                     <Bot className="size-4 text-primary" />
                     <span className="text-sm font-medium">{a.name}</span>
-                    <Badge variant={a.active === 'true' ? 'default' : 'secondary'} className="ml-auto">{a.active === 'true' ? 'active' : 'inactive'}</Badge>
+                    <span className="ml-auto">
+                      <StatusPill status={a.active === 'true' ? 'active' : 'inactive'} />
+                    </span>
                   </div>
                   <div className="mb-2 font-mono text-[11px] text-muted-foreground">{a.slug}</div>
                   {a.description && <p className="text-xs leading-relaxed text-muted-foreground">{a.description}</p>}

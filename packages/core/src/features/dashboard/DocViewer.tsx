@@ -1,8 +1,11 @@
 import { dirname, join, normalize } from 'node:path';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
+import rehypePrettyCode from 'rehype-pretty-code';
 import rehypeSlug from 'rehype-slug';
+import remarkDirective from 'remark-directive';
 import remarkGfm from 'remark-gfm';
+import { remarkCallouts } from '@/libs/docs/remark-callouts';
 
 /**
  * In-product markdown viewer. Server component — renders MD content with:
@@ -24,10 +27,19 @@ export function DocViewer({ currentPath, content, linkBase = '/dashboard/docs' }
   const currentDir = currentPath === 'README.md' ? '' : dirname(currentPath);
 
   return (
-    <article className="prose max-w-none prose-neutral dark:prose-invert">
+    <article className="prose max-w-none prose-neutral dark:prose-invert" data-pagefind-body>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeSlug]}
+        remarkPlugins={[remarkGfm, remarkDirective, remarkCallouts]}
+        rehypePlugins={[
+          rehypeSlug,
+          [rehypePrettyCode, {
+            // Dual theme: page selects via prefers-color-scheme via the
+            // .prose-invert wrapper. shiki ships both inline.
+            theme: { dark: 'github-dark', light: 'github-light' },
+            keepBackground: true,
+            defaultLang: 'plaintext',
+          }],
+        ]}
         components={{
           a: ({ href, children, ...rest }) => {
             const rewritten = rewriteLink(href ?? '', currentDir, linkBase);

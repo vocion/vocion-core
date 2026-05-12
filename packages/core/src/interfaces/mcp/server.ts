@@ -3,6 +3,7 @@ import type { McpConfig } from './config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { contextTools } from './tools/context-tools';
 import { dataTools } from './tools/data-tools';
+import { playbookTools } from './tools/playbook-tools';
 import { pluginTools } from './tools/plugin-tools';
 import { runtimeTools, skillRunDetailTool } from './tools/runtime-tools';
 import { workflowTools } from './tools/workflow-tools';
@@ -32,6 +33,7 @@ export function buildServer(config: McpConfig): McpServer {
     ...dataTools(config),
     ...pluginTools(config),
     ...workflowTools(config),
+    ...playbookTools(config),
   ];
 
   for (const tool of tools) {

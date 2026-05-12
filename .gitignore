@@ -65,3 +65,15 @@ build-archive.log
 /test-results/
 /playwright-report/
 /playwright/.cache/
+
+# OpenTofu / Terraform — local state + operator secrets
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfplan
+infra/terraform/terraform.tfvars
+infra/terraform/crash.log
+
+# AWS production env (operator-managed; never commit)
+infra/aws/.env.production
