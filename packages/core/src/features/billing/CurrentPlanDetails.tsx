@@ -6,7 +6,7 @@ export const CurrentPlanDetails = (props: { planDetails: PlanDetails }) => {
 
   return (
     <>
-      <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-2xl font-bold text-transparent">
+      <div className="font-display text-2xl font-semibold text-[var(--brand-amber-deep)]">
         {`${t(`${props.planDetails.plan.id}_plan_name`)} ($${props.planDetails.plan.price} / ${t(`plan_interval_${props.planDetails.plan.interval}`)})`}
       </div>
 
