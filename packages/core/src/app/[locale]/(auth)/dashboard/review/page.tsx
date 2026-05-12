@@ -5,6 +5,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { listSkillRuns } from '@/services/SkillService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
 
+type ConfidenceLevel = 'confident' | 'uncertain' | 'speculative';
 type SkillRunSummary = {
   id: number;
   skillId: number;
@@ -14,11 +15,16 @@ type SkillRunSummary = {
   truncated: boolean;
   contextSha: string | null;
   langfuseTraceId: string | null;
+  confidence: ConfidenceLevel | null;
   createdBy: string | null;
   createdAt: Date | string;
   reviewedBy: string | null;
   reviewedAt: Date | string | null;
 };
+
+function asConfidence(v: string | null): ConfidenceLevel | null {
+  return (v === 'confident' || v === 'uncertain' || v === 'speculative') ? v : null;
+}
 
 export default async function ReviewPage(props: {
   params: Promise<{ locale: string }>;
@@ -52,6 +58,7 @@ export default async function ReviewPage(props: {
     truncated: !!(r.output && r.output.length > 4000),
     contextSha: r.contextSha,
     langfuseTraceId: r.langfuseTraceId,
+    confidence: asConfidence(r.confidence),
     createdBy: r.createdBy,
     createdAt: r.createdAt,
     reviewedBy: r.reviewedBy,

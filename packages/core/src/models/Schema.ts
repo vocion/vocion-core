@@ -230,6 +230,13 @@ export const skillRunSchema = pgTable('skill_run', {
   /** Who approved/rejected it */
   reviewedBy: text('reviewed_by'),
   reviewedAt: timestamp('reviewed_at', { mode: 'date' }),
+  /**
+   * Agent's self-assessment of output confidence — drives the
+   * <ConfidenceIndicator /> in the UI. Nullable when the runtime
+   * doesn't expose a signal. One of: 'confident' | 'uncertain' |
+   * 'speculative'. See `types/Status.ts`.
+   */
+  confidence: text('confidence'),
   /** Optional thumb up/down captured alongside approve/reject or later. */
   rating: text('rating'),
   /** Free-form note from the reviewer explaining the rating. */
@@ -626,6 +633,20 @@ export const conversationMessageSchema = pgTable('conversation_message', {
     | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string }
   >>(),
+  /**
+   * Per-message Langfuse trace id for the assistant turn that
+   * produced this row. Populated by AgentService at write time so the
+   * chat UI can deep-link to the trace. Nullable for legacy rows + for
+   * user messages (which don't produce a trace).
+   */
+  langfuseTraceId: text('langfuse_trace_id'),
+  /**
+   * Agent's self-assessment of confidence for this turn — same enum as
+   * skill_run.confidence. Nullable when the runtime doesn't expose a
+   * signal (most current paths). Powers the <ConfidenceIndicator /> in
+   * AgentMessage.
+   */
+  confidence: text('confidence'),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
 

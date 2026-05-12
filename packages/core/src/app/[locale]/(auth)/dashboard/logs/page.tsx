@@ -1,8 +1,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { and, desc, eq } from 'drizzle-orm';
-import { ExternalLink } from 'lucide-react';
+import { Activity, ExternalLink } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { FeedbackButtons } from '@/features/dashboard/FeedbackButtons';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -151,9 +152,11 @@ export default async function AuditPage(props: {
 
       {rows.length === 0
         ? (
-            <div className="rounded-md border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-              No runs matching this filter.
-            </div>
+            <EmptyState
+              icon={Activity}
+              title="No runs match this filter"
+              description="Try a different combination of kind / status / rating, or clear the filters to see everything."
+            />
           )
         : (
             <div className="overflow-hidden rounded-lg border border-border bg-background">

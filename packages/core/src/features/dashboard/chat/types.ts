@@ -49,6 +49,8 @@ export type ChatMessage = {
   skillResults?: SkillResult[];
   /** v0.2+ inline tool breadcrumb runs (rev-ai style). Optional for back-compat with older messages. */
   runs?: AgentRun[];
+  /** Agent's self-assessment of this turn's confidence (N.2). Null when the runtime didn't expose a signal. */
+  confidence?: 'confident' | 'uncertain' | 'speculative' | null;
 };
 
 export type AgentOption = {

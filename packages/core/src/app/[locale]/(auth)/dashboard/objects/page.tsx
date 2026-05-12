@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server';
 import { Database, Link2 } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
 import { listBusinessObjects, listObjectTypes } from '@/services/BusinessObjectService';
@@ -41,7 +42,12 @@ export default async function ObjectsPage(props: {
         <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Types</h2>
         {objectTypes.length === 0
           ? (
-              <EmptyState path="context/<org>/objects/" />
+              <EmptyState
+                icon={Database}
+                title="No Object types yet"
+                description="Object types are typed business entities (Account, Opportunity, Transcript) your tenant cares about. Define one in context/<org>/objects/."
+                action={{ label: 'How to define an Object type', href: '/dashboard/docs/docs/concepts/objects' }}
+              />
             )
           : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -78,9 +84,11 @@ export default async function ObjectsPage(props: {
         <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Instances</h2>
         {objects.length === 0
           ? (
-              <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                No instances yet. Instances are created at runtime when the classifier matches a document to an Object type.
-              </div>
+              <EmptyState
+                icon={Link2}
+                title="No instances yet"
+                description="Instances are created automatically when the classifier matches a document to one of your Object types."
+              />
             )
           : (
               <div className="space-y-2">
@@ -133,17 +141,3 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function EmptyState({ path }: { path: string }) {
-  return (
-    <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-      None yet. Add to
-      {' '}
-      <code className="rounded bg-muted px-1 font-mono">{path}</code>
-      {' '}
-      and run
-      {' '}
-      <code className="rounded bg-muted px-1 font-mono">npm run context:apply</code>
-      .
-    </div>
-  );
-}
