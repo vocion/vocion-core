@@ -10,7 +10,7 @@ export async function POST(request: Request) {
 
   const body = await request.json();
   const message = body.message as string;
-  const agentSlug = (body.agent_slug as string) || 'ziggy';
+  const agentSlug = (body.agent_slug as string) || 'sales-assistant';
   const stream = body.stream !== false; // default true
   const conversationHistory = (body.conversation_history as Array<{ role: string; content: string }>) ?? [];
 

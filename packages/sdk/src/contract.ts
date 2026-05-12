@@ -77,12 +77,20 @@ export type RetrievalHit = {
 };
 
 /**
- * A Skill plugin. Declarative metadata up top, executable logic in `run`.
+ * An Operation plugin (formerly `Skill` — see {@link Skill} alias).
+ * Declarative metadata up top, executable logic in `run`.
  *
- * Plugins export a default `Skill<Input, Output>` — or a factory if they need
- * per-org configuration. See `defineSkill` below for the ergonomic constructor.
+ * Plugins export a default `Operation<Input, Output>` — or a factory if
+ * they need per-org configuration. See `defineOperation` below for the
+ * ergonomic constructor.
+ *
+ * **Naming note (v0.2):** what was called a "Skill" in v0.1 is renamed
+ * **`Operation`** in v0.2 to disambiguate from procedural Playbooks
+ * (markdown + YAML frontmatter that agents read on demand). The
+ * `Skill` / `defineSkill` / `AnySkill` / `PluginManifest.skills`
+ * names remain as deprecated aliases for one release cycle.
  */
-export type Skill<Input = unknown, Output = unknown> = {
+export type Operation<Input = unknown, Output = unknown> = {
   /** Stable identifier. Same conventions as context slugs (lowercase, _ or -). */
   readonly slug: string;
   /** Display name. */
@@ -118,23 +126,210 @@ export type Skill<Input = unknown, Output = unknown> = {
 };
 
 /**
- * Type-erased Skill — what plugin manifests declare and the registry stores.
- * Input/Output types are preserved at authoring time via `defineSkill`, then
- * erased at the manifest boundary so heterogeneous skill arrays type-check.
- * Runtime validation via the Zod schemas is what enforces the real shape.
+ * Type-erased Operation — what plugin manifests declare and the
+ * registry stores. Input/Output types are preserved at authoring time
+ * via `defineOperation`, then erased at the manifest boundary so
+ * heterogeneous operation arrays type-check. Runtime validation via
+ * the Zod schemas is what enforces the real shape.
  */
-
-export type AnySkill = Skill<any, any>;
+export type AnyOperation = Operation<any, any>;
 
 /**
- * Ergonomic constructor — infers types from the schemas so callers can write
- * `defineSkill({ inputSchema, outputSchema, run, ... })` without restating
- * generic parameters. Returns the erased type so callers can drop the skill
- * into a `skills: AnySkill[]` field without casts.
- * @param skill
+ * Ergonomic constructor — infers types from the schemas so callers can
+ * write `defineOperation({ inputSchema, outputSchema, run, ... })`
+ * without restating generic parameters. Returns the erased type so
+ * callers can drop the operation into an `operations: AnyOperation[]`
+ * field without casts.
+ * @param op
  */
-export function defineSkill<Input, Output>(skill: Skill<Input, Output>): AnySkill {
-  return skill as AnySkill;
+export function defineOperation<Input, Output>(op: Operation<Input, Output>): AnyOperation {
+  return op as AnyOperation;
+}
+
+/* ------------------------------------------------------------------ */
+/* v0.1 back-compat aliases                                            */
+/* ------------------------------------------------------------------ */
+
+/** @deprecated Use {@link Operation} instead. Kept for v0.1 plugin back-compat. */
+export type Skill<Input = unknown, Output = unknown> = Operation<Input, Output>;
+
+/** @deprecated Use {@link AnyOperation} instead. */
+export type AnySkill = AnyOperation;
+
+/** @deprecated Use {@link defineOperation} instead. */
+export const defineSkill = defineOperation;
+
+/* ================================================================== */
+/* Source plugin contract (v0.3)                                        */
+/* ================================================================== */
+
+/**
+ * Source plugin = a connector to an external data system.
+ *
+ * Pairs with the Operation contract. Together they cover both ends
+ * of an agent's data flow: Sources bring data in (OAuth + pull +
+ * optional direct retrieval), Operations act on it (typed LLM calls
+ * + plugin code).
+ *
+ * Two flavors:
+ *   - **Wrap-Onyx sources** delegate `pull` + `retrieve` to Vocion's
+ *     existing Onyx integration. Owns OAuth + credentials; ingestion
+ *     happens in Onyx.
+ *   - **Vocion-native sources** implement `pull` (and optionally
+ *     `retrieve`) directly against the external API. No Onyx in the
+ *     loop. Real-time. Useful when freshness > index-quality.
+ */
+
+/** What auth scheme this source uses. */
+export type SourceAuthType = 'oauth2' | 'api_key' | 'none';
+
+/**
+ * Whether this source's credentials are tenant-wide or per-user.
+ *  - `org`:  one credential serves the whole organization.
+ *  - `user`: each user connects their own account; agents only see
+ *            credentials belonging to the invoking user.
+ *  - `both`: support either pattern; the operator chooses at install.
+ */
+export type SourceScope = 'org' | 'user' | 'both';
+
+/** Decrypted credential payload — never logged, never written to state. */
+export type RawCredentials = {
+  /** Access token (OAuth) or static key (api_key). */
+  accessToken?: string;
+  /** Refresh token for OAuth flows that issue one. */
+  refreshToken?: string;
+  /** OAuth issuer-specified expiry (unix seconds, optional). */
+  expiresAt?: number;
+  /** Scopes granted at consent time (OAuth). */
+  scopes?: string[];
+  /** Arbitrary auxiliary fields a connector wants to carry. */
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Env handed to OAuth handlers. Vocion fills in `clientId`,
+ * `clientSecret`, and `redirectUri` from operator-supplied env vars
+ * named `VOCION_OAUTH_<SLUG>_CLIENT_ID` / `_SECRET`.
+ */
+export type SourceEnv = {
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly redirectUri: string;
+  readonly env: Readonly<Record<string, string | undefined>>;
+};
+
+/** OAuth 2.0 authorization-code flow declarations. */
+export type OAuth2Config = {
+  /** Where to send the user to begin the consent flow. */
+  authorizationUrl: string;
+  /** Where Vocion exchanges the auth code for tokens. */
+  tokenUrl: string;
+  /** OAuth scopes requested. */
+  scopes: string[];
+  /**
+   * Exchange an authorization code for credentials. Vocion calls this
+   * after the user is redirected back to `/api/oauth/<slug>/callback`.
+   */
+  exchangeCode: (env: SourceEnv, code: string, redirectUri: string) => Promise<RawCredentials>;
+  /** Refresh an expiring access token. Optional but recommended. */
+  refresh?: (env: SourceEnv, creds: RawCredentials) => Promise<RawCredentials>;
+  /** Revoke at the provider on disconnect. Best-effort. */
+  revoke?: (env: SourceEnv, creds: RawCredentials) => Promise<void>;
+};
+
+/** A document yielded by `Source.pull()`. Shape matches Onyx's ingestion API. */
+export type SourceDocument = {
+  /** Stable identifier in the source system (e.g. Drive file id). */
+  externalId: string;
+  /** Human-readable title (file name, page title). */
+  title: string;
+  /** Plain-text body. Connectors are responsible for extraction. */
+  content: string;
+  /** Deep link back to the source system. */
+  link?: string;
+  /** ISO-8601 timestamp. */
+  updatedAt?: string;
+  /** Arbitrary tags / fields exposed to retrieval filters. */
+  metadata?: Record<string, string | number | boolean | null>;
+};
+
+export type PullOptions = {
+  /** Resume from a sync cursor (per-connector opaque string). */
+  since?: string;
+  /** Soft cap on docs yielded per call. */
+  limit?: number;
+};
+
+export type RetrieveOptions = {
+  limit?: number;
+};
+
+/** Context passed to `pull()`, `retrieve()`, and `healthCheck()`. */
+export type SourceContext<Config = unknown> = {
+  readonly orgId: string;
+  /** Present when retrieving against a user-scope credential. */
+  readonly userId?: string;
+  readonly config: Config;
+  /** Decrypted credentials. Already auto-refreshed if expiry was near. */
+  readonly credentials: RawCredentials;
+  readonly log: (level: 'info' | 'warn' | 'error', message: string, fields?: Record<string, unknown>) => void;
+};
+
+/**
+ * A Source plugin declaration. Authored via `defineSource()` for type
+ * inference. Mounted via a `PluginManifest.sources` entry.
+ */
+export type Source<Config = unknown> = {
+  /** Stable slug, e.g. `hubspot`, `google_drive_native`. */
+  readonly slug: string;
+  /** Display name shown in the catalog. */
+  readonly name: string;
+  /** One-paragraph description for the catalog. */
+  readonly description: string;
+  /** Plugin semver. */
+  readonly version: string;
+  /** Visual brand tokens for the catalog UI. */
+  readonly brand?: {
+    color: string;
+    iconUrl?: string;
+    lucideIcon?: string;
+  };
+  readonly authType: SourceAuthType;
+  readonly scope: SourceScope;
+  /**
+   * Optional per-install configuration (e.g. a workspace id, region).
+   * Zod schema validated when the org admin clicks "Install".
+   */
+  readonly configSchema?: import('zod').ZodType<Config>;
+  /** OAuth2 config — required when `authType === 'oauth2'`. */
+  readonly oauth?: OAuth2Config;
+  /** Hint shown when `authType === 'api_key'` — markdown for the "how to get a key" panel. */
+  readonly apiKey?: { instructionsMarkdown: string };
+  /**
+   * Pull documents from the source into the indexer. Yielded docs flow
+   * into Onyx (v0.3) or pgvector (v0.4). Implementers should yield in
+   * batches and respect `opts.since` / `opts.limit`.
+   */
+  readonly pull: (ctx: SourceContext<Config>, opts: PullOptions) => AsyncIterable<SourceDocument>;
+  /**
+   * Direct retrieval — bypass the indexer entirely. Useful for sources
+   * where freshness matters more than corpus-quality search. Returns
+   * `RetrievalHit[]` (same shape as `PluginContext.retrieve()`).
+   */
+  readonly retrieve?: (ctx: SourceContext<Config>, query: string, opts?: RetrieveOptions) => Promise<RetrievalHit[]>;
+  /** Health probe surfaced on the source detail page. */
+  readonly healthCheck?: (ctx: SourceContext<Config>) => Promise<{ ok: boolean; message?: string }>;
+};
+
+/** Type-erased Source — what the registry stores + manifests declare. */
+export type AnySource = Source<any>;
+
+/**
+ * Ergonomic constructor with type inference.
+ * @param source
+ */
+export function defineSource<Config>(source: Source<Config>): AnySource {
+  return source as AnySource;
 }
 
 /**
@@ -146,16 +341,28 @@ export function defineSkill<Input, Output>(skill: Skill<Input, Output>): AnySkil
  * to read env/config at boot time.
  */
 export type PluginManifest = {
-  /** Reverse-DNS style identifier for the plugin itself (not individual skills). */
+  /** Reverse-DNS style identifier for the plugin itself (not individual operations). */
   readonly id: string;
   /** Plugin package semver. */
   readonly version: string;
   /** Human description. */
   readonly description?: string;
-  /** Eager — plugin exports a fixed list of skills. */
-  readonly skills?: AnySkill[];
+  /** Eager — plugin exports a fixed list of operations. */
+  readonly operations?: AnyOperation[];
+  /**
+   * @deprecated Use {@link operations} instead. Kept as an alias for
+   * v0.1 plugins. When both are provided, `operations` wins.
+   */
+  readonly skills?: AnyOperation[];
   /** Lazy — plugin exports a factory called once at boot. */
-  readonly register?: (env: PluginRegistrationEnv) => Promise<AnySkill[]> | AnySkill[];
+  readonly register?: (env: PluginRegistrationEnv) => Promise<AnyOperation[]> | AnyOperation[];
+  /**
+   * Source plugins (v0.3+). Plugins can export operations, sources, or
+   * both. Each source must declare `slug`, `authType`, `pull` at minimum.
+   */
+  readonly sources?: AnySource[];
+  /** Lazy factory variant for sources, same role as `register` for operations. */
+  readonly registerSources?: (env: PluginRegistrationEnv) => Promise<AnySource[]> | AnySource[];
 };
 
 /** Minimal env passed to plugin factories. Kept narrow — no DB / no LLM here. */

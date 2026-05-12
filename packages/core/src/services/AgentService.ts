@@ -3,7 +3,8 @@ import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/reso
 import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import { db } from '@/libs/DB';
-import { langfuse } from '@/libs/Langfuse';
+import { cleanUsageDetails, langfuse, traceFor } from '@/libs/Langfuse';
+import { FEATURES } from '@/libs/Langfuse/features';
 import { search } from '@/libs/onyx/client';
 import { agentSchema } from '@/models/Schema';
 import { listBusinessObjects } from './BusinessObjectService';
@@ -710,10 +711,13 @@ export async function runAgent(opts: {
   const tools = buildTools(agent);
 
   // Langfuse trace for the full agent run
-  const trace = langfuse.trace({
-    name: `agent:${agent.slug}`,
+  const trace = traceFor({
+    feature: FEATURES.AGENT_DEV,
+    slug: agent.slug,
+    orgId: opts.orgId,
+    userId: opts.userId ?? 'system',
     input: { message: opts.message },
-    metadata: { orgId: opts.orgId, model: agent.model, agentId: agent.id },
+    metadata: { model: agent.model, agentId: agent.id },
   });
 
   // Build few-shot examples as user/assistant pairs
@@ -765,10 +769,11 @@ export async function runAgent(opts: {
 
     generation.end({
       output: assistantMessage,
-      usage: {
+      usageDetails: cleanUsageDetails({
         input: completion.usage?.prompt_tokens,
         output: completion.usage?.completion_tokens,
-      },
+        cache_read_input_tokens: completion.usage?.prompt_tokens_details?.cached_tokens,
+      }),
     });
 
     // If no tool calls, stream the response token-by-token
@@ -861,4 +866,186 @@ export async function runAgent(opts: {
     traceId: trace.id,
     toolCalls: toolCallLog,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* runAgentDeep — opt-in deepagents runtime (Phase 4)                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Phase 4 runtime. Same return shape as `runAgent`, different engine.
+ *
+ * Opt-in via `VOCION_AGENT_RUNTIME=deepagents` or by calling this
+ * function directly. The SSE route (Phase 4) will switch to this
+ * once the flag is set; the legacy `runAgent` keeps backing the
+ * existing nd-JSON route until then.
+ *
+ * Streaming model: deepagents JS exposes a `streamEvents(input,
+ * { version: 'v3' })` API that returns a `DeepAgentRunStream` with
+ * three AsyncIterable projections (`messages`, `toolCalls`, `subagents`)
+ * plus a `Promise<finalState>` (`run.output`). We consume the three
+ * projections in parallel, fan tokens out as `response_delta`, and let
+ * tool factories emit `documents` / `skill_result` through the closure.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.agentSlug
+ * @param opts.message
+ * @param opts.userId
+ * @param opts.conversationHistory
+ * @param opts.onEvent
+ */
+export async function runAgentDeep(opts: {
+  orgId: string;
+  agentSlug: string;
+  message: string;
+  userId?: string;
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  onEvent?: (event: import('./agents/types').AgentEvent) => void;
+}): Promise<{
+  response: string;
+  traceId: string;
+  toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>;
+}> {
+  // Local import keeps the legacy `runAgent` path from pulling
+  // deepagents/LangChain modules at module-load time. (Cuts cold-start
+  // for callers that never use the new runtime.)
+  const { bindRequestEmit, buildInitialFiles, getCompiledAgent } = await import('./agents/runtime');
+  const { createLangfuseCallback } = await import('@/libs/Langfuse');
+  const { chargeUsage, preflightCheck } = await import('./BudgetService');
+
+  const emit = opts.onEvent ?? (() => {});
+
+  // Phase 7 — pre-flight budget check. Refuse the run if the agent
+  // is over its hard cap; otherwise proceed.
+  const budgetCheck = await preflightCheck({ orgId: opts.orgId, agentSlug: opts.agentSlug });
+  if (!budgetCheck.ok) {
+    const message = `Budget exceeded for agent "${opts.agentSlug}" (${budgetCheck.reason}: ${budgetCheck.current}/${budgetCheck.limit}). Raise the cap on /dashboard/agents/${opts.agentSlug} or wait for the next period.`;
+    emit({ type: 'error', message });
+    throw new Error(message);
+  }
+
+  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug);
+  bindRequestEmit(compiled, emit, opts.userId);
+
+  const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
+
+  // Langfuse trace via the v0.2 BaseCallbackHandler adapter.
+  const { handler: langfuseHandler, trace } = createLangfuseCallback({
+    feature: FEATURES.AGENT_CHAT,
+    slug: compiled.agentRow.slug,
+    orgId: opts.orgId,
+    userId: opts.userId ?? 'system',
+    input: { message: opts.message },
+    metadata: { agentId: compiled.agentRow.id, runtime: 'deepagents' },
+    onTurnEnd: async (turn) => {
+      await chargeUsage({
+        orgId: opts.orgId,
+        agentSlug: opts.agentSlug,
+        model: turn.model,
+        usage: {
+          inputTokens: turn.inputTokens,
+          outputTokens: turn.outputTokens,
+          cacheReadTokens: turn.cacheReadTokens,
+        },
+      });
+    },
+  });
+
+  emit({ type: 'thinking' });
+
+  const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug);
+
+  const history = (opts.conversationHistory ?? [])
+    .filter(t => t.content.trim().length > 0)
+    .map(t => ({ role: t.role, content: t.content }));
+
+  const input = {
+    messages: [
+      { role: 'system', content: compiled.agentRow.systemPrompt },
+      ...history,
+      { role: 'user', content: opts.message },
+    ],
+    files: initialFiles,
+  };
+
+  let finalText = '';
+
+  try {
+    const run = await compiled.graph.streamEvents(input as never, {
+      version: 'v3',
+      callbacks: [langfuseHandler],
+    } as never);
+
+    await Promise.all([
+      (async () => {
+        for await (const msg of run.messages) {
+          let started = false;
+          for await (const token of msg.text) {
+            if (!started) {
+              started = true;
+              emit({ type: 'answering' });
+            }
+            finalText += token;
+            emit({ type: 'response_delta', delta: token });
+          }
+        }
+      })(),
+      (async () => {
+        for await (const call of run.toolCalls) {
+          const name = (call as { name?: string }).name ?? 'tool';
+          // The deepagents v3 toolCalls projection exposes input/output
+          // as deferred values. We log the start eagerly, then `await`
+          // the output for the end event.
+          const inputPromise = (call as { input: Promise<Record<string, unknown>> | Record<string, unknown> }).input;
+          const inputResolved = inputPromise instanceof Promise ? await inputPromise : inputPromise;
+          emit({ type: 'tool_start', tool: name, input: inputResolved ?? {} });
+          let outputStr = '';
+          try {
+            const out = await (call as { output: Promise<unknown> }).output;
+            outputStr = typeof out === 'string' ? out : JSON.stringify(out).slice(0, 2000);
+          } catch (err) {
+            outputStr = `tool error: ${(err as Error).message}`;
+          }
+          emit({ type: 'tool_end', tool: name, input: inputResolved ?? {}, output: outputStr });
+          toolCallLog.push({ tool: name, input: inputResolved ?? {}, output: outputStr });
+        }
+      })(),
+      (async () => {
+        for await (const sub of run.subagents) {
+          const name = (sub as { name?: string }).name ?? 'subagent';
+          emit({ type: 'subagent_start', name });
+          try {
+            await (sub as { output?: Promise<unknown> }).output;
+          } catch {
+            /* surfaces via parent flow */
+          }
+          emit({ type: 'subagent_end', name });
+        }
+      })(),
+    ]);
+
+    await run.output;
+  } catch (err) {
+    const message = (err as Error).message ?? 'agent run failed';
+    emit({ type: 'error', message });
+    trace.update({ output: { error: message } });
+    await langfuse.flushAsync();
+    throw err;
+  }
+
+  trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
+  await langfuse.flushAsync();
+
+  emit({ type: 'done', response: finalText, traceId: trace.id });
+
+  return {
+    response: finalText,
+    traceId: trace.id,
+    toolCalls: toolCallLog,
+  };
+}
+
+/** Feature-flag dispatcher used by the SSE route. */
+export function shouldUseDeepRuntime(): boolean {
+  return (process.env.VOCION_AGENT_RUNTIME ?? '').toLowerCase() === 'deepagents';
 }

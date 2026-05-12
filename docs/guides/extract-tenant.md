@@ -137,6 +137,6 @@ Running two tenants from one process today means setting those env vars in the i
 
 ## Related
 
-- [`repo-architecture.md`](./repo-architecture.md) — full layered model
-- [`self-hosted.md`](./self-hosted.md) — install + env vars
-- [`plugins.md`](./plugins.md) — plugin vs. tenant-context boundary
+- [`repo-architecture.md`](../reference/repo-architecture.md) — full layered model
+- [`self-hosting.md`](./self-hosting.md) — install + env vars
+- [`writing-a-plugin.md`](./writing-a-plugin.md) — plugin vs. tenant-context boundary

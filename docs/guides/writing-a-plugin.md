@@ -1,10 +1,16 @@
-# Plugin SDK (v0.1)
+---
+title: Writing a plugin
+description: Ship a Skill or a Source as a typed TypeScript module via the @vocion/sdk package.
+nav_order: 60
+---
 
-Plugins are the executable counterpart to context-as-code. A **prompt skill** (Phase 1) is YAML + `prompt.md` — Vocion runs the LLM for you. A **plugin skill** (Phase 3) is a typed TypeScript module where *you* do the work: custom logic, multi-step pipelines, external API calls, structured output.
+# Writing a plugin
 
-Both kinds coexist. The same `runtime_run_skill` MCP tool runs either; the same `skill_run` table records either. If a plugin registers a skill with the same slug as a prompt skill, **the plugin wins** — a clean upgrade path with zero migration.
+Plugins are the executable counterpart to context-as-code. A **prompt skill** is YAML + `prompt.md` — Vocion runs the LLM for you. A **plugin** (Skill or Source) is a typed TypeScript module where *you* do the work: custom logic, multi-step pipelines, external API calls, structured output, or pulling documents from a connected system.
 
-**Status:** v0.1. In-tree types at `src/libs/plugins/`. v0.2 extracts them to `@vocion/sdk`.
+Both kinds coexist. The same `runtime_run_skill` MCP tool runs either; the same `skill_run` table records either. If a plugin registers a slug that also exists as a prompt skill, **the plugin wins** — a clean upgrade path with zero migration.
+
+**Status:** v0.3. Public types live in `@vocion/sdk` (`packages/sdk/src/contract.ts`). The first reference plugins ship as `@vocion/source-google-drive`, `@vocion/source-github`, `@vocion/source-web-crawl`, etc. — see the connector starter pack at `/connectors`.
 
 ## When to write a plugin
 

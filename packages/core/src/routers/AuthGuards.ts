@@ -23,7 +23,7 @@ export const guardAuth = async () => {
     throw ApiError.unauthorized();
   }
 
-  return { orgId, has };
+  return { orgId, userId, has };
 };
 
 /**

@@ -1,7 +1,7 @@
-import type { LoadedAgent, LoadedContext, LoadedObjectType, LoadedSkill, LoadedWorkflow } from './loader';
+import type { LoadedAgent, LoadedContext, LoadedEvalDataset, LoadedLearningStep, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedWorkflow } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { agentSchema, businessObjectTypeSchema, contextVersionSchema, skillSchema, workflowSchema } from '@/models/Schema';
+import { agentSchema, businessObjectTypeSchema, contextVersionSchema, evalDatasetSchema, learningStepSchema, playbookSchema, skillSchema, workflowSchema } from '@/models/Schema';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -22,6 +22,9 @@ export type ApplyResult = {
     skills: ResourceCounts;
     objectTypes: ResourceCounts;
     workflows: ResourceCounts;
+    playbooks: ResourceCounts;
+    learningSteps: ResourceCounts;
+    evalDatasets: ResourceCounts;
   };
   errors: Array<{ resource: string; slug: string; message: string }>;
   versionId: number | null;
@@ -38,6 +41,9 @@ export async function applyContext(loaded: LoadedContext, opts: ApplyOptions = {
     skills: blank(),
     objectTypes: blank(),
     workflows: blank(),
+    playbooks: blank(),
+    learningSteps: blank(),
+    evalDatasets: blank(),
   };
 
   // Object types first — agents and skills may reference them
@@ -74,6 +80,33 @@ export async function applyContext(loaded: LoadedContext, opts: ApplyOptions = {
       bump(counts.workflows, outcome);
     } catch (err) {
       errors.push({ resource: 'workflow', slug: workflow.slug, message: (err as Error).message });
+    }
+  }
+
+  for (const pb of loaded.playbooks) {
+    try {
+      const outcome = await upsertPlaybook(orgId, pb, dryRun);
+      bump(counts.playbooks, outcome);
+    } catch (err) {
+      errors.push({ resource: 'playbook', slug: pb.slug, message: (err as Error).message });
+    }
+  }
+
+  for (const step of loaded.learningSteps) {
+    try {
+      const outcome = await upsertLearningStep(orgId, step, dryRun);
+      bump(counts.learningSteps, outcome);
+    } catch (err) {
+      errors.push({ resource: 'learningStep', slug: step.name, message: (err as Error).message });
+    }
+  }
+
+  for (const ds of loaded.evalDatasets) {
+    try {
+      const outcome = await upsertEvalDataset(orgId, ds, dryRun);
+      bump(counts.evalDatasets, outcome);
+    } catch (err) {
+      errors.push({ resource: 'evalDataset', slug: ds.slug, message: (err as Error).message });
     }
   }
 
@@ -202,6 +235,12 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     approvalPolicy: agent.approvalPolicy,
     searchConfig: agent.searchConfig,
     fewShotExamples: agent.fewShotExamples,
+    subagents: agent.resolvedSubagents,
+    playbookTags: agent.playbookTags,
+    learningSteps: agent.learningSteps,
+    suggestions: agent.suggestions,
+    accent: agent.accent ?? null,
+    eyebrow: agent.eyebrow ?? null,
     langfuseProjectId: agent.langfuseProjectId ?? null,
     icon: agent.icon ?? null,
     active: String(agent.active),
@@ -255,6 +294,131 @@ async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, dryRun: b
 
   if (!dryRun) {
     await db.update(workflowSchema).set(payload).where(eq(workflowSchema.id, existing.id));
+  }
+  return 'updated';
+}
+
+async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, dryRun: boolean): Promise<UpsertOutcome> {
+  const [existing] = await db
+    .select()
+    .from(playbookSchema)
+    .where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.slug, pb.slug)));
+
+  const payload = {
+    orgId,
+    slug: pb.slug,
+    name: pb.name,
+    description: pb.description,
+    tags: pb.tags,
+    frontmatter: {
+      slug: pb.slug,
+      name: pb.name,
+      description: pb.description,
+      tags: pb.tags,
+      version: pb.version,
+      resources: pb.resources,
+      license: pb.license,
+    } as Record<string, unknown>,
+    contentSha: pb.contentSha,
+    sourceFiles: pb.sourceFiles,
+    license: pb.license ?? null,
+    version: pb.version,
+  };
+
+  if (!existing) {
+    if (!dryRun) {
+      await db.insert(playbookSchema).values(payload);
+    }
+    return 'created';
+  }
+
+  if (
+    existing.contentSha === payload.contentSha
+    && existing.name === payload.name
+    && existing.description === payload.description
+    && existing.version === payload.version
+    && canonical(existing.tags) === canonical(payload.tags)
+    && canonical(existing.sourceFiles) === canonical(payload.sourceFiles)
+  ) {
+    return 'unchanged';
+  }
+
+  if (!dryRun) {
+    await db.update(playbookSchema).set(payload).where(eq(playbookSchema.id, existing.id));
+  }
+  return 'updated';
+}
+
+async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: boolean): Promise<UpsertOutcome> {
+  const [existing] = await db
+    .select()
+    .from(evalDatasetSchema)
+    .where(and(eq(evalDatasetSchema.orgId, orgId), eq(evalDatasetSchema.slug, ds.slug)));
+
+  const payload = {
+    orgId,
+    slug: ds.slug,
+    name: ds.name,
+    description: ds.description ?? null,
+    agentSlug: ds.agentSlug,
+    items: ds.items,
+    version: ds.version,
+  };
+
+  if (!existing) {
+    if (!dryRun) {
+      await db.insert(evalDatasetSchema).values(payload);
+    }
+    return 'created';
+  }
+
+  if (
+    existing.name === payload.name
+    && (existing.description ?? null) === payload.description
+    && existing.agentSlug === payload.agentSlug
+    && existing.version === payload.version
+    && canonical(existing.items) === canonical(payload.items)
+  ) {
+    return 'unchanged';
+  }
+  if (!dryRun) {
+    await db.update(evalDatasetSchema).set(payload).where(eq(evalDatasetSchema.id, existing.id));
+  }
+  return 'updated';
+}
+
+async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRun: boolean): Promise<UpsertOutcome> {
+  const [existing] = await db
+    .select()
+    .from(learningStepSchema)
+    .where(and(eq(learningStepSchema.orgId, orgId), eq(learningStepSchema.name, step.name)));
+
+  const payload = {
+    orgId,
+    name: step.name,
+    title: step.title,
+    description: step.description,
+    preamble: step.preamble ?? null,
+    agentSlugs: step.agents,
+  };
+
+  if (!existing) {
+    if (!dryRun) {
+      await db.insert(learningStepSchema).values(payload);
+    }
+    return 'created';
+  }
+
+  if (
+    existing.title === payload.title
+    && existing.description === payload.description
+    && (existing.preamble ?? null) === payload.preamble
+    && canonical(existing.agentSlugs) === canonical(payload.agentSlugs)
+  ) {
+    return 'unchanged';
+  }
+  if (!dryRun) {
+    await db.update(learningStepSchema).set(payload).where(eq(learningStepSchema.id, existing.id));
   }
   return 'updated';
 }
@@ -337,39 +501,37 @@ function isSkillEqual(a: typeof skillSchema.$inferSelect, b: Record<string, unkn
 }
 
 function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unknown>): boolean {
-  return canonical({
-    name: a.name,
-    description: a.description,
-    systemPrompt: a.systemPrompt,
-    model: a.model,
-    temperature: a.temperature,
-    skillSlugs: a.skillSlugs,
-    connectorSources: a.connectorSources,
-    objectTypeSlugs: a.objectTypeSlugs,
-    documentSetIds: a.documentSetIds,
-    approvalPolicy: a.approvalPolicy,
-    searchConfig: a.searchConfig,
-    fewShotExamples: a.fewShotExamples,
-    langfuseProjectId: a.langfuseProjectId,
-    icon: a.icon,
-    active: a.active,
-  }) === canonical({
-    name: b.name,
-    description: b.description,
-    systemPrompt: b.systemPrompt,
-    model: b.model,
-    temperature: b.temperature,
-    skillSlugs: b.skillSlugs,
-    connectorSources: b.connectorSources,
-    objectTypeSlugs: b.objectTypeSlugs,
-    documentSetIds: b.documentSetIds,
-    approvalPolicy: b.approvalPolicy,
-    searchConfig: b.searchConfig,
-    fewShotExamples: b.fewShotExamples,
-    langfuseProjectId: b.langfuseProjectId,
-    icon: b.icon,
-    active: b.active,
-  });
+  const fields = [
+    'name',
+    'description',
+    'systemPrompt',
+    'model',
+    'temperature',
+    'skillSlugs',
+    'connectorSources',
+    'objectTypeSlugs',
+    'documentSetIds',
+    'approvalPolicy',
+    'searchConfig',
+    'fewShotExamples',
+    'subagents',
+    'playbookTags',
+    'learningSteps',
+    'suggestions',
+    'accent',
+    'eyebrow',
+    'langfuseProjectId',
+    'icon',
+    'active',
+  ] as const;
+  const pick = (src: Record<string, unknown>): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    for (const f of fields) {
+      out[f] = src[f];
+    }
+    return out;
+  };
+  return canonical(pick(a as unknown as Record<string, unknown>)) === canonical(pick(b));
 }
 
 function canonical(v: unknown): string {

@@ -13,6 +13,8 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* Surface tokens — wired to Shadcn primitives */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -44,75 +46,125 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* v0.3 — Vocion brand palette (warm, ported from rev-ai patterns).
+     Primary: amber #F18700 (MetaCTO heritage orange).
+     Secondary: teal #0F8A7E (used by the second agent slot). */
+  --color-brand-amber: var(--brand-amber);
+  --color-brand-amber-deep: var(--brand-amber-deep);
+  --color-brand-amber-tint: var(--brand-amber-tint);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-teal-deep: var(--brand-teal-deep);
+  --color-brand-teal-tint: var(--brand-teal-tint);
+  --color-brand-pass: var(--brand-pass);
+  --color-brand-pass-bg: var(--brand-pass-bg);
+  --color-brand-borderline: var(--brand-borderline);
+  --color-brand-borderline-bg: var(--brand-borderline-bg);
+  --color-brand-fail: var(--brand-fail);
+  --color-brand-fail-bg: var(--brand-fail-bg);
+  --color-ink: var(--ink);
+  --color-ink-title: var(--ink-title);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-rule: var(--rule);
+
+  /* Typography stack — wired in app/[locale]/layout.tsx via next/font. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: var(--font-outfit), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
 }
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+
+  /* Brand palette — warm, port from rev-ai */
+  --brand-amber: oklch(0.74 0.17 65); /* ≈ #F18700 */
+  --brand-amber-deep: oklch(0.65 0.17 56); /* ≈ #D77400 hover */
+  --brand-amber-tint: oklch(0.96 0.04 75); /* ≈ #FFF5E5 active bg */
+  --brand-teal: oklch(0.58 0.1 187); /* ≈ #0F8A7E secondary */
+  --brand-teal-deep: oklch(0.49 0.1 187); /* ≈ #0A6F65 */
+  --brand-teal-tint: oklch(0.96 0.02 187); /* ≈ #ECF7F5 */
+  --brand-pass: oklch(0.5 0.13 145); /* ≈ #2E7D32 */
+  --brand-pass-bg: oklch(0.96 0.03 145); /* ≈ #E8F5E9 */
+  --brand-borderline: oklch(0.55 0.13 85); /* ≈ #8A6E00 amber */
+  --brand-borderline-bg: oklch(0.97 0.05 90); /* ≈ #FFF6D6 */
+  --brand-fail: oklch(0.51 0.2 27); /* ≈ #C62828 */
+  --brand-fail-bg: oklch(0.96 0.03 27); /* ≈ #FFEBEE */
+
+  /* Neutral ink levels (light mode default) */
+  --ink: oklch(0.16 0 0); /* ≈ #0D0D0E */
+  --ink-title: oklch(0.27 0 0); /* ≈ #2A2A2A */
+  --ink-secondary: oklch(0.5 0 0); /* ≈ #6B6B6B */
+  --rule: oklch(0 0 0 / 8%);
+
+  /* Shadcn surface tokens — light mode, neutral surfaces with warm accent */
+  --background: oklch(1 0 0); /* #FFFFFF */
+  --foreground: var(--ink);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: var(--ink);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  --popover-foreground: var(--ink);
+  --primary: var(--brand-amber);
+  --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
+  --secondary-foreground: var(--ink-title);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --muted-foreground: var(--ink-secondary);
+  --accent: var(--brand-amber-tint);
+  --accent-foreground: var(--brand-amber-deep);
+  --destructive: var(--brand-fail);
+  --border: var(--rule);
+  --input: var(--rule);
+  --ring: var(--brand-amber);
+  --chart-1: var(--brand-amber);
+  --chart-2: var(--brand-teal);
+  --chart-3: var(--brand-pass);
+  --chart-4: var(--brand-borderline);
+  --chart-5: var(--brand-fail);
+  --sidebar: oklch(0.98 0 0); /* ≈ #FAFAFA */
+  --sidebar-foreground: var(--ink-title);
+  --sidebar-primary: var(--brand-amber);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: var(--brand-amber-tint);
+  --sidebar-accent-foreground: var(--brand-amber-deep);
+  --sidebar-border: var(--rule);
+  --sidebar-ring: var(--brand-amber);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
+  /* Dark mode keeps the warm accent but inverts surfaces.
+     Rev-ai is light-only — this is for the theme switcher that already
+     ships on /dashboard. Designer pass for dark is a follow-up. */
+  --ink: oklch(0.98 0 0);
+  --ink-title: oklch(0.92 0 0);
+  --ink-secondary: oklch(0.65 0 0);
+  --rule: oklch(1 0 0 / 12%);
+
+  --background: oklch(0.16 0 0);
+  --foreground: var(--ink);
+  --card: oklch(0.21 0 0);
+  --card-foreground: var(--ink);
+  --popover: oklch(0.21 0 0);
+  --popover-foreground: var(--ink);
+  --primary: var(--brand-amber);
+  --primary-foreground: oklch(0.16 0 0);
+  --secondary: oklch(0.27 0 0);
+  --secondary-foreground: var(--ink);
+  --muted: oklch(0.27 0 0);
+  --muted-foreground: var(--ink-secondary);
+  --accent: oklch(0.3 0.06 65);
+  --accent-foreground: var(--brand-amber);
+  --destructive: var(--brand-fail);
+  --border: var(--rule);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --ring: var(--brand-amber);
+  --sidebar: oklch(0.21 0 0);
+  --sidebar-foreground: var(--ink-title);
+  --sidebar-primary: var(--brand-amber);
+  --sidebar-primary-foreground: oklch(0.16 0 0);
+  --sidebar-accent: oklch(0.3 0.06 65);
+  --sidebar-accent-foreground: var(--brand-amber);
+  --sidebar-border: var(--rule);
+  --sidebar-ring: var(--brand-amber);
 }
 
 @layer base {
@@ -121,5 +173,69 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Docs callouts — :::note / :::tip / :::warning / :::danger           */
+/* ------------------------------------------------------------------ */
+@layer components {
+  .callout {
+    @apply my-6 rounded-md border border-l-4 px-4 py-3;
+    background: oklch(0.98 0 0 / 1);
+  }
+  .dark .callout {
+    background: oklch(0.16 0 0 / 1);
+  }
+  .callout > :first-child {
+    @apply mt-0;
+  }
+  .callout > :last-child {
+    @apply mb-0;
+  }
+  .callout-title {
+    @apply mb-1 font-display text-sm font-semibold;
+    letter-spacing: -0.01em;
+  }
+  .callout-note {
+    border-color: var(--brand-teal);
+  }
+  .callout-note .callout-title {
+    color: var(--brand-teal-deep);
+  }
+  .callout-tip {
+    border-color: var(--brand-amber);
+  }
+  .callout-tip .callout-title {
+    color: var(--brand-amber-deep);
+  }
+  .callout-warning {
+    border-color: oklch(0.75 0.16 75);
+    background: oklch(0.98 0.03 75 / 1);
+  }
+  .dark .callout-warning {
+    background: oklch(0.2 0.04 75 / 1);
+  }
+  .callout-warning .callout-title {
+    color: oklch(0.55 0.18 50);
+  }
+  .callout-danger {
+    border-color: oklch(0.6 0.2 25);
+    background: oklch(0.97 0.03 25 / 1);
+  }
+  .dark .callout-danger {
+    background: oklch(0.22 0.04 25 / 1);
+  }
+  .callout-danger .callout-title {
+    color: oklch(0.5 0.2 25);
   }
 }
