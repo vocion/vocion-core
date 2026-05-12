@@ -1,11 +1,12 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { RunStatus } from '@/types/Status';
+import type { ConfidenceLevel, RunStatus } from '@/types/Status';
 import { Check, ClipboardCopy, Edit3, X } from 'lucide-react';
 import { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { StatusPill } from '@/components/ui/status-pill';
 
 export type DraftCardStatus = Extract<RunStatus, 'pending' | 'approved' | 'rejected' | 'auto'>;
@@ -19,6 +20,8 @@ export type DraftCardProps = {
   runId: number;
   content: string;
   status: DraftCardStatus;
+  /** Agent's self-assessed confidence (N.2). Rendered next to the status pill. */
+  confidence?: ConfidenceLevel | null;
   prospectName?: string;
   prospectCompany?: string;
   /** Extra header rows rendered below the title bar */
@@ -63,7 +66,9 @@ const statusColors: Record<DraftCardStatus, string> = {
   pending: 'border-[var(--brand-borderline)]/30 bg-[var(--brand-borderline-bg)]/30',
   approved: 'border-[var(--brand-pass)]/30 bg-[var(--brand-pass-bg)]/30',
   rejected: 'border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30',
-  auto: 'border-border bg-background',
+  // Soft-amber tint so `auto` reads visually distinct from a default card
+  // (plan N.2: "auto looks identical to default — make it a soft-amber bar").
+  auto: 'border-[var(--brand-amber)]/20 bg-[var(--brand-amber-tint)]/40',
 };
 
 export const DraftCard = ({
@@ -73,6 +78,7 @@ export const DraftCard = ({
   runId,
   content,
   status: initialStatus,
+  confidence,
   prospectName,
   prospectCompany,
   headerExtra,
@@ -115,7 +121,8 @@ export const DraftCard = ({
             &middot; Run #
             {runId}
           </span>
-          <span className="ml-auto">
+          <span className="ml-auto flex items-center gap-2">
+            {confidence && <ConfidenceIndicator level={confidence} />}
             <StatusPill status={status} />
           </span>
         </div>

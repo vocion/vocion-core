@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { Bot } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
+import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
@@ -24,16 +25,12 @@ export default async function AgentsPage(props: {
 
       {agents.length === 0
         ? (
-            <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">
-              No agents defined yet. Add one to
-              {' '}
-              <code className="rounded bg-muted px-1">context/&lt;org&gt;/agents/</code>
-              {' '}
-              and run
-              {' '}
-              <code className="rounded bg-muted px-1">npm run context:apply</code>
-              .
-            </div>
+            <EmptyState
+              icon={Bot}
+              title="No agents yet"
+              description="Agents wire Skills and Workflows into a named operating identity. Author one in context/<org>/agents/ and run npm run context:apply."
+              action={{ label: 'How to create an agent', href: '/dashboard/docs/docs/concepts/agents' }}
+            />
           )
         : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
