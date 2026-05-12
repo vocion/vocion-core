@@ -49,6 +49,29 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
           mode: 'hybrid',
           k: ctx.searchConfig.maxResults ?? 15,
           sourceSlugs,
+          rerank: true,
+          onEvent: (e) => {
+            // Project SearchEvent -> AgentEvent. The chat UI's
+            // ThinkingPanel reads this to animate "Searching ·
+            // 22 candidates · reranking..." in real time.
+            switch (e.type) {
+              case 'retrieval.started':
+                ctx.emit({ type: 'retrieval_progress', stage: 'started', meta: { mode: e.mode } });
+                break;
+              case 'retrieval.candidates':
+                ctx.emit({ type: 'retrieval_progress', stage: 'candidates', meta: { vector: e.vector, keyword: e.keyword } });
+                break;
+              case 'retrieval.fused':
+                ctx.emit({ type: 'retrieval_progress', stage: 'fused', meta: { kept: e.kept } });
+                break;
+              case 'retrieval.reranking':
+                ctx.emit({ type: 'retrieval_progress', stage: 'reranking', meta: { candidates: e.candidates } });
+                break;
+              case 'retrieval.complete':
+                ctx.emit({ type: 'retrieval_progress', stage: 'complete', meta: { hits: e.hits } });
+                break;
+            }
+          },
         });
       } catch (err) {
         return `Retrieval error: ${(err as Error).message ?? 'unknown'}`;
