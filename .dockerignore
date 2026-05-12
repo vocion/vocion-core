@@ -1,0 +1,54 @@
+# Repo-root .dockerignore — Phase F build context exclusions.
+# Build runs from the repo root: `docker build -f packages/core/Dockerfile .`
+
+# Dependency trees (rebuilt inside the image)
+node_modules
+**/node_modules
+
+# Build outputs
+.next
+**/.next
+out
+**/out
+dist
+**/dist
+.turbo
+**/.turbo
+
+# Local dev artefacts
+local.db
+**/local.db
+*.log
+**/*.log
+.DS_Store
+**/.DS_Store
+
+# Test outputs
+coverage
+**/coverage
+playwright-report
+**/playwright-report
+test-results
+**/test-results
+
+# Editor / OS
+.idea
+.vscode
+.cursor
+
+# Secrets — never bake into images. Mount via --env-file at runtime.
+.env
+.env.local
+.env.production
+.env.*.local
+**/.env
+**/.env.local
+**/.env.production
+**/.env.*.local
+
+# Git history isn't needed at build time and inflates the context.
+.git
+.gitignore
+
+# Onyx clone is huge (~1GB); the prod compose pulls it separately.
+infra/onyx/onyx-repo

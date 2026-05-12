@@ -1,7 +1,7 @@
 {
   "Index": {
-    "meta_title": "Vocion - Le template SaaS parfait pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
-    "meta_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
+    "meta_title": "Vocion — le framework open source pour des agents et workflows agentiques prêts pour la production",
+    "meta_description": "Construisez, déployez et observez votre IA sur votre propre infrastructure. Contexte versionné dans git, plugins typés, compatibilité MCP, observabilité complète. Open source. Sans verrouillage fournisseur."
   },
   "Navbar": {
     "sign_in": "Se connecter",
@@ -21,31 +21,6 @@
     "theme_dark_label": "Sombre",
     "theme_system_label": "Système"
   },
-  "Hero": {
-    "follow_twitter": "Suivez @Vocion sur Twitter",
-    "title": "Le parfait <important>Vocion</important> pour construire et mettre à l'échelle votre entreprise en toute simplicité.",
-    "description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
-    "primary_button": "Démarrer",
-    "secondary_button": "Découvrir Vocion"
-  },
-  "Features": {
-    "section_subtitle": "Fonctionnalités",
-    "section_title": "Libérez le plein potentiel de Vocion",
-    "section_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
-    "feature1_title": "Next.js",
-    "feature2_title": "React",
-    "feature3_title": "Tailwind CSS",
-    "feature4_title": "TypeScript",
-    "feature5_title": "Shadcn UI",
-    "feature6_title": "ESLint",
-    "feature_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
-  },
-  "Pricing": {
-    "section_subtitle": "Fonctionnalités",
-    "section_title": "Libérez le plein potentiel de Vocion",
-    "section_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle.",
-    "button_text": "Démarrer"
-  },
   "PricingPlan": {
     "free_plan_name": "Gratuit",
     "premium_plan_name": "Premium",
@@ -61,15 +36,6 @@
     "plan_interval_month": "mois",
     "plan_interval_year": "année",
     "next_renew_date": "Votre abonnement sera renouvelé le {date}"
-  },
-  "FAQ": {
-    "question": "Lorem ipsum dolor sit amet, consectetur adipiscing elit?",
-    "answer": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aliquam aliquam enim dui, id consequat turpis ullamcorper ac. Mauris id quam dolor. Nullam eu egestas turpis. Proin risus elit, sollicitudin in mi a, accumsan euismod turpis. In euismod mi sed diam tristique hendrerit."
-  },
-  "CTA": {
-    "title": "Vous êtes prêt?",
-    "description": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-    "button_text": "Découvrir Vocion"
   },
   "Footer": {
     "product": "Produit",
@@ -94,24 +60,34 @@
   },
   "DashboardLayout": {
     "main_section_label": "Espace de travail",
+    "capabilities_section_label": "Capacités",
     "context_section_label": "Contexte",
     "organization_section_label": "Organisation",
+    "agents_section_label": "Agents",
+    "settings_section_label": "Paramètres",
     "home": "Vue d'ensemble",
     "ask": "Demander",
     "chat": "Chat",
     "search": "Rechercher",
-    "skills": "Compétences",
+    "review": "Révision",
+    "logs": "Journaux",
+    "observability": "Observabilité",
+    "operations": "Opérations",
+    "skills": "Opérations",
+    "playbooks": "Playbooks",
+    "learnings": "Apprentissages",
+    "evals": "Évaluations",
     "workflows": "Workflows",
     "runs": "Historique",
     "connectors": "Connecteurs",
     "objects": "Objets",
     "domains": "Domaines",
+    "docs": "Docs",
     "members": "Membres",
     "audit": "Journal d'audit",
     "billing": "Facturation",
     "settings": "Réglages",
-    "agents_section_label": "Agents",
-    "ziggy": "Ziggy",
+    "ziggy": "Sales Assistant",
     "support": "Support",
     "feedback": "Commentaires"
   },

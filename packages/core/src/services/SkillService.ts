@@ -1,3 +1,10 @@
+/**
+ * @deprecated v0.2 — prefer `OperationService` (same shape, canonical
+ * name). The implementation lives here for the v0.1 → v0.2 transition
+ * so the ~12 existing consumers don't have to move in one commit.
+ * SkillService keeps working; new code should import from
+ * `OperationService` instead.
+ */
 import type { AnySkill, PluginContext } from '@/libs/plugins';
 import { existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
@@ -6,7 +13,8 @@ import { and, desc, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import { getCurrentContextSha } from '@/libs/context';
 import { db } from '@/libs/DB';
-import { langfuse } from '@/libs/Langfuse';
+import { cleanUsageDetails, langfuse, traceFor } from '@/libs/Langfuse';
+import { FEATURES } from '@/libs/Langfuse/features';
 import { getLLMClient } from '@/libs/llm';
 import { search as onyxSearch } from '@/libs/onyx/client';
 import { pluginRegistry } from '@/libs/plugins';
@@ -137,10 +145,13 @@ export async function executeSkill(opts: {
   const prompt = interpolate(skill.promptTemplate, opts.input);
 
   // Langfuse trace
-  const trace = langfuse.trace({
-    name: `skill:${skill.slug}`,
+  const trace = traceFor({
+    feature: FEATURES.OPERATION_RUN,
+    slug: skill.slug,
+    orgId: opts.orgId,
+    userId: opts.userId ?? 'system',
     input: opts.input,
-    metadata: { orgId: opts.orgId, skillVersion: skill.version, model: skill.model },
+    metadata: { skillVersion: skill.version, model: skill.model },
   });
 
   const generation = trace.generation({
@@ -164,10 +175,13 @@ export async function executeSkill(opts: {
 
   generation.end({
     output: rawOutput,
-    usage: {
+    usageDetails: cleanUsageDetails({
       input: completion.usage?.prompt_tokens,
       output: completion.usage?.completion_tokens,
-    },
+      // OpenAI surfaces cached input tokens under
+      // `prompt_tokens_details.cached_tokens` for prompt caching.
+      cache_read_input_tokens: completion.usage?.prompt_tokens_details?.cached_tokens,
+    }),
   });
 
   // Optional postprocess script — lives in the skill's context folder as
@@ -234,10 +248,13 @@ async function executePluginSkill(
     throw new Error(`invalid input for plugin skill "${plugin.slug}": ${inputParsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
   }
 
-  const trace = langfuse.trace({
-    name: `skill:${plugin.slug}`,
+  const trace = traceFor({
+    feature: FEATURES.OPERATION_RUN,
+    slug: plugin.slug,
+    orgId: opts.orgId,
+    userId: opts.userId ?? 'system',
     input: opts.input,
-    metadata: { orgId: opts.orgId, pluginVersion: plugin.version, kind: 'plugin' },
+    metadata: { pluginVersion: plugin.version, kind: 'plugin' },
   });
 
   const contextSha = await getCurrentContextSha(opts.orgId);

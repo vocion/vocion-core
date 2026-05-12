@@ -26,9 +26,9 @@ context/<org>/agents/<slug>/
 ### `agent.yaml`
 
 ```yaml
-slug: ziggy
-name: Ziggy
-description: MetaCTO sales agent — discovery, deal analysis, proposal drafting
+slug: sales-assistant
+name: Sales Assistant
+description: Reference sales agent — discovery, deal analysis, proposal drafting
 active: true
 model: gpt-5.4
 skillSlugs:

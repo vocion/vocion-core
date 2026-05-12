@@ -4,7 +4,7 @@ This directory holds **git-backed, version-controlled context** for each tenant 
 
 ## Why context-as-code
 
-Before: prompts + business object schemas + agent config lived in TypeScript seed scripts (`seed-*.ts`, `update-*.ts`). Every tweak to Chris's email voice or Ziggy's system prompt was a code change buried in a PR, invisible to the rest of the team.
+Before: prompts + business object schemas + agent config lived in TypeScript seed scripts (`seed-*.ts`, `update-*.ts`). Every tweak to a sender's email voice or an agent's system prompt was a code change buried in a PR, invisible to the rest of the team.
 
 Now: prompts are markdown, config is YAML, and every edit is reviewable like any other doc change. The runtime state (skill runs, approvals, drafts) stays in the database where it belongs.
 
@@ -82,13 +82,13 @@ fewShotExamples:
     label: what makes this a good example
 ```
 
-### Edit Ziggy's system prompt
+### Edit the Sales Assistant's system prompt
 
-Open `agents/ziggy.system-prompt.md`, edit, save, `npm run context:apply`. Ziggy will use the new prompt on the next request.
+Open `agents/sales-assistant.system-prompt.md`, edit, save, `npm run context:apply`. The agent will use the new prompt on the next request.
 
-### Edit the follow-up email skill
+### Edit the follow-up email operation
 
-Open `skills/draft-followup-email/prompt.md` — the case study library, Chris's voice rules, structure guide, and few-shot examples all live here. Edit as prose.
+Open `operations/draft-followup-email/prompt.md` — the case-study library, voice rules, structure guide, and few-shot examples all live here. Edit as prose.
 
 ## Commands
 
@@ -105,7 +105,7 @@ All three honor `CONTEXT_PATH` and `SEED_ORG_ID` env vars. Flags:
 
 ## Audit trail
 
-Every `context:apply` records a row in `context_version` (git SHA, applied_at, files, per-resource counts, applied_by). Every `skill_run` stamps `context_sha` — so six months from now, "why did Ziggy draft the email like that?" is answerable by:
+Every `context:apply` records a row in `context_version` (git SHA, applied_at, files, per-resource counts, applied_by). Every `skill_run` stamps `context_sha` — so six months from now, "why did the agent draft the email like that?" is answerable by:
 
 ```sql
 SELECT s.name, sr.input, sr.output, sr.context_sha, sr.created_at

@@ -16,7 +16,7 @@ vocion-starter ───►  forkable example install                  (separate
 <client>-vocion ──►  your production install                   (you own this)
 ```
 
-For local dev (this guide), you only need core + whatever plugins you want. Full layering doc: [`./repo-architecture.md`](./repo-architecture.md).
+For local dev (this guide), you only need core + whatever plugins you want. Full layering doc: [`repo-architecture.md`](../reference/repo-architecture.md).
 
 ## Requirements
 
@@ -148,13 +148,13 @@ To bootstrap a new tenant from existing DB state:
 npm run context:export -- --org <orgId> --name <dirName>
 ```
 
-See [`context/README.md`](../context/README.md) for authoring.
+See [`context/README.md`](../../context/README.md) for authoring.
 
 ## LLM providers
 
 Vocion supports multiple LLM hosts; each plugin skill picks one via the `provider` field. **Set at least one provider's API key** — `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` — or skill execution will throw on first invocation.
 
-Full provider table + per-skill manifest example: [`plugins.md` → Pluggable LLM provider](./plugins.md#pluggable-llm-provider). The platform never silently falls back to a default; missing creds throw with a clear message.
+Full provider table + per-skill manifest example: [`writing-a-plugin.md` → Pluggable LLM provider](./writing-a-plugin.md#pluggable-llm-provider). The platform never silently falls back to a default; missing creds throw with a clear message.
 
 ## MCP server
 

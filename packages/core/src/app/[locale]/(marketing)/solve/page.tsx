@@ -7,48 +7,53 @@ import { Footer } from '@/templates/Footer';
 import { Navbar } from '@/templates/Navbar';
 
 export const metadata: Metadata = {
-  title: 'Vocion — one runtime for AI work that has to survive production',
-  description: 'Open framework for AI workflows with versioned context, typed plugins, human review, and full traceability across web, Slack, Teams, CLI, and your own app. Apache 2.0, self-hostable.',
+  title: 'Vocion — the open framework for production-ready agents and agentic workflows',
+  description: 'Build, ship, and observe AI work in your own infra. Git-backed context, typed plugins, MCP-native, full observability. Open source. No vendor lock-in.',
 };
 
 const blocks = [
   {
     icon: Plug,
     name: 'Source',
+    href: '/docs/docs/concepts/sources',
     body: 'Connected systems that feed raw data in. Zoom, Gmail, HubSpot, Postgres, your own APIs. Typed and authored per tenant.',
   },
   {
     icon: Database,
     name: 'Object',
+    href: '/docs/docs/concepts/objects',
     body: 'The business entities you care about. Account, Deal, Ticket, Incident. Canonical grounded records every run reads from.',
   },
   {
     icon: Zap,
-    name: 'Skill',
-    body: 'A single LLM-powered unit of work with typed input and output. Prompt today, plugin tomorrow. Same slug, same history.',
+    name: 'Operation',
+    href: '/docs/docs/concepts/skills',
+    body: 'Typed LLM call. Zod schemas in, Zod schemas out. Approval-gated when it matters. Authored as prompt today, swapped to plugin tomorrow under the same slug.',
   },
   {
     icon: GitBranch,
     name: 'Workflow',
-    body: 'A sequence of Skills with human review where it matters. Durable on Postgres. Resumable from any interface.',
+    href: '/docs/docs/concepts/workflows',
+    body: 'A sequence of Operations with human approval gates where it matters. Durable on Postgres. Resumable from any interface.',
   },
   {
     icon: Bot,
     name: 'Agent',
-    body: 'An orchestrator wired to a specific catalog of Skills and Workflows, with its own system prompt, voice, and operating boundary.',
+    href: '/docs/docs/concepts/agents',
+    body: 'A named identity with a system prompt, tool surface, subagents, and budget. Runs on the deepagents runtime — virtual FS, write_todos, subagent dispatch, full observability.',
   },
 ];
 
 const loop = [
-  { title: 'Feedback', body: 'Capture human judgment at review time, not weeks later after the workflow is forgotten.' },
-  { title: 'Audit', body: 'Every run records inputs, outputs, trace spans, retrieval hits, approvals, and the exact active context version.' },
-  { title: 'Evals', body: 'Run fixtures against Skills and Workflows so regressions become visible before they hit production.' },
-  { title: 'Iteration', body: 'Change prompts, workflows, and plugins in git. Review them in PRs. Apply them deliberately.' },
-  { title: 'Measurement', body: 'Track run volume, approval rate, latency, and cost so the workflow can be improved, not just admired.' },
+  { title: 'Human-in-the-loop', body: 'The request_human_review tool pauses a run for approval. Comments on Drive decks and Slack reactions flow into the same queue.' },
+  { title: 'Full observability', body: 'Every LLM call, tool span, and subagent dispatch lands in Langfuse — joined to the context SHA that produced it.' },
+  { title: 'Eval-driven development', body: 'npm run eval:run scores datasets via LLM judge. Stamp every run with its context SHA. Pass-rate < 0.8 fails CI.' },
+  { title: 'Self-improving', body: 'The self-improver subagent watches feedback, proposes rules, and (after your explicit approval) commits them as learning rows the agent reads on every relevant turn.' },
+  { title: 'Compute budgets', body: 'Token and dollar caps per agent, per period. Hard cap refuses new runs. Soft cap warns. Cache reads billed at 10% per the model card.' },
 ];
 
 const flow = [
-  { n: '01', title: 'Author', body: 'Edit a skill.yaml, workflow.yaml, or prompt.md in your editor.' },
+  { n: '01', title: 'Author', body: 'Edit an operation.yaml, workflow.yaml, SKILL.md playbook, or prompt.md in your editor.' },
   { n: '02', title: 'Apply', body: 'Reconcile authored context into the runtime and stamp a new context version.' },
   { n: '03', title: 'Run', body: 'Trigger from web, Slack, Teams, CLI, your app, or a scheduled workflow.' },
   { n: '04', title: 'Review', body: 'Drafts and paused workflows land in one queue. Approve, reject, revise, resume.' },
@@ -57,9 +62,27 @@ const flow = [
 
 const sources = ['Gmail', 'HubSpot', 'Zoom', 'Slack', 'Postgres', 'Stripe', 'Zendesk', 'Google Drive', 'Notion', 'Salesforce', 'Custom REST', 'Webhooks'];
 
-const interfaces = ['web', 'Slack', 'Teams', 'CLI', 'your own app', 'scheduled jobs', 'API triggers'];
+const interfaces = ['web', 'MCP server', 'Slack', 'Teams', 'CLI', 'your own app', 'scheduled jobs', 'API triggers'];
 
-const why = ['reproducibility', 'reviewability', 'typed boundaries', 'runtime consistency', 'interface independence', 'operational visibility', 'self-hosted deployment'];
+const why = ['reproducibility', 'reviewability', 'typed boundaries', 'runtime consistency', 'MCP-native', 'operational visibility', 'self-hosted deployment'];
+
+const proof = [
+  'deepagents runtime + subagents',
+  'Playbooks, learnings, evals, budgets',
+  'MCP-native + 12 connectors',
+  'Self-host · Apache 2.0',
+];
+
+const primitives = [
+  {
+    name: 'Playbook',
+    body: 'Markdown + YAML the agent reads on demand. Procedural guides for "how we draft a proposal", "how we triage a meeting." Resources (REFERENCE.html, COMPONENTS.md) ride along. Per-agent playbookTags decide what mounts where. Lazy-loaded — no bloat to the per-turn prompt.',
+  },
+  {
+    name: 'Learning',
+    body: 'Whitelisted rule buckets ("global", "meeting_triage", "proposal_drafting"…). Rules are added at runtime by the self-improver subagent after the user explicitly approves a candidate. Trigram dedup at 0.72 keeps the store clean. The agent reads its applicable rules as /learnings/<step>.md on every turn.',
+  },
+];
 
 const starters = [
   {
@@ -93,15 +116,20 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
       <div className="mx-auto max-w-6xl px-6 py-16 lg:py-24">
         {/* Hero */}
         <section className="text-center">
-          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-            One runtime for AI work that has to survive production.
+          <Link
+            href="/docs/docs/upgrades/v0.2-langchain"
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+          >
+            <span className="rounded-full bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-primary uppercase">v0.2</span>
+            deepagents runtime · playbooks · learnings · evals
+            <ArrowRight className="size-3" />
+          </Link>
+          <h1 className="mt-6 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
+            The open framework for production-ready agents and agentic workflows.
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            Vocion is an open framework for building AI workflows with versioned context, typed plugins, human review, and full traceability across web, Slack, Teams, CLI, and your own app.
+          <p className="mx-auto mt-6 max-w-3xl text-lg leading-relaxed text-muted-foreground">
+            Build, ship, and observe AI work in your own infra. Git-backed context. Typed plugins. MCP-native. Full observability — without the hosted-SaaS lock-in.
           </p>
-          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">
-            Apache 2.0 · self-host anywhere
-          </div>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link href="/sign-up" className={buttonVariants({ size: 'lg' })}>
               Get started
@@ -115,27 +143,29 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
               View source
             </a>
           </div>
-          <p className="mx-auto mt-6 max-w-xl text-sm text-muted-foreground/80">
-            Author once. Run from any interface. Review in one queue. Audit every output.
-          </p>
+          <div className="mx-auto mt-8 flex max-w-3xl flex-wrap items-center justify-center gap-2">
+            {proof.map(p => (
+              <span key={p} className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">{p}</span>
+            ))}
+          </div>
         </section>
 
         {/* The real problem */}
         <section className="mt-28 rounded-2xl border border-border bg-muted/30 p-8 sm:p-12">
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">AI breaks when it leaves the demo.</h2>
           <p className="mt-5 max-w-3xl text-base leading-relaxed text-muted-foreground">
-            Most teams get their first AI workflow working by stitching prompts into app code, bots, cron jobs, and internal tools. Then things drift.
+            Most teams get their first agentic workflow working by stitching prompts into app code, bots, cron jobs, and internal tools. Then things drift.
           </p>
           <ul className="mt-4 grid max-w-3xl gap-1.5 text-sm leading-relaxed text-muted-foreground">
-            <li>— nobody knows what changed</li>
-            <li>— outputs are hard to explain</li>
-            <li>— approvals happen in DMs</li>
-            <li>— every interface has its own copy of the logic</li>
-            <li>— runs are hard to reproduce</li>
+            <li>— prompts drift, outputs change, nobody knows why</li>
+            <li>— no evals — you ship and hope</li>
+            <li>— compute runs away with no per-agent budgets, no alerts</li>
+            <li>— approvals scattered across Slack threads and Notion docs</li>
+            <li>— every interface re-implements the same logic</li>
             <li>— "does this still work?" becomes guesswork</li>
           </ul>
           <p className="mt-5 max-w-3xl text-base leading-relaxed text-foreground">
-            Vocion gives you one runtime for AI work that needs to hold up in production.
+            Vocion gives you one runtime for AI work that has to hold up in production.
           </p>
         </section>
 
@@ -154,7 +184,7 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
               return (
                 <Link
                   key={b.name}
-                  href={`/docs/docs/concepts/${b.name.toLowerCase()}s`}
+                  href={b.href}
                   className="rounded-xl border border-border bg-background p-5 transition hover:border-primary/30"
                 >
                   <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -171,12 +201,34 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
           </p>
         </section>
 
+        {/* Compositional primitives — v0.2 */}
+        <section className="mt-28">
+          <div className="text-center">
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Two compositional primitives.</h2>
+            <h2 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Authored once. Mounted into every relevant agent.</h2>
+            <p className="mx-auto mt-5 max-w-2xl text-base text-muted-foreground">
+              v0.2 added two primitives that compose on top of the five resources — for the procedural knowledge and continuous improvement that agentic systems need to stay accurate.
+            </p>
+          </div>
+          <div className="mt-12 grid gap-4 sm:grid-cols-2">
+            {primitives.map(p => (
+              <div key={p.name} className="rounded-xl border border-border bg-background p-6">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-primary/15 px-2 py-0.5 font-mono text-[10px] tracking-wide text-primary uppercase">v0.2</span>
+                  <div className="text-base font-semibold">{p.name}</div>
+                </div>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{p.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* Interfaces */}
         <section className="mt-28 grid gap-12 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">One runtime, every interface.</h2>
             <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-              Author once. Trigger and review from wherever your team already works.
+              Author once. Trigger and review from wherever your team already works. Speak MCP, and every Claude-side client can call your agents as tools.
             </p>
             <div className="mt-6 text-xs font-semibold tracking-wider text-muted-foreground uppercase">Run from</div>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -201,9 +253,9 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
 
         {/* Sources */}
         <section className="mt-28">
-          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Connect the systems your workflows already depend on.</h2>
+          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Connect what you already run.</h2>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted-foreground">
-            Vocion is built for real business systems, not toy demos.
+            Built for real business systems, not toy demos. Twelve first-class connectors today; typed source plugins when you need more control.
           </p>
           <div className="mt-8 flex flex-wrap gap-2">
             {sources.map(s => (
@@ -217,9 +269,9 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
 
         {/* Production loop */}
         <section className="mt-28">
-          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">What happens after a run matters.</h2>
+          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">The operating loop that makes agentic systems usable.</h2>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-muted-foreground">
-            Most AI stacks stop at generation. Vocion includes the operating loop that makes workflows usable in production.
+            Most AI stacks stop at generation. Vocion ships the five primitives every production agentic system needs — human review, observability, evals, self-improvement, and compute budgets.
           </p>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {loop.map(item => (
@@ -242,9 +294,11 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
               <li>
                 — edit
                 {' '}
-                <code className="rounded bg-muted px-1 font-mono text-xs">skill.yaml</code>
+                <code className="rounded bg-muted px-1 font-mono text-xs">operation.yaml</code>
+                ,
                 {' '}
-                or
+                <code className="rounded bg-muted px-1 font-mono text-xs">SKILL.md</code>
+                , or
                 {' '}
                 <code className="rounded bg-muted px-1 font-mono text-xs">prompt.md</code>
               </li>
@@ -257,31 +311,30 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
           <pre className="overflow-x-auto rounded-xl border border-border bg-muted/40 p-5 font-mono text-xs leading-relaxed">
             <code>
               {`context/<org>/
-  sources/
-    hubspot/
-      source.yaml
-      filters.yaml
-      README.md
-  objects/
-    deal/
-      type.yaml
-      classification-prompt.md
-      evals.yaml
-  skills/
+  agents/
+    sales-assistant/
+      agent.yaml          # slug, prompt, subagents, suggestions
+      system-prompt.md
+  operations/             # v0.2: typed LLM calls (was skills/)
     draft_followup/
-      skill.yaml
+      operation.yaml
       prompt.md
       evals.yaml
-      README.md
+  playbooks/              # v0.2: markdown the agent reads on demand
+    ece-proposal/
+      SKILL.md            # YAML frontmatter + procedural guide
+      REFERENCE.html      # sibling resources ride along
+  learnings/              # v0.2: whitelisted rule-step buckets
+    global.yaml
+    meeting_triage.yaml
+  evals/                  # v0.2: agent eval datasets
+    sales-assistant-baseline.yaml
   workflows/
     discovery_followup/
       workflow.yaml
-      evals.yaml
-  agents/
-    ziggy/
-      agent.yaml
-      system-prompt.md
-      evals.yaml`}
+  objects/
+    deal/
+      type.yaml`}
             </code>
           </pre>
           <p className="col-span-full mt-4 text-center text-xs text-muted-foreground/80 lg:col-start-2">
@@ -363,8 +416,14 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
               <code className="rounded bg-muted px-1 font-mono">@vocion/sdk</code>
             </li>
             <li className="flex items-start gap-2">
+              <Bot className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              Dispatch subagents — author once, mount as tools, run in parallel via
+              {' '}
+              <code className="rounded bg-muted px-1 font-mono">{`task("name", "...")`}</code>
+            </li>
+            <li className="flex items-start gap-2">
               <Code2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              Swap providers per Skill without rewriting the whole workflow
+              Swap providers per Operation without rewriting the whole workflow
             </li>
             <li className="flex items-start gap-2">
               <GitBranch className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -434,7 +493,10 @@ export default async function SolvePage(props: { params: Promise<{ locale: strin
 
         {/* Final CTA */}
         <section className="mt-20 text-center">
-          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Build AI systems that hold up in production.</h2>
+          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Build agents that survive production.</h2>
+          <p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground">
+            Subagents, playbooks, learnings, evals, budgets, HITL — out of the box. Your code, your infra, your data.
+          </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link href="/sign-up" className={buttonVariants({ size: 'lg' })}>
               Get started
