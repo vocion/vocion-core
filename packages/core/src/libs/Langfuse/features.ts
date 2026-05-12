@@ -18,12 +18,20 @@ export const FEATURES = {
   EVAL_JUDGE: 'eval.judge',
   /** Workflow step execution from Temporal Activities. */
   WORKFLOW_STEP: 'workflow.step',
-  /** Live Onyx retrieval requests proxied via `/rpc/onyx`. */
+  /** Live Onyx retrieval requests proxied via `/rpc/onyx`. (Legacy — will be removed when L lands.) */
   ONYX_SEARCH: 'onyx.search',
   /** Haiku-based feedback bucket classifier. */
   FEEDBACK_CLASSIFY: 'feedback.classify',
   /** OAuth token-refresh round-trips for Source plugins. */
   SOURCE_OAUTH: 'source.oauth',
+  /** Native pgvector hybrid retrieval (Onyx replacement). */
+  RETRIEVAL_SEARCH: 'retrieval.search',
+  /** OpenAI embedding batches — ingest + query + rerank paths. */
+  RETRIEVAL_EMBED: 'retrieval.embed',
+  /** Source-plugin → knowledge_* ingest runs. */
+  RETRIEVAL_INGEST: 'retrieval.ingest',
+  /** Optional rerank pass over top-K hybrid candidates. */
+  RETRIEVAL_RERANK: 'retrieval.rerank',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];
