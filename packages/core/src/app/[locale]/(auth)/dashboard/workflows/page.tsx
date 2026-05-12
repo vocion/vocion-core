@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { GitBranch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
+import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
@@ -32,16 +33,12 @@ export default async function WorkflowsPage(props: {
 
       {workflows.length === 0
         ? (
-            <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">
-              No workflows defined yet. Add one to
-              {' '}
-              <code className="rounded bg-muted px-1">context/&lt;org&gt;/workflows/</code>
-              {' '}
-              and run
-              {' '}
-              <code className="rounded bg-muted px-1">npm run context:apply</code>
-              .
-            </div>
+            <EmptyState
+              icon={GitBranch}
+              title="No workflows yet"
+              description="Workflows are sequences of Skills with optional human-approval gates and persistent state. Author one in context/<org>/workflows/ and run npm run context:apply."
+              action={{ label: 'How to author a workflow', href: '/dashboard/docs/docs/concepts/workflows' }}
+            />
           )
         : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

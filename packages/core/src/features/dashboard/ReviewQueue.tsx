@@ -2,8 +2,10 @@
 
 import { CheckCircle, Clock, GitBranch, RotateCw, Sparkles, ThumbsDown, ThumbsUp, XCircle } from 'lucide-react';
 import { useState, useTransition } from 'react';
+import type { ConfidenceLevel } from '@/types/Status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { StatusPill } from '@/components/ui/status-pill';
 import { client } from '@/libs/Orpc';
 
@@ -16,6 +18,8 @@ type SkillRunRow = {
   truncated: boolean;
   contextSha: string | null;
   langfuseTraceId: string | null;
+  /** Agent's self-assessed confidence for this run (N.2). */
+  confidence: ConfidenceLevel | null;
   createdBy: string | null;
   createdAt: Date | string;
   reviewedBy: string | null;
@@ -80,7 +84,7 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
     });
   };
 
-  function normalizeSkillRun(r: { id: number; skillId: number; status: string | null; input: unknown; output: string | null; contextSha: string | null; langfuseTraceId: string | null; createdBy: string | null; createdAt: Date | string; reviewedBy: string | null; reviewedAt: Date | string | null }): SkillRunRow {
+  function normalizeSkillRun(r: { id: number; skillId: number; status: string | null; input: unknown; output: string | null; contextSha: string | null; langfuseTraceId: string | null; confidence?: string | null; createdBy: string | null; createdAt: Date | string; reviewedBy: string | null; reviewedAt: Date | string | null }): SkillRunRow {
     const MAX = 4000;
     return {
       id: r.id,
@@ -91,6 +95,7 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
       truncated: !!(r.output && r.output.length > MAX),
       contextSha: r.contextSha,
       langfuseTraceId: r.langfuseTraceId,
+      confidence: (r.confidence === 'confident' || r.confidence === 'uncertain' || r.confidence === 'speculative') ? r.confidence : null,
       createdBy: r.createdBy,
       createdAt: r.createdAt,
       reviewedBy: r.reviewedBy,
@@ -231,7 +236,10 @@ function SkillRunCard({
             )}
           </div>
         </div>
-        <StatusPill status="pending" />
+        <div className="flex items-center gap-2">
+          {run.confidence && <ConfidenceIndicator level={run.confidence} />}
+          <StatusPill status="pending" />
+        </div>
       </button>
 
       {isOpen && (
