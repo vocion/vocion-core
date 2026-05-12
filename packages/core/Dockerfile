@@ -45,6 +45,15 @@ ENV NEXT_PUBLIC_SENTRY_DISABLED=1
 # from .env.production at runtime; skip validation during build.
 ENV SKIP_ENV_VALIDATION=1
 
+# NEXT_PUBLIC_* values are inlined into the client JS bundle at build
+# time — they CANNOT be overridden by runtime env. Pass real values
+# via --build-arg when building for production (update.sh does this).
+# Defaults below are safe stubs for local image builds without prod env.
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA
+ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
+ARG NEXT_PUBLIC_LANGFUSE_BASE_URL=http://localhost:3200
+ARG NEXT_PUBLIC_LANGFUSE_PROJECT_ID=demo
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
@@ -60,7 +69,10 @@ RUN SKIP_ENV_VALIDATION=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \
     DATABASE_URL="postgres://stub@stub/stub" \
     CLERK_SECRET_KEY="sk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA" \
-    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="pk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA" \
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" \
+    NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL}" \
+    NEXT_PUBLIC_LANGFUSE_BASE_URL="${NEXT_PUBLIC_LANGFUSE_BASE_URL}" \
+    NEXT_PUBLIC_LANGFUSE_PROJECT_ID="${NEXT_PUBLIC_LANGFUSE_PROJECT_ID}" \
     OPENAI_API_KEY="sk-build-stub" \
     ANTHROPIC_API_KEY="sk-ant-build-stub" \
     LANGFUSE_PUBLIC_KEY="pk-stub" \
