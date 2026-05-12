@@ -1,8 +1,10 @@
+import type { StepperStep } from '@/components/ui/stepper';
 import { auth } from '@clerk/nextjs/server';
 import { ArrowLeft, GitBranch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { Stepper } from '@/components/ui/stepper';
 import { PrimitiveActivity } from '@/features/dashboard/PrimitiveActivity';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -67,38 +69,25 @@ export default async function WorkflowDetailPage(props: {
 
       <PrimitiveActivity kind="workflow" slug={slug} {...activity} />
 
-      <div className="mb-6 rounded-lg border border-border bg-background p-4">
-        <div className="mb-3 text-sm font-semibold">Steps</div>
-        <ol className="space-y-2 text-sm">
-          {workflow.steps.map((step, i) => (
-            <li key={`${step.name}-${i}`} className="flex items-start gap-3">
-              <span className="mt-0.5 flex size-5 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">{i + 1}</span>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{step.name}</span>
-                  <Badge variant="outline" className="text-[10px]">{step.type}</Badge>
-                </div>
-                {step.type === 'skill' && 'skill' in step && (
-                  <div className="font-mono text-[11px] text-muted-foreground">
-                    skill:
-                    {' '}
-                    {step.skill}
-                  </div>
-                )}
-                {step.type === 'action' && 'action' in step && (
-                  <div className="font-mono text-[11px] text-muted-foreground">
-                    action:
-                    {' '}
-                    {step.action}
-                  </div>
-                )}
-                {step.type === 'approve' && 'prompt' in step && step.prompt && (
-                  <div className="text-[11px] text-muted-foreground">{step.prompt}</div>
-                )}
-              </div>
-            </li>
-          ))}
-        </ol>
+      <div className="mb-6">
+        <div className="mb-3 font-display text-sm font-semibold">Steps</div>
+        <Stepper
+          steps={workflow.steps.map((step, i): StepperStep => {
+            const key = `${step.name}-${i}`;
+            if (step.type === 'skill' && 'skill' in step) {
+              return { key, type: 'skill', title: step.name, subtitle: `skill: ${step.skill}` };
+            }
+            if (step.type === 'action' && 'action' in step) {
+              return { key, type: 'action', title: step.name, subtitle: `action: ${step.action}` };
+            }
+            // Final branch: 'approve' type (narrowed by exhaustion of the
+            // other two). 'prompt' check is defensive — older context rows
+            // might lack it.
+            const name = (step as { name: string }).name;
+            const prompt = (step as { prompt?: string }).prompt;
+            return { key, type: 'approve', title: name, subtitle: prompt ?? 'Human approval required' };
+          })}
+        />
       </div>
 
       {sourceFiles && (
