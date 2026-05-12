@@ -134,6 +134,13 @@
       "when": 1778614593055,
       "tag": "0018_amazing_maverick",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1778617401925,
+      "tag": "0019_colossal_hobgoblin",
+      "breakpoints": true
     }
   ]
 }

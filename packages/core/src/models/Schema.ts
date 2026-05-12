@@ -1,5 +1,17 @@
-import { relations } from 'drizzle-orm';
-import { bigint, integer, jsonb, pgTable, serial, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { relations, sql } from 'drizzle-orm';
+import { bigint, customType, index, integer, jsonb, pgTable, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+
+/**
+ * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
+ * box, so we declare it via customType. Stored as text in the DB
+ * (Postgres handles the cast at the column level via GENERATED ALWAYS
+ * AS).
+ */
+const tsvector = customType<{ data: string; driverData: string }>({
+  dataType() {
+    return 'tsvector';
+  },
+});
 
 // This file defines the structure of your database tables using the Drizzle ORM.
 
@@ -957,3 +969,128 @@ export const feedbackJobSchema = pgTable('feedback_job', {
     .notNull(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
+
+/* ------------------------------------------------------------------ */
+/* Phase L — Native pgvector retrieval                                */
+/*                                                                    */
+/* Three tables underpin the Onyx-replacement retrieval stack:         */
+/*   - knowledge_source   ··· one row per installed source plugin     */
+/*   - knowledge_document  ··· one row per ingested document          */
+/*   - knowledge_chunk     ··· one row per ~512-token chunk           */
+/*                                                                    */
+/* Embedding model: OpenAI text-embedding-3-small (1536-d).           */
+/* Vector index: HNSW with vector_cosine_ops.                         */
+/* Keyword index: GIN on a generated tsvector column.                  */
+/* Hybrid fusion: RRF in the service layer.                           */
+/*                                                                    */
+/* Migration 0019_pgvector_retrieval.sql adds the pgvector extension  */
+/* + these tables. Indexes attached as customType-emitted SQL in the  */
+/* migration since Drizzle's `index()` builder doesn't natively know   */
+/* HNSW operator classes yet.                                          */
+/* ------------------------------------------------------------------ */
+
+export const knowledgeSourceSchema = pgTable(
+  'knowledge_source',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Source plugin slug — e.g. `google-drive`, `github`, `vocion-docs`. */
+    slug: text('slug').notNull(),
+    /** Human-facing source kind — 'web', 'plugin', 'upload'. */
+    kind: text('kind').default('plugin').notNull(),
+    /** Source-plugin-specific config (folder ids, repo names, etc.) */
+    configJson: jsonb('config_json').$type<Record<string, unknown>>().default({}).notNull(),
+    enabled: text('enabled').default('true').notNull(),
+    lastSyncedAt: timestamp('last_synced_at', { mode: 'date' }),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('knowledge_source_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
+
+export const knowledgeDocumentSchema = pgTable(
+  'knowledge_document',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    sourceId: integer('source_id')
+      .notNull()
+      .references(() => knowledgeSourceSchema.id, { onDelete: 'cascade' }),
+    /** Stable identifier from the upstream source — Drive fileId, repo path, slug. */
+    externalId: text('external_id').notNull(),
+    /** Canonical URL/URI the user can navigate to. */
+    uri: text('uri'),
+    title: text('title'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
+    /** SHA-256 of the canonical content. Re-ingest is a no-op when unchanged. */
+    contentHash: text('content_hash').notNull(),
+    /** Last-modified hints from the upstream source (HTTP ETag / mtime). */
+    etag: text('etag'),
+    lastModifiedAt: timestamp('last_modified_at', { mode: 'date' }),
+    ingestedAt: timestamp('ingested_at', { mode: 'date' }).defaultNow().notNull(),
+    /** Touched on every sync, even when content unchanged. Drives tombstoning. */
+    lastSeenAt: timestamp('last_seen_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('knowledge_document_org_source_external_idx').on(table.orgId, table.sourceId, table.externalId),
+    index('knowledge_document_content_hash_idx').on(table.contentHash),
+  ],
+);
+
+export const knowledgeChunkSchema = pgTable(
+  'knowledge_chunk',
+  {
+    id: serial('id').primaryKey(),
+    documentId: integer('document_id')
+      .notNull()
+      .references(() => knowledgeDocumentSchema.id, { onDelete: 'cascade' }),
+    /** Denormalized for org-scoped queries (avoids join + lets us put the
+     * filter directly on the partial vector-index condition). */
+    orgId: text('org_id').notNull(),
+    chunkIdx: integer('chunk_idx').notNull(),
+    content: text('content').notNull(),
+    contentTokens: integer('content_tokens').notNull(),
+    /** OpenAI text-embedding-3-small produces 1536-d float32 vectors. */
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    /**
+     * Generated tsvector. The DEFAULT expression below is best-effort;
+     * the migration replaces it with a proper GENERATED ALWAYS AS
+     * STORED column (Drizzle can't emit that syntax directly).
+     */
+    tsv: tsvector('tsv'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('knowledge_chunk_org_doc_idx_idx').on(table.orgId, table.documentId, table.chunkIdx),
+  ],
+);
+
+/** Relations — lets Drizzle's query layer eagerly load the join graph. */
+export const knowledgeSourceRelations = relations(knowledgeSourceSchema, ({ many }) => ({
+  documents: many(knowledgeDocumentSchema),
+}));
+
+export const knowledgeDocumentRelations = relations(knowledgeDocumentSchema, ({ one, many }) => ({
+  source: one(knowledgeSourceSchema, {
+    fields: [knowledgeDocumentSchema.sourceId],
+    references: [knowledgeSourceSchema.id],
+  }),
+  chunks: many(knowledgeChunkSchema),
+}));
+
+export const knowledgeChunkRelations = relations(knowledgeChunkSchema, ({ one }) => ({
+  document: one(knowledgeDocumentSchema, {
+    fields: [knowledgeChunkSchema.documentId],
+    references: [knowledgeDocumentSchema.id],
+  }),
+}));
+
+// Re-export `sql` so callers can build the GENERATED-ALWAYS-AS-STORED
+// tsvector expression in raw migrations. Not used at query-time.
+export { sql };
