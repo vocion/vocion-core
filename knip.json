@@ -42,15 +42,15 @@
         "src/libs/pricing.ts",
         "src/services/**",
         "src/routers/**"
-      ],
+      ]
     },
     "packages/sdk": {
       "entry": ["src/index.ts"],
-      "project": ["src/**/*.ts"],
+      "project": ["src/**/*.ts"]
     },
     "packages/plugins/*": {
       "entry": ["src/index.ts"],
-      "project": ["src/**/*.ts"],
+      "project": ["src/**/*.ts"]
     }
   },
   "ignoreBinaries": ["dotenv", "tofu", "tsx", "playwright"]
