@@ -16,6 +16,7 @@
 
 import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
+import process from 'node:process';
 import { tool as makeTool } from '@langchain/core/tools';
 import { createDeepAgent, StateBackend } from 'deepagents';
 import { eq } from 'drizzle-orm';
@@ -39,6 +40,7 @@ import { lookupObjectsTool } from './tools/lookupObjects';
 import { runOperationTool } from './tools/runOperation';
 import { listRecentRunsTool, listRunFeedbackTool } from './tools/runs';
 import { searchEverythingTool } from './tools/searchEverything';
+import { searchKnowledgeTool } from './tools/searchKnowledge';
 import { searchOnyxTool } from './tools/searchOnyx';
 
 /* ------------------------------------------------------------------ */
@@ -110,8 +112,14 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
 
   // Tools: built-ins from createDeepAgent (ls/read_file/.../task/write_todos)
   // plus our domain-specific tools below.
+  //
+  // `VOCION_RETRIEVAL=native` swaps the Onyx-backed search_onyx tool for
+  // the pgvector-backed search_knowledge tool. The model sees only one
+  // search-* tool at a time so the prompt + few-shot patterns keep
+  // working. Default stays on Onyx until L.6 cuts the dependency over.
+  const useNativeRetrieval = process.env.VOCION_RETRIEVAL === 'native';
   const tools = [
-    searchOnyxTool(ctx),
+    useNativeRetrieval ? searchKnowledgeTool(ctx) : searchOnyxTool(ctx),
     lookupObjectsTool(ctx),
     findRelatedConversationsTool(ctx),
     searchEverythingTool(ctx),
