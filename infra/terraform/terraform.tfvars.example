@@ -1,0 +1,78 @@
+# Vocion AWS deploy — operator-filled variables.
+#
+# Copy to terraform.tfvars (which is gitignored), fill in the
+# (set me) values, then `tofu apply`.
+
+# AWS access — the named profile from ~/.aws/credentials. Confirmed
+# working: `metacto`.
+aws_profile = "metacto"   # account 339712698650 — owns the vocion.ai hosted zone
+region      = "us-east-1"
+
+# Route 53 hosted zone for vocion.ai. Provided 2026-05-12.
+hosted_zone_id = "Z06298783TMOTVTWTEX01"
+apex_domain    = "vocion.ai"
+www_subdomain  = "www.vocion.ai"
+
+# EC2 sizing. r6i.2xlarge = 8 vCPU / 64 GB / ~$0.50/hr.
+instance_type   = "r6i.2xlarge"
+root_volume_gb  = 32
+data_volume_gb  = 200
+
+# Pre-create an EC2 key pair via the console or:
+#   AWS_PROFILE=metacto aws ec2 create-key-pair --key-name vocion-prod \
+#     --query 'KeyMaterial' --output text > ~/.ssh/vocion-prod.pem
+#   chmod 400 ~/.ssh/vocion-prod.pem
+key_name = "vocion-prod"
+
+# Optional — tighten SSH ingress to your operator IP. /32 is best.
+# ssh_cidr = "203.0.113.42/32"
+
+# Git ref the EC2 deploys.
+git_repo = "https://github.com/vocion/core.git"
+git_ref  = "main"
+
+# ALL APP SECRETS BELOW.
+#
+# Every key in `secret_payload` is written verbatim to
+# /opt/vocion/infra/aws/.env.production on the EC2. Match the shape of
+# infra/aws/.env.production.example; add new env vars by adding new
+# map keys here.
+#
+# Treat this file like a password manager export — DO NOT COMMIT.
+secret_payload = {
+  # ---- DNS ----
+  VOCION_HOSTNAME = "vocion.ai"
+
+  # ---- Database (in-network postgres container; flip to RDS later) ----
+  DATABASE_URL = "postgres://postgres:postgres@postgres:5432/corecontext"
+
+  # ---- Clerk ----
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = "pk_live_SET_ME"
+  CLERK_SECRET_KEY                  = "sk_live_SET_ME"
+
+  # ---- LLM providers ----
+  ANTHROPIC_API_KEY = "sk-ant-SET_ME"
+  OPENAI_API_KEY    = "sk-SET_ME"
+
+  # ---- Onyx (in-network) ----
+  ONYX_API_URL = "http://onyx-api-server:8080/api"
+  ONYX_API_KEY = "SET_ME_AFTER_ONYX_BOOT"
+
+  # ---- Langfuse ----
+  LANGFUSE_BASE_URL   = "https://cloud.langfuse.com"
+  LANGFUSE_PUBLIC_KEY = "pk-lf-SET_ME"
+  LANGFUSE_SECRET_KEY = "sk-lf-SET_ME"
+
+  # ---- Agent runtime feature flag ----
+  VOCION_AGENT_RUNTIME = "deepagents"
+
+  # ---- Feedback worker (opt-in) ----
+  ENABLE_FEEDBACK_WORKER = "1"
+  VOCION_BOT_EMAIL       = ""
+
+  # ---- Sentry (optional) ----
+  NEXT_PUBLIC_SENTRY_DISABLED = "1"
+
+  # ---- Misc ----
+  NODE_ENV = "production"
+}

@@ -25,11 +25,20 @@ class PluginRegistry {
   }
 
   /**
-   * Look up a skill by slug. Returns null if no plugin owns it (fall back to prompt-only).
+   * Look up an operation by slug. Returns null if no plugin owns it
+   * (fall back to prompt-only).
    * @param slug
    */
-  getSkill(slug: string): AnySkill | null {
+  getOperation(slug: string): AnySkill | null {
     return this.skills.get(slug)?.skill ?? null;
+  }
+
+  /**
+   * @param slug
+   * @deprecated v0.2 — use {@link getOperation}.
+   */
+  getSkill(slug: string): AnySkill | null {
+    return this.getOperation(slug);
   }
 
   /** Catalog view for `plugins_list` MCP tool / UI. */

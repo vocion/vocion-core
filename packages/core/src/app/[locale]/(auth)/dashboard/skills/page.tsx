@@ -2,9 +2,11 @@ import { auth } from '@clerk/nextjs/server';
 import { Search, Send, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
+import { StatusPill } from '@/components/ui/status-pill';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
 import { listSkills } from '@/services/SkillService';
+import { isEntityStatus } from '@/types/Status';
 
 const categoryIcons: Record<string, React.ReactNode> = {
   query: <Search className="size-4 text-primary" />,
@@ -61,7 +63,9 @@ export default async function SkillsPage(props: {
                   <div className="mb-2 flex items-center gap-2">
                     {categoryIcons[skill.category ?? 'query']}
                     <span className="text-sm font-medium">{skill.name}</span>
-                    <Badge variant={skill.status === 'active' ? 'default' : 'secondary'} className="ml-auto">{skill.status}</Badge>
+                    <span className="ml-auto">
+                      <StatusPill status={skill.status && isEntityStatus(skill.status) ? skill.status : 'inactive'} />
+                    </span>
                   </div>
                   <div className="mb-2 font-mono text-[11px] text-muted-foreground">{skill.slug}</div>
                   {skill.description && <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{skill.description}</p>}

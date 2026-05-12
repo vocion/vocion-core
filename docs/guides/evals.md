@@ -96,7 +96,7 @@ fixtures:
 Conversation fixtures — does the agent reach for the right skill, cite the right source, stay in scope?
 
 ```yaml
-# context/<org>/agents/ziggy/evals.yaml
+# context/<org>/agents/sales-assistant/evals.yaml
 fixtures:
   - name: summarize_invokes_discovery_summary
     input:

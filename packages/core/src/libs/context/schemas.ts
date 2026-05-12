@@ -45,6 +45,36 @@ export const AgentManifestSchema = z.object({
   fewShotExamples: z.array(FewShotExampleSchema).default([]),
   approvalPolicy: z.record(z.string(), z.unknown()).default({}),
   langfuseProjectId: z.string().optional(),
+  /**
+   * Sub-agent definitions (v0.2). Each entry compiles into a deepagents
+   * `SubAgent` the parent dispatches via the `task` tool. `systemPrompt`
+   * may be inlined here, or supplied via `systemPromptFile` (relative
+   * path). At least one of the two is required per entry.
+   */
+  subagents: z.array(z.object({
+    name: z.string().regex(/^[a-z][a-z0-9_-]*$/),
+    description: z.string(),
+    systemPrompt: z.string().optional(),
+    systemPromptFile: z.string().optional(),
+    tools: z.array(z.string()).optional(),
+    model: z.string().optional(),
+  }).refine(
+    s => !!(s.systemPrompt || s.systemPromptFile),
+    { message: 'subagent must have either systemPrompt or systemPromptFile' },
+  )).default([]),
+  /** Playbook-tag filter — see `playbook.tags`. */
+  playbookTags: z.array(z.string()).default([]),
+  /** Names of `learning_step` rows this agent owns. (Wired in Phase 5.) */
+  learningSteps: z.array(z.string()).default([]),
+  /** Empty-state suggestions shown in the chat UI. */
+  suggestions: z.array(z.object({
+    label: z.string(),
+    prompt: z.string(),
+  })).default([]),
+  /** CSS color name for the agent's chat header / sidebar. */
+  accent: z.string().optional(),
+  /** Short tagline shown above the chat title. */
+  eyebrow: z.string().optional(),
 }).refine(
   v => !!(v.systemPromptFile || v.systemPrompt),
   { message: 'agent must have either systemPromptFile or inline systemPrompt' },
@@ -153,3 +183,77 @@ export const ObjectTypeManifestSchema = z.object({
   fewShotExamples: z.array(FewShotExampleSchema).default([]),
 });
 export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
+
+/**
+ * Playbook frontmatter schema (v0.2).
+ *
+ * A Playbook is a markdown + YAML procedural guide that the agent
+ * reads on demand from its virtual filesystem at
+ * `/playbooks/<slug>/SKILL.md`. The file's YAML frontmatter must
+ * validate against this schema. The body is the agent-facing playbook
+ * content — sections, rules, examples, anti-patterns — written as if
+ * for a smart human collaborator.
+ *
+ * Naming note: the on-disk filename is `SKILL.md` (rather than
+ * `playbook.md`) because deepagents's `createSkillsMiddleware` looks
+ * for that exact name when lazy-loading on `task` activation. The
+ * external concept is "Playbook"; the internal deepagents filename
+ * is `SKILL.md`.
+ */
+/**
+ * LearningStep authoring schema (v0.2). Each
+ * `context/<org>/learnings/<name>.yaml` declares one named step
+ * (`global`, `meeting_triage`, ...). Steps are whitelisted via this
+ * authoring path so the rule store doesn't drift into a junk drawer.
+ */
+/**
+ * Eval dataset authoring schema (v0.2). Each
+ * `context/<org>/evals/<slug>.yaml` declares one dataset.
+ */
+export const EvalDatasetManifestSchema = z.object({
+  slug: SlugSchema,
+  name: z.string(),
+  description: z.string().optional(),
+  agentSlug: z.string().describe('which agent slug this dataset evaluates'),
+  version: z.number().int().positive().default(1),
+  items: z.array(z.object({
+    input: z.string().describe('the user message to send to the agent'),
+    expectedOutput: z.string().optional().describe('substantive-equivalence guidance, not literal match'),
+    rubric: z.string().optional().describe('per-case rubric the judge uses'),
+    tags: z.array(z.string()).optional(),
+  })).min(1),
+});
+export type EvalDatasetManifest = z.infer<typeof EvalDatasetManifestSchema>;
+
+export const LearningStepManifestSchema = z.object({
+  name: SlugSchema,
+  title: z.string(),
+  description: z.string(),
+  /** Long-form intro shown above the rule list. Markdown allowed. */
+  preamble: z.string().optional(),
+  /** Which agent slugs own / read this step. */
+  agents: z.array(z.string()).default([]),
+});
+export type LearningStepManifest = z.infer<typeof LearningStepManifestSchema>;
+
+export const PlaybookManifestSchema = z.object({
+  slug: SlugSchema,
+  name: z.string().describe('Human-readable name for catalog UI.'),
+  description: z.string().describe('One-line summary the agent reads to decide when to activate this playbook.'),
+  tags: z.array(z.string()).default([]).describe('Per-agent filter — an agent\'s `playbookTags` field selects which playbooks mount into its virtual FS. Empty agent list = all playbooks mount.'),
+  version: z.number().int().positive().default(1),
+  /**
+   * Sibling resource files (e.g. `REFERENCE.html`, `COMPONENTS.md`,
+   * `examples/*.json`) that the playbook references. Listed here so
+   * the catalog row is aware of them; the runtime mount helper picks
+   * them up from the same folder regardless.
+   */
+  resources: z.array(z.string()).default([]),
+  /**
+   * Optional license string (e.g. `proprietary`, `Apache-2.0`,
+   * `client:metacto`). Surfaced in the catalog so partners can
+   * filter / audit by license.
+   */
+  license: z.string().optional(),
+});
+export type PlaybookManifest = z.infer<typeof PlaybookManifestSchema>;

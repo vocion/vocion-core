@@ -44,5 +44,48 @@ services:
       timeout: 3s
       retries: 10
 
+  # Feedback worker — Phase 6. Opt-in: only starts under the `worker`
+  # profile (e.g. `docker compose --profile worker up -d`). Requires
+  # `ENABLE_FEEDBACK_WORKER=1` in the env file. Replace this dev
+  # bind-mount image with a real Dockerfile before deploying to prod.
+  worker:
+    image: node:20-alpine
+    container_name: corecontext-worker
+    restart: unless-stopped
+    profiles: [worker]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      ENABLE_FEEDBACK_WORKER: '1'
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/corecontext
+    command: [sh, -c, 'cd packages/core && npm run worker:serve']
+
+  # Temporal worker (Phase H.1). Runs vocionWorkflow Workflows +
+  # Activities against the Temporal server in the platform stack.
+  # Opt-in via `worker` profile + ENABLE_TEMPORAL_WORKER=1. Requires
+  # the platform stack (infra/docker-compose.platform.yml) to be up
+  # so `temporal:7233` resolves.
+  temporal-worker:
+    image: node:20-alpine
+    container_name: corecontext-temporal-worker
+    restart: unless-stopped
+    profiles: [worker]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      ENABLE_TEMPORAL_WORKER: '1'
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/corecontext
+      VOCION_TEMPORAL_ADDRESS: temporal:7233
+      VOCION_TEMPORAL_NAMESPACE: default
+    command: [sh, -c, 'cd packages/core && npm run temporal:worker']
+
 volumes:
   pgdata:

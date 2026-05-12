@@ -92,20 +92,61 @@ src/
 ├── utils/AppConfig.ts     # App name, pricing plans, locale config
 └── locales/               # Translation files (en.json, fr.json)
 
-context/                   # Git-backed client context (Phase 1+)
-└── <org>/                 # Per-tenant agents, skills, object types — YAML + MD
+context/                   # Git-backed client context
+└── <org>/                 # Per-tenant authoring directory
+    ├── agents/            # YAML — slug, prompt, subagents, suggestions
+    ├── operations/        # v0.2: renamed from skills/. Typed LLM calls.
+    ├── playbooks/         # v0.2: markdown + YAML procedural guides
+    ├── learnings/         # v0.2: whitelisted rule-step buckets
+    ├── evals/             # v0.2: eval datasets per agent
+    ├── workflows/         # YAML — sequential steps with approve gates
+    └── objects/           # YAML — business object type definitions
 ```
 
 ## Context as Code
 
-Client-specific prompts, agent config, skill definitions, and business object schemas live in `context/<org>/` as YAML + markdown — never hardcoded in TS. Edit the files, then:
+Every authored resource lives in `context/<org>/` as YAML + markdown — never hardcoded in TS. Edit the files, then:
 
 ```bash
 npm run context:check      # validate + diff
 npm run context:apply      # sync to DB; records a context_version row
 ```
 
-Every `skill_run` stamps the active `context_sha` so you can trace any output back to the exact prompts that produced it. See `context/README.md` for authoring.
+Every operation run + agent run + eval run stamps the active `context_sha` so you can trace any output back to the exact prompts that produced it. See `context/README.md` for authoring.
+
+## Agent runtime (v0.2)
+
+Agents run on **LangChain.js + `deepagents@1.10`**. The runtime gives you subagents (declared per-agent in YAML), a per-request virtual filesystem mounting playbooks at `/playbooks/<slug>/` and rendered learnings at `/learnings/<step>.md`, built-in `write_todos` + filesystem tools, and SSE streaming with 15s keepalives. See [`docs/internal/adr/0001-langchain-deepagents.md`](./docs/internal/adr/0001-langchain-deepagents.md).
+
+Opt in by setting `VOCION_AGENT_RUNTIME=deepagents` and pointing the chat at `/rpc/agent/stream`. Default model: `claude-sonnet-4-6` (main) + `claude-haiku-4-5-20251001` (classifier). Override per-role via `VOCION_LLM_MODEL_MAIN` etc.
+
+## Background worker
+
+The comment-feedback loop ships as a separate process (Next.js doesn't host long-lived workers):
+
+```bash
+ENABLE_FEEDBACK_WORKER=1 npm run worker:serve
+# or
+docker compose --profile worker up -d
+```
+
+Opt-in via the env flag. Drains `feedback_job` rows queued by Drive webhooks, classifies via Haiku, and writes the classification back. Self-improver subagent surfaces candidates for user approval; main agent commits via `add_learning`.
+
+## Evals + budgets
+
+- `npm run eval:run -- --dataset <slug>` — run a context-authored dataset through the agent and score each case via an LLM judge. CI exits non-zero if pass-rate < 0.8.
+- `agent_budget` table caps per-period token + dollar spend per agent. Pre-flight refusal in `runAgentDeep` when over the hard cap. Opt-in: no row → no enforcement.
+
+## Observability
+
+Self-hosted **Langfuse** (in `infra/docker-compose.platform.yml`) traces every LLM call with normalized tags — `feature:<name>`, `org:<orgId>`, `slug:<slug>` — plus `userId` and `sessionId`. UI at http://localhost:3200; admin login lives in `infra/.env.langfuse.local` (gitignored); project `demo`, keys `pk-lf-corecontext-demo` / `sk-lf-corecontext-demo`.
+
+```bash
+npm run langfuse:smoke      # verify the stack accepts + returns a trace
+npm run langfuse:bootstrap  # one-time: register Claude 4.6 / 4.7 / Haiku 4.5 pricing
+```
+
+`libs/Langfuse.ts` exposes `traceFor({ feature, slug, orgId, userId })` — use it from any new LLM path so traces stay sliceable. See [`docs/guides/observability.md`](./docs/guides/observability.md).
 
 ## Multi-Tenancy
 
@@ -144,7 +185,7 @@ infra/
 requirements/                    # Product specs and case studies
 ├── overview.md                  # Platform vision
 ├── architecture.md              # System architecture
-├── ziggy-*.md                   # Ziggy sales agent case study
+├── sales-assistant-*.md                   # the Sales Assistant sales agent case study
 └── ...
 ```
 

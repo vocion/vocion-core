@@ -76,4 +76,4 @@ The platform abstracts retrieval behind `ctx.retrieve(query, opts)` so plugin sk
 - PostgreSQL 16 or 17
 - Docker Compose ≥ 2.20 (for `include:` directive in `docker-compose.yml`)
 
-See [`architecture.md`](./architecture.md) for how these compose, [`/docs/self-hosted.md`](../docs/self-hosted.md) for the install guide, [`overview.md`](./overview.md) for product framing.
+See [`architecture.md`](./architecture.md) for how these compose, [`self-hosting.md`](../docs/guides/self-hosting.md) for the install guide, [`overview.md`](./overview.md) for product framing.

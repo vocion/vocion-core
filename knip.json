@@ -1,0 +1,56 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["docker-compose.yml", "infra/**/*.{yml,yaml,sh,tf}"],
+      "ignore": ["infra/terraform/**", "infra/onyx/**"]
+    },
+    "packages/core": {
+      "entry": [
+        "src/app/**/{page,layout,route,loading,error,not-found,sitemap,robots,opengraph-image,twitter-image,icon,apple-icon}.{ts,tsx}",
+        "src/middleware.ts",
+        "src/instrumentation*.ts",
+        "src/scripts/*.ts",
+        "src/interfaces/mcp/bin.ts",
+        "src/{global,sentry.client,sentry.server,sentry.edge}.ts",
+        "tests/**/*.{ts,tsx}",
+        ".storybook/**/*.{ts,tsx}",
+        "next.config.ts",
+        "drizzle.config.ts",
+        "vitest.config.mts",
+        "playwright.config.ts",
+        "checkly.config.ts",
+        "postcss.config.mjs"
+      ],
+      "project": ["src/**/*.{ts,tsx}", "!src/**/*.test.{ts,tsx}"],
+      "ignore": [
+        "src/components/ui/**",
+        "src/features/dashboard/chat/**",
+        "src/features/landing/**",
+        "src/templates/**",
+        "src/types/**",
+        "src/libs/plugins/**",
+        "src/libs/onyx/**",
+        "src/libs/llm/**",
+        "src/libs/temporal/**",
+        "src/libs/Langfuse/**",
+        "src/libs/crypto/**",
+        "src/libs/docs/**",
+        "src/libs/agentAccent.ts",
+        "src/libs/Langfuse.ts",
+        "src/libs/pricing.ts",
+        "src/services/**",
+        "src/routers/**"
+      ],
+    },
+    "packages/sdk": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.ts"],
+    },
+    "packages/plugins/*": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.ts"],
+    }
+  },
+  "ignoreBinaries": ["dotenv", "tofu", "tsx", "playwright"]
+}

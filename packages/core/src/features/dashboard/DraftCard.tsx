@@ -1,12 +1,14 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import type { RunStatus } from '@/types/Status';
 import { Check, ClipboardCopy, Edit3, X } from 'lucide-react';
 import { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { StatusPill } from '@/components/ui/status-pill';
 
-export type DraftCardStatus = 'pending' | 'approved' | 'rejected' | 'auto';
+export type DraftCardStatus = Extract<RunStatus, 'pending' | 'approved' | 'rejected' | 'auto'>;
 
 export type DraftCardProps = {
   /** Icon + label for the card type */
@@ -55,10 +57,12 @@ export function toMarkdown(text: string): string {
     .replace(/([.!?])\n([A-Z])/g, '$1\n\n$2');
 }
 
-const statusColors: Record<string, string> = {
-  pending: 'border-blue-200 bg-blue-50/20 dark:border-blue-900 dark:bg-blue-950/10',
-  approved: 'border-green-200 bg-green-50/30 dark:border-green-900 dark:bg-green-950/10',
-  rejected: 'border-red-200 bg-red-50/30 dark:border-red-900 dark:bg-red-950/10',
+// Card border tone tracks the StatusPill tone — same design tokens
+// as ApprovalCard so the visual language stays consistent.
+const statusColors: Record<DraftCardStatus, string> = {
+  pending: 'border-[var(--brand-borderline)]/30 bg-[var(--brand-borderline-bg)]/30',
+  approved: 'border-[var(--brand-pass)]/30 bg-[var(--brand-pass-bg)]/30',
+  rejected: 'border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30',
   auto: 'border-border bg-background',
 };
 
@@ -99,33 +103,21 @@ export const DraftCard = ({
   };
 
   return (
-    <div className={`rounded-lg border-2 ${statusColors[status] ?? ''}`}>
+    <div className={`rounded-xl border ${statusColors[status]}`}>
       {/* Header */}
       <div className="border-b border-border/50 px-5 py-3">
         <div className="flex items-center gap-2">
           {icon}
-          <span className="text-sm font-semibold">{label}</span>
+          <span className="font-display text-sm font-semibold">{label}</span>
           <span className="text-xs text-muted-foreground">
             {skillName}
             {' '}
             &middot; Run #
             {runId}
           </span>
-          {status === 'pending' && (
-            <span className="ml-auto rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
-              Pending Approval
-            </span>
-          )}
-          {status === 'approved' && (
-            <span className="ml-auto rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-              Approved
-            </span>
-          )}
-          {status === 'rejected' && (
-            <span className="ml-auto rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
-              Rejected
-            </span>
-          )}
+          <span className="ml-auto">
+            <StatusPill status={status} />
+          </span>
         </div>
         {prospectName && (
           <div className="mt-1 text-xs text-muted-foreground">

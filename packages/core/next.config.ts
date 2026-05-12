@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { join } from 'node:path';
 import withBundleAnalyzer from '@next/bundle-analyzer';
 import { withSentryConfig } from '@sentry/nextjs';
 import createNextIntlPlugin from 'next-intl/plugin';
@@ -6,6 +7,12 @@ import './src/libs/Env';
 
 // Define the base Next.js configuration
 const baseConfig: NextConfig = {
+  // Standalone output for Docker — produces .next/standalone/ with only
+  // the runtime deps the server needs (cuts image size ~1.5GB → ~250MB).
+  // Required by the production Dockerfile in this same directory.
+  output: 'standalone',
+  // Capture monorepo root one level up so node_modules tracing works.
+  outputFileTracingRoot: join(__dirname, '../..'),
   devIndicators: {
     position: 'bottom-right',
   },

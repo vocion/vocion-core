@@ -1,0 +1,91 @@
+# Vocion production overlay — single-EC2 + Docker Compose (Phase F).
+#
+# Compose this with the repo-root docker-compose.yml (Postgres) and
+# infra/docker-compose.platform.yml (Langfuse + OTel + Temporal) to
+# bring up the full stack on one VM:
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f infra/docker-compose.platform.yml \
+#     -f infra/aws/docker-compose.prod.yml \
+#     -p vocion up -d
+#
+# Onyx (12-container retrieval stack) lives in its own compose project
+# at infra/onyx/onyx-repo/deployment/docker_compose. The bootstrap
+# script (infra/aws/bootstrap.sh) brings it up in parallel.
+#
+# Secrets are pulled from infra/aws/.env.production (operator-managed,
+# never committed). See infra/aws/.env.production.example for the
+# shape.
+
+services:
+  app:
+    image: vocion-app:latest
+    container_name: vocion-app
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: packages/core/Dockerfile
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      # Override DATABASE_URL inside .env.production to point at the
+      # in-network postgres service or an external RDS endpoint.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - corecontext
+    expose:
+      - '3000'
+    # On first boot the app container runs migrations + context:apply
+    # via the bootstrap script before Caddy starts serving. See
+    # infra/aws/bootstrap.sh.
+
+  worker:
+    image: vocion-app:latest
+    container_name: vocion-worker
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      ENABLE_FEEDBACK_WORKER: '1'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - corecontext
+    # Override the default CMD (next server) to run the feedback worker.
+    # The standalone output places the worker entry alongside server.js.
+    command: [node, packages/core/src/scripts/worker-serve.js]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: vocion-caddy
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    env_file:
+      - .env.production
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks:
+      - corecontext
+
+networks:
+  corecontext:
+    external: true
+    name: corecontext
+
+volumes:
+  caddy_data:
+  caddy_config:

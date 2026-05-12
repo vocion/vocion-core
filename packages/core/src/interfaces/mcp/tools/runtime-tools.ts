@@ -19,33 +19,48 @@ type ToolModule = {
 
 export function runtimeTools(config: McpConfig): ToolModule[] {
   return [
-    runSkillTool(config),
+    runOperationTool(config, 'runtime_run_operation', 'Execute an operation'),
+    // Back-compat alias. External MCP consumers (e.g. Claude Code) may
+    // have `runtime_run_skill` hardcoded. Drop in a future major.
+    runOperationTool(
+      config,
+      'runtime_run_skill',
+      '[deprecated] alias of runtime_run_operation — use the new name in new integrations',
+    ),
     listRunsTool(config),
     approveTool(config),
     rejectTool(config),
   ];
 }
 
-function runSkillTool(config: McpConfig): ToolModule {
+function runOperationTool(config: McpConfig, name: string, title: string): ToolModule {
   return {
-    name: 'runtime_run_skill',
-    title: 'Execute a skill',
-    description: 'Run a skill with the given input. Returns run_id, output, and Langfuse trace id. Runs with requiresApproval=true will return status=pending; others auto-complete.',
+    name,
+    title,
+    description: 'Run an operation with the given input. Returns run_id, output, and Langfuse trace id. Runs with requiresApproval=true will return status=pending; others auto-complete.',
     inputSchema: {
-      skill_slug: z.string().describe('the skill slug to run (e.g. discovery_summary)'),
-      input: z.record(z.string(), z.unknown()).describe('variables matching the skill inputSchema'),
-      user_id: z.string().optional().describe('who triggered the run; stored on the skill_run row'),
+      // Accept the new `operation_slug` and keep `skill_slug` as an
+      // alias for v0.1 callers.
+      operation_slug: z.string().optional().describe('operation slug to run (e.g. discovery_summary)'),
+      skill_slug: z.string().optional().describe('[deprecated] alias of operation_slug'),
+      input: z.record(z.string(), z.unknown()).describe('variables matching the operation inputSchema'),
+      user_id: z.string().optional().describe('who triggered the run; stored on the run row'),
     },
     handler: async (input) => {
-      const { skill_slug, input: skillInput, user_id } = input as {
-        skill_slug: string;
+      const { operation_slug, skill_slug, input: opInput, user_id } = input as {
+        operation_slug?: string;
+        skill_slug?: string;
         input: Record<string, unknown>;
         user_id?: string;
       };
+      const slug = operation_slug ?? skill_slug;
+      if (!slug) {
+        throw new Error('one of `operation_slug` or `skill_slug` is required');
+      }
       return executeSkill({
         orgId: config.orgId,
-        skillSlug: skill_slug,
-        input: skillInput,
+        skillSlug: slug,
+        input: opInput,
         userId: user_id ?? 'mcp',
       });
     },

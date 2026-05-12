@@ -1,0 +1,12 @@
+name: global
+title: Global
+description: |
+  Cross-cutting rules that apply to every agent action: tone of voice,
+  capitalization conventions, words to avoid, formatting preferences,
+  brand voice. Anything that is true regardless of which step we're in.
+agents:
+  - sales-assistant
+preamble: |
+  Apply these rules to every reply, draft, summary, and tool invocation.
+  When in doubt between a learned rule and a default behavior, the
+  learned rule wins.

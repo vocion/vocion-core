@@ -4,6 +4,7 @@ import { CheckCircle, Clock, GitBranch, RotateCw, Sparkles, ThumbsDown, ThumbsUp
 import { useState, useTransition } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { StatusPill } from '@/components/ui/status-pill';
 import { client } from '@/libs/Orpc';
 
 type SkillRunRow = {
@@ -230,7 +231,7 @@ function SkillRunCard({
             )}
           </div>
         </div>
-        <Badge variant="outline">pending</Badge>
+        <StatusPill status="pending" />
       </button>
 
       {isOpen && (
@@ -242,6 +243,15 @@ function SkillRunCard({
               Langfuse trace:
               {' '}
               <code>{run.langfuseTraceId}</code>
+              {' · '}
+              <a
+                href={`${process.env.NEXT_PUBLIC_LANGFUSE_BASE_URL ?? 'http://localhost:3200'}/project/${process.env.NEXT_PUBLIC_LANGFUSE_PROJECT_ID ?? 'demo'}/traces/${run.langfuseTraceId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary hover:underline"
+              >
+                Open in Langfuse ↗
+              </a>
             </div>
           )}
           <div className="rounded-md border border-border bg-muted/30 p-3">
@@ -335,7 +345,7 @@ function WorkflowRunCard({
             )}
           </div>
         </div>
-        <Badge variant="outline">paused</Badge>
+        <StatusPill status="paused" />
       </button>
 
       {isOpen && (

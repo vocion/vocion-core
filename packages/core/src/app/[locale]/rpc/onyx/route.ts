@@ -1,4 +1,6 @@
-import { langfuse } from '@/libs/Langfuse';
+import { auth } from '@clerk/nextjs/server';
+import { langfuse, traceFor } from '@/libs/Langfuse';
+import { FEATURES } from '@/libs/Langfuse/features';
 
 const ONYX_URL = process.env.ONYX_API_URL || 'http://localhost:8080';
 const ONYX_KEY = process.env.ONYX_API_KEY || '';
@@ -11,13 +13,18 @@ export async function POST(request: Request) {
     });
   }
 
+  const { orgId, userId } = await auth();
+
   const body = await request.json();
   const message = body.message as string;
   const sessionId = body.chat_session_id as string | undefined;
 
   // Start Langfuse trace for this chat request
-  const trace = langfuse.trace({
-    name: 'chat',
+  const trace = traceFor({
+    feature: FEATURES.ONYX_SEARCH,
+    slug: 'live',
+    orgId: orgId ?? 'anonymous',
+    userId: userId ?? 'system',
     input: { message },
     sessionId: sessionId ?? undefined,
     metadata: {

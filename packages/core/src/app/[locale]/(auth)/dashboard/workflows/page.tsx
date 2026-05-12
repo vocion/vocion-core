@@ -1,10 +1,11 @@
 import { auth } from '@clerk/nextjs/server';
 import { GitBranch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import { Badge } from '@/components/ui/badge';
+import { StatusPill } from '@/components/ui/status-pill';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
 import { listWorkflows } from '@/services/WorkflowService';
+import { isEntityStatus } from '@/types/Status';
 
 export default async function WorkflowsPage(props: {
   params: Promise<{ locale: string }>;
@@ -55,7 +56,9 @@ export default async function WorkflowsPage(props: {
                     <div className="mb-2 flex items-center gap-2">
                       <GitBranch className="size-4 text-primary" />
                       <span className="text-sm font-medium">{w.name}</span>
-                      <Badge variant={w.status === 'active' ? 'default' : 'secondary'} className="ml-auto">{w.status}</Badge>
+                      <span className="ml-auto">
+                        <StatusPill status={w.status && isEntityStatus(w.status) ? w.status : 'inactive'} />
+                      </span>
                     </div>
                     <div className="mb-2 font-mono text-[11px] text-muted-foreground">{w.slug}</div>
                     {w.description && <p className="text-xs leading-relaxed text-muted-foreground">{w.description}</p>}

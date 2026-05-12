@@ -59,13 +59,15 @@ services:
       ENCRYPTION_KEY: 9bf2e54550467e89297157670d9545b438a647653e23abecaeaf682cac0e6e1d
       LANGFUSE_INIT_ORG_ID: corecontext
       LANGFUSE_INIT_ORG_NAME: CoreContext
-      LANGFUSE_INIT_PROJECT_ID: ziggy
-      LANGFUSE_INIT_PROJECT_NAME: Ziggy
-      LANGFUSE_INIT_USER_EMAIL: admin@corecontext.com
-      LANGFUSE_INIT_USER_PASSWORD: corecontext-admin
-      LANGFUSE_INIT_USER_NAME: Admin
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-corecontext-ziggy
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-corecontext-ziggy
+      LANGFUSE_INIT_PROJECT_ID: demo
+      LANGFUSE_INIT_PROJECT_NAME: Demo
+      # Real values come from `infra/.env.langfuse.local` (gitignored).
+      # Defaults keep fresh clones bootable with a placeholder login.
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@corecontext.com}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-corecontext-admin}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Admin}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-corecontext-demo
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-corecontext-demo
     networks:
       - corecontext
 

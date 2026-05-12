@@ -137,7 +137,7 @@ async function runAgent(message: string): Promise<{ response: string; toolCalls:
 
   const result = await runAgentFn({
     orgId: 'org_3B7f6cPKTKnJOExO55asDaUVAay',
-    agentSlug: 'ziggy',
+    agentSlug: 'sales-assistant',
     message,
   });
 
@@ -150,6 +150,23 @@ async function runAgent(message: string): Promise<{ response: string; toolCalls:
 async function main() {
   console.log('🧪 CoreContext Agent Eval Runner\n');
   console.log('='.repeat(60));
+
+  // Phase 7 — DB-backed dataset path. Trigger via `--dataset <slug>`.
+  const datasetFlagIndex = process.argv.indexOf('--dataset');
+  if (datasetFlagIndex !== -1 && process.argv[datasetFlagIndex + 1]) {
+    const datasetSlug = process.argv[datasetFlagIndex + 1]!;
+    const orgArg = process.argv.indexOf('--org');
+    const orgId = orgArg !== -1 && process.argv[orgArg + 1]
+      ? process.argv[orgArg + 1]!
+      : (process.env.VOCION_DEFAULT_ORG ?? 'org_3B7f6cPKTKnJOExO55asDaUVAay');
+    const { runDataset } = await import('../services/EvalService');
+    console.log(`\n→ Running dataset "${datasetSlug}" for org ${orgId}...`);
+    const result = await runDataset({ orgId, datasetSlug });
+    console.log(`✓ eval_run #${result.runId} complete`);
+    console.log(`   metrics: ${JSON.stringify(result.metrics, null, 2)}`);
+    const passRate = (result.metrics?.passRate ?? 0) as number;
+    process.exit(passRate >= 0.8 ? 0 : 1);
+  }
 
   let totalChecks = 0;
   let passedChecks = 0;

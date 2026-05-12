@@ -80,14 +80,14 @@ Point the client at `tsx src/interfaces/mcp/bin.ts` with the same env. Any stdio
 
 ## Example flows
 
-### Edit Ziggy's system prompt
+### Edit the Sales Assistant's system prompt
 
 ```
-> Use context_get to show me agent ziggy, then update it to add a rule
+> Use context_get to show me agent sales-assistant, then update it to add a rule
 > about always including pricing in discovery summaries. Commit it.
 ```
 
-Claude Code will call `context_get` with `{kind: 'agent', slug: 'ziggy'}`, edit the `systemPrompt` field, then call `context_write_agent` — one commit, one apply, done.
+Claude Code will call `context_get` with `{kind: 'agent', slug: 'sales-assistant'}`, edit the `systemPrompt` field, then call `context_write_agent` — one commit, one apply, done.
 
 ### Test a new skill on real data
 
@@ -125,7 +125,7 @@ Turn off either leg with `autoCommit: false` / `autoApply: false` per call, or g
 
 ## Audit trail
 
-Every `skill_run` stamps `context_sha` with the SHA active at execution time. Every `context_version` records the SHA, per-resource counts, errors, and who applied. To answer "why did Ziggy write that email on April 14?":
+Every `skill_run` stamps `context_sha` with the SHA active at execution time. Every `context_version` records the SHA, per-resource counts, errors, and who applied. To answer "why did the Sales Assistant write that email on April 14?":
 
 ```sql
 SELECT sr.output, sr.context_sha, sr.created_at, cv.applied_by

@@ -29,6 +29,13 @@ export const AppConfig = {
     defaultLocale: 'en',
     localePrefix,
   },
+  /**
+   * Source of truth for "Edit this page on GitHub" links + the version
+   * of the framework users are looking at. Update when the public
+   * mirror moves.
+   */
+  githubRepoUrl: 'https://github.com/vocion/core',
+  githubMainBranch: 'main',
 };
 
 const supportedLocales: Record<string, LocalizationResource> = {
