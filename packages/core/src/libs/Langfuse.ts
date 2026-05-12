@@ -63,6 +63,43 @@ export function cleanUsageDetails(input: Record<string, number | undefined>): Re
   return out;
 }
 
+/**
+ * Push a user-feedback score onto an existing trace. Used by
+ * SkillService to forward thumbs-up/down + review approve/reject into
+ * Langfuse so dashboards can filter low-quality runs and track trends
+ * over time. Per the Langfuse "user-feedback" skill: score names
+ * reflect the signal *source*, not what we hope it measures.
+ *
+ *   - `user-thumbs`     — 1 (up) / 0 (down). BOOLEAN.
+ *   - `review-decision` — 1 (approved) / 0 (rejected). BOOLEAN.
+ *
+ * Errors are swallowed by design — observability should never fail a
+ * write. Returns true when the call was dispatched (still subject to
+ * background flush success), false on a recognized skip.
+ */
+export function pushScore(opts: {
+  traceId: string | null | undefined;
+  name: 'user-thumbs' | 'review-decision';
+  value: 0 | 1;
+  comment?: string | null;
+}): boolean {
+  if (!opts.traceId) {
+    return false;
+  }
+  try {
+    langfuse.score({
+      traceId: opts.traceId,
+      name: opts.name,
+      value: opts.value,
+      dataType: 'BOOLEAN',
+      comment: opts.comment ?? undefined,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function traceFor(opts: TraceFor): TraceLike {
   return langfuse.trace({
     name: `${opts.feature}:${opts.slug}`,
