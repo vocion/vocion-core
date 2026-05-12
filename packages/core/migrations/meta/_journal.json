@@ -127,6 +127,13 @@
       "when": 1778595189247,
       "tag": "0017_perpetual_karnak",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1778614593055,
+      "tag": "0018_amazing_maverick",
+      "breakpoints": true
     }
   ]
 }
