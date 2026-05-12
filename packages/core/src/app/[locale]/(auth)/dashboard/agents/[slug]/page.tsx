@@ -1,8 +1,8 @@
 import { auth } from '@clerk/nextjs/server';
-import { ArrowLeft, Bot, CheckCircle2, Clock } from 'lucide-react';
+import { ArrowLeft, Bot } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { Badge } from '@/components/ui/badge';
+import { StatusPill } from '@/components/ui/status-pill';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { getContextDirtyState } from '@/libs/context/dirty';
@@ -27,6 +27,7 @@ export default async function AgentDetailPage(props: {
 
   const sourceFiles = readPrimitiveFiles('agent', slug);
   const dirtyState = getContextDirtyState();
+  const skills = agent.skillSlugs ?? [];
 
   return (
     <>
@@ -43,16 +44,13 @@ export default async function AgentDetailPage(props: {
       <TitleBar
         title={(
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Bot className="size-5" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-[var(--brand-amber-tint)] text-[var(--brand-amber-deep)]">
+              <Bot className="size-5" aria-hidden />
             </div>
             <div>
-              <div>{agent.name}</div>
-              <div className="flex items-center gap-2 text-sm font-normal">
-                <Badge variant={agent.active === 'true' ? 'default' : 'outline'}>
-                  {agent.active === 'true' ? <CheckCircle2 className="mr-1 size-3" /> : <Clock className="mr-1 size-3" />}
-                  {agent.active === 'true' ? 'active' : 'inactive'}
-                </Badge>
+              <div className="font-display">{agent.name}</div>
+              <div className="mt-0.5 flex items-center gap-2 text-sm font-normal">
+                <StatusPill status={agent.active === 'true' ? 'active' : 'inactive'} size="sm" />
                 <span className="font-mono text-xs text-muted-foreground">{agent.slug}</span>
               </div>
             </div>
@@ -61,29 +59,30 @@ export default async function AgentDetailPage(props: {
         description={agent.description ?? undefined}
       />
 
-      <div className="mb-8 grid gap-4 lg:grid-cols-3">
-        <div className="rounded-lg border border-border p-4">
-          <div className="mb-1 text-xs text-muted-foreground">Wired skills</div>
-          <div className="text-2xl font-semibold">{agent.skillSlugs?.length ?? 0}</div>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {agent.skillSlugs?.slice(0, 6).map(s => (
-              <span key={s} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{s}</span>
-            ))}
-          </div>
-        </div>
-        <div className="rounded-lg border border-border p-4">
-          <div className="mb-1 text-xs text-muted-foreground">Created</div>
-          <div className="text-sm">{new Date(agent.createdAt).toLocaleDateString()}</div>
-        </div>
-        <div className="rounded-lg border border-border p-4">
-          <div className="mb-1 text-xs text-muted-foreground">Updated</div>
-          <div className="text-sm">{new Date(agent.updatedAt).toLocaleDateString()}</div>
-        </div>
-      </div>
+      <section className="mb-8">
+        <h2 className="mb-3 font-display text-sm font-semibold">Wired skills</h2>
+        {skills.length === 0
+          ? (
+              <p className="text-sm text-muted-foreground">No skills wired yet.</p>
+            )
+          : (
+              <div className="flex flex-wrap gap-1.5">
+                {skills.map(s => (
+                  <Link
+                    key={s}
+                    href={`/dashboard/skills/${s}`}
+                    className="rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] text-foreground/80 transition hover:border-primary/30 hover:text-foreground"
+                  >
+                    {s}
+                  </Link>
+                ))}
+              </div>
+            )}
+      </section>
 
       {sourceFiles && (
         <section className="mt-2">
-          <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Source files</h2>
+          <h2 className="mb-3 font-display text-sm font-semibold">Source files</h2>
           <PrimitiveFiles
             files={sourceFiles.files}
             editInGitPath={sourceFiles.editInGitPath}
