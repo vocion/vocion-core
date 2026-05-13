@@ -1,28 +1,20 @@
-import { getTranslations, setRequestLocale } from 'next-intl/server';
-import { DashboardSection } from '@/features/dashboard/DashboardSection';
-import { LiveConnectors } from '@/features/dashboard/LiveConnectors';
+import { setRequestLocale } from 'next-intl/server';
+import { SourcesPanel } from '@/features/dashboard/SourcesPanel';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 
-export default async function ConnectorsPage(props: {
+export default async function SourcesPage(props: {
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
-  const t = await getTranslations({ locale, namespace: 'Connectors' });
 
   return (
     <>
       <TitleBar
-        title={t('title_bar')}
-        description={t('title_bar_description')}
+        title="Sources"
+        description="Connected systems that feed context into agents + retrieval. Hybrid pgvector search runs over every chunk you ingest."
       />
-
-      <DashboardSection
-        title={t('section_active')}
-        description={t('section_active_description')}
-      >
-        <LiveConnectors />
-      </DashboardSection>
+      <SourcesPanel />
     </>
   );
 }
