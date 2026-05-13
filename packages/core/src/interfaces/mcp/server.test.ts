@@ -44,7 +44,7 @@ async function setupClientServer(contextDir: string) {
     contextPath: contextDir,
     autoCommit: true,
     autoApply: true,
-    serverName: 'corecontext-test',
+    serverName: 'vocion-test',
     serverVersion: '0.0.0',
   };
   const server = buildServer(config);

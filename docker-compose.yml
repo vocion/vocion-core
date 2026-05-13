@@ -26,18 +26,18 @@ services:
     # alternative `postgres:16-alpine` would require building the
     # extension from source on container start.
     image: pgvector/pgvector:pg16
-    container_name: corecontext-postgres
+    container_name: vocion-postgres
     restart: unless-stopped
     ports:
       - '5432:5432'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: corecontext
+      POSTGRES_DB: vocion
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, pg_isready -U postgres -d corecontext]
+      test: [CMD-SHELL, pg_isready -U postgres -d vocion]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -48,7 +48,7 @@ services:
   # bind-mount image with a real Dockerfile before deploying to prod.
   worker:
     image: node:20-alpine
-    container_name: corecontext-worker
+    container_name: vocion-worker
     restart: unless-stopped
     profiles: [worker]
     depends_on:
@@ -59,7 +59,7 @@ services:
       - ./:/app
     environment:
       ENABLE_FEEDBACK_WORKER: '1'
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/corecontext
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vocion
     command: [sh, -c, 'cd packages/core && npm run worker:serve']
 
   # Temporal worker (Phase H.1). Runs vocionWorkflow Workflows +
@@ -69,7 +69,7 @@ services:
   # so `temporal:7233` resolves.
   temporal-worker:
     image: node:20-alpine
-    container_name: corecontext-temporal-worker
+    container_name: vocion-temporal-worker
     restart: unless-stopped
     profiles: [worker]
     depends_on:
@@ -80,7 +80,7 @@ services:
       - ./:/app
     environment:
       ENABLE_TEMPORAL_WORKER: '1'
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/corecontext
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vocion
       VOCION_TEMPORAL_ADDRESS: temporal:7233
       VOCION_TEMPORAL_NAMESPACE: default
     command: [sh, -c, 'cd packages/core && npm run temporal:worker']

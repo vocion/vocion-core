@@ -114,9 +114,9 @@ ${chunk}`;
 });
 
 export const manifest: PluginManifest = {
-  id: 'corecontext.samples',
+  id: 'vocion.samples',
   version: '0.1.0',
-  description: 'Reference plugin shipped with CoreContext — the transcript_highlights skill.',
+  description: 'Reference plugin shipped with Vocion — the transcript_highlights skill.',
   skills: [transcriptHighlights],
 };
 

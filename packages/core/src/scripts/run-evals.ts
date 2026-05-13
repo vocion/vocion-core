@@ -1,6 +1,6 @@
 /* eslint-disable regexp/no-unused-capturing-group */
 /**
- * CoreContext Agent Eval Runner
+ * Vocion Agent Eval Runner
  *
  * Runs test cases against the agent endpoint and reports pass/fail.
  * Usage: npx tsx src/scripts/run-evals.ts
@@ -148,7 +148,7 @@ async function runAgent(message: string): Promise<{ response: string; toolCalls:
 }
 
 async function main() {
-  console.log('🧪 CoreContext Agent Eval Runner\n');
+  console.log('🧪 Vocion Agent Eval Runner\n');
   console.log('='.repeat(60));
 
   // Phase 7 — DB-backed dataset path. Trigger via `--dataset <slug>`.
