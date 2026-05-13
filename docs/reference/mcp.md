@@ -1,13 +1,13 @@
 # MCP Server
 
-CoreContext ships a Model Context Protocol server so you can author context, run skills, and inspect the review queue from **any MCP client** — Claude Code, Claude Desktop, Cursor, Zed, Continue. This is the first adapter of the [Phase 2 universal interface layer](../README.md#phase-2--universal-interface-layer-q3-2026).
+Vocion ships a Model Context Protocol server so you can author context, run skills, and inspect the review queue from **any MCP client** — Claude Code, Claude Desktop, Cursor, Zed, Continue. This is the first adapter of the [Phase 2 universal interface layer](../README.md#phase-2--universal-interface-layer-q3-2026).
 
 **Auto-apply is on by default.** Every `write_*` tool writes files to `context/<org>/`, commits to git with a generated message, applies to the DB, and records a `context_version` audit row — all in one atomic call. Override per-call with `autoApply: false` or `autoCommit: false`.
 
 ## Install for Claude Code
 
 ```bash
-claude mcp add corecontext -- npm --prefix /absolute/path/to/context-stack run mcp:serve
+claude mcp add vocion -- npm --prefix /absolute/path/to/context-stack run mcp:serve
 ```
 
 Or add to `~/.claude/mcp.json` (or project-level `.mcp.json`):
@@ -15,7 +15,7 @@ Or add to `~/.claude/mcp.json` (or project-level `.mcp.json`):
 ```json
 {
   "mcpServers": {
-    "corecontext": {
+    "vocion": {
       "command": "npm",
       "args": ["--prefix", "/absolute/path/to/context-stack", "run", "mcp:serve"],
       "env": {

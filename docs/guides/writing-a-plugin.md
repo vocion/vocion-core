@@ -170,7 +170,7 @@ Add to the MCP client config alongside `DATABASE_URL` and `OPENAI_API_KEY`:
 ```json
 {
   "mcpServers": {
-    "corecontext": {
+    "vocion": {
       "command": "npm",
       "args": ["--prefix", "/abs/path/to/context-stack", "run", "mcp:serve"],
       "env": {

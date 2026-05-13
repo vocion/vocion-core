@@ -40,7 +40,7 @@ const STARTERS: Record<string, Starter> = {
       'Approve → email sent + run logged',
       'Reject → run logged with reason, no message goes out',
     ],
-    repoStructure: `corecontext-sales-followup/
+    repoStructure: `vocion-sales-followup/
   context/
     skills/
       draft_email/
@@ -81,7 +81,7 @@ const STARTERS: Record<string, Starter> = {
       'If confidence < threshold OR keywords match (refund, legal, escalation): pause for approval',
       'Else: auto-send, still logged',
     ],
-    repoStructure: `corecontext-support-reply/
+    repoStructure: `vocion-support-reply/
   context/
     skills/
       summarize_ticket/
@@ -121,7 +121,7 @@ const STARTERS: Record<string, Starter> = {
       'Distribute via Slack / email',
       'Archive versioned in object store',
     ],
-    repoStructure: `corecontext-weekly-report/
+    repoStructure: `vocion-weekly-report/
   context/
     skills/
       generate_summary/

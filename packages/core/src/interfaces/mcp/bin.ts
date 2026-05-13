@@ -7,10 +7,10 @@ import { startServer } from './server';
 import 'dotenv/config';
 
 /**
- * stdio entrypoint for the CoreContext MCP server.
+ * stdio entrypoint for the Vocion MCP server.
  *
  * Wire into Claude Code with:
- *   claude mcp add corecontext -- npm --prefix /path/to/context-stack run mcp:serve
+ *   claude mcp add vocion -- npm --prefix /path/to/vocion run mcp:serve
  *
  * Or directly in an `.mcp.json` / Claude Desktop config:
  *   { "command": "npm", "args": ["--prefix", "/abs/path", "run", "mcp:serve"] }
@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   // tool call sees the full catalog.
   const pluginResult = await loadPlugins({ orgId: config.orgId });
   for (const err of pluginResult.errors) {
-    console.error(`[corecontext-mcp] plugin error: ${err.source} — ${err.message}`);
+    console.error(`[vocion-mcp] plugin error: ${err.source} — ${err.message}`);
   }
 
   const transport = new StdioServerTransport();
@@ -41,6 +41,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('[corecontext-mcp] failed to start:', err);
+  console.error('[vocion-mcp] failed to start:', err);
   process.exit(1);
 });

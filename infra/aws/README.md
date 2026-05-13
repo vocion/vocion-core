@@ -123,7 +123,7 @@ a `pg_dump` to S3:
 
 ```bash
 # /etc/cron.d/vocion-pgdump
-0 3 * * * ec2-user docker compose -p vocion exec -T postgres pg_dump -U postgres corecontext | gzip | aws s3 cp - s3://your-bucket/vocion-pg/$(date +\%Y-\%m-\%d).sql.gz
+0 3 * * * ec2-user docker compose -p vocion exec -T postgres pg_dump -U postgres vocion | gzip | aws s3 cp - s3://your-bucket/vocion-pg/$(date +\%Y-\%m-\%d).sql.gz
 ```
 
 ## Scaling out

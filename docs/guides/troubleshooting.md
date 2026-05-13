@@ -63,8 +63,8 @@ The two should agree within a few percent. If they diverge persistently (> 5%):
 Run `npm run langfuse:smoke` from `packages/core/`. If it fails:
 
 - **Connection refused** — the platform compose isn't up. `docker compose -f infra/docker-compose.platform.yml up -d`.
-- **Invalid creds** — `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` env mismatch with the local stack. Default dev keys are `pk-lf-corecontext-demo` / `sk-lf-corecontext-demo`.
-- **Trace ingestion stalled** — restart `corecontext-langfuse-worker`. ClickHouse takes a few seconds to settle on first boot.
+- **Invalid creds** — `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` env mismatch with the local stack. Default dev keys are `pk-lf-vocion-demo` / `sk-lf-vocion-demo`.
+- **Trace ingestion stalled** — restart `vocion-langfuse-worker`. ClickHouse takes a few seconds to settle on first boot.
 
 ### Costs show `0` even though tokens flow
 
@@ -89,7 +89,7 @@ The runtime can't find the docs corpus. Usually means the Dockerfile didn't `COP
 ### Postgres won't start
 
 - **Port collision** — another Postgres instance bound to `:5432`. Stop it (`lsof -nP -iTCP:5432`) or change the port in `docker-compose.yml`.
-- **Stale volume** — wipe with `docker volume rm corecontext-platform_pgdata` (this also wipes data; be sure).
+- **Stale volume** — wipe with `docker volume rm vocion-platform_pgdata` (this also wipes data; be sure).
 
 ### Temporal worker crashes on boot
 
