@@ -1,9 +1,9 @@
-# CoreContext Infrastructure
+# Vocion Infrastructure
 
 ## Full Stack
 
 ```
-localhost:3000  ─── CoreContext App (Next.js)
+localhost:3000  ─── Vocion App (Next.js)
 localhost:3100  ─── Onyx Web UI (context engine admin)
 localhost:3200  ─── Langfuse (LLM observability, evals, prompts)
 localhost:7233  ─── Temporal gRPC (workflow engine)
@@ -28,10 +28,10 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose
 ### 2. Start Platform Services (Langfuse + Temporal + OTel)
 
 ```bash
-docker compose -f infra/docker-compose.platform.yml -p corecontext-platform up -d
+docker compose -f infra/docker-compose.platform.yml -p vocion-platform up -d
 ```
 
-### 3. Start CoreContext App
+### 3. Start Vocion App
 
 ```bash
 npm run dev
@@ -41,9 +41,9 @@ npm run dev
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| CoreContext | http://localhost:3000 | Clerk auth |
+| Vocion | http://localhost:3000 | Clerk auth |
 | Onyx Admin | http://localhost:3100 | Set up on first visit |
-| Langfuse | http://localhost:3200 | admin@corecontext.com / corecontext-admin |
+| Langfuse | http://localhost:3200 | admin@vocion.com / vocion-admin |
 | Temporal | http://localhost:8233 | No auth (dev) |
 
 ## Configure Onyx
@@ -61,7 +61,7 @@ npm run dev
 
 | Service | Port | Container |
 |---------|------|-----------|
-| CoreContext (Next.js) | 3000 | Local process |
+| Vocion (Next.js) | 3000 | Local process |
 | Onyx Web UI | 3100 | nginx (remapped from 3000) |
 | Langfuse | 3200 | langfuse-web (remapped from 3000) |
 | OTel Collector (gRPC) | 4317 | otel-collector |
@@ -69,7 +69,7 @@ npm run dev
 | Temporal gRPC | 7233 | temporal |
 | Onyx API | 8080 | api_server |
 | Temporal UI | 8233 | temporal-ui (remapped from 8080) |
-| CoreContext PGLite | 5432 | Local process |
+| Vocion PGLite | 5432 | Local process |
 | Onyx PostgreSQL | 5433 | relational_db (remapped from 5432) |
 | Onyx Redis | 6380 | cache (remapped from 6379) |
 
@@ -82,10 +82,10 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose
   -p onyx-stack down
 
 # Stop Platform (Langfuse + Temporal + OTel)
-docker compose -f infra/docker-compose.platform.yml -p corecontext-platform down
+docker compose -f infra/docker-compose.platform.yml -p vocion-platform down
 
 # Stop Platform AND delete data
-docker compose -f infra/docker-compose.platform.yml -p corecontext-platform down -v
+docker compose -f infra/docker-compose.platform.yml -p vocion-platform down -v
 ```
 
 ## Hardware Requirements

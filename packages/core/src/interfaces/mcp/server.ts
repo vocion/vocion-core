@@ -9,12 +9,12 @@ import { runtimeTools, skillRunDetailTool } from './tools/runtime-tools';
 import { workflowTools } from './tools/workflow-tools';
 
 /**
- * Create an MCP server wired to the CoreContext runtime.
+ * Create an MCP server wired to the Vocion runtime.
  *
  * Exposes ~15 tools grouped as:
  *   - context_* : list/get/write/delete/apply/diff/version_history
  *   - runtime_* : run_skill/list_runs/get_run/approve_draft/reject_draft
- *   - objects_* / object_types_* / search_* : read data + search via Onyx
+ *   - objects_* / object_types_* / search_* : read data + hybrid retrieval
  *
  * Writes auto-commit + auto-apply by default; override per-call with
  * `autoApply: false` / `autoCommit: false`.

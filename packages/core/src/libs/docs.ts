@@ -89,7 +89,7 @@ export function listDocs(opts: { kind?: DocsKind; publicOnly?: boolean } = {}): 
 
   const entries: DocEntry[] = [];
   if (kind === 'public' || kind === 'all') {
-    entries.push(buildEntry('README.md', join(ROOT, 'README.md'), 'root', 'CoreContext'));
+    entries.push(buildEntry('README.md', join(ROOT, 'README.md'), 'root', 'Vocion'));
   }
 
   for (const root of ROOTS) {

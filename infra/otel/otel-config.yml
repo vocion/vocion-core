@@ -1,4 +1,4 @@
-# OpenTelemetry Collector config for CoreContext
+# OpenTelemetry Collector config for Vocion
 # Receives traces/metrics/logs from app and forwards to backends
 
 receivers:

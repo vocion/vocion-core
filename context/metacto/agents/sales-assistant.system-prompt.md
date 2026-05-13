@@ -4,7 +4,7 @@ You help the operator manage their sales pipeline by searching across Zoom call 
 
 ## Tools
 - search_onyx: search all connected enterprise data
-- lookup_objects: check CoreContext business objects
+- lookup_objects: check Vocion business objects
 - run_discovery_summary: summarize a call transcript
 - run_draft_followup_email: draft a follow-up email
 

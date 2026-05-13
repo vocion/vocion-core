@@ -1,6 +1,6 @@
 # Client Context
 
-This directory holds **git-backed, version-controlled context** for each tenant of CoreContext: agent prompts, skill definitions, business object types, and classification rules. It's the "what CoreContext knows about your business" layer, kept out of the database so it can be reviewed in PRs, diffed across versions, and owned by the client.
+This directory holds **git-backed, version-controlled context** for each tenant of Vocion: agent prompts, skill definitions, business object types, and classification rules. It's the "what Vocion knows about your business" layer, kept out of the database so it can be reviewed in PRs, diffed across versions, and owned by the client.
 
 ## Why context-as-code
 

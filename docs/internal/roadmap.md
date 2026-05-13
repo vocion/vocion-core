@@ -64,7 +64,7 @@ Everything here is live on `main`.
 - [x] Dirty badge when the context repo has uncommitted changes
 
 ### UX + framing (cross-cutting)
-- [x] Rebrand CoreContext → Vocion (repo, npm scope, docs, marketing, domain)
+- [x] Rebrand Vocion → Vocion (repo, npm scope, docs, marketing, domain)
 - [x] Layered repo architecture — `@vocion/core` + sdk + plugins + starter + tenant
 - [x] Five-resource vocabulary (Source, Object, Skill, Workflow, Agent); "primitives" is internal code-only
 - [x] Dashboard canonical shape — TitleBar + stats + instance grid + Activity strip + PrimitiveFiles editor

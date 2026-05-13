@@ -1,8 +1,8 @@
-# CLAUDE.md - CoreContext
+# CLAUDE.md - Vocion
 
 ## Project Overview
 
-CoreContext is a multi-tenant SaaS application built on a Next.js 16 boilerplate. It provides contextual intelligence tools for teams to organize, connect, and act on business context.
+Vocion is a multi-tenant SaaS application built on a Next.js 16 boilerplate. It provides contextual intelligence tools for teams to organize, connect, and act on business context.
 
 ## Tech Stack
 
@@ -56,7 +56,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose
 # 3. Add to .env.local: ONYX_API_URL=http://localhost:8080/api  ONYX_API_KEY=your_key
 ```
 
-Port map: CoreContext :3000, Onyx UI :3100, Onyx API :8080, CoreContext DB :5432, Onyx DB :5433
+Port map: Vocion :3000, Onyx UI :3100, Onyx API :8080, Vocion DB :5432, Onyx DB :5433
 
 See `infra/README.md` for full infrastructure docs.
 
@@ -139,7 +139,7 @@ Opt-in via the env flag. Drains `feedback_job` rows queued by Drive webhooks, cl
 
 ## Observability
 
-Self-hosted **Langfuse** (in `infra/docker-compose.platform.yml`) traces every LLM call with normalized tags — `feature:<name>`, `org:<orgId>`, `slug:<slug>` — plus `userId` and `sessionId`. UI at http://localhost:3200; admin login lives in `infra/.env.langfuse.local` (gitignored); project `demo`, keys `pk-lf-corecontext-demo` / `sk-lf-corecontext-demo`.
+Self-hosted **Langfuse** (in `infra/docker-compose.platform.yml`) traces every LLM call with normalized tags — `feature:<name>`, `org:<orgId>`, `slug:<slug>` — plus `userId` and `sessionId`. UI at http://localhost:3200; admin login lives in `infra/.env.langfuse.local` (gitignored); project `demo`, keys `pk-lf-vocion-demo` / `sk-lf-vocion-demo`.
 
 ```bash
 npm run langfuse:smoke      # verify the stack accepts + returns a trace

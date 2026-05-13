@@ -42,7 +42,7 @@ npm install
 # 2. Configure env
 cp .env.example .env.local
 # Edit .env.local — at minimum set:
-#   DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/corecontext
+#   DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/vocion
 #   OPENAI_API_KEY=sk-...
 #   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
 #   CLERK_SECRET_KEY=...
@@ -163,7 +163,7 @@ The MCP server lets you author skills + workflows and inspect runs from Claude C
 ### Claude Code
 
 ```bash
-claude mcp add corecontext -- npm --prefix /absolute/path/to/context-stack run mcp:serve
+claude mcp add vocion -- npm --prefix /absolute/path/to/context-stack run mcp:serve
 ```
 
 Or add to `.mcp.json`:
@@ -171,7 +171,7 @@ Or add to `.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "corecontext": {
+    "vocion": {
       "command": "npm",
       "args": ["--prefix", "/abs/path", "run", "mcp:serve"],
       "env": {

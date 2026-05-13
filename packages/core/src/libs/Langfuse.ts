@@ -10,8 +10,8 @@ const globalForLangfuse = globalThis as unknown as {
 };
 
 export const langfuse = globalForLangfuse.langfuse ?? new Langfuse({
-  publicKey: process.env.LANGFUSE_PUBLIC_KEY || 'pk-lf-corecontext-demo',
-  secretKey: process.env.LANGFUSE_SECRET_KEY || 'sk-lf-corecontext-demo',
+  publicKey: process.env.LANGFUSE_PUBLIC_KEY || 'pk-lf-vocion-demo',
+  secretKey: process.env.LANGFUSE_SECRET_KEY || 'sk-lf-vocion-demo',
   baseUrl: process.env.LANGFUSE_BASE_URL || 'http://localhost:3200',
 });
 

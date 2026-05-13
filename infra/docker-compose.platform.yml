@@ -18,7 +18,7 @@ services:
   # ================================================================
   langfuse-web:
     image: docker.io/langfuse/langfuse:3
-    container_name: corecontext-langfuse-web
+    container_name: vocion-langfuse-web
     restart: unless-stopped
     ports:
       - '3200:3000'
@@ -54,26 +54,26 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
       NEXTAUTH_URL: http://localhost:3200
-      NEXTAUTH_SECRET: corecontext-langfuse-secret-change-me
-      SALT: corecontext-langfuse-salt-change-me
+      NEXTAUTH_SECRET: vocion-langfuse-secret-change-me
+      SALT: vocion-langfuse-salt-change-me
       ENCRYPTION_KEY: 9bf2e54550467e89297157670d9545b438a647653e23abecaeaf682cac0e6e1d
-      LANGFUSE_INIT_ORG_ID: corecontext
-      LANGFUSE_INIT_ORG_NAME: CoreContext
+      LANGFUSE_INIT_ORG_ID: vocion
+      LANGFUSE_INIT_ORG_NAME: Vocion
       LANGFUSE_INIT_PROJECT_ID: demo
       LANGFUSE_INIT_PROJECT_NAME: Demo
       # Real values come from `infra/.env.langfuse.local` (gitignored).
       # Defaults keep fresh clones bootable with a placeholder login.
-      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@corecontext.com}
-      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-corecontext-admin}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@vocion.com}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-vocion-admin}
       LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Admin}
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-corecontext-demo
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-corecontext-demo
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-vocion-demo
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-vocion-demo
     networks:
-      - corecontext
+      - vocion
 
   langfuse-worker:
     image: docker.io/langfuse/langfuse-worker:3
-    container_name: corecontext-langfuse-worker
+    container_name: vocion-langfuse-worker
     restart: unless-stopped
     depends_on:
       langfuse-postgres:
@@ -87,11 +87,11 @@ services:
     environment:
       <<: *langfuse-env
     networks:
-      - corecontext
+      - vocion
 
   langfuse-postgres:
     image: docker.io/postgres:17-alpine
-    container_name: corecontext-langfuse-postgres
+    container_name: vocion-langfuse-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: langfuse
@@ -105,11 +105,11 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - corecontext
+      - vocion
 
   langfuse-clickhouse:
     image: docker.io/clickhouse/clickhouse-server
-    container_name: corecontext-langfuse-clickhouse
+    container_name: vocion-langfuse-clickhouse
     restart: unless-stopped
     user: '101:101'
     environment:
@@ -126,11 +126,11 @@ services:
       retries: 10
       start_period: 1s
     networks:
-      - corecontext
+      - vocion
 
   langfuse-minio:
     image: docker.io/minio/minio
-    container_name: corecontext-langfuse-minio
+    container_name: vocion-langfuse-minio
     restart: unless-stopped
     entrypoint: sh -c 'mkdir -p /data/langfuse && minio server /data --console-address ":9001"'
     environment:
@@ -139,11 +139,11 @@ services:
     volumes:
       - langfuse_minio_data:/data
     networks:
-      - corecontext
+      - vocion
 
   langfuse-redis:
     image: docker.io/redis:7-alpine
-    container_name: corecontext-langfuse-redis
+    container_name: vocion-langfuse-redis
     restart: unless-stopped
     command: redis-server --requirepass langfuse-redis-pw
     healthcheck:
@@ -152,14 +152,14 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - corecontext
+      - vocion
 
   # ================================================================
   # TEMPORAL - Durable Workflow Orchestration
   # ================================================================
   temporal:
     image: temporalio/auto-setup:latest
-    container_name: corecontext-temporal
+    container_name: vocion-temporal
     restart: unless-stopped
     ports:
       - '7233:7233'
@@ -176,11 +176,11 @@ services:
     volumes:
       - ./temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
     networks:
-      - corecontext
+      - vocion
 
   temporal-ui:
     image: temporalio/ui:latest
-    container_name: corecontext-temporal-ui
+    container_name: vocion-temporal-ui
     restart: unless-stopped
     ports:
       - '8233:8080'
@@ -190,11 +190,11 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CORS_ORIGINS: http://localhost:3000
     networks:
-      - corecontext
+      - vocion
 
   temporal-postgres:
     image: docker.io/postgres:17-alpine
-    container_name: corecontext-temporal-postgres
+    container_name: vocion-temporal-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: temporal
@@ -208,14 +208,14 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - corecontext
+      - vocion
 
   # ================================================================
   # OPENTELEMETRY COLLECTOR - Traces, Metrics, Logs
   # ================================================================
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
-    container_name: corecontext-otel-collector
+    container_name: vocion-otel-collector
     restart: unless-stopped
     ports:
       - '4317:4317' # OTLP gRPC
@@ -223,7 +223,7 @@ services:
     volumes:
       - ./otel/otel-config.yml:/etc/otelcol-contrib/config.yaml
     networks:
-      - corecontext
+      - vocion
 
 volumes:
   langfuse_pg_data:
@@ -233,5 +233,5 @@ volumes:
   temporal_pg_data:
 
 networks:
-  corecontext:
+  vocion:
     driver: bridge

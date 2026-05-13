@@ -45,7 +45,7 @@ UX + docs sweep on top of yesterday's rebrand. Closes the capture side of the se
 Pivot day. Renamed and restructured for OSS launch.
 
 ### Rebrand
-- CoreContext → Compiles → **Vocion** (repo, npm scope `@vocion/*`, docs, marketing, domain)
+- Vocion → Compiles → **Vocion** (repo, npm scope `@vocion/*`, docs, marketing, domain)
 - Cairn logo, refreshed marketing surfaces, consistent naming across code + docs
 
 ### Workspace architecture (Phase B)
@@ -118,7 +118,7 @@ These are the platform invariants everything else builds on. Dates are commit da
 - Trigger types: `manual`, `event` (event bus is later phase)
 - 7 MCP tools: `workflow_list/get`, `workflow_run_start/list/get/resume/cancel`
 
-### CoreContext groundwork (March 2026)
+### Vocion groundwork (March 2026)
 
 - Onyx-backed retrieval with Vespa visibility on the System Status page
 - Citations + thinking panel + permanent eval markup in chat
@@ -129,4 +129,4 @@ These are the platform invariants everything else builds on. Dates are commit da
 
 ## Earlier
 
-Boilerplate, dependency upgrades, and CI tweaks before the CoreContext groundwork landed (Feb 2026 ← Dec 2025 ← Nextless.js base). See git log for detail.
+Boilerplate, dependency upgrades, and CI tweaks before the Vocion groundwork landed (Feb 2026 ← Dec 2025 ← Nextless.js base). See git log for detail.

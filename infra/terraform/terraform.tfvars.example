@@ -44,7 +44,7 @@ secret_payload = {
   VOCION_HOSTNAME = "vocion.ai"
 
   # ---- Database (in-network postgres container; flip to RDS later) ----
-  DATABASE_URL = "postgres://postgres:postgres@postgres:5432/corecontext"
+  DATABASE_URL = "postgres://postgres:postgres@postgres:5432/vocion"
 
   # ---- Clerk ----
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = "pk_live_SET_ME"

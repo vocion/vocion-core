@@ -30,8 +30,8 @@ import process from 'node:process';
 import { knownModels } from '../libs/pricing';
 
 const baseUrl = process.env.LANGFUSE_BASE_URL ?? 'http://localhost:3200';
-const publicKey = process.env.LANGFUSE_PUBLIC_KEY ?? 'pk-lf-corecontext-demo';
-const secretKey = process.env.LANGFUSE_SECRET_KEY ?? 'sk-lf-corecontext-demo';
+const publicKey = process.env.LANGFUSE_PUBLIC_KEY ?? 'pk-lf-vocion-demo';
+const secretKey = process.env.LANGFUSE_SECRET_KEY ?? 'sk-lf-vocion-demo';
 
 const auth = Buffer.from(`${publicKey}:${secretKey}`).toString('base64');
 

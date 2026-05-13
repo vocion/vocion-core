@@ -38,7 +38,7 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
     },
     {
       name: 'lookup_objects',
-      description: 'Look up structured business objects in CoreContext (discovery calls, deals, accounts) that link documents across multiple systems. Use AFTER search_onyx to check if there is additional structured context about a result.',
+      description: 'Look up structured business objects (discovery calls, deals, accounts) that link documents across multiple systems. Use AFTER search_knowledge to check if there is additional structured context about a result.',
       schema: z.object({
         type_slug: z.string().optional().describe(`Object type to filter by${available ? ` (available: ${available})` : ''}`),
       }),
