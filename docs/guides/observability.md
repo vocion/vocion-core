@@ -25,18 +25,18 @@ The compose env bakes in a dev project so you don't have to click through the wi
 |---|---|
 | UI URL | http://localhost:3200 |
 | Login | see `infra/.env.langfuse.local` (gitignored) |
-| Org | `corecontext` (`CoreContext`) |
+| Org | `vocion` (`Vocion`) |
 | Project | `demo` (`Demo`) |
-| Public key | `pk-lf-corecontext-demo` |
-| Secret key | `sk-lf-corecontext-demo` |
+| Public key | `pk-lf-vocion-demo` |
+| Secret key | `sk-lf-vocion-demo` |
 
-The admin login lives in `infra/.env.langfuse.local` — a gitignored file each developer fills in on their own machine. The compose file falls back to `admin@corecontext.com` / `corecontext-admin` on a fresh clone if the file is missing.
+The admin login lives in `infra/.env.langfuse.local` — a gitignored file each developer fills in on their own machine. The compose file falls back to `admin@vocion.com` / `vocion-admin` on a fresh clone if the file is missing.
 
 Run compose with the env file so the init vars get picked up on **first boot**:
 
 ```bash
 docker compose -f infra/docker-compose.platform.yml \
-  -p corecontext-platform \
+  -p vocion-platform \
   --env-file infra/.env.langfuse.local \
   up -d
 ```

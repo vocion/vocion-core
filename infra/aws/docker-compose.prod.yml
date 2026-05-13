@@ -37,7 +37,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - corecontext
+      - vocion
     expose:
       - '3000'
     # On first boot the app container runs migrations + context:apply
@@ -57,7 +57,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - corecontext
+      - vocion
     # Override the default CMD (next server) to run the feedback worker.
     # The standalone output places the worker entry alongside server.js.
     command: [node, packages/core/src/scripts/worker-serve.js]
@@ -78,12 +78,12 @@ services:
     depends_on:
       - app
     networks:
-      - corecontext
+      - vocion
 
 networks:
-  corecontext:
+  vocion:
     external: true
-    name: corecontext
+    name: vocion
 
 volumes:
   caddy_data:

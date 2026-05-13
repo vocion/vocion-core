@@ -71,7 +71,7 @@ function buildTools(agent: {
       type: 'function',
       function: {
         name: 'lookup_objects',
-        description: 'Look up structured business objects in CoreContext (discovery calls, deals, accounts) that link documents across multiple systems. Use AFTER search_onyx to check if there is additional structured context about a result.',
+        description: 'Look up structured business objects (discovery calls, deals, accounts) that link documents across multiple systems. Use AFTER search_knowledge to check if there is additional structured context about a result.',
         parameters: {
           type: 'object',
           properties: {

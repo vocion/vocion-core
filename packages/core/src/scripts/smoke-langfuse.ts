@@ -7,7 +7,7 @@
  *   npm run langfuse:smoke
  *
  * Defaults to the dev project keys baked into the platform compose
- * (`pk-lf-corecontext-demo` / `sk-lf-corecontext-demo`,
+ * (`pk-lf-vocion-demo` / `sk-lf-vocion-demo`,
  * `http://localhost:3200`); override via the standard
  * LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL envs.
  *
@@ -19,8 +19,8 @@ import process from 'node:process';
 import { langfuse } from '../libs/Langfuse';
 
 const baseUrl = process.env.LANGFUSE_BASE_URL ?? 'http://localhost:3200';
-const publicKey = process.env.LANGFUSE_PUBLIC_KEY ?? 'pk-lf-corecontext-demo';
-const secretKey = process.env.LANGFUSE_SECRET_KEY ?? 'sk-lf-corecontext-demo';
+const publicKey = process.env.LANGFUSE_PUBLIC_KEY ?? 'pk-lf-vocion-demo';
+const secretKey = process.env.LANGFUSE_SECRET_KEY ?? 'sk-lf-vocion-demo';
 
 const log = (...args: unknown[]) => {
   console.log('[langfuse:smoke]', ...args);
