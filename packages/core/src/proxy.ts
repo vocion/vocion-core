@@ -85,8 +85,11 @@ export const config = {
   // Match all pathnames except for
   // - … if they start with `/_next`, `/_vercel`, `monitoring`, or `/api` (REST API routes handle their own auth)
   // - … the ones containing a dot (e.g. `favicon.ico`)
+  // - … App Router metadata files (`icon`, `apple-icon`, `opengraph-image`,
+  //   `twitter-image`, `manifest`, `robots`, `sitemap`). Without this, the
+  //   i18n proxy 307-redirects them to `/en/icon` etc. and they 404.
   matcher: [
-    '/((?!_next|_vercel|monitoring|api|.*\\..*).*)',
+    '/((?!_next|_vercel|monitoring|api|icon|apple-icon|opengraph-image|twitter-image|manifest|robots|sitemap|.*\\..*).*)',
     '/api/v1/:path*', // run Clerk middleware on /api/v1 for auth
   ],
 };
