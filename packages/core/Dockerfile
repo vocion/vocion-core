@@ -116,6 +116,13 @@ COPY --from=builder --chown=nextjs:nodejs /app/README.md ./README.md
 # to /app inside the container (the standalone build's CWD).
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 
+# tiktoken's WASM tokenizer table — standalone tracing sometimes
+# misses it (Next.js doesn't follow dynamic-import-of-wasm reliably).
+# Copy it into both the workspace + the standalone path Next.js
+# expects to keep retrieval/ingest paths working.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/tiktoken/tiktoken_bg.wasm ./node_modules/tiktoken/tiktoken_bg.wasm
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/tiktoken/tiktoken_bg.wasm ./packages/core/node_modules/tiktoken/tiktoken_bg.wasm
+
 USER nextjs
 EXPOSE 3000
 
