@@ -81,9 +81,13 @@ services:
       - vocion
 
 networks:
+  # The runtime network is the one docker compose creates from
+  # `-p vocion` (i.e. `vocion_default`). Declaring it external lets
+  # the app+worker+caddy services attach without compose trying to
+  # create a fresh one.
   vocion:
     external: true
-    name: vocion
+    name: vocion_default
 
 volumes:
   caddy_data:

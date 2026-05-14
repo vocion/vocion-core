@@ -27,30 +27,10 @@ const inter = Inter({
   weight: ['400', '500', '600', '700'],
 });
 
-export const metadata: Metadata = {
-  icons: [
-    {
-      rel: 'apple-touch-icon',
-      url: '/apple-touch-icon.png',
-    },
-    {
-      rel: 'icon',
-      type: 'image/png',
-      sizes: '32x32',
-      url: '/favicon-32x32.png',
-    },
-    {
-      rel: 'icon',
-      type: 'image/png',
-      sizes: '16x16',
-      url: '/favicon-16x16.png',
-    },
-    {
-      rel: 'icon',
-      url: '/favicon.ico',
-    },
-  ],
-};
+// Icons are wired via the auto-discovered `app/icon.tsx` +
+// `app/apple-icon.tsx` files — they render the Vocion mark
+// dynamically at the right sizes. No static icons config needed.
+export const metadata: Metadata = {};
 
 export const viewport: Viewport = {
   width: 'device-width',
