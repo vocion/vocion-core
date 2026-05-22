@@ -1,46 +1,11 @@
 'use client';
 
-import { ClerkProvider } from '@clerk/nextjs';
-import { dark } from '@clerk/themes';
-import { useTheme } from 'next-themes';
-import { useParams } from 'next/navigation';
-import { routing } from '@/libs/I18nRouting';
-import { ClerkLocalizations } from '@/utils/AppConfig';
+import { SessionProvider } from 'next-auth/react';
 
 export default function AuthLayout(props: {
   children: React.ReactNode;
 }) {
-  const { locale } = useParams<{ locale: string }>();
-
-  const clerkLocale = ClerkLocalizations.supportedLocales[locale] ?? ClerkLocalizations.defaultLocale;
-  let signInUrl = '/sign-in';
-  let signUpUrl = '/sign-up';
-  let dashboardUrl = '/dashboard';
-  let afterSignOutUrl = '/';
-
-  if (locale !== routing.defaultLocale) {
-    signInUrl = `/${locale}${signInUrl}`;
-    signUpUrl = `/${locale}${signUpUrl}`;
-    dashboardUrl = `/${locale}${dashboardUrl}`;
-    afterSignOutUrl = `/${locale}${afterSignOutUrl}`;
-  }
-
-  const { resolvedTheme } = useTheme();
-
-  return (
-    <ClerkProvider
-      appearance={{
-        baseTheme: resolvedTheme === 'dark' ? dark : undefined,
-        cssLayerName: 'clerk', // Ensure Clerk is compatible with Tailwind CSS v4
-      }}
-      localization={clerkLocale}
-      signInUrl={signInUrl}
-      signUpUrl={signUpUrl}
-      signInFallbackRedirectUrl={dashboardUrl}
-      signUpFallbackRedirectUrl={dashboardUrl}
-      afterSignOutUrl={afterSignOutUrl}
-    >
-      {props.children}
-    </ClerkProvider>
-  );
+  // auth.js's SessionProvider exposes `useSession()` to client components.
+  // No-op cookie handling — auth.js reads its session cookie automatically.
+  return <SessionProvider>{props.children}</SessionProvider>;
 }

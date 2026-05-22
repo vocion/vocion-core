@@ -1,68 +1,74 @@
 import type { OrgRole } from '@/types/Auth';
-import { auth } from '@clerk/nextjs/server';
 import { eq } from 'drizzle-orm';
+import { auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { projectSchema } from '@/models/Schema';
 import { ApiError } from './ApiError';
 
 /**
- * Authentication guards for ORPC API routes
+ * Authentication guards for ORPC API routes.
  *
  * Naming Convention: `guard*` functions guard API access by throwing
- * ORPCError with proper HTTP status codes when authentication/authorization fails.
+ * ORPCError with proper HTTP status codes when authentication/authorization
+ * fails. For App Router authentication with redirects, use `requireAuth`
+ * from `@/utils/Auth` instead.
  *
- * For App Router authentication with redirects, use Auth.ts (`require*` functions) instead.
+ * Backed by **auth.js** (next-auth v5) after the Phase 2 cutover. Clerk
+ * is no longer wired. The session shape is `{ user: { id, accountId,
+ * projectId, role } }`.
  *
- * Phase 1 transition: Clerk is still the auth source. `orgId` is kept for
- * backwards compatibility with existing service-layer callers. A new
- * `projectId` is resolved from the legacy `proj-<orgId>` mapping created
- * by migration 0022. Phase 2 (auth.js) will replace this whole thing with
- * a session-derived `{ accountId, projectId }`.
+ * Back-compat: `orgId` is still returned, aliased to `projectId`. The
+ * 23 business-content tables still use the `org_id` column; service
+ * queries filter by it. The Phase 1.5 rename (`org_id` column →
+ * `project_id`) is a follow-up refactor.
  */
 
-const PROJECT_ID_PREFIX = 'proj-';
+const hasRoleFactory = (role: 'admin' | 'member' | null) =>
+  ({ role: requiredRole }: { role: OrgRole }) => {
+    if (!role) {
+      return false;
+    }
+    if (requiredRole === 'org:admin') {
+      return role === 'admin';
+    }
+    if (requiredRole === 'org:member') {
+      return role === 'admin' || role === 'member';
+    }
+    return false;
+  };
 
 /**
  * Enforces authentication for ORPC procedures.
- * @returns userId, orgId (legacy), projectId (new), and `has` function for role checking.
- * @throws {ORPCError} 401 Unauthorized - userId or orgId is missing.
+ * @throws {ORPCError} 401 Unauthorized when no session.
  */
 export const guardAuth = async () => {
-  const { userId, orgId, has } = await auth();
+  const session = await auth();
 
-  if (!userId || !orgId) {
+  if (!session?.user?.id || !session.user.projectId) {
     throw ApiError.unauthorized();
   }
 
-  // Resolve projectId from the migration-stamped mapping. If the row is
-  // missing (e.g. an org created post-migration), fall through to legacy
-  // `proj-<orgId>` shape; the FK ensures the project actually exists.
-  const projectId = `${PROJECT_ID_PREFIX}${orgId}`;
-
-  return { orgId, projectId, userId, has };
+  const { id: userId, accountId, projectId, role } = session.user;
+  // Back-compat: legacy service-layer queries filter by `org_id`. The
+  // column still stores what callers expect — for auth.js-created rows,
+  // org_id == projectId. Phase 1.5 will rename the column.
+  return { userId, orgId: projectId, accountId, projectId, role, has: hasRoleFactory(role) };
 };
 
 /**
  * Enforces specific role permissions for ORPC procedures.
- * @param role - The required role in the organization.
- * @returns orgId + projectId
- * @throws {ORPCError} 401 Unauthorized - userId or orgId is missing.
- * @throws {ORPCError} 403 Forbidden - user doesn't have the required role.
+ * @throws {ORPCError} 401 Unauthorized when no session.
+ * @throws {ORPCError} 403 Forbidden when role check fails.
  */
 export const guardRole = async (role: OrgRole) => {
-  const { orgId, projectId, has } = await guardAuth();
-
-  if (!has({ role })) {
+  const ctx = await guardAuth();
+  if (!ctx.has({ role })) {
     throw ApiError.forbidden();
   }
-
-  return { orgId, projectId };
+  return { orgId: ctx.orgId, projectId: ctx.projectId, accountId: ctx.accountId };
 };
 
-/**
- * Hydrate a project row by id. Used by callers that want the full project
- * shape (name, slug, account_id) rather than just the id.
- */
+/** Hydrate a project row by id. */
 export const loadProject = async (projectId: string) => {
   const [row] = await db
     .select()

@@ -1,5 +1,5 @@
 import type { AgentEvent } from '@/services/AgentService';
-import { auth } from '@clerk/nextjs/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { runAgent } from '@/services/AgentService';
 
 export async function POST(request: Request) {

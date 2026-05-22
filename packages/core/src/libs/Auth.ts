@@ -154,3 +154,42 @@ async function resolveTenancyForUser(userId: string): Promise<{
 export function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
 }
+
+/**
+ * Compat shim that mimics Clerk's old `auth()` return shape: `{ userId,
+ * orgId, has }`. Use this when migrating call sites from Clerk; rewrite
+ * to use `auth()` (session-shaped) when refactoring the call.
+ *
+ * `orgId` is aliased to `projectId` — see AuthGuards docstring for the
+ * back-compat rationale.
+ */
+export async function clerkAuth(): Promise<{
+  userId: string | null;
+  orgId: string | null;
+  accountId: string | null;
+  projectId: string | null;
+  role: 'admin' | 'member' | null;
+  has: (args: { role: string }) => boolean;
+}> {
+  const session = await auth();
+  const role = session?.user?.role ?? null;
+  return {
+    userId: session?.user?.id ?? null,
+    orgId: session?.user?.projectId ?? null,
+    accountId: session?.user?.accountId ?? null,
+    projectId: session?.user?.projectId ?? null,
+    role,
+    has: ({ role: required }) => {
+      if (!role) {
+        return false;
+      }
+      if (required === 'org:admin') {
+        return role === 'admin';
+      }
+      if (required === 'org:member') {
+        return role === 'admin' || role === 'member';
+      }
+      return false;
+    },
+  };
+}

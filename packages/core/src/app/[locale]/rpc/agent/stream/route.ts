@@ -15,7 +15,7 @@
 
 import type { AgentEvent } from '@/services/agents/types';
 import type { ConversationRun } from '@/services/ConversationService';
-import { auth } from '@clerk/nextjs/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { runAgentDeep } from '@/services/AgentService';
 import {
   appendMessage,

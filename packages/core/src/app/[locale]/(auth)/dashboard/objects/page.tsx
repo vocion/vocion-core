@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { Database, Link2 } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
