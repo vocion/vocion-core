@@ -3,7 +3,8 @@
   "workspaces": {
     ".": {
       "entry": ["docker-compose.yml", "infra/**/*.{yml,yaml,sh,tf}"],
-      "ignore": ["infra/terraform/**"]
+      "ignore": ["infra/terraform/**"],
+      "ignoreDependencies": ["conventional-changelog-conventionalcommits", "@commitlint/types"]
     },
     "packages/core": {
       "entry": [
@@ -26,7 +27,6 @@
       "ignore": [
         "src/components/ui/**",
         "src/features/dashboard/chat/**",
-        "src/features/landing/**",
         "src/templates/**",
         "src/types/**",
         "src/libs/plugins/**",
@@ -37,12 +37,26 @@
         "src/libs/Langfuse/**",
         "src/libs/crypto/**",
         "src/libs/docs/**",
+        "src/libs/I18n.ts",
         "src/libs/agentAccent.ts",
         "src/libs/Langfuse.ts",
-        "src/libs/pricing.ts",
         "src/services/**",
         "src/routers/**"
-      ]
+      ],
+      "ignoreDependencies": [
+        "@radix-ui/react-accordion",
+        "@radix-ui/react-label",
+        "@tanstack/react-table",
+        "radix-ui",
+        "react-hook-form",
+        "@swc/helpers",
+        "@tailwindcss/typography",
+        "tailwindcss",
+        "tw-animate-css",
+        "@clerk/types",
+        "vite"
+      ],
+      "includeEntryExports": false
     },
     "packages/sdk": {
       "entry": ["src/index.ts"],
@@ -53,5 +67,10 @@
       "project": ["src/**/*.ts"]
     }
   },
-  "ignoreBinaries": ["dotenv", "tofu", "tsx", "playwright"]
+  "ignoreBinaries": ["dotenv", "tofu", "tsx", "playwright", "production", "checkly", "stripe"],
+  "rules": {
+    "exports": "off",
+    "types": "off",
+    "duplicates": "off"
+  }
 }
