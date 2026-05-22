@@ -1,17 +1,4 @@
 {
-  "Index": {
-    "meta_title": "Vocion — le framework open source pour des agents et workflows agentiques prêts pour la production",
-    "meta_description": "Construisez, déployez et observez votre IA sur votre propre infrastructure. Contexte versionné dans git, plugins typés, compatibilité MCP, observabilité complète. Open source. Sans verrouillage fournisseur."
-  },
-  "Navbar": {
-    "sign_in": "Se connecter",
-    "sign_up": "S'inscrire",
-    "product": "Produit",
-    "docs": "Docs",
-    "blog": "Blog",
-    "community": "Communauté",
-    "company": "Entreprise"
-  },
   "LocaleSwitcher": {
     "button_label": "Changer de langue"
   },
@@ -20,32 +7,6 @@
     "theme_light_label": "Clair",
     "theme_dark_label": "Sombre",
     "theme_system_label": "Système"
-  },
-  "PricingPlan": {
-    "free_plan_name": "Gratuit",
-    "premium_plan_name": "Premium",
-    "enterprise_plan_name": "Enterprise",
-    "free_plan_description": "Pour les particuliers",
-    "premium_plan_description": "Pour les petites équipes",
-    "enterprise_plan_description": "Pour les leaders de l'industrie",
-    "feature_team_member": "{number} membres",
-    "feature_website": "{number} sites internet",
-    "feature_storage": "{number} Go de stockage",
-    "feature_transfer": "{number} TB de transfert",
-    "feature_email_support": "Support par e-mail",
-    "plan_interval_month": "mois",
-    "plan_interval_year": "année",
-    "next_renew_date": "Votre abonnement sera renouvelé le {date}"
-  },
-  "Footer": {
-    "product": "Produit",
-    "docs": "Docs",
-    "blog": "Blog",
-    "community": "Communauté",
-    "company": "Entreprise",
-    "terms_of_service": "Conditions d'utilisation",
-    "privacy_policy": "Politique de confidentialité",
-    "footer_text": "© {year} {name}. Fait avec <author></author>."
   },
   "ProtectFallback": {
     "not_enough_permission": "Vous n'avez pas les permissions pour effectuer cette action"
@@ -246,5 +207,21 @@
     "message_description": "Entrez un message détaillé pour votre todo.",
     "message_error_message": "Le message est requis et ne peut pas être vide.",
     "submit_button": "Envoyer"
+  },
+  "PricingPlan": {
+    "free_plan_name": "Gratuit",
+    "premium_plan_name": "Premium",
+    "enterprise_plan_name": "Enterprise",
+    "free_plan_description": "Pour les particuliers",
+    "premium_plan_description": "Pour les petites équipes",
+    "enterprise_plan_description": "Pour les leaders de l'industrie",
+    "feature_team_member": "{number} membres",
+    "feature_website": "{number} sites internet",
+    "feature_storage": "{number} Go de stockage",
+    "feature_transfer": "{number} TB de transfert",
+    "feature_email_support": "Support par e-mail",
+    "plan_interval_month": "mois",
+    "plan_interval_year": "année",
+    "next_renew_date": "Votre abonnement sera renouvelé le {date}"
   }
 }
