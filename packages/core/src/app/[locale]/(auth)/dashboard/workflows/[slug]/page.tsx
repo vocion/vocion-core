@@ -1,5 +1,5 @@
 import type { StepperStep } from '@/components/ui/stepper';
-import { auth } from '@clerk/nextjs/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { ArrowLeft, GitBranch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
