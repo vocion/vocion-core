@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { ExternalLink, LineChart } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import Link from 'next/link';
