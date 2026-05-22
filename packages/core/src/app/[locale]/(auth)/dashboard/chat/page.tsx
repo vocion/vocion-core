@@ -1,5 +1,6 @@
 import { setRequestLocale } from 'next-intl/server';
-import { AskChat, NewChatButton } from '@/features/dashboard/AskChat';
+import { NewChatButton } from '@/features/dashboard/AskChat';
+import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 
 export default async function ChatPage(props: {
@@ -14,7 +15,7 @@ export default async function ChatPage(props: {
         <TitleBar title="Chat" description="Talk to your agents, grounded in enterprise context" />
         <NewChatButton />
       </div>
-      <AskChat />
+      <ChatShell />
     </div>
   );
 }
