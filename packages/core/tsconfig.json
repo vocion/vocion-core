@@ -82,7 +82,8 @@
     "node_modules",
     "infra",
     "**/*.spec.ts",
-    "**/*.e2e.ts"
+    "**/*.e2e.ts",
+    "tests/**"
   ],
   "include": [
     "next-env.d.ts",
