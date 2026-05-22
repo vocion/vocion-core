@@ -1,17 +1,4 @@
 {
-  "Index": {
-    "meta_title": "Vocion — the open framework for production-ready agents and agentic workflows",
-    "meta_description": "Build, ship, and observe AI work in your own infra. Git-backed context, typed plugins, MCP-native, full observability. Open source. No vendor lock-in."
-  },
-  "Navbar": {
-    "sign_in": "Sign In",
-    "sign_up": "Get Started",
-    "product": "Platform",
-    "docs": "Docs",
-    "blog": "Blog",
-    "community": "Use Cases",
-    "company": "Company"
-  },
   "LocaleSwitcher": {
     "button_label": "Change language"
   },
@@ -20,32 +7,6 @@
     "theme_light_label": "Light",
     "theme_dark_label": "Dark",
     "theme_system_label": "System"
-  },
-  "PricingPlan": {
-    "free_plan_name": "Starter",
-    "premium_plan_name": "Team",
-    "enterprise_plan_name": "Enterprise",
-    "free_plan_description": "For evaluating the platform",
-    "premium_plan_description": "For growing teams",
-    "enterprise_plan_description": "For organizations at scale",
-    "feature_team_member": "{number} Team Members",
-    "feature_website": "{number} Connectors",
-    "feature_storage": "{number} GB Context Storage",
-    "feature_transfer": "{number}K Queries / month",
-    "feature_email_support": "Email Support",
-    "plan_interval_month": "month",
-    "plan_interval_year": "year",
-    "next_renew_date": "Your subscription renews on {date}"
-  },
-  "Footer": {
-    "product": "Product",
-    "docs": "Docs",
-    "blog": "Blog",
-    "community": "Community",
-    "company": "Company",
-    "terms_of_service": "Terms Of Service",
-    "privacy_policy": "Privacy Policy",
-    "footer_text": "© {year} {name}. Made with <author></author>."
   },
   "ProtectFallback": {
     "not_enough_permission": "You do not have the permissions to perform this action"
@@ -246,5 +207,21 @@
     "message_description": "Enter a detailed message for your todo.",
     "message_error_message": "Message is required and cannot be empty",
     "submit_button": "Submit"
+  },
+  "PricingPlan": {
+    "free_plan_name": "Starter",
+    "premium_plan_name": "Team",
+    "enterprise_plan_name": "Enterprise",
+    "free_plan_description": "For evaluating the platform",
+    "premium_plan_description": "For growing teams",
+    "enterprise_plan_description": "For organizations at scale",
+    "feature_team_member": "{number} Team Members",
+    "feature_website": "{number} Connectors",
+    "feature_storage": "{number} GB Context Storage",
+    "feature_transfer": "{number}K Queries / month",
+    "feature_email_support": "Email Support",
+    "plan_interval_month": "month",
+    "plan_interval_year": "year",
+    "next_renew_date": "Your subscription renews on {date}"
   }
 }
