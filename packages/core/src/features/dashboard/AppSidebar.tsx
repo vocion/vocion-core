@@ -1,6 +1,6 @@
 'use client';
 
-import { OrganizationSwitcher } from '@clerk/nextjs';
+import { ProjectSwitcher } from '@/features/dashboard/ProjectSwitcher';
 import {
   Activity,
   BookOpen,
@@ -19,11 +19,10 @@ import {
   TestTube,
   Zap,
 } from 'lucide-react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { VocionLogo } from '@/templates/VocionLogo';
-import { getI18nPath } from '@/utils/Helpers';
 
 /**
  * Dashboard left sidebar — v0.3 rev-ai-style restructure.
@@ -43,7 +42,6 @@ import { getI18nPath } from '@/utils/Helpers';
  * @param props
  */
 export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
-  const locale = useLocale();
   const t = useTranslations('DashboardLayout');
 
   return (
@@ -53,22 +51,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           <VocionLogo size="sm" />
         </div>
 
-        <OrganizationSwitcher
-          organizationProfileMode="navigation"
-          organizationProfileUrl={getI18nPath('/dashboard/organization-profile', locale)}
-          afterCreateOrganizationUrl="/onboarding/organization-selection"
-          hideSlug
-          hidePersonal
-          skipInvitationScreen
-          appearance={{
-            elements: {
-              organizationSwitcherTrigger: 'w-64 md:w-60 justify-between',
-              organizationSwitcherPopoverRootBox: {
-                pointerEvents: 'auto',
-              },
-            },
-          }}
-        />
+        <ProjectSwitcher />
       </SidebarHeader>
 
       <SidebarContent>

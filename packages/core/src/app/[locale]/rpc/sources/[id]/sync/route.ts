@@ -9,7 +9,7 @@
  * Returns `{ result: { created, updated, unchanged, tombstoned, errors } }`.
  */
 
-import { auth } from '@clerk/nextjs/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { runSync } from '@/services/SourceSyncService';
 
 export async function POST(
