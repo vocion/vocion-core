@@ -23,6 +23,179 @@ const tsvector = customType<{ data: string; driverData: string }>({
 // It automatically run the command `db-server:file`, which apply the migration before Next.js starts in development mode,
 // Alternatively, if your database is running, you can run `npm run db:migrate` and there is no need to restart the server.
 
+/* ==================================================================== */
+/* Phase 1 — Auth + Tenancy                                              */
+/*                                                                       */
+/* Local auth.js-backed users + a tenancy model of:                      */
+/*   tenant_account  →  project  →  business content (skills, agents…)   */
+/*   account_membership joins users ↔ tenant_account with a role         */
+/*                                                                       */
+/* Self-hosted ("team mode"): exactly 1 tenant_account row, N projects,  */
+/* M users invited into the account. Constraint enforced in code, not    */
+/* schema, so vocion-cloud can use the same schema for multi-account.    */
+/*                                                                       */
+/* Names:                                                                */
+/*   - `user`, `auth_account`, `session`, `verification_token` follow    */
+/*     auth.js / @auth/drizzle-adapter conventions (don't rename).       */
+/*   - `tenant_account` is our domain "account" (renamed to avoid clash  */
+/*     with auth.js's OAuth-link `account` concept).                     */
+/*   - `project` replaces today's `orgId` scope on business content.     */
+/*     Columns are added in a follow-up migration after callers migrate. */
+/* ==================================================================== */
+
+/** A person. Drizzle adapter shape for auth.js v5. */
+export const userSchema = pgTable('user', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  email: text('email').notNull().unique(),
+  emailVerified: timestamp('email_verified', { mode: 'date' }),
+  image: text('image'),
+  /** bcrypt hash for the Credentials provider. NULL for OAuth-only users. */
+  passwordHash: text('password_hash'),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+});
+
+/** auth.js OAuth-link table. Keeps the auth.js field-name conventions
+ *  (snake_case in the DB but matching the JS field names exactly so
+ *  the @auth/drizzle-adapter can introspect it). */
+export const authAccountSchema = pgTable(
+  'auth_account',
+  {
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    provider: text('provider').notNull(),
+    providerAccountId: text('provider_account_id').notNull(),
+    refresh_token: text('refresh_token'),
+    access_token: text('access_token'),
+    expires_at: integer('expires_at'),
+    token_type: text('token_type'),
+    scope: text('scope'),
+    id_token: text('id_token'),
+    session_state: text('session_state'),
+  },
+  table => [
+    uniqueIndex('auth_account_provider_idx').on(table.provider, table.providerAccountId),
+    index('auth_account_user_idx').on(table.userId),
+  ],
+);
+
+/** auth.js session table. */
+export const sessionSchema = pgTable(
+  'session',
+  {
+    sessionToken: text('session_token').primaryKey(),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    expires: timestamp('expires', { mode: 'date' }).notNull(),
+  },
+  table => [
+    index('session_user_idx').on(table.userId),
+  ],
+);
+
+/** auth.js verification-token table (magic links, email verification). */
+export const verificationTokenSchema = pgTable(
+  'verification_token',
+  {
+    identifier: text('identifier').notNull(),
+    token: text('token').notNull(),
+    expires: timestamp('expires', { mode: 'date' }).notNull(),
+  },
+  table => [
+    uniqueIndex('verification_token_idx').on(table.identifier, table.token),
+  ],
+);
+
+/** A tenant account. Self-hosted: exactly 1 row. Cloud: N rows.
+ *  Billing columns are populated in vocion-cloud only; null in self-hosted. */
+export const tenantAccountSchema = pgTable(
+  'tenant_account',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    /** Cloud-only billing fields. Will be migrated out to vocion-cloud in Phase 5. */
+    stripeCustomerId: text('stripe_customer_id'),
+    stripeSubscriptionId: text('stripe_subscription_id'),
+    stripeSubscriptionPriceId: text('stripe_subscription_price_id'),
+    stripeSubscriptionStatus: text('stripe_subscription_status'),
+    stripeSubscriptionCurrentPeriodEnd: bigint('stripe_subscription_current_period_end', { mode: 'number' }),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('tenant_account_slug_idx').on(table.slug),
+    uniqueIndex('tenant_account_stripe_customer_id_idx').on(table.stripeCustomerId),
+  ],
+);
+
+/** A workspace within a tenant account. Replaces today's `orgId` scope on
+ *  business-content tables. Self-hosted: N projects per the single account.
+ *  Cloud: N projects per each of M accounts. */
+export const projectSchema = pgTable(
+  'project',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull().references(() => tenantAccountSchema.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('project_account_slug_idx').on(table.accountId, table.slug),
+  ],
+);
+
+/** A user's role in a tenant account. */
+export const accountMembershipSchema = pgTable(
+  'account_membership',
+  {
+    accountId: text('account_id').notNull().references(() => tenantAccountSchema.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
+    /** 'admin' | 'member'. Admins can invite + manage projects. */
+    role: text('role').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('account_membership_idx').on(table.accountId, table.userId),
+    index('account_membership_user_idx').on(table.userId),
+  ],
+);
+
+/** One-time invite tokens for adding users to a tenant account. */
+export const inviteSchema = pgTable(
+  'invite',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull().references(() => tenantAccountSchema.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    role: text('role').notNull(),
+    token: text('token').notNull().unique(),
+    invitedBy: text('invited_by').references(() => userSchema.id),
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+    acceptedAt: timestamp('accepted_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('invite_account_email_idx').on(table.accountId, table.email),
+  ],
+);
+
+/* ==================================================================== */
+/* End of Phase 1 new tables. Existing schema continues below.           */
+/* ==================================================================== */
+
 export const organizationSchema = pgTable(
   'organization',
   {
@@ -68,6 +241,8 @@ export const businessObjectTypeSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     slug: text('slug').notNull(),
     label: text('label').notNull(),
     description: text('description'),
@@ -99,6 +274,8 @@ export const businessObjectTypeSchema = pgTable(
 export const businessObjectSchema = pgTable('business_object', {
   id: serial('id').primaryKey(),
   orgId: text('org_id').notNull(),
+  /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+  projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
   typeId: integer('type_id').notNull().references(() => businessObjectTypeSchema.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   status: text('status').default('active'),
@@ -171,6 +348,8 @@ export const skillSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description'),
@@ -226,6 +405,8 @@ export const operationSchema = skillSchema;
 export const skillRunSchema = pgTable('skill_run', {
   id: serial('id').primaryKey(),
   orgId: text('org_id').notNull(),
+  /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+  projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
   skillId: integer('skill_id').notNull().references(() => skillSchema.id, { onDelete: 'cascade' }),
   /** Input variables provided to the prompt */
   input: jsonb('input').$type<Record<string, unknown>>().default({}),
@@ -287,6 +468,8 @@ export const playbookSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description').notNull(),
@@ -322,6 +505,8 @@ export const agentSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description'),
@@ -414,6 +599,8 @@ export const workflowSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description'),
@@ -448,6 +635,8 @@ export const workflowSchema = pgTable(
 export const workflowRunSchema = pgTable('workflow_run', {
   id: serial('id').primaryKey(),
   orgId: text('org_id').notNull(),
+  /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+  projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
   workflowId: integer('workflow_id').notNull().references(() => workflowSchema.id, { onDelete: 'cascade' }),
   /** Initial input provided at start (from the trigger). */
   input: jsonb('input').$type<Record<string, unknown>>().default({}),
@@ -512,6 +701,8 @@ export const contextVersionSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     /** git SHA of the context directory (or computed hash when not in a git repo) */
     sha: text('sha').notNull(),
     /** Absolute or repo-relative path applied from */
@@ -547,6 +738,8 @@ export const learningStepSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     /** Step slug, e.g. `meeting_triage`. Lowercased, alpha+underscore. */
     name: text('name').notNull(),
     title: text('title').notNull(),
@@ -571,6 +764,8 @@ export const learningSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     stepId: integer('step_id').notNull().references(() => learningStepSchema.id, { onDelete: 'cascade' }),
     /** The rule text — typically one-paragraph directive. */
     ruleText: text('rule_text').notNull(),
@@ -612,6 +807,8 @@ export const conversationSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     agentSlug: text('agent_slug').notNull(),
     title: text('title').notNull(),
     createdBy: text('created_by'),
@@ -695,6 +892,8 @@ export const evalDatasetSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     /** Which agent slug this dataset targets. Required — datasets are agent-scoped. */
@@ -722,6 +921,8 @@ export const evalDatasetSchema = pgTable(
 export const evalRunSchema = pgTable('eval_run', {
   id: serial('id').primaryKey(),
   orgId: text('org_id').notNull(),
+  /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+  projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
   datasetId: integer('dataset_id').notNull().references(() => evalDatasetSchema.id, { onDelete: 'cascade' }),
   agentSlug: text('agent_slug').notNull(),
   /** Context SHA active when the dataset was run — for drift attribution. */
@@ -776,6 +977,8 @@ export const agentBudgetSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     agentSlug: text('agent_slug').notNull(),
     /** daily | monthly */
     period: text('period').default('daily').notNull(),
@@ -848,6 +1051,8 @@ export const sourceInstallSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     /** FK-by-slug to source_definition.slug (loose — definitions can be re-registered). */
     sourceSlug: text('source_slug').notNull(),
     /** Clerk user id of the admin who installed. */
@@ -877,6 +1082,8 @@ export const sourceDekSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     /** KMS key ARN that wrapped this DEK. Null in dev / localVault. */
     kmsKeyArn: text('kms_key_arn'),
     /** Wrapped DEK bytes (KMS ciphertext blob in production; raw master key in dev). */
@@ -919,6 +1126,8 @@ export const sourceCredentialSchema = pgTable('source_credential', {
 export const sourceAuditSchema = pgTable('source_audit', {
   id: serial('id').primaryKey(),
   orgId: text('org_id').notNull(),
+  /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+  projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
   userId: text('user_id'),
   /** `installed` | `uninstalled` | `connected` | `refreshed` | `revoked` | `failed_auth`. */
   event: text('event').notNull(),
@@ -946,6 +1155,8 @@ export const sourceCredentialRelations = relations(sourceCredentialSchema, ({ on
 export const feedbackJobSchema = pgTable('feedback_job', {
   id: serial('id').primaryKey(),
   orgId: text('org_id').notNull(),
+  /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+  projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
   /** Source system: 'drive', 'slack', 'onyx', 'manual'. */
   source: text('source').notNull(),
   /** External identifier — Drive comment id, Slack ts, etc. (idempotency key). */
@@ -994,6 +1205,8 @@ export const knowledgeSourceSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     /** Source plugin slug — e.g. `google-drive`, `github`, `vocion-docs`. */
     slug: text('slug').notNull(),
     /** Human-facing source kind — 'web', 'plugin', 'upload'. */
@@ -1018,6 +1231,8 @@ export const knowledgeDocumentSchema = pgTable(
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     sourceId: integer('source_id')
       .notNull()
       .references(() => knowledgeSourceSchema.id, { onDelete: 'cascade' }),
@@ -1052,6 +1267,8 @@ export const knowledgeChunkSchema = pgTable(
     /** Denormalized for org-scoped queries (avoids join + lets us put the
      * filter directly on the partial vector-index condition). */
     orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
     chunkIdx: integer('chunk_idx').notNull(),
     content: text('content').notNull(),
     contentTokens: integer('content_tokens').notNull(),

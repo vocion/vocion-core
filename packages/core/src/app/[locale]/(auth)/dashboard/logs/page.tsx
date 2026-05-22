@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { and, desc, eq } from 'drizzle-orm';
 import { Activity, ExternalLink } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';

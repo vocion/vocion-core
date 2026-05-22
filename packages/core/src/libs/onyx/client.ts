@@ -51,9 +51,10 @@ export async function search(args: LegacySearchArgs): Promise<{ top_documents: L
   let orgId = args.orgId;
   if (!orgId) {
     try {
-      const { auth } = await import('@clerk/nextjs/server');
-      const ctx = await auth();
-      orgId = ctx.orgId ?? undefined;
+      const { auth } = await import('@/libs/Auth');
+      const session = await auth();
+      // Phase 1.5 alias: projectId substitutes for the legacy orgId scope.
+      orgId = session?.user?.projectId ?? undefined;
     } catch {
       /* not in a Next.js request context — caller must pass orgId */
     }

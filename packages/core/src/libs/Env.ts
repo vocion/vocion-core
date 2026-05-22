@@ -3,8 +3,16 @@ import * as z from 'zod';
 
 export const Env = createEnv({
   server: {
-    CLERK_SECRET_KEY: z.string().min(1),
     DATABASE_URL: z.string().min(1),
+    /**
+     * auth.js secret. Required when VOCION_AUTH_PROVIDER is unset or 'local'.
+     * Generate with: `openssl rand -base64 32`
+     */
+    AUTH_SECRET: z.string().min(1).optional(),
+    /** local | clerk. Default 'local'. Cloud build sets 'clerk'. */
+    VOCION_AUTH_PROVIDER: z.enum(['local', 'clerk']).default('local'),
+    /** Clerk — required only when VOCION_AUTH_PROVIDER=clerk. */
+    CLERK_SECRET_KEY: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     BILLING_PLAN_ENV: z.enum(['dev', 'test', 'prod']).default('dev'),
@@ -17,7 +25,7 @@ export const Env = createEnv({
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
-    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1),
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().optional(),
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
     NEXT_PUBLIC_LOGGING_LEVEL: z.enum(['error', 'info', 'debug', 'warning', 'trace', 'fatal']).default('info'),
     NEXT_PUBLIC_BETTER_STACK_SOURCE_TOKEN: z.string().optional(),
@@ -30,6 +38,8 @@ export const Env = createEnv({
   },
   // You need to destructure all the keys manually
   runtimeEnv: {
+    AUTH_SECRET: process.env.AUTH_SECRET,
+    VOCION_AUTH_PROVIDER: process.env.VOCION_AUTH_PROVIDER,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
     DATABASE_URL: process.env.DATABASE_URL,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,

@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { checkGeneration, createGeneration } from '@/libs/gamma/client';
 
 /**
