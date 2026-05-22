@@ -10,7 +10,7 @@
  * Add-Source dialog posts here.
  */
 
-import { auth } from '@clerk/nextjs/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { listConnectors } from '@/libs/sources/registry';
 import { addSource, listSources } from '@/services/SourceSyncService';
 

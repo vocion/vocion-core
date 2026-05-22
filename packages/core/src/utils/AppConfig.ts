@@ -1,8 +1,6 @@
-import type { LocalizationResource } from '@clerk/types';
 import type { LocalePrefixMode } from 'next-intl/routing';
 import type { AppLocale } from '@/types/I18n';
 import type { PricingPlan } from '@/types/Subscription';
-import { enUS, frFR } from '@clerk/localizations';
 import { BILLING_INTERVAL } from '@/types/Subscription';
 
 /** Locale prefix strategy for next-intl routing. */
@@ -36,16 +34,6 @@ export const AppConfig = {
    */
   githubRepoUrl: 'https://github.com/vocion/core',
   githubMainBranch: 'main',
-};
-
-const supportedLocales: Record<string, LocalizationResource> = {
-  en: enUS,
-  fr: frFR,
-};
-
-export const ClerkLocalizations = {
-  defaultLocale: enUS,
-  supportedLocales,
 };
 
 export const AllLocales = AppConfig.i18n.locales.map(locale => locale.id);

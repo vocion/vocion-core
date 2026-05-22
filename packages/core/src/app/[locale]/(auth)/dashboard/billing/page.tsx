@@ -1,7 +1,5 @@
-import { Protect } from '@clerk/nextjs';
 import { getTranslations } from 'next-intl/server';
 import { buttonVariants } from '@/components/ui/buttonVariants';
-import { ProtectFallback } from '@/features/auth/ProtectFallback';
 import { BillingOptions } from '@/features/billing/BillingOptions';
 import { CurrentPlanDetails } from '@/features/billing/CurrentPlanDetails';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
@@ -38,33 +36,15 @@ export default async function BillingPage(props: {
       >
         <CurrentPlanDetails planDetails={planDetails} />
 
-        {stripeDetails?.stripeCustomerId && (
+        {stripeDetails?.stripeCustomerId && has({ role: ORG_ROLE.ADMIN }) && (
           <div className="mt-5">
-            <Protect
-              role={ORG_ROLE.ADMIN}
-              fallback={(
-                <ProtectFallback
-                  trigger={(
-                    <div
-                      className={buttonVariants({
-                        size: 'lg',
-                        variant: 'secondary',
-                      })}
-                    >
-                      {t('manage_subscription_button')}
-                    </div>
-                  )}
-                />
-              )}
+            <Link
+              className={buttonVariants({ size: 'lg' })}
+              href="/dashboard/billing/portal"
+              prefetch={false}
             >
-              <Link
-                className={buttonVariants({ size: 'lg' })}
-                href="/dashboard/billing/portal"
-                prefetch={false}
-              >
-                {t('manage_subscription_button')}
-              </Link>
-            </Protect>
+              {t('manage_subscription_button')}
+            </Link>
           </div>
         )}
       </DashboardSection>

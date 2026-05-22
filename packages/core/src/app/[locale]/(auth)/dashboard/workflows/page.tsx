@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { GitBranch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
