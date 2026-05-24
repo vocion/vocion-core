@@ -33,8 +33,6 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # local env files
-.env
-.env.production
 .env*.local
 
 # npm auth (tokens — never commit)
@@ -77,3 +75,4 @@ infra/terraform/crash.log
 
 # AWS production env (operator-managed; never commit)
 infra/aws/.env.production
+config.bat
