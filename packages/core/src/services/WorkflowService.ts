@@ -238,15 +238,33 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
         const [paused] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
         return summarize(paused!);
       } else if (step.type === 'action') {
-        // v1 stub: record the intent but take no side effect.
+        // v1 stub: record the intent but take no side effect. Output carries
+        // a `__card: 'send-stub'` discriminator so the run-detail page
+        // renders it via the Cards SDK (libs/cards) — see
+        // libs/cards/firstParty/sendStub.tsx for the renderer.
         const actionInput = interpolateRecord(step.input as Record<string, unknown>, scope);
+        const recordedAt = new Date().toISOString();
+        const toRaw = actionInput.to_customer ?? actionInput.to;
+        const subjectRaw = actionInput.subject;
+        const bodyRaw = actionInput.body ?? actionInput.body_from_step;
+        const output = {
+          __card: 'send-stub' as const,
+          stubbed: true as const,
+          envelope: {
+            to: typeof toRaw === 'string' ? toRaw : undefined,
+            subject: typeof subjectRaw === 'string' ? subjectRaw : undefined,
+            body: typeof bodyRaw === 'string' ? bodyRaw : JSON.stringify(actionInput, null, 2),
+            sent_at: recordedAt,
+            action: step.action,
+          },
+        };
         stepResults[name] = {
           status: 'completed',
-          output: { action: step.action, input: actionInput, stubbed: true, note: 'v1 stub — no side effect' },
+          output,
           startedAt: stepResults[name]!.startedAt,
-          finishedAt: new Date().toISOString(),
+          finishedAt: recordedAt,
         };
-        scope.steps[name] = { output: stepResults[name]!.output };
+        scope.steps[name] = { output };
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
