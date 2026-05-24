@@ -27,6 +27,7 @@
       "ignore": [
         "src/components/ui/**",
         "src/features/dashboard/chat/**",
+        "src/features/auth/ProtectFallback.tsx",
         "src/templates/**",
         "src/types/**",
         "src/libs/plugins/**",
@@ -54,13 +55,15 @@
         "tailwindcss",
         "tw-animate-css",
         "@clerk/types",
+        "@clerk/nextjs",
         "vite"
       ],
       "includeEntryExports": false
     },
     "packages/sdk": {
       "entry": ["src/index.ts"],
-      "project": ["src/**/*.ts"]
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["react"]
     },
     "packages/plugins/*": {
       "entry": ["src/index.ts"],

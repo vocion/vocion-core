@@ -82,10 +82,23 @@ export type ExecuteActionActivityInput = {
   stepName: string;
 };
 
+/**
+ * Output shape carries a `__card` discriminator so the run-detail UI renders
+ * via the Cards SDK registry (`libs/cards/`) instead of dumping JSON. The
+ * `send-stub` card matches and shows the envelope as an email-shaped card.
+ * When real send integrations land, `stubbed` flips to `false` and the same
+ * card renders without any UI change.
+ */
 export type ExecuteActionActivityOutput = {
+  __card: 'send-stub';
   stubbed: true;
-  actionType: string;
-  recordedAt: string;
+  envelope: {
+    to?: string;
+    subject?: string;
+    body: string;
+    sent_at: string;
+    action: string;
+  };
 };
 
 export async function executeActionActivity(
@@ -94,11 +107,49 @@ export async function executeActionActivity(
   // v1: actions are declarative but not executable yet. The Activity
   // records intent; downstream wiring (email send, webhook fire, etc)
   // lands when individual action handlers ship.
+  const recordedAt = new Date().toISOString();
   return {
+    __card: 'send-stub',
     stubbed: true,
-    actionType: input.actionType,
-    recordedAt: new Date().toISOString(),
+    envelope: {
+      to: stringField(input.input, 'to_customer') ?? stringField(input.input, 'to') ?? undefined,
+      subject: stringField(input.input, 'subject') ?? undefined,
+      body: extractBody(input.input),
+      sent_at: recordedAt,
+      action: input.actionType,
+    },
   };
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | null {
+  const v = record[key];
+  return typeof v === 'string' ? v : null;
+}
+
+/**
+ * Best-effort body extraction. The stub action takes interpolated inputs
+ * keyed by the workflow author; common shapes are:
+ *   - `body: '<text>'`
+ *   - `body_from_step: 'step_name'` → the step's output as a string
+ *   - the whole input itself when no specific body field is provided
+ *
+ * For the support-reply demo, the `support_triage` workflow passes
+ * `body_from_step: draft` which the action handler already interpolated by
+ * the time we get here — so the rendered draft text sits on `input.body` or
+ * `input.body_from_step`. When neither is present, fall back to JSON for
+ * visibility rather than rendering empty.
+ * @param record
+ */
+function extractBody(record: Record<string, unknown>): string {
+  const direct = stringField(record, 'body');
+  if (direct) {
+    return direct;
+  }
+  const fromStep = stringField(record, 'body_from_step');
+  if (fromStep) {
+    return fromStep;
+  }
+  return JSON.stringify(record, null, 2);
 }
 
 /* ------------------------------------------------------------------ */

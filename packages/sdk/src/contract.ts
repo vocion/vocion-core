@@ -1,5 +1,6 @@
 import type OpenAI from 'openai';
 import type { z } from 'zod';
+import type { AnyCardRenderer } from './cards';
 import type { LLMClient, LLMProviderName } from './llm';
 
 /**
@@ -363,6 +364,15 @@ export type PluginManifest = {
   readonly sources?: AnySource[];
   /** Lazy factory variant for sources, same role as `register` for operations. */
   readonly registerSources?: (env: PluginRegistrationEnv) => Promise<AnySource[]> | AnySource[];
+  /**
+   * Card renderers (v0.4+, @experimental). Plugins ship typed UI components
+   * for their workflow outputs. The framework looks up renderers by slug;
+   * slug priority resolves collisions so a plugin can override a generic
+   * first-party card for its own runs. See `./cards.ts` for the contract.
+   */
+  readonly renderers?: AnyCardRenderer[];
+  /** Lazy factory variant for renderers, same role as `register` for operations. */
+  readonly registerRenderers?: (env: PluginRegistrationEnv) => Promise<AnyCardRenderer[]> | AnyCardRenderer[];
 };
 
 /** Minimal env passed to plugin factories. Kept narrow — no DB / no LLM here. */
