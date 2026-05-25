@@ -1,9 +1,9 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { GitBranch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { listWorkflows } from '@/services/WorkflowService';
 import { isEntityStatus } from '@/types/Status';

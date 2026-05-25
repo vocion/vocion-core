@@ -1,4 +1,3 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { and, desc, eq } from 'drizzle-orm';
 import { Activity, ExternalLink } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
@@ -7,6 +6,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { FeedbackButtons } from '@/features/dashboard/FeedbackButtons';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { skillRunSchema, skillSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';

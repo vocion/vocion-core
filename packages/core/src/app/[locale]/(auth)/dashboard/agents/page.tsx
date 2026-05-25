@@ -1,9 +1,9 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { Bot } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { CatalogCard } from '@/components/ui/catalog-card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { listAgents } from '@/services/AgentService';
 
 /**
@@ -11,6 +11,7 @@ import { listAgents } from '@/services/AgentService';
  * `accent` field. Falls back to amber. Mirrors libs/agentAccent.ts
  * but returns a CSS var for inline `style` use rather than Tailwind
  * class strings.
+ * @param name
  */
 function accentCssVar(name: string | null | undefined): string {
   if (name === 'teal') {

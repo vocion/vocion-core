@@ -1,5 +1,5 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { NextResponse } from 'next/server';
+import { clerkAuth as auth } from '@/libs/Auth';
 
 /**
  * Authenticate an API request.

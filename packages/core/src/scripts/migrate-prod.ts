@@ -27,7 +27,6 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 
 const log = (...args: unknown[]) => {
-  // eslint-disable-next-line no-console
   console.log('[migrate-prod]', ...args);
 };
 
@@ -49,7 +48,6 @@ async function main() {
 main()
   .then(() => process.exit(0))
   .catch((err) => {
-    // eslint-disable-next-line no-console
     console.error('[migrate-prod] FAILED:', (err as Error).stack ?? err);
     process.exit(1);
   });
