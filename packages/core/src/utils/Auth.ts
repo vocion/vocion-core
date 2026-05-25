@@ -1,5 +1,5 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { redirect } from 'next/navigation';
+import { clerkAuth as auth } from '@/libs/Auth';
 
 /**
  * Authentication utilities for Next.js App Router. These functions use Next.js `redirect()`.

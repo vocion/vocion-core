@@ -1,8 +1,8 @@
 'use client';
 
+import type { ConfidenceLevel } from '@/types/Status';
 import { CheckCircle, Clock, GitBranch, RotateCw, Sparkles, ThumbsDown, ThumbsUp, XCircle } from 'lucide-react';
 import { useState, useTransition } from 'react';
-import type { ConfidenceLevel } from '@/types/Status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';

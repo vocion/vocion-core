@@ -70,12 +70,18 @@ export function HitlGate({ gate, onApprove, onReject, disabled = false, pausedAt
               {elapsed && (
                 <span className="inline-flex items-center gap-1">
                   <Clock className="size-3" aria-hidden />
-                  Waiting {elapsed}
+                  Waiting
+                  {' '}
+                  {elapsed}
                 </span>
               )}
               <span className="inline-flex items-center gap-1">
                 <Users className="size-3" aria-hidden />
-                Anyone with {approverRole} can approve
+                Anyone with
+                {' '}
+                {approverRole}
+                {' '}
+                can approve
               </span>
             </div>
             <div className="mt-2 text-sm font-medium text-foreground">{gate.question}</div>

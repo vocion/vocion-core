@@ -76,6 +76,11 @@ export function cleanUsageDetails(input: Record<string, number | undefined>): Re
  * Errors are swallowed by design — observability should never fail a
  * write. Returns true when the call was dispatched (still subject to
  * background flush success), false on a recognized skip.
+ * @param opts
+ * @param opts.traceId
+ * @param opts.name
+ * @param opts.value
+ * @param opts.comment
  */
 export function pushScore(opts: {
   traceId: string | null | undefined;
