@@ -26,6 +26,8 @@ import { ToolBreadcrumb } from './ToolBreadcrumb';
 export type AgentMessageProps = {
   message: ChatMessage;
   timestamp?: number;
+  /** Display name for the speaker label above the message body. Passed through from ChatShell's active agent. */
+  agentName: string;
   onDocumentClick?: (doc: OnyxDocument, num: string) => void;
   onCitationClick?: (n: number) => void;
   /** Optional handler when the "Sources · N" pill is clicked. Opens the SourcesPanel. */
@@ -40,7 +42,7 @@ function formatTime(ts: number | undefined): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-export function AgentMessage({ message, timestamp, onShowSources }: AgentMessageProps) {
+export function AgentMessage({ message, timestamp, agentName, onShowSources }: AgentMessageProps) {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
@@ -53,7 +55,7 @@ export function AgentMessage({ message, timestamp, onShowSources }: AgentMessage
       </div>
       <div className="max-w-2xl min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
-          <span>Sales Assistant</span>
+          <span>{agentName}</span>
           {timestamp && <span className="tracking-normal normal-case">{formatTime(timestamp)}</span>}
           {sourceCount > 0 && (
             <button
