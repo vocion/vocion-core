@@ -1,7 +1,7 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { setRequestLocale } from 'next-intl/server';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { listSkillRuns } from '@/services/SkillService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
 

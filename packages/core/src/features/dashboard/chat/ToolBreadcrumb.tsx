@@ -72,7 +72,9 @@ export function ToolBreadcrumb({ name, state = 'done', inputPreview, outputPrevi
       )}
       {outputPreview && state !== 'pending' && (
         <div className={`ml-5 line-clamp-1 font-mono text-[11px] break-all ${state === 'error' ? 'text-[var(--brand-fail)]' : 'text-muted-foreground'}`}>
-          → {outputPreview}
+          →
+          {' '}
+          {outputPreview}
         </div>
       )}
     </button>

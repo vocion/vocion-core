@@ -1,9 +1,9 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { ExternalLink, LineChart } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { listAgentBudgets } from '@/services/BudgetService';
 import { countRunsLast24h } from '@/services/ObservabilityService';
 

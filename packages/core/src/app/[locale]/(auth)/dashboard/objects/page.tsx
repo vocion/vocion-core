@@ -1,9 +1,9 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { Database, Link2 } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { listBusinessObjects, listObjectTypes } from '@/services/BusinessObjectService';
 
@@ -140,4 +140,3 @@ function Stat({ label, value }: { label: string; value: number }) {
     </div>
   );
 }
-
