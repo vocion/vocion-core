@@ -17,11 +17,13 @@ import { UserMessage } from './UserMessage';
 
 export type MessageListProps = {
   messages: ChatMessage[];
+  /** Speaker label rendered above each agent message. Passed through to AgentMessage. */
+  agentName: string;
   /** Provided when streaming so the latest message scrolls into view. */
   streaming?: boolean;
 };
 
-export function MessageList({ messages, streaming = false }: MessageListProps) {
+export function MessageList({ messages, agentName, streaming = false }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -33,7 +35,7 @@ export function MessageList({ messages, streaming = false }: MessageListProps) {
       <div className="mx-auto w-full max-w-4xl space-y-8">
         {messages.map((msg, i) => msg.role === 'user'
           ? <UserMessage key={i} content={msg.content} />
-          : <AgentMessage key={i} message={msg} />)}
+          : <AgentMessage key={i} message={msg} agentName={agentName} />)}
         <div ref={bottomRef} />
       </div>
     </div>
