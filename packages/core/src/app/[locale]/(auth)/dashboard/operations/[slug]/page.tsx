@@ -1,4 +1,3 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { ArrowLeft, Search, Send, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
@@ -7,6 +6,7 @@ import { PrimitiveActivity } from '@/features/dashboard/PrimitiveActivity';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { getSkillActivity } from '@/libs/activity';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { getContextDirtyState } from '@/libs/context/dirty';
 import { readPrimitiveFiles } from '@/libs/context/reader';
 import { Link } from '@/libs/I18nNavigation';
@@ -45,7 +45,7 @@ export default async function SkillDetailPage(props: {
     <>
       <div className="mb-4">
         <Link
-          href="/dashboard/skills"
+          href="/dashboard/operations"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-3" />

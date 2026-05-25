@@ -1,9 +1,9 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { and, eq } from 'drizzle-orm';
 import { AlertTriangle, CheckCircle2, Database, FileText, Layers, Plug, Scale, Share2 } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { agentSchema, businessObjectSchema, businessObjectTypeSchema, skillSchema, workflowSchema } from '@/models/Schema';
@@ -63,7 +63,7 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
         <Stat icon={FileText} label="Object types" value={objectTypes.length} href="/dashboard/objects" />
         <Stat icon={Database} label="Objects" value={objects.length} href="/dashboard/objects" />
         <Stat icon={Layers} label="Active agents" value={agents.length} href="/dashboard/agents" />
-        <Stat icon={CheckCircle2} label="Active skills" value={skills.length} href="/dashboard/skills" />
+        <Stat icon={CheckCircle2} label="Active skills" value={skills.length} href="/dashboard/operations" />
         <Stat icon={Share2} label="Active workflows" value={workflows.length} href="/dashboard/workflows" />
       </div>
 

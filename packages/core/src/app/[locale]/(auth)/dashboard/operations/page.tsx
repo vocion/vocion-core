@@ -1,10 +1,10 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { Search, Send, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { listSkills } from '@/services/SkillService';
 import { isEntityStatus } from '@/types/Status';
@@ -54,7 +54,7 @@ export default async function SkillsPage(props: {
               {skills.map(skill => (
                 <Link
                   key={skill.id}
-                  href={`/dashboard/skills/${skill.slug}`}
+                  href={`/dashboard/operations/${skill.slug}`}
                   className={`rounded-lg border border-border bg-background p-4 transition hover:border-primary/30 ${skill.status !== 'active' ? 'opacity-60' : ''}`}
                 >
                   <div className="mb-2 flex items-center gap-2">
