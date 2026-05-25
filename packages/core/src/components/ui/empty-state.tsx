@@ -1,5 +1,5 @@
-import type { ComponentProps, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import type { ComponentProps, ReactNode } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 

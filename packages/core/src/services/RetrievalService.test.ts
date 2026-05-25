@@ -17,7 +17,7 @@ vi.mock('@/libs/retrieval/embedder', () => {
   return {
     embed: vi.fn(async (texts: string[]) => {
       return texts.map((t) => {
-        const vec: number[] = new Array(1536).fill(0);
+        const vec: number[] = Array.from<number>({ length: 1536 }).fill(0);
         // Trivial bag-of-chars projection: pin a few stable dims off
         // the text so similar strings get similar vectors. Good
         // enough for "the planet doc is closer to 'mars' than the

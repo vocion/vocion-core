@@ -59,14 +59,16 @@ export function AgentMessage({ message, timestamp, onShowSources }: AgentMessage
             <button
               type="button"
               onClick={onShowSources}
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] tracking-normal normal-case text-foreground/80 transition hover:border-primary/30 hover:text-foreground"
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] tracking-normal text-foreground/80 normal-case transition hover:border-primary/30 hover:text-foreground"
             >
               <FileText className="size-2.5" aria-hidden />
-              Sources · {sourceCount}
+              Sources ·
+              {' '}
+              {sourceCount}
             </button>
           )}
           {hasToolError && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal normal-case text-[var(--brand-fail)]">
+            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal text-[var(--brand-fail)] normal-case">
               <AlertCircle className="size-2.5" aria-hidden />
               Tool error
             </span>

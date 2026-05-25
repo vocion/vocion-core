@@ -59,9 +59,11 @@ export const userSchema = pgTable('user', {
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
 
-/** auth.js OAuth-link table. Keeps the auth.js field-name conventions
+/**
+ * auth.js OAuth-link table. Keeps the auth.js field-name conventions
  *  (snake_case in the DB but matching the JS field names exactly so
- *  the @auth/drizzle-adapter can introspect it). */
+ *  the @auth/drizzle-adapter can introspect it).
+ */
 export const authAccountSchema = pgTable(
   'auth_account',
   {
@@ -109,8 +111,10 @@ export const verificationTokenSchema = pgTable(
   ],
 );
 
-/** A tenant account. Self-hosted: exactly 1 row. Cloud: N rows.
- *  Billing columns are populated in vocion-cloud only; null in self-hosted. */
+/**
+ * A tenant account. Self-hosted: exactly 1 row. Cloud: N rows.
+ *  Billing columns are populated in vocion-cloud only; null in self-hosted.
+ */
 export const tenantAccountSchema = pgTable(
   'tenant_account',
   {
@@ -135,9 +139,11 @@ export const tenantAccountSchema = pgTable(
   ],
 );
 
-/** A workspace within a tenant account. Replaces today's `orgId` scope on
+/**
+ * A workspace within a tenant account. Replaces today's `orgId` scope on
  *  business-content tables. Self-hosted: N projects per the single account.
- *  Cloud: N projects per each of M accounts. */
+ *  Cloud: N projects per each of M accounts.
+ */
 export const projectSchema = pgTable(
   'project',
   {
@@ -1264,8 +1270,10 @@ export const knowledgeChunkSchema = pgTable(
     documentId: integer('document_id')
       .notNull()
       .references(() => knowledgeDocumentSchema.id, { onDelete: 'cascade' }),
-    /** Denormalized for org-scoped queries (avoids join + lets us put the
-     * filter directly on the partial vector-index condition). */
+    /**
+     * Denormalized for org-scoped queries (avoids join + lets us put the
+     * filter directly on the partial vector-index condition).
+     */
     orgId: text('org_id').notNull(),
     /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
     projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),

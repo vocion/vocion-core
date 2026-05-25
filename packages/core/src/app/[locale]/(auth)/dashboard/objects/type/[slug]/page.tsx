@@ -1,4 +1,3 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { eq } from 'drizzle-orm';
 import { ArrowLeft, Database } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
@@ -6,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { getContextDirtyState } from '@/libs/context/dirty';
 import { readPrimitiveFiles } from '@/libs/context/reader';
 import { db } from '@/libs/DB';

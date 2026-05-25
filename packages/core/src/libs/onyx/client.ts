@@ -38,9 +38,11 @@ export type LegacySearchArgs = {
     time_cutoff?: string;
   };
   metadata_filters?: Record<string, string>;
-  /** Caller-supplied orgId. Legacy `search()` pulled this from a
+  /**
+   * Caller-supplied orgId. Legacy `search()` pulled this from a
    *  global config; we require it explicitly now (we'll fall back to
-   *  the first listed org for callers that haven't been updated). */
+   *  the first listed org for callers that haven't been updated).
+   */
   orgId?: string;
 };
 

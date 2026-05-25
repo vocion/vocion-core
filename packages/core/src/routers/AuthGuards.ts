@@ -57,6 +57,7 @@ export const guardAuth = async () => {
 
 /**
  * Enforces specific role permissions for ORPC procedures.
+ * @param role
  * @throws {ORPCError} 401 Unauthorized when no session.
  * @throws {ORPCError} 403 Forbidden when role check fails.
  */
@@ -68,7 +69,10 @@ export const guardRole = async (role: OrgRole) => {
   return { orgId: ctx.orgId, projectId: ctx.projectId, accountId: ctx.accountId };
 };
 
-/** Hydrate a project row by id. */
+/**
+ * Hydrate a project row by id.
+ * @param projectId
+ */
 export const loadProject = async (projectId: string) => {
   const [row] = await db
     .select()

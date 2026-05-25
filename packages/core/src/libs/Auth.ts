@@ -26,6 +26,7 @@ const credentialsSchema = z.object({
 });
 
 declare module 'next-auth' {
+  // eslint-disable-next-line ts/consistent-type-definitions -- module augmentation REQUIRES interface; type aliases can't merge into existing declarations.
   interface Session {
     user: DefaultSession['user'] & {
       id: string;
@@ -37,6 +38,7 @@ declare module 'next-auth' {
 }
 
 declare module '@auth/core/jwt' {
+  // eslint-disable-next-line ts/consistent-type-definitions -- same as above; JWT must remain an interface for declaration merging.
   interface JWT {
     id: string;
     accountId?: string | null;
@@ -115,6 +117,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
  * `vocion_active_project` cookie). Cloud: same query but the user may
  * belong to multiple accounts — needs the account_id resolved from a
  * separate cookie.
+ * @param userId
  */
 async function resolveTenancyForUser(userId: string): Promise<{
   accountId: string | null;
@@ -150,6 +153,7 @@ async function resolveTenancyForUser(userId: string): Promise<{
 /**
  * Hash a password with bcrypt. Used by /api/setup, /api/team/invite/accept,
  * and seed-demo CLI.
+ * @param password
  */
 export function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);

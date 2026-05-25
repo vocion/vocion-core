@@ -61,7 +61,7 @@ export function CatalogCard({
     >
       <div className="flex items-center gap-2">
         <Icon className="size-4 text-[var(--brand-amber-deep)]" aria-hidden />
-        <span className="font-display text-sm font-semibold leading-tight">{title}</span>
+        <span className="font-display text-sm leading-tight font-semibold">{title}</span>
         {status && (
           <span className="ml-auto">
             <StatusPill status={status} size="sm" />
