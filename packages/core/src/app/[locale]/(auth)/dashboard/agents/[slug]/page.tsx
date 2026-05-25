@@ -1,10 +1,10 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import { ArrowLeft, Bot } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { StatusPill } from '@/components/ui/status-pill';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { getContextDirtyState } from '@/libs/context/dirty';
 import { readPrimitiveFiles } from '@/libs/context/reader';
 import { Link } from '@/libs/I18nNavigation';
@@ -70,7 +70,7 @@ export default async function AgentDetailPage(props: {
                 {skills.map(s => (
                   <Link
                     key={s}
-                    href={`/dashboard/skills/${s}`}
+                    href={`/dashboard/operations/${s}`}
                     className="rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] text-foreground/80 transition hover:border-primary/30 hover:text-foreground"
                   >
                     {s}

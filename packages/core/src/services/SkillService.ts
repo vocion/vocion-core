@@ -21,7 +21,20 @@ import { pluginRegistry } from '@/libs/plugins';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { skillRunSchema, skillSchema } from '@/models/Schema';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+/**
+ * Lazy-init OpenAI client. Constructed on first call rather than at module
+ * load so importing this file doesn't blow up when `OPENAI_API_KEY` is
+ * unset — pages that don't actually invoke a prompt skill (workflow list,
+ * dashboard nav, etc.) should not 500 just because they pull a function
+ * from this module's transitive graph.
+ */
+let _openai: OpenAI | undefined;
+function getOpenAI(): OpenAI {
+  if (!_openai) {
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+  }
+  return _openai;
+}
 
 export const getSkill = (orgId: string, slug: string) => {
   return db.query.skillSchema.findFirst({
@@ -163,7 +176,7 @@ export async function executeSkill(opts: {
 
   const startTime = Date.now();
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: skill.model ?? 'gpt-4o',
     temperature: Number(skill.temperature ?? 0.3),
     messages: [{ role: 'user', content: prompt }],
@@ -266,7 +279,7 @@ async function executePluginSkill(
 
   const ctx: PluginContext = {
     orgId: opts.orgId,
-    openai,
+    openai: getOpenAI(),
     llm,
     contextSha,
     invokedBy: opts.userId ?? 'mcp',
