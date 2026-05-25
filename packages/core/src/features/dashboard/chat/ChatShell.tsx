@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  AgentOption,
   AgentRun,
   ChatMessage,
   HitlGatePayload,
@@ -11,7 +12,6 @@ import { useCallback, useState } from 'react';
 import { AgentHeader } from './AgentHeader';
 import { ChatComposer } from './ChatComposer';
 import { EmptyState } from './EmptyState';
-import { AGENTS } from './helpers';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
 import { SourcesPanel } from './SourcesPanel';
@@ -23,30 +23,33 @@ import { SourcesPanel } from './SourcesPanel';
  * route at `/rpc/agent/stream` (Phase 4); events emitted by the
  * backend are reduced into the `messages` array.
  *
+ * Agent identity is data-in: the server component that mounts ChatShell
+ * passes the available agents (DB rows + the virtual `__search__`
+ * entry) and optionally a starting `agentSlug`. When the tenant has no
+ * agents, render a "no agents yet" empty state pointing at the
+ * authoring path. The pre-v0.5.2 default to "Sales Assistant" is gone.
+ *
  * Component tree:
  *   <AgentHeader />
  *   <MessageList /> or <EmptyState />
  *   <SourcesPanel /> (right-side, optional)
  *   <HitlGate /> (above composer when pending)
  *   <ChatComposer />
- *
- * The orchestrator stays small (< 400 LOC). Child components are
- * dumb renderers; logic lives here.
  */
 
 export type ChatShellProps = {
+  /** Agents available to pick from. Empty array renders the no-agents empty state. */
+  agents: AgentOption[];
+  /** Initial selection. If absent, picks the first entry in `agents`. */
   agentSlug?: string;
-  agentName?: string;
-  agentEyebrow?: string;
   agentDescription?: string;
   /** Suggestion prompts surfaced in the empty state. */
   suggestions?: Array<{ label: string; prompt: string }>;
 };
 
 export function ChatShell({
-  agentSlug = 'sales-assistant',
-  agentName = 'Sales Assistant',
-  agentEyebrow = 'Workspace · Sales Assistant',
+  agents,
+  agentSlug,
   agentDescription,
   suggestions = [],
 }: ChatShellProps) {
@@ -57,7 +60,11 @@ export function ChatShell({
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [allDocuments, setAllDocuments] = useState<OnyxDocument[]>([]);
 
-  const agent = AGENTS.find(a => a.slug === agentSlug) ?? AGENTS[0]!;
+  // Callers (`chat/page.tsx`) guarantee at least one entry — the virtual
+  // SEARCH_ONLY_AGENT is always appended. When real agents exist the
+  // explicit slug wins; otherwise the first entry is the default.
+  const agent = (agentSlug ? agents.find(a => a.slug === agentSlug) : undefined) ?? agents[0]!;
+  const agentEyebrow = `Workspace · ${agent.name}`;
   const isStreaming = phase !== 'idle';
 
   /* --------------------------------------------------------------- */
@@ -238,13 +245,13 @@ export function ChatShell({
 
   return (
     <div className="flex h-full flex-1 flex-col">
-      <AgentHeader name={agentName} eyebrow={agentEyebrow} description={agentDescription} />
+      <AgentHeader name={agent.name} eyebrow={agentEyebrow} description={agentDescription} />
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col">
           {messages.length === 0
-            ? <EmptyState agentName={agentName} suggestions={suggestions} onPick={handlePickSuggestion} />
-            : <MessageList messages={messages} streaming={isStreaming} />}
+            ? <EmptyState agentName={agent.name} suggestions={suggestions} onPick={handlePickSuggestion} />
+            : <MessageList messages={messages} agentName={agent.name} streaming={isStreaming} />}
 
           {pendingHitl && (
             <HitlGate

@@ -1,6 +1,6 @@
 import type { AgentEvent } from '@/services/AgentService';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { runAgent } from '@/services/AgentService';
+import { listAgents, runAgent } from '@/services/AgentService';
 
 export async function POST(request: Request) {
   const { userId, orgId } = await auth();
@@ -10,7 +10,20 @@ export async function POST(request: Request) {
 
   const body = await request.json();
   const message = body.message as string;
-  const agentSlug = (body.agent_slug as string) || 'sales-assistant';
+  // Resolve the agent. Explicit `agent_slug` wins; otherwise fall back to
+  // the first agent authored for this project. No project agents → 404
+  // (the pre-v0.5.2 hardcoded "sales-assistant" fallback is gone).
+  let agentSlug = body.agent_slug as string | undefined;
+  if (!agentSlug) {
+    const agents = await listAgents(orgId);
+    if (agents.length === 0) {
+      return new Response(
+        JSON.stringify({ error: 'No agents authored for this project. See /dashboard/chat for setup.' }),
+        { status: 404 },
+      );
+    }
+    agentSlug = agents[0]!.slug;
+  }
   const stream = body.stream !== false; // default true
   const conversationHistory = (body.conversation_history as Array<{ role: string; content: string }>) ?? [];
 
