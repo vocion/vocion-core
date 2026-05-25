@@ -1,20 +1,20 @@
 'use client';
 
-import { ProjectSwitcher } from '@/features/dashboard/ProjectSwitcher';
 import {
   Activity,
   BookOpen,
   Bot,
-  Boxes,
   CheckSquare,
   Database,
   FileText,
   GitBranch,
   LineChart,
+  Map as MapIcon,
   MessageSquare,
   Plug,
   ScrollText,
   Settings,
+  ShieldCheck,
   Sparkles,
   TestTube,
   Zap,
@@ -22,23 +22,24 @@ import {
 import { useTranslations } from 'next-intl';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
+import { ProjectSwitcher } from '@/features/dashboard/ProjectSwitcher';
 import { VocionLogo } from '@/templates/VocionLogo';
 
 /**
- * Dashboard left sidebar — v0.3 rev-ai-style restructure.
+ * Dashboard left sidebar — v0.5 IA reorg.
  *
  * Four sections, in order:
- *   1. Workspace — chat, review, search, logs (day-to-day work)
- *   2. Capabilities — agents, operations, playbooks, learnings, evals,
- *      workflows, objects, sources, docs (everything authored as code)
- *   3. Agents — server-loaded list of agent rows with per-agent accent
- *      left-border (placeholder hardcoded today; Phase C wires the real
- *      `agents.list` server fetch + per-agent recent-conversations).
- *   4. Settings — billing, organization, members
+ *   1. Workspace — chat, review, search (day-to-day work)
+ *   2. Capabilities — sources, objects, operations, workflows, agents,
+ *      playbooks, learnings, evals (order matches the /solve marketing
+ *      page so the dashboard nav reads as a guided tour of the primitives)
+ *   3. Observability — logs + observability traces (promoted from
+ *      Workspace; this is "look at what happened" not daily-work)
+ *   4. Settings — billing, admin, docs, roadmap (settings + reference;
+ *      orphan routes get a home)
  *
- * Active-state styling is driven by `--sidebar-accent` + `--sidebar-accent-foreground`
- * in styles/global.css — those now map to brand amber. No per-item
- * styling needed in this file.
+ * Active-state styling is driven by `--sidebar-accent` +
+ * `--sidebar-accent-foreground` in styles/global.css.
  * @param props
  */
 export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
@@ -62,40 +63,44 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
             { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
             { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
             { title: t('search'), url: '/dashboard/search', icon: BookOpen },
+          ]}
+        />
+
+        {/* 2. Capabilities — order mirrors the /solve marketing page so
+            the nav reads as a guided tour: data in (sources, objects)
+            → typed primitives (operations, workflows, agents) →
+            authoring + memory (playbooks, learnings, evals). */}
+        <AppSidebarNav
+          label={t('capabilities_section_label')}
+          items={[
+            { title: t('sources'), url: '/dashboard/sources', icon: Plug },
+            { title: t('objects'), url: '/dashboard/objects', icon: Database },
+            { title: t('operations'), url: '/dashboard/operations', icon: Zap },
+            { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
+            { title: t('agents'), url: '/dashboard/agents', icon: Bot },
+            { title: t('playbooks'), url: '/dashboard/playbooks', icon: ScrollText },
+            { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
+            { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
+          ]}
+        />
+
+        {/* 3. Observability — see what happened */}
+        <AppSidebarNav
+          label={t('observability_section_label')}
+          items={[
             { title: t('logs'), url: '/dashboard/logs', icon: Activity },
             { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
           ]}
         />
 
-        {/* 2. Capabilities — everything authored as code */}
-        <AppSidebarNav
-          label={t('capabilities_section_label')}
-          items={[
-            { title: 'Agents', url: '/dashboard/agents', icon: Bot },
-            { title: t('operations'), url: '/dashboard/skills', icon: Zap },
-            { title: t('playbooks'), url: '/dashboard/playbooks', icon: ScrollText, disabled: true },
-            { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles, disabled: true },
-            { title: t('evals'), url: '/dashboard/evals', icon: TestTube, disabled: true },
-            { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
-            { title: t('objects'), url: '/dashboard/objects', icon: Database },
-            { title: t('connectors'), url: '/dashboard/sources', icon: Plug },
-            { title: t('docs'), url: '/dashboard/docs', icon: FileText },
-          ]}
-        />
-
-        {/* 3. Agents — placeholder for Phase C server-loaded list */}
-        <AppSidebarNav
-          label={t('agents_section_label')}
-          items={[
-            { title: t('ziggy'), url: '/dashboard/chat', icon: Boxes },
-          ]}
-        />
-
-        {/* 4. Settings */}
+        {/* 4. Settings — settings + reference (orphan routes get a home) */}
         <AppSidebarNav
           label={t('settings_section_label')}
           items={[
             { title: t('billing'), url: '/dashboard/billing', icon: Settings },
+            { title: t('admin'), url: '/dashboard/admin', icon: ShieldCheck },
+            { title: t('docs'), url: '/dashboard/docs', icon: FileText },
+            { title: t('roadmap'), url: '/dashboard/roadmap', icon: MapIcon },
           ]}
         />
       </SidebarContent>
