@@ -63,7 +63,7 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
         <Stat icon={FileText} label="Object types" value={objectTypes.length} href="/dashboard/objects" />
         <Stat icon={Database} label="Objects" value={objects.length} href="/dashboard/objects" />
         <Stat icon={Layers} label="Active agents" value={agents.length} href="/dashboard/agents" />
-        <Stat icon={CheckCircle2} label="Active skills" value={skills.length} href="/dashboard/operations" />
+        <Stat icon={CheckCircle2} label="Active skills" value={skills.length} href="/dashboard/skills" />
         <Stat icon={Share2} label="Active workflows" value={workflows.length} href="/dashboard/workflows" />
       </div>
 
