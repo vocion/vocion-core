@@ -12,8 +12,13 @@ const AUTH_PATH = /^\/(?:[^/]+\/)?(?:sign-in|sign-up|setup|invite)(?:$|\/|\?)/;
 export default async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
-  // /api/auth/* is owned by auth.js — let it handle its own routing
-  if (path.startsWith('/api/auth')) {
+  // All /api/* routes own their own routing — no locale prefixes, no
+  // redirects. Letting next-intl touch them rewrites `/api/v1/foo` to
+  // `/en/api/v1/foo`, which doesn't match the route file at
+  // `app/api/v1/foo/route.ts` and 404s. Auth, v1 API, webhooks, signup
+  // all live under /api/ and need to be handled by Next's own route
+  // matcher unchanged.
+  if (path.startsWith('/api/')) {
     return NextResponse.next();
   }
 
