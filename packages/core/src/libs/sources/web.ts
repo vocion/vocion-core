@@ -14,8 +14,8 @@
  * actually ask for it.
  */
 
-import type { IngestDoc } from '@/services/IngestionService';
 import type { SourceConnector, SourceContext } from './types';
+import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
 
 const webConfigSchema = z.object({
@@ -38,7 +38,7 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
   icon: 'Globe',
   authKind: 'none',
   configSchema: webConfigSchema,
-  async *sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
+  async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = webConfigSchema.parse(ctx.config);
     if (cfg.urls?.length) {
       for (const url of cfg.urls) {
@@ -108,6 +108,7 @@ async function fetchAsDoc(url: string, ctx: SourceContext): Promise<IngestDoc | 
  * (Readability.js, mozilla-readability) would do better on news/blog
  * articles, but it adds 600KB of JS and a JSDOM dep. Revisit when a
  * user complains about a specific bad extraction.
+ * @param html
  */
 function extractFromHtml(html: string): { title?: string; content: string } {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
@@ -181,6 +182,7 @@ async function* crawl(
 
 function extractLinks(html: string, baseUrl: string): string[] {
   const out: string[] = [];
+  // eslint-disable-next-line regexp/no-contradiction-with-assertion -- the regex is intentionally permissive; the linter's "always-entered quantifier" warning is a false positive against `<a\b[^>]*\bhref`, which is the standard pattern for extracting hrefs from anchor tags.
   const re = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi;
   let match: RegExpExecArray | null;
   // eslint-disable-next-line no-cond-assign

@@ -17,11 +17,11 @@
  * span so we can attribute the few hundred input tokens per query.
  */
 
+import type { SearchHit } from '@/services/RetrievalService';
 import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
-import type { SearchHit } from '@/services/RetrievalService';
 
 const RERANK_MODEL = process.env.VOCION_RERANK_MODEL ?? 'claude-haiku-4-5-20251001';
 const RERANK_MAX_CANDIDATES = 20;
@@ -53,6 +53,9 @@ export type RerankOptions = {
  * `keep`. If the rerank call fails for any reason we return the
  * input hits unchanged — better to ship the first-stage ranking
  * than to drop retrieval on the floor.
+ * @param query
+ * @param candidates
+ * @param opts
  */
 export async function rerank(
   query: string,

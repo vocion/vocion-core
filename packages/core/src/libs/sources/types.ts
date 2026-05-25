@@ -26,8 +26,10 @@ export type SourceContext = {
   config: Record<string, unknown>;
   /** Decrypted credential bag, when `authKind !== 'none'`. */
   credentials?: Record<string, unknown>;
-  /** Optional progress callback — connectors call this between yields
-   *  so the UI can show "12 / 47 documents". */
+  /**
+   * Optional progress callback — connectors call this between yields
+   *  so the UI can show "12 / 47 documents".
+   */
   onProgress?: (event: { kind: 'fetched' | 'skipped' | 'error'; uri?: string; message?: string }) => void;
 };
 
@@ -41,9 +43,11 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
   /** Lucide icon name for the picker tile. */
   icon: string;
   authKind: SourceAuthKind;
-  /** Zod schema validating the config_json blob the user enters when
+  /**
+   * Zod schema validating the config_json blob the user enters when
    *  adding the source. The Add-Source form auto-generates inputs from
-   *  the schema's field metadata. */
+   *  the schema's field metadata.
+   */
   configSchema: TConfigSchema;
   /**
    * Yield each document the source currently exposes. Order doesn't

@@ -41,12 +41,12 @@ import {
 
 export type SearchMode = 'vector' | 'keyword' | 'hybrid';
 
-export type SearchEvent =
-  | { type: 'retrieval.started'; mode: SearchMode; query: string }
-  | { type: 'retrieval.candidates'; vector: number; keyword: number }
-  | { type: 'retrieval.fused'; kept: number }
-  | { type: 'retrieval.reranking'; candidates: number }
-  | { type: 'retrieval.complete'; hits: number };
+export type SearchEvent
+  = | { type: 'retrieval.started'; mode: SearchMode; query: string }
+    | { type: 'retrieval.candidates'; vector: number; keyword: number }
+    | { type: 'retrieval.fused'; kept: number }
+    | { type: 'retrieval.reranking'; candidates: number }
+    | { type: 'retrieval.complete'; hits: number };
 
 export type SearchOptions = {
   orgId: string;

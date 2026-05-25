@@ -22,8 +22,8 @@
 
 import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { knowledgeSourceSchema } from '@/models/Schema';
 import { getConnector } from '@/libs/sources/registry';
+import { knowledgeSourceSchema } from '@/models/Schema';
 import {
   ensureSource,
   ingestDocument,

@@ -1,4 +1,3 @@
-import { clerkAuth as auth } from '@/libs/Auth';
 import {
   ArrowLeft,
   Calendar,
@@ -15,6 +14,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 

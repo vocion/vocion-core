@@ -69,13 +69,13 @@ export function SourcesPanel() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p className="text-muted-foreground text-sm">
+        <p className="text-sm text-muted-foreground">
           Each source crawls a system and feeds chunks into the org's knowledge base. Native pgvector retrieval — no external services.
         </p>
         <button
           type="button"
           onClick={() => setPicker(true)}
-          className="bg-foreground text-background hover:bg-foreground/90 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
         >
           <Plus className="size-4" />
           Add source
@@ -84,7 +84,7 @@ export function SourcesPanel() {
 
       {error
         ? (
-            <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-lg border px-3 py-2 text-sm">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               {error}
             </div>
           )
@@ -92,7 +92,7 @@ export function SourcesPanel() {
 
       {loading
         ? (
-            <div className="text-muted-foreground flex items-center gap-2 py-8 text-sm">
+            <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
               Loading sources…
             </div>
@@ -152,17 +152,17 @@ function SourceRow({ source, syncing, onSync }: { source: Source; syncing: boole
   const last = source.lastSyncedAt ? new Date(source.lastSyncedAt) : null;
   const lastLabel = last ? formatRelative(last) : 'never';
   return (
-    <div className="bg-card rounded-xl border p-4">
+    <div className="rounded-xl border bg-card p-4">
       <div className="flex items-start gap-3">
-        <span className="bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 inline-flex size-9 flex-shrink-0 items-center justify-center rounded-md">
+        <span className="inline-flex size-9 flex-shrink-0 items-center justify-center rounded-md bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
           <Globe className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-display truncate">{source.slug}</span>
+            <span className="truncate font-display">{source.slug}</span>
             <Badge variant="outline" className="font-mono text-[10px]">{source.kind}</Badge>
           </div>
-          <p className="text-muted-foreground mt-1 line-clamp-2 text-xs">
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
             {describeSourceConfig(source.config)}
           </p>
         </div>
@@ -177,7 +177,7 @@ function SourceRow({ source, syncing, onSync }: { source: Source; syncing: boole
           type="button"
           onClick={onSync}
           disabled={syncing}
-          className="hover:bg-muted/50 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
         >
           {syncing
             ? (
@@ -220,10 +220,10 @@ function ConnectorPicker({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-background w-full max-w-2xl rounded-xl border shadow-xl">
+      <div className="w-full max-w-2xl rounded-xl border bg-background shadow-xl">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="font-display text-lg">Pick a source type</h3>
-          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground text-sm">
+          <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
             Cancel
           </button>
         </div>
@@ -233,15 +233,15 @@ function ConnectorPicker({
               type="button"
               key={c.slug}
               onClick={() => onPick(c.slug)}
-              className="hover:bg-muted/50 hover:border-foreground/20 rounded-lg border p-3 text-left transition-colors"
+              className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
             >
               <div className="flex items-center gap-2">
-                <span className="bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 inline-flex size-7 items-center justify-center rounded-md text-sm font-medium">
+                <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
                   {c.icon.slice(0, 1)}
                 </span>
                 <span className="font-medium">{c.name}</span>
               </div>
-              <p className="text-muted-foreground mt-2 text-xs">{c.description}</p>
+              <p className="mt-2 text-xs text-muted-foreground">{c.description}</p>
               {c.authKind !== 'none'
                 ? (
                     <Badge variant="outline" className="mt-2 text-[10px]">
@@ -300,7 +300,7 @@ function AddSourceDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-background w-full max-w-md rounded-xl border shadow-xl">
+      <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
         <form onSubmit={submit}>
           <div className="flex items-center justify-between border-b px-4 py-3">
             <h3 className="font-display text-lg">
@@ -313,14 +313,14 @@ function AddSourceDialog({
           </div>
           <div className="space-y-4 p-4">
             <label className="block">
-              <span className="text-foreground/80 text-sm font-medium">URL</span>
+              <span className="text-sm font-medium text-foreground/80">URL</span>
               <input
                 type="url"
                 required
                 value={url}
                 onChange={e => setUrl(e.target.value)}
                 placeholder="https://example.com/docs"
-                className="border-input bg-background mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               />
             </label>
             <label className="flex items-center gap-2 text-sm">
@@ -330,21 +330,21 @@ function AddSourceDialog({
             {crawl
               ? (
                   <label className="block">
-                    <span className="text-foreground/80 text-sm font-medium">Max pages</span>
+                    <span className="text-sm font-medium text-foreground/80">Max pages</span>
                     <input
                       type="number"
                       min={1}
                       max={200}
                       value={maxPages}
                       onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
-                      className="border-input bg-background mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     />
                   </label>
                 )
               : null}
             {error
               ? (
-                  <div className="border-destructive/30 bg-destructive/5 text-destructive rounded-lg border px-3 py-2 text-sm">
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                     {error}
                   </div>
                 )
@@ -354,14 +354,14 @@ function AddSourceDialog({
             <button
               type="button"
               onClick={onClose}
-              className="text-muted-foreground hover:text-foreground rounded-full px-3 py-1.5 text-sm"
+              className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || !url}
-              className="bg-foreground text-background hover:bg-foreground/90 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting
                 ? (
