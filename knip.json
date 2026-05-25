@@ -28,6 +28,10 @@
         "src/components/ui/**",
         "src/features/dashboard/chat/**",
         "src/features/auth/ProtectFallback.tsx",
+        "src/features/dashboard/ContextMenu.tsx",
+        "src/features/dashboard/DraftCard.tsx",
+        "src/features/dashboard/EmailDraftCard.tsx",
+        "src/features/dashboard/ProposalCard.tsx",
         "src/templates/**",
         "src/types/**",
         "src/libs/plugins/**",
@@ -47,6 +51,7 @@
       "ignoreDependencies": [
         "@radix-ui/react-accordion",
         "@radix-ui/react-label",
+        "@radix-ui/react-popover",
         "@tanstack/react-table",
         "radix-ui",
         "react-hook-form",

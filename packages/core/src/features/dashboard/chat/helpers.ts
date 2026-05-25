@@ -1,13 +1,14 @@
 /**
  * Shared helpers for the chat surface (Phase C extraction).
  *
- * Most callers want the source-color/label maps + the elapsed-timer
- * hook + the agent registry. Document helpers (getDisplayTitle,
- * getCleanBlurb, renderWithCitations) live in `./documents.ts` to
- * keep this file tight.
+ * Source-color/label maps + the elapsed-timer hook. Agent options are now
+ * loaded server-side and passed in via props — the hardcoded
+ * "sales-assistant" placeholder that lived here through v0.5.1 was a
+ * pre-v0.3 leftover that contradicted the rest of the platform's
+ * vocabulary. Document helpers (getDisplayTitle, getCleanBlurb,
+ * renderWithCitations) live in `./documents.ts` to keep this file tight.
  */
 
-import type { AgentOption } from './types';
 import { useEffect, useRef, useState } from 'react';
 
 /* ------------------------------------------------------------------ */
@@ -70,22 +71,3 @@ export function useElapsed(running: boolean): number {
 
   return seconds;
 }
-
-/* ------------------------------------------------------------------ */
-/* Agent registry (hardcoded today; Phase C+1 wires the DB-driven list) */
-/* ------------------------------------------------------------------ */
-
-export const AGENTS: AgentOption[] = [
-  {
-    slug: 'sales-assistant',
-    name: 'Sales Assistant',
-    icon: 'bot',
-    placeholder: 'Ask the Sales Assistant about your pipeline, recent calls, or open deals…',
-  },
-  {
-    slug: '__search__',
-    name: 'Search Only',
-    icon: 'search',
-    placeholder: 'Search across your connected systems...',
-  },
-];
