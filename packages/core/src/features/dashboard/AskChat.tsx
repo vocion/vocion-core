@@ -142,7 +142,7 @@ const ThinkingPanel = ({ steps, seconds }: { steps: ThinkingStep[]; seconds?: nu
                   </div>
                   <div className="flex items-center gap-2 text-xs">
                     <a
-                      href={`/en/dashboard/operations/${step.skillSlug}`}
+                      href={`/en/dashboard/skills/${step.skillSlug}`}
                       className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/20"
                     >
                       <Sparkles className="size-2.5" />
@@ -302,7 +302,7 @@ const LiveThinking = ({
                   </div>
                   <div className="flex items-center gap-2 text-xs">
                     <a
-                      href={`/en/dashboard/operations/${step.skillSlug}`}
+                      href={`/en/dashboard/skills/${step.skillSlug}`}
                       className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/20"
                     >
                       <Sparkles className="size-2.5" />

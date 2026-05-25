@@ -45,7 +45,7 @@ export default async function SkillDetailPage(props: {
     <>
       <div className="mb-4">
         <Link
-          href="/dashboard/operations"
+          href="/dashboard/skills"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-3" />

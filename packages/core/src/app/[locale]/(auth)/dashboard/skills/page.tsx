@@ -54,7 +54,7 @@ export default async function SkillsPage(props: {
               {skills.map(skill => (
                 <Link
                   key={skill.id}
-                  href={`/dashboard/operations/${skill.slug}`}
+                  href={`/dashboard/skills/${skill.slug}`}
                   className={`rounded-lg border border-border bg-background p-4 transition hover:border-primary/30 ${skill.status !== 'active' ? 'opacity-60' : ''}`}
                 >
                   <div className="mb-2 flex items-center gap-2">
