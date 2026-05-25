@@ -16,7 +16,7 @@
 import type { AgentEvent } from '@/services/agents/types';
 import type { ConversationRun } from '@/services/ConversationService';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { runAgentDeep } from '@/services/AgentService';
+import { listAgents, runAgentDeep } from '@/services/AgentService';
 import {
   appendMessage,
 
@@ -89,7 +89,20 @@ export async function POST(request: Request): Promise<Response> {
 
   const body = await request.json();
   const message = body.message as string;
-  const agentSlug = (body.agent_slug as string) || 'sales-assistant';
+  // Resolve the agent. Explicit `agent_slug` wins; otherwise fall back
+  // to the first agent for this project. 404 when zero agents authored
+  // — the pre-v0.5.2 hardcoded "sales-assistant" fallback is gone.
+  let agentSlug = body.agent_slug as string | undefined;
+  if (!agentSlug) {
+    const agents = await listAgents(orgId);
+    if (agents.length === 0) {
+      return new Response(
+        JSON.stringify({ error: 'No agents authored for this project. See /dashboard/chat for setup.' }),
+        { status: 404 },
+      );
+    }
+    agentSlug = agents[0]!.slug;
+  }
   const clientHistory = (body.conversation_history as Array<{ role: 'user' | 'assistant'; content: string }>) ?? [];
   // Optional persistence — when the client supplies a conversation_id
   // we replay server-side history (authoritative) and persist the new
