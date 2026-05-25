@@ -1,19 +1,48 @@
-import { ScrollText } from 'lucide-react';
+import { eq } from 'drizzle-orm';
+import { ArrowRight, ScrollText } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
+import { notFound } from 'next/navigation';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { clerkAuth as auth } from '@/libs/Auth';
+import { db } from '@/libs/DB';
+import { Link } from '@/libs/I18nNavigation';
+import { playbookSchema } from '@/models/Schema';
 
 /**
- * Placeholder shipped in v0.5.0 PR1 (sidebar reorg). The real list +
- * detail pages land in PR2 — they consume the existing
- * `routers/Playbooks.ts` `list()` + `get()` endpoints. Backend is
- * complete; this file is just keeping the nav slot non-404 while the
- * UI follows.
+ * Playbooks list. Backend lands in `routers/Playbooks.ts` (read-only `list` +
+ * `get`) but server components can query the DB directly — saves the oRPC
+ * roundtrip and matches the pattern other primitive list pages use.
+ *
+ * A Playbook is markdown + YAML that an agent reads on demand at
+ * `/playbooks/<slug>/` in its virtual filesystem. The detail page renders
+ * the body via DocViewer; this page is the catalog.
  * @param props
  * @param props.params
  */
 export default async function PlaybooksPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
+  const { orgId } = await auth();
+  if (!orgId) {
+    notFound();
+  }
+
+  const rows = await db
+    .select({
+      id: playbookSchema.id,
+      slug: playbookSchema.slug,
+      name: playbookSchema.name,
+      description: playbookSchema.description,
+      tags: playbookSchema.tags,
+      version: playbookSchema.version,
+      updatedAt: playbookSchema.updatedAt,
+      sourceFiles: playbookSchema.sourceFiles,
+    })
+    .from(playbookSchema)
+    .where(eq(playbookSchema.orgId, orgId))
+    .orderBy(playbookSchema.name);
 
   return (
     <>
@@ -26,15 +55,67 @@ export default async function PlaybooksPage(props: { params: Promise<{ locale: s
             <span>Playbooks</span>
           </div>
         )}
-        description="Markdown + YAML procedural guides agents read on demand."
+        description="Markdown + YAML procedural guides agents read on demand. Authored under context/<org>/playbooks/<slug>/SKILL.md; mounted into each agent's virtual filesystem based on tag intersection."
       />
-      <div className="rounded-xl border border-dashed border-border bg-muted/20 p-10 text-center">
-        <p className="text-sm text-muted-foreground">
-          Coming soon — list + detail pages (v0.5.0 PR2). Backend (
-          <code className="rounded bg-background px-1 py-0.5 font-mono text-xs">routers/Playbooks.ts</code>
-          ) ships today.
-        </p>
-      </div>
+
+      {rows.length === 0
+        ? (
+            <EmptyState
+              title="No playbooks yet"
+              description="Author one under context/<org>/playbooks/<slug>/SKILL.md and run `npm run context:apply` to register it."
+              icon={ScrollText}
+            />
+          )
+        : (
+            <ul className="grid gap-3 sm:grid-cols-2">
+              {rows.map(p => (
+                <li key={p.id}>
+                  <Link
+                    href={`/dashboard/playbooks/${p.slug}`}
+                    className="block rounded-xl border border-border bg-background p-5 transition hover:border-primary/30"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-base font-semibold">{p.name}</h3>
+                        <code className="font-mono text-xs text-muted-foreground">{p.slug}</code>
+                      </div>
+                      <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+                    </div>
+                    <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{p.description}</p>
+                    <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-mono">
+                        v
+                        {p.version}
+                      </span>
+                      <span aria-hidden>·</span>
+                      <span>
+                        {(p.sourceFiles?.length ?? 0)}
+                        {' '}
+                        file
+                        {(p.sourceFiles?.length ?? 0) === 1 ? '' : 's'}
+                      </span>
+                      {p.tags.length > 0 && (
+                        <>
+                          <span aria-hidden>·</span>
+                          <div className="flex flex-wrap gap-1">
+                            {p.tags.slice(0, 4).map(tag => (
+                              <Badge key={tag} variant="outline" className="text-[10px]">{tag}</Badge>
+                            ))}
+                            {p.tags.length > 4 && (
+                              <span className="text-[10px]">
+                                +
+                                {p.tags.length - 4}
+                              </span>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
     </>
   );
 }
