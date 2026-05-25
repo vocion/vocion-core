@@ -56,28 +56,32 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
       </SidebarHeader>
 
       <SidebarContent>
-        {/* 1. Workspace — day-to-day work */}
+        {/* 1. Workspace — day-to-day work surfaces. Chat / Review / Search
+            are the always-there actions; Workflows + Agents are the
+            higher-level "your active work" surfaces (kick off a run, talk
+            to an agent), promoted here from Capabilities. */}
         <AppSidebarNav
           label={t('main_section_label')}
           items={[
             { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
+            { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
+            { title: t('agents'), url: '/dashboard/agents', icon: Bot },
             { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
             { title: t('search'), url: '/dashboard/search', icon: BookOpen },
           ]}
         />
 
-        {/* 2. Capabilities — order mirrors the /solve marketing page so
-            the nav reads as a guided tour: data in (sources, objects)
-            → typed primitives (operations, workflows, agents) →
-            authoring + memory (playbooks, learnings, evals). */}
+        {/* 2. Capabilities — the authored primitives. Order mirrors the
+            /solve marketing page for "what you build with": data in
+            (sources, objects) → typed callable (skills) → memory layer
+            (playbooks, learnings, evals). Workflows + Agents moved up
+            to Workspace since they're things you USE, not author. */}
         <AppSidebarNav
           label={t('capabilities_section_label')}
           items={[
             { title: t('sources'), url: '/dashboard/sources', icon: Plug },
             { title: t('objects'), url: '/dashboard/objects', icon: Database },
-            { title: t('operations'), url: '/dashboard/operations', icon: Zap },
-            { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
-            { title: t('agents'), url: '/dashboard/agents', icon: Bot },
+            { title: t('skills'), url: '/dashboard/skills', icon: Zap },
             { title: t('playbooks'), url: '/dashboard/playbooks', icon: ScrollText },
             { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
             { title: t('evals'), url: '/dashboard/evals', icon: TestTube },

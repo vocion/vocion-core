@@ -70,7 +70,7 @@ export default async function AgentDetailPage(props: {
                 {skills.map(s => (
                   <Link
                     key={s}
-                    href={`/dashboard/operations/${s}`}
+                    href={`/dashboard/skills/${s}`}
                     className="rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] text-foreground/80 transition hover:border-primary/30 hover:text-foreground"
                   >
                     {s}
