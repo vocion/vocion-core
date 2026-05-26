@@ -5,7 +5,7 @@ import type {
   AgentRun,
   ChatMessage,
   HitlGatePayload,
-  OnyxDocument,
+  IndexedDocument,
   StreamingPhase,
 } from './types';
 import { useCallback, useState } from 'react';
@@ -58,7 +58,7 @@ export function ChatShell({
   const [phase, setPhase] = useState<StreamingPhase>('idle');
   const [pendingHitl, setPendingHitl] = useState<HitlGatePayload | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
-  const [allDocuments, setAllDocuments] = useState<OnyxDocument[]>([]);
+  const [allDocuments, setAllDocuments] = useState<IndexedDocument[]>([]);
 
   // Callers (`chat/page.tsx`) guarantee at least one entry — the virtual
   // SEARCH_ONLY_AGENT is always appended. When real agents exist the
@@ -128,7 +128,7 @@ export function ChatShell({
         return;
       }
       case 'documents': {
-        const docs = (evt.documents as OnyxDocument[]) ?? [];
+        const docs = (evt.documents as IndexedDocument[]) ?? [];
         setAllDocuments(prev => [...prev, ...docs]);
         appendToLatestAgent(m => ({ ...m, documents: [...(m.documents ?? []), ...docs] }));
         return;

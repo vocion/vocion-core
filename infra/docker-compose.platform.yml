@@ -1,7 +1,7 @@
 # Vocion Platform Services
 # Langfuse (LLM observability) + Temporal (workflows) + OTel Collector
 #
-# Retrieval lives in the app Postgres (pgvector, see L.1). Onyx is gone.
+# Retrieval lives in the app Postgres (pgvector + Postgres FTS, first-party).
 #
 # Usage:
 #   docker compose -f infra/docker-compose.platform.yml -p vocion-platform up -d

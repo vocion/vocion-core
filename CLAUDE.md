@@ -7,17 +7,17 @@ Vocion is a multi-tenant SaaS application built on a Next.js 16 boilerplate. It 
 ## Tech Stack
 
 - **Framework:** Next.js 16 (App Router) + React 19 + TypeScript (strict)
-- **Context Engine:** Onyx (self-hosted, Docker Compose)
+- **Retrieval:** Native first-party — pgvector (HNSW cosine) + Postgres FTS (tsvector + ts_rank), reciprocal rank fusion, optional LLM rerank. No third-party retrieval engine.
+- **Connectors:** First-party `SourceConnector` interface (`libs/sources/`). Sync orchestrated by `SourceSyncService` (Temporal async workflow queued). Built-in: `web`. Demo: `local-files` (see Phase B).
 - **Styling:** Tailwind CSS 4 + Shadcn UI (Radix primitives)
-- **Auth:** Clerk (multi-tenancy via organizations, RBAC)
-- **Database:** PostgreSQL + Drizzle ORM (PGLite for local dev, Docker optional)
+- **Auth:** NextAuth (v0.3+) with multi-tenancy via accounts/projects + RBAC
+- **Database:** PostgreSQL (Docker Compose; pgvector/pgvector:pg16) + Drizzle ORM
 - **Payments:** Stripe (optional, subscriptions)
 - **API:** oRPC (end-to-end type-safe RPC)
 - **i18n:** next-intl + Crowdin (en, fr)
 - **Testing:** Vitest (unit) + Playwright (E2E)
 - **Error Monitoring:** Sentry + Spotlight (dev)
 - **Logging:** LogTape + Better Stack
-- **Onyx API Client:** `src/libs/onyx/client.ts`
 
 ## Essential Commands
 
@@ -41,24 +41,20 @@ npm run stripe:listen     # Listen to Stripe webhooks locally
 npm run stripe:setup-price # Create Stripe prices
 ```
 
-## Running Onyx (Context Engine)
+## Retrieval stack
 
-```bash
-./infra/onyx/setup.sh     # Clone Onyx + apply port overrides (first time only)
+Native — no third-party retrieval engine. Three tables under `models/Schema.ts` (`Native pgvector retrieval` section):
+- `knowledge_source` — one row per registered source connector
+- `knowledge_document` — ingested document (with content-hash dedup, tombstone-on-missing)
+- `knowledge_chunk` — ~512-token chunk with `embedding vector(1536)` (HNSW cosine) + generated `tsv` (GIN FTS)
 
-# Start Onyx (12 containers: API, Vespa, OpenSearch, Redis, PostgreSQL, models, etc.)
-cd infra/onyx/onyx-repo/deployment/docker_compose
-docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.override.yml -p onyx-stack up -d
+Read path: `services/RetrievalService.search(query, { orgId, mode: 'hybrid'|'vector'|'keyword', sourceSlugs?, rerank? })`. Returns ranked `SearchHit[]` (chunkId, documentId, sourceSlug, content, score). Hybrid uses reciprocal rank fusion across vector + keyword arms.
 
-# Then configure in Onyx admin UI at http://localhost:3100:
-# 1. Set up LLM provider (OpenAI, Anthropic, etc.)
-# 2. Create API key: Admin > API Keys
-# 3. Add to .env.local: ONYX_API_URL=http://localhost:8080/api  ONYX_API_KEY=your_key
-```
+Write path: `services/IngestionService.ingestDocument()` — chunks via `libs/retrieval/chunker.ts` (512 tokens, 64 overlap), embeds via OpenAI `text-embedding-3-small`, upserts into the chunk + document tables in a single transaction.
 
-Port map: Vocion :3000, Onyx UI :3100, Onyx API :8080, Vocion DB :5432, Onyx DB :5433
+Connectors implement `libs/sources/types.ts` `SourceConnector` interface (`sync(ctx): AsyncIterable<IngestDoc>`). Registry at `libs/sources/registry.ts`. Sync orchestrator: `services/SourceSyncService.runSync(orgId, sourceId, onProgress?)` — synchronous today; Temporal async variant queued.
 
-See `infra/README.md` for full infrastructure docs.
+Port map: Vocion :3000, Postgres :5432, Langfuse :3200, Temporal UI :8233. See `infra/README.md` for the platform compose.
 
 ## Running with Docker PostgreSQL
 
@@ -167,7 +163,6 @@ To modify: edit `src/models/Schema.ts`, then `npm run db:generate && npm run db:
 
 Copy `.env.example` to `.env.local` and fill in your keys. Required 3rd-party services:
 1. **Clerk** - Auth (publishable key + secret key)
-2. **Onyx** - Context engine (API URL + API key, self-hosted via Docker)
 3. **PostgreSQL** - Database (local via Docker or PGLite, production via Neon/Supabase/etc.)
 
 Optional: Stripe (payments), Sentry, Better Stack, Checkly, Crowdin.
@@ -176,13 +171,14 @@ Optional: Stripe (payments), Sentry, Better Stack, Checkly, Crowdin.
 
 ```
 infra/
-├── README.md                    # Full infrastructure docs
-└── onyx/
-    ├── setup.sh                 # Clone + configure Onyx
-    ├── docker-compose.override.yml  # Port remaps to avoid conflicts
-    └── .gitignore               # Excludes cloned onyx-repo/
+├── README.md                       # Full infrastructure docs
+├── docker-compose.platform.yml     # Postgres + Langfuse + Temporal compose
+├── temporal/                       # Temporal worker entrypoint + activities
+├── otel/                           # OpenTelemetry collector config
+├── aws/                            # AWS deploy stubs
+└── terraform/                      # IaC
 
-requirements/                    # Product specs and case studies
+requirements/                       # Product specs and case studies
 ├── overview.md                  # Platform vision
 ├── architecture.md              # System architecture
 ├── sales-assistant-*.md                   # the Sales Assistant sales agent case study

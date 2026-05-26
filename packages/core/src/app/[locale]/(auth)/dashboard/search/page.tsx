@@ -2,7 +2,7 @@ import { ExternalLink, Search as SearchIcon } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
-import { search } from '@/libs/onyx/client';
+import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
 
 type SearchDoc = {
   document_id?: string;
@@ -29,7 +29,7 @@ export default async function SearchPage(props: {
 
   if (query) {
     try {
-      const data = await search({ query });
+      const data = await searchLegacyShape({ query });
       results = (data?.top_documents ?? data?.results ?? []) as SearchDoc[];
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);

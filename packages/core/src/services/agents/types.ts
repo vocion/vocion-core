@@ -72,7 +72,7 @@ export type RuntimeContext = {
   orgId: string;
   /** Who triggered the run (user id, 'mcp', 'scheduled', etc.). */
   userId?: string;
-  /** Configured Onyx sources this agent may reach. */
+  /** Configured source slugs (knowledge_source.slug) this agent may reach. */
   connectorSources: string[];
   /** Object type slugs this agent can read. */
   objectTypeSlugs: string[];
