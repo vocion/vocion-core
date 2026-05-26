@@ -8,6 +8,7 @@
  */
 
 import type { SourceConnector } from './types';
+import { fileImportConnector } from './fileImport';
 import { localFilesConnector } from './localFiles';
 import { webConnector } from './web';
 
@@ -28,3 +29,4 @@ export function listConnectors(): SourceConnector[] {
 // Built-ins. Order matters for the picker tile layout.
 registerConnector(webConnector);
 registerConnector(localFilesConnector);
+registerConnector(fileImportConnector);

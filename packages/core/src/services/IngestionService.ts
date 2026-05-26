@@ -47,6 +47,17 @@ export type IngestDoc = {
   lastModifiedAt?: Date | null;
   /** Source-specific metadata to round-trip through to retrieval (e.g. author, repo). */
   metadata?: Record<string, unknown>;
+  /**
+   * Pre-computed embedding (1536-d, matching the active embedder).
+   *
+   * When provided, `ingestDocument` skips chunking + the OpenAI embed
+   * call and stores the whole `content` as a single chunk with this
+   * vector. Use for sources that ship their own embeddings (cached
+   * fixture JSONLs, upstream systems that already vectorize).
+   *
+   * When absent, the normal chunk-then-embed path runs.
+   */
+  embedding?: number[];
 };
 
 export type IngestResult
@@ -166,8 +177,13 @@ export async function ingestDocument(
       return { status: 'unchanged', documentId: existing[0].id };
     }
 
-    // Chunk + embed up front so the transaction window stays short.
-    const chunks = chunkText(doc.content);
+    // Pre-computed-embedding fast path: when the caller ships a vector,
+    // skip chunkText + embed entirely and store the whole content as a
+    // single chunk. Used by sources whose data is shipped pre-embedded
+    // (e.g. the support-reply demo's tickets.jsonl fixture).
+    const chunks = doc.embedding
+      ? [{ index: 0, content: doc.content, tokens: 0 }]
+      : chunkText(doc.content);
     if (chunks.length === 0) {
       // Empty doc — store the row but no chunks. Caller can decide whether to filter.
       const inserted = existing[0]
@@ -192,10 +208,12 @@ export async function ingestDocument(
         : { status: 'created', documentId: inserted, chunks: 0 };
     }
 
-    const vectors = await embed(
-      chunks.map(c => c.content),
-      { orgId: src.orgId, purpose: 'ingest', sourceSlug: src.sourceSlug },
-    );
+    const vectors = doc.embedding
+      ? [doc.embedding]
+      : await embed(
+          chunks.map(c => c.content),
+          { orgId: src.orgId, purpose: 'ingest', sourceSlug: src.sourceSlug },
+        );
     if (vectors.length !== chunks.length) {
       throw new Error(
         `embed() returned ${vectors.length} vectors for ${chunks.length} chunks — refusing partial insert`,
