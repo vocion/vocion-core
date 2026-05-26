@@ -38,7 +38,7 @@ export type FeedbackPayload = {
 
 export async function enqueue(opts: {
   orgId: string;
-  source: 'drive' | 'slack' | 'onyx' | 'manual';
+  source: 'drive' | 'slack' | 'manual';
   externalId: string;
   payload: FeedbackPayload;
 }) {
@@ -152,6 +152,7 @@ export function runLoop(): WorkerStopHandle {
   (async () => {
     // eslint-disable-next-line no-console
     console.log('[feedback-worker] started');
+    // eslint-disable-next-line no-unmodified-loop-condition -- `stopped` flips via the closure from stop() below
     while (!stopped) {
       try {
         const processed = await runOnce();

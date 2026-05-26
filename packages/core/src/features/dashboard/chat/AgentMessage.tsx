@@ -1,6 +1,6 @@
 'use client';
 
-import type { AgentRun, ChatMessage, OnyxDocument } from './types';
+import type { AgentRun, ChatMessage, IndexedDocument } from './types';
 import { AlertCircle, FileText, Sparkles } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -28,7 +28,7 @@ export type AgentMessageProps = {
   timestamp?: number;
   /** Display name for the speaker label above the message body. Passed through from ChatShell's active agent. */
   agentName: string;
-  onDocumentClick?: (doc: OnyxDocument, num: string) => void;
+  onDocumentClick?: (doc: IndexedDocument, num: string) => void;
   onCitationClick?: (n: number) => void;
   /** Optional handler when the "Sources · N" pill is clicked. Opens the SourcesPanel. */
   onShowSources?: () => void;

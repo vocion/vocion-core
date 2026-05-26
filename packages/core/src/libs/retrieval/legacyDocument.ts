@@ -1,23 +1,23 @@
 /**
- * Deprecated Onyx client shim. The Onyx stack was removed in L.6; this
- * module exists only so the four remaining legacy callsites
- * (`AgentService.runAgent`, `SkillService`, the MCP `search` tool,
- * `AskChat`) keep compiling while they're migrated to
- * `RetrievalService.search` directly.
+ * Legacy-document-shape adapter for callsites that expect a flat
+ * `{ document_id, semantic_identifier, link, source_type, blurb, score }`
+ * object. Wraps the native first-party `RetrievalService.search` (pgvector
+ * + FTS hybrid + reciprocal rank fusion, optional LLM rerank).
  *
- * The shape mirrors the old Onyx `/document-index/search` response so
- * callers see no behavioural change. Filtering by `source_type` maps
- * to `sourceSlugs`; `time_cutoff` and `metadata_filters` are accepted
- * but applied client-side because the new schema doesn't yet push
- * them down (M.1 will).
+ * This is purely a shape adapter — there is no third-party retrieval engine
+ * here. The chat surface, the agent's search tool, the MCP search tool, and
+ * the dashboard search page consume documents in the flat shape (matching
+ * the existing `IndexedDocument` type at `features/dashboard/chat/types.ts`);
+ * RetrievalService returns `SearchHit[]` with chunk-aware fields. Map once,
+ * here, instead of N times at every callsite.
  *
- * **Do not add new callers.** Use `RetrievalService.search` directly.
- * This file will be deleted once the legacy callsites are ported.
+ * New callsites should use `RetrievalService.search` directly. This adapter
+ * stays for the four existing callsites that consume the flat shape.
  */
 
 import { search as nativeSearch } from '@/services/RetrievalService';
 
-export type LegacyDoc = {
+export type LegacyDocumentShape = {
   document_id: string;
   semantic_identifier: string;
   link: string;
@@ -39,17 +39,14 @@ export type LegacySearchArgs = {
   };
   metadata_filters?: Record<string, string>;
   /**
-   * Caller-supplied orgId. Legacy `search()` pulled this from a
-   *  global config; we require it explicitly now (we'll fall back to
-   *  the first listed org for callers that haven't been updated).
+   * Caller-supplied orgId. When omitted, resolved from the active server
+   * session (request context). Non-interactive callers (evals, batch jobs)
+   * must pass orgId explicitly.
    */
   orgId?: string;
 };
 
-export async function search(args: LegacySearchArgs): Promise<{ top_documents: LegacyDoc[]; results?: LegacyDoc[] }> {
-  // The original Onyx client implicitly scoped by API key. The shim
-  // requires an orgId at the call site — but legacy callers don't
-  // pass one. Resolve via `auth()` server context when available.
+export async function searchLegacyShape(args: LegacySearchArgs): Promise<{ top_documents: LegacyDocumentShape[]; results?: LegacyDocumentShape[] }> {
   let orgId = args.orgId;
   if (!orgId) {
     try {
@@ -72,7 +69,7 @@ export async function search(args: LegacySearchArgs): Promise<{ top_documents: L
     k: 15,
   });
 
-  let docs: LegacyDoc[] = hits.map(h => ({
+  let docs: LegacyDocumentShape[] = hits.map(h => ({
     document_id: String(h.documentId),
     semantic_identifier: h.title ?? `chunk-${h.chunkIdx}`,
     link: h.uri ?? '',

@@ -298,17 +298,21 @@ export const businessObjectSchema = pgTable('business_object', {
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
 
-/** Links a business object to one or more Onyx documents */
+/** Links a business object to one or more indexed source documents. */
 export const objectDocumentLinkSchema = pgTable(
   'object_document_link',
   {
     id: serial('id').primaryKey(),
     objectId: integer('object_id').notNull().references(() => businessObjectSchema.id, { onDelete: 'cascade' }),
-    /** Onyx document_id (e.g. zoom_meeting_12345, slack_msg_abc) */
+    /**
+     * External document id from the source system (e.g. zoom_meeting_12345,
+     * slack_msg_abc). Column name `onyx_document_id` is a v0.2 fossil pending
+     * rename to `external_document_id` in v0.5.5.
+     */
     onyxDocumentId: text('onyx_document_id').notNull(),
     /** Source system: zoom, gmail, hubspot, google_drive, slack, etc. */
     sourceType: text('source_type').notNull(),
-    /** Copied from Onyx for display without re-fetching */
+    /** Copied from the source system for display without re-fetching. */
     semanticIdentifier: text('semantic_identifier'),
     /** External URL to the source document */
     link: text('link'),
@@ -523,11 +527,11 @@ export const agentSchema = pgTable(
     temperature: text('temperature').default('0.3'),
     /** Skill slugs this agent can invoke */
     skillSlugs: jsonb('skill_slugs').$type<string[]>().default([]),
-    /** Onyx source_type values this agent can search (e.g. ["zoom","hubspot","gmail"]) */
+    /** Source slugs this agent can search (e.g. ["zoom","hubspot","gmail"]). Maps to knowledge_source.slug. */
     connectorSources: jsonb('connector_sources').$type<string[]>().default([]),
     /** Business object type slugs this agent can read/create */
     objectTypeSlugs: jsonb('object_type_slugs').$type<string[]>().default([]),
-    /** Onyx document set IDs for corpus scoping (empty = all) */
+    /** Document set / corpus IDs for retrieval scoping (empty = all). v0.2 fossil; superseded by sourceSlugs filtering in RetrievalService. */
     documentSetIds: jsonb('document_set_ids').$type<number[]>().default([]),
     /** JSONB rules for what requires HITL approval */
     approvalPolicy: jsonb('approval_policy').$type<Record<string, unknown>>().default({}),
@@ -1163,7 +1167,7 @@ export const feedbackJobSchema = pgTable('feedback_job', {
   orgId: text('org_id').notNull(),
   /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
   projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
-  /** Source system: 'drive', 'slack', 'onyx', 'manual'. */
+  /** Source system: 'drive', 'slack', 'manual', or any registered connector slug. */
   source: text('source').notNull(),
   /** External identifier — Drive comment id, Slack ts, etc. (idempotency key). */
   externalId: text('external_id').notNull(),
@@ -1188,10 +1192,10 @@ export const feedbackJobSchema = pgTable('feedback_job', {
 });
 
 /* ------------------------------------------------------------------ */
-/* Phase L — Native pgvector retrieval                                */
+/* Native pgvector retrieval — first-party, no third-party engine.    */
 /*                                                                    */
-/* Three tables underpin the Onyx-replacement retrieval stack:         */
-/*   - knowledge_source   ··· one row per installed source plugin     */
+/* Three tables underpin the retrieval stack:                          */
+/*   - knowledge_source   ··· one row per installed source connector  */
 /*   - knowledge_document  ··· one row per ingested document          */
 /*   - knowledge_chunk     ··· one row per ~512-token chunk           */
 /*                                                                    */

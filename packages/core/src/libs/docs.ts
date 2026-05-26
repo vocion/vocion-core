@@ -231,7 +231,7 @@ function walk(dir: string): string[] {
   }
   const out: string[] = [];
   for (const e of entries) {
-    if (e.startsWith('.') || e === 'node_modules' || e === 'onyx-repo') {
+    if (e.startsWith('.') || e === 'node_modules') {
       continue;
     }
     const full = join(dir, e);

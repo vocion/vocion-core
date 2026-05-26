@@ -109,10 +109,8 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   // Tools: built-ins from createDeepAgent (ls/read_file/.../task/write_todos)
   // plus our domain-specific tools below.
   //
-  // Retrieval is the native pgvector path (`search_knowledge`). The
-  // legacy Onyx tools (`search_onyx`, `search_everything`,
-  // `find_related_conversations`) were removed in L.6. Source-typed
-  // retrieval comes back via M.1's Source SDK + per-connector slugs.
+  // Retrieval is the native pgvector path (`search_knowledge`). Source-typed
+  // filtering uses per-connector slugs (knowledge_source.slug).
   const tools = [
     searchKnowledgeTool(ctx),
     lookupObjectsTool(ctx),

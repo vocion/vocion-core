@@ -6,7 +6,7 @@
  * component import without dragging in the orchestrator.
  */
 
-export type OnyxDocument = {
+export type IndexedDocument = {
   document_id: string;
   semantic_identifier: string;
   link: string;
@@ -19,7 +19,7 @@ export type OnyxDocument = {
 export type ThinkingStep = {
   type: 'thinking' | 'search' | 'skill';
   content: string;
-  documents?: OnyxDocument[];
+  documents?: IndexedDocument[];
   queries?: string[];
   skillSlug?: string;
 };
@@ -42,7 +42,7 @@ export type AgentRun
 export type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
-  documents?: OnyxDocument[];
+  documents?: IndexedDocument[];
   citationCount?: number;
   thinkingSteps?: ThinkingStep[];
   thinkingSeconds?: number;

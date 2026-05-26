@@ -1,21 +1,14 @@
 /**
- * search_knowledge — native pgvector retrieval tool, the Onyx
- * replacement. Mirrors the LangChain `tool()` shape of
- * `searchOnyxTool` so callers can swap the two at runtime via the
- * `VOCION_RETRIEVAL` env flag.
+ * search_knowledge — native pgvector retrieval tool (first-party).
+ * LangChain `tool()` wrapper over `services/RetrievalService.search`.
  *
- * Behaviour parity with searchOnyx:
- *   - same `RawDoc` projection emitted to the chat sidebar
- *   - reRankResults() runs over the per-tenant weights + discovery
- *     intent so the existing tuning carries over for free
+ *   - emits a `RawDoc` projection consumed by the chat sources sidebar
+ *   - reRankResults() applies per-tenant source weights + discovery
+ *     intent boosts on top of the hybrid RRF score
  *
- * Differences (intentional):
- *   - no `time_filter` (yet). Native ingest stores `last_modified_at`
- *     so we can add it without schema work; deferred until L.5 since
- *     no prompt currently passes it.
- *   - source filter takes plain knowledge_source slugs rather than
- *     the Onyx connector kind strings. The Source SDK (G.1) makes
- *     these identical.
+ * `time_filter` is not yet wired (the chunker stores `last_modified_at`,
+ * so it can be added without schema work — deferred until a prompt asks
+ * for it). Source filter takes `knowledge_source.slug` values directly.
  */
 
 import type { RawDoc } from '../search';
@@ -33,11 +26,10 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       const { query, source_types, metadata_filters } = args;
       const sourceFilter = source_types as string[] | undefined;
 
-      // Discovery-call slugging: same heuristic as searchOnyx, but
-      // applied against our slug list (Zoom calls live under a
-      // `zoom` source in the new world too).
+      // Discovery-call slugging: bias toward the `zoom` source when the
+      // query mentions calls / meetings / transcripts.
       let sourceSlugs = sourceFilter;
-      if (!sourceSlugs && /\b(call|calls|meeting|meetings|zoom|transcript|recording|discovery|intro)\b/i.test(query)) {
+      if (!sourceSlugs && /\b(?:call|calls|meeting|meetings|zoom|transcript|recording|discovery|intro)\b/i.test(query)) {
         sourceSlugs = ['zoom'];
       }
 
@@ -105,7 +97,7 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
         );
       }
 
-      const discoveryIntent = /\b(discovery|intro|prospect)\b/i.test(query);
+      const discoveryIntent = /\b(?:discovery|intro|prospect)\b/i.test(query);
       const maxResults = ctx.searchConfig.maxResults ?? 15;
       const docs = reRankResults(filteredDocs, ctx.searchConfig, { wantsDiscovery: discoveryIntent }).slice(0, maxResults);
 

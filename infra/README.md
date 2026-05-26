@@ -4,93 +4,69 @@
 
 ```
 localhost:3000  ─── Vocion App (Next.js)
-localhost:3100  ─── Onyx Web UI (context engine admin)
 localhost:3200  ─── Langfuse (LLM observability, evals, prompts)
 localhost:7233  ─── Temporal gRPC (workflow engine)
-localhost:8080  ─── Onyx API
 localhost:8233  ─── Temporal Web UI (workflow monitoring)
 localhost:4317  ─── OTel Collector (gRPC)
 localhost:4318  ─── OTel Collector (HTTP)
+localhost:5432  ─── Postgres (pgvector + pgcrypto, Vocion DB)
 ```
+
+Retrieval is first-party: pgvector (HNSW cosine) + Postgres FTS in the Vocion DB itself, served by `services/RetrievalService`. No third-party retrieval engine.
 
 ## Quick Start
 
-### 1. Start Onyx (context engine)
-
-```bash
-./infra/onyx/setup.sh   # First time only - clones repo + applies port overrides
-
-cd infra/onyx/onyx-repo/deployment/docker_compose
-docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.override.yml \
-  -p onyx-stack up -d
-```
-
-### 2. Start Platform Services (Langfuse + Temporal + OTel)
+### 1. Start the Platform (Postgres + Langfuse + Temporal + OTel)
 
 ```bash
 docker compose -f infra/docker-compose.platform.yml -p vocion-platform up -d
 ```
 
+### 2. Apply schema
+
+```bash
+npm run db:migrate
+```
+
 ### 3. Start Vocion App
 
 ```bash
-npm run dev
+npm run dev:next   # or `npm run dev` if you want the embedded PGLite
 ```
 
 ### 4. Open Your Tabs
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Vocion | http://localhost:3000 | Clerk auth |
-| Onyx Admin | http://localhost:3100 | Set up on first visit |
+| Vocion | http://localhost:3000 | NextAuth (demo@example.com / demo123 after seed) |
 | Langfuse | http://localhost:3200 | admin@vocion.com / vocion-admin |
 | Temporal | http://localhost:8233 | No auth (dev) |
-
-## Configure Onyx
-
-1. Open http://localhost:3100
-2. Set up LLM provider (OpenAI or Anthropic API key)
-3. Create API key: Admin > API Keys
-4. Add to `.env.local`:
-   ```
-   ONYX_API_URL=http://localhost:8080/api
-   ONYX_API_KEY=your_key
-   ```
 
 ## Port Map
 
 | Service | Port | Container |
 |---------|------|-----------|
 | Vocion (Next.js) | 3000 | Local process |
-| Onyx Web UI | 3100 | nginx (remapped from 3000) |
+| Postgres (pgvector pg16) | 5432 | vocion-postgres |
 | Langfuse | 3200 | langfuse-web (remapped from 3000) |
 | OTel Collector (gRPC) | 4317 | otel-collector |
 | OTel Collector (HTTP) | 4318 | otel-collector |
 | Temporal gRPC | 7233 | temporal |
-| Onyx API | 8080 | api_server |
 | Temporal UI | 8233 | temporal-ui (remapped from 8080) |
-| Vocion PGLite | 5432 | Local process |
-| Onyx PostgreSQL | 5433 | relational_db (remapped from 5432) |
-| Onyx Redis | 6380 | cache (remapped from 6379) |
 
 ## Stopping Services
 
 ```bash
-# Stop Onyx
-cd infra/onyx/onyx-repo/deployment/docker_compose
-docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.override.yml \
-  -p onyx-stack down
-
-# Stop Platform (Langfuse + Temporal + OTel)
+# Stop platform (keep data)
 docker compose -f infra/docker-compose.platform.yml -p vocion-platform down
 
-# Stop Platform AND delete data
+# Stop platform AND delete data
 docker compose -f infra/docker-compose.platform.yml -p vocion-platform down -v
 ```
 
 ## Hardware Requirements
 
-- Onyx: 8GB+ RAM recommended (includes model inference)
+- Postgres: 1GB RAM (small demo datasets); scales with chunk count
 - Langfuse: 4GB RAM (ClickHouse + PostgreSQL)
 - Temporal: 2GB RAM (PostgreSQL)
-- Total recommended: 16GB+ RAM for full stack
+- Total recommended: 8GB+ RAM for full stack

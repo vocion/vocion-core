@@ -16,9 +16,9 @@ import { db } from '@/libs/DB';
 import { cleanUsageDetails, langfuse, pushScore, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { getLLMClient } from '@/libs/llm';
-import { search as onyxSearch } from '@/libs/onyx/client';
 import { pluginRegistry } from '@/libs/plugins';
 import { fromRepoRoot } from '@/libs/repo-root';
+import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
 import { skillRunSchema, skillSchema } from '@/models/Schema';
 
 /**
@@ -287,7 +287,7 @@ async function executePluginSkill(
       trace.event({ name: `${level}:${message}`, metadata: fields });
     },
     retrieve: async (query, options) => {
-      const result = await onyxSearch({
+      const result = await searchLegacyShape({
         query,
         search_filters: options?.sources ? { source_type: options.sources } : undefined,
       });
