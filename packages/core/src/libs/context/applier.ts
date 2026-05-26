@@ -1,7 +1,8 @@
-import type { LoadedAgent, LoadedContext, LoadedEvalDataset, LoadedLearningStep, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedWorkflow } from './loader';
+import type { LoadedAgent, LoadedContext, LoadedEvalDataset, LoadedLearningStep, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedWorkflow } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { agentSchema, businessObjectTypeSchema, contextVersionSchema, evalDatasetSchema, learningStepSchema, playbookSchema, skillSchema, workflowSchema } from '@/models/Schema';
+import { getConnector } from '@/libs/sources/registry';
+import { agentSchema, businessObjectTypeSchema, contextVersionSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, playbookSchema, skillSchema, workflowSchema } from '@/models/Schema';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -25,6 +26,7 @@ export type ApplyResult = {
     playbooks: ResourceCounts;
     learningSteps: ResourceCounts;
     evalDatasets: ResourceCounts;
+    sources: ResourceCounts;
   };
   errors: Array<{ resource: string; slug: string; message: string }>;
   versionId: number | null;
@@ -44,6 +46,7 @@ export async function applyContext(loaded: LoadedContext, opts: ApplyOptions = {
     playbooks: blank(),
     learningSteps: blank(),
     evalDatasets: blank(),
+    sources: blank(),
   };
 
   // Object types first — agents and skills may reference them
@@ -107,6 +110,15 @@ export async function applyContext(loaded: LoadedContext, opts: ApplyOptions = {
       bump(counts.evalDatasets, outcome);
     } catch (err) {
       errors.push({ resource: 'evalDataset', slug: ds.slug, message: (err as Error).message });
+    }
+  }
+
+  for (const src of loaded.sources) {
+    try {
+      const outcome = await upsertSource(orgId, src, dryRun);
+      bump(counts.sources, outcome);
+    } catch (err) {
+      errors.push({ resource: 'source', slug: src.slug, message: (err as Error).message });
     }
   }
 
@@ -383,6 +395,52 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
   }
   if (!dryRun) {
     await db.update(evalDatasetSchema).set(payload).where(eq(evalDatasetSchema.id, existing.id));
+  }
+  return 'updated';
+}
+
+async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean): Promise<UpsertOutcome> {
+  const connector = getConnector(src.kind);
+  if (!connector) {
+    throw new Error(`source "${src.slug}" references unknown connector kind: "${src.kind}". Registered: ${Array.from(new Set(['web', 'local-files'])).join(', ')}`);
+  }
+  // Validate the per-connector config blob. Throws ZodError on bad input.
+  connector.configSchema.parse(src.config);
+
+  const [existing] = await db
+    .select()
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, src.slug)));
+
+  // Store the connector slug in config_json under `_connector` so
+  // SourceSyncService.runSync can route to the right connector. This
+  // matches the convention used by the addSource() picker path.
+  const payload = {
+    orgId,
+    slug: src.slug,
+    kind: 'plugin' as const,
+    configJson: { ...src.config, _connector: src.kind } as Record<string, unknown>,
+    enabled: String(src.enabled),
+  };
+
+  if (!existing) {
+    if (!dryRun) {
+      await db.insert(knowledgeSourceSchema).values(payload);
+    }
+    return 'created';
+  }
+
+  if (
+    existing.slug === payload.slug
+    && existing.kind === payload.kind
+    && existing.enabled === payload.enabled
+    && canonical(existing.configJson) === canonical(payload.configJson)
+  ) {
+    return 'unchanged';
+  }
+
+  if (!dryRun) {
+    await db.update(knowledgeSourceSchema).set(payload).where(eq(knowledgeSourceSchema.id, existing.id));
   }
   return 'updated';
 }

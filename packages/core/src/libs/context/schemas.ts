@@ -257,3 +257,27 @@ export const PlaybookManifestSchema = z.object({
   license: z.string().optional(),
 });
 export type PlaybookManifest = z.infer<typeof PlaybookManifestSchema>;
+
+export const SourceManifestSchema = z.object({
+  slug: SlugSchema,
+  name: z.string().describe('Human-readable name shown in the Sources page.'),
+  description: z.string().optional().describe('One-line summary for the catalog UI.'),
+  /**
+   * Connector kind — must match a registered connector in
+   * `libs/sources/registry`. Built-ins: `web`, `local-files`. Authored
+   * sources can use a *labelled* kind (e.g. `zendesk`) that routes
+   * through a built-in connector at the registry level when no live
+   * implementation is wired yet — see the support-reply demo's
+   * `sources/zendesk.yaml` for the Stripe-style test-mode pattern.
+   */
+  kind: z.string().describe('Connector kind. Maps to a SourceConnector slug.'),
+  /** Resolved per-connector config (validated against the connector\'s configSchema at apply time). */
+  config: z.record(z.string(), z.unknown()).default({}),
+  /**
+   * Sync schedule (cron expression) for Temporal scheduled syncs. When
+   * omitted, the source only syncs on manual trigger via /dashboard/sources.
+   */
+  schedule: z.string().optional().describe('Cron expression for scheduled sync. Manual-only when omitted.'),
+  enabled: z.boolean().default(true),
+});
+export type SourceManifest = z.infer<typeof SourceManifestSchema>;
