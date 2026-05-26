@@ -6,7 +6,7 @@
 
 resource "aws_secretsmanager_secret" "production" {
   name        = "vocion/production"
-  description = "Env vars consumed by the Vocion EC2 — Anthropic/Clerk/Onyx/Langfuse keys + DATABASE_URL + VOCION_HOSTNAME."
+  description = "Env vars consumed by the Vocion EC2 — Anthropic / Clerk / Langfuse keys + DATABASE_URL + VOCION_HOSTNAME."
 
   # 7-day deletion window — gives the operator a recovery path if
   # `tofu destroy` was a mistake.

@@ -141,7 +141,7 @@ export const generateSummary = os
       .join(', ');
 
     // For now, generate a structured placeholder summary from the metadata.
-    // Actual LLM call will be wired through the Onyx chat API in a future iteration.
+    // Actual LLM call will be wired through a SkillService prompt in a future iteration.
     const summaryParts = [
       `${obj.type.label}: "${obj.title}"`,
       metaStr ? `Details: ${metaStr}.` : '',

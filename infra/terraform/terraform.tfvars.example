@@ -54,10 +54,6 @@ secret_payload = {
   ANTHROPIC_API_KEY = "sk-ant-SET_ME"
   OPENAI_API_KEY    = "sk-SET_ME"
 
-  # ---- Onyx (in-network) ----
-  ONYX_API_URL = "http://onyx-api-server:8080/api"
-  ONYX_API_KEY = "SET_ME_AFTER_ONYX_BOOT"
-
   # ---- Langfuse ----
   LANGFUSE_BASE_URL   = "https://cloud.langfuse.com"
   LANGFUSE_PUBLIC_KEY = "pk-lf-SET_ME"

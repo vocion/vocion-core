@@ -11,8 +11,8 @@ import { pluginRegistry } from './registry';
 
 vi.mock('@/libs/DB');
 
-vi.mock('@/libs/onyx/client', () => ({
-  search: vi.fn(async () => ({ top_documents: [] })),
+vi.mock('@/libs/retrieval/legacyDocument', () => ({
+  searchLegacyShape: vi.fn(async () => ({ top_documents: [] })),
 }));
 
 vi.mock('openai', () => {
