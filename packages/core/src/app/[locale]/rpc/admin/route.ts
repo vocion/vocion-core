@@ -42,116 +42,8 @@ async function checkService(name: string, healthUrl: string, externalUrl: string
   }
 }
 
-/**
- * Check TCP services (Redis, etc.) by attempting a socket connection via a container exec
- * @param name
- * @param _container
- * @param host
- * @param port
- * @param externalUrl
- */
-async function checkTcpService(name: string, _container: string, host: string, port: number, externalUrl: string): Promise<ServiceCheck> {
-  const start = Date.now();
-  try {
-    // Use the Onyx API server to ping Redis since it's on the same Docker network
-    // We can check by hitting any endpoint that depends on Redis
-    const res = await fetch(`http://localhost:8080/health`, { signal: AbortSignal.timeout(3000) });
-    const latencyMs = Date.now() - start;
-    return {
-      name,
-      url: `${host}:${port}`,
-      externalUrl,
-      status: res.ok ? 'up' : 'degraded',
-      latencyMs,
-      details: { note: `Inferred from Onyx API health (depends on ${name})` },
-    };
-  } catch {
-    return {
-      name,
-      url: `${host}:${port}`,
-      externalUrl,
-      status: 'down',
-      latencyMs: Date.now() - start,
-    };
-  }
-}
-
-async function getVespaStats(): Promise<Record<string, unknown>> {
-  try {
-    const res = await fetch('http://localhost:8081/search/?yql=select+documentid+from+sources+*+where+true+limit+0&hits=0', {
-      signal: AbortSignal.timeout(5000),
-    });
-    const data = await res.json();
-    const totalDocuments = data?.root?.fields?.totalCount ?? 0;
-
-    // Check health for more detail
-    const healthRes = await fetch('http://localhost:8081/state/v1/health', { signal: AbortSignal.timeout(3000) });
-    const health = await healthRes.json();
-
-    return {
-      totalDocuments,
-      status: health?.status?.code ?? 'unknown',
-    };
-  } catch {
-    return { totalDocuments: 'unknown', status: 'down' };
-  }
-}
-
-async function getOnyxConnectorStats(): Promise<Record<string, unknown>> {
-  const adminKey = process.env.ONYX_API_ADMIN_KEY || process.env.ONYX_API_KEY || '';
-  const baseUrl = process.env.ONYX_API_URL || 'http://localhost:8080';
-  try {
-    const res = await fetch(`${baseUrl}/manage/connector`, {
-      headers: { Authorization: `Bearer ${adminKey}` },
-      signal: AbortSignal.timeout(5000),
-    });
-    const connectors = await res.json();
-    return {
-      connectorCount: Array.isArray(connectors) ? connectors.length : 0,
-    };
-  } catch {
-    return { connectorCount: 'unknown' };
-  }
-}
-
-async function getIndexingStatus(): Promise<Record<string, unknown>> {
-  try {
-    // Query Onyx's PostgreSQL via the background container
-    const res = await fetch('http://localhost:8080/manage/admin/connector/indexing-status', {
-      headers: { Authorization: `Bearer ${process.env.ONYX_API_ADMIN_KEY || process.env.ONYX_API_KEY || ''}` },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) {
-      return { error: `HTTP ${res.status}` };
-    }
-    const data = await res.json();
-
-    // Parse the indexing status into a useful summary
-    const attempts = Array.isArray(data) ? data : [];
-    const active = attempts.filter((a: any) => {
-      const latest = a.latest_index_attempt;
-      return latest && (latest.status === 'in_progress' || latest.status === 'not_started');
-    });
-
-    return {
-      activeAttempts: active.map((a: any) => ({
-        source: a.connector?.source ?? '?',
-        name: a.connector?.name ?? '?',
-        status: a.latest_index_attempt?.status ?? '?',
-        docsIndexed: a.latest_index_attempt?.total_docs_indexed ?? 0,
-        batchesCompleted: a.latest_index_attempt?.completed_batches ?? 0,
-        failures: a.latest_index_attempt?.total_failures_batch_level ?? 0,
-      })),
-      totalConnectors: attempts.length,
-    };
-  } catch {
-    return { error: 'Could not fetch indexing status' };
-  }
-}
-
 async function getDbStats(): Promise<Record<string, unknown>> {
   try {
-    // Use dynamic import to avoid issues with server components
     const { db } = await import('@/libs/DB');
     const { agentSchema, skillSchema, businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
     const agents = await db.select().from(agentSchema);
@@ -169,35 +61,43 @@ async function getDbStats(): Promise<Record<string, unknown>> {
   }
 }
 
+async function getRetrievalStats(): Promise<Record<string, unknown>> {
+  try {
+    const { db } = await import('@/libs/DB');
+    const { knowledgeSourceSchema, knowledgeDocumentSchema, knowledgeChunkSchema } = await import('@/models/Schema');
+    const sources = await db.select().from(knowledgeSourceSchema);
+    const docs = await db.select().from(knowledgeDocumentSchema);
+    const chunks = await db.select().from(knowledgeChunkSchema);
+    return {
+      sources: sources.length,
+      documents: docs.length,
+      chunks: chunks.length,
+    };
+  } catch {
+    return { error: 'Could not query retrieval tables' };
+  }
+}
+
 export async function GET() {
   const { userId } = await auth();
   if (!userId) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
-  const onyxUrl = process.env.ONYX_API_URL || 'http://localhost:8080';
-
-  const [services, vespaStats, connectorStats, dbStats, indexingStatus] = await Promise.all([
+  const [services, dbStats, retrievalStats] = await Promise.all([
     Promise.all([
-      checkService('Onyx API', `${onyxUrl}/health`, 'http://localhost:3100'),
-      checkService('Vespa Search', 'http://localhost:8081/state/v1/health', 'http://localhost:8081'),
+      checkService('Vocion App', 'http://localhost:3000', 'http://localhost:3000'),
       checkService('Langfuse', 'http://localhost:3200/api/public/health', 'http://localhost:3200'),
       checkService('Temporal UI', 'http://localhost:8233', 'http://localhost:8233'),
-      checkTcpService('Redis (Onyx)', 'onyx-stack-cache-1', 'localhost', 6380, ''),
-      checkService('Vocion App', 'http://localhost:3000', 'http://localhost:3000'),
     ]),
-    getVespaStats(),
-    getOnyxConnectorStats(),
     getDbStats(),
-    getIndexingStatus(),
+    getRetrievalStats(),
   ]);
 
   return new Response(JSON.stringify({
     services,
-    vespa: vespaStats,
-    indexing: indexingStatus,
-    connectors: connectorStats,
     db: dbStats,
+    retrieval: retrievalStats,
     timestamp: new Date().toISOString(),
   }), {
     headers: { 'Content-Type': 'application/json' },

@@ -1,6 +1,6 @@
 'use client';
 
-import type { OnyxDocument } from './types';
+import type { IndexedDocument } from './types';
 import { ExternalLink, FileText, X } from 'lucide-react';
 import { sourceColors, sourceLabels } from './helpers';
 
@@ -16,7 +16,7 @@ import { sourceColors, sourceLabels } from './helpers';
  */
 
 export type SourcesPanelProps = {
-  documents: OnyxDocument[];
+  documents: IndexedDocument[];
   open: boolean;
   onClose: () => void;
 };

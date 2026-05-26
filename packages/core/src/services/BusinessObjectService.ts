@@ -184,7 +184,7 @@ export const removeDocumentLink = async (linkId: number, orgId: string) => {
 };
 
 /* ------------------------------------------------------------------ */
-/* Lookup by Onyx document IDs (for Ask integration)                   */
+/* Lookup by external document IDs (for chat / retrieval integration) */
 /* ------------------------------------------------------------------ */
 
 export const findObjectsByDocumentIds = async (documentIds: string[], orgId: string) => {

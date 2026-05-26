@@ -29,13 +29,13 @@ const evalCases: EvalCase[] = [
     input: 'What discovery calls did I have this week?',
     checks: [
       {
-        name: 'Uses search_onyx tool',
-        fn: (_, toolCalls) => toolCalls.some((tc: any) => tc.tool === 'search_onyx'),
+        name: 'Uses search tool',
+        fn: (_, toolCalls) => toolCalls.some((tc: any) => tc.tool === 'search'),
       },
       {
-        name: 'Searches with Zoom source filter',
+        name: 'Searches with zoom source filter',
         fn: (_, toolCalls) => {
-          const searchCalls = toolCalls.filter((tc: any) => tc.tool === 'search_onyx');
+          const searchCalls = toolCalls.filter((tc: any) => tc.tool === 'search');
           // At least one search should mention zoom, discovery, or MetaCTO
           return searchCalls.some((tc: any) => {
             const q = (tc.input?.query ?? '').toLowerCase();
@@ -72,8 +72,8 @@ const evalCases: EvalCase[] = [
     input: 'Show me my recent Zoom meetings',
     checks: [
       {
-        name: 'Uses search_onyx',
-        fn: (_, toolCalls) => toolCalls.some((tc: any) => tc.tool === 'search_onyx'),
+        name: 'Uses search',
+        fn: (_, toolCalls) => toolCalls.some((tc: any) => tc.tool === 'search'),
       },
       {
         name: 'Response has bullet points or numbered list',
@@ -109,7 +109,7 @@ const evalCases: EvalCase[] = [
     checks: [
       {
         name: 'Searches Zoom source',
-        fn: (_, toolCalls) => toolCalls.some((tc: any) => tc.tool === 'search_onyx'),
+        fn: (_, toolCalls) => toolCalls.some((tc: any) => tc.tool === 'search'),
       },
       {
         name: 'Response includes Dr. K or Unmuted (Mar 19)',
