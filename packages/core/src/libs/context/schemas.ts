@@ -33,7 +33,7 @@ export const AgentManifestSchema = z.object({
   systemPromptFile: z.string().optional().describe('path to markdown system prompt, relative to agent file'),
   systemPrompt: z.string().optional().describe('inline system prompt — prefer systemPromptFile for long prompts'),
   skills: z.array(z.string()).default([]).describe('skill slugs this agent can invoke'),
-  connectorSources: z.array(z.string()).default([]).describe('onyx source_type values'),
+  connectorSources: z.array(z.string()).default([]).describe('source slugs (matching knowledge_source.slug) this agent can search'),
   objectTypes: z.array(z.string()).default([]).describe('business object type slugs'),
   documentSetIds: z.array(z.number()).default([]),
   searchConfig: z.object({

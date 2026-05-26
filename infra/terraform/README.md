@@ -38,7 +38,7 @@ cd infra/terraform
 # 1. Fill in secrets.
 cp terraform.tfvars.example terraform.tfvars
 $EDITOR terraform.tfvars
-#   - Set every `SET_ME` value (Anthropic, Clerk, Onyx, Langfuse keys).
+#   - Set every `SET_ME` value (Anthropic, Clerk, Langfuse keys).
 #   - Confirm `key_name` matches the keypair you created.
 #   - Optionally tighten `ssh_cidr` to your operator IP.
 
@@ -53,8 +53,8 @@ tofu plan -out vocion.tfplan
 # 4. Provision.
 tofu apply vocion.tfplan
 
-# 5. Wait ~10–15 min. The EC2 user-data clones the repo, builds the
-#    app image, pulls 12 Onyx containers, runs migrations + context:apply.
+# 5. Wait ~3–5 min. The EC2 user-data clones the repo, builds the
+#    app image, brings up the platform stack, runs migrations + context:apply.
 #    Tail progress:
 ssh -i ~/.ssh/vocion-prod.pem ec2-user@$(tofu output -raw public_ip) \
   'sudo tail -f /var/log/cloud-init-output.log'
@@ -87,8 +87,7 @@ ssh -i ~/.ssh/vocion-prod.pem ec2-user@$(tofu output -raw public_ip) \
   'sudo bash /opt/vocion/infra/aws/update.sh main'
 ```
 
-The Onyx + Postgres + Caddy containers stay running; only `app` +
-`worker` rebuild + restart.
+Postgres + Caddy stay running; only `app` + `worker` rebuild + restart.
 
 ## Outputs
 
@@ -153,7 +152,7 @@ the destroy was a mistake.
 | Data egress (~100 GB) | ~$9 |
 | **Total** | **~$390/mo** |
 
-Plus Anthropic + Onyx index storage + Langfuse cloud — variable.
+Plus Anthropic + Langfuse cloud — variable.
 
 ## Follow-ups (documented in the plan's "out of scope")
 

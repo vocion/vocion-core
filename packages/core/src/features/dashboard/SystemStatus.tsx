@@ -12,25 +12,10 @@ type ServiceCheck = {
   details?: Record<string, unknown>;
 };
 
-type IndexingAttempt = {
-  source: string;
-  name: string;
-  status: string;
-  docsIndexed: number;
-  batchesCompleted: number;
-  failures: number;
-};
-
 type StatusData = {
   services: ServiceCheck[];
-  vespa: Record<string, unknown>;
-  connectors: Record<string, unknown>;
   db: Record<string, unknown>;
-  indexing: {
-    activeAttempts?: IndexingAttempt[];
-    totalConnectors?: number;
-    error?: string;
-  };
+  retrieval: Record<string, unknown>;
   timestamp: string;
 };
 
@@ -192,23 +177,19 @@ export const SystemStatus = () => {
 
       {/* Data stats */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {/* Vespa / Search Index */}
+        {/* Retrieval (pgvector + FTS) */}
         <div className="rounded-lg border border-border p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
             <Database className="size-4" />
-            Search Index (Vespa)
+            Retrieval (pgvector + FTS)
           </div>
           <div className="space-y-1">
-            {Object.entries(data.vespa).map(([k, v]) => (
+            {Object.entries(data.retrieval).map(([k, v]) => (
               <div key={k} className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">{k}</span>
                 <span className="font-mono font-medium">{String(v)}</span>
               </div>
             ))}
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Connectors</span>
-              <span className="font-mono font-medium">{String(data.connectors.connectorCount ?? 'unknown')}</span>
-            </div>
           </div>
         </div>
 
@@ -229,70 +210,14 @@ export const SystemStatus = () => {
         </div>
       </div>
 
-      {/* Indexing Pipeline */}
-      <div className="rounded-lg border border-border p-4">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <Activity className="size-4" />
-          Indexing Pipeline
-        </div>
-        {data.indexing?.error
-          ? <div className="text-sm text-muted-foreground">{data.indexing.error}</div>
-          : data.indexing?.activeAttempts && data.indexing.activeAttempts.length > 0
-            ? (
-                <div className="space-y-2">
-                  {data.indexing.activeAttempts.map((attempt: any, i: number) => {
-                    const isRunning = attempt.status === 'in_progress';
-                    return (
-                      <div key={i} className={`flex items-center justify-between rounded-md p-2 text-sm ${isRunning ? 'bg-green-50 dark:bg-green-950/20' : 'bg-muted/30'}`}>
-                        <div className="flex items-center gap-2">
-                          {isRunning
-                            ? <div className="size-2 animate-pulse rounded-full bg-green-500" />
-                            : <div className="size-2 rounded-full bg-muted-foreground/30" />}
-                          <span className="font-medium">{attempt.source}</span>
-                          <span className="text-xs text-muted-foreground">{attempt.name}</span>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                          <span>
-                            {attempt.docsIndexed}
-                            {' '}
-                            docs
-                          </span>
-                          <span>
-                            {attempt.batchesCompleted}
-                            {' '}
-                            batches
-                          </span>
-                          {attempt.failures > 0 && (
-                            <span className="text-red-500">
-                              {attempt.failures}
-                              {' '}
-                              fails
-                            </span>
-                          )}
-                          <span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${isRunning ? 'bg-green-100 text-green-800' : 'bg-muted text-muted-foreground'}`}>
-                            {attempt.status}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )
-            : <div className="text-sm text-muted-foreground">No active indexing</div>}
-      </div>
-
       {/* Quick links */}
       <div className="rounded-lg border border-border p-4">
         <div className="mb-3 text-sm font-semibold">Platform Links</div>
         <div className="flex flex-wrap gap-2">
           {[
             { label: 'Vocion', url: 'http://localhost:3000' },
-            { label: 'Onyx Admin', url: 'http://localhost:3100' },
-            { label: 'Onyx API Docs', url: 'http://localhost:8080/api/docs' },
             { label: 'Langfuse', url: 'http://localhost:3200' },
             { label: 'Temporal UI', url: 'http://localhost:8233' },
-            { label: 'Flower (Celery)', url: 'http://localhost:5555' },
-            { label: 'Vespa Console', url: 'http://localhost:8081' },
           ].map(link => (
             <a
               key={link.label}

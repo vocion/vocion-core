@@ -5,7 +5,7 @@ import OpenAI from 'openai';
 import { db } from '@/libs/DB';
 import { cleanUsageDetails, langfuse, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
-import { search } from '@/libs/onyx/client';
+import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
 import { agentSchema } from '@/models/Schema';
 import { listBusinessObjects } from './BusinessObjectService';
 import { executeSkill } from './SkillService';
@@ -41,8 +41,8 @@ function buildTools(agent: {
     {
       type: 'function',
       function: {
-        name: 'search_onyx',
-        description: `Search all connected enterprise systems. Use natural language queries — the search is semantic, not keyword-based. Good queries describe what you're looking for conceptually, not exact field matches.`,
+        name: 'search',
+        description: `Search all connected enterprise systems via hybrid retrieval (pgvector + Postgres FTS, reciprocal rank fusion). Use natural language queries — the search is semantic, not keyword-only. Good queries describe what you're looking for conceptually.`,
         parameters: {
           type: 'object',
           properties: {
@@ -281,7 +281,7 @@ async function executeTool(
   searchConfig?: SearchConfig,
 ): Promise<string> {
   switch (name) {
-    case 'search_onyx': {
+    case 'search': {
       let results: any;
       const query = args.query as string;
       let sourceFilter = args.source_types as string[] | undefined;
@@ -323,7 +323,7 @@ async function executeTool(
       }
 
       try {
-        results = await search({
+        results = await searchLegacyShape({
           query,
           search_filters: (sourceFilter || timeCutoff)
             ? {
@@ -334,9 +334,6 @@ async function executeTool(
           metadata_filters: metadataFilters,
         });
       } catch (err: any) {
-        if (err.message?.includes('503') || err.message?.includes('Vespa')) {
-          return 'Search index is currently rebuilding after a system restart. Results are temporarily unavailable. The index should be ready in a few minutes.';
-        }
         return `Search error: ${err.message ?? 'Unknown error'}`;
       }
       const rawDocs = results.top_documents ?? results.results ?? [];
@@ -354,7 +351,7 @@ async function executeTool(
       // Log search results AFTER re-ranking
       const metaStr = metadataFilters ? ` meta=${JSON.stringify(metadataFilters)}` : '';
       const timeStr = timeFilter ? ` time=${timeFilter}` : '';
-      console.log(`[search_onyx] query="${query}" source=${sourceFilter ?? 'all'}${metaStr}${timeStr} raw=${rawDocs.length} reranked=${docs.length}`);
+      console.log(`[search] query="${query}" source=${sourceFilter ?? 'all'}${metaStr}${timeStr} raw=${rawDocs.length} reranked=${docs.length}`);
       for (const doc of docs.slice(0, 8)) {
         const ct = doc.metadata?.call_type ?? '-';
         const origScore = doc.score?.toFixed(0) ?? '-';
@@ -515,7 +512,7 @@ async function executeTool(
 
       for (const query of queries.slice(0, 4)) {
         try {
-          const results = await search({
+          const results = await searchLegacyShape({
             query,
             search_filters: { source_type: conversationSources },
           });
@@ -585,7 +582,7 @@ async function executeTool(
 
       for (const query of queries.slice(0, 4)) {
         try {
-          const results = await search({ query }); // No source filter = all sources
+          const results = await searchLegacyShape({ query }); // No source filter = all sources
           const docs = results.top_documents ?? results.results ?? [];
           for (const doc of docs) {
             const id = doc.document_id ?? doc.semantic_identifier;

@@ -78,7 +78,7 @@ npm install
 cp packages/core/.env.example packages/core/.env.local
 # Edit .env.local — at minimum set DATABASE_URL, Clerk keys, and one LLM provider key
 
-# 3. Start Postgres + Onyx (retrieval stack)
+# 3. Start the platform (Postgres + Langfuse + Temporal)
 npm run dev:up
 
 # 4. Apply schema + reference context
@@ -104,7 +104,7 @@ Full tool reference: [`docs/reference/mcp.md`](./docs/reference/mcp.md).
 
 ## Retrieval
 
-pgvector + Postgres FTS with a config-driven hybrid pipeline. Swap embedders, rerankers, chunking strategies per-org or per-source via `context/<org>/retrieval.yaml` — no code change needed. (Onyx is wired today; pgvector-native pipeline lands in Phase 5.)
+Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with reciprocal rank fusion across the two arms, optional LLM rerank. No third-party retrieval engine. Swap embedders, rerankers, chunking strategies per-org or per-source via `context/<org>/retrieval.yaml` — no code change needed.
 
 ## Tech stack
 
@@ -112,7 +112,7 @@ pgvector + Postgres FTS with a config-driven hybrid pipeline. Swap embedders, re
 - **Database:** PostgreSQL 16 + Drizzle ORM
 - **Auth:** Clerk (multi-tenant, RBAC via Clerk organizations)
 - **LLM:** OpenAI, Anthropic — swappable per skill via the `provider` field
-- **Retrieval:** Onyx (deprecating) → pgvector-native (next)
+- **Retrieval:** pgvector + Postgres FTS, RRF hybrid, optional LLM rerank (first-party)
 - **Observability:** Langfuse (LLM traces), OpenTelemetry (spans + metrics)
 - **Workflows:** in-process durable step runner on Postgres
 

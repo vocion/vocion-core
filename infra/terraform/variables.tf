@@ -63,9 +63,9 @@ variable "root_volume_gb" {
 }
 
 variable "data_volume_gb" {
-  description = "Data EBS size in GB (Postgres + Onyx index + Caddy certs)."
+  description = "Data EBS size in GB (Postgres + Caddy certs)."
   type        = number
-  default     = 200
+  default     = 100
 }
 
 variable "key_name" {

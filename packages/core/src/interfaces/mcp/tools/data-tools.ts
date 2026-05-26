@@ -1,6 +1,6 @@
 import type { McpConfig } from '../config';
 import { z } from 'zod';
-import { search as onyxSearch } from '@/libs/onyx/client';
+import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
 import { getBusinessObject, listBusinessObjects, listObjectTypes } from '@/services/BusinessObjectService';
 
 type ToolModule = {
@@ -65,7 +65,7 @@ function searchTool(): ToolModule {
   return {
     name: 'search_query',
     title: 'Search across connected data sources',
-    description: 'Run a retrieval query via Onyx. Returns ranked documents with snippets, source type, dates, and links. Filter by sources (e.g. ["zoom","gmail"]) to narrow scope.',
+    description: 'Run a retrieval query against indexed documents (pgvector + Postgres FTS hybrid). Returns ranked documents with snippets, source type, dates, and links. Filter by sources (e.g. ["zoom","gmail"]) to narrow scope.',
     inputSchema: {
       q: z.string().describe('the search query in natural language'),
       sources: z.array(z.string()).optional().describe('restrict to these source types'),
@@ -73,7 +73,7 @@ function searchTool(): ToolModule {
     },
     handler: async (input) => {
       const { q, sources, k } = input as { q: string; sources?: string[]; k: number };
-      const result = await onyxSearch({
+      const result = await searchLegacyShape({
         query: q,
         search_filters: sources ? { source_type: sources } : undefined,
       });
