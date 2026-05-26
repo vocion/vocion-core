@@ -8,6 +8,7 @@
  */
 
 import type { SourceConnector } from './types';
+import { localFilesConnector } from './localFiles';
 import { webConnector } from './web';
 
 const registry = new Map<string, SourceConnector>();
@@ -26,3 +27,4 @@ export function listConnectors(): SourceConnector[] {
 
 // Built-ins. Order matters for the picker tile layout.
 registerConnector(webConnector);
+registerConnector(localFilesConnector);

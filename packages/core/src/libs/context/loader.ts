@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod';
-import type { AgentManifest, ContextManifest, EvalDatasetManifest, LearningStepManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, WorkflowManifest } from './schemas';
+import type { AgentManifest, ContextManifest, EvalDatasetManifest, LearningStepManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, SourceManifest, WorkflowManifest } from './schemas';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
@@ -13,6 +13,7 @@ import {
   ObjectTypeManifestSchema,
   PlaybookManifestSchema,
   SkillManifestSchema,
+  SourceManifestSchema,
   WorkflowManifestSchema,
 } from './schemas';
 import { computeContextSha } from './sha';
@@ -34,6 +35,7 @@ export type LoadedWorkflow = WorkflowManifest & { sourceFile: string };
 
 export type LoadedLearningStep = LearningStepManifest & { sourceFile: string };
 export type LoadedEvalDataset = EvalDatasetManifest & { sourceFile: string };
+export type LoadedSource = SourceManifest & { sourceFile: string };
 
 export type LoadedPlaybook = PlaybookManifest & {
   /** Markdown body (everything after the YAML frontmatter). */
@@ -55,6 +57,7 @@ export type LoadedContext = {
   playbooks: LoadedPlaybook[];
   learningSteps: LoadedLearningStep[];
   evalDatasets: LoadedEvalDataset[];
+  sources: LoadedSource[];
   sha: string;
   sourcePath: string;
   fileCount: number;
@@ -157,6 +160,14 @@ export function loadContext(contextPath: string): LoadedContext {
       return { ...parsed, sourceFile: file };
     });
 
+  const sources = walkDir(join(abs, 'sources'))
+    .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
+    .map((file) => {
+      files.push(file);
+      const parsed = parseFile(file, SourceManifestSchema, 'source');
+      return { ...parsed, sourceFile: file };
+    });
+
   assertUniqueSlugs(agents, 'agent');
   assertUniqueSlugs(skills, 'skill');
   assertUniqueSlugs(objectTypes, 'object type');
@@ -164,6 +175,7 @@ export function loadContext(contextPath: string): LoadedContext {
   assertUniqueSlugs(playbooks, 'playbook');
   assertUniqueNames(learningSteps, 'learning step');
   assertUniqueSlugs(evalDatasets, 'eval dataset');
+  assertUniqueSlugs(sources, 'source');
 
   const sha = computeContextSha(abs, files);
 
@@ -176,6 +188,7 @@ export function loadContext(contextPath: string): LoadedContext {
     playbooks,
     learningSteps,
     evalDatasets,
+    sources,
     sha,
     sourcePath: abs,
     fileCount: files.length + 1,
