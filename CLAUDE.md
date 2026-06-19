@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Vocion is a multi-tenant SaaS application built on a Next.js 16 boilerplate. It provides contextual intelligence tools for teams to organize, connect, and act on business context.
+Vocion is a multi-tenant SaaS application built on Next.js 16. It provides contextual intelligence tools for teams to organize, connect, and act on business context.
 
 ## Tech Stack
 
