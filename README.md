@@ -131,7 +131,7 @@ docs/                            # Concepts, guides, reference
 
 ## License
 
-Apache 2.0.
+MIT. See the [LICENSE](LICENSE) file.
 
 ## Docs
 
