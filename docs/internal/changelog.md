@@ -129,4 +129,4 @@ These are the platform invariants everything else builds on. Dates are commit da
 
 ## Earlier
 
-Boilerplate, dependency upgrades, and CI tweaks before the Vocion groundwork landed (Feb 2026 ← Dec 2025 ← Vocion.js base). See git log for detail.
+Dependency upgrades and CI tweaks before the Vocion groundwork landed (Feb 2026 ← Dec 2025). See git log for detail.
