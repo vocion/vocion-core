@@ -39,7 +39,7 @@ Everything here is live on `main`.
 - [x] MCP server over stdio — Claude Code, Claude app, Cursor, Zed, Continue
 - [x] Auto-apply to DB on MCP `context_write_*`; git is external (commit opt-in)
 - [x] Approve/reject surface — MCP tools + web `/dashboard/review`
-- [x] Tenant-scoped REST API (read side): `GET /api/v1/{agents,skills,workflows,objects/types,runs,runs/:id}` with Clerk-session auth
+- [x] Tenant-scoped REST API (read side): `GET /api/v1/{agents,skills,workflows,objects/types,runs,runs/:id}` with auth.js session auth
 
 ### Plugin SDK
 - [x] v0.1 — typed Skill contract, registry, loader, dual-path execution, sample plugin
@@ -332,7 +332,7 @@ The remaining phases interleave OSS and proprietary work. The split:
 - [ ] Operator console — per-tenant resource usage, debug tools, support impersonation with audit trail
 
 **Account model + billing** (extracted from OSS)
-- [ ] Account / workspace / seat hierarchy (Clerk Organizations stays in OSS for auth, but seat-based billing logic moves out)
+- [ ] Account / workspace / seat hierarchy (auth.js stays in OSS for auth — the optional `VOCION_AUTH_PROVIDER=clerk` path serves Cloud; seat-based billing logic moves out)
 - [ ] Stripe subscription module — per-seat pricing, usage-based metering for skill runs / tokens / storage
 - [ ] Customer-facing billing console — invoices, payment method, plan upgrade, seat add/remove
 - [ ] Usage metering pipeline — `skill_run` + `workflow_run` token counts → Stripe metered billing
