@@ -10,6 +10,7 @@ Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live
 
 1. [Snapshot — what's already shipped](#snapshot--whats-already-shipped)
 2. [Phase 2 — Interface layer (finish)](#phase-2--interface-layer-finish)
+   - [Phase 2.5 — Agent tool layer + skill contract (Agent → Skill → Tool)](#phase-25--agent-tool-layer--skill-contract-agent--skill--tool)
 3. [Phase 3 — Native retrieval](#phase-3--native-retrieval)
 4. [Phase 4 — Self-improvement loop (finish)](#phase-4--self-improvement-loop-finish)
 5. [Phase 5 — Plugin SDK v1 + connector pack](#phase-5--plugin-sdk-v1--connector-pack)
@@ -66,7 +67,7 @@ Everything here is live on `main`.
 ### UX + framing (cross-cutting)
 - [x] Rebrand Vocion → Vocion (repo, npm scope, docs, marketing, domain)
 - [x] Layered repo architecture — `@vocion/core` + sdk + plugins + starter + tenant
-- [x] Five-resource vocabulary (Source, Object, Skill, Workflow, Agent); "primitives" is internal code-only
+- [x] Five-resource authoring vocabulary (Source, Object, Skill, Workflow, Agent); "primitives" is internal code-only. **Tools** are the sixth, lower-level primitive that skills call — the canonical model is **Agent → Skill → Tool** (a skill is an agent's *role*: logic + acceptance evals + tool access; it is not itself a tool). The marketing site + public docs were refactored to this model; formalizing it in code is [Phase 2.5](#phase-25--agent-tool-layer--skill-contract-agent--skill--tool).
 - [x] Dashboard canonical shape — TitleBar + stats + instance grid + Activity strip + PrimitiveFiles editor
 - [x] Sidebar consolidation — Workspace (Chat/Search/Reviews/Logs), Context (the five resources), admin in the user menu
 - [x] Docs IA — Get started / Concepts / Guides / API / Reference; public vs internal split
@@ -99,6 +100,37 @@ Skills, context, and review queues reachable from wherever people already work. 
 - [ ] User notification preferences — per-user channel choice + quiet hours
 
 **Exit:** a skill run started from any channel lands in the same review queue *and* pings the right reviewer on their preferred channel. External A2A agents can invoke a Vocion agent and poll for task completion.
+
+### Phase 2.5 — Agent tool layer + skill contract (Agent → Skill → Tool)
+
+*Formalizes the canonical model the marketing site + public docs now describe, and closes the audit's #1 gap: agents have no general toolbelt.* Today an agent's reach is a fixed runtime tool set (`search_knowledge`, `lookup_objects`, `run_operation`, `request_human_review`, learnings/runs tools) plus whatever a plugin skill calls via `ctx`. There is no `defineTool` primitive, no per-skill declaration of *which* tools a skill may use, and no general web/HTTP/code capability — so "agents that operate your business" overpromises against a knowledge-retrieval-plus-operations runtime.
+
+The model: **agents are composed of skills; a skill bundles its logic + acceptance evals + the tools it may call; tools are atomic, traced, budgeted capabilities.** This phase makes that real in code.
+
+**Skill contract**
+- [ ] `tools:` allowlist in `skill.yaml` / the `Operation` manifest — a skill explicitly declares the tools it may call; runtime enforces the grant and records it in the trace
+- [ ] An agent's effective toolset = the union of its skills' declared tools (no more global ambient tool set)
+- [ ] Acceptance-first: surface a "skill has no `evals.yaml`" warning in the dashboard; treat acceptance evals as part of the contract, not optional decoration
+- [ ] Migrate the existing runtime tools (`search_knowledge`, `lookup_objects`, `run_operation`, `request_human_review`, learnings/runs) onto the new registry so built-ins and custom tools are uniform
+
+**Tool registry (SDK)**
+- [ ] `defineTool({ name, inputSchema, outputSchema, run })` in `@vocion/sdk` — atomic, typed, traced, budget-accounted; like an operation but single-action and not eval-graded
+- [ ] Loader + registry mirrors the plugin-skill path (per-tool error isolation, Langfuse span, budget charge)
+- [ ] Tool calls appear in the run trace alongside inputs, context_sha, and cost
+
+**Built-in general toolbelt** (the capabilities buyers assume exist)
+- [ ] `web_search` — provider-pluggable (Brave / Tavily / Bing), result snippets + URLs
+- [ ] `fetch_url` — single-page fetch + readability extraction (distinct from the ingestion crawler in `libs/sources/web.ts`)
+- [ ] `http_request` — arbitrary REST call against a per-tenant **egress allowlist**
+- [ ] `run_code` — sandboxed JS/Python for computation and transforms (no network by default)
+- [ ] `sql_query` — read-only query against a connected Postgres source
+- [ ] Outbound **MCP client** — skills can call tools exposed by external MCP servers (mirror of our MCP server); MCP tools participate in the same `tools:` grant + trace
+
+**Governance** (ties to existing `BudgetService` + the enterprise egress story in Phase 13)
+- [ ] Per-tool and per-egress-domain budgets + rate limits
+- [ ] Write-actions are tools too: unify the workflow `action` step (today a `send-stub` that records intent but does nothing — `libs/cards/firstParty/sendStub.tsx`) with the tool registry, so a connector's write call (Stripe/Salesforce/email in [Phase 5](#phase-5--plugin-sdk-v1--connector-pack)) is just a governed tool a skill or action step invokes
+
+**Exit:** a skill declares the tools it may call; an agent's reach is exactly the union of its skills' grants; new built-in tools (web search, fetch, HTTP, code, SQL) and external MCP tools are available, budgeted, and traced; and a workflow `action` step actually performs a side effect instead of emitting a stub.
 
 ### Phase 3 — Native retrieval
 
