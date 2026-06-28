@@ -8,7 +8,7 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 Agents were capable over ingested knowledge but couldn't reach the live web or produce things.
 This adds a set of general-purpose, provider-pluggable tools every agent gets out of the box, plus
-a dashboard surface, docs, and a `/release` automation skill. Cuts `vocion-v0.6.0`.
+a dashboard surface, docs, and a `/release` automation skill. Ships in `v1.24.0`.
 
 ### Capabilities (`libs/tools/<cap>/`)
 - `web_search` — Tavily (default) / Brave; provider-pluggable via `VOCION_WEBSEARCH_PROVIDER`.
