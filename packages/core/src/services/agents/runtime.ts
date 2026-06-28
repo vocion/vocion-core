@@ -25,6 +25,10 @@ import { buildChatModel } from '@/libs/llm';
 import { agentSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
 import { mountPlaybooks } from '@/services/playbooks/mount';
+import { crawlSiteTool } from './tools/crawlSite';
+import { createArtifactTool } from './tools/createArtifact';
+import { fetchUrlTool } from './tools/fetchUrl';
+import { generateImageTool } from './tools/generateImage';
 import { requestHumanReviewTool } from './tools/hitl';
 import {
   addLearningTool,
@@ -35,9 +39,11 @@ import {
   updateLearningTool,
 } from './tools/learnings';
 import { lookupObjectsTool } from './tools/lookupObjects';
+import { runCodeTool } from './tools/runCode';
 import { runOperationTool } from './tools/runOperation';
 import { listRecentRunsTool, listRunFeedbackTool } from './tools/runs';
 import { searchKnowledgeTool } from './tools/searchKnowledge';
+import { webSearchTool } from './tools/webSearch';
 
 /* ------------------------------------------------------------------ */
 /* LRU cache of compiled graphs                                        */
@@ -113,6 +119,12 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   // filtering uses per-connector slugs (knowledge_source.slug).
   const tools = [
     searchKnowledgeTool(ctx),
+    webSearchTool(ctx),
+    fetchUrlTool(ctx),
+    crawlSiteTool(ctx),
+    generateImageTool(ctx),
+    runCodeTool(ctx),
+    createArtifactTool(ctx),
     lookupObjectsTool(ctx),
     runOperationTool(ctx),
     listLearningStepsTool(ctx),

@@ -4,6 +4,36 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-28 — Built-in agent tools (web search, browse, image, code, artifacts)
+
+Agents were capable over ingested knowledge but couldn't reach the live web or produce things.
+This adds a set of general-purpose, provider-pluggable tools every agent gets out of the box, plus
+a dashboard surface, docs, and a `/release` automation skill. Cuts `vocion-v0.6.0`.
+
+### Capabilities (`libs/tools/<cap>/`)
+- `web_search` — Tavily (default) / Brave; provider-pluggable via `VOCION_WEBSEARCH_PROVIDER`.
+- Browse — `fetch_url` + `crawl_site`. Builtin reuses the `web` connector's HTML→text extractor
+  (now exported from `libs/sources/web.ts`); Firecrawl opt-in for JS-heavy pages.
+- `generate_image` — OpenAI gpt-image-1 (reuses `OPENAI_API_KEY`), saved via the new artifact store.
+- `run_code` — builtin **safe calculator** (allowlisted identifiers via `Object.hasOwn`, no arbitrary
+  eval; covered by `calculator.test.ts`); E2B sandbox reserved as opt-in.
+- `create_artifact` — CSV / SVG chart / doc, written to `VOCION_ARTIFACTS_DIR` (served at `/artifacts`).
+
+### Wiring
+- Runtime tools in `services/agents/tools/*` registered in `services/agents/runtime.ts`.
+- MCP exposure in `interfaces/mcp/tools/capability-tools.ts`.
+- Dashboard **Tools** catalog at `/dashboard/tools` (sidebar → Capabilities), reading
+  `libs/tools/catalog.ts` (provider/key status, graceful when unconfigured).
+- `.env.example` documents every provider flag + key. Only `TAVILY_API_KEY` is a strictly new key.
+
+### Docs + release tooling
+- New `concepts/tools.md` + `guides/using-built-in-tools.md`; `reference/mcp.md` + `docs/README.md` updated (vocion-www).
+- New `/changelog` page + release blog post (vocion-www).
+- New `/release` Claude Code skill (`.claude/skills/release/`) that propagates a unit of work to
+  docs + app + blog/changelog + this changelog + semver.
+
+---
+
 ## 2026-04-15 — Feedback loop, in-app editing, evals, Logs rename, roadmap rewrite
 
 UX + docs sweep on top of yesterday's rebrand. Closes the capture side of the self-improvement loop.
