@@ -23,7 +23,7 @@ export function workflowTools(config: McpConfig): ToolModule[] {
     {
       name: 'workflow_list',
       title: 'List workflows',
-      description: 'Return every workflow defined in context/<org>/workflows/ with its trigger and step count.',
+      description: 'Return every workflow defined in workspace/<org>/workflows/ with its trigger and step count.',
       inputSchema: {},
       handler: async () => {
         const rows = await listWorkflows(config.orgId);

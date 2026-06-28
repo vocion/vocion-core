@@ -14,7 +14,7 @@ import { relative, resolve } from 'node:path';
  *  - Skips hooks via plain `git commit` (but we DO NOT pass --no-verify).
  *    If a hook fails, the error surfaces and the caller can decide.
  *  - Silently skips when the path is not inside a git repo (non-git
- *    deployments — the context_version row still records a content SHA).
+ *    deployments — the workspace_version row still records a content SHA).
  */
 export type AutoCommitInput = {
   contextPath: string;

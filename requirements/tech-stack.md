@@ -22,7 +22,7 @@ Pragmatic choices for a Postgres-native, self-hostable AI runtime. No exotic dep
 | **Plugin LLM provider** | `provider: openai \| anthropic \| vertex \| azure-openai` | Per-skill manifest field; vertex + azure are planned stubs |
 | **Plugin contract** | `Skill<Input, Output>` (Zod-validated) | Typed I/O at the plugin boundary. v0.2 extracts to `@vocion/sdk` |
 | **Workflow runner** | In-process step runner on Postgres | One row per run; pause-resume on approve steps. Temporal adapter planned for scale-out |
-| **Context-as-code** | YAML + markdown + Zod | Authored in repo, applied via idempotent reconcile job |
+| **Workspace-as-code** | YAML + markdown + Zod | Authored in repo, applied via idempotent reconcile job |
 
 ## Retrieval
 
@@ -42,7 +42,7 @@ The platform abstracts retrieval behind `ctx.retrieve(query, opts)` so plugin sk
 | **Spans + metrics** | OpenTelemetry collector | Pluggable export to Honeycomb / Datadog / native Postgres tables |
 | **Errors** | Sentry | Standard. Spotlight in dev for in-process capture |
 | **App logs** | LogTape → stdout (default) or Better Stack (optional) | Structured logs, no vendor lock |
-| **Audit trail** | `context_version` table + `skill_run.context_sha` | Every output traces back to the exact context snapshot that produced it |
+| **Audit trail** | `workspace_version` table + `skill_run.workspace_sha` | Every output traces back to the exact context snapshot that produced it |
 
 ## Infra
 

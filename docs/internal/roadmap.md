@@ -31,9 +31,9 @@ Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live
 Everything here is live on `main`.
 
 ### Foundation
-- [x] Context-as-code loop — `context/<org>/` (YAML + markdown), idempotent apply, `context_version` audit, `skill_run.context_sha` stamping
+- [x] Workspace-as-code loop — `workspace/<org>/` (YAML + markdown), idempotent apply, `workspace_version` audit, `skill_run.workspace_sha` stamping
 - [x] Reference tenant (MetaCTO / Ziggy) runs entirely from git-backed context
-- [x] `CONTEXT_PATH` makes tenant extraction trivial; extraction playbook documented
+- [x] `WORKSPACE_PATH` makes tenant extraction trivial; extraction playbook documented
 
 ### Interface layer (partial)
 - [x] MCP server over stdio — Claude Code, Claude app, Cursor, Zed, Continue
@@ -62,7 +62,7 @@ Everything here is live on `main`.
 ### In-app editing
 - [x] `PrimitiveFiles` viewer with CodeMirror edit for YAML / Markdown / JavaScript
 - [x] `context.writeFile` oRPC route — path-traversal guarded, extension allowlist, re-applies after save
-- [x] Dirty badge when the context repo has uncommitted changes
+- [x] Dirty badge when the workspace repo has uncommitted changes
 
 ### UX + framing (cross-cutting)
 - [x] Rebrand Vocion → Vocion (repo, npm scope, docs, marketing, domain)
@@ -116,7 +116,7 @@ The model: **agents are composed of skills; a skill bundles its logic + acceptan
 **Tool registry (SDK)**
 - [ ] `defineTool({ name, inputSchema, outputSchema, run })` in `@vocion/sdk` — atomic, typed, traced, budget-accounted; like an operation but single-action and not eval-graded
 - [ ] Loader + registry mirrors the plugin-skill path (per-tool error isolation, Langfuse span, budget charge)
-- [ ] Tool calls appear in the run trace alongside inputs, context_sha, and cost
+- [ ] Tool calls appear in the run trace alongside inputs, workspace_sha, and cost
 
 **Built-in general toolbelt** (the capabilities buyers assume exist)
 - [ ] `web_search` — provider-pluggable (Brave / Tavily / Bing), result snippets + URLs
@@ -167,7 +167,7 @@ The signal worth most is what humans actually *did* with the draft, not what the
 - [ ] Post-hoc feedback link in outbound emails — recipient rates the result days later from a unique URL
 - [ ] Conversational correction extractor — when a user follows up in chat with "no, the budget was 50k not 100k" or "rewrite shorter," parse the correction against the prior turn's skill output; record as implicit feedback
 - [ ] Workflow-level feedback rollup — `workflow_run` aggregates feedback from every `skill_run` it composed, so improvements can target the workflow shape, not just individual skills
-- [ ] Reviewer-attribution metadata — feedback carries who, when, on what context_sha, with which channel (web / Slack / chat / email)
+- [ ] Reviewer-attribution metadata — feedback carries who, when, on what workspace_sha, with which channel (web / Slack / chat / email)
 
 **Improvement meta-skills** (same pattern across resources: read runs + feedback + evals → propose diff on a branch → human approves PR → merge re-applies context)
 
@@ -184,7 +184,7 @@ The signal worth most is what humans actually *did* with the draft, not what the
 
 **Eval + harness**
 
-- [ ] Eval harness auto-walks `context/**/evals.yaml`, grades substring/regex/JSON-field/rubric assertions, fails PR on regression
+- [ ] Eval harness auto-walks `workspace/**/evals.yaml`, grades substring/regex/JSON-field/rubric assertions, fails PR on regression
 - [ ] Fixture promotion — failed runs (with reviewer's edited output as expected) one-click promote into `evals.yaml`
 - [ ] `skill_improvement_review` workflow — weekly scheduled run that surfaces candidates across all resources
 
@@ -241,7 +241,7 @@ Workflows today only run on manual + naive event invocation against a Postgres-b
 *Read side shipped.* Delivers on "run from your own app" + "API triggers" promises.
 
 - [ ] Tenant-scoped Bearer tokens (`vcn_live_...`) — dashboard-issued, hashed at rest, per-token audit
-- [ ] `POST` / `PATCH` on all resource CRUD — equivalent to context-as-code writes
+- [ ] `POST` / `PATCH` on all resource CRUD — equivalent to workspace-as-code writes
 - [ ] `POST /api/v1/objects/:slug/instances` — object ingest
 - [ ] `POST /api/v1/skills/:slug/runs` + `/workflows/:slug/runs` — run triggers (same path the trigger sources call internally)
 - [ ] SSE streaming for long workflows
@@ -255,7 +255,7 @@ Workflows today only run on manual + naive event invocation against a Postgres-b
 
 User describes a workflow in natural language, Vocion builds it. Sits after Plugin SDK + retrieval + triggers + feedback so the meta-agent works on a clean, composable, self-correcting substrate.
 
-- [ ] Meta-agent — privileged skill with write access to `context/<org>/`; takes NL intent, emits manifests, uses MCP write tools
+- [ ] Meta-agent — privileged skill with write access to `workspace/<org>/`; takes NL intent, emits manifests, uses MCP write tools
 - [ ] Self-service OAuth — users connect Gmail/HubSpot/DocuSign without admin config
 - [ ] Onboarding stepper — connect → ingest → chat → build with live progress
 - [ ] Sample workflow library — import from `use-cases/catalog.md` as starting templates
@@ -281,7 +281,7 @@ Closes the operating loop the landing page promises ("track run volume, approval
 - [ ] Customer-facing economics report — monthly Markdown export: spend, savings, top workflows, anomalies
 
 **Observability + tracing** (delivers on landing-page "trace spans" promise)
-- [ ] OpenTelemetry instrumentation — every skill run + workflow step + retrieval call + LLM call emits a span with `tenant_id`, `skill_slug`, `context_sha`, `cost_usd`, `tokens_in/out`
+- [ ] OpenTelemetry instrumentation — every skill run + workflow step + retrieval call + LLM call emits a span with `tenant_id`, `skill_slug`, `workspace_sha`, `cost_usd`, `tokens_in/out`
 - [ ] OTLP exporter — push spans + metrics to customer's APM (Datadog / Honeycomb / Jaeger / Grafana Tempo / Splunk)
 - [ ] Per-tenant trace sampling config — head/tail-based sampling rules in `observability.yaml`
 - [ ] In-app trace viewer — flame graph for any `workflow_run` showing nested skill + retrieval + LLM spans, links out to the customer's APM if configured
@@ -294,7 +294,7 @@ Closes the operating loop the landing page promises ("track run volume, approval
 
 - [ ] Public repo + Apache 2.0 license
 - [x] Tenant extraction path documented ([`docs/guides/extract-tenant.md`](../guides/extract-tenant.md))
-- [ ] Split `context/metacto/` → `metacto-vocion` repo via `git subtree split`
+- [ ] Split `workspace/metacto/` → `metacto-vocion` repo via `git subtree split`
 - [ ] Strip billing + auth-provider lock-in from core (Stripe code moves to the proprietary Cloud module — see Phase 11)
 - [ ] 3 external reference installs running OSS in production
 - [ ] Launch blog + conference talk

@@ -55,14 +55,14 @@ export default async function PlaybooksPage(props: { params: Promise<{ locale: s
             <span>Playbooks</span>
           </div>
         )}
-        description="Markdown + YAML procedural guides agents read on demand. Authored under context/<org>/playbooks/<slug>/SKILL.md; mounted into each agent's virtual filesystem based on tag intersection."
+        description="Markdown + YAML procedural guides agents read on demand. Authored under workspace/<org>/playbooks/<slug>/SKILL.md; mounted into each agent's virtual filesystem based on tag intersection."
       />
 
       {rows.length === 0
         ? (
             <EmptyState
               title="No playbooks yet"
-              description="Author one under context/<org>/playbooks/<slug>/SKILL.md and run `npm run context:apply` to register it."
+              description="Author one under workspace/<org>/playbooks/<slug>/SKILL.md and run `npm run workspace:apply` to register it."
               icon={ScrollText}
             />
           )

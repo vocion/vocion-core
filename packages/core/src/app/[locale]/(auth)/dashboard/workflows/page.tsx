@@ -22,7 +22,7 @@ export default async function WorkflowsPage(props: {
     <>
       <TitleBar
         title="Workflows"
-        description="Sequences of skills + HITL approve gates, authored in context/<org>/workflows/."
+        description="Sequences of skills + HITL approve gates, authored in workspace/<org>/workflows/."
       />
 
       <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4">
@@ -36,7 +36,7 @@ export default async function WorkflowsPage(props: {
             <EmptyState
               icon={GitBranch}
               title="No workflows yet"
-              description="Workflows are sequences of Skills with optional human-approval gates and persistent state. Author one in context/<org>/workflows/ and run npm run context:apply."
+              description="Workflows are sequences of Skills with optional human-approval gates and persistent state. Author one in workspace/<org>/workflows/ and run npm run workspace:apply."
               action={{ label: 'How to author a workflow', href: '/dashboard/docs/docs/concepts/workflows' }}
             />
           )

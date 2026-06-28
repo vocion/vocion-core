@@ -17,4 +17,4 @@ If Vocion goes public (Phase 8), this directory stays private (either excluded f
 - [`/README.md`](../../README.md) — product pitch + quick start (does not link to roadmap)
 - [`/docs/`](../) — platform dev docs (MCP, plugins, workflows, self-hosted install)
 - [`/requirements/`](../../requirements/README.md) — platform architecture, object model, RBAC, etc.
-- [`/context/README.md`](../../context/README.md) — context-as-code authoring guide
+- [`/workspace/README.md`](../../workspace/README.md) — workspace-as-code authoring guide

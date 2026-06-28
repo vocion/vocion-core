@@ -16,7 +16,7 @@ type SkillRunRow = {
   input: Record<string, unknown> | null;
   output: string | null;
   truncated: boolean;
-  contextSha: string | null;
+  workspaceSha: string | null;
   langfuseTraceId: string | null;
   /** Agent's self-assessed confidence for this run (N.2). */
   confidence: ConfidenceLevel | null;
@@ -34,7 +34,7 @@ type WorkflowRunRow = {
   pauseReason: string | null;
   stepResults: Record<string, { status: string; output?: unknown; error?: string }>;
   error: string | null;
-  contextSha: string | null;
+  workspaceSha: string | null;
   createdAt: Date | string;
   completedAt: Date | string | null;
 };
@@ -84,7 +84,7 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
     });
   };
 
-  function normalizeSkillRun(r: { id: number; skillId: number; status: string | null; input: unknown; output: string | null; contextSha: string | null; langfuseTraceId: string | null; confidence?: string | null; createdBy: string | null; createdAt: Date | string; reviewedBy: string | null; reviewedAt: Date | string | null }): SkillRunRow {
+  function normalizeSkillRun(r: { id: number; skillId: number; status: string | null; input: unknown; output: string | null; workspaceSha: string | null; langfuseTraceId: string | null; confidence?: string | null; createdBy: string | null; createdAt: Date | string; reviewedBy: string | null; reviewedAt: Date | string | null }): SkillRunRow {
     const MAX = 4000;
     return {
       id: r.id,
@@ -93,7 +93,7 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
       input: r.input as Record<string, unknown> | null,
       output: r.output ? r.output.slice(0, MAX) : null,
       truncated: !!(r.output && r.output.length > MAX),
-      contextSha: r.contextSha,
+      workspaceSha: r.workspaceSha,
       langfuseTraceId: r.langfuseTraceId,
       confidence: (r.confidence === 'confident' || r.confidence === 'uncertain' || r.confidence === 'speculative') ? r.confidence : null,
       createdBy: r.createdBy,
@@ -227,11 +227,11 @@ function SkillRunCard({
                 {run.createdBy}
               </>
             )}
-            {run.contextSha && (
+            {run.workspaceSha && (
               <>
                 {' '}
                 · ctx
-                <code>{run.contextSha.slice(0, 12)}</code>
+                <code>{run.workspaceSha.slice(0, 12)}</code>
               </>
             )}
           </div>
@@ -344,11 +344,11 @@ function WorkflowRunCard({
           </div>
           <div className="text-xs text-muted-foreground">
             {created.toLocaleString()}
-            {run.contextSha && (
+            {run.workspaceSha && (
               <>
                 {' '}
                 · ctx
-                <code>{run.contextSha.slice(0, 12)}</code>
+                <code>{run.workspaceSha.slice(0, 12)}</code>
               </>
             )}
           </div>

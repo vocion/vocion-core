@@ -11,7 +11,6 @@ import { extname, join } from 'node:path';
 import process from 'node:process';
 import { and, desc, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
-import { getCurrentContextSha } from '@/libs/context';
 import { db } from '@/libs/DB';
 import { cleanUsageDetails, langfuse, pushScore, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
@@ -19,6 +18,7 @@ import { getLLMClient } from '@/libs/llm';
 import { pluginRegistry } from '@/libs/plugins';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
+import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { skillRunSchema, skillSchema } from '@/models/Schema';
 
 /**
@@ -52,7 +52,7 @@ export const listSkills = (orgId: string) => {
  * Dynamic-import + execute a postprocess script for a prompt skill.
  *
  * Scripts live alongside the skill's prompt.md in
- * `context/<org>/skills/<slug>/<scriptFile>`. They export a default
+ * `workspace/<org>/skills/<slug>/<scriptFile>`. They export a default
  * function `(output, input, ctx) => output`. Script cache is per-process;
  * dev reload via plugins_reload-style mechanism lands in a follow-up.
  *
@@ -77,7 +77,7 @@ async function runPostprocessScript(
     throw new Error(`scriptFile must be .js or .mjs (got ${ext || 'none'})`);
   }
 
-  const contextPath = process.env.CONTEXT_PATH ?? 'context/metacto';
+  const contextPath = process.env.WORKSPACE_PATH ?? 'workspace/metacto';
   const slugDir = opts.skillSlug.replace(/_/g, '-');
   // Accept either a bare filename ("postprocess.js") or a full path.
   const relPath = scriptFile.includes('/')
@@ -217,7 +217,7 @@ export async function executeSkill(opts: {
 
   // Store run — stamp with the active context SHA so we can answer
   // "which prompt version produced this output" after context edits.
-  const contextSha = await getCurrentContextSha(opts.orgId);
+  const workspaceSha = await getCurrentWorkspaceSha(opts.orgId);
 
   const [run] = await db.insert(skillRunSchema).values({
     orgId: opts.orgId,
@@ -226,7 +226,7 @@ export async function executeSkill(opts: {
     output,
     status: skill.requiresApproval === 'true' ? 'pending' : 'auto',
     langfuseTraceId: trace.id,
-    contextSha,
+    workspaceSha,
     createdBy: opts.userId,
   }).returning();
 
@@ -270,7 +270,7 @@ async function executePluginSkill(
     metadata: { pluginVersion: plugin.version, kind: 'plugin' },
   });
 
-  const contextSha = await getCurrentContextSha(opts.orgId);
+  const workspaceSha = await getCurrentWorkspaceSha(opts.orgId);
 
   // Resolve the LLM client for the skill's declared provider. Lazy-initialised
   // per process + provider; throws with a clear message if the chosen provider
@@ -281,7 +281,7 @@ async function executePluginSkill(
     orgId: opts.orgId,
     openai: getOpenAI(),
     llm,
-    contextSha,
+    workspaceSha,
     invokedBy: opts.userId ?? 'mcp',
     log: (level, message, fields) => {
       trace.event({ name: `${level}:${message}`, metadata: fields });
@@ -334,7 +334,7 @@ async function executePluginSkill(
     output: outputStr,
     status: plugin.requiresApproval ? 'pending' : 'auto',
     langfuseTraceId: trace.id,
-    contextSha,
+    workspaceSha,
     createdBy: opts.userId,
   }).returning();
 
@@ -351,7 +351,7 @@ async function executePluginSkill(
 /**
  * Lazily create or update the skill DB row for a plugin. Keeps plugin-driven
  * skills visible in the same catalog as context-authored ones without
- * requiring a manual context:apply.
+ * requiring a manual workspace:apply.
  * @param orgId
  * @param plugin
  */

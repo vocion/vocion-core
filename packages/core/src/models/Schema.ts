@@ -426,8 +426,8 @@ export const skillRunSchema = pgTable('skill_run', {
   status: text('status').default('pending'),
   /** Langfuse trace ID for observability */
   langfuseTraceId: text('langfuse_trace_id'),
-  /** Context version SHA active when this run executed — links to context_version.sha */
-  contextSha: text('context_sha'),
+  /** Context version SHA active when this run executed — links to workspace_version.sha */
+  workspaceSha: text('workspace_sha'),
   /** Who ran it */
   createdBy: text('created_by'),
   /** Who approved/rejected it */
@@ -469,7 +469,7 @@ export const operationRunSchema = skillRunSchema;
 
 // A Playbook is content (markdown body) + metadata (YAML frontmatter
 // validated by PlaybookManifestSchema). The body lives in
-// context/<org>/playbooks/<slug>/SKILL.md plus arbitrary sibling
+// workspace/<org>/playbooks/<slug>/SKILL.md plus arbitrary sibling
 // resources. The DB row is a catalog entry so we can filter by tags
 // (per-agent mount) and list in the UI without re-reading every file.
 
@@ -675,7 +675,7 @@ export const workflowRunSchema = pgTable('workflow_run', {
   /** Error message if status=failed. */
   error: text('error'),
   /** Context SHA active when the run started — stamped for audit. */
-  contextSha: text('context_sha'),
+  workspaceSha: text('workspace_sha'),
   createdBy: text('created_by'),
   /** Post-hoc feedback — thumb up/down + optional note. */
   rating: text('rating'),
@@ -702,18 +702,18 @@ export const workflowRunRelations = relations(workflowRunSchema, ({ one }) => ({
 }));
 
 /* ------------------------------------------------------------------ */
-/* Context Versioning — git-backed context-as-code audit trail        */
+/* Workspace Versioning — git-backed workspace-as-code audit trail        */
 /* ------------------------------------------------------------------ */
 
-/** Audit record for each `context:apply` — ties skill_run history to a specific context SHA. */
-export const contextVersionSchema = pgTable(
-  'context_version',
+/** Audit record for each `workspace:apply` — ties skill_run history to a specific context SHA. */
+export const workspaceVersionSchema = pgTable(
+  'workspace_version',
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
     /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
     projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
-    /** git SHA of the context directory (or computed hash when not in a git repo) */
+    /** git SHA of the workspace directory (or computed hash when not in a git repo) */
     sha: text('sha').notNull(),
     /** Absolute or repo-relative path applied from */
     sourcePath: text('source_path'),
@@ -728,7 +728,7 @@ export const contextVersionSchema = pgTable(
     appliedAt: timestamp('applied_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
-    uniqueIndex('context_version_org_applied_idx').on(table.orgId, table.appliedAt),
+    uniqueIndex('workspace_version_org_applied_idx').on(table.orgId, table.appliedAt),
   ],
 );
 
@@ -738,7 +738,7 @@ export const contextVersionSchema = pgTable(
 
 // Each `learning_step` is a named bucket (e.g. global, meeting_triage,
 // proposal_drafting). Per-step rules live in `learning` rows. Steps are
-// whitelisted via context (`context/<org>/learnings/<step>.yaml`) so we
+// whitelisted via context (`workspace/<org>/learnings/<step>.yaml`) so we
 // don't drift into a junk drawer of near-duplicates. See rev-ai's
 // /var/www/metacto/spinutech/kickoff-demo/server/learnings.py for the
 // originating pattern.
@@ -894,7 +894,7 @@ export const conversationMessageRelations = relations(conversationMessageSchema,
 
 // One dataset = N test cases authored in context. Running a dataset
 // produces an eval_run row and N eval_case_result rows scored by an
-// LLM judge. Determinism: temperature=0 + contextSha stamped on every
+// LLM judge. Determinism: temperature=0 + workspaceSha stamped on every
 // run so prompt changes show as eval drift.
 
 export const evalDatasetSchema = pgTable(
@@ -936,7 +936,7 @@ export const evalRunSchema = pgTable('eval_run', {
   datasetId: integer('dataset_id').notNull().references(() => evalDatasetSchema.id, { onDelete: 'cascade' }),
   agentSlug: text('agent_slug').notNull(),
   /** Context SHA active when the dataset was run — for drift attribution. */
-  contextSha: text('context_sha'),
+  workspaceSha: text('workspace_sha'),
   /** running | succeeded | failed */
   status: text('status').default('running').notNull(),
   metrics: jsonb('metrics').$type<{

@@ -77,10 +77,10 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
           ? (
               <p className="text-sm text-muted-foreground">
                 No object types defined yet. Add them in
-                <code>context/&lt;org&gt;/objects/</code>
+                <code>workspace/&lt;org&gt;/objects/</code>
                 {' '}
                 and run
-                <code>npm run context:apply</code>
+                <code>npm run workspace:apply</code>
                 .
               </p>
             )

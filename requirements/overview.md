@@ -36,14 +36,14 @@ Six clear surfaces, not infrastructure:
 ## The five planes
 
 1. **Context plane** — connectors, retrieval, citations, search. Pluggable backend (Onyx today, pgvector + Postgres FTS native next).
-2. **Business context model** — canonical object types + instances + relationships + business rules. Authored as YAML in `context/<org>/`, applied to DB.
+2. **Business context model** — canonical object types + instances + relationships + business rules. Authored as YAML in `workspace/<org>/`, applied to DB.
 3. **Execution plane** — skills (prompt-only or typed plugins), workflows (trigger → steps → action), agents (persona + scope).
-4. **Control plane** — policies, RBAC, approval queue, audit trail (`context_version` SHA stamped on every `skill_run`).
+4. **Control plane** — policies, RBAC, approval queue, audit trail (`workspace_version` SHA stamped on every `skill_run`).
 5. **Improvement loop** — feedback per run, eval harness, prompt-improvement meta-skill (proposes PR-style diffs, never auto-applies).
 
 ## What an agent is in Vocion
 
-An agent is a **packaged configuration**, not bespoke code. It lives in `context/<org>/agents/<slug>.yaml` plus a markdown system prompt.
+An agent is a **packaged configuration**, not bespoke code. It lives in `workspace/<org>/agents/<slug>.yaml` plus a markdown system prompt.
 
 | Component | What it is |
 |---|---|
@@ -58,10 +58,10 @@ An agent is a **packaged configuration**, not bespoke code. It lives in `context
 
 A user invocation:
 
-1. Runtime loads the agent config from DB (synced from `context/<org>/agents/`)
+1. Runtime loads the agent config from DB (synced from `workspace/<org>/agents/`)
 2. Assembles system prompt + tool definitions scoped to the agent's skills/connectors/object types
 3. Runs the agent loop with that config
-4. Records the run in `skill_run`, stamped with `context_sha`
+4. Records the run in `skill_run`, stamped with `workspace_sha`
 5. Traces to Langfuse if configured
 
 **An agent is NOT:** a deployed microservice, a fine-tuned model, a special framework. Editing an agent is editing YAML + markdown. No code change, no deploy.
@@ -70,14 +70,14 @@ A user invocation:
 
 Two flavors, same execution surface:
 
-- **Prompt skill** — `context/<org>/skills/<slug>/skill.yaml` + `prompt.md`. Authored by humans (or the meta-agent). Templated `{{vars}}` interpolation, one LLM call.
+- **Prompt skill** — `workspace/<org>/skills/<slug>/skill.yaml` + `prompt.md`. Authored by humans (or the meta-agent). Templated `{{vars}}` interpolation, one LLM call.
 - **Plugin skill** — TypeScript module exporting a typed `Skill<Input, Output>`. Authored by developers. Custom logic, multi-step pipelines, validated I/O via Zod.
 
 If a plugin and a prompt skill share a slug, the plugin wins. Clean upgrade path: start with a prompt; promote to a plugin when logic outgrows it.
 
 ## What a workflow is
 
-A YAML manifest at `context/<org>/workflows/<slug>/workflow.yaml`:
+A YAML manifest at `workspace/<org>/workflows/<slug>/workflow.yaml`:
 
 - **Trigger** — `manual`, `event` (planned: `schedule`, `webhook`)
 - **Steps** — sequential. Step types: `skill`, `approve` (HITL pause), `action` (connector side effect)

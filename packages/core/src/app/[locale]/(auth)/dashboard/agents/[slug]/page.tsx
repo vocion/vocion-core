@@ -5,8 +5,8 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { getContextDirtyState } from '@/libs/context/dirty';
-import { readPrimitiveFiles } from '@/libs/context/reader';
+import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { Link } from '@/libs/I18nNavigation';
 import { getAgent } from '@/services/AgentService';
 
@@ -26,7 +26,7 @@ export default async function AgentDetailPage(props: {
   }
 
   const sourceFiles = readPrimitiveFiles('agent', slug);
-  const dirtyState = getContextDirtyState();
+  const dirtyState = getWorkspaceDirtyState();
   const skills = agent.skillSlugs ?? [];
 
   return (

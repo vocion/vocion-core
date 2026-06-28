@@ -2,12 +2,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { loadContext } from './loader';
+import { loadWorkspace } from './loader';
 import { deleteResource, writeAgent, writeObjectType, writeSkill } from './writer';
 
 function scratchContext(): string {
   const dir = mkdtempSync(join(tmpdir(), 'cc-writer-'));
-  writeFileSync(join(dir, 'context.yaml'), 'version: 1\norgId: test_org\nname: test\n');
+  writeFileSync(join(dir, 'workspace.yaml'), 'version: 1\norgId: test_org\nname: test\n');
   return dir;
 }
 
@@ -33,7 +33,7 @@ describe('writer', () => {
       expect(written.files.some(f => f.endsWith('skill.yaml'))).toBe(true);
       expect(written.files.some(f => f.endsWith('prompt.md'))).toBe(true);
 
-      const loaded = loadContext(dir);
+      const loaded = loadWorkspace(dir);
 
       expect(loaded.skills).toHaveLength(1);
       expect(loaded.skills[0]!.slug).toBe('test_skill');
@@ -63,7 +63,7 @@ describe('writer', () => {
         systemPromptMd: 'You are TestBot. Be concise.',
       });
 
-      const loaded = loadContext(dir);
+      const loaded = loadWorkspace(dir);
 
       expect(loaded.agents).toHaveLength(1);
       expect(loaded.agents[0]!.slug).toBe('testbot');
@@ -87,7 +87,7 @@ describe('writer', () => {
         classificationPromptMd: 'A widget is anything shaped like a widget.',
       });
 
-      const loaded = loadContext(dir);
+      const loaded = loadWorkspace(dir);
 
       expect(loaded.objectTypes).toHaveLength(1);
       expect(loaded.objectTypes[0]!.slug).toBe('widget');

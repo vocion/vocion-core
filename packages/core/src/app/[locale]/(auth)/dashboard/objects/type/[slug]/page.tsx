@@ -6,8 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { getContextDirtyState } from '@/libs/context/dirty';
-import { readPrimitiveFiles } from '@/libs/context/reader';
+import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { businessObjectSchema, businessObjectTypeSchema } from '@/models/Schema';
@@ -36,7 +36,7 @@ export default async function ObjectTypeDetailPage(props: {
 
   const sourceRelevance = (objType.sourceRelevance ?? {}) as Record<string, number>;
   const sourceFiles = readPrimitiveFiles('object', slug);
-  const dirtyState = getContextDirtyState();
+  const dirtyState = getWorkspaceDirtyState();
 
   return (
     <>

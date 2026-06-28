@@ -119,9 +119,9 @@ export default async function EvalDatasetDetailPage(props: Props) {
                               % pass
                             </span>
                           )}
-                          {run.contextSha && (
+                          {run.workspaceSha && (
                             <span className="font-mono text-xs text-muted-foreground">
-                              {run.contextSha.slice(0, 7)}
+                              {run.workspaceSha.slice(0, 7)}
                             </span>
                           )}
                         </div>

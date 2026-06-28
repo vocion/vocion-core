@@ -41,7 +41,7 @@ export default async function AgentsPage(props: {
             <EmptyState
               icon={Bot}
               title="No agents yet"
-              description="Agents wire Skills and Workflows into a named operating identity. Author one in context/<org>/agents/ and run npm run context:apply."
+              description="Agents wire Skills and Workflows into a named operating identity. Author one in workspace/<org>/agents/ and run npm run workspace:apply."
               action={{ label: 'How to create an agent', href: '/dashboard/docs/docs/concepts/agents' }}
             />
           )

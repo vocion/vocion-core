@@ -23,11 +23,11 @@ NINJIO's agent is Algren. A future customer "Acme" would get its own agent ("Gat
 
 | Where | What |
 |---|---|
-| `context/metacto/agents/algren.yaml` | NINJIO's agent: name, system prompt, shared skill + workflow slugs, connector sources |
-| `context/metacto/accounts/ninjio.yaml` | NINJIO account data (new primitive — seeds a `business_object` row on context:apply) — Slack + Teams IDs, stakeholders, renewal date, recurring meetings |
+| `workspace/metacto/agents/algren.yaml` | NINJIO's agent: name, system prompt, shared skill + workflow slugs, connector sources |
+| `workspace/metacto/accounts/ninjio.yaml` | NINJIO account data (new primitive — seeds a `business_object` row on workspace:apply) — Slack + Teams IDs, stakeholders, renewal date, recurring meetings |
 | `business_object` row, `type=account` | Runtime representation of the NINJIO account — what Algren's skills operate on |
-| Shared `context/metacto/skills/meeting_prep_pack/` etc. | Skills authored once, called by Algren, Gatsby, and any future account agent |
-| Shared `context/metacto/workflows/account_*` | Same pattern for workflows — authored once, parametrized by `account_id` at run start |
+| Shared `workspace/metacto/skills/meeting_prep_pack/` etc. | Skills authored once, called by Algren, Gatsby, and any future account agent |
+| Shared `workspace/metacto/workflows/account_*` | Same pattern for workflows — authored once, parametrized by `account_id` at run start |
 
 NINJIO becomes `business_object` row:
 
@@ -182,8 +182,8 @@ Chris asked: "can/should it learn and be self-improving — after-meeting feedba
 When Algren gets built, the minimum viable sequence:
 
 1. Add Teams connector (Microsoft Graph) as a source plugin
-2. Seed `business_object` NINJIO account row via context-as-code — new `context/metacto/accounts/ninjio.yaml` → seeded as `business_object` on apply (new context primitive: object instances)
-3. Author `context/metacto/agents/algren.yaml` with account-aware system prompt
+2. Seed `business_object` NINJIO account row via workspace-as-code — new `workspace/metacto/accounts/ninjio.yaml` → seeded as `business_object` on apply (new context primitive: object instances)
+3. Author `workspace/metacto/agents/algren.yaml` with account-aware system prompt
 4. Ship `meeting_prep_pack` as a plugin skill
 5. Ship `account_meeting_prep` workflow (manual trigger)
 6. Dogfood Algren on the real NINJIO weekly meeting
@@ -193,7 +193,7 @@ Daily triage + weekly summary come after prep pack is validated.
 
 ## Open questions
 
-- **Seeding business objects via context-as-code?** Today `context/` covers agents/skills/object-types/workflows but NOT object *instances*. Should per-account data be a context primitive (YAML seeds), or a runtime admin UI write? Probably YAML for the permanent metadata (channel IDs etc.) and runtime for transient status.
+- **Seeding business objects via workspace-as-code?** Today `workspace/` covers agents/skills/object-types/workflows but NOT object *instances*. Should per-account data be a context primitive (YAML seeds), or a runtime admin UI write? Probably YAML for the permanent metadata (channel IDs etc.) and runtime for transient status.
 - **Slack multi-workspace:** does each customer get their own OAuth install, or do we federate under a single Vocion app?
 - **Teams recording access:** Microsoft Graph permissions for Teams recordings require tenant-admin consent. Need to scope carefully — NINJIO controls their tenant, MetaCTO needs per-customer consent setup.
 - **Where does the prep pack get delivered?** Teams DM to Chris? Email? A dedicated web UI view? The agent shouldn't care — channel is an adapter decision.

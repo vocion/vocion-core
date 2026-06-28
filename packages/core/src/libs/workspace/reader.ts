@@ -18,7 +18,7 @@ export type PrimitiveKind = 'skill' | 'workflow' | 'object' | 'agent' | 'source'
 export type PrimitiveFile = {
   /** Path relative to the context dir, e.g. `skills/discovery-summary/prompt.md` */
   path: string;
-  /** Full repo-relative path used by the writeFile oRPC route, e.g. `context/metacto/skills/discovery-summary/prompt.md` */
+  /** Full repo-relative path used by the writeFile oRPC route, e.g. `workspace/metacto/skills/discovery-summary/prompt.md` */
   fullPath: string;
   content: string;
   language: 'yaml' | 'markdown' | 'javascript';
@@ -30,8 +30,8 @@ export type PrimitiveFilesResult = {
   editInGitPath: string;
 };
 
-export function getContextPath(): string {
-  return process.env.CONTEXT_PATH ?? 'context/metacto';
+export function getWorkspacePath(): string {
+  return process.env.WORKSPACE_PATH ?? 'workspace/metacto';
 }
 
 function slugToDirname(slug: string): string {
@@ -60,7 +60,7 @@ function detectLanguage(fileName: string): 'yaml' | 'markdown' | 'javascript' {
 
 export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): PrimitiveFilesResult | null {
   const dirName = slugToDirname(slug);
-  const contextPath = getContextPath();
+  const contextPath = getWorkspacePath();
   const base = fromRepoRoot(contextPath);
 
   if (!existsSync(base)) {

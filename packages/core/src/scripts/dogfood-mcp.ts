@@ -5,14 +5,14 @@ import { readConfig } from '@/interfaces/mcp/config';
 import { buildServer } from '@/interfaces/mcp/server';
 import { loadPlugins } from '@/libs/plugins';
 /**
- * Dogfood the MCP server end-to-end against the real DB + real context repo.
+ * Dogfood the MCP server end-to-end against the real DB + real workspace repo.
  *
  * Launches an in-memory client/server pair and runs a realistic sequence:
- *   1. context_list  — what's there today
- *   2. context_write_skill — add a tiny demo skill
- *   3. context_version_history — show audit trail now has a new row
- *   4. context_diff — confirm no pending changes
- *   5. context_delete — clean up
+ *   1. workspace_list  — what's there today
+ *   2. workspace_write_skill — add a tiny demo skill
+ *   3. workspace_version_history — show audit trail now has a new row
+ *   4. workspace_diff — confirm no pending changes
+ *   5. workspace_delete — clean up
  *
  * Prints progress so you can watch the flow. Exits non-zero on any failure.
  */
@@ -52,16 +52,16 @@ async function main(): Promise<void> {
 
   try {
     // 1. Baseline
-    const before = await call<{ sha: string; skills: Array<{ slug: string }> }>(client, 'context_list');
-    console.log(`1. context_list → sha=${before.sha}, ${before.skills.length} skills`);
+    const before = await call<{ sha: string; skills: Array<{ slug: string }> }>(client, 'workspace_list');
+    console.log(`1. workspace_list → sha=${before.sha}, ${before.skills.length} skills`);
 
     // 2. Write a harmless demo skill
-    console.log('\n2. context_write_skill — adding mcp_dogfood_demo…');
+    console.log('\n2. workspace_write_skill — adding mcp_dogfood_demo…');
     const written = await call<{
       written: { slug: string; files: string[] };
       commit: { committed: boolean; sha: string | null } | null;
       apply: { counts: { skills: { created: number; updated: number; unchanged: number } }; versionId: number | null } | { error: string };
-    }>(client, 'context_write_skill', {
+    }>(client, 'workspace_write_skill', {
       manifest: {
         slug: 'mcp_dogfood_demo',
         name: 'MCP Dogfood Demo',
@@ -84,15 +84,15 @@ async function main(): Promise<void> {
     }
 
     // 3. Audit trail now has a row
-    const history = await call<Array<{ sha: string; appliedBy: string; appliedAt: string }>>(client, 'context_version_history', { limit: 3 });
-    console.log(`\n3. context_version_history → ${history.length} recent rows`);
+    const history = await call<Array<{ sha: string; appliedBy: string; appliedAt: string }>>(client, 'workspace_version_history', { limit: 3 });
+    console.log(`\n3. workspace_version_history → ${history.length} recent rows`);
     for (const row of history.slice(0, 3)) {
       console.log(`   ${row.sha}  by=${row.appliedBy}  at=${row.appliedAt}`);
     }
 
     // 4. Diff is clean
-    const diff = await call<{ counts: { skills: { unchanged: number } } }>(client, 'context_diff');
-    console.log(`\n4. context_diff → skills unchanged=${diff.counts.skills.unchanged}`);
+    const diff = await call<{ counts: { skills: { unchanged: number } } }>(client, 'workspace_diff');
+    console.log(`\n4. workspace_diff → skills unchanged=${diff.counts.skills.unchanged}`);
 
     // 5. Plugins list — verify any loaded plugins show up via MCP
     const plugins = await call<{ plugins: Array<{ id: string; version: string }>; skills: Array<{ slug: string; pluginId: string }> }>(client, 'plugins_list');
@@ -102,8 +102,8 @@ async function main(): Promise<void> {
     }
 
     // 6. Clean up
-    console.log('\n6. context_delete — removing mcp_dogfood_demo…');
-    const deleted = await call<{ removed: string[]; dbRowsDeleted: number }>(client, 'context_delete', { kind: 'skill', slug: 'mcp_dogfood_demo' });
+    console.log('\n6. workspace_delete — removing mcp_dogfood_demo…');
+    const deleted = await call<{ removed: string[]; dbRowsDeleted: number }>(client, 'workspace_delete', { kind: 'skill', slug: 'mcp_dogfood_demo' });
     console.log(`   removed ${deleted.removed.length} files, ${deleted.dbRowsDeleted} db rows`);
 
     console.log('\n✓ dogfood passed');

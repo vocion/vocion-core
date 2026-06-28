@@ -10,8 +10,8 @@ import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { getWorkflowActivity } from '@/libs/activity';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { getContextDirtyState } from '@/libs/context/dirty';
-import { readPrimitiveFiles } from '@/libs/context/reader';
+import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkflow, listWorkflowRuns } from '@/services/WorkflowService';
 
@@ -39,7 +39,7 @@ export default async function WorkflowDetailPage(props: {
   }
 
   const sourceFiles = readPrimitiveFiles('workflow', slug);
-  const dirtyState = getContextDirtyState();
+  const dirtyState = getWorkspaceDirtyState();
   const activity = await getWorkflowActivity(orgId, slug);
   const recentRuns = await listWorkflowRuns(orgId, { workflowSlug: slug, limit: 10 });
 

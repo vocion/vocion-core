@@ -8,8 +8,8 @@ import { guardAuth } from './AuthGuards';
 
 /**
  * Playbook oRPC router (v0.2). Read-only catalog endpoints.
- * Authoring happens via context/<org>/playbooks/<slug>/SKILL.md +
- * `context:apply` — developer-first positioning means no write API.
+ * Authoring happens via workspace/<org>/playbooks/<slug>/SKILL.md +
+ * `workspace:apply` — developer-first positioning means no write API.
  */
 
 export const list = os

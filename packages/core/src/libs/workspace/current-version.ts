@@ -1,6 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { contextVersionSchema } from '@/models/Schema';
+import { workspaceVersionSchema } from '@/models/Schema';
 
 type Cached = { orgId: string; sha: string; cachedAt: number };
 
@@ -15,23 +15,23 @@ let cache: Cached | null = null;
  * is per-process; across processes, staleness is bounded by CACHE_TTL_MS.
  *
  * Returns null if no version has been applied yet — callers should tolerate
- * that gracefully (store null in skill_run.context_sha).
+ * that gracefully (store null in skill_run.workspace_sha).
  * @param orgId
  */
-export async function getCurrentContextSha(orgId: string): Promise<string | null> {
+export async function getCurrentWorkspaceSha(orgId: string): Promise<string | null> {
   const now = Date.now();
   if (cache && cache.orgId === orgId && now - cache.cachedAt < CACHE_TTL_MS) {
     return cache.sha;
   }
 
   const [latest] = await db
-    .select({ sha: contextVersionSchema.sha })
-    .from(contextVersionSchema)
+    .select({ sha: workspaceVersionSchema.sha })
+    .from(workspaceVersionSchema)
     .where(and(
-      eq(contextVersionSchema.orgId, orgId),
-      eq(contextVersionSchema.status, 'applied'),
+      eq(workspaceVersionSchema.orgId, orgId),
+      eq(workspaceVersionSchema.status, 'applied'),
     ))
-    .orderBy(desc(contextVersionSchema.appliedAt))
+    .orderBy(desc(workspaceVersionSchema.appliedAt))
     .limit(1);
 
   if (!latest) {

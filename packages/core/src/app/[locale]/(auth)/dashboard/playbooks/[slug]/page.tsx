@@ -9,8 +9,8 @@ import { DocViewer } from '@/features/dashboard/DocViewer';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { getContextDirtyState } from '@/libs/context/dirty';
-import { getContextPath } from '@/libs/context/reader';
+import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { getWorkspacePath } from '@/libs/workspace/reader';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { fromRepoRoot } from '@/libs/repo-root';
@@ -40,7 +40,7 @@ export default async function PlaybookDetailPage(props: Props) {
   // <context>/playbooks/<slug>/SKILL.md plus arbitrary sibling files.
   // The DB row stores metadata + content_sha for change detection; the
   // body itself is content-on-disk so the dashboard can re-read fresh.
-  const contextPath = getContextPath();
+  const contextPath = getWorkspacePath();
   const playbookDir = fromRepoRoot(join(contextPath, 'playbooks', slug.replace(/_/g, '-')));
   const skillMdPath = join(playbookDir, 'SKILL.md');
   const body = existsSync(skillMdPath) ? readFileSync(skillMdPath, 'utf-8') : '';
@@ -81,7 +81,7 @@ export default async function PlaybookDetailPage(props: Props) {
         editInGitPath: `${contextPath}/playbooks/${slug.replace(/_/g, '-')}`,
       }
     : null;
-  const dirtyState = getContextDirtyState();
+  const dirtyState = getWorkspaceDirtyState();
 
   return (
     <>
@@ -136,7 +136,7 @@ export default async function PlaybookDetailPage(props: Props) {
                     {slug.replace(/_/g, '-')}
                     /SKILL.md
                   </code>
-                  . The catalog row exists; the file may have been removed since the last `context:apply`.
+                  . The catalog row exists; the file may have been removed since the last `workspace:apply`.
                 </p>
               )
             : (

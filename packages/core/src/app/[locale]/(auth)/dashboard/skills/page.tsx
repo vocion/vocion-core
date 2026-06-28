@@ -30,7 +30,7 @@ export default async function SkillsPage(props: {
     <>
       <TitleBar
         title="Skills"
-        description="LLM-powered units of work with typed I/O, authored in context/<org>/skills/. Prompt or plugin form — same contract."
+        description="LLM-powered units of work with typed I/O, authored in workspace/<org>/skills/. Prompt or plugin form — same contract."
       />
 
       <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4">
@@ -45,7 +45,7 @@ export default async function SkillsPage(props: {
             <EmptyState
               icon={Zap}
               title="No operations yet"
-              description="Operations are single LLM-powered units of work with typed inputs and outputs. Author one in context/<org>/operations/ and run npm run context:apply."
+              description="Operations are single LLM-powered units of work with typed inputs and outputs. Author one in workspace/<org>/operations/ and run npm run workspace:apply."
               action={{ label: 'How to author an operation', href: '/dashboard/docs/docs/concepts/skills' }}
             />
           )

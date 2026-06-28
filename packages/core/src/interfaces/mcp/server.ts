@@ -2,12 +2,12 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { McpConfig } from './config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { capabilityTools } from './tools/capability-tools';
-import { contextTools } from './tools/context-tools';
 import { dataTools } from './tools/data-tools';
 import { playbookTools } from './tools/playbook-tools';
 import { pluginTools } from './tools/plugin-tools';
 import { runtimeTools, skillRunDetailTool } from './tools/runtime-tools';
 import { workflowTools } from './tools/workflow-tools';
+import { workspaceTools } from './tools/workspace-tools';
 
 /**
  * Create an MCP server wired to the Vocion runtime.
@@ -28,7 +28,7 @@ export function buildServer(config: McpConfig): McpServer {
   );
 
   const tools = [
-    ...contextTools(config),
+    ...workspaceTools(config),
     ...runtimeTools(config),
     skillRunDetailTool(config),
     ...dataTools(config),
