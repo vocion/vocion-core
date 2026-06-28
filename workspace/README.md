@@ -2,7 +2,7 @@
 
 This directory holds **git-backed, version-controlled context** for each tenant of Vocion: agent prompts, skill definitions, business object types, and classification rules. It's the "what Vocion knows about your business" layer, kept out of the database so it can be reviewed in PRs, diffed across versions, and owned by the client.
 
-## Why context-as-code
+## Why workspace-as-code
 
 Before: prompts + business object schemas + agent config lived in TypeScript seed scripts (`seed-*.ts`, `update-*.ts`). Every tweak to a sender's email voice or an agent's system prompt was a code change buried in a PR, invisible to the rest of the team.
 
@@ -13,9 +13,9 @@ See the Phase 1 section of the root `README.md` for the full roadmap.
 ## Layout
 
 ```
-context/
+workspace/
 └── <org-name>/                       # one directory per tenant
-    ├── context.yaml                  # manifest: orgId, name, defaults
+    ├── workspace.yaml                  # manifest: orgId, name, defaults
     ├── agents/
     │   ├── <agent>.yaml              # agent metadata + refs
     │   └── <agent>.system-prompt.md  # long-form system prompt
@@ -57,8 +57,8 @@ context/
          type: string
          description: Description of input
    ```
-4. `npm run context:check` — validates without writing
-5. `npm run context:apply` — writes to DB
+4. `npm run workspace:check` — validates without writing
+5. `npm run workspace:apply` — writes to DB
 
 ### Add a new object type
 
@@ -84,7 +84,7 @@ fewShotExamples:
 
 ### Edit the Sales Assistant's system prompt
 
-Open `agents/sales-assistant.system-prompt.md`, edit, save, `npm run context:apply`. The agent will use the new prompt on the next request.
+Open `agents/sales-assistant.system-prompt.md`, edit, save, `npm run workspace:apply`. The agent will use the new prompt on the next request.
 
 ### Edit the follow-up email operation
 
@@ -94,25 +94,25 @@ Open `operations/draft-followup-email/prompt.md` — the case-study library, voi
 
 | Command | What it does |
 |---|---|
-| `npm run context:check` | Validates every YAML + MD file. Shows what would change. No DB writes. |
-| `npm run context:apply` | Writes changes to DB. Records a `context_version` row with the git SHA + diff summary. |
-| `npm run context:export` | (one-time) Reads current DB rows into this directory. Use to bootstrap a new tenant from existing DB state. |
+| `npm run workspace:check` | Validates every YAML + MD file. Shows what would change. No DB writes. |
+| `npm run workspace:apply` | Writes changes to DB. Records a `workspace_version` row with the git SHA + diff summary. |
+| `npm run workspace:export` | (one-time) Reads current DB rows into this directory. Use to bootstrap a new tenant from existing DB state. |
 
-All three honor `CONTEXT_PATH` and `SEED_ORG_ID` env vars. Flags:
+All three honor `WORKSPACE_PATH` and `SEED_ORG_ID` env vars. Flags:
 - `--dry-run` — validate + diff only
 - `--org <orgId>` — override the `orgId` in the manifest
 - `--applied-by <name>` — who triggered this apply (default: `$USER`)
 
 ## Audit trail
 
-Every `context:apply` records a row in `context_version` (git SHA, applied_at, files, per-resource counts, applied_by). Every `skill_run` stamps `context_sha` — so six months from now, "why did the agent draft the email like that?" is answerable by:
+Every `workspace:apply` records a row in `workspace_version` (git SHA, applied_at, files, per-resource counts, applied_by). Every `skill_run` stamps `workspace_sha` — so six months from now, "why did the agent draft the email like that?" is answerable by:
 
 ```sql
-SELECT s.name, sr.input, sr.output, sr.context_sha, sr.created_at
+SELECT s.name, sr.input, sr.output, sr.workspace_sha, sr.created_at
 FROM skill_run sr JOIN skill s ON s.id = sr.skill_id
 WHERE sr.id = <run_id>;
 
--- then `git show <context_sha>` on this directory to see the exact prompts + config
+-- then `git show <workspace_sha>` on this directory to see the exact prompts + config
 -- active at the moment the skill ran.
 ```
 
@@ -134,4 +134,4 @@ If the SHA is suffixed `-dirty-<hash>`, the apply happened with uncommitted chan
 
 ## Moving to a separate repo
 
-This is deliberately in-tree for Phase 1 to keep the dogfood loop tight. When ready (probably Phase 5, alongside OSS release), extract to `metacto-context` or per-client repos via `git subtree split`. The loader already supports an external `CONTEXT_PATH`, so nothing in core needs to change.
+This is deliberately in-tree for Phase 1 to keep the dogfood loop tight. When ready (probably Phase 5, alongside OSS release), extract to `metacto-context` or per-client repos via `git subtree split`. The loader already supports an external `WORKSPACE_PATH`, so nothing in core needs to change.

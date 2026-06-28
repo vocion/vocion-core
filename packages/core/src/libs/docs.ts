@@ -52,7 +52,7 @@ type Frontmatter = {
  * `kind` controls which slice of docs the viewer shows:
  *
  *   - `public`   — dev-consumable docs only: `docs/*` (excluding `internal/`)
- *                  + `context/*`. Used by the public `/docs` site and the
+ *                  + `workspace/*`. Used by the public `/docs` site and the
  *                  in-app Docs link in the dashboard footer.
  *
  *   - `roadmap`  — internal/strategy view: `docs/internal/*` (roadmap,
@@ -176,8 +176,8 @@ function includeInKind(rel: string, kind: DocsKind): boolean {
   }
   if (kind === 'public') {
     // Public docs viewer only surfaces docs/ content (excluding internal/).
-    // requirements/ is platform spec; context/ is tenant-owned prompt content.
-    return !isInternalPath(rel) && !rel.startsWith('requirements/') && !rel.startsWith('context/');
+    // requirements/ is platform spec; workspace/ is tenant-owned prompt content.
+    return !isInternalPath(rel) && !rel.startsWith('requirements/') && !rel.startsWith('workspace/');
   }
   return isInternalPath(rel) || rel.startsWith('requirements/');
 }

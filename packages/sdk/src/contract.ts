@@ -49,8 +49,8 @@ export type PluginContext = {
    * those.
    */
   readonly openai: OpenAI;
-  /** Active context SHA — stamped on skill_run for audit. Null if no context applied. */
-  readonly contextSha: string | null;
+  /** Active workspace SHA — stamped on skill_run for audit. Null if no workspace applied. */
+  readonly workspaceSha: string | null;
   /** Who triggered the run (user id, 'mcp', 'scheduled', etc.) */
   readonly invokedBy: string;
   /**

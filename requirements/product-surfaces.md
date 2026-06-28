@@ -77,7 +77,7 @@ Every surface should collect: thumbs up/down · "wrong source" · "stale answer"
 
 ## 11. Docs ✓
 
-In-product viewer at `/dashboard/docs` — renders every markdown file under `docs/`, `requirements/`, `context/`. Internal-only docs (`docs/internal/`) shown only to authenticated users; public docs site at `/docs` filters those out.
+In-product viewer at `/dashboard/docs` — renders every markdown file under `docs/`, `requirements/`, `workspace/`. Internal-only docs (`docs/internal/`) shown only to authenticated users; public docs site at `/docs` filters those out.
 
 ## 12. Connectors ✓
 
@@ -87,7 +87,7 @@ In-product viewer at `/dashboard/docs` — renders every markdown file under `do
 
 These are managed-service territory and admin-only at first:
 
-- Raw prompt editor (use git + `context:apply` instead)
+- Raw prompt editor (use git + `workspace:apply` instead)
 - Chunking / embedding settings (configured via `retrieval.yaml`)
 - Retrieval weights (config, not UI)
 - Model routing (per-skill `provider` field in YAML)

@@ -16,7 +16,7 @@
                      └──────┬────────────────┬──────────────┬──────────────┘
                             │                │              │
                   ┌─────────▼───────┐  ┌─────▼────┐  ┌─────▼──────────┐
-                  │  Context-as-code│  │ Plugins  │  │  Workflows     │
+                  │  Workspace-as-code│  │ Plugins  │  │  Workflows     │
                   │  agents/skills/ │  │ Skills + │  │  Sequential    │
                   │  object types/  │  │ Sources  │  │  steps + HITL  │
                   │  workflows      │  │ (npm)    │  │  approve gates │
@@ -47,7 +47,7 @@
 
 ### Context as code (decided 2026-04-14, shipped Phase 1)
 
-Every agent / skill / object type / workflow lives in `context/<org>/` as YAML + markdown. The DB stores runtime state (skill runs, drafts, approvals) only. `context:apply` is idempotent + records a `context_version` row stamped on every subsequent `skill_run`. Six months later you can answer "which prompt produced this output?" with one SQL join + a `git show <sha>`.
+Every agent / skill / object type / workflow lives in `workspace/<org>/` as YAML + markdown. The DB stores runtime state (skill runs, drafts, approvals) only. `workspace:apply` is idempotent + records a `workspace_version` row stamped on every subsequent `skill_run`. Six months later you can answer "which prompt produced this output?" with one SQL join + a `git show <sha>`.
 
 ### Vocion owns the orchestration loop
 
@@ -82,10 +82,10 @@ Apache 2.0 runtime. Postgres for state. Pluggable retrieval + LLM providers. No 
 
 | Concern | Where it lives |
 |---|---|
-| **What Vocion knows** (prompts, skill defs, agent personas, schemas) | `context/<org>/` — git, applied to DB |
+| **What Vocion knows** (prompts, skill defs, agent personas, schemas) | `workspace/<org>/` — git, applied to DB |
 | **What Vocion did** (skill runs, workflow runs, drafts, approvals) | DB — append-only, audit-trail-friendly |
 | **Plugins** (typed code, packaged) | npm packages or local paths via `CORECONTEXT_PLUGINS` env |
-| **Secrets** (OAuth tokens, API keys) | `.env` + secret managers — never in context-as-code |
+| **Secrets** (OAuth tokens, API keys) | `.env` + secret managers — never in workspace-as-code |
 | **Per-instance business data** (NINJIO Account row, specific discovery call) | DB business_object — runtime state, not config |
 
 ## What's out of scope (today)

@@ -26,7 +26,7 @@ export default async function ObjectsPage(props: {
     <>
       <TitleBar
         title="Objects"
-        description="Business entities your tenant cares about, authored in context/<org>/objects/. Documents and skill runs link back to an instance."
+        description="Business entities your tenant cares about, authored in workspace/<org>/objects/. Documents and skill runs link back to an instance."
       />
 
       <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4">
@@ -45,7 +45,7 @@ export default async function ObjectsPage(props: {
               <EmptyState
                 icon={Database}
                 title="No Object types yet"
-                description="Object types are typed business entities (Account, Opportunity, Transcript) your tenant cares about. Define one in context/<org>/objects/."
+                description="Object types are typed business entities (Account, Opportunity, Transcript) your tenant cares about. Define one in workspace/<org>/objects/."
                 action={{ label: 'How to define an Object type', href: '/dashboard/docs/docs/concepts/objects' }}
               />
             )

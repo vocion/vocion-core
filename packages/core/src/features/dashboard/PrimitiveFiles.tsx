@@ -123,7 +123,7 @@ export function PrimitiveFiles({ files, editInGitPath, dirty = false, dirtyFiles
           {dirty && !editing && (
             <span
               className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-400"
-              title={dirtyFiles.length > 0 ? `Uncommitted changes in ${dirtyFiles.length} file${dirtyFiles.length === 1 ? '' : 's'}:\n${dirtyFiles.slice(0, 10).join('\n')}` : 'Uncommitted changes in context repo'}
+              title={dirtyFiles.length > 0 ? `Uncommitted changes in ${dirtyFiles.length} file${dirtyFiles.length === 1 ? '' : 's'}:\n${dirtyFiles.slice(0, 10).join('\n')}` : 'Uncommitted changes in workspace repo'}
             >
               <AlertCircle className="size-3" />
               dirty

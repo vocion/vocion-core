@@ -91,11 +91,11 @@ export default async function EvalRunDetailPage(props: Props) {
                 </span>
               </>
             )}
-            {run.contextSha && (
+            {run.workspaceSha && (
               <span className="font-mono text-xs">
                 context
                 {' '}
-                {run.contextSha.slice(0, 7)}
+                {run.workspaceSha.slice(0, 7)}
               </span>
             )}
           </div>

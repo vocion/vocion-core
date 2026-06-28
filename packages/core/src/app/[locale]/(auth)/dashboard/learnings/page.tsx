@@ -48,7 +48,7 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
         ? (
             <EmptyState
               title="No learning steps yet"
-              description="Author one at context/<org>/learnings/<step>.yaml and run `npm run context:apply` to register the bucket. Then add rules here or let the self-improver propose them."
+              description="Author one at workspace/<org>/learnings/<step>.yaml and run `npm run workspace:apply` to register the bucket. Then add rules here or let the self-improver propose them."
               icon={Sparkles}
             />
           )

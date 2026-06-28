@@ -9,14 +9,14 @@ import {
 } from './schemas';
 
 /**
- * File-level authoring API for context repos.
+ * File-level authoring API for workspace repos.
  *
  * Writes YAML + markdown to the right paths and validates input against
  * the public Zod schemas before touching disk. Intended to be driven by
  * MCP tools, onboarding flows, or any other "write a skill" producer.
  *
  * This module does NOT apply to the DB or commit to git — chain with
- * `applyContext` and `autoCommit` for the full loop.
+ * `applyWorkspace` and `autoCommit` for the full loop.
  */
 
 export type WriteSkillInput = {

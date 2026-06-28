@@ -65,7 +65,7 @@ export async function mountPlaybooks(opts: MountPlaybooksOptions): Promise<Recor
     const skillMdAbsPath = locateSkillMdFromContext(row.orgId, row.slug);
     if (!skillMdAbsPath) {
       // Playbook row exists but the on-disk file is gone (renamed?).
-      // Skip silently — context:apply should be re-run to clean up.
+      // Skip silently — workspace:apply should be re-run to clean up.
       continue;
     }
     const playbookFolder = dirname(skillMdAbsPath);
@@ -111,11 +111,11 @@ function filterByTags<T extends { tags: string[] }>(rows: T[], agentTags: string
 
 /**
  * Resolve the on-disk path of a playbook's SKILL.md from the org's
- * context directory. Resolution rule: `context/<org-slug>/playbooks/<slug>/SKILL.md`
- * where `<org-slug>` is the directory under `context/` that owns this
+ * workspace directory. Resolution rule: `workspace/<org-slug>/playbooks/<slug>/SKILL.md`
+ * where `<org-slug>` is the directory under `workspace/` that owns this
  * org. For multi-tenant deployments where one org maps to one folder,
- * we read the path from `CONTEXT_PATH` env (defaulting to
- * `context/metacto`).
+ * we read the path from `WORKSPACE_PATH` env (defaulting to
+ * `workspace/metacto`).
  *
  * This is a v0.2 simplification — a future phase will write the file
  * path onto the `playbook` row at apply time so we don't have to
@@ -124,7 +124,7 @@ function filterByTags<T extends { tags: string[] }>(rows: T[], agentTags: string
  * @param slug
  */
 function locateSkillMdFromContext(_orgId: string, slug: string): string | null {
-  const contextPath = process.env.CONTEXT_PATH || 'context/metacto';
+  const contextPath = process.env.WORKSPACE_PATH || 'workspace/metacto';
   const candidate = join(process.cwd(), contextPath, 'playbooks', slug, 'SKILL.md');
   try {
     readFileSync(candidate, 'utf8');

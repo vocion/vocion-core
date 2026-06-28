@@ -54,7 +54,7 @@ tofu plan -out vocion.tfplan
 tofu apply vocion.tfplan
 
 # 5. Wait ~3–5 min. The EC2 user-data clones the repo, builds the
-#    app image, brings up the platform stack, runs migrations + context:apply.
+#    app image, brings up the platform stack, runs migrations + workspace:apply.
 #    Tail progress:
 ssh -i ~/.ssh/vocion-prod.pem ec2-user@$(tofu output -raw public_ip) \
   'sudo tail -f /var/log/cloud-init-output.log'

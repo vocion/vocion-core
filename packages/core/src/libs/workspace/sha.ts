@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * Compute a stable SHA for a context directory.
+ * Compute a stable SHA for a workspace directory.
  *
  * Prefers the current git commit hash when the path is inside a git repo
  * and has no uncommitted changes. Otherwise falls back to a content hash
@@ -13,7 +13,7 @@ import { resolve } from 'node:path';
  * @param contextPath
  * @param fileList
  */
-export function computeContextSha(contextPath: string, fileList: string[]): string {
+export function computeWorkspaceSha(contextPath: string, fileList: string[]): string {
   const abs = resolve(contextPath);
 
   if (existsSync(resolve(abs, '.git')) || isInsideGitRepo(abs)) {

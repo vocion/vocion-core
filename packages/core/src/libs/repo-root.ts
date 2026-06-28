@@ -6,7 +6,7 @@ import process from 'node:process';
  * Find the monorepo root on disk.
  *
  * Post-Phase-B the Next.js app lives at `packages/core/` but everything
- * tenant-owned (`context/<org>/`, `docs/`, `requirements/`) still lives at
+ * tenant-owned (`workspace/<org>/`, `docs/`, `requirements/`) still lives at
  * repo root. cwd depends on how a script was invoked — `npm run ...
  * --workspace` lands in `packages/core/`, while direct `npm ... ` from
  * root stays at root. Rather than guess, walk up from cwd until we find
@@ -45,7 +45,7 @@ export function getRepoRoot(): string {
 }
 
 /**
- * Resolve a repo-relative path (e.g. `context/metacto`, `docs/README.md`)
+ * Resolve a repo-relative path (e.g. `workspace/metacto`, `docs/README.md`)
  * to an absolute path anchored at the monorepo root.
  * @param segments
  */

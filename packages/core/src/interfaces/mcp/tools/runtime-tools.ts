@@ -96,7 +96,7 @@ function listRunsTool(config: McpConfig): ToolModule {
         input: r.input,
         output: r.output ? r.output.slice(0, 500) : null,
         truncated: !!(r.output && r.output.length > 500),
-        contextSha: r.contextSha,
+        workspaceSha: r.workspaceSha,
         langfuseTraceId: r.langfuseTraceId,
         createdBy: r.createdBy,
         createdAt: r.createdAt,

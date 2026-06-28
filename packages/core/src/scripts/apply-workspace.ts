@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { parseArgs } from 'node:util';
-import { applyContext, ContextValidationError, loadContext } from '@/libs/context';
+import { applyWorkspace, loadWorkspace, WorkspaceValidationError } from '@/libs/workspace';
 import 'dotenv/config';
 
 async function main(): Promise<void> {
@@ -19,13 +19,13 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const contextPath = positionals[0] ?? process.env.CONTEXT_PATH ?? 'context/metacto';
+  const contextPath = positionals[0] ?? process.env.WORKSPACE_PATH ?? 'workspace/metacto';
 
   let loaded;
   try {
-    loaded = loadContext(contextPath);
+    loaded = loadWorkspace(contextPath);
   } catch (err) {
-    if (err instanceof ContextValidationError) {
+    if (err instanceof WorkspaceValidationError) {
       console.error(`\n✗ ${err.message}\n`);
       process.exit(2);
     }
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   console.log(`  agents: ${loaded.agents.length}, skills: ${loaded.skills.length}, objectTypes: ${loaded.objectTypes.length}, workflows: ${loaded.workflows.length}, playbooks: ${loaded.playbooks.length}, learningSteps: ${loaded.learningSteps.length}, evalDatasets: ${loaded.evalDatasets.length}, sources: ${loaded.sources.length}`);
   console.log(`  files: ${loaded.fileCount}`);
 
-  const result = await applyContext(loaded, {
+  const result = await applyWorkspace(loaded, {
     dryRun: values['dry-run'],
     orgId: values.org,
     appliedBy: values['applied-by'] ?? process.env.USER ?? 'cli',
@@ -58,19 +58,19 @@ async function main(): Promise<void> {
   }
 
   if (result.versionId) {
-    console.log(`\nrecorded context_version #${result.versionId}`);
+    console.log(`\nrecorded workspace_version #${result.versionId}`);
   }
   process.exit(0);
 }
 
 function printHelp(): void {
   console.log(`
-apply-context — reconcile a git-backed context directory to the database.
+apply-workspace — reconcile a git-backed workspace directory to the database.
 
-usage: npx tsx src/scripts/apply-context.ts [path] [options]
+usage: npx tsx src/scripts/apply-workspace.ts [path] [options]
 
 positional:
-  path                   context directory to apply (default: $CONTEXT_PATH or context/metacto)
+  path                   workspace directory to apply (default: $WORKSPACE_PATH or workspace/metacto)
 
 options:
   --dry-run              validate and diff without writing

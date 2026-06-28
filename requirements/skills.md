@@ -2,7 +2,7 @@
 
 Skills are the unit of productization. A skill is a typed, named, versioned capability — something the platform can run with structured input and structured output, with optional human approval before its output is released.
 
-This doc is the **product spec** for skills (concept-level). For the **developer guide** to authoring plugin skills, see [`writing-a-plugin.md`](../docs/guides/writing-a-plugin.md). For prompt-skill authoring, see [`/context/README.md`](../context/README.md#add-a-new-skill).
+This doc is the **product spec** for skills (concept-level). For the **developer guide** to authoring plugin skills, see [`writing-a-plugin.md`](../docs/guides/writing-a-plugin.md). For prompt-skill authoring, see [`/workspace/README.md`](../workspace/README.md#add-a-new-skill).
 
 ## What a skill carries
 
@@ -17,11 +17,11 @@ This doc is the **product spec** for skills (concept-level). For the **developer
 | `outputSchema` | Plugin skills only — prompt skills return free-form text |
 | Prompt template | `prompt.md` (prompt skills) or skill code (plugin skills) |
 | Eval fixtures | `evals/` next to the skill (Phase 3 v0.2) |
-| Version history | git — every `context:apply` records a SHA, stamped on every `skill_run` |
+| Version history | git — every `workspace:apply` records a SHA, stamped on every `skill_run` |
 
 ## Two flavors
 
-**Prompt skills** are YAML + markdown in `context/<org>/skills/<slug>/`. The runtime interpolates `{{vars}}` and calls one LLM. Authored by humans (or by the meta-agent in Phase 7).
+**Prompt skills** are YAML + markdown in `workspace/<org>/skills/<slug>/`. The runtime interpolates `{{vars}}` and calls one LLM. Authored by humans (or by the meta-agent in Phase 7).
 
 **Plugin skills** are TypeScript modules implementing `Skill<Input, Output>` from `@/libs/plugins`. Custom logic, multiple LLM calls, structured I/O, external API access. Distributed as npm packages.
 
@@ -72,6 +72,6 @@ For Algren's NINJIO-account work (planned): `meeting_prep_pack`, `urgency_classi
 ## Related
 
 - [`writing-a-plugin.md`](../docs/guides/writing-a-plugin.md) — plugin SDK developer guide (typed contract, registry, executor, evals)
-- [`/context/README.md`](../context/README.md) — prompt-skill authoring guide
+- [`/workspace/README.md`](../workspace/README.md) — prompt-skill authoring guide
 - [`object-model.md`](./object-model.md) — what skills operate on (business object types)
 - [`product-surfaces.md`](./product-surfaces.md) — `/dashboard/skills` UI spec

@@ -11,7 +11,7 @@ function scratchRepo(): { root: string; contextDir: string } {
   execSync('git init -q -b main', { cwd: root });
   execSync('git config user.email test@example.com', { cwd: root });
   execSync('git config user.name test', { cwd: root });
-  const contextDir = join(root, 'context');
+  const contextDir = join(root, 'workspace');
   execSync(`mkdir -p ${contextDir}`);
   writeFileSync(join(contextDir, 'README.md'), '# context\n');
   execSync('git add -A', { cwd: root });
@@ -29,7 +29,7 @@ describe('autoCommit', () => {
 
       expect(result.committed).toBe(true);
       expect(result.sha).toMatch(/^[a-f0-9]{12}$/);
-      expect(result.filesChanged).toContain('context/new.md');
+      expect(result.filesChanged).toContain('workspace/new.md');
 
       const log = execSync('git log --oneline', { cwd: root, encoding: 'utf8' });
 
@@ -63,7 +63,7 @@ describe('autoCommit', () => {
       expect(result.committed).toBe(false);
       expect(result.reason).toBe('skipped');
 
-      const status = execSync('git status --porcelain context/', { cwd: root, encoding: 'utf8' });
+      const status = execSync('git status --porcelain workspace/', { cwd: root, encoding: 'utf8' });
 
       expect(status).toContain('stash.md');
     } finally {
@@ -82,7 +82,7 @@ describe('autoCommit', () => {
       const status = execSync('git status --porcelain', { cwd: root, encoding: 'utf8' });
 
       expect(status).toContain('outside.txt');
-      expect(status).not.toContain('context/a.md');
+      expect(status).not.toContain('workspace/a.md');
     } finally {
       rmSync(root, { recursive: true });
     }

@@ -1,21 +1,21 @@
 import type { McpConfig } from '../config';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { db } from '@/libs/DB';
 import {
   AgentManifestSchema,
-  applyContext,
+  applyWorkspace,
   autoCommit,
-  ContextValidationError,
   deleteResource,
-  loadContext,
+  loadWorkspace,
   ObjectTypeManifestSchema,
   SkillManifestSchema,
+  WorkspaceValidationError,
   writeAgent,
   writeObjectType,
   writeSkill,
-} from '@/libs/context';
-import { db } from '@/libs/DB';
-import { agentSchema, businessObjectTypeSchema, contextVersionSchema, skillSchema } from '@/models/Schema';
+} from '@/libs/workspace';
+import { agentSchema, businessObjectTypeSchema, skillSchema, workspaceVersionSchema } from '@/models/Schema';
 
 /**
  * Context-as-code tools for the MCP server.
@@ -33,7 +33,7 @@ type ToolModule = {
   handler: (input: Record<string, unknown>) => Promise<unknown>;
 };
 
-export function contextTools(config: McpConfig): ToolModule[] {
+export function workspaceTools(config: McpConfig): ToolModule[] {
   return [
     listTool(config),
     getTool(config),
@@ -49,12 +49,12 @@ export function contextTools(config: McpConfig): ToolModule[] {
 
 function listTool(config: McpConfig): ToolModule {
   return {
-    name: 'context_list',
+    name: 'workspace_list',
     title: 'List all context resources',
-    description: 'List every agent, skill, and object type defined in the active context directory. Returns slugs, names, and descriptions — not full prompts.',
+    description: 'List every agent, skill, and object type defined in the active workspace directory. Returns slugs, names, and descriptions — not full prompts.',
     inputSchema: {},
     handler: async () => {
-      const loaded = loadContext(config.contextPath);
+      const loaded = loadWorkspace(config.contextPath);
       return {
         sha: loaded.sha,
         orgId: loaded.manifest.orgId,
@@ -68,16 +68,16 @@ function listTool(config: McpConfig): ToolModule {
 
 function getTool(config: McpConfig): ToolModule {
   return {
-    name: 'context_get',
+    name: 'workspace_get',
     title: 'Get full detail of one context resource',
-    description: 'Return the full manifest (including prompt text) for one agent, skill, or object type. Use after context_list to pick the slug.',
+    description: 'Return the full manifest (including prompt text) for one agent, skill, or object type. Use after workspace_list to pick the slug.',
     inputSchema: {
       kind: z.enum(['agent', 'skill', 'object_type']).describe('which resource family'),
       slug: z.string().describe('the slug of the resource'),
     },
     handler: async (input) => {
       const { kind, slug } = input as { kind: 'agent' | 'skill' | 'object_type'; slug: string };
-      const loaded = loadContext(config.contextPath);
+      const loaded = loadWorkspace(config.contextPath);
       if (kind === 'agent') {
         const a = loaded.agents.find(x => x.slug === slug);
         if (!a) {
@@ -103,9 +103,9 @@ function getTool(config: McpConfig): ToolModule {
 
 function writeSkillTool(config: McpConfig): ToolModule {
   return {
-    name: 'context_write_skill',
+    name: 'workspace_write_skill',
     title: 'Create or update a skill',
-    description: 'Write a skill manifest + prompt to context/<org>/skills/. Writes to disk + auto-applies to DB. Git is external — pass autoCommit=true to opt in. Returns files written, new context SHA, and the apply diff.',
+    description: 'Write a skill manifest + prompt to workspace/<org>/skills/. Writes to disk + auto-applies to DB. Git is external — pass autoCommit=true to opt in. Returns files written, new context SHA, and the apply diff.',
     inputSchema: {
       manifest: toolShape(SkillManifestSchema, ['promptFile']),
       prompt_md: z.string().describe('the prompt template — supports {{variables}}'),
@@ -127,7 +127,7 @@ function writeSkillTool(config: McpConfig): ToolModule {
 
 function writeAgentTool(config: McpConfig): ToolModule {
   return {
-    name: 'context_write_agent',
+    name: 'workspace_write_agent',
     title: 'Create or update an agent',
     description: 'Write an agent manifest + system prompt. Writes to disk + auto-applies to DB. Git is external — pass autoCommit=true to opt in.',
     inputSchema: {
@@ -151,7 +151,7 @@ function writeAgentTool(config: McpConfig): ToolModule {
 
 function writeObjectTypeTool(config: McpConfig): ToolModule {
   return {
-    name: 'context_write_object_type',
+    name: 'workspace_write_object_type',
     title: 'Create or update a business object type',
     description: 'Write an object type manifest (schema, source relevance, classification prompt). Writes to disk + auto-applies to DB. Git is external — pass autoCommit=true to opt in.',
     inputSchema: {
@@ -175,9 +175,9 @@ function writeObjectTypeTool(config: McpConfig): ToolModule {
 
 function deleteTool(config: McpConfig): ToolModule {
   return {
-    name: 'context_delete',
+    name: 'workspace_delete',
     title: 'Delete a context resource',
-    description: 'Remove the files for an agent, skill, or object type from context/<org>/. Auto-commits + auto-applies (which will remove the row from the DB on the next apply).',
+    description: 'Remove the files for an agent, skill, or object type from workspace/<org>/. Auto-commits + auto-applies (which will remove the row from the DB on the next apply).',
     inputSchema: {
       kind: z.enum(['agent', 'skill', 'objectType']),
       slug: z.string(),
@@ -225,9 +225,9 @@ async function deleteFromDb(orgId: string, kind: 'agent' | 'skill' | 'objectType
 
 function applyTool(config: McpConfig): ToolModule {
   return {
-    name: 'context_apply',
+    name: 'workspace_apply',
     title: 'Apply pending context to the DB',
-    description: 'Reconcile context/<org>/ to the database and record a context_version audit row. Use after editing files directly (outside MCP) or when auto-apply was disabled.',
+    description: 'Reconcile workspace/<org>/ to the database and record a workspace_version audit row. Use after editing files directly (outside MCP) or when auto-apply was disabled.',
     inputSchema: {
       dryRun: z.boolean().default(false).describe('validate + diff only, no writes'),
     },
@@ -239,9 +239,9 @@ function applyTool(config: McpConfig): ToolModule {
 
 function diffTool(config: McpConfig): ToolModule {
   return {
-    name: 'context_diff',
+    name: 'workspace_diff',
     title: 'Show pending context changes',
-    description: 'Dry-run apply — shows created/updated/unchanged counts without writing. Equivalent to `context_apply dryRun=true`.',
+    description: 'Dry-run apply — shows created/updated/unchanged counts without writing. Equivalent to `workspace_apply dryRun=true`.',
     inputSchema: {},
     handler: async () => applyNow(config, true),
   };
@@ -249,9 +249,9 @@ function diffTool(config: McpConfig): ToolModule {
 
 function versionHistoryTool(config: McpConfig): ToolModule {
   return {
-    name: 'context_version_history',
+    name: 'workspace_version_history',
     title: 'List recent context applies',
-    description: 'Show the last N context_version rows: sha, summary, applied_by, applied_at. Useful for answering "when did this prompt last change?"',
+    description: 'Show the last N workspace_version rows: sha, summary, applied_by, applied_at. Useful for answering "when did this prompt last change?"',
     inputSchema: {
       limit: z.number().int().positive().max(100).default(20),
     },
@@ -259,9 +259,9 @@ function versionHistoryTool(config: McpConfig): ToolModule {
       const { limit } = input as { limit: number };
       const rows = await db
         .select()
-        .from(contextVersionSchema)
-        .where(eq(contextVersionSchema.orgId, config.orgId))
-        .orderBy(desc(contextVersionSchema.appliedAt))
+        .from(workspaceVersionSchema)
+        .where(eq(workspaceVersionSchema.orgId, config.orgId))
+        .orderBy(desc(workspaceVersionSchema.appliedAt))
         .limit(limit);
       return rows.map(r => ({
         id: r.id,
@@ -314,11 +314,11 @@ async function runApplyAndCommit(config: McpConfig, written: { slug: string; fil
 
 async function applyNow(config: McpConfig, dryRun = false) {
   try {
-    const loaded = loadContext(config.contextPath);
-    const result = await applyContext(loaded, { orgId: config.orgId, dryRun, appliedBy: 'mcp' });
+    const loaded = loadWorkspace(config.contextPath);
+    const result = await applyWorkspace(loaded, { orgId: config.orgId, dryRun, appliedBy: 'mcp' });
     return result;
   } catch (err) {
-    if (err instanceof ContextValidationError) {
+    if (err instanceof WorkspaceValidationError) {
       return { error: err.message, file: err.file, kind: err.kind, issues: err.issues };
     }
     throw err;
@@ -335,6 +335,6 @@ async function applyNow(config: McpConfig, dryRun = false) {
  */
 function toolShape(_schema: unknown, stripFields: string[]): z.ZodType {
   return z.record(z.string(), z.unknown()).describe(
-    `manifest object — omit ${stripFields.join(', ')} (writer sets them from disk layout). Full schema in src/libs/context/schemas.ts.`,
+    `manifest object — omit ${stripFields.join(', ')} (writer sets them from disk layout). Full schema in src/libs/workspace/schemas.ts.`,
   );
 }

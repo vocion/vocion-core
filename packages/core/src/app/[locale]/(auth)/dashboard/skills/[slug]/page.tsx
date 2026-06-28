@@ -7,8 +7,8 @@ import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { getSkillActivity } from '@/libs/activity';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { getContextDirtyState } from '@/libs/context/dirty';
-import { readPrimitiveFiles } from '@/libs/context/reader';
+import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { Link } from '@/libs/I18nNavigation';
 import { getSkill } from '@/services/SkillService';
 
@@ -34,7 +34,7 @@ export default async function SkillDetailPage(props: {
   }
 
   const sourceFiles = readPrimitiveFiles('skill', slug);
-  const dirtyState = getContextDirtyState();
+  const dirtyState = getWorkspaceDirtyState();
   const activity = await getSkillActivity(orgId, slug);
 
   const inputSchema = skill.inputSchema as Record<string, unknown> | null;

@@ -19,7 +19,7 @@ type Row = {
   name: string | null;
   status: string | null;
   rating: 'up' | 'down' | null;
-  contextSha: string | null;
+  workspaceSha: string | null;
   createdBy: string | null;
   createdAt: Date;
 };
@@ -52,7 +52,7 @@ export default async function AuditPage(props: {
           id: skillRunSchema.id,
           status: skillRunSchema.status,
           rating: skillRunSchema.rating,
-          contextSha: skillRunSchema.contextSha,
+          workspaceSha: skillRunSchema.workspaceSha,
           createdBy: skillRunSchema.createdBy,
           createdAt: skillRunSchema.createdAt,
           slug: skillSchema.slug,
@@ -75,7 +75,7 @@ export default async function AuditPage(props: {
           id: workflowRunSchema.id,
           status: workflowRunSchema.status,
           rating: workflowRunSchema.rating,
-          contextSha: workflowRunSchema.contextSha,
+          workspaceSha: workflowRunSchema.workspaceSha,
           createdBy: workflowRunSchema.createdBy,
           createdAt: workflowRunSchema.createdAt,
           slug: workflowSchema.slug,
@@ -99,7 +99,7 @@ export default async function AuditPage(props: {
       name: r.name,
       status: r.status,
       rating: r.rating as 'up' | 'down' | null,
-      contextSha: r.contextSha,
+      workspaceSha: r.workspaceSha,
       createdBy: r.createdBy,
       createdAt: r.createdAt,
     })),
@@ -110,7 +110,7 @@ export default async function AuditPage(props: {
       name: r.name,
       status: r.status,
       rating: r.rating as 'up' | 'down' | null,
-      contextSha: r.contextSha,
+      workspaceSha: r.workspaceSha,
       createdBy: r.createdBy,
       createdAt: r.createdAt,
     })),
@@ -188,7 +188,7 @@ export default async function AuditPage(props: {
                         <FeedbackButtons runId={r.id} kind={r.kind} initialRating={r.rating} compact />
                       </td>
                       <td className="px-3 py-2 font-mono text-muted-foreground">
-                        {r.contextSha ? r.contextSha.slice(0, 7) : '—'}
+                        {r.workspaceSha ? r.workspaceSha.slice(0, 7) : '—'}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">{r.createdBy ?? '—'}</td>
                       <td className="px-3 py-2">

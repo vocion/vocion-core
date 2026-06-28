@@ -65,7 +65,7 @@ export function listRunFeedbackTool(ctx: RuntimeContext) {
         feedbackAt: row.feedbackAt,
         input: row.input,
         outputPreview: row.output ? row.output.slice(0, 1200) : null,
-        contextSha: row.contextSha,
+        workspaceSha: row.workspaceSha,
       }, null, 2);
     },
     {

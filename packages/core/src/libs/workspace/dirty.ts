@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fromRepoRoot } from '@/libs/repo-root';
-import { getContextPath } from './reader';
+import { getWorkspacePath } from './reader';
 
 /**
- * Report whether the configured context directory has uncommitted local
+ * Report whether the configured workspace directory has uncommitted local
  * changes. Informational only — the app never commits on your behalf
  * (git workflow is an external responsibility). Used to render a small
  * "dirty" badge in the UI when you've edited context files but not yet
@@ -18,8 +18,8 @@ export type ContextDirtyState = {
   error: string | null;
 };
 
-export function getContextDirtyState(): ContextDirtyState {
-  const contextPath = getContextPath();
+export function getWorkspaceDirtyState(): ContextDirtyState {
+  const contextPath = getWorkspacePath();
   const base = fromRepoRoot(contextPath);
 
   if (!existsSync(base)) {

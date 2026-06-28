@@ -88,7 +88,7 @@ src/
 ├── utils/AppConfig.ts     # App name, pricing plans, locale config
 └── locales/               # Translation files (en.json, fr.json)
 
-context/                   # Git-backed client context
+workspace/                   # Git-backed client context
 └── <org>/                 # Per-tenant authoring directory
     ├── agents/            # YAML — slug, prompt, subagents, suggestions
     ├── operations/        # v0.2: renamed from skills/. Typed LLM calls.
@@ -101,14 +101,14 @@ context/                   # Git-backed client context
 
 ## Context as Code
 
-Every authored resource lives in `context/<org>/` as YAML + markdown — never hardcoded in TS. Edit the files, then:
+Every authored resource lives in `workspace/<org>/` as YAML + markdown — never hardcoded in TS. Edit the files, then:
 
 ```bash
-npm run context:check      # validate + diff
-npm run context:apply      # sync to DB; records a context_version row
+npm run workspace:check      # validate + diff
+npm run workspace:apply      # sync to DB; records a workspace_version row
 ```
 
-Every operation run + agent run + eval run stamps the active `context_sha` so you can trace any output back to the exact prompts that produced it. See `context/README.md` for authoring.
+Every operation run + agent run + eval run stamps the active `workspace_sha` so you can trace any output back to the exact prompts that produced it. See `workspace/README.md` for authoring.
 
 ## Agent runtime (v0.2)
 

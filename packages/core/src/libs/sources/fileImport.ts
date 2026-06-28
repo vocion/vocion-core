@@ -46,7 +46,7 @@ export const fileImportConfigSchema = z.object({
   path: z
     .string()
     .min(1)
-    .describe('file path, relative to CONTEXT_PATH or absolute'),
+    .describe('file path, relative to WORKSPACE_PATH or absolute'),
   format: z
     .enum(['auto', 'jsonl', 'csv', 'json'])
     .default('auto')
@@ -135,7 +135,7 @@ function resolvePath(p: string): string {
   if (path.isAbsolute(p)) {
     return p;
   }
-  return path.resolve(process.env.CONTEXT_PATH ?? process.cwd(), p);
+  return path.resolve(process.env.WORKSPACE_PATH ?? process.cwd(), p);
 }
 
 function detectFormat(filePath: string): 'jsonl' | 'csv' | 'json' | null {

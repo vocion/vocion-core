@@ -23,7 +23,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       slug: workflowRun.workflowSlug,
       status: workflowRun.status,
       stepResults: workflowRun.stepResults,
-      contextSha: workflowRun.contextSha,
+      workspaceSha: workflowRun.workspaceSha,
       error: workflowRun.error,
       createdAt: workflowRun.createdAt,
       completedAt: workflowRun.completedAt,
@@ -38,7 +38,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
       status: skillRun.status,
       input: skillRun.input,
       output: skillRun.output,
-      contextSha: skillRun.contextSha,
+      workspaceSha: skillRun.workspaceSha,
       createdAt: skillRun.createdAt,
       reviewedAt: skillRun.reviewedAt,
     });

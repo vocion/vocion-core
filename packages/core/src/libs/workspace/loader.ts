@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod';
-import type { AgentManifest, ContextManifest, EvalDatasetManifest, LearningStepManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, SourceManifest, WorkflowManifest } from './schemas';
+import type { AgentManifest, EvalDatasetManifest, LearningStepManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, SourceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
@@ -7,7 +7,6 @@ import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
 import {
   AgentManifestSchema,
-  ContextManifestSchema,
   EvalDatasetManifestSchema,
   LearningStepManifestSchema,
   ObjectTypeManifestSchema,
@@ -15,8 +14,9 @@ import {
   SkillManifestSchema,
   SourceManifestSchema,
   WorkflowManifestSchema,
+  WorkspaceManifestSchema,
 } from './schemas';
-import { computeContextSha } from './sha';
+import { computeWorkspaceSha } from './sha';
 
 export type LoadedAgent = AgentManifest & {
   resolvedSystemPrompt: string;
@@ -48,8 +48,8 @@ export type LoadedPlaybook = PlaybookManifest & {
   sourceFile: string;
 };
 
-export type LoadedContext = {
-  manifest: ContextManifest;
+export type LoadedWorkspace = {
+  manifest: WorkspaceManifest;
   agents: LoadedAgent[];
   skills: LoadedSkill[];
   objectTypes: LoadedObjectType[];
@@ -64,10 +64,10 @@ export type LoadedContext = {
 };
 
 /**
- * Read and validate a context directory. Throws on schema violations with a clear message.
+ * Read and validate a workspace directory. Throws on schema violations with a clear message.
  * @param contextPath
  */
-export function loadContext(contextPath: string): LoadedContext {
+export function loadWorkspace(contextPath: string): LoadedWorkspace {
   const abs = resolve(contextPath.startsWith('/') ? contextPath : fromRepoRoot(contextPath));
   const manifest = loadManifest(abs);
   const files: string[] = [];
@@ -89,7 +89,7 @@ export function loadContext(contextPath: string): LoadedContext {
       return { ...parsed, resolvedSystemPrompt, resolvedSubagents, sourceFile: file };
     });
 
-  // v0.2: prefer context/<org>/operations/. Fall back to skills/ for
+  // v0.2: prefer workspace/<org>/operations/. Fall back to skills/ for
   // back-compat with v0.1 layouts. If both exist, operations wins and
   // skills is ignored entirely (no merge — keep the failure mode obvious).
   const operationsDir = join(abs, 'operations');
@@ -98,12 +98,12 @@ export function loadContext(contextPath: string): LoadedContext {
   const hasLegacySkillsDir = walkDir(legacySkillsDir).length > 0;
   if (hasOperationsDir && hasLegacySkillsDir) {
     console.warn(
-      '[context] both context/<org>/operations/ and context/<org>/skills/ exist; '
+      '[context] both workspace/<org>/operations/ and workspace/<org>/skills/ exist; '
       + 'operations/ wins. Move all entries to operations/ and delete skills/.',
     );
   } else if (hasLegacySkillsDir) {
     console.warn(
-      '[context] context/<org>/skills/ is deprecated; rename to context/<org>/operations/.',
+      '[context] workspace/<org>/skills/ is deprecated; rename to workspace/<org>/operations/.',
     );
   }
   const skillsDir = hasOperationsDir ? operationsDir : legacySkillsDir;
@@ -177,7 +177,7 @@ export function loadContext(contextPath: string): LoadedContext {
   assertUniqueSlugs(evalDatasets, 'eval dataset');
   assertUniqueSlugs(sources, 'source');
 
-  const sha = computeContextSha(abs, files);
+  const sha = computeWorkspaceSha(abs, files);
 
   return {
     manifest,
@@ -195,14 +195,14 @@ export function loadContext(contextPath: string): LoadedContext {
   };
 }
 
-function loadManifest(abs: string): ContextManifest {
-  const candidates = ['context.yaml', 'context.yml'];
+function loadManifest(abs: string): WorkspaceManifest {
+  const candidates = ['workspace.yaml', 'workspace.yml'];
   for (const c of candidates) {
     const p = join(abs, c);
     try {
       const raw = readFileSync(p, 'utf8');
       const parsed = parseYaml(raw);
-      return validateOrThrow(ContextManifestSchema, parsed, p, 'context manifest');
+      return validateOrThrow(WorkspaceManifestSchema, parsed, p, 'workspace manifest');
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         continue;
@@ -210,7 +210,7 @@ function loadManifest(abs: string): ContextManifest {
       throw err;
     }
   }
-  throw new Error(`context manifest not found at ${abs}/context.yaml`);
+  throw new Error(`workspace manifest not found at ${abs}/workspace.yaml`);
 }
 
 function parseFile<T>(file: string, schema: ZodType<T>, kind: string): T {
@@ -223,7 +223,7 @@ function validateOrThrow<T>(schema: ZodType<T>, value: unknown, file: string, ki
   const result = schema.safeParse(value);
   if (!result.success) {
     const messages = result.error.issues.map(issue => `${issue.path.length > 0 ? issue.path.map(String).join('.') : '(root)'}: ${issue.message}`);
-    throw new ContextValidationError(file, kind, messages);
+    throw new WorkspaceValidationError(file, kind, messages);
   }
   return result.data;
 }
@@ -334,9 +334,9 @@ function assertUniqueNames<T extends { name: string }>(items: T[], kind: string)
   }
 }
 
-export class ContextValidationError extends Error {
+export class WorkspaceValidationError extends Error {
   constructor(public readonly file: string, public readonly kind: string, public readonly issues: string[]) {
     super(`${kind} validation failed at ${file}:\n  - ${issues.join('\n  - ')}`);
-    this.name = 'ContextValidationError';
+    this.name = 'WorkspaceValidationError';
   }
 }
