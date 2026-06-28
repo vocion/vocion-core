@@ -34,6 +34,17 @@ import {
   remove as removeLearning,
   update as updateLearning,
 } from './Learnings';
+import {
+  cancel as cancelMissionRoute,
+  get as getMissionRoute,
+  getRun as getMissionRunRoute,
+  listRuns as listMissionRunsRoute,
+  list as listMissionsRoute,
+  promote as promoteMissionRoute,
+  resume as resumeMissionRoute,
+  start as startMissionRoute,
+  submitFeedback as submitMissionFeedbackRoute,
+} from './Missions';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import {
   approve,
@@ -68,6 +79,17 @@ export const router = {
   playbooks: {
     list: listPlaybooks,
     get: getPlaybook,
+  },
+  missions: {
+    list: listMissionsRoute,
+    get: getMissionRoute,
+    start: startMissionRoute,
+    listRuns: listMissionRunsRoute,
+    getRun: getMissionRunRoute,
+    resume: resumeMissionRoute,
+    cancel: cancelMissionRoute,
+    submitFeedback: submitMissionFeedbackRoute,
+    promote: promoteMissionRoute,
   },
   conversations: {
     list: listConvs,
