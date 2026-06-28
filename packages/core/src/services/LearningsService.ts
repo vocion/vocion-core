@@ -3,7 +3,7 @@
  *
  * Mirrors rev-ai's server/learnings.py (the canonical pattern). Steps
  * are whitelisted via the `learning_step` table — they're seeded by
- * `context:apply` from `context/<org>/learnings/<step>.yaml` so the
+ * `workspace:apply` from `workspace/<org>/learnings/<step>.yaml` so the
  * set doesn't drift into a junk drawer of near-duplicates.
  *
  * Dedup: rev-ai uses Python's `difflib.SequenceMatcher` ratio at 0.72.
@@ -267,7 +267,7 @@ export async function bundleStepMarkdown(
       out[`/learnings/${name}.md`] = await renderStepMarkdown(orgId, name);
     } catch {
       // Unknown step — skip silently. The agent's learningSteps list
-      // is the authoring contract; missing steps mean context:apply
+      // is the authoring contract; missing steps mean workspace:apply
       // hasn't seeded them yet.
     }
   }

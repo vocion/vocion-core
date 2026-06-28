@@ -4,8 +4,8 @@ import { dirname, join, relative } from 'node:path';
 import process from 'node:process';
 import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
-import { applyContext, loadContext } from '@/libs/context';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
+import { applyWorkspace, loadWorkspace } from '@/libs/workspace';
 import { guardAuth } from './AuthGuards';
 
 /**
@@ -37,7 +37,7 @@ const ReadOutput = z.object({
   editInGitPath: z.string(),
 });
 
-const CONTEXT_PATH = process.env.CONTEXT_PATH ?? 'context/metacto';
+const WORKSPACE_PATH = process.env.WORKSPACE_PATH ?? 'workspace/metacto';
 
 function slugToDirname(slug: string): string {
   return slug.replace(/_/g, '-');
@@ -64,13 +64,13 @@ export const readPrimitive = os
     await guardAuth();
     const { kind, slug } = input;
     const dirName = slugToDirname(slug);
-    const base = fromRepoRoot(CONTEXT_PATH);
+    const base = fromRepoRoot(WORKSPACE_PATH);
 
     if (!existsSync(base)) {
-      throw new ORPCError('NOT_FOUND', { message: `Context path not found: ${CONTEXT_PATH}` });
+      throw new ORPCError('NOT_FOUND', { message: `Context path not found: ${WORKSPACE_PATH}` });
     }
 
-    // Agents are single-dir-less (files at context/<org>/agents/<slug>.yaml + <slug>.system-prompt.md)
+    // Agents are single-dir-less (files at workspace/<org>/agents/<slug>.yaml + <slug>.system-prompt.md)
     if (kind === 'agent') {
       const agentDir = join(base, 'agents');
       const candidates = [
@@ -87,7 +87,7 @@ export const readPrimitive = os
       if (files.length === 0) {
         throw new ORPCError('NOT_FOUND', { message: `No files found for agent "${slug}"` });
       }
-      return { files, contextPath: CONTEXT_PATH, editInGitPath: `${CONTEXT_PATH}/agents/${dirName}.yaml` };
+      return { files, contextPath: WORKSPACE_PATH, editInGitPath: `${WORKSPACE_PATH}/agents/${dirName}.yaml` };
     }
 
     // Skill/Workflow/Object/Source: directory with multiple files
@@ -117,11 +117,11 @@ export const readPrimitive = os
       language: detectLanguage(n),
     }));
 
-    return { files, contextPath: CONTEXT_PATH, editInGitPath: `${CONTEXT_PATH}/${kindDir(kind)}/${dirName}` };
+    return { files, contextPath: WORKSPACE_PATH, editInGitPath: `${WORKSPACE_PATH}/${kindDir(kind)}/${dirName}` };
   });
 
 const WriteInput = z.object({
-  path: z.string().min(1).describe('repo-relative path under CONTEXT_PATH, e.g. context/metacto/skills/discovery-summary/prompt.md'),
+  path: z.string().min(1).describe('repo-relative path under WORKSPACE_PATH, e.g. workspace/metacto/skills/discovery-summary/prompt.md'),
   content: z.string(),
 });
 
@@ -142,14 +142,14 @@ export const writeFile = os
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
     const repoRoot = getRepoRoot();
-    const contextBase = fromRepoRoot(CONTEXT_PATH);
+    const contextBase = fromRepoRoot(WORKSPACE_PATH);
     const absTarget = fromRepoRoot(input.path);
 
-    // Containment guard: target must be inside the configured CONTEXT_PATH.
+    // Containment guard: target must be inside the configured WORKSPACE_PATH.
     // Prevents path traversal (../../etc/passwd) and cross-tenant writes.
     const relFromContext = relative(contextBase, absTarget);
     if (relFromContext.startsWith('..') || relFromContext.startsWith('/')) {
-      throw new ORPCError('FORBIDDEN', { message: `path escapes CONTEXT_PATH: ${input.path}` });
+      throw new ORPCError('FORBIDDEN', { message: `path escapes WORKSPACE_PATH: ${input.path}` });
     }
 
     // Extension allowlist — no arbitrary file creation.
@@ -165,8 +165,8 @@ export const writeFile = os
     // Apply to DB so the dashboard reflects the change immediately.
     let applied: { versionId: number | null; sha: string | null } = { versionId: null, sha: null };
     try {
-      const loaded = loadContext(CONTEXT_PATH);
-      const result = await applyContext(loaded, { orgId });
+      const loaded = loadWorkspace(WORKSPACE_PATH);
+      const result = await applyWorkspace(loaded, { orgId });
       applied = { versionId: result.versionId, sha: loaded.sha };
     } catch (err) {
       // Write succeeded; apply failed. Return the write but surface the error.

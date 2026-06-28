@@ -13,7 +13,7 @@ type SkillRunSummary = {
   input: Record<string, unknown> | null;
   output: string | null;
   truncated: boolean;
-  contextSha: string | null;
+  workspaceSha: string | null;
   langfuseTraceId: string | null;
   confidence: ConfidenceLevel | null;
   createdBy: string | null;
@@ -56,7 +56,7 @@ export default async function ReviewPage(props: {
     input: r.input as Record<string, unknown> | null,
     output: r.output ? r.output.slice(0, 4000) : null,
     truncated: !!(r.output && r.output.length > 4000),
-    contextSha: r.contextSha,
+    workspaceSha: r.workspaceSha,
     langfuseTraceId: r.langfuseTraceId,
     confidence: asConfidence(r.confidence),
     createdBy: r.createdBy,

@@ -42,14 +42,14 @@ export default async function EvalsPage(props: { params: Promise<{ locale: strin
             <span>Evals</span>
           </div>
         )}
-        description="Scored datasets per agent. Run, judge, compare across prompt versions. Each dataset's cases live in YAML at context/<org>/evals/<slug>.yaml; runs + per-case results persist in eval_run + eval_case_result."
+        description="Scored datasets per agent. Run, judge, compare across prompt versions. Each dataset's cases live in YAML at workspace/<org>/evals/<slug>.yaml; runs + per-case results persist in eval_run + eval_case_result."
       />
 
       {datasets.length === 0
         ? (
             <EmptyState
               title="No eval datasets yet"
-              description="Author one at context/<org>/evals/<slug>.yaml and run `npm run context:apply` to register it."
+              description="Author one at workspace/<org>/evals/<slug>.yaml and run `npm run workspace:apply` to register it."
               icon={TestTube}
             />
           )

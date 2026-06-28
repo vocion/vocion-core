@@ -175,7 +175,7 @@ export async function getCompiledAgent(orgId: string, agentSlug: string): Promis
   return fresh;
 }
 
-/** Test/dev hook: flush the cache (e.g. after `context:apply`). */
+/** Test/dev hook: flush the cache (e.g. after `workspace:apply`). */
 export function resetAgentRuntimeCache(): void {
   graphCache.clear();
 }

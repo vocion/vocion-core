@@ -10,7 +10,7 @@ import { playbookSchema } from '@/models/Schema';
 /**
  * Playbook MCP tools — let an external MCP client (Claude Code, etc.)
  * browse the catalog and read playbook bodies. Read-only; authoring
- * stays in `context/<org>/playbooks/` + `context:apply`.
+ * stays in `workspace/<org>/playbooks/` + `workspace:apply`.
  */
 
 type ToolModule = {
@@ -70,7 +70,7 @@ function playbookGetTool(config: McpConfig): ToolModule {
       if (!row) {
         throw new Error(`playbook ${slug} not found`);
       }
-      const contextPath = process.env.CONTEXT_PATH || 'context/metacto';
+      const contextPath = process.env.WORKSPACE_PATH || 'workspace/metacto';
       const folder = join(process.cwd(), contextPath, 'playbooks', slug);
       const target = resource ? join(folder, resource) : join(folder, 'SKILL.md');
       const content = readFileSync(target, 'utf8');

@@ -12,7 +12,7 @@
  *   - Air-gapped deployments where the upstream is a filesystem mount.
  *
  * Config:
- *   - `directory: string` — path to walk, relative to `CONTEXT_PATH`
+ *   - `directory: string` — path to walk, relative to `WORKSPACE_PATH`
  *     (or absolute). Defaults to the configured directory; recursion
  *     is allowed.
  *   - `glob?: string` — filename pattern (default `*.md` + `*.txt`).
@@ -32,7 +32,7 @@ import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 
 const localFilesConfigSchema = z.object({
-  directory: z.string().min(1).describe('directory to walk, relative to CONTEXT_PATH or absolute'),
+  directory: z.string().min(1).describe('directory to walk, relative to WORKSPACE_PATH or absolute'),
   extensions: z.array(z.string()).default(['.md', '.txt']).describe('file extensions to ingest (default: .md, .txt)'),
 });
 
@@ -47,7 +47,7 @@ export const localFilesConnector: SourceConnector<typeof localFilesConfigSchema>
     const cfg = localFilesConfigSchema.parse(ctx.config);
     const baseDir = path.isAbsolute(cfg.directory)
       ? cfg.directory
-      : path.resolve(process.env.CONTEXT_PATH ?? process.cwd(), cfg.directory);
+      : path.resolve(process.env.WORKSPACE_PATH ?? process.cwd(), cfg.directory);
 
     let baseStat;
     try {

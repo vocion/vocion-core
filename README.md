@@ -23,17 +23,17 @@ See [`docs/reference/repo-architecture.md`](./docs/reference/repo-architecture.m
 
 ## The five resources
 
-Everything you author lives in `context/<org>/` as YAML + markdown:
+Everything you author lives in `workspace/<org>/` as YAML + markdown:
 
 | Block | Path | Shape |
 |---|---|---|
-| **Source** | `context/<org>/sources/<slug>/source.yaml` | Auth, retrieval overrides, indexing filters |
-| **Object** | `context/<org>/objects/<slug>/type.yaml` | Business entity (Account, Deal, …) with source weights |
-| **Skill** | `context/<org>/skills/<slug>/skill.yaml` + `prompt.md` | LLM-powered unit of work, typed input/output |
-| **Workflow** | `context/<org>/workflows/<slug>/workflow.yaml` | Sequence of skills + HITL approve gates |
-| **Agent** | `context/<org>/agents/<slug>.yaml` + `<slug>.system-prompt.md` | LLM orchestrator wiring skills + workflows |
+| **Source** | `workspace/<org>/sources/<slug>/source.yaml` | Auth, retrieval overrides, indexing filters |
+| **Object** | `workspace/<org>/objects/<slug>/type.yaml` | Business entity (Account, Deal, …) with source weights |
+| **Skill** | `workspace/<org>/skills/<slug>/skill.yaml` + `prompt.md` | LLM-powered unit of work, typed input/output |
+| **Workflow** | `workspace/<org>/workflows/<slug>/workflow.yaml` | Sequence of skills + HITL approve gates |
+| **Agent** | `workspace/<org>/agents/<slug>.yaml` + `<slug>.system-prompt.md` | LLM orchestrator wiring skills + workflows |
 
-Apply to DB with `npm run context:apply`. Every apply records a `context_version` audit row; every `skill_run` stamps the `context_sha` so any output traces back to the exact prompts that produced it.
+Apply to DB with `npm run workspace:apply`. Every apply records a `workspace_version` audit row; every `skill_run` stamps the `workspace_sha` so any output traces back to the exact prompts that produced it.
 
 ## Plugin contract
 
@@ -83,7 +83,7 @@ npm run dev:up
 
 # 4. Apply schema + reference context
 npm run db:migrate
-npm run context:apply
+npm run workspace:apply
 
 # 5. Run dev server
 npm run dev:next
@@ -104,7 +104,7 @@ Full tool reference: [`docs/reference/mcp.md`](./docs/reference/mcp.md).
 
 ## Retrieval
 
-Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with reciprocal rank fusion across the two arms, optional LLM rerank. No third-party retrieval engine. Swap embedders, rerankers, chunking strategies per-org or per-source via `context/<org>/retrieval.yaml` — no code change needed.
+Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with reciprocal rank fusion across the two arms, optional LLM rerank. No third-party retrieval engine. Swap embedders, rerankers, chunking strategies per-org or per-source via `workspace/<org>/retrieval.yaml` — no code change needed.
 
 ## Tech stack
 
@@ -125,7 +125,7 @@ packages/
 └── plugins/
     └── transcript-highlights/   # Reference sample plugin
 
-context/<org>/                   # Tenant-owned YAML + markdown (per-tenant context repo)
+workspace/<org>/                   # Tenant-owned YAML + markdown (per-tenant workspace repo)
 docs/                            # Concepts, guides, reference
 ```
 

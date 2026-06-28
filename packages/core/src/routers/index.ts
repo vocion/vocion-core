@@ -11,7 +11,6 @@ import {
   remove as removeObject,
   update as updateObject,
 } from './BusinessObject';
-import { readPrimitive, writeFile } from './Context';
 import {
   append as appendConvMessage,
   create as createConv,
@@ -47,6 +46,7 @@ import {
   resume,
   submitFeedback,
 } from './Review';
+import { readPrimitive, writeFile } from './Workspace';
 
 export const router = {
   businessObject: {

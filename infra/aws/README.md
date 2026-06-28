@@ -73,7 +73,7 @@ sudo bash /opt/vocion/infra/aws/update.sh main      # back to main
 
 The script rebuilds the app image, rolling-restarts only `app` + `worker`
 (Postgres + Caddy stay untouched), applies any new migrations, re-runs
-`context:apply`.
+`workspace:apply`.
 
 ## Logs + ops
 

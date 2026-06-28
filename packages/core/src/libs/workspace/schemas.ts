@@ -10,7 +10,7 @@ const FewShotExampleSchema = z.object({
   label: z.string().optional(),
 });
 
-export const ContextManifestSchema = z.object({
+export const WorkspaceManifestSchema = z.object({
   version: z.literal(1).describe('manifest format version'),
   orgId: z.string().min(1).describe('Clerk organization id'),
   name: z.string().min(1),
@@ -20,7 +20,7 @@ export const ContextManifestSchema = z.object({
     temperature: z.string().optional(),
   }).partial().optional(),
 });
-export type ContextManifest = z.infer<typeof ContextManifestSchema>;
+export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
 
 export const AgentManifestSchema = z.object({
   slug: SlugSchema,
@@ -202,13 +202,13 @@ export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
  */
 /**
  * LearningStep authoring schema (v0.2). Each
- * `context/<org>/learnings/<name>.yaml` declares one named step
+ * `workspace/<org>/learnings/<name>.yaml` declares one named step
  * (`global`, `meeting_triage`, ...). Steps are whitelisted via this
  * authoring path so the rule store doesn't drift into a junk drawer.
  */
 /**
  * Eval dataset authoring schema (v0.2). Each
- * `context/<org>/evals/<slug>.yaml` declares one dataset.
+ * `workspace/<org>/evals/<slug>.yaml` declares one dataset.
  */
 export const EvalDatasetManifestSchema = z.object({
   slug: SlugSchema,
