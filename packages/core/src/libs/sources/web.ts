@@ -110,7 +110,7 @@ async function fetchAsDoc(url: string, ctx: SourceContext): Promise<IngestDoc | 
  * user complains about a specific bad extraction.
  * @param html
  */
-function extractFromHtml(html: string): { title?: string; content: string } {
+export function extractFromHtml(html: string): { title?: string; content: string } {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch?.[1]?.replace(/\s+/g, ' ').trim();
   // Drop the things we never want to ingest.
@@ -180,7 +180,7 @@ async function* crawl(
   }
 }
 
-function extractLinks(html: string, baseUrl: string): string[] {
+export function extractLinks(html: string, baseUrl: string): string[] {
   const out: string[] = [];
   // eslint-disable-next-line regexp/no-contradiction-with-assertion -- the regex is intentionally permissive; the linter's "always-entered quantifier" warning is a false positive against `<a\b[^>]*\bhref`, which is the standard pattern for extracting hrefs from anchor tags.
   const re = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi;
