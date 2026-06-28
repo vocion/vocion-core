@@ -1,7 +1,7 @@
-import type { WorkflowManifest, WorkflowStep } from '@/libs/context/schemas';
+import type { WorkflowManifest, WorkflowStep } from '@/libs/workspace/schemas';
 import { and, desc, eq } from 'drizzle-orm';
-import { getCurrentContextSha } from '@/libs/context';
 import { db } from '@/libs/DB';
+import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { workflowRunSchema, workflowSchema } from '@/models/Schema';
 import { executeSkill } from './SkillService';
 
@@ -49,7 +49,7 @@ export type WorkflowRunSummary = {
   pauseReason: string | null;
   stepResults: Record<string, StepResult>;
   error: string | null;
-  contextSha: string | null;
+  workspaceSha: string | null;
   createdAt: Date;
   completedAt: Date | null;
 };
@@ -65,7 +65,7 @@ export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRu
     throw new Error(`workflow "${opts.slug}" is ${workflow.status}; cannot start`);
   }
 
-  const contextSha = await getCurrentContextSha(opts.orgId);
+  const workspaceSha = await getCurrentWorkspaceSha(opts.orgId);
 
   const [run] = await db.insert(workflowRunSchema).values({
     orgId: opts.orgId,
@@ -75,7 +75,7 @@ export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRu
     status: 'running',
     currentStep: 0,
     stepResults: {},
-    contextSha,
+    workspaceSha,
     createdBy: opts.invokedBy ?? 'mcp',
   }).returning();
 
@@ -412,7 +412,7 @@ function summarize(row: typeof workflowRunSchema.$inferSelect): WorkflowRunSumma
     pauseReason: row.pauseReason,
     stepResults: (row.stepResults ?? {}) as Record<string, StepResult>,
     error: row.error,
-    contextSha: row.contextSha,
+    workspaceSha: row.workspaceSha,
     createdAt: row.createdAt,
     completedAt: row.completedAt,
   };

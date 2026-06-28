@@ -8,10 +8,10 @@ import { agentSchema, businessObjectTypeSchema, skillSchema } from '@/models/Sch
 import 'dotenv/config';
 
 /**
- * One-time export: read current DB rows into context/<org>/ as YAML + markdown.
- * Meant to be run once per org when migrating to context-as-code.
+ * One-time export: read current DB rows into workspace/<org>/ as YAML + markdown.
+ * Meant to be run once per org when migrating to workspace-as-code.
  *
- * usage: npm run context:export -- --org <orgId> --name <dirName> [--out context]
+ * usage: npm run workspace:export -- --org <orgId> --name <dirName> [--out context]
  */
 
 async function main(): Promise<void> {
@@ -27,8 +27,8 @@ async function main(): Promise<void> {
   const skills = await db.select().from(skillSchema).where(eq(skillSchema.orgId, orgId));
   const objectTypes = await db.select().from(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.orgId, orgId));
 
-  // context.yaml
-  writeFile(join(outDir, 'context.yaml'), stringifyYaml({
+  // workspace.yaml
+  writeFile(join(outDir, 'workspace.yaml'), stringifyYaml({
     version: 1,
     orgId,
     name,

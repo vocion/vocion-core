@@ -1,8 +1,8 @@
 /**
  * Seeds a sample Discovery Call business_object instance + Zoom document links
  * for local demos and E2E tests. Runtime data only — business_object_type
- * definitions now live in context/<org>/objects/ and are applied via
- * `npm run context:apply`.
+ * definitions now live in workspace/<org>/objects/ and are applied via
+ * `npm run workspace:apply`.
  *
  * Usage: npx tsx src/scripts/seed-discovery-call.ts
  */

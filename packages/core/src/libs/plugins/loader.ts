@@ -16,7 +16,7 @@ import { pluginRegistry } from './registry';
  *      installed in node_modules. Each entry is imported as an ES module
  *      and its default export is validated as `PluginManifest`.
  *
- *   2. (Future) `context/<org>/plugins.yaml` — declarative enablement +
+ *   2. (Future) `workspace/<org>/plugins.yaml` — declarative enablement +
  *      per-plugin config. Not yet wired; left as a TODO so the shape is
  *      documented.
  *

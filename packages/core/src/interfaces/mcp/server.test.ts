@@ -15,7 +15,7 @@ vi.mock('@/libs/DB');
  * context dir, PGLite DB from the mock. Verifies:
  *   - list/get on an empty context
  *   - write_skill → files on disk, commit made, DB row created
- *   - context_diff shows no pending changes after apply
+ *   - workspace_diff shows no pending changes after apply
  *   - write again → updated=1
  *   - version_history has rows
  *   - delete removes files + DB row
@@ -28,7 +28,7 @@ function scratchContext(): { root: string; contextDir: string; cleanup: () => vo
   execSync('git config user.name test', { cwd: root });
   const contextDir = join(root, 'context');
   execSync(`mkdir -p ${contextDir}`);
-  writeFileSync(join(contextDir, 'context.yaml'), 'version: 1\norgId: test_org_mcp\nname: test\n');
+  writeFileSync(join(contextDir, 'workspace.yaml'), 'version: 1\norgId: test_org_mcp\nname: test\n');
   execSync('git add -A', { cwd: root });
   execSync('git commit -q -m initial', { cwd: root });
   return {
@@ -76,8 +76,8 @@ describe('MCP server (end-to-end)', () => {
         const list = await client.listTools();
         const names = list.tools.map(t => t.name);
 
-        expect(names).toContain('context_list');
-        expect(names).toContain('context_write_skill');
+        expect(names).toContain('workspace_list');
+        expect(names).toContain('workspace_write_skill');
         expect(names).toContain('runtime_run_skill');
         expect(names).toContain('search_query');
       } finally {
@@ -93,7 +93,7 @@ describe('MCP server (end-to-end)', () => {
     try {
       const { client, server } = await setupClientServer(scratch.contextDir);
       try {
-        const result = await client.callTool({ name: 'context_list', arguments: {} });
+        const result = await client.callTool({ name: 'workspace_list', arguments: {} });
         const data = parseToolResult<{ agents: unknown[]; skills: unknown[]; objectTypes: unknown[] }>(result as ToolResult);
 
         expect(data.skills).toEqual([]);
@@ -114,7 +114,7 @@ describe('MCP server (end-to-end)', () => {
       try {
         // Write a skill — opt into autoCommit since default is now false
         const writeResult = await client.callTool({
-          name: 'context_write_skill',
+          name: 'workspace_write_skill',
           arguments: {
             manifest: {
               slug: 'hello_world',
@@ -147,7 +147,7 @@ describe('MCP server (end-to-end)', () => {
 
         // List shows it
         const list = parseToolResult<{ skills: Array<{ slug: string }> }>(
-          await client.callTool({ name: 'context_list', arguments: {} }) as ToolResult,
+          await client.callTool({ name: 'workspace_list', arguments: {} }) as ToolResult,
         );
 
         expect(list.skills).toHaveLength(1);
@@ -155,14 +155,14 @@ describe('MCP server (end-to-end)', () => {
 
         // Get returns full prompt
         const got = parseToolResult<{ slug: string; resolvedPromptTemplate: string }>(
-          await client.callTool({ name: 'context_get', arguments: { kind: 'skill', slug: 'hello_world' } }) as ToolResult,
+          await client.callTool({ name: 'workspace_get', arguments: { kind: 'skill', slug: 'hello_world' } }) as ToolResult,
         );
 
         expect(got.resolvedPromptTemplate).toBe('Say hello to {{name}}.');
 
         // Diff is clean (no pending)
         const diff = parseToolResult<{ counts: { skills: { created: number; updated: number; unchanged: number } } }>(
-          await client.callTool({ name: 'context_diff', arguments: {} }) as ToolResult,
+          await client.callTool({ name: 'workspace_diff', arguments: {} }) as ToolResult,
         );
 
         expect(diff.counts.skills.created).toBe(0);
@@ -171,7 +171,7 @@ describe('MCP server (end-to-end)', () => {
 
         // Version history has at least one row
         const history = parseToolResult<Array<{ sha: string }>>(
-          await client.callTool({ name: 'context_version_history', arguments: { limit: 5 } }) as ToolResult,
+          await client.callTool({ name: 'workspace_version_history', arguments: { limit: 5 } }) as ToolResult,
         );
 
         expect(history.length).toBeGreaterThanOrEqual(1);
@@ -180,7 +180,7 @@ describe('MCP server (end-to-end)', () => {
         // Rewrite with changed description → updated=1
         const reWrite = parseToolResult<{ apply: { counts: { skills: { updated: number } } } | { error: string } }>(
           await client.callTool({
-            name: 'context_write_skill',
+            name: 'workspace_write_skill',
             arguments: {
               manifest: {
                 slug: 'hello_world',
@@ -200,14 +200,14 @@ describe('MCP server (end-to-end)', () => {
 
         // Delete
         const del = parseToolResult<{ removed: string[]; dbRowsDeleted: number }>(
-          await client.callTool({ name: 'context_delete', arguments: { kind: 'skill', slug: 'hello_world' } }) as ToolResult,
+          await client.callTool({ name: 'workspace_delete', arguments: { kind: 'skill', slug: 'hello_world' } }) as ToolResult,
         );
 
         expect(del.removed.length).toBeGreaterThan(0);
         expect(del.dbRowsDeleted).toBe(1);
 
         const afterDelete = parseToolResult<{ skills: unknown[] }>(
-          await client.callTool({ name: 'context_list', arguments: {} }) as ToolResult,
+          await client.callTool({ name: 'workspace_list', arguments: {} }) as ToolResult,
         );
 
         expect(afterDelete.skills).toEqual([]);
@@ -225,7 +225,7 @@ describe('MCP server (end-to-end)', () => {
       const { client, server } = await setupClientServer(scratch.contextDir);
       try {
         const result = (await client.callTool({
-          name: 'context_write_skill',
+          name: 'workspace_write_skill',
           arguments: {
             manifest: {
               slug: 'Bad-Slug-Caps',

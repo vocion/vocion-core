@@ -1,8 +1,8 @@
-import type { LoadedAgent, LoadedContext, LoadedEvalDataset, LoadedLearningStep, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedWorkflow } from './loader';
+import type { LoadedAgent, LoadedEvalDataset, LoadedLearningStep, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedWorkflow, LoadedWorkspace } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { agentSchema, businessObjectTypeSchema, contextVersionSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, playbookSchema, skillSchema, workflowSchema } from '@/models/Schema';
+import { agentSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, playbookSchema, skillSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -32,7 +32,7 @@ export type ApplyResult = {
   versionId: number | null;
 };
 
-export async function applyContext(loaded: LoadedContext, opts: ApplyOptions = {}): Promise<ApplyResult> {
+export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions = {}): Promise<ApplyResult> {
   const orgId = opts.orgId ?? loaded.manifest.orgId;
   const dryRun = opts.dryRun ?? false;
   const defaults = loaded.manifest.defaults ?? {};
@@ -124,7 +124,7 @@ export async function applyContext(loaded: LoadedContext, opts: ApplyOptions = {
 
   let versionId: number | null = null;
   if (!dryRun) {
-    const [row] = await db.insert(contextVersionSchema).values({
+    const [row] = await db.insert(workspaceVersionSchema).values({
       orgId,
       sha: loaded.sha,
       sourcePath: loaded.sourcePath,
@@ -132,7 +132,7 @@ export async function applyContext(loaded: LoadedContext, opts: ApplyOptions = {
       summary: counts as unknown as Record<string, Record<string, number>>,
       errors,
       appliedBy: opts.appliedBy ?? 'system',
-    }).returning({ id: contextVersionSchema.id });
+    }).returning({ id: workspaceVersionSchema.id });
     versionId = row?.id ?? null;
   }
 

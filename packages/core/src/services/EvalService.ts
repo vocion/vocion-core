@@ -7,7 +7,7 @@
  *
  * Determinism: temperature=0 for both the agent under test (via
  * `runAgentDeep` defaults) and the judge. Every run stamps the active
- * `contextSha` so prompt drift is attributable.
+ * `workspaceSha` so prompt drift is attributable.
  *
  * Callable from CLI (`npm run eval:run -- --dataset <slug>`) and oRPC.
  * UI is a thin viewer over the rows.
@@ -16,11 +16,11 @@
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { getCurrentContextSha } from '@/libs/context';
 import { db } from '@/libs/DB';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModel } from '@/libs/llm';
+import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { evalCaseResultSchema, evalDatasetSchema, evalRunSchema } from '@/models/Schema';
 import { runAgentDeep } from './AgentService';
 
@@ -103,7 +103,7 @@ export async function runDataset(opts: {
   if (!dataset) {
     throw new Error(`dataset ${opts.datasetSlug} not found for org ${opts.orgId}`);
   }
-  const contextSha = await getCurrentContextSha(opts.orgId).catch(() => null);
+  const workspaceSha = await getCurrentWorkspaceSha(opts.orgId).catch(() => null);
 
   const [run] = await db
     .insert(evalRunSchema)
@@ -111,7 +111,7 @@ export async function runDataset(opts: {
       orgId: opts.orgId,
       datasetId: dataset.id,
       agentSlug: dataset.agentSlug,
-      contextSha: contextSha ?? null,
+      workspaceSha: workspaceSha ?? null,
       status: 'running',
     })
     .returning();

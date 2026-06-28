@@ -107,13 +107,13 @@ export default async function WorkflowRunDetailPage(props: Props) {
                 <span className="font-mono text-xs">{run.pauseReason}</span>
               </>
             )}
-            {run.contextSha && (
+            {run.workspaceSha && (
               <>
                 <span aria-hidden>·</span>
                 <span className="font-mono text-xs">
                   context
                   {' '}
-                  {run.contextSha.slice(0, 7)}
+                  {run.workspaceSha.slice(0, 7)}
                 </span>
               </>
             )}

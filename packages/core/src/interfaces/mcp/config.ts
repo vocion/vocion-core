@@ -20,13 +20,13 @@ export function readConfig(): McpConfig {
     throw new Error('VOCION_ORG_ID is required (or SEED_ORG_ID fallback)');
   }
   const orgName = process.env.VOCION_ORG_NAME ?? 'metacto';
-  const contextPath = resolve(process.env.CONTEXT_PATH ?? `context/${orgName}`);
+  const contextPath = resolve(process.env.WORKSPACE_PATH ?? `workspace/${orgName}`);
 
   return {
     orgId,
     contextPath,
-    autoCommit: process.env.CONTEXT_AUTO_COMMIT !== 'false',
-    autoApply: process.env.CONTEXT_AUTO_APPLY !== 'false',
+    autoCommit: process.env.WORKSPACE_AUTO_COMMIT !== 'false',
+    autoApply: process.env.WORKSPACE_AUTO_APPLY !== 'false',
     serverName: 'vocion',
     serverVersion: '0.1.0',
   };
