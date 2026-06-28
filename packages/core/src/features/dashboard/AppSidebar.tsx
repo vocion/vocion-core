@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Sparkles,
   TestTube,
+  Wrench,
   Zap,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -82,6 +83,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
             { title: t('sources'), url: '/dashboard/sources', icon: Plug },
             { title: t('objects'), url: '/dashboard/objects', icon: Database },
             { title: t('skills'), url: '/dashboard/skills', icon: Zap },
+            { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
             { title: t('playbooks'), url: '/dashboard/playbooks', icon: ScrollText },
             { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
             { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
