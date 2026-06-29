@@ -5,6 +5,7 @@ import {
   BookOpen,
   Bot,
   CheckSquare,
+  Compass,
   Database,
   FileText,
   GitBranch,
@@ -65,6 +66,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           label={t('main_section_label')}
           items={[
             { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
+            { title: 'Missions', url: '/dashboard/missions', icon: Compass },
             { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
             { title: t('agents'), url: '/dashboard/agents', icon: Bot },
             { title: t('review'), url: '/dashboard/review', icon: CheckSquare },

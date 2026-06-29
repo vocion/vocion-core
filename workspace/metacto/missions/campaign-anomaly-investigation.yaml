@@ -1,0 +1,21 @@
+slug: campaign-anomaly-investigation
+name: Campaign Anomaly Investigation
+description: When the numbers don't add up, the team investigates from multiple angles, forms hypotheses, and recommends what to do.
+status: active
+version: 1
+goal: Diagnose an unexpected change (e.g. CPL improved but booked calls dropped) and recommend next steps.
+defaultTeam:
+  lead: account-strategist
+  members:
+    - paid-media-analyst
+    - lifecycle-analyst
+    - data-qa
+autonomyPolicy:
+  level: 1
+successCriteria:
+  - Rule out tracking/data issues first
+  - Identify the most likely cause with evidence
+  - Recommend a concrete, low-risk next step
+desiredArtifacts:
+  - Investigation memo with hypotheses ranked by likelihood
+  - Recommended action

@@ -702,6 +702,102 @@ export const workflowRunRelations = relations(workflowRunSchema, ({ one }) => ({
 }));
 
 /* ------------------------------------------------------------------ */
+/* Missions — open-ended, goal-driven team work (the third work mode). */
+/* A Mission is the open envelope; Workflows are the structured one.   */
+/* ------------------------------------------------------------------ */
+
+/** Mission templates — authored starting points in workspace/<org>/missions/. */
+export const missionSchema = pgTable(
+  'mission',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    version: integer('version').default(1),
+    /** `active` | `disabled` | `draft` */
+    status: text('status').default('active'),
+    /** The open-ended goal this mission pursues. */
+    goal: text('goal').notNull(),
+    /** Default team: { lead: agentSlug, members: agentSlug[] }. */
+    defaultTeam: jsonb('default_team').$type<{ lead: string; members: string[] }>().notNull(),
+    /** Per-action autonomy policy (see services/missions/autonomy.ts). */
+    autonomyPolicy: jsonb('autonomy_policy').$type<Record<string, unknown>>().default({}),
+    /** Plain-language success criteria + expected artifacts. */
+    successCriteria: jsonb('success_criteria').$type<string[]>().default([]),
+    desiredArtifacts: jsonb('desired_artifacts').$type<string[]>().default([]),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('mission_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
+
+/** Mission execution instances — one open-ended assignment in flight. */
+export const missionRunSchema = pgTable('mission_run', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+  /** Nullable — missions can start ad-hoc from a freeform brief (no template). */
+  missionId: integer('mission_id').references(() => missionSchema.id, { onDelete: 'set null' }),
+  title: text('title').notNull(),
+  /** The natural-language assignment the owner gave. */
+  brief: text('brief').notNull(),
+  goal: text('goal'),
+  /** `planning` | `running` | `paused` | `awaiting_review` | `completed` | `failed` | `cancelled` */
+  status: text('status').default('planning').notNull(),
+  /** Generated task graph — the live plan. */
+  plan: jsonb('plan').$type<{
+    tasks: Array<{
+      id: string;
+      title: string;
+      ownerAgentSlug: string;
+      type: 'analysis' | 'creative' | 'synthesis' | 'artifact' | 'diagnostic' | 'action';
+      status: 'pending' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'skipped';
+      dependsOn?: string[];
+      approvalRequired?: boolean;
+      output?: string;
+      traceId?: string;
+      error?: string;
+    }>;
+  }>().default({ tasks: [] }),
+  /** Resolved team for this run: { lead, members[] }. */
+  team: jsonb('team').$type<{ lead: string; members: string[] }>().notNull(),
+  /** Autonomy policy in effect for this run. */
+  autonomyPolicy: jsonb('autonomy_policy').$type<Record<string, unknown>>().default({}),
+  /** Produced artifacts — refs from the artifact store. */
+  artifacts: jsonb('artifacts').$type<Array<{ taskId: string; kind: string; url: string; title?: string }>>().default([]),
+  /** When paused/awaiting review, why — e.g. `awaiting_approval:task_id`. */
+  pauseReason: text('pause_reason'),
+  pausedAt: timestamp('paused_at', { mode: 'date' }),
+  error: text('error'),
+  /** Workspace SHA active when the run started — stamped for audit. */
+  workspaceSha: text('workspace_sha'),
+  createdBy: text('created_by'),
+  rating: text('rating'),
+  feedbackNote: text('feedback_note'),
+  feedbackBy: text('feedback_by'),
+  feedbackAt: timestamp('feedback_at', { mode: 'date' }),
+  completedAt: timestamp('completed_at', { mode: 'date' }),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+});
+
+export const missionRelations = relations(missionSchema, ({ many }) => ({
+  runs: many(missionRunSchema),
+}));
+
+export const missionRunRelations = relations(missionRunSchema, ({ one }) => ({
+  mission: one(missionSchema, {
+    fields: [missionRunSchema.missionId],
+    references: [missionSchema.id],
+  }),
+}));
+
+/* ------------------------------------------------------------------ */
 /* Workspace Versioning — git-backed workspace-as-code audit trail        */
 /* ------------------------------------------------------------------ */
 

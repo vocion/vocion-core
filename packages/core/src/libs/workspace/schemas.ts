@@ -168,6 +168,21 @@ export type WorkflowManifest = z.infer<typeof WorkflowManifestSchema>;
 export type WorkflowStep = z.infer<typeof WorkflowStepSchema>;
 export type WorkflowTrigger = z.infer<typeof WorkflowTriggerSchema>;
 
+/** Mission templates — open-ended team work starting points. */
+export const MissionManifestSchema = z.object({
+  slug: SlugSchema,
+  name: z.string(),
+  description: z.string().optional(),
+  status: z.enum(['active', 'disabled', 'draft']).default('active'),
+  version: z.number().int().positive().default(1),
+  goal: z.string(),
+  defaultTeam: z.object({ lead: z.string(), members: z.array(z.string()).default([]) }),
+  autonomyPolicy: z.object({ level: z.number().int().min(1).max(5).default(1) }).default({ level: 1 }),
+  successCriteria: z.array(z.string()).default([]),
+  desiredArtifacts: z.array(z.string()).default([]),
+});
+export type MissionManifest = z.infer<typeof MissionManifestSchema>;
+
 // Re-export InterpolatableStringSchema for step authors who want to type inputs explicitly.
 export { InterpolatableStringSchema };
 
