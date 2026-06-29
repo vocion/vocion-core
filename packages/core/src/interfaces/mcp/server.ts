@@ -3,6 +3,7 @@ import type { McpConfig } from './config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { capabilityTools } from './tools/capability-tools';
 import { dataTools } from './tools/data-tools';
+import { missionTools } from './tools/mission-tools';
 import { playbookTools } from './tools/playbook-tools';
 import { pluginTools } from './tools/plugin-tools';
 import { runtimeTools, skillRunDetailTool } from './tools/runtime-tools';
@@ -33,6 +34,7 @@ export function buildServer(config: McpConfig): McpServer {
     skillRunDetailTool(config),
     ...dataTools(config),
     ...capabilityTools(config),
+    ...missionTools(config),
     ...pluginTools(config),
     ...workflowTools(config),
     ...playbookTools(config),

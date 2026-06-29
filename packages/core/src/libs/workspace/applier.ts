@@ -1,8 +1,8 @@
-import type { LoadedAgent, LoadedEvalDataset, LoadedLearningStep, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedWorkflow, LoadedWorkspace } from './loader';
+import type { LoadedAgent, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedWorkflow, LoadedWorkspace } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { agentSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, playbookSchema, skillSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, skillSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -23,6 +23,7 @@ export type ApplyResult = {
     skills: ResourceCounts;
     objectTypes: ResourceCounts;
     workflows: ResourceCounts;
+    missions: ResourceCounts;
     playbooks: ResourceCounts;
     learningSteps: ResourceCounts;
     evalDatasets: ResourceCounts;
@@ -43,6 +44,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     skills: blank(),
     objectTypes: blank(),
     workflows: blank(),
+    missions: blank(),
     playbooks: blank(),
     learningSteps: blank(),
     evalDatasets: blank(),
@@ -83,6 +85,15 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
       bump(counts.workflows, outcome);
     } catch (err) {
       errors.push({ resource: 'workflow', slug: workflow.slug, message: (err as Error).message });
+    }
+  }
+
+  for (const mission of loaded.missions) {
+    try {
+      const outcome = await upsertMission(orgId, mission, dryRun);
+      bump(counts.missions, outcome);
+    } catch (err) {
+      errors.push({ resource: 'mission', slug: mission.slug, message: (err as Error).message });
     }
   }
 
@@ -306,6 +317,41 @@ async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, dryRun: b
 
   if (!dryRun) {
     await db.update(workflowSchema).set(payload).where(eq(workflowSchema.id, existing.id));
+  }
+  return 'updated';
+}
+
+async function upsertMission(orgId: string, mission: LoadedMission, dryRun: boolean): Promise<UpsertOutcome> {
+  const [existing] = await db
+    .select()
+    .from(missionSchema)
+    .where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.slug, mission.slug)));
+
+  const payload = {
+    orgId,
+    slug: mission.slug,
+    name: mission.name,
+    description: mission.description ?? null,
+    version: mission.version,
+    status: mission.status,
+    goal: mission.goal,
+    defaultTeam: mission.defaultTeam,
+    autonomyPolicy: mission.autonomyPolicy as unknown as Record<string, unknown>,
+    successCriteria: mission.successCriteria,
+    desiredArtifacts: mission.desiredArtifacts,
+  };
+
+  if (!existing) {
+    if (!dryRun) {
+      await db.insert(missionSchema).values(payload);
+    }
+    return 'created';
+  }
+  if (JSON.stringify({ ...existing, id: 0, createdAt: 0, updatedAt: 0, projectId: 0 }) === JSON.stringify({ ...existing, ...payload, id: 0, createdAt: 0, updatedAt: 0, projectId: 0 })) {
+    return 'unchanged';
+  }
+  if (!dryRun) {
+    await db.update(missionSchema).set(payload).where(eq(missionSchema.id, existing.id));
   }
   return 'updated';
 }

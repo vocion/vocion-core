@@ -4,6 +4,30 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-28 — Missions: open-ended team work (the third work mode)
+
+Adds the **Mission** primitive — a goal-driven assignment a team of agents plans and works under
+human review (Hire→Brief→Work→Review→Coach→Learn→Promote). One Agent framework, three modes
+(structured / mission / team); workflows become what successful missions get promoted into. Ships
+in `v1.25.0`.
+
+- Schema `mission` + `mission_run`; hand-written migration `0024` (drizzle generate still blocked by
+  the 0021/0022 snapshot collision).
+- `services/MissionService` + `services/missions/{planner,runtime,autonomy}`: plan a brief into a
+  task graph, dispatch tasks to owner agents via `runAgentDeep`, autonomy ladder gates external
+  actions (pause → `awaiting_review`), capture artifacts, resumable state, promote-to-workflow stub.
+- oRPC `missions.*` + MCP `mission_*` + workspace authoring (`MissionManifestSchema`, loader,
+  applier) + 2 seed templates.
+- Dashboard **Mission Room** (`/dashboard/missions`): list, brief form, run detail
+  (Brief/Plan/Team/Artifacts/Coaching) + sidebar entry.
+- New `/feature` Claude Code skill (`.claude/skills/feature/`) — the cross-repo major-feature
+  workflow (deep plan → build core+UI → marketing+docs → semver+blog, delegating to `/release`).
+- Reuses subagents, write_todos, request_human_review, learnings, budgets, the workspace_sha stamp.
+- Phases 2–6 (durable Temporal sessions, capability registry/proposals, deeper team runtime,
+  promotion engine) planned, not in this MVP.
+
+---
+
 ## 2026-06-28 — Built-in agent tools (web search, browse, image, code, artifacts)
 
 Agents were capable over ingested knowledge but couldn't reach the live web or produce things.
