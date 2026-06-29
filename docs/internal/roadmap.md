@@ -467,19 +467,39 @@ public `docs/features/missions.md` (vocion-www); buyer narrative in `firsthq/doc
 - [ ] **Phase 2 — Durable agent sessions.** Promote mission execution onto Temporal
   (`vocionWorkflow` + `approvalSignal`) for crash-safe, multi-day pause/resume; `agent_session` state
   + checkpoints. *(Depends on [Phase 6 — durable runner](#phase-6--triggers--durable-runner).)*
-- [ ] **Phase 3 — Capability registry.** `capability` as a first-class object
-  (tools + playbooks + evals + approval + examples) + per-agent capability lists.
-  *(Ties to [Phase 2.5](#phase-25--agent-tool-layer--skill-contract-agent--skill--tool)'s `defineTool` + `tools:` contract.)*
+- [ ] **Phase 3 — Capability registry.** `capability` as a first-class object —
+  tools + playbooks + evals + approval + examples, **plus `criticalRules` (guardrails),
+  `successMetrics` (targets), and `deliverableTemplates`** — + per-agent capability lists.
+  *(Ties to [Phase 2.5](#phase-25--agent-tool-layer--skill-contract-agent--skill--tool)'s `defineTool` + `tools:` contract. Schema shape validated against real public agency-agent rosters — see note below.)*
 - [ ] **Phase 4 — Capability proposals.** Agent-proposed upgrades (new access / capability / learning)
   → owner approval queue. *(Ties to [Phase 4](#phase-4--self-improvement-loop-finish)'s improvement router.)*
 - [ ] **Phase 5 — Team runtime depth.** Agent-to-agent messaging, debate/synthesis, direct
-  human→teammate steering mid-run.
+  human→teammate steering mid-run, **and a declared agent collaboration graph
+  (handoff-from / collaborates-with / delivers-to / escalates-to) with runtime handoff + escalation
+  routing.** *(Newly motivated: public agency-agent rosters declare exactly these edges per role.)*
 - [ ] **Phase 6 — Promotion engine.** Detect repeatable missions → auto-draft a reusable Workflow +
   schedule (full version of the v1.25 stub). *(Ties to [Phase 6 — triggers](#phase-6--triggers--durable-runner) for the schedule.)*
 
 **Exit (track complete):** a mission briefed in plain language runs as a durable, crash-safe team
 session; teammates carry governed capabilities they can propose to extend; repeatable missions
 auto-promote into scheduled Workflows.
+
+> **Capability sourcing note.** Public agency-agent rosters (e.g. the MIT-licensed `agency-agents`
+> project, ~35 marketing specialists) are a strong real-world reference for the Capability schema
+> above — each carries a one-line "vibe," core capabilities, **critical rules**, a **collaboration
+> graph**, **success metrics**, and **deliverable templates**. We borrow the *shape* (validated here),
+> author our own content to our quality + voice bar, and ship no copied text. They also surfaced a
+> capability area worth building: **AI Visibility (AEO/GEO)** — see Phase 2.5.
+
+### AI Visibility toolset (AEO / GEO) — new, lands in Phase 2.5 / Phase 3
+
+Being found, read, and **recommended by AI engines** (ChatGPT/Claude/Gemini/Perplexity), not just
+ranked by Google. Built on the v1.24 web tools; powers FirstHQ's commercial "AI Visibility" team.
+- [ ] **Multi-engine query/audit tool** — run prompts across AI engines, capture citations +
+  share-of-voice. Non-deterministic + point-in-time; never "guarantee," always benchmark before/after.
+- [ ] **AEO-foundations checks** — `llms.txt` / AI-aware `robots.txt` / discovery-file (`AGENTS.md`,
+  agent-permissions) audit; token-budget + structured-content checks.
+- [ ] **Schema / entity output** — structured-data + entity-clarity generation as a deliverable template.
 
 ## First-12 workflows as forcing functions
 
