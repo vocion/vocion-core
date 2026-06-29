@@ -22,7 +22,8 @@ Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live
 11. [Phase 11 — Vocion Cloud (proprietary)](#phase-11--vocion-cloud-proprietary)
 12. [Phase 12 — Ecosystem](#phase-12--ecosystem)
 13. [Phase 13 — Enterprise (proprietary)](#phase-13--enterprise-proprietary)
-14. [First-12 workflows as forcing functions](#first-12-workflows-as-forcing-functions)
+14. [Missions — open-ended team work (feature track)](#missions--open-ended-team-work-feature-track)
+15. [First-12 workflows as forcing functions](#first-12-workflows-as-forcing-functions)
 
 ---
 
@@ -34,6 +35,7 @@ Everything here is live on `main`.
 - [x] Workspace-as-code loop — `workspace/<org>/` (YAML + markdown), idempotent apply, `workspace_version` audit, `skill_run.workspace_sha` stamping
 - [x] Reference tenant (MetaCTO / Ziggy) runs entirely from git-backed context
 - [x] `WORKSPACE_PATH` makes tenant extraction trivial; extraction playbook documented
+- [x] Native pgvector retrieval ([Phase 3](#phase-3--native-retrieval) pipeline) — HNSW cosine + Postgres FTS + RRF fusion + optional rerank; Onyx engine removed
 
 ### Interface layer (partial)
 - [x] MCP server over stdio — Claude Code, Claude app, Cursor, Zed, Continue
@@ -63,6 +65,20 @@ Everything here is live on `main`.
 - [x] `PrimitiveFiles` viewer with CodeMirror edit for YAML / Markdown / JavaScript
 - [x] `context.writeFile` oRPC route — path-traversal guarded, extension allowlist, re-applies after save
 - [x] Dirty badge when the workspace repo has uncommitted changes
+
+### Built-in agent tools (v1.24.0 — partial [Phase 2.5](#phase-25--agent-tool-layer--skill-contract-agent--skill--tool))
+- [x] `web_search` — Tavily (default) / Brave, provider-pluggable via `VOCION_WEBSEARCH_PROVIDER`
+- [x] Browse — `fetch_url` + `crawl_site` (reuses the `web` connector extractor; Firecrawl opt-in)
+- [x] `run_code` — built-in **safe calculator** (allowlisted identifiers via `Object.hasOwn`, no eval); E2B sandbox reserved
+- [x] `generate_image` (OpenAI gpt-image-1) + `create_artifact` (CSV / SVG chart / doc) → artifact store at `/artifacts`
+- [x] `/dashboard/tools` catalog (provider + key status) reading `libs/tools/catalog.ts`
+- [ ] Remaining Phase 2.5 contract — `defineTool` registry, per-skill `tools:` allowlist + enforcement, `http_request`, `sql_query`, outbound MCP client, per-tool budgets (still open)
+
+### Missions — third work mode (v1.25.0, MVP — see [feature track](#missions--open-ended-team-work-feature-track))
+- [x] `mission` + `mission_run` schema; migration `0024`; one Agent framework, three modes (structured / mission / team)
+- [x] `MissionService` + `services/missions/{planner,runtime,autonomy}` — brief → task graph, dispatch per-task via `runAgentDeep`, autonomy ladder gates external actions (pause → `awaiting_review`), artifacts, resumable state, promote-to-workflow stub
+- [x] oRPC `missions.*` + MCP `mission_*` + workspace authoring (`MissionManifestSchema`, loader, applier) + 2 seed templates
+- [x] **Mission Room** dashboard (`/dashboard/missions`) — list, brief form, run detail (Brief/Plan/Team/Artifacts/Coaching)
 
 ### UX + framing (cross-cutting)
 - [x] Rebrand Vocion → Vocion (repo, npm scope, docs, marketing, domain)
@@ -103,7 +119,14 @@ Skills, context, and review queues reachable from wherever people already work. 
 
 ### Phase 2.5 — Agent tool layer + skill contract (Agent → Skill → Tool)
 
-*Formalizes the canonical model the marketing site + public docs now describe, and closes the audit's #1 gap: agents have no general toolbelt.* Today an agent's reach is a fixed runtime tool set (`search_knowledge`, `lookup_objects`, `run_operation`, `request_human_review`, learnings/runs tools) plus whatever a plugin skill calls via `ctx`. There is no `defineTool` primitive, no per-skill declaration of *which* tools a skill may use, and no general web/HTTP/code capability — so "agents that operate your business" overpromises against a knowledge-retrieval-plus-operations runtime.
+> **Status: partially shipped (v1.24.0).** The built-in general toolbelt landed — `web_search`,
+> `fetch_url`/`crawl_site`, `run_code` (safe calculator), plus `generate_image` + `create_artifact`,
+> with a `/dashboard/tools` catalog. **Still open:** the `defineTool` SDK registry, the per-skill
+> `tools:` allowlist + runtime enforcement (the only `tools:` field today is per-*subagent*, a
+> deepagents construct — not the skill contract), `http_request`, `sql_query`, the outbound MCP
+> client, and per-tool/per-egress budgets. Checkboxes below reflect this.
+
+*Formalizes the canonical model the marketing site + public docs now describe, and closes the audit's #1 gap: agents have no general toolbelt.* Today an agent's reach is a fixed runtime tool set (`search_knowledge`, `lookup_objects`, `run_operation`, `request_human_review`, learnings/runs tools) plus the v1.24 built-in tools (`web_search`, browse, `run_code`, `generate_image`, `create_artifact`) and whatever a plugin skill calls via `ctx`. There is still no `defineTool` primitive, no per-skill declaration of *which* tools a skill may use, and no general HTTP/SQL capability — so the contract that makes tool access governed + traced per skill remains the open work.
 
 The model: **agents are composed of skills; a skill bundles its logic + acceptance evals + the tools it may call; tools are atomic, traced, budgeted capabilities.** This phase makes that real in code.
 
@@ -119,10 +142,11 @@ The model: **agents are composed of skills; a skill bundles its logic + acceptan
 - [ ] Tool calls appear in the run trace alongside inputs, workspace_sha, and cost
 
 **Built-in general toolbelt** (the capabilities buyers assume exist)
-- [ ] `web_search` — provider-pluggable (Brave / Tavily / Bing), result snippets + URLs
-- [ ] `fetch_url` — single-page fetch + readability extraction (distinct from the ingestion crawler in `libs/sources/web.ts`)
+- [x] `web_search` — provider-pluggable (Tavily default / Brave), result snippets + URLs *(v1.24.0)*
+- [x] `fetch_url` + `crawl_site` — fetch + readability extraction reusing the `web` connector extractor; Firecrawl opt-in for JS-heavy pages *(v1.24.0)*
+- [x] `run_code` — built-in **safe calculator** (allowlisted identifiers, no eval); E2B sandbox reserved as the opt-in path to full sandboxed JS/Python *(v1.24.0)*
+- [x] `generate_image` + `create_artifact` — beyond the original list; image gen + CSV/SVG-chart/doc artifacts to the artifact store *(v1.24.0)*
 - [ ] `http_request` — arbitrary REST call against a per-tenant **egress allowlist**
-- [ ] `run_code` — sandboxed JS/Python for computation and transforms (no network by default)
 - [ ] `sql_query` — read-only query against a connected Postgres source
 - [ ] Outbound **MCP client** — skills can call tools exposed by external MCP servers (mirror of our MCP server); MCP tools participate in the same `tools:` grant + trace
 
@@ -136,15 +160,23 @@ The model: **agents are composed of skills; a skill bundles its logic + acceptan
 
 *Highest operational payoff.* Replace Onyx with a pgvector-native pipeline. Onyx's 12 containers are the single biggest friction in every install — and the "self-host anywhere" promise is hollow until they're gone. Also lights up workflow-scoped retrieval primitives so multi-step workflows stop re-retrieving overlapping evidence at every step.
 
+> **Status: pipeline rewrite shipped.** Native retrieval is the live stack (`RetrievalService` —
+> pgvector HNSW cosine + Postgres FTS + RRF fusion, k=60, optional LLM rerank; `IngestionService`
+> chunks + embeds via OpenAI `text-embedding-3-small`). The Onyx engine is gone — only a vestigial
+> `onyx_document_id` column name lingers as a v0.2 fossil pending rename. **Still open:** the
+> pluggable `retrieval.yaml` backends (Vertex / Azure search), an Onyx→pgvector migration tool
+> (moot — cutover was clean, no legacy index to migrate), and the entire workflow-scoped retrieval
+> subsection below.
+
 **Pipeline rewrite**
-- [ ] pgvector schema + HNSW index
-- [ ] Postgres FTS layer
-- [ ] RRF hybrid ranker
-- [ ] Pluggable embedder + reranker interfaces + default implementations
+- [x] pgvector schema + HNSW index
+- [x] Postgres FTS layer (`tsvector` + `ts_rank`, GIN)
+- [x] RRF hybrid ranker (reciprocal rank fusion across vector + keyword arms)
+- [x] Pluggable embedder + reranker interfaces + default implementations (`libs/retrieval/reranker.ts`)
 - [ ] `retrieval.yaml` config: `backend: native | vertex-search | azure-search`
 - [ ] Vertex + Azure backends as source plugins
-- [ ] Migration tool: existing Onyx index → pgvector
-- [ ] Deprecate Onyx containers
+- [ ] ~~Migration tool: existing Onyx index → pgvector~~ — moot; cutover was clean (no legacy index)
+- [x] Deprecate Onyx containers (engine removed; only the `onyx_document_id` column name remains)
 
 **Workflow-scoped retrieval** (avoid raw RAG at every step)
 - [ ] Workflow-scoped retrieval cache — same `retrieve(query)` inside the same `workflow_run` returns cached chunks; cache key includes `workflow_run_id` + query + filters
@@ -277,10 +309,17 @@ Closes the operating loop the landing page promises ("track run volume, approval
 - [ ] Token + dollar cost attribution — per skill × workflow × tenant × model × provider
 - [ ] Unit economics per workflow — cost per run, cost per output, cost per approved output
 - [ ] ROI calculator — workflow declares baseline ("manual takes 30 min @ $80/hr"); dashboard shows realized savings vs compute spend
-- [ ] Budget caps — per-tenant or per-skill token / dollar budgets with soft-warn + hard-stop
+- [~] Budget caps — **partial:** agent-level caps shipped (`BudgetService` + `agent_budget` table, per-period token/dollar, pre-flight hard-stop in `runAgentDeep`). Per-tenant / per-skill scope + soft-warn still open.
 - [ ] Customer-facing economics report — monthly Markdown export: spend, savings, top workflows, anomalies
 
 **Observability + tracing** (delivers on landing-page "trace spans" promise)
+
+> **Status: partial.** Self-hosted **Langfuse** is integrated (`libs/Langfuse.ts`,
+> `/dashboard/observability`) — every LLM call is traced with `feature` / `org` / `slug` / `userId`
+> / `sessionId` tags. **Still open:** OTEL spans across the full run (not just LLM calls), the OTLP
+> exporter to a customer's APM, the in-app per-`workflow_run` flame-graph viewer, and PII scrubbing
+> on export.
+
 - [ ] OpenTelemetry instrumentation — every skill run + workflow step + retrieval call + LLM call emits a span with `tenant_id`, `skill_slug`, `workspace_sha`, `cost_usd`, `tokens_in/out`
 - [ ] OTLP exporter — push spans + metrics to customer's APM (Datadog / Honeycomb / Jaeger / Grafana Tempo / Splunk)
 - [ ] Per-tenant trace sampling config — head/tail-based sampling rules in `observability.yaml`
@@ -410,6 +449,37 @@ Plugin marketplace + community incentives. Sits after Cloud because the marketpl
 **Exit:** first enterprise customer signed with SSO + SCIM + BYOM + audit-export wired into their existing security stack; passes their security review without core platform changes.
 
 ---
+
+## Missions — open-ended team work (feature track)
+
+*Orthogonal to the linear platform phases above.* Missions add the **third work mode** on the one
+Agent framework: **Structured** (Workflow) · **Mission** (open-ended) · **Team** (multi-agent).
+A mission is a goal-driven assignment a team plans and works under human review —
+**Hire → Brief → Work → Review → Coach → Learn → Promote** — and what proves repeatable gets
+*promoted* into a Workflow. This is the runtime FirstHQ's "AI team room" is built on. Concept docs:
+public `docs/features/missions.md` (vocion-www); buyer narrative in `firsthq/docs/product-plan.md`.
+
+- [x] **Phase 1 — MVP (v1.25.0).** Schema (`mission` + `mission_run`, migration `0024`),
+  `MissionService` + planner/runtime/autonomy, oRPC `missions.*`, MCP `mission_*`, workspace authoring
+  + 2 seed templates, the **Mission Room** dashboard, the autonomy ladder gating external actions,
+  and a promote-to-workflow stub. Reuses subagents (team), `write_todos` (task graph),
+  `request_human_review` (gates), learnings (coaching), budgets, the `workspace_sha` stamp.
+- [ ] **Phase 2 — Durable agent sessions.** Promote mission execution onto Temporal
+  (`vocionWorkflow` + `approvalSignal`) for crash-safe, multi-day pause/resume; `agent_session` state
+  + checkpoints. *(Depends on [Phase 6 — durable runner](#phase-6--triggers--durable-runner).)*
+- [ ] **Phase 3 — Capability registry.** `capability` as a first-class object
+  (tools + playbooks + evals + approval + examples) + per-agent capability lists.
+  *(Ties to [Phase 2.5](#phase-25--agent-tool-layer--skill-contract-agent--skill--tool)'s `defineTool` + `tools:` contract.)*
+- [ ] **Phase 4 — Capability proposals.** Agent-proposed upgrades (new access / capability / learning)
+  → owner approval queue. *(Ties to [Phase 4](#phase-4--self-improvement-loop-finish)'s improvement router.)*
+- [ ] **Phase 5 — Team runtime depth.** Agent-to-agent messaging, debate/synthesis, direct
+  human→teammate steering mid-run.
+- [ ] **Phase 6 — Promotion engine.** Detect repeatable missions → auto-draft a reusable Workflow +
+  schedule (full version of the v1.25 stub). *(Ties to [Phase 6 — triggers](#phase-6--triggers--durable-runner) for the schedule.)*
+
+**Exit (track complete):** a mission briefed in plain language runs as a durable, crash-safe team
+session; teammates carry governed capabilities they can propose to extend; repeatable missions
+auto-promote into scheduled Workflows.
 
 ## First-12 workflows as forcing functions
 
