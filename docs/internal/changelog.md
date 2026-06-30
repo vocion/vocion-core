@@ -4,6 +4,24 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — HubSpot connector (V-connect kickoff)
+
+First of the connector pack on the [path to 1.0](./vocion-1.0-path.md) — the integration the Metacto
+RevOps reference deployment is built on. Ships in `v1.31.0`.
+
+- `libs/sources/hubspot.ts`: CRM v3 source connector for **contacts / deals / companies**, private-app
+  Bearer auth. **Incremental** — when the durable pipeline passes `since`, it uses the CRM **Search**
+  API filtered on `hs_lastmodifieddate`; otherwise lists all. Paginates the opaque `after` cursor
+  (resumes from `ctx.cursor`), yields one `IngestDoc` per record (serialized properties), registered in
+  the source registry.
+- Rides the durable-ingestion checkpoints from `v1.29` (incremental + resumable), and ingested records
+  inherit client/team scope + ACL from `v1.26`.
+- Tests (mocked fetch): yields docs, follows pagination, switches to Search for incremental, refuses
+  without a token. 41/41 across the platform sweep; types clean.
+- Next connectors: Google Ads + GA4 (Daylyte PPC/CRO), Gmail + Slack + Drive (RevOps).
+
+---
+
 ## 2026-06-30 — Control-plane API tokens (step 4, first slice)
 
 Platform upgrade #4 from `firsthq/docs/platform-plan.md` §5 — the start of the API control plane, the
