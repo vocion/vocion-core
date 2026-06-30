@@ -8,6 +8,7 @@
  */
 
 import type { SourceConnector } from './types';
+import { driveConnector } from './drive';
 import { fileImportConnector } from './fileImport';
 import { ga4Connector } from './ga4';
 import { gmailConnector } from './gmail';
@@ -40,3 +41,4 @@ registerConnector(googleAdsConnector);
 registerConnector(ga4Connector);
 registerConnector(gmailConnector);
 registerConnector(slackConnector);
+registerConnector(driveConnector);

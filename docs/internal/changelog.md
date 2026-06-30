@@ -4,6 +4,22 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — Google Drive connector: the pack is complete (V-connect)
+
+The last connector of the pack — completes the set the two reference deployments run on. Ships in `v1.35.0`.
+
+- `libs/sources/drive.ts` (NEW) — OAuth source connector. Lists Drive files (`fields=…files(id,name,mimeType,modifiedTime)`,
+  paginates `nextPageToken`, resumes `ctx.cursor`); **incremental** via `modifiedTime > '<ISO>'` when
+  `ctx.since` is set. Google-native exports: Docs/Slides → `text/plain`, Sheets → `text/csv`; `text/*`
+  files download via `alt=media`; anything else yields metadata only (no binary). Registered.
+- Rides the durable pipeline (v1.29 incremental/resumable) + inherits client scope (v1.26).
+- Tests (`connectorPack.test.ts`, +2 → 7): lists + exports a Google Doc as text, refuses without a
+  token, filters by `modifiedTime` when incremental. Types + lint clean.
+- Connector pack complete: **HubSpot, Gmail, Slack, Drive** (RevOps) + **Google Ads, GA4** (Daylyte).
+- Public docs: Drive row added to `features/connectors.md`. Next: stand up the reference deployments (V-ref).
+
+---
+
 ## 2026-06-30 — MCP over HTTP: multi-tenant via Bearer token (V-control)
 
 Completes the control-plane pair — the write API was the REST surface; this is the **agent/tool**
