@@ -30,6 +30,7 @@ import {
   markSourceSynced,
   tombstoneMissing,
 } from './IngestionService';
+import { getCredentialsForSource } from './SourceCredentialService';
 
 export type AddSourceInput = {
   orgId: string;
@@ -156,6 +157,9 @@ export async function runSync(opts: {
   }
 
   const { since, cursor } = await beginSync(opts.sourceId, opts.orgId, !!opts.incremental);
+  // Resolve decrypted credentials from the vault so token/OAuth connectors can
+  // authenticate. Undefined for connectors that need none (e.g. `web`).
+  const credentials = await getCredentialsForSource(opts.orgId, row.slug);
   const cutoff = new Date();
   const result: SyncResult = {
     sourceId: opts.sourceId,
@@ -172,6 +176,7 @@ export async function runSync(opts: {
       sourceId: opts.sourceId,
       orgId: opts.orgId,
       config,
+      credentials,
       since,
       cursor,
       onProgress: (e) => {

@@ -4,6 +4,26 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — Connector credentials wired into sync (V-connect)
+
+The credential vault (`libs/crypto/credentialVault` + `source_credential`/`source_dek`/`source_install`)
+existed but nothing read it at sync time — so every OAuth/token connector got an empty `ctx.credentials`
+and refused. This wires it. Ships in `v1.36.0`.
+
+- `services/SourceCredentialService.ts` (NEW) — `storeCredential({orgId, installId, displayName, raw})`
+  encrypts via the vault (AES-256-GCM, per-tenant DEK) and persists only ciphertext/nonce/authTag/dekId;
+  `getCredentialsForSource(orgId, sourceSlug)` finds the org-scoped, non-disabled install + latest
+  non-revoked credential, decrypts, and returns the raw credentials (or `undefined` — e.g. `web`).
+- `services/SourceSyncService.ts` — `runSync` now resolves `getCredentialsForSource(orgId, row.slug)`
+  and passes it as `ctx.credentials` into `connector.sync(...)`.
+- Tests (`SourceCredentialService.test.ts`, 3, PGlite): store→encrypt→DB→decrypt→get round-trip, DB
+  holds only ciphertext (no plaintext token), no install → undefined, revoked credential → undefined.
+- Plaintext never touches the DB; exists only in memory for the duration of a sync.
+- Closes the gap between "the connector pack exists" and "a real account connects + syncs" — the last
+  platform piece the reference deployments need.
+
+---
+
 ## 2026-06-30 — Google Drive connector: the pack is complete (V-connect)
 
 The last connector of the pack — completes the set the two reference deployments run on. Ships in `v1.35.0`.
