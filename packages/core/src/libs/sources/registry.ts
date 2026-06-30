@@ -9,8 +9,12 @@
 
 import type { SourceConnector } from './types';
 import { fileImportConnector } from './fileImport';
+import { ga4Connector } from './ga4';
+import { gmailConnector } from './gmail';
+import { googleAdsConnector } from './googleAds';
 import { hubspotConnector } from './hubspot';
 import { localFilesConnector } from './localFiles';
+import { slackConnector } from './slack';
 import { webConnector } from './web';
 
 const registry = new Map<string, SourceConnector>();
@@ -32,3 +36,7 @@ registerConnector(webConnector);
 registerConnector(localFilesConnector);
 registerConnector(fileImportConnector);
 registerConnector(hubspotConnector);
+registerConnector(googleAdsConnector);
+registerConnector(ga4Connector);
+registerConnector(gmailConnector);
+registerConnector(slackConnector);
