@@ -4,6 +4,26 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — MCP over HTTP: multi-tenant via Bearer token (V-control)
+
+Completes the control-plane pair — the write API was the REST surface; this is the **agent/tool**
+surface. One MCP endpoint, multi-tenant, org derived from a `vcn_live_…` token. Ships in `v1.34.0`.
+
+- `interfaces/mcp/http.ts` (NEW) — `mcpConfigForBearer(authHeader)` → `authenticateBearer` → org-scoped
+  `McpConfig` (or `McpHttpError(401)`); `buildServerForBearer` → `{ server, identity }` via the existing
+  `buildServer(config)` (tools already scope by `config.orgId`). Authoring tools off over HTTP
+  (`autoCommit`/`autoApply` false) — HTTP is the runtime/data/search plane.
+- `app/api/mcp/route.ts` (NEW) — POST/GET/DELETE on `WebStandardStreamableHTTPServerTransport`
+  (stateless, `enableJsonResponse`, fresh transport per request). Web `Request`→`Response`, so it runs
+  in the Next route with no Node req/res bridge. Bad/missing token → JSON 401.
+- Tests (`http.test.ts`, 3): 401 without a token, org-scoped config (authoring off), and an
+  **end-to-end** loop — `buildServerForBearer` ↔ `InMemoryTransport` ↔ MCP `Client`, `listTools`
+  returns the full surface incl. `search_query` + `runtime_list_runs`. Types + lint clean.
+- Public docs: `reference/mcp.md` gains a "Connect over HTTP (multi-tenant)" section; Limitations
+  updated (stdio + HTTP both ship; only the OAuth sign-in flow remains). Bearer tokens work today.
+
+---
+
 ## 2026-06-30 — Write API: the review queue on tokens + authz (V-control)
 
 The first **write** surface of the control plane. Tenant Bearer tokens (v1.30) now drive the unified
