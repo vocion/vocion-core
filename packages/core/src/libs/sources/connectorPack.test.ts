@@ -5,6 +5,7 @@ import type { SourceContext } from '@/libs/sources/types';
  */
 import type { IngestDoc } from '@/services/IngestionService';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { driveConnector } from '@/libs/sources/drive';
 import { ga4Connector } from '@/libs/sources/ga4';
 import { gmailConnector } from '@/libs/sources/gmail';
 import { googleAdsConnector } from '@/libs/sources/googleAds';
@@ -92,5 +93,29 @@ describe('slackConnector', () => {
     vi.stubGlobal('fetch', vi.fn(async () => res({ ok: false, error: 'not_in_channel' })));
 
     await expect(collect(slackConnector.sync(baseCtx(cfg, { token: 't' })))).rejects.toThrow(/not_in_channel/);
+  });
+});
+
+describe('driveConnector', () => {
+  it('lists files + exports a Google Doc as text; refuses without token', async () => {
+    const f = vi.fn(async (url: string) =>
+      String(url).includes('/export')
+        ? ({ ok: true, status: 200, json: async () => ({}), text: async () => 'Acme proposal body' } as unknown as Response)
+        : res({ files: [{ id: 'd1', name: 'Acme Proposal', mimeType: 'application/vnd.google-apps.document', modifiedTime: '2026-06-01T00:00:00Z' }] }));
+    vi.stubGlobal('fetch', f);
+    const docs = await collect(driveConnector.sync(baseCtx({}, { token: 't' })));
+
+    expect(docs[0]!.externalId).toBe('drive:d1');
+    expect(docs[0]!.title).toBe('Acme Proposal');
+    expect(docs[0]!.content).toContain('Acme proposal body');
+    await expect(collect(driveConnector.sync(baseCtx({}, {})))).rejects.toThrow(/token/i);
+  });
+
+  it('filters by modifiedTime when incremental', async () => {
+    const f = vi.fn(async () => res({ files: [] }));
+    vi.stubGlobal('fetch', f);
+    await collect(driveConnector.sync(baseCtx({}, { token: 't' }, new Date('2026-06-01T00:00:00Z'))));
+
+    expect(String((f.mock.calls[0] as unknown as [string])[0])).toContain('modifiedTime');
   });
 });
