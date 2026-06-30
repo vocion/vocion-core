@@ -2,7 +2,12 @@
  * Mission autonomy ladder. Autonomy is a property of the mission + action,
  * not the agent. A task is gated (needs human approval) when its action
  * class isn't permitted at the mission's level.
+ *
+ * The gate rule itself lives in the general authorization model
+ * (`@/services/authz`); this module is the mission-task-shaped wrapper.
  */
+
+import { requiresApprovalForMutation } from '@/services/authz';
 
 export type AutonomyLevel = 1 | 2 | 3 | 4 | 5;
 
@@ -36,15 +41,11 @@ export function taskNeedsApproval(
   task: { type: string; approvalRequired?: boolean },
   level: AutonomyLevel,
 ): boolean {
-  if (task.approvalRequired) {
-    return true;
-  }
-  const isExternal = EXTERNAL_TYPES.has(task.type);
-  if (!isExternal) {
-    return false;
-  }
-  // External side-effects: gated at levels 1–2; allowed at 3+ (within rules).
-  return level <= 2;
+  // Delegate to the single gate rule in the authorization model.
+  return requiresApprovalForMutation(level, {
+    external: EXTERNAL_TYPES.has(task.type),
+    approvalRequired: task.approvalRequired,
+  });
 }
 
 export function clampAutonomyLevel(n: number | undefined): AutonomyLevel {
