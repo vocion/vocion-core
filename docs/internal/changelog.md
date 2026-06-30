@@ -4,6 +4,24 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — Control-plane API tokens (step 4, first slice)
+
+Platform upgrade #4 from `firsthq/docs/platform-plan.md` §5 — the start of the API control plane, the
+V-control milestone on the [path to 1.0](./vocion-1.0-path.md). Ships in `v1.30.0`.
+
+- Schema: `api_token` (id, orgId, name, `secret_hash`, role, grants, created/lastUsed/revoked);
+  migration `0027`.
+- `services/ApiTokenService.ts`: `issueToken` (returns plaintext `vcn_live_<id>_<secret>` once; stores
+  only the SHA-256), `verifyToken`/`authenticateBearer` → resolves a token to an **authz `Principal`**
+  (role + grants + org scope), `revokeToken`, `listTokens`. So an app/client mutation authenticates
+  *and* gates through the same permission model + review queue as everything else.
+- Tests: issue→verify→principal, tampered-secret / revoked / malformed rejection, Bearer header. Types clean.
+- Remaining step-4 wiring (needs a running server to verify): mount the write-API routes on
+  `authenticateBearer` + route their mutations through `authz.enforce` → ReviewService, and the MCP HTTP
+  + OAuth transport. The credential + principal are the prerequisite, now in place.
+
+---
+
 ## 2026-06-30 — Durable ingestion: checkpoints + incremental sync
 
 Platform upgrade #3 from `firsthq/docs/platform-plan.md` §3 — the durability core for data ingestion.
