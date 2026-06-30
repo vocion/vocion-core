@@ -501,6 +501,49 @@ ranked by Google. Built on the v1.24 web tools; powers FirstHQ's commercial "AI 
   agent-permissions) audit; token-budget + structured-content checks.
 - [ ] **Schema / entity output** — structured-data + entity-clarity generation as a deliverable template.
 
+---
+
+## FirstHQ as forcing function — platform upgrades (M2/M3-driven)
+
+FirstHQ's M2 (connect & teach) and M3 (work & approvals) demand platform maturity we should build
+**in core**, not in the product. Full architecture: `firsthq/docs/platform-plan.md`. These are
+concrete additions to existing phases — sequenced so the highest-trust, lowest-effort item ships first.
+
+**1. Scoped retrieval + document ACL** *(Phase 3 ext. + Phase 13 slice — do first).* Today retrieval
+is **org-only** (`RetrievalService.search` filters `org_id`; no client/team scope, no doc ACL).
+- [ ] Add scope refs (`clientId`/`teamId`/`audience`) to `knowledge_document`/`knowledge_chunk`.
+- [ ] `RetrievalService.search` gains scope filters + **principal-aware ACL enforcement** (retrieval
+  becomes the discovery-permission boundary). Cross-client isolation tests are mandatory.
+
+**2. Discovery-vs-mutation permission model + one review service** *(Phase 2.5 + Missions P3 + 13 slice
+— the keystone).* Today there's a *de facto* split (reads org-scoped; mutations gated by the mission
+autonomy ladder, `taskNeedsApproval`) but it's **not formalized**, and the MCP autonomy gate and the
+UI review queue **don't share state**.
+- [ ] Formal model: **principal** (user|agent) × **scope** (workspace|client|team) × **resource** ×
+  **mode** (`discover`|`mutate`) × **gate** (`none`|`approve@autonomy`). Discovery = read scopes+ACL (#1);
+  mutation = the per-skill `tools:` grant + autonomy + approval, now principal/scope-aware.
+- [ ] **One review/approval service** both planes write to (close the MCP↔UI split). Roles = grant bundles.
+
+**3. Durable ingestion pipelines** *(Phase 6 + Phase 5).* Today `SourceSyncService.runSync()` is
+**synchronous, in-process**, full-sync, no resume/incremental/schedule/dead-letter; Temporal is live
+but unused for ingestion; `IngestDoc` etag/mtime scaffolding is unwired.
+- [ ] `sourceSyncWorkflow` + activities on Temporal; `source_sync_checkpoint` table (resumable cursors).
+- [ ] `since?`/cursor on `SourceContext` (honor etag/mtime → incremental); **Temporal Schedules** for
+  re-sync; `source_sync_error` dead-letter w/ backoff; webhook-triggered delta for OAuth sources.
+- [ ] Connector pack + OAuth/credential vault (Phase 5).
+
+**4. Two planes, one auth** *(Phase 7 + Phase 2).* Today MCP (stdio) is the read+write agent tool
+plane; `/api/v1/*` is read-only; oRPC is the app control plane.
+- [ ] **API control plane**: write API + tenant **Bearer tokens** + outgoing webhooks (Phase 7) — the
+  app↔runtime surface FirstHQ drives.
+- [ ] **MCP HTTP + OAuth** transport (Phase 2) — agent/tool plane + external agents.
+- [ ] **Both call the shared authorization + review layer (#2)** so a mutation gates identically and
+  lands in one queue regardless of plane.
+
+**5. Unified context** *(workspace + Phase 3).* Make authored workspace + ingested knowledge one
+**scoped, versioned, provenance-tracked** context model (today they're separate stores; ingested docs
+have no scope/provenance/version citizenship). Extends the `workspace_sha` audit to ingested context.
+
 ## First-12 workflows as forcing functions
 
 Pulled from [`use-cases/catalog.md`](./use-cases/catalog.md) — selected for breadth across industry, department, and platform capability. Each one, when realized, becomes a public marketing case study on `/use-cases`.
