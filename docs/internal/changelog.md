@@ -4,6 +4,26 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — Scoped retrieval + document ACL (sub-org segmentation)
+
+First platform upgrade driven by FirstHQ's M2 (see `firsthq/docs/platform-plan.md`). Retrieval was
+**org-only**; this adds **client/team scope** to the knowledge store so one client's documents never
+surface in another's results. Ships in `v1.26.0`.
+
+- Schema: `client_id` + `team_id` on `knowledge_document` + `knowledge_chunk` (+ `(org_id, client_id)`
+  indexes); hand-written migration `0025_scoped_retrieval` (NULL = org-wide/shared).
+- `IngestionService`: `SourceRef` + `ensureSource` carry optional `{clientId, teamId}`; stamped onto
+  every document + chunk write.
+- `RetrievalService.search`: new `clientId` / `teamId` / `allClients` options. **Safe-by-default ACL**
+  (`scopeCond`): a client-scoped search returns shared + that client only (never another client); an
+  unscoped search returns shared only; `allClients` is the explicit admin escape hatch. Enforced on
+  both the vector and keyword arms.
+- Tests: cross-client isolation (A never sees B; unscoped sees only shared; allClients sees all).
+- The discovery half of the discovery-vs-mutation permission model — the next step formalizes mutation
+  grants + one review service.
+
+---
+
 ## 2026-06-28 — Missions: open-ended team work (the third work mode)
 
 Adds the **Mission** primitive — a goal-driven assignment a team of agents plans and works under
