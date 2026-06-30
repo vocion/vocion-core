@@ -9,6 +9,7 @@
 
 import type { SourceConnector } from './types';
 import { fileImportConnector } from './fileImport';
+import { hubspotConnector } from './hubspot';
 import { localFilesConnector } from './localFiles';
 import { webConnector } from './web';
 
@@ -30,3 +31,4 @@ export function listConnectors(): SourceConnector[] {
 registerConnector(webConnector);
 registerConnector(localFilesConnector);
 registerConnector(fileImportConnector);
+registerConnector(hubspotConnector);
