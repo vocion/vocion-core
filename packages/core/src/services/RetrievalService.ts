@@ -62,6 +62,21 @@ export type SearchOptions = {
   /** Filter to a list of source slugs. */
   sourceSlugs?: string[];
   /**
+   * Scope to a client account. The cross-client isolation boundary: with a
+   * `clientId`, retrieval returns org-wide/shared docs (client_id IS NULL) plus
+   * that client's docs — never another client's. WITHOUT a `clientId`, only
+   * org-wide/shared docs are returned (client-specific docs never leak to an
+   * unscoped search).
+   */
+  clientId?: string;
+  /** Narrow further to a team (returns team-null + matching-team docs). */
+  teamId?: string;
+  /**
+   * Escape hatch for admin / cross-client analytics: search across all clients
+   * in the org. Default false (safe). Ignored unless explicitly set.
+   */
+  allClients?: boolean;
+  /**
    * When true, run a second-stage LLM rerank over the fused candidates.
    * Adds ~500ms + tokens; quality boost is most noticeable when the
    * query is fuzzy ("tell me about ...") rather than literal.
@@ -104,13 +119,27 @@ export async function search(query: string, opts: SearchOptions): Promise<Search
   const k = opts.k ?? DEFAULT_K;
   const perArm = Math.min(opts.candidatesPerArm ?? k * 2, 50);
 
+  const scope: Scope = {
+    orgId: opts.orgId,
+    clientId: opts.clientId,
+    teamId: opts.teamId,
+    allClients: opts.allClients,
+  };
+
   const trace = traceFor({
     feature: FEATURES.RETRIEVAL_SEARCH,
     slug: opts.sourceSlug ?? 'all',
     orgId: opts.orgId,
     userId: opts.userId ?? 'system',
     input: { query, mode, k },
-    metadata: { perArm, sourceSlug: opts.sourceSlug, sourceSlugs: opts.sourceSlugs },
+    metadata: {
+      perArm,
+      sourceSlug: opts.sourceSlug,
+      sourceSlugs: opts.sourceSlugs,
+      clientId: opts.clientId ?? null,
+      teamId: opts.teamId ?? null,
+      allClients: !!opts.allClients,
+    },
   });
 
   const emit = opts.onEvent ?? (() => {});
@@ -132,10 +161,10 @@ export async function search(query: string, opts: SearchOptions): Promise<Search
     // (the previous shape) double-paid latency for no reason.
     const armResults = await Promise.all([
       (mode === 'vector' || mode === 'hybrid')
-        ? vectorSearch(query, opts.orgId, sourceFilter, perArm)
+        ? vectorSearch(query, scope, sourceFilter, perArm)
         : Promise.resolve([] as RawHit[]),
       (mode === 'keyword' || mode === 'hybrid')
-        ? keywordSearch(query, opts.orgId, sourceFilter, perArm)
+        ? keywordSearch(query, scope, sourceFilter, perArm)
         : Promise.resolve([] as RawHit[]),
     ]);
     vectorHits = armResults[0];
@@ -180,6 +209,30 @@ export async function search(query: string, opts: SearchOptions): Promise<Search
 
 type RawHit = { chunkId: number; score: number };
 
+type Scope = { orgId: string; clientId?: string; teamId?: string; allClients?: boolean };
+
+/**
+ * The ACL/scope WHERE-fragment applied to the chunk (`c`) in every arm.
+ * Safe-by-default: client-specific docs never leak to an unscoped search, and a
+ * client-scoped search never sees another client's docs. `allClients` is the
+ * explicit admin escape hatch.
+ * @param scope
+ */
+function scopeCond(scope: Scope) {
+  const conds = [sql`c.org_id = ${scope.orgId}`];
+  if (!scope.allClients) {
+    conds.push(
+      scope.clientId
+        ? sql`(c.client_id IS NULL OR c.client_id = ${scope.clientId})`
+        : sql`c.client_id IS NULL`,
+    );
+  }
+  if (scope.teamId) {
+    conds.push(sql`(c.team_id IS NULL OR c.team_id = ${scope.teamId})`);
+  }
+  return sql.join(conds, sql` AND `);
+}
+
 async function resolveSourceFilter(opts: SearchOptions): Promise<number[] | null> {
   const slugs = opts.sourceSlugs ?? (opts.sourceSlug ? [opts.sourceSlug] : null);
   if (!slugs) {
@@ -197,11 +250,11 @@ async function resolveSourceFilter(opts: SearchOptions): Promise<number[] | null
 
 async function vectorSearch(
   query: string,
-  orgId: string,
+  scope: Scope,
   sourceIds: number[] | null,
   limit: number,
 ): Promise<RawHit[]> {
-  const [queryVec] = await embed([query], { orgId, purpose: 'query' });
+  const [queryVec] = await embed([query], { orgId: scope.orgId, purpose: 'query' });
   if (!queryVec) {
     return [];
   }
@@ -209,13 +262,14 @@ async function vectorSearch(
   // We convert to a similarity score in [0,1] so RRF + caller-side
   // sorting both treat "higher = better".
   const literal = sql.raw(`'[${queryVec.join(',')}]'::vector`);
+  const where = scopeCond(scope);
   type Row = { id: number; distance: number };
   const result = sourceIds
     ? await db.execute(sql`
         SELECT c.id, (c.embedding <=> ${literal}) AS distance
         FROM ${knowledgeChunkSchema} c
         JOIN ${knowledgeDocumentSchema} d ON d.id = c.document_id
-        WHERE c.org_id = ${orgId}
+        WHERE ${where}
           AND d.source_id IN (${sql.join(sourceIds.map(id => sql`${id}`), sql`, `)})
         ORDER BY c.embedding <=> ${literal}
         LIMIT ${limit}
@@ -223,7 +277,7 @@ async function vectorSearch(
     : await db.execute(sql`
         SELECT c.id, (c.embedding <=> ${literal}) AS distance
         FROM ${knowledgeChunkSchema} c
-        WHERE c.org_id = ${orgId}
+        WHERE ${where}
         ORDER BY c.embedding <=> ${literal}
         LIMIT ${limit}
       `);
@@ -236,20 +290,21 @@ async function vectorSearch(
 
 async function keywordSearch(
   query: string,
-  orgId: string,
+  scope: Scope,
   sourceIds: number[] | null,
   limit: number,
 ): Promise<RawHit[]> {
   // websearch_to_tsquery handles user-shaped queries (quotes, OR, -term)
   // gracefully. Falls back to AND of stemmed tokens when no operators.
   const tsq = sql`websearch_to_tsquery('english', ${query})`;
+  const where = scopeCond(scope);
   type Row = { id: number; rank: number };
   const result = sourceIds
     ? await db.execute(sql`
         SELECT c.id, ts_rank(c.tsv, ${tsq}) AS rank
         FROM ${knowledgeChunkSchema} c
         JOIN ${knowledgeDocumentSchema} d ON d.id = c.document_id
-        WHERE c.org_id = ${orgId}
+        WHERE ${where}
           AND d.source_id IN (${sql.join(sourceIds.map(id => sql`${id}`), sql`, `)})
           AND c.tsv @@ ${tsq}
         ORDER BY rank DESC
@@ -258,7 +313,7 @@ async function keywordSearch(
     : await db.execute(sql`
         SELECT c.id, ts_rank(c.tsv, ${tsq}) AS rank
         FROM ${knowledgeChunkSchema} c
-        WHERE c.org_id = ${orgId}
+        WHERE ${where}
           AND c.tsv @@ ${tsq}
         ORDER BY rank DESC
         LIMIT ${limit}

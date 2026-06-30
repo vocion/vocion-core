@@ -71,6 +71,9 @@ export type SourceRef = {
   sourceId: number;
   /** Slug for tracing. */
   sourceSlug: string;
+  /** Scope stamped onto every ingested doc + chunk. NULL = org-wide/shared. */
+  clientId?: string | null;
+  teamId?: string | null;
 };
 
 /**
@@ -82,13 +85,19 @@ export type SourceRef = {
  * @param input.slug
  * @param input.kind
  * @param input.configJson
+ * @param input.clientId
+ * @param input.teamId
  */
 export async function ensureSource(input: {
   orgId: string;
   slug: string;
   kind?: 'web' | 'plugin' | 'upload';
   configJson?: Record<string, unknown>;
+  /** Scope to stamp on docs ingested under this ref. NULL = org-wide/shared. */
+  clientId?: string | null;
+  teamId?: string | null;
 }): Promise<SourceRef> {
+  const scope = { clientId: input.clientId ?? null, teamId: input.teamId ?? null };
   const existing = await db
     .select({ id: knowledgeSourceSchema.id })
     .from(knowledgeSourceSchema)
@@ -98,7 +107,7 @@ export async function ensureSource(input: {
     ))
     .limit(1);
   if (existing[0]) {
-    return { orgId: input.orgId, sourceId: existing[0].id, sourceSlug: input.slug };
+    return { orgId: input.orgId, sourceId: existing[0].id, sourceSlug: input.slug, ...scope };
   }
   const inserted = await db
     .insert(knowledgeSourceSchema)
@@ -109,7 +118,7 @@ export async function ensureSource(input: {
       configJson: input.configJson ?? {},
     })
     .returning({ id: knowledgeSourceSchema.id });
-  return { orgId: input.orgId, sourceId: inserted[0]!.id, sourceSlug: input.slug };
+  return { orgId: input.orgId, sourceId: inserted[0]!.id, sourceSlug: input.slug, ...scope };
 }
 
 /**
@@ -144,6 +153,7 @@ export async function ingestDocument(
   doc: IngestDoc,
 ): Promise<IngestResult> {
   const hash = await contentHash(doc.content);
+  const scope = { clientId: src.clientId ?? null, teamId: src.teamId ?? null };
   const trace = traceFor({
     feature: FEATURES.RETRIEVAL_INGEST,
     slug: src.sourceSlug,
@@ -200,6 +210,7 @@ export async function ingestDocument(
               contentHash: hash,
               etag: doc.etag ?? null,
               lastModifiedAt: doc.lastModifiedAt ?? null,
+              ...scope,
             })
             .returning({ id: knowledgeDocumentSchema.id }))[0]!.id;
       trace.update({ output: { status: existing[0] ? 'updated' : 'created', chunks: 0 } });
@@ -238,6 +249,7 @@ export async function ingestDocument(
             lastModifiedAt: doc.lastModifiedAt ?? null,
             ingestedAt: new Date(),
             lastSeenAt: new Date(),
+            ...scope,
           })
           .where(eq(knowledgeDocumentSchema.id, documentId));
         await tx
@@ -257,6 +269,7 @@ export async function ingestDocument(
             contentHash: hash,
             etag: doc.etag ?? null,
             lastModifiedAt: doc.lastModifiedAt ?? null,
+            ...scope,
           })
           .returning({ id: knowledgeDocumentSchema.id });
         documentId = inserted[0]!.id;
@@ -273,6 +286,7 @@ export async function ingestDocument(
           contentTokens: c.tokens,
           embedding: vectors[i]!,
           metadata: {},
+          ...scope,
         })),
       );
 

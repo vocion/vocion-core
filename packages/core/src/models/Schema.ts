@@ -1356,10 +1356,18 @@ export const knowledgeDocumentSchema = pgTable(
     ingestedAt: timestamp('ingested_at', { mode: 'date' }).defaultNow().notNull(),
     /** Touched on every sync, even when content unchanged. Drives tombstoning. */
     lastSeenAt: timestamp('last_seen_at', { mode: 'date' }).defaultNow().notNull(),
+    /**
+     * Scope (sub-org segmentation). NULL = org-wide / shared. A non-null
+     * `clientId` makes the doc visible only to retrievals scoped to that
+     * client — the cross-client isolation boundary. `teamId` narrows further.
+     */
+    clientId: text('client_id'),
+    teamId: text('team_id'),
   },
   table => [
     uniqueIndex('knowledge_document_org_source_external_idx').on(table.orgId, table.sourceId, table.externalId),
     index('knowledge_document_content_hash_idx').on(table.contentHash),
+    index('knowledge_document_org_client_idx').on(table.orgId, table.clientId),
   ],
 );
 
@@ -1390,9 +1398,13 @@ export const knowledgeChunkSchema = pgTable(
     tsv: tsvector('tsv'),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    /** Denormalized scope (mirrors the document) so retrieval can ACL-filter on the chunk directly. */
+    clientId: text('client_id'),
+    teamId: text('team_id'),
   },
   table => [
     index('knowledge_chunk_org_doc_idx_idx').on(table.orgId, table.documentId, table.chunkIdx),
+    index('knowledge_chunk_org_client_idx').on(table.orgId, table.clientId),
   ],
 );
 

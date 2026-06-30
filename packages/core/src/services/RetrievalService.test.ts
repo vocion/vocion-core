@@ -183,3 +183,41 @@ describe('IngestionService + RetrievalService', () => {
     expect(allHits.every(h => !h.content.toLowerCase().includes('venus'))).toBe(true);
   });
 });
+
+describe('RetrievalService scope / client ACL', () => {
+  async function seed() {
+    const base = await ensureSource({ orgId: ORG, slug: 'kb' });
+    // Same distinctive term in all three so keyword search matches each.
+    await ingestDocument({ ...base, clientId: 'client-a' }, { externalId: 'a', title: 'A', content: 'zeppelin briefing for client a' });
+    await ingestDocument({ ...base, clientId: 'client-b' }, { externalId: 'b', title: 'B', content: 'zeppelin briefing for client b' });
+    await ingestDocument({ ...base, clientId: null }, { externalId: 's', title: 'Shared', content: 'zeppelin shared org playbook' });
+  }
+  const titles = (hits: { title: string | null }[]) => hits.map(h => h.title).sort();
+
+  it('client scope returns shared + own client, never another client', async () => {
+    await seed();
+    const a = await search('zeppelin', { orgId: ORG, mode: 'keyword', clientId: 'client-a', k: 10 });
+
+    expect(titles(a)).toEqual(['A', 'Shared']);
+    expect(a.some(h => h.title === 'B')).toBe(false);
+
+    const b = await search('zeppelin', { orgId: ORG, mode: 'keyword', clientId: 'client-b', k: 10 });
+
+    expect(titles(b)).toEqual(['B', 'Shared']);
+    expect(b.some(h => h.title === 'A')).toBe(false);
+  });
+
+  it('unscoped search returns only shared org docs (no client docs leak)', async () => {
+    await seed();
+    const hits = await search('zeppelin', { orgId: ORG, mode: 'keyword', k: 10 });
+
+    expect(titles(hits)).toEqual(['Shared']);
+  });
+
+  it('allClients escape hatch returns every client', async () => {
+    await seed();
+    const hits = await search('zeppelin', { orgId: ORG, mode: 'keyword', allClients: true, k: 10 });
+
+    expect(titles(hits)).toEqual(['A', 'B', 'Shared']);
+  });
+});

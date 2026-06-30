@@ -176,6 +176,13 @@
       "when": 1782000100000,
       "tag": "0024_missions",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1782000200000,
+      "tag": "0025_scoped_retrieval",
+      "breakpoints": true
     }
   ]
 }
