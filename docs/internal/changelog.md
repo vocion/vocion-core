@@ -4,6 +4,23 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — Unified review queue + `enforce()` (permission model, cont.)
+
+Finishes the load-bearing half of the permission model (platform-plan §4). Ships in `v1.28.0`.
+
+- `authz.enforce(principal, resource, mode)` — throws `AuthzDeniedError` when not allowed; otherwise
+  returns the decision so a caller acts on `gate` (enqueue a review when `approve`, else proceed). The
+  mutation/discovery enforcement point.
+- New `services/ReviewService.ts` — **one** review queue: `listPending(orgId)` unifies pending skill
+  runs (`pending`), paused workflow runs (`paused`), and missions `awaiting_review` into a normalized
+  list; `decide(item, action)` dispatches approve/reject to the owning service. Closes the
+  "MCP autonomy gate vs UI review queue don't share state" gap at the read/decide layer.
+- Tests: enforce (allow/deny + gate) + unified-queue aggregation + org-scoping. 16/16 green; types clean.
+- Still open (Phase 2.5-dependent): calling `enforce` inside every MCP tool-call + skill/action runtime
+  needs the `defineTool` registry; the mission runtime already routes its gate through this rule.
+
+---
+
 ## 2026-06-30 — Permission model: discovery vs mutation (the keystone)
 
 Platform upgrade #2 from `firsthq/docs/platform-plan.md` §4 — the core of the discovery-vs-mutation

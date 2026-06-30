@@ -2,7 +2,8 @@ import type { Principal } from '@/services/authz';
 import { describe, expect, it } from 'vitest';
 import {
   authorize,
-
+  AuthzDeniedError,
+  enforce,
   requiresApprovalForMutation,
   scopeAllows,
 } from '@/services/authz';
@@ -92,5 +93,21 @@ describe('authorize — mutation', () => {
 
     expect(d.allowed).toBe(false);
     expect(d.reason).toBe('out-of-scope');
+  });
+});
+
+describe('enforce', () => {
+  it('throws AuthzDeniedError when not allowed', () => {
+    const agent: Principal = { kind: 'agent', id: 'tm1', scope: { orgId: ORG }, autonomy: 5, grants: ['draft'] };
+
+    expect(() => enforce(agent, { kind: 'action', action: 'send_email', external: true }, 'mutate')).toThrow(AuthzDeniedError);
+  });
+
+  it('returns the decision (with gate) when allowed', () => {
+    const agent: Principal = { kind: 'agent', id: 'tm1', scope: { orgId: ORG }, autonomy: 2, grants: ['send_email'] };
+    const d = enforce(agent, { kind: 'action', action: 'send_email', external: true }, 'mutate');
+
+    expect(d.allowed).toBe(true);
+    expect(d.gate).toBe('approve');
   });
 });

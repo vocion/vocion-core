@@ -156,3 +156,29 @@ export function authorize(principal: Principal, resource: Resource, mode: Mode):
   }
   return { allowed: true, gate: 'none', reason: 'human-grant' };
 }
+
+/** Thrown by `enforce` when a principal is not allowed to perform an action. */
+export class AuthzDeniedError extends Error {
+  decision: Decision;
+  constructor(decision: Decision) {
+    super(`authz denied: ${decision.reason}`);
+    this.name = 'AuthzDeniedError';
+    this.decision = decision;
+  }
+}
+
+/**
+ * Enforce a decision at a mutation/discovery site: throws `AuthzDeniedError`
+ * when not allowed; otherwise returns the decision so the caller can act on
+ * `gate` (e.g. enqueue a review when `gate === 'approve'`, else proceed).
+ * @param principal
+ * @param resource
+ * @param mode
+ */
+export function enforce(principal: Principal, resource: Resource, mode: Mode): Decision {
+  const decision = authorize(principal, resource, mode);
+  if (!decision.allowed) {
+    throw new AuthzDeniedError(decision);
+  }
+  return decision;
+}
