@@ -183,6 +183,13 @@
       "when": 1782000200000,
       "tag": "0025_scoped_retrieval",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1782000300000,
+      "tag": "0026_source_sync_checkpoint",
+      "breakpoints": true
     }
   ]
 }

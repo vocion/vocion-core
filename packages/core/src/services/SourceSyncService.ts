@@ -20,10 +20,10 @@
  * off, then poll status. Until then: cap pages low.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { knowledgeSourceSchema } from '@/models/Schema';
+import { knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
 import {
   ensureSource,
   ingestDocument,
@@ -68,9 +68,73 @@ export type SyncResult = {
   errors: number;
 };
 
+/**
+ * Begin a sync: read the prior watermark, mark the checkpoint `running`.
+ * Returns the incremental `since` (only when `incremental`) + the resume `cursor`.
+ * @param sourceId
+ * @param orgId
+ * @param incremental
+ */
+export async function beginSync(
+  sourceId: number,
+  orgId: string,
+  incremental: boolean,
+): Promise<{ since: Date | null; cursor: string | null }> {
+  const [existing] = await db
+    .select()
+    .from(sourceSyncCheckpointSchema)
+    .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+    .limit(1);
+  const since = incremental ? (existing?.since ?? null) : null;
+  const cursor = existing?.cursor ?? null;
+  if (existing) {
+    await db
+      .update(sourceSyncCheckpointSchema)
+      .set({ status: 'running', startedAt: new Date(), error: null })
+      .where(eq(sourceSyncCheckpointSchema.id, existing.id));
+  } else {
+    await db.insert(sourceSyncCheckpointSchema).values({ orgId, sourceId, status: 'running' });
+  }
+  return { since, cursor };
+}
+
+/**
+ * Finish a sync: record status, counts, and (on success) the new watermark.
+ * @param sourceId
+ * @param orgId
+ * @param args
+ * @param args.status
+ * @param args.counts
+ * @param args.watermark
+ * @param args.cursor
+ * @param args.error
+ */
+export async function finishSync(
+  sourceId: number,
+  orgId: string,
+  args: { status: 'completed' | 'failed'; counts?: Record<string, number>; watermark?: Date; cursor?: string | null; error?: string },
+): Promise<void> {
+  await db
+    .update(sourceSyncCheckpointSchema)
+    .set({
+      status: args.status,
+      completedAt: new Date(),
+      counts: args.counts ?? {},
+      cursor: args.cursor ?? null,
+      error: args.error ?? null,
+      ...(args.status === 'completed' ? { since: args.watermark ?? null } : {}),
+    })
+    .where(and(
+      eq(sourceSyncCheckpointSchema.orgId, orgId),
+      eq(sourceSyncCheckpointSchema.sourceId, sourceId),
+    ));
+}
+
 export async function runSync(opts: {
   orgId: string;
   sourceId: number;
+  /** Incremental sync: fetch only docs newer than the last watermark; skip tombstoning. */
+  incremental?: boolean;
   onProgress?: (event: { kind: 'fetched' | 'skipped' | 'error'; uri?: string; message?: string }) => void;
 }): Promise<SyncResult> {
   const [row] = await db
@@ -91,6 +155,7 @@ export async function runSync(opts: {
     throw new Error(`source ${opts.sourceId} references unknown connector: ${connectorSlug}`);
   }
 
+  const { since, cursor } = await beginSync(opts.sourceId, opts.orgId, !!opts.incremental);
   const cutoff = new Date();
   const result: SyncResult = {
     sourceId: opts.sourceId,
@@ -102,48 +167,66 @@ export async function runSync(opts: {
   };
   let errorCount = 0;
 
-  for await (const doc of connector.sync({
-    sourceId: opts.sourceId,
-    orgId: opts.orgId,
-    config,
-    onProgress: (e) => {
-      if (e.kind === 'error') {
-        errorCount += 1;
+  try {
+    for await (const doc of connector.sync({
+      sourceId: opts.sourceId,
+      orgId: opts.orgId,
+      config,
+      since,
+      cursor,
+      onProgress: (e) => {
+        if (e.kind === 'error') {
+          errorCount += 1;
+        }
+        opts.onProgress?.(e);
+      },
+    })) {
+      try {
+        const r = await ingestDocument(
+          { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
+          doc,
+        );
+        if (r.status === 'created') {
+          result.created += 1;
+        } else if (r.status === 'updated') {
+          result.updated += 1;
+        } else {
+          result.unchanged += 1;
+        }
+      } catch (err) {
+        result.errors += 1;
+        opts.onProgress?.({
+          kind: 'error',
+          uri: doc.externalId,
+          message: err instanceof Error ? err.message : String(err),
+        });
       }
-      opts.onProgress?.(e);
-    },
-  })) {
-    try {
-      const r = await ingestDocument(
-        { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
-        doc,
-      );
-      if (r.status === 'created') {
-        result.created += 1;
-      } else if (r.status === 'updated') {
-        result.updated += 1;
-      } else {
-        result.unchanged += 1;
-      }
-    } catch (err) {
-      result.errors += 1;
-      opts.onProgress?.({
-        kind: 'error',
-        uri: doc.externalId,
-        message: err instanceof Error ? err.message : String(err),
-      });
     }
-  }
-  result.errors += errorCount;
+    result.errors += errorCount;
 
-  // Tombstone documents the source didn't yield this run.
-  const { deleted } = await tombstoneMissing(
-    { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
-    cutoff,
-  );
-  result.tombstoned = deleted;
-  await markSourceSynced(opts.sourceId);
-  return result;
+    // Full sync prunes deletes; an incremental run only sees changed docs, so
+    // tombstoning there would wrongly delete everything it didn't re-fetch.
+    if (!opts.incremental) {
+      const { deleted } = await tombstoneMissing(
+        { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
+        cutoff,
+      );
+      result.tombstoned = deleted;
+    }
+    await markSourceSynced(opts.sourceId);
+    await finishSync(opts.sourceId, opts.orgId, {
+      status: 'completed',
+      counts: { created: result.created, updated: result.updated, unchanged: result.unchanged, tombstoned: result.tombstoned, errors: result.errors },
+      watermark: cutoff,
+    });
+    return result;
+  } catch (err) {
+    await finishSync(opts.sourceId, opts.orgId, {
+      status: 'failed',
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 }
 
 export async function listSources(orgId: string): Promise<Array<{

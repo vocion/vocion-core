@@ -4,6 +4,26 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — Durable ingestion: checkpoints + incremental sync
+
+Platform upgrade #3 from `firsthq/docs/platform-plan.md` §3 — the durability core for data ingestion.
+Ships in `v1.29.0`.
+
+- Schema: `source_sync_checkpoint` (one row per source: `status`, `cursor`, `since` watermark,
+  started/completed, counts, error); migration `0026_source_sync_checkpoint`.
+- `SourceContext` gains `since` + `cursor` so connectors fetch **incrementally** (honor upstream
+  `modifiedTime`/etag), falling back to a full walk when unsupported.
+- `SourceSyncService`: `beginSync`/`finishSync` make a run **resumable + checkpointed** — records the
+  watermark on success, preserves it on failure (a retry resumes from the last good point). Incremental
+  runs skip tombstoning (only a full sync prunes deletes). The whole run is wrapped so a crash records a
+  `failed` checkpoint.
+- Tests: full→watermark, incremental reads-back, failure-preserves-watermark. Types clean.
+- Remaining wiring (needs a running Temporal to verify): wrap `runSync` in a `sourceSyncWorkflow` +
+  activity, register on the worker, and have the sync RPC spawn it + Temporal Schedules for periodic
+  re-sync. The data-layer durability primitives above are the prerequisite, now in place.
+
+---
+
 ## 2026-06-30 — Unified review queue + `enforce()` (permission model, cont.)
 
 Finishes the load-bearing half of the permission model (platform-plan §4). Ships in `v1.28.0`.
