@@ -4,6 +4,22 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — Connector pack: Google Ads, GA4, Gmail, Slack
+
+Fills out V-connect — the integrations the two reference deployments run on. Ships in `v1.32.0`.
+
+- `libs/sources/googleAds.ts` — campaign performance by day (GAQL `googleAds:search`, dev-token + OAuth),
+  incremental via `segments.date >=`, paginates `nextPageToken`. *(Daylyte PPC.)*
+- `libs/sources/ga4.ts` — GA4 `runReport` rows (sessions/conversions/bounce by date + landing page),
+  `startDate` from `since`. *(Daylyte CRO.)*
+- `libs/sources/gmail.ts` — messages (list → metadata fetch), incremental via `after:<unix>`, paginated.
+  *(RevOps.)*
+- `libs/sources/slack.ts` — channel history, incremental via `oldest`, paginates `next_cursor`. *(RevOps.)*
+- All four ride the durable pipeline (v1.29 incremental/resumable) + inherit client scope (v1.26); each
+  yields `IngestDoc`, registered. Mocked-fetch tests per connector. Types clean.
+
+---
+
 ## 2026-06-30 — HubSpot connector (V-connect kickoff)
 
 First of the connector pack on the [path to 1.0](./vocion-1.0-path.md) — the integration the Metacto
