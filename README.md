@@ -6,7 +6,14 @@ Context as code. Skills as plugins. Review surfaces built in.
 
 ## What this is
 
-Vocion is a Next.js app + Postgres schema + MCP server + workflow runner. You author **five things** — Sources, Objects, Skills, Workflows, Agents — as YAML + markdown in git, apply them to the database, and get a typed runtime with a review queue, observability, and a plugin ecosystem.
+Vocion is a Next.js app + Postgres schema + MCP server + workflow runner. You author your work — **Sources, Objects, Skills, Workflows, Agents, and Missions** — as YAML + markdown in git, apply it to the database, and get a typed runtime with a unified human-review queue, observability, and a plugin ecosystem.
+
+It's built for the part most agent frameworks skip — **operating** AI in production:
+
+- **Three work modes, one runtime** — structured **Workflows**, open-ended **Missions** (a team of agents plans, works, and produces artifacts under review), and multi-agent **Teams**.
+- **Connect the real systems** — a built-in connector pack (Google Ads, GA4, HubSpot, Gmail, Slack, Google Drive) on a durable, incremental, **client-scoped** ingestion pipeline.
+- **A multi-tenant control plane** — tenant Bearer tokens that resolve to a permission principal, a **write API** (drive the review queue over REST), and **MCP over HTTP** (the agent/tool plane) — every mutation, token or human, routed through one authorization model.
+- **Safe by construction** — discovery-vs-mutation permissions, an autonomy ladder with approval gates, and cross-client isolation enforced at the query, not the prompt.
 
 ## Layered architecture
 
@@ -94,13 +101,26 @@ Full install topology, env vars, production deploy, and troubleshooting: [`docs/
 
 ## MCP server
 
-Author skills + workflows and inspect runs from Claude Code, Cursor, Zed, or any MCP client:
+Author skills + workflows and inspect runs from Claude Code, Cursor, Zed, or any MCP client.
+
+**Local (stdio)** — single-tenant, for a developer's IDE:
 
 ```bash
 claude mcp add vocion -- npm --prefix /abs/path/to/vocion-core run mcp:serve
 ```
 
-Full tool reference: [`docs/reference/mcp.md`](./docs/reference/mcp.md).
+**Remote (HTTP)** — multi-tenant. One endpoint, the org derived from a tenant Bearer token, every tool call scoped to that org under the same permission model as a human:
+
+```
+POST https://your-install/api/mcp
+Authorization: Bearer vcn_live_...
+```
+
+Full tool reference + the HTTP transport: [reference/mcp](https://vocion.ai/docs/reference/mcp).
+
+## Control plane (REST + MCP)
+
+For an app or a client integration to drive Vocion — start work, approve, manage scopes — use a tenant **Bearer token** (`vcn_live_…`), which resolves into a permission principal. The **write API** exposes the unified review queue over HTTP (`GET /api/v1/reviews`, `POST /api/v1/reviews/decide`); MCP-over-HTTP exposes the agent/tool plane. Both are multi-tenant and Bearer-scoped, and a token mutation is governed exactly like a human action. See the [API reference](https://vocion.ai/docs/api).
 
 ## Retrieval
 
