@@ -1,0 +1,108 @@
+/**
+ * Write-API service layer — the **control plane** over HTTP.
+ *
+ * Read endpoints (`/api/v1/*` GET) authenticate a logged-in browser session.
+ * The *write* surface is different: an app or a client integration drives
+ * Vocion with a tenant **API token** (`vcn_live_…`). Every write here runs the
+ * same path — `authenticateBearer` → authz `enforce` → the owning service — so
+ * a token mutation is governed by the exact permission model and review queue
+ * as everything else. Authentication and authorization are one path, not two.
+ *
+ * This module is intentionally framework-free (no `next/server`): the Next
+ * route handlers are thin wrappers that map `WriteApiError` → an HTTP body.
+ */
+
+import type { TokenIdentity } from '@/services/ApiTokenService';
+import type { ReviewItem, ReviewKind } from '@/services/ReviewService';
+import { authenticateBearer } from '@/services/ApiTokenService';
+import { AuthzDeniedError, enforce } from '@/services/authz';
+import * as ReviewService from '@/services/ReviewService';
+
+/** A write-API failure with the HTTP status + error code the route should emit. */
+export class WriteApiError extends Error {
+  status: number;
+  code: string;
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = 'WriteApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/**
+ * Resolve an `Authorization: Bearer …` header to a token identity, or throw
+ * `WriteApiError(401)`. The returned principal carries role + grants + org
+ * scope for the authz check.
+ * @param authHeader
+ */
+export async function apiContext(authHeader: string | null | undefined): Promise<TokenIdentity> {
+  const identity = await authenticateBearer(authHeader);
+  if (!identity) {
+    throw new WriteApiError(401, 'UNAUTHORIZED', 'Missing or invalid bearer token');
+  }
+  return identity;
+}
+
+/**
+ * GET the unified pending-review queue for the token's org.
+ * @param authHeader
+ */
+export async function apiListReviews(authHeader: string | null | undefined): Promise<{ reviews: ReviewItem[] }> {
+  const { orgId } = await apiContext(authHeader);
+  const reviews = await ReviewService.listPending(orgId);
+  return { reviews };
+}
+
+export type DecideInput = {
+  kind: ReviewKind;
+  id: number;
+  action: 'approve' | 'reject';
+  reason?: string;
+};
+
+const REVIEW_KINDS: ReviewKind[] = ['skill', 'workflow', 'mission'];
+
+/**
+ * Approve or reject a queued item over the API. Deciding a review is the
+ * `approve` capability — owners/PMs and client-reviewers hold it; specialists
+ * don't. The token's principal is enforced before the dispatch, and the
+ * refreshed queue is returned so a caller's inbox stays in sync.
+ * @param authHeader
+ * @param input
+ */
+export async function apiDecideReview(
+  authHeader: string | null | undefined,
+  input: DecideInput,
+): Promise<{ ok: true; reviews: ReviewItem[] }> {
+  const { orgId, principal, tokenId } = await apiContext(authHeader);
+
+  if (!REVIEW_KINDS.includes(input.kind)) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'kind must be one of skill|workflow|mission');
+  }
+  if (input.action !== 'approve' && input.action !== 'reject') {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'action must be "approve" or "reject"');
+  }
+  if (!Number.isInteger(input.id)) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'id must be an integer');
+  }
+
+  try {
+    enforce(principal, { kind: 'action', action: 'approve', scope: { orgId } }, 'mutate');
+  } catch (e) {
+    if (e instanceof AuthzDeniedError) {
+      throw new WriteApiError(403, 'FORBIDDEN', `Not allowed to decide reviews: ${e.decision.reason}`);
+    }
+    throw e;
+  }
+
+  await ReviewService.decide(
+    { kind: input.kind, id: input.id },
+    input.action,
+    orgId,
+    { reason: input.reason, reviewedBy: `token:${tokenId}` },
+  );
+
+  const reviews = await ReviewService.listPending(orgId);
+  return { ok: true, reviews };
+}

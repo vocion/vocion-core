@@ -4,6 +4,27 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — Write API: the review queue on tokens + authz (V-control)
+
+The first **write** surface of the control plane. Tenant Bearer tokens (v1.30) now drive the unified
+review queue over HTTP, through the same `authz` enforcement as a human. Ships in `v1.33.0`.
+
+- `services/writeApi.ts` (NEW) — framework-free write-API layer. `apiContext(authHeader)` →
+  `authenticateBearer` → `TokenIdentity` or `WriteApiError(401)`. `apiListReviews` → `ReviewService.listPending`.
+  `apiDecideReview` → validates kind/action/id → `enforce(principal, {kind:'action', action:'approve', scope:{orgId}}, 'mutate')`
+  (maps `AuthzDeniedError` → `403 FORBIDDEN`) → `ReviewService.decide` with `reviewedBy: token:<id>` →
+  returns the refreshed queue.
+- Routes: `app/api/v1/reviews/route.ts` (GET) + `app/api/v1/reviews/decide/route.ts` (POST) — thin
+  wrappers that map `WriteApiError` → `jsonError`. Auth via `Authorization: Bearer vcn_live_…`.
+- Deciding a review = the `approve` capability: owner/PM/client_reviewer tokens pass; a draft-only
+  specialist token is `403`'d before any dispatch. Authentication and authorization are one path.
+- Tests (`writeApi.test.ts`, 5): 401 without a valid token, lists the org queue, owner decides →
+  dispatches + returns refreshed queue, specialist forbidden (no dispatch), kind validation. Types clean.
+- Public docs reconciled to reality: `docs/api/README.md` + `runs.md` + `authentication.md` — token
+  prefix `cmp_live_` → `vcn_live_`, reviews endpoints promoted to live, "tokens are principals" section.
+
+---
+
 ## 2026-06-30 — Connector pack: Google Ads, GA4, Gmail, Slack
 
 Fills out V-connect — the integrations the two reference deployments run on. Ships in `v1.32.0`.
