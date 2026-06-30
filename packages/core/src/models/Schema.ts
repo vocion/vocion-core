@@ -1458,6 +1458,36 @@ export const sourceSyncCheckpointSchema = pgTable(
   ],
 );
 
+/**
+ * Tenant API tokens — the control-plane credential. An app (FirstHQ) or a
+ * client integration authenticates with `vcn_live_<id>_<secret>`; we store only
+ * the SHA-256 of the secret. A token carries an authz role + optional grants, so
+ * its mutations route through the same permission model as everything else.
+ * See firsthq/docs/platform-plan.md §5.
+ */
+export const apiTokenSchema = pgTable(
+  'api_token',
+  {
+    /** Public token id — the `<id>` segment of `vcn_live_<id>_<secret>`. */
+    id: text('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    name: text('name').notNull(),
+    /** SHA-256 hex of the secret half. The plaintext is shown once, at issue. */
+    secretHash: text('secret_hash').notNull(),
+    /** authz workspace role the token acts as. */
+    role: text('role').default('owner').notNull(),
+    /** Explicit authz action grants (empty = the role's defaults). */
+    grants: jsonb('grants').$type<string[]>().default([]).notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    lastUsedAt: timestamp('last_used_at', { mode: 'date' }),
+    revokedAt: timestamp('revoked_at', { mode: 'date' }),
+  },
+  table => [
+    index('api_token_org_idx').on(table.orgId),
+  ],
+);
+
 // Re-export `sql` so callers can build the GENERATED-ALWAYS-AS-STORED
 // tsvector expression in raw migrations. Not used at query-time.
 export { sql };
