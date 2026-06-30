@@ -4,6 +4,26 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — Permission model: discovery vs mutation (the keystone)
+
+Platform upgrade #2 from `firsthq/docs/platform-plan.md` §4 — the core of the discovery-vs-mutation
+permission model. Ships in `v1.27.0`.
+
+- New `services/authz.ts`: one decision point — **principal × scope × resource × mode × gate**.
+  `authorize(principal, resource, mode)` returns `{allowed, gate, reason}`.
+  - **discover** → scope/ACL only (the in-memory mirror of RetrievalService's SQL `scopeCond`); never gates.
+  - **mutate** → action **grant** check + target scope + the **autonomy gate** for agents (humans with
+    the grant act directly).
+  - Role grant bundles (owner/pm/specialist/client_reviewer); `scopeAllows`; `requiresApprovalForMutation`.
+- The mission autonomy ladder (`taskNeedsApproval`) now **delegates** to `authz.requiresApprovalForMutation`
+  — a single source of truth for the gate rule (mission tests unchanged).
+- Tests: 12 authz cases (gate by autonomy, scope isolation, grant checks, human-vs-agent) + the 4
+  existing autonomy tests still green.
+- Next sub-steps (documented, not yet built): enforce `authorize` at the MCP tool-call + skill/action
+  runtime, and a single **review service** unifying the MCP autonomy gate and the UI review queue.
+
+---
+
 ## 2026-06-30 — Scoped retrieval + document ACL (sub-org segmentation)
 
 First platform upgrade driven by FirstHQ's M2 (see `firsthq/docs/platform-plan.md`). Retrieval was
