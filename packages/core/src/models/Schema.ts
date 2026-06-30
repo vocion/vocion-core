@@ -1428,6 +1428,36 @@ export const knowledgeChunkRelations = relations(knowledgeChunkSchema, ({ one })
   }),
 }));
 
+/**
+ * Resumable ingestion state — one row per source. Drives durable, incremental
+ * sync: `since` is the watermark (only fetch docs changed after it), `cursor`
+ * is the opaque resume position for a large crawl, `status` tracks the in-flight
+ * run. See SourceSyncService + firsthq/docs/platform-plan.md §3.
+ */
+export const sourceSyncCheckpointSchema = pgTable(
+  'source_sync_checkpoint',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    sourceId: integer('source_id')
+      .notNull()
+      .references(() => knowledgeSourceSchema.id, { onDelete: 'cascade' }),
+    /** `running` | `completed` | `failed` */
+    status: text('status').default('running').notNull(),
+    /** Opaque connector-defined resume position for a partially-crawled source. */
+    cursor: text('cursor'),
+    /** Incremental watermark — last successful sync's cutoff; connectors fetch only newer docs. */
+    since: timestamp('since', { mode: 'date' }),
+    startedAt: timestamp('started_at', { mode: 'date' }).defaultNow().notNull(),
+    completedAt: timestamp('completed_at', { mode: 'date' }),
+    counts: jsonb('counts').$type<Record<string, number>>().default({}).notNull(),
+    error: text('error'),
+  },
+  table => [
+    uniqueIndex('source_sync_checkpoint_source_idx').on(table.sourceId),
+  ],
+);
+
 // Re-export `sql` so callers can build the GENERATED-ALWAYS-AS-STORED
 // tsvector expression in raw migrations. Not used at query-time.
 export { sql };

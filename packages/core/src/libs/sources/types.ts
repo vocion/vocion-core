@@ -27,6 +27,14 @@ export type SourceContext = {
   /** Decrypted credential bag, when `authKind !== 'none'`. */
   credentials?: Record<string, unknown>;
   /**
+   * Incremental watermark for a durable/resumable sync. When set, connectors
+   * SHOULD fetch only documents changed at/after this time (via upstream
+   * `modifiedTime`/etag), falling back to a full walk when unsupported.
+   */
+  since?: Date | null;
+  /** Opaque resume position from the prior run's checkpoint (connector-defined). */
+  cursor?: string | null;
+  /**
    * Optional progress callback — connectors call this between yields
    *  so the UI can show "12 / 47 documents".
    */
