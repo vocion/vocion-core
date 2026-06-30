@@ -266,3 +266,6 @@ export async function recordWorkflowCompletedActivity(input: RecordWorkflowCompl
     })
     .where(eq(workflowRunSchema.id, input.runId));
 }
+
+/* Source-sync activity (Temporal Schedules). */
+export * from './sourceSync';

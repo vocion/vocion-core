@@ -72,4 +72,17 @@ export function scheduleIdFor(orgId: string, slug: string): string {
   return `workflow-schedule-${orgId}-${slug}`;
 }
 
+/**
+ * Schedule ID convention for source syncs — `source-sync-<orgId>-<sourceSlug>`.
+ * Distinct namespace from workflow schedules so the two never collide.
+ * @param orgId
+ * @param sourceSlug
+ */
+export function sourceScheduleIdFor(orgId: string, sourceSlug: string): string {
+  return `source-sync-${orgId}-${sourceSlug}`;
+}
+
 export const VOCION_WORKFLOWS_TASK_QUEUE = 'vocion-workflows';
+
+/** Workflow type name registered for scheduled source syncs. */
+export const SOURCE_SYNC_WORKFLOW = 'sourceSyncWorkflow';

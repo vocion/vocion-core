@@ -4,6 +4,28 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-06-30 — Scheduled syncs: sources sync on their cron via Temporal (V-connect)
+
+Sources declared a `schedule` cron in their manifest, but nothing fired it — syncs were manual-only.
+This wraps `runSync` in a Temporal Workflow + Schedule so a source syncs itself. Ships in `v1.37.0`.
+
+- `services/temporal/activities/sourceSync.ts` (NEW) — `syncSourceActivity({orgId, sourceId,
+  incremental})` host-side wrapper over `runSync` (incremental by default). Re-exported from the
+  activities index so the worker registers it.
+- `services/temporal/workflows/sourceSyncWorkflow.ts` (NEW) — deterministic workflow that proxies the
+  activity. `workflows/index.ts` (NEW) barrels both workflows; the worker's `workflowsPath` now points
+  at the barrel (registers `vocionWorkflow` + `sourceSyncWorkflow`).
+- `services/SourceScheduleService.ts` (NEW) — `buildSourceScheduleOptions` (pure: cron → Temporal
+  `ScheduleOptions` starting `sourceSyncWorkflow` incrementally), `ensureSourceSchedule` (idempotent
+  create-or-update), `removeSourceSchedule` (delete, no-op if absent).
+- `libs/temporal/client.ts` — `sourceScheduleIdFor(orgId, sourceSlug)` (`source-sync-<org>-<slug>`,
+  distinct namespace) + `SOURCE_SYNC_WORKFLOW` const.
+- Tests (5): `buildSourceScheduleOptions` (id/spec/action/args, per-org namespacing) + `syncSourceActivity`
+  (drives runSync incrementally; honors full sync). Types + lint clean. Live Schedule create/update is
+  exercised in the platform integration suite (needs a running Temporal).
+
+---
+
 ## 2026-06-30 — Connector credentials wired into sync (V-connect)
 
 The credential vault (`libs/crypto/credentialVault` + `source_credential`/`source_dek`/`source_install`)
