@@ -1,6 +1,6 @@
 # Roadmap
 
-**Internal — MetaCTO team only.** Single source of truth for phased delivery. Not shown in the public docs. Live status lives in [`changelog.md`](./changelog.md); forcing-function workflow list in [`use-cases/catalog.md`](./use-cases/catalog.md).
+**Internal — MetaCTO team only.** Single source of truth for phased delivery. Not shown in the public docs. Live status lives in [`changelog.md`](./changelog.md); forcing-function workflow list in [`use-cases/catalog.md`](./use-cases/catalog.md). **The route to 1.0** — defined by the FirstHQ 1.0 layer + the Daylyte (PPC/CRO reporting) and Metacto RevOps reference deployments — is in [`vocion-1.0-path.md`](./vocion-1.0-path.md).
 
 Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live client work.
 
