@@ -53,10 +53,18 @@ ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
 ARG NEXT_PUBLIC_LANGFUSE_BASE_URL=http://localhost:3200
 ARG NEXT_PUBLIC_LANGFUSE_PROJECT_ID=demo
-# White-label wordmark (sidebar + marketing). Defaults to Vocion; a deployment
-# sets it via --build-arg (e.g. "Metacto · agents by Vocion").
+# White-label brand slot (sidebar + marketing). Defaults to Vocion; a deployment
+# overrides via --build-arg. NEXT_PUBLIC_* is inlined at build time, so these
+# must be ARG+ENV here (not runtime env).
+#   BRAND_NAME    — wordmark text (e.g. "metacto")
+#   BRAND_TAGLINE — subhead under the wordmark (e.g. "agents by Vocion")
+#   BRAND_MARK    — glyph image src / data: URI (deployment supplies its own art)
 ARG NEXT_PUBLIC_BRAND_NAME=Vocion
 ENV NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME}
+ARG NEXT_PUBLIC_BRAND_TAGLINE=
+ENV NEXT_PUBLIC_BRAND_TAGLINE=${NEXT_PUBLIC_BRAND_TAGLINE}
+ARG NEXT_PUBLIC_BRAND_MARK=
+ENV NEXT_PUBLIC_BRAND_MARK=${NEXT_PUBLIC_BRAND_MARK}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
