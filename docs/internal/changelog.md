@@ -4,6 +4,26 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-01 — Brand lockup mode + chat de-dupe + module-load crash fix
+
+UX pass from RevOps dogfooding, previewed locally before deploy (new working rule). Ships in `v1.44.0`.
+
+- **feat(ui) — lockup mode.** `NEXT_PUBLIC_BRAND_LOCKUP`: a full lockup image (mark + wordmark as one
+  asset) replaces the glyph + wordmark text; only the tagline renders beneath. The RevOps box now runs
+  the official Metacto lockup extracted from metacto.com (orange `#F18700`), asset kept in the private
+  deployment repo.
+- **feat(ui) — chat surface de-dupe.** The agent header IS the page title (TitleBar block removed —
+  the agent was named 4× on one screen); New Chat moved into the header action slot; composer
+  placeholder shortened to `Message <name>…`; **per-agent suggestions actually render** (authored +
+  stored since the workspace applier landed, never passed to the UI); "try one of these" label hidden
+  when empty; LocaleSwitcher removed from the dashboard header.
+- **fix(agents) — lazy OpenAI client.** The legacy client was constructed at module scope and the SDK
+  throws on an empty key — every install without `OPENAI_API_KEY` 500'd the whole chat surface despite
+  Anthropic being the default provider. Constructed on first use now.
+- Docs: self-hosting branding table gains the lockup var; v1.43 blog post amended same-day.
+
+---
+
 ## 2026-07-01 — Chat tool-error fix + configurable brand slot + sidebar cleanup
 
 Bugfix + white-label polish, from live RevOps dogfooding.
