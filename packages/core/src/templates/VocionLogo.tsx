@@ -1,23 +1,28 @@
 /**
- * Vocion brand mark + wordmark.
+ * Brand mark + wordmark + optional tagline.
  *
- * The mark is three rising bars — growth, signal, momentum. Solid fill in
- * `currentColor` so it inherits the surrounding text color (works in
- * light/dark themes and anywhere the wordmark sits).
+ * White-label slot, all build-time env (NEXT_PUBLIC_* is inlined at build):
+ *   - NEXT_PUBLIC_BRAND_NAME    — the wordmark text. Default `Vocion`.
+ *   - NEXT_PUBLIC_BRAND_TAGLINE — optional subhead under the wordmark
+ *     (e.g. "agents by Vocion"). Omitted when unset.
+ *   - NEXT_PUBLIC_BRAND_MARK    — optional glyph image src (path or data: URI).
+ *     When set, it replaces the built-in Vocion bars mark. Deployments pass
+ *     their own logo here so the OSS build carries no third-party art.
  *
- * The wordmark is configurable per deployment via `NEXT_PUBLIC_BRAND_NAME`
- * (build-time). Defaults to `Vocion` so the OSS + marketing site are unchanged;
- * a white-labelled deployment (e.g. "Metacto · agents by Vocion") sets the env.
+ * The default mark is three rising bars — growth, signal, momentum — filled
+ * with `currentColor` so it inherits the surrounding text color.
  * @param props
  * @param props.isTextHidden
  * @param props.size
  */
 const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion';
+const BRAND_TAGLINE = process.env.NEXT_PUBLIC_BRAND_TAGLINE || '';
+const BRAND_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || '';
 
 export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' | 'lg' }) => {
   const iconSize
     = props.size === 'sm'
-      ? 'size-5'
+      ? 'size-6'
       : props.size === 'lg'
         ? 'size-9'
         : 'size-7';
@@ -29,21 +34,35 @@ export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' |
         : 'text-lg';
 
   return (
-    <div className={`inline-flex items-center font-semibold tracking-tight ${textSize}`}>
-      <svg
-        className={`mr-2 shrink-0 ${iconSize}`}
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-      >
-        {/* Three rising bars — growth, signal, momentum. */}
-        <rect x="3" y="14" width="4" height="7" rx="1" />
-        <rect x="10" y="9" width="4" height="12" rx="1" />
-        <rect x="17" y="4" width="4" height="17" rx="1" />
-      </svg>
+    <div className="inline-flex items-center gap-2">
+      {BRAND_MARK
+        ? (
+            // eslint-disable-next-line next/no-img-element
+            <img src={BRAND_MARK} alt="" className={`shrink-0 ${iconSize}`} aria-hidden="true" />
+          )
+        : (
+            <svg
+              className={`shrink-0 ${iconSize}`}
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              {/* Three rising bars — growth, signal, momentum. */}
+              <rect x="3" y="14" width="4" height="7" rx="1" />
+              <rect x="10" y="9" width="4" height="12" rx="1" />
+              <rect x="17" y="4" width="4" height="17" rx="1" />
+            </svg>
+          )}
       {!props.isTextHidden && (
-        <span>{BRAND_NAME}</span>
+        <span className="flex min-w-0 flex-col leading-none">
+          <span className={`font-semibold tracking-tight ${textSize}`}>{BRAND_NAME}</span>
+          {BRAND_TAGLINE && (
+            <span className="mt-0.5 text-[11px] font-medium tracking-wide text-muted-foreground">
+              {BRAND_TAGLINE}
+            </span>
+          )}
+        </span>
       )}
     </div>
   );
