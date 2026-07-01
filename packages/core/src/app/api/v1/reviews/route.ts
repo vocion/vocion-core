@@ -11,8 +11,9 @@ import { jsonError } from '../_shared';
  * @param req
  */
 export async function GET(req: Request) {
+  const assignedTo = new URL(req.url).searchParams.get('assignedTo') ?? undefined;
   try {
-    return NextResponse.json(await apiListReviews(req.headers.get('authorization')));
+    return NextResponse.json(await apiListReviews(req.headers.get('authorization'), { assignedTo }));
   } catch (e) {
     if (e instanceof WriteApiError) {
       return jsonError(e.code, e.message, e.status);

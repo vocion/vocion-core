@@ -4,6 +4,30 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-01 — Team queue: routing + assignment over the review queue (RevOps foundation)
+
+Makes the unified review queue **multi-user**: pending items route to a specific person, with
+per-person queues + snooze. The foundation for a team system (Chris/Andrew/Lili/Jamie/Garrett), not a
+single-approver tool. Ships in `v1.38.0`.
+
+- `review_assignment` table (migration `0028`) — an overlay keyed by `(kind, run_id)`: `assignedTo`
+  (→ `user.id`, null = unassigned), `assignedBy`, `status`, `note`, `snoozedUntil`. Decorates the
+  derived queue without touching the three run tables.
+- `services/ReviewService.ts` — `listPending(orgId, { assignedTo?, includeSnoozed? })` decorates each
+  item with its assignee/snooze, filters to a person (`assignedTo: userId`) or the unassigned/triage
+  queue (`assignedTo: null`), and hides snoozed items by default. New `assign()` + `snooze()` (idempotent
+  upsert per item). `pendingCount` gained the same opts.
+- `services/writeApi.ts` + routes — `GET /api/v1/reviews?assignedTo=<userId|unassigned>`,
+  `POST /api/v1/reviews/assign` (`{kind,id,assignedTo,note?}`), `POST /api/v1/reviews/snooze`
+  (`{kind,id,until}`). Queue management = the `approve` capability (owners/PMs/client-reviewers);
+  specialists `403`. `reviewedBy`/`assignedBy` recorded as `token:<id>`.
+- Tests: `ReviewService.assignment.test.ts` (4, PGlite — decorate, per-person filter, reassign,
+  snooze) + `writeApi.test.ts` (+3 — filter passthrough, owner assigns, specialist forbidden). Types +
+  lint clean.
+- Routing *policy* (who owns what by default) stays workspace config; this is the mechanism.
+
+---
+
 ## 2026-06-30 — Scheduled syncs: sources sync on their cron via Temporal (V-connect)
 
 Sources declared a `schedule` cron in their manifest, but nothing fired it — syncs were manual-only.

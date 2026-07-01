@@ -11,7 +11,7 @@
 
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { missionRunSchema, skillRunSchema, workflowRunSchema } from '@/models/Schema';
+import { missionRunSchema, reviewAssignmentSchema, skillRunSchema, workflowRunSchema } from '@/models/Schema';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { approveSkillRun, rejectSkillRun } from '@/services/SkillService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
@@ -24,6 +24,18 @@ export type ReviewItem = {
   orgId: string;
   title: string;
   status: string;
+  /** Org user this item is routed to (null = unassigned). */
+  assignedTo?: string | null;
+  /** When snoozed, hidden from the active queue until this time. */
+  snoozedUntil?: Date | null;
+  note?: string | null;
+};
+
+export type ListOptions = {
+  /** Filter to items routed to this user id; pass `null` for the unassigned queue. Omit for all. */
+  assignedTo?: string | null;
+  /** Include snoozed items (default: hide items snoozed into the future). */
+  includeSnoozed?: boolean;
 };
 
 /** The status that means "needs human review" for each kind. */
@@ -35,9 +47,13 @@ const PENDING_STATUS: Record<ReviewKind, string> = {
 
 /**
  * The single pending-review queue for an org, newest-first within each kind.
+ * Decorated with routing: each item carries its assignee + snooze. Pass
+ * `opts.assignedTo` for a per-person queue (a user id, or `null` for the
+ * unassigned/triage queue); snoozed items are hidden unless `includeSnoozed`.
  * @param orgId
+ * @param opts
  */
-export async function listPending(orgId: string): Promise<ReviewItem[]> {
+export async function listPending(orgId: string, opts: ListOptions = {}): Promise<ReviewItem[]> {
   const [skills, workflows, missions] = await Promise.all([
     db
       .select({ id: skillRunSchema.id, status: skillRunSchema.status })
@@ -56,15 +72,96 @@ export async function listPending(orgId: string): Promise<ReviewItem[]> {
       .orderBy(desc(missionRunSchema.id)),
   ]);
 
-  return [
+  const base: ReviewItem[] = [
     ...skills.map(r => ({ kind: 'skill' as const, id: r.id, orgId, title: `Skill run #${r.id}`, status: r.status ?? 'pending' })),
     ...workflows.map(r => ({ kind: 'workflow' as const, id: r.id, orgId, title: `Workflow run #${r.id}`, status: r.status })),
     ...missions.map(r => ({ kind: 'mission' as const, id: r.id, orgId, title: r.title, status: r.status })),
   ];
+
+  // Decorate with routing. One fetch of the org's assignments, keyed by kind:id.
+  const assignments = await db
+    .select()
+    .from(reviewAssignmentSchema)
+    .where(eq(reviewAssignmentSchema.orgId, orgId));
+  const byKey = new Map(assignments.map(a => [`${a.kind}:${a.runId}`, a]));
+
+  const now = new Date();
+  let items = base.map((item) => {
+    const a = byKey.get(`${item.kind}:${item.id}`);
+    return { ...item, assignedTo: a?.assignedTo ?? null, snoozedUntil: a?.snoozedUntil ?? null, note: a?.note ?? null };
+  });
+
+  if (!opts.includeSnoozed) {
+    items = items.filter(i => !i.snoozedUntil || i.snoozedUntil <= now);
+  }
+  if (opts.assignedTo !== undefined) {
+    items = items.filter(i => i.assignedTo === opts.assignedTo);
+  }
+  return items;
 }
 
-export async function pendingCount(orgId: string): Promise<number> {
-  return (await listPending(orgId)).length;
+export async function pendingCount(orgId: string, opts: ListOptions = {}): Promise<number> {
+  return (await listPending(orgId, opts)).length;
+}
+
+async function upsertAssignment(
+  orgId: string,
+  item: { kind: ReviewKind; id: number },
+  patch: { assignedTo?: string | null; assignedBy?: string | null; note?: string | null; status?: string; snoozedUntil?: Date | null },
+): Promise<void> {
+  const [existing] = await db
+    .select({ id: reviewAssignmentSchema.id })
+    .from(reviewAssignmentSchema)
+    .where(and(eq(reviewAssignmentSchema.kind, item.kind), eq(reviewAssignmentSchema.runId, item.id)))
+    .limit(1);
+  if (existing) {
+    await db.update(reviewAssignmentSchema).set(patch).where(eq(reviewAssignmentSchema.id, existing.id));
+  } else {
+    await db.insert(reviewAssignmentSchema).values({ orgId, kind: item.kind, runId: item.id, ...patch });
+  }
+}
+
+/**
+ * Route a queue item to a user (or `null` to unassign). Idempotent per item.
+ * @param orgId
+ * @param item
+ * @param item.kind
+ * @param item.id
+ * @param opts
+ * @param opts.assignedTo
+ * @param opts.assignedBy
+ * @param opts.note
+ */
+export async function assign(
+  orgId: string,
+  item: { kind: ReviewKind; id: number },
+  opts: { assignedTo: string | null; assignedBy?: string; note?: string },
+): Promise<void> {
+  await upsertAssignment(orgId, item, {
+    assignedTo: opts.assignedTo,
+    assignedBy: opts.assignedBy ?? null,
+    note: opts.note ?? null,
+    status: 'open',
+    snoozedUntil: null,
+  });
+}
+
+/**
+ * Snooze a queue item until `until` — hidden from the active queue meanwhile.
+ * @param orgId
+ * @param item
+ * @param item.kind
+ * @param item.id
+ * @param until
+ * @param byUserId
+ */
+export async function snooze(
+  orgId: string,
+  item: { kind: ReviewKind; id: number },
+  until: Date,
+  byUserId?: string,
+): Promise<void> {
+  await upsertAssignment(orgId, item, { status: 'snoozed', snoozedUntil: until, assignedBy: byUserId ?? null });
 }
 
 /**
