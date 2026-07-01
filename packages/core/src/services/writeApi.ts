@@ -45,12 +45,21 @@ export async function apiContext(authHeader: string | null | undefined): Promise
 }
 
 /**
- * GET the unified pending-review queue for the token's org.
+ * GET the unified pending-review queue for the token's org. Pass `assignedTo`
+ * for a per-person queue (a user id, or the literal `"unassigned"`).
  * @param authHeader
+ * @param opts
+ * @param opts.assignedTo
  */
-export async function apiListReviews(authHeader: string | null | undefined): Promise<{ reviews: ReviewItem[] }> {
+export async function apiListReviews(
+  authHeader: string | null | undefined,
+  opts: { assignedTo?: string } = {},
+): Promise<{ reviews: ReviewItem[] }> {
   const { orgId } = await apiContext(authHeader);
-  const reviews = await ReviewService.listPending(orgId);
+  const listOpts = opts.assignedTo === undefined
+    ? {}
+    : { assignedTo: opts.assignedTo === 'unassigned' ? null : opts.assignedTo };
+  const reviews = await ReviewService.listPending(orgId, listOpts);
   return { reviews };
 }
 
@@ -102,6 +111,78 @@ export async function apiDecideReview(
     orgId,
     { reason: input.reason, reviewedBy: `token:${tokenId}` },
   );
+
+  const reviews = await ReviewService.listPending(orgId);
+  return { ok: true, reviews };
+}
+
+function assertItem(kind: unknown, id: unknown): asserts kind is ReviewKind {
+  if (!REVIEW_KINDS.includes(kind as ReviewKind)) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'kind must be one of skill|workflow|mission');
+  }
+  if (!Number.isInteger(id)) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'id must be an integer');
+  }
+}
+
+function enforceQueueManage(principal: Parameters<typeof enforce>[0], orgId: string): void {
+  try {
+    // Routing/snoozing is queue management — same capability as deciding.
+    enforce(principal, { kind: 'action', action: 'approve', scope: { orgId } }, 'mutate');
+  } catch (e) {
+    if (e instanceof AuthzDeniedError) {
+      throw new WriteApiError(403, 'FORBIDDEN', `Not allowed to manage the queue: ${e.decision.reason}`);
+    }
+    throw e;
+  }
+}
+
+export type AssignInput = { kind: ReviewKind; id: number; assignedTo: string | null; note?: string };
+
+/**
+ * Route a queue item to a user (or `null` to unassign). Returns the refreshed
+ * queue. Queue management is the `approve` capability.
+ * @param authHeader
+ * @param input
+ */
+export async function apiAssignReview(
+  authHeader: string | null | undefined,
+  input: AssignInput,
+): Promise<{ ok: true; reviews: ReviewItem[] }> {
+  const { orgId, principal, tokenId } = await apiContext(authHeader);
+  assertItem(input.kind, input.id);
+  enforceQueueManage(principal, orgId);
+
+  await ReviewService.assign(orgId, { kind: input.kind, id: input.id }, {
+    assignedTo: input.assignedTo,
+    assignedBy: `token:${tokenId}`,
+    note: input.note,
+  });
+
+  const reviews = await ReviewService.listPending(orgId);
+  return { ok: true, reviews };
+}
+
+export type SnoozeInput = { kind: ReviewKind; id: number; until: string };
+
+/**
+ * Snooze a queue item until an ISO timestamp. Returns the refreshed queue.
+ * @param authHeader
+ * @param input
+ */
+export async function apiSnoozeReview(
+  authHeader: string | null | undefined,
+  input: SnoozeInput,
+): Promise<{ ok: true; reviews: ReviewItem[] }> {
+  const { orgId, principal, tokenId } = await apiContext(authHeader);
+  assertItem(input.kind, input.id);
+  const until = new Date(input.until);
+  if (Number.isNaN(until.getTime())) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'until must be an ISO timestamp');
+  }
+  enforceQueueManage(principal, orgId);
+
+  await ReviewService.snooze(orgId, { kind: input.kind, id: input.id }, until, `token:${tokenId}`);
 
   const reviews = await ReviewService.listPending(orgId);
   return { ok: true, reviews };
