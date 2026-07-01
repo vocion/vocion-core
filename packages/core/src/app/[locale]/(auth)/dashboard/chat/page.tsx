@@ -42,6 +42,7 @@ export default async function ChatPage(props: {
       slug: a.slug,
       name: a.name,
       icon: 'bot' as const,
+      eyebrow: a.eyebrow ?? undefined,
       placeholder: a.description?.trim()
         ? `Ask ${a.name} — ${a.description.replace(/\.$/, '')}…`
         : `Ask ${a.name}…`,

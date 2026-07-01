@@ -152,10 +152,13 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     subagents,
     backend: new StateBackend(),
     // `skills` mounts deepagents's SKILL.md auto-loader at the given
-    // virtual-FS path. Playbook bodies are seeded into `initialFiles`
-    // per-turn via `mountPlaybooks`; the middleware lazy-loads on
-    // `task` activation.
-    skills: [{ source: '/playbooks/', name: 'playbooks' }] as never,
+    // virtual-FS path(s). deepagents expects an array of string source
+    // PATHS (`skills?: string[]`) — passing objects made SkillsMiddleware
+    // call `.includes`/`.replace` on a non-string and throw
+    // ("d.replace is not a function"), which surfaced as a tool error in
+    // chat. Playbook bodies are seeded into `initialFiles` per-turn via
+    // `mountPlaybooks`; the middleware lazy-loads on `task` activation.
+    skills: ['/playbooks/'],
   });
 
   // Attach the mutable RuntimeContext for the request adapter to update.
