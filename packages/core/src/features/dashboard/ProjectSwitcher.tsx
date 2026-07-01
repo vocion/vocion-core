@@ -14,6 +14,14 @@ export const ProjectSwitcher = (props: { count?: number }) => {
   const { data: session } = useSession();
   const count = props.count ?? 1;
   const multi = count > 1;
+
+  // Single-workspace deployment: nothing to switch, and a static "Workspace"
+  // label just duplicates the section header below. Render nothing until
+  // multi-workspace switching lands (count > 1).
+  if (!multi) {
+    return null;
+  }
+
   const label = session?.user?.accountId ? 'Workspace' : '—';
 
   return (

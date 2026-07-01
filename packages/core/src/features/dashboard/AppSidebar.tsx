@@ -51,10 +51,13 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
   return (
     <Sidebar {...props}>
       <SidebarHeader className="pt-5">
-        <div className="flex justify-center pb-3">
+        <div className="flex justify-start px-2 pb-2">
           <VocionLogo size="sm" />
         </div>
 
+        {/* ProjectSwitcher renders only when there's more than one workspace;
+            a single-workspace deployment would just repeat the "Workspace"
+            section header below it, so it stays hidden. */}
         <ProjectSwitcher />
       </SidebarHeader>
 
