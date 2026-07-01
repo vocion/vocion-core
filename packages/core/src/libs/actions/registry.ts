@@ -6,6 +6,7 @@
 
 import type { Action } from './types';
 import { gmailSendAction } from './gmail-send';
+import { hubspotUpdateAction } from './hubspot-update';
 
 const registry = new Map<string, Action>();
 
@@ -23,3 +24,4 @@ export function listActions(): Action[] {
 
 // Built-ins.
 registerAction(gmailSendAction);
+registerAction(hubspotUpdateAction);
