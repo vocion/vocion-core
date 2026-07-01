@@ -28,6 +28,39 @@ export const listAgents = (_orgId: string) => {
   });
 };
 
+export type AgentRow = Awaited<ReturnType<typeof listAgents>>[number];
+
+export type TeamView = {
+  /** Team slug (or 'ungrouped' for agents with no team). */
+  team: string;
+  /** The lead agent (interactive/orchestration layer), if one is designated. */
+  lead: AgentRow | null;
+  /** The specialist agents on the team. */
+  specialists: AgentRow[];
+};
+
+/**
+ * Group an org's agents into teams — each a lead + its specialists. The org
+ * chart of the deployment: you talk to a team's Lead, which coordinates its
+ * specialists. Agents with no `team` fall under 'ungrouped'.
+ * @param orgId - The active project/org id whose agents to group.
+ */
+export async function listTeams(orgId: string): Promise<TeamView[]> {
+  const agents = await listAgents(orgId);
+  const byTeam = new Map<string, AgentRow[]>();
+  for (const a of agents) {
+    const key = a.team ?? 'ungrouped';
+    const list = byTeam.get(key) ?? [];
+    list.push(a);
+    byTeam.set(key, list);
+  }
+  return [...byTeam.entries()].map(([team, members]) => ({
+    team,
+    lead: members.find(m => m.role === 'lead') ?? null,
+    specialists: members.filter(m => m.role !== 'lead'),
+  }));
+}
+
 /* ------------------------------------------------------------------ */
 /* Tool definitions                                                    */
 /* ------------------------------------------------------------------ */

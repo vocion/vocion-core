@@ -4,6 +4,29 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-01 — Agents become teams: lead/specialist roles + Teams view
+
+Retires the "sub-agent" framing. Every agent now carries grouping fields and forms a first-class team.
+Ships in `v1.42.0` (semantic-release: `feat(agents)` → `v0.6.0` in git tags).
+
+- **Schema** — `role` (`lead`|`specialist`, default `specialist`), `agent_type`
+  (`mission`|`workflow`|`operational`), `team` columns on `agent` + `agent_team_idx`. Hand-written
+  migration `0031_agent_role_team.sql` (drizzle-kit generate still blocked by the 0021/0022 snapshot
+  collision).
+- **Workspace** — `role`/`agentType`/`team` on `AgentManifestSchema`; `applier.ts` persists them on
+  `workspace:apply`. Pure config — no restart.
+- **Service** — `listTeams(orgId)` groups an org's agents into `{ team, lead, specialists }`; agents
+  with no `team` fall under `ungrouped`.
+- **UI** — new `/dashboard/teams` view (Lead prominent + specialists grid, per team) + a **Teams**
+  sidebar entry (Users icon).
+- **fix(proxy)** — redirects resolve the public origin (`NEXT_PUBLIC_APP_URL`/`AUTH_URL` →
+  `x-forwarded-*` → request origin) instead of the internal `0.0.0.0:3000` bind that had been blanking
+  the app behind Caddy.
+- RevOps workspace relabeled: `revenue-lead` (lead/mission) + 4 specialists, all `team: revenue-operations`.
+- Docs: `features/teams.md` (new) + `features/agents.md` cross-link; blog `2026-07-01-agent-teams.md`.
+
+---
+
 ## 2026-07-01 — HubSpot write action: the deals desk gets hands (RevOps)
 
 Second action on the v1.39 framework — the write behind progressing deals + the CRM hygiene sweep.
