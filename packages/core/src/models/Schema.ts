@@ -1550,6 +1550,29 @@ export const actionRunSchema = pgTable(
   ],
 );
 
+// event_log — inbound events (webhook or internal) the trigger runner dispatches.
+// Records + dedups each event and audits which workflows it started.
+export const eventLogSchema = pgTable(
+  'event_log',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Event type, e.g. `prospect.reply`, `external.hubspot.deal_stage_changed`. */
+    type: text('type').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().default({}).notNull(),
+    /** Provider-namespaced idempotency key; redelivered webhooks with the same key no-op. */
+    dedupeKey: text('dedupe_key'),
+    /** What this event started — `[{ slug, runId }]`. */
+    triggered: jsonb('triggered').$type<Array<{ slug: string; runId: number }>>().default([]).notNull(),
+    invokedBy: text('invoked_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('event_log_dedupe_idx').on(table.orgId, table.dedupeKey),
+    index('event_log_org_type_idx').on(table.orgId, table.type),
+  ],
+);
+
 // Re-export `sql` so callers can build the GENERATED-ALWAYS-AS-STORED
 // tsvector expression in raw migrations. Not used at query-time.
 export { sql };
