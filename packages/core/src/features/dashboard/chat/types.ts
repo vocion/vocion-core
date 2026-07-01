@@ -60,6 +60,10 @@ export type AgentOption = {
   placeholder: string;
   /** Small label above the agent name in the chat header (e.g. "RevOps · Follow-Up"). */
   eyebrow?: string;
+  /** One-line scope shown under the agent name in the chat header. */
+  description?: string;
+  /** Empty-state one-click prompts, authored per agent in the workspace. */
+  suggestions?: Array<{ label: string; prompt: string }>;
 };
 
 /** HITL gate event payload — emitted by request_human_review tool. */

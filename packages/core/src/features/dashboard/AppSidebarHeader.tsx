@@ -2,7 +2,6 @@
 
 import { BookOpen, CreditCard, HeartPulse, LifeBuoy, LogOut, Map, Send, User as UserIcon } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
-import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import {
   DropdownMenu,
@@ -35,9 +34,6 @@ export const AppSidebarHeader = () => {
       <ul className="flex items-center gap-x-1.5">
         <li>
           <ThemeSwitcher />
-        </li>
-        <li>
-          <LocaleSwitcher />
         </li>
         <li>
           <DropdownMenu>

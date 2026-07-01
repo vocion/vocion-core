@@ -43,8 +43,10 @@ export type ChatShellProps = {
   /** Initial selection. If absent, picks the first entry in `agents`. */
   agentSlug?: string;
   agentDescription?: string;
-  /** Suggestion prompts surfaced in the empty state. */
+  /** Suggestion prompts surfaced in the empty state (fallback — per-agent suggestions win). */
   suggestions?: Array<{ label: string; prompt: string }>;
+  /** Rendered on the right side of the agent header (e.g. a New Chat button). */
+  headerAction?: React.ReactNode;
 };
 
 export function ChatShell({
@@ -52,6 +54,7 @@ export function ChatShell({
   agentSlug,
   agentDescription,
   suggestions = [],
+  headerAction,
 }: ChatShellProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [composerValue, setComposerValue] = useState('');
@@ -65,6 +68,7 @@ export function ChatShell({
   // explicit slug wins; otherwise the first entry is the default.
   const agent = (agentSlug ? agents.find(a => a.slug === agentSlug) : undefined) ?? agents[0]!;
   const agentEyebrow = agent.eyebrow;
+  const agentSuggestions = agent.suggestions?.length ? agent.suggestions : suggestions;
   const isStreaming = phase !== 'idle';
 
   /* --------------------------------------------------------------- */
@@ -245,12 +249,17 @@ export function ChatShell({
 
   return (
     <div className="flex h-full flex-1 flex-col">
-      <AgentHeader name={agent.name} eyebrow={agentEyebrow} description={agentDescription} />
+      <AgentHeader
+        name={agent.name}
+        eyebrow={agentEyebrow}
+        description={agentDescription ?? agent.description}
+        action={headerAction}
+      />
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col">
           {messages.length === 0
-            ? <EmptyState agentName={agent.name} suggestions={suggestions} onPick={handlePickSuggestion} />
+            ? <EmptyState agentName={agent.name} suggestions={agentSuggestions} onPick={handlePickSuggestion} />
             : <MessageList messages={messages} agentName={agent.name} streaming={isStreaming} />}
 
           {pendingHitl && (
