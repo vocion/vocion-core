@@ -11,12 +11,13 @@
 
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { missionRunSchema, reviewAssignmentSchema, skillRunSchema, workflowRunSchema } from '@/models/Schema';
+import { actionRunSchema, missionRunSchema, reviewAssignmentSchema, skillRunSchema, workflowRunSchema } from '@/models/Schema';
+import { executeAction, rejectAction } from '@/services/ActionService';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { approveSkillRun, rejectSkillRun } from '@/services/SkillService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
 
-export type ReviewKind = 'skill' | 'workflow' | 'mission';
+export type ReviewKind = 'skill' | 'workflow' | 'mission' | 'action';
 
 export type ReviewItem = {
   kind: ReviewKind;
@@ -43,6 +44,7 @@ const PENDING_STATUS: Record<ReviewKind, string> = {
   skill: 'pending',
   workflow: 'paused',
   mission: 'awaiting_review',
+  action: 'pending',
 };
 
 /**
@@ -54,7 +56,7 @@ const PENDING_STATUS: Record<ReviewKind, string> = {
  * @param opts
  */
 export async function listPending(orgId: string, opts: ListOptions = {}): Promise<ReviewItem[]> {
-  const [skills, workflows, missions] = await Promise.all([
+  const [skills, workflows, missions, actions] = await Promise.all([
     db
       .select({ id: skillRunSchema.id, status: skillRunSchema.status })
       .from(skillRunSchema)
@@ -70,12 +72,18 @@ export async function listPending(orgId: string, opts: ListOptions = {}): Promis
       .from(missionRunSchema)
       .where(and(eq(missionRunSchema.orgId, orgId), eq(missionRunSchema.status, PENDING_STATUS.mission)))
       .orderBy(desc(missionRunSchema.id)),
+    db
+      .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, status: actionRunSchema.status })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, PENDING_STATUS.action)))
+      .orderBy(desc(actionRunSchema.id)),
   ]);
 
   const base: ReviewItem[] = [
     ...skills.map(r => ({ kind: 'skill' as const, id: r.id, orgId, title: `Skill run #${r.id}`, status: r.status ?? 'pending' })),
     ...workflows.map(r => ({ kind: 'workflow' as const, id: r.id, orgId, title: `Workflow run #${r.id}`, status: r.status })),
     ...missions.map(r => ({ kind: 'mission' as const, id: r.id, orgId, title: r.title, status: r.status })),
+    ...actions.map(r => ({ kind: 'action' as const, id: r.id, orgId, title: `Action · ${r.actionId}`, status: r.status })),
   ];
 
   // Decorate with routing. One fetch of the org's assignments, keyed by kind:id.
@@ -198,5 +206,10 @@ export async function decide(
       action === 'approve'
         ? await resumeMission(item.id, orgId)
         : await cancelMission(item.id, orgId, opts?.reason);
+      return;
+    case 'action':
+      action === 'approve'
+        ? await executeAction(item.id, orgId)
+        : await rejectAction(item.id, orgId, opts?.reason);
   }
 }
