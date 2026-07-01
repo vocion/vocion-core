@@ -16,6 +16,7 @@ import type { TokenIdentity } from '@/services/ApiTokenService';
 import type { ReviewItem, ReviewKind } from '@/services/ReviewService';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce } from '@/services/authz';
+import { emitEvent } from '@/services/EventService';
 import * as ReviewService from '@/services/ReviewService';
 
 /** A write-API failure with the HTTP status + error code the route should emit. */
@@ -186,4 +187,31 @@ export async function apiSnoozeReview(
 
   const reviews = await ReviewService.listPending(orgId);
   return { ok: true, reviews };
+}
+
+export type EmitEventApiInput = { type: string; payload?: Record<string, unknown>; dedupeKey?: string };
+
+/**
+ * Emit an inbound event over the API — the trigger runner fans it out to the
+ * workflows subscribed to that type. Any valid tenant token may emit (the
+ * workflows it starts gate their own actions). Returns what was triggered.
+ * @param authHeader
+ * @param input
+ */
+export async function apiEmitEvent(
+  authHeader: string | null | undefined,
+  input: EmitEventApiInput,
+): Promise<{ ok: true; eventId: number | null; deduped: boolean; triggered: Array<{ slug: string; runId: number }> }> {
+  const { orgId, tokenId } = await apiContext(authHeader);
+  if (!input.type || typeof input.type !== 'string') {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'type is required');
+  }
+  const result = await emitEvent({
+    orgId,
+    type: input.type,
+    payload: input.payload ?? {},
+    dedupeKey: input.dedupeKey,
+    invokedBy: `token:${tokenId}`,
+  });
+  return { ok: true, ...result };
 }

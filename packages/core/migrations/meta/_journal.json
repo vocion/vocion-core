@@ -211,6 +211,13 @@
       "when": 1782000600000,
       "tag": "0029_action_run",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1782000700000,
+      "tag": "0030_event_log",
+      "breakpoints": true
     }
   ]
 }
