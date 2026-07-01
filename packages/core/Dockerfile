@@ -100,9 +100,11 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=builder --chown=nextjs:nodejs /app/packages/core/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/packages/core/.next/static ./packages/core/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/packages/core/public ./packages/core/public
-# Git-backed context-as-code authoring tree. `npm run context:apply`
-# inside the running container reads from here.
-COPY --from=builder --chown=nextjs:nodejs /app/context ./context
+# Git-backed workspace-as-code authoring tree (renamed from context/).
+# `npm run workspace:apply` inside the container reads from here; a
+# deployment can override the path via WORKSPACE_PATH (e.g. a mounted
+# per-org workspace).
+COPY --from=builder --chown=nextjs:nodejs /app/workspace ./workspace
 # Drizzle migrations the runtime applies on first boot.
 COPY --from=builder --chown=nextjs:nodejs /app/packages/core/migrations ./packages/core/migrations
 # Public docs corpus served by the in-product viewer + the marketing
