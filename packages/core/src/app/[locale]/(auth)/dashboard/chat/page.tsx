@@ -36,11 +36,22 @@ export default async function ChatPage(props: {
   const { orgId } = await auth();
   const dbAgents = orgId ? await listAgents(orgId) : [];
 
+  // You brief the LEAD — it coordinates the team. Leads sort first so the
+  // default conversation (agents[0]) is the team's point of contact, not
+  // whichever specialist happens to sort first in the table.
+  const ordered = [...dbAgents].sort((a, b) => {
+    if (a.role !== b.role) {
+      return a.role === 'lead' ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
   const agents = [
-    ...dbAgents.map(a => ({
+    ...ordered.map(a => ({
       slug: a.slug,
       name: a.name,
       icon: 'bot' as const,
+      role: (a.role === 'lead' ? 'lead' : 'specialist') as 'lead' | 'specialist',
       eyebrow: a.eyebrow ?? undefined,
       description: a.description ?? undefined,
       suggestions: a.suggestions ?? [],

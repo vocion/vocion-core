@@ -17,6 +17,10 @@ UX pass from RevOps dogfooding, previewed locally before deploy (new working rul
   placeholder shortened to `Message <name>…`; **per-agent suggestions actually render** (authored +
   stored since the workspace applier landed, never passed to the UI); "try one of these" label hidden
   when empty; LocaleSwitcher removed from the dashboard header.
+- **feat(chat) — you brief the Lead.** The default conversation had no concept at all — `agents[0]`
+  in table order made Follow-Up Coordinator the front door. Agents now sort lead-first (the Lead IS
+  the default), and the header name is an **agent switcher** — Leads grouped as "brief the team",
+  specialists as "go direct"; switching starts a fresh conversation.
 - **fix(agents) — lazy OpenAI client.** The legacy client was constructed at module scope and the SDK
   throws on an empty key — every install without `OPENAI_API_KEY` 500'd the whole chat surface despite
   Anthropic being the default provider. Constructed on first use now.

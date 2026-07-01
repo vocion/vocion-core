@@ -64,6 +64,8 @@ export type AgentOption = {
   description?: string;
   /** Empty-state one-click prompts, authored per agent in the workspace. */
   suggestions?: Array<{ label: string; prompt: string }>;
+  /** Team role — leads sort first and are the default point of contact. */
+  role?: 'lead' | 'specialist';
 };
 
 /** HITL gate event payload — emitted by request_human_review tool. */
