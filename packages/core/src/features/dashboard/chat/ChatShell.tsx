@@ -64,7 +64,7 @@ export function ChatShell({
   // SEARCH_ONLY_AGENT is always appended. When real agents exist the
   // explicit slug wins; otherwise the first entry is the default.
   const agent = (agentSlug ? agents.find(a => a.slug === agentSlug) : undefined) ?? agents[0]!;
-  const agentEyebrow = `Workspace · ${agent.name}`;
+  const agentEyebrow = agent.eyebrow;
   const isStreaming = phase !== 'idle';
 
   /* --------------------------------------------------------------- */
