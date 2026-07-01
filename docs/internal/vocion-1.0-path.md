@@ -29,6 +29,9 @@ solid floor.
 
 ✅ shipped · ◐ partial · ▶ remaining. "Needed by" = D (Daylyte), R (RevOps), F (FirstHQ shell).
 
+> **Audited 2026-07-01** against code (`packages/core/src`) + the live RevOps box. The previous matrix
+> had drifted ~13 versions behind the changelog (last synced ~v1.29). Statuses below are code-verified.
+
 | Capability | Needed by | Status |
 |---|---|---|
 | Missions / Teams / Workflows / Operations | D · R · F | ✅ v1.25 |
@@ -40,36 +43,59 @@ solid floor.
 | **One review queue** (unified pending + decide) | R · F | ✅ v1.28 |
 | **Durable ingestion — checkpoints + incremental (core)** | D · R | ✅ v1.29 |
 | Observability (Langfuse traces/cost) | D · R | ✅ |
-| **API control plane** (write API + tenant Bearer tokens) | **F** · D · R | ▶ step 4 |
-| **MCP over HTTP + OAuth** (agent/tool plane, multi-tenant) | F · R | ▶ step 4 |
-| **Connector pack** (Google Ads, GA4, HubSpot, Gmail, Slack, Drive) | **D · R** | ▶ Phase 5 — the big gap |
-| Temporal ingestion wrapper (workflow + schedules) | D · R | ▶ step 3 follow-on |
+| **API control plane** (Bearer tokens + reviews/events write API) | **F** · D · R | ✅ v1.30–v1.33 *(full resource CRUD → Phase 7, post-1.0)* |
+| **MCP over HTTP** (agent/tool plane, multi-tenant, Bearer) | F · R | ✅ v1.34 *(OAuth sign-in flow ▶ deferred)* |
+| **Connector pack** (HubSpot, Gmail, Slack, Drive, Google Ads, GA4) | **D · R** | ✅ v1.31–v1.36 — real APIs, incremental, creds from vault *(plugin repackaging → Phase 5, post-1.0)* |
+| Temporal ingestion wrapper (sourceSyncWorkflow + SourceScheduleService) | D · R | ◐ v1.37 — mechanism shipped; **dispatch wiring ▶** (`ensureSourceSchedule` has zero callers — source cron never becomes a live schedule) |
+| Triggers — event runner (`emitEvent` → workflow fan-out, `POST /api/v1/events`) | D · R | ✅ v1.40 |
+| **Actions — gated connector writes** (`gmail.send`, `hubspot.update`, action_run gate) | **R** | ✅ v1.39–v1.41 |
+| **Multi-user review routing** (assign / snooze / per-person queues) | R · F | ✅ v1.38 |
+| **Teams** (lead/specialist, team grouping, Teams view) | R · F | ✅ v1.42 |
+| **Credential onboarding** (UI/CLI to put a token/OAuth grant into the vault) | **D · R** | ▶ **the new big gap** — vault is real (KMS/local, AES-GCM) but nothing lets an operator SET a credential; prod has 0 rows |
+| **Worker runtime in deploys** (feedback + Temporal worker actually running) | D · R | ▶ — compose `profiles: [worker]` never passed by bootstrap, and the standalone image trims the worker entrypoints; needs a Dockerfile worker target |
 | Unified context (authored + ingested, scoped, versioned) | F | ▶ step 5 |
-| Measurement / ROI (time saved, approval rate) | D · R · F | ◐ Phase 9 |
-| Triggers (schedule + webhook) | D · R | ◐ (event stub; durable runner ▶) |
+| Measurement / ROI (time saved, approval rate) | D · R · F | ◐ Phase 9 — Langfuse traces/cost only; no rollups |
+| Durable workflow runner (all runs on Temporal `vocionWorkflow`) | D · R | ◐ — engine + `approvalSignal` exist; default dispatch still in-process |
 
-**Read:** the *engine* is largely done (steps 1–3 + missions/tools/retrieval). The two things between
-here and 1.0 are **(a) the control plane** so apps/clients drive the runtime, and **(b) the connector
-pack** so it touches real data. Everything else is hardening.
+**Read (updated):** the *capability* gap is closed — control plane, connector pack, gated writes, teams,
+and event triggers are all in the code. What separates here from 1.0 is **activation**: (a) a way to put
+**credentials** in the vault without psql, (b) the **worker actually running** in a deployment, (c)
+**schedule dispatch wired** so source crons and scheduled workflows fire, and (d) the reference
+deployments **running real data through the loop**. The live RevOps box proves it: 5 agents, 4 sources,
+4 missions authored — and 0 credentials, 0 documents, 0 runs. Ship activation, then harden from what
+breaks.
 
 ## The milestone path
 
 - **V-core — Platform foundation.** ✅ Steps 1–3: scoped retrieval, the permission model + one review
   queue, durable-ingestion core. (v1.26–v1.29.)
-- **V-control — The control plane** *(next).* Step 4: tenant **Bearer tokens** + a **write API**
-  routed through `authz`/the review queue, and **MCP over HTTP + OAuth**. Exit: an app (FirstHQ) or a
-  client integration can authenticate, start work, and approve through one shared authorization layer.
-- **V-connect — The connector pack.** The integrations both deployments need, as source plugins on the
-  durable-ingestion pipeline + the Temporal wrapper (workflow + schedules): **Google Ads, GA4 /
-  analytics, the site (CRO)** for Daylyte; **HubSpot, Gmail, Slack, Drive** for RevOps. + OAuth /
-  credential vault. Exit: a real source connects, syncs incrementally on a schedule, and is retrievable
-  client-scoped.
-- **V-ref — The reference deployments.** Stand up **Daylyte** (PPC/CRO reporting workspace) and
-  **Metacto RevOps** (the Revenue Operations team) as real Vocion workspaces; run them; harden from
-  what actually breaks. Exit: both meet their acceptance bars (below).
-- **V1.0 — Cut it.** Measurement/ROI surfaced (Phase 9), docs, polish, and the carryover blockers
-  resolved (CI secrets so semantic-release cuts tags; migration generate). Exit: **Vocion 1.0** — both
-  reference deployments run in production, FirstHQ 1.0 builds on a stable contract.
+- **V-control — The control plane.** ✅ (v1.30–v1.34.) Tenant **Bearer tokens**, the **write API**
+  routed through `authz`/the review queue (reviews + events), and **MCP over HTTP** on Bearer. An app
+  (FirstHQ) or client integration can authenticate, start work, and approve through one shared
+  authorization layer. *(OAuth sign-in for MCP + full resource CRUD deferred post-1.0.)*
+- **V-connect — The connector pack.** ✅ code-complete (v1.31–v1.37): **HubSpot, Gmail, Slack, Drive,
+  Google Ads, GA4** as real incremental connectors, credentials from the encrypted vault, sync
+  checkpoints, `sourceSyncWorkflow` on Temporal. **One wiring gap carried into V-act:** nothing calls
+  `ensureSourceSchedule`, so a source's cron never becomes a live Temporal schedule.
+- **V-act — Activation** *(now — the current milestone).* Make the shipped capability reachable:
+  1. **Credential onboarding** — dashboard page (+ CLI fallback) that puts a HubSpot token / Google
+     OAuth grant / Slack token into the vault, per source, and triggers a first sync.
+  2. **Worker in deploys** — a `worker` build target in the Dockerfile (standalone image trims the
+     entrypoints today) + compose profile actually enabled; feedback worker + Temporal worker run as
+     first-class containers.
+  3. **Schedule dispatch** — `workspace:apply` + the sources route call `ensureSourceSchedule`
+     (and delete on removal), so authored crons fire.
+  4. **Model refresh** — default `main` role to **Fable 5** (`claude-fable-5`); keep Haiku 4.5 as
+     classifier; align workspace defaults (RevOps `workspace.yaml` still says `gpt-5.4-mini`).
+  Exit: a fresh deployment can go from `terraform apply` → connected sources → first scheduled sync →
+  first gated action **without psql or SSH**.
+- **V-ref — The reference deployments.** Light up **Metacto RevOps** first (agents.metacto.com is
+  live but dark: 0 credentials → 0 documents → 0 runs), then **Daylyte**. Run them; harden from what
+  actually breaks. Exit: both meet their acceptance bars (below).
+- **V1.0 — Cut it.** Measurement/ROI surfaced (Phase 9 slice: approval rate, time-to-approve, cost per
+  run), docs, polish, and the **pipeline-green track** resolved (see roadmap.md — CI workspace-target
+  fix, test env, knip, semantic-release resumes cutting tags). Exit: **Vocion 1.0** — both reference
+  deployments run in production, FirstHQ 1.0 builds on a stable contract.
 
 ## Acceptance — the two reference deployments
 
