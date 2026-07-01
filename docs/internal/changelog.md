@@ -4,6 +4,27 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-01 — Chat tool-error fix + configurable brand slot + sidebar cleanup
+
+Bugfix + white-label polish, from live RevOps dogfooding.
+
+- **fix(agents)** — the deepagents runtime passed `skills: [{source,name}]` (objects, forced with
+  `as never`) where the library expects `skills?: string[]` (source paths). `SkillsMiddleware` called
+  `.includes`/`.replace` on a non-string → `d.replace is not a function`, surfacing as a tool error on
+  the first chat message. Now `skills: ['/playbooks/']`.
+- **feat(ui) — brand slot.** `VocionLogo` gains `NEXT_PUBLIC_BRAND_MARK` (glyph image / `data:` URI)
+  and `NEXT_PUBLIC_BRAND_TAGLINE` (subhead) alongside `NEXT_PUBLIC_BRAND_NAME`. Deployments supply their
+  own mark, so OSS carries no third-party art. Dockerfile ARG/ENV for both. Sidebar brand moved
+  top-left (was centered).
+- **fix(ui) — "Workspace" redundancy.** `ProjectSwitcher` renders nothing in a single-workspace
+  deployment (it only duplicated the "Workspace" section header); returns when `count > 1`. Chat header
+  drops the hardcoded `Workspace ·` eyebrow — uses the agent's own eyebrow (e.g. "RevOps · Follow-Up").
+- RevOps box: `metacto` wordmark + Metacto network glyph + "agents by Vocion" tagline (mark lives in
+  the deployment repo, base64'd into the build-arg).
+- Docs: `guides/self-hosting.md` branding section; blog `2026-07-01-white-label-brand.md`.
+
+---
+
 ## 2026-07-01 — Agents become teams: lead/specialist roles + Teams view
 
 Retires the "sub-agent" framing. Every agent now carries grouping fields and forms a first-class team.
