@@ -32,6 +32,15 @@ function publicOrigin(request: NextRequest): string {
   return request.nextUrl.origin;
 }
 
+// Extract the locale prefix from a path — but ONLY if the first segment is an
+// actual configured locale. With `as-needed` prefixing, unprefixed paths like
+// `/dashboard/teams` have no locale; the naive regex would capture `dashboard`
+// and build `/dashboard/sign-in`, which loops. Returns '' when there's no locale.
+function localeOf(path: string): string {
+  const seg = path.match(/^\/([^/]+)(?:\/|$)/)?.[1];
+  return seg && (routing.locales as readonly string[]).includes(seg) ? seg : '';
+}
+
 export default async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
@@ -51,7 +60,7 @@ export default async function proxy(request: NextRequest) {
   if (PROTECTED_PATH.test(path)) {
     const session = await auth();
     if (!session?.user?.id) {
-      const locale = path.match(/^\/([^/]+)\//)?.[1] ?? '';
+      const locale = localeOf(path);
       const signInUrl = new URL(`/${locale ? `${locale}/` : ''}sign-in`, origin);
       // callbackUrl points back at the requested page on the PUBLIC origin.
       signInUrl.searchParams.set('callbackUrl', new URL(request.nextUrl.pathname + request.nextUrl.search, origin).toString());
@@ -63,7 +72,7 @@ export default async function proxy(request: NextRequest) {
   if (AUTH_PATH.test(path) && !path.includes('/setup') && !path.includes('/invite')) {
     const session = await auth();
     if (session?.user?.id) {
-      const locale = path.match(/^\/([^/]+)\//)?.[1] ?? '';
+      const locale = localeOf(path);
       return NextResponse.redirect(new URL(`/${locale ? `${locale}/` : ''}dashboard`, origin));
     }
   }
