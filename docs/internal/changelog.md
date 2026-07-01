@@ -4,6 +4,29 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-01 — Event-trigger runner: event-driven work (RevOps load-bearing)
+
+"Event-driven first." Workflows already declared an `event` trigger; nothing dispatched to them. This
+is the runner: an inbound event fans out to the workflows subscribed to it. Ships in `v1.40.0`.
+
+- `services/EventService.ts` (NEW) — `emitEvent({orgId, type, payload, dedupeKey?})`: dedupes (repeat
+  key no-ops), finds active workflows whose `trigger` is `{type:'event', event}` with a matching
+  `filter` (every filter key equals the payload's), and `startWorkflow`s each with the payload as input
+  + `triggerContext`. Records an `event_log` row auditing what it started. A single failed start doesn't
+  drop the event.
+- `event_log` table (migration `0030`): orgId, type, payload, dedupeKey (unique per org), triggered
+  `[{slug,runId}]`, invokedBy. Idempotency + audit.
+- `services/writeApi.ts` + `POST /api/v1/events` — emit an event over the API (`{type, payload?,
+  dedupeKey?}`); any valid tenant token may emit (the workflows it starts gate their own actions).
+  Provider webhooks (HubSpot, Gmail push, calendar, DocuSign) become thin adapters that normalize →
+  POST here.
+- Tests (4, PGlite): dispatch with payload, filter match/no-match, dedupe fires once, non-matching type
+  + inactive workflow ignored but logged. Types + lint clean.
+- Completes the load-bearing trio (team queue v1.38 · actions v1.39 · triggers v1.40): the full loop —
+  event → draft → gated action → routed approval → execute → logged — now exists end-to-end.
+
+---
+
 ## 2026-07-01 — Action framework: gated connector-writes (RevOps load-bearing)
 
 The mutation counterpart to read-only connectors. The action step was a stub; this makes actions real:
