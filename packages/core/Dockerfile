@@ -53,6 +53,10 @@ ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
 ARG NEXT_PUBLIC_LANGFUSE_BASE_URL=http://localhost:3200
 ARG NEXT_PUBLIC_LANGFUSE_PROJECT_ID=demo
+# White-label wordmark (sidebar + marketing). Defaults to Vocion; a deployment
+# sets it via --build-arg (e.g. "Metacto · agents by Vocion").
+ARG NEXT_PUBLIC_BRAND_NAME=Vocion
+ENV NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

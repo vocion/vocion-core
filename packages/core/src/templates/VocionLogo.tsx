@@ -4,10 +4,16 @@
  * The mark is three rising bars — growth, signal, momentum. Solid fill in
  * `currentColor` so it inherits the surrounding text color (works in
  * light/dark themes and anywhere the wordmark sits).
+ *
+ * The wordmark is configurable per deployment via `NEXT_PUBLIC_BRAND_NAME`
+ * (build-time). Defaults to `Vocion` so the OSS + marketing site are unchanged;
+ * a white-labelled deployment (e.g. "Metacto · agents by Vocion") sets the env.
  * @param props
  * @param props.isTextHidden
  * @param props.size
  */
+const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion';
+
 export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' | 'lg' }) => {
   const iconSize
     = props.size === 'sm'
@@ -37,7 +43,7 @@ export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' |
         <rect x="17" y="4" width="4" height="17" rx="1" />
       </svg>
       {!props.isTextHidden && (
-        <span>Vocion</span>
+        <span>{BRAND_NAME}</span>
       )}
     </div>
   );
