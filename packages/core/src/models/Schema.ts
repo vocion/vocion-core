@@ -1522,6 +1522,34 @@ export const reviewAssignmentSchema = pgTable(
   ],
 );
 
+// action_run — a proposed connector-write action (gmail.send, hubspot.update).
+// Gated actions persist here as 'pending' and surface in the review queue as a
+// 4th kind; they execute only on approval. Non-gated actions record their run
+// too (status 'done') for the audit trail.
+export const actionRunSchema = pgTable(
+  'action_run',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Registered action id, e.g. `gmail.send`. */
+    actionId: text('action_id').notNull(),
+    input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
+    /** pending | approved | executing | done | failed | rejected */
+    status: text('status').default('pending').notNull(),
+    result: jsonb('result').$type<Record<string, unknown>>(),
+    error: text('error'),
+    /** Who proposed it — `agent:<slug>` / `token:<id>` / a user id. */
+    invokedBy: text('invoked_by'),
+    /** The source whose vault credentials the action needs (e.g. `gmail`). */
+    sourceSlug: text('source_slug'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    executedAt: timestamp('executed_at', { mode: 'date' }),
+  },
+  table => [
+    index('action_run_org_status_idx').on(table.orgId, table.status),
+  ],
+);
+
 // Re-export `sql` so callers can build the GENERATED-ALWAYS-AS-STORED
 // tsvector expression in raw migrations. Not used at query-time.
 export { sql };
