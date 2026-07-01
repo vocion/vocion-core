@@ -4,6 +4,23 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-01 — HubSpot write action: the deals desk gets hands (RevOps)
+
+Second action on the v1.39 framework — the write behind progressing deals + the CRM hygiene sweep.
+Ships in `v1.41.0`.
+
+- `libs/actions/hubspot-update.ts` (NEW) — `hubspot.update`: PATCH properties on a HubSpot deal /
+  contact / company (`/crm/v3/objects/{type}/{id}`, private-app token from the vault). Grant
+  `update_crm`, `external: true`, `sourceSlug: 'hubspot'`. Returns the object + changed keys.
+- Registered in `libs/actions/registry`. Rides the full gate: an agent proposing a stage change / field
+  fix at low autonomy → `pending` action_run → the right person's queue → executes on approval.
+- Tests (3): PATCHes the right object + returns changed keys, refuses without creds, surfaces API errors.
+  Types + lint clean.
+- With this, both Goal-2 flows have their write: the deals desk (stage/next-step moves) and the
+  Lead→MQL→SQL→Opp hygiene sweep (fill missing fields, fix wrong stages) — every change gated.
+
+---
+
 ## 2026-07-01 — Event-trigger runner: event-driven work (RevOps load-bearing)
 
 "Event-driven first." Workflows already declared an `event` trigger; nothing dispatched to them. This
