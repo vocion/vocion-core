@@ -588,6 +588,12 @@ export const agentSchema = pgTable(
     icon: text('icon'),
     /** Whether this agent is active */
     active: text('active').default('true'),
+    /** Team hierarchy: 'lead' (interactive/orchestration) | 'specialist' (role-based member). */
+    role: text('role').default('specialist').notNull(),
+    /** Primary work mode: 'mission' | 'workflow' | 'operational'. */
+    agentType: text('agent_type'),
+    /** Team slug grouping a lead + its specialists (e.g. 'revenue-operations'). */
+    team: text('team'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
