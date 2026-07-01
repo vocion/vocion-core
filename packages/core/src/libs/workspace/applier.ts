@@ -267,6 +267,9 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     langfuseProjectId: agent.langfuseProjectId ?? null,
     icon: agent.icon ?? null,
     active: String(agent.active),
+    role: agent.role,
+    agentType: agent.agentType ?? null,
+    team: agent.team ?? null,
   };
 
   if (!existing) {

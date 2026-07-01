@@ -9,6 +9,29 @@ const handleI18nRouting = createMiddleware(routing);
 const PROTECTED_PATH = /^\/(?:[^/]+\/)?(?:dashboard|onboarding|rpc)(?:$|\/|\?)/;
 const AUTH_PATH = /^\/(?:[^/]+\/)?(?:sign-in|sign-up|setup|invite)(?:$|\/|\?)/;
 
+// Resolve the PUBLIC origin for redirects. Behind a reverse proxy (Caddy) the
+// server binds 0.0.0.0:3000, so `request.url` / `request.nextUrl.origin` carry
+// that internal address — using it for a redirect sends the browser to
+// `http://0.0.0.0:3000/...`, which is unreachable and blanks the app. Prefer an
+// explicitly configured public URL, then the proxy's forwarded headers, and
+// only fall back to the request origin for local/dev where they already match.
+function publicOrigin(request: NextRequest): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL;
+  if (configured) {
+    try {
+      return new URL(configured).origin;
+    } catch {
+      // ignore a malformed env value and fall through to headers
+    }
+  }
+  const forwardedHost = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
+  if (forwardedHost) {
+    const proto = request.headers.get('x-forwarded-proto') ?? 'https';
+    return `${proto}://${forwardedHost}`;
+  }
+  return request.nextUrl.origin;
+}
+
 export default async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
@@ -22,13 +45,16 @@ export default async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const origin = publicOrigin(request);
+
   // Protected routes: must have an auth.js session, else redirect to sign-in
   if (PROTECTED_PATH.test(path)) {
     const session = await auth();
     if (!session?.user?.id) {
       const locale = path.match(/^\/([^/]+)\//)?.[1] ?? '';
-      const signInUrl = new URL(`/${locale ? `${locale}/` : ''}sign-in`, request.url);
-      signInUrl.searchParams.set('callbackUrl', request.url);
+      const signInUrl = new URL(`/${locale ? `${locale}/` : ''}sign-in`, origin);
+      // callbackUrl points back at the requested page on the PUBLIC origin.
+      signInUrl.searchParams.set('callbackUrl', new URL(request.nextUrl.pathname + request.nextUrl.search, origin).toString());
       return NextResponse.redirect(signInUrl);
     }
   }
@@ -38,7 +64,7 @@ export default async function proxy(request: NextRequest) {
     const session = await auth();
     if (session?.user?.id) {
       const locale = path.match(/^\/([^/]+)\//)?.[1] ?? '';
-      return NextResponse.redirect(new URL(`/${locale ? `${locale}/` : ''}dashboard`, request.url));
+      return NextResponse.redirect(new URL(`/${locale ? `${locale}/` : ''}dashboard`, origin));
     }
   }
 

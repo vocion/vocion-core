@@ -28,6 +28,12 @@ export const AgentManifestSchema = z.object({
   description: z.string().optional(),
   icon: z.string().optional(),
   active: z.boolean().default(true),
+  /** Team hierarchy: `lead` = the interactive/orchestration agent; `specialist` = a role-based team member. */
+  role: z.enum(['lead', 'specialist']).default('specialist'),
+  /** The work mode this agent primarily runs. */
+  agentType: z.enum(['mission', 'workflow', 'operational']).optional(),
+  /** Team slug this agent belongs to (groups a lead + its specialists), e.g. `revenue-operations`. */
+  team: z.string().optional(),
   model: z.string().optional(),
   temperature: z.union([z.string(), z.number()]).optional(),
   systemPromptFile: z.string().optional().describe('path to markdown system prompt, relative to agent file'),
