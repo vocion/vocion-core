@@ -4,27 +4,30 @@ import { ChevronsUpDown, Folder } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 
 /**
- * Placeholder project selector. Self-hosted today has exactly one
- * project; this just labels it. Multi-project switching lands when the
- * session reads `vocion_active_project` from a cookie and the dashboard
- * tracks which project's content to filter to.
+ * Workspace selector. Self-hosted today has exactly one workspace, so this
+ * renders a plain label (no dropdown affordance). When multi-workspace
+ * switching lands, pass `count > 1` to show the switcher chevron + menu.
+ * @param props
+ * @param props.count - number of workspaces available (default 1 → plain label)
  */
-export const ProjectSwitcher = () => {
+export const ProjectSwitcher = (props: { count?: number }) => {
   const { data: session } = useSession();
-  const label = session?.user?.accountId ? 'Default project' : '—';
+  const count = props.count ?? 1;
+  const multi = count > 1;
+  const label = session?.user?.accountId ? 'Workspace' : '—';
 
   return (
     <button
       type="button"
-      className="flex w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted"
-      disabled
-      title="Multi-project switching ships in a follow-up"
+      className="flex w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm enabled:hover:bg-muted disabled:cursor-default"
+      disabled={!multi}
+      title={multi ? 'Switch workspace' : undefined}
     >
       <span className="flex items-center gap-2">
         <Folder className="size-4 text-muted-foreground" />
         {label}
       </span>
-      <ChevronsUpDown className="size-4 text-muted-foreground" />
+      {multi && <ChevronsUpDown className="size-4 text-muted-foreground" />}
     </button>
   );
 };
