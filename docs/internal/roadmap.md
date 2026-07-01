@@ -9,7 +9,9 @@ Phased to preserve MetaCTO revenue at every step; nothing ships that breaks live
 ## Contents
 
 1. [Snapshot — what's already shipped](#snapshot--whats-already-shipped)
-2. [Phase 2 — Interface layer (finish)](#phase-2--interface-layer-finish)
+2. [**Activation sprint (V-act) — current**](#activation-sprint-v-act----current)
+3. [Pipeline-green track](#pipeline-green-track-engineering-health--unblocks-semantic-release)
+4. [Phase 2 — Interface layer (finish)](#phase-2--interface-layer-finish)
    - [Phase 2.5 — Agent tool layer + skill contract (Agent → Skill → Tool)](#phase-25--agent-tool-layer--skill-contract-agent--skill--tool)
 3. [Phase 3 — Native retrieval](#phase-3--native-retrieval)
 4. [Phase 4 — Self-improvement loop (finish)](#phase-4--self-improvement-loop-finish)
@@ -89,18 +91,66 @@ Everything here is live on `main`.
 - [x] Docs IA — Get started / Concepts / Guides / API / Reference; public vs internal split
 - [x] Use-case catalog — 50 workflows across 5 complexity levels, 12 featured, filterable on `/use-cases`
 
+### Control plane + connectors + actions + teams (v1.26–v1.43 — audited 2026-07-01)
+
+*The V-control and V-connect milestones landed here; several phase sections below predate them —
+their status blockquotes have been corrected in the 2026-07-01 audit pass.*
+
+- [x] Scoped retrieval + document ACL (v1.26); permission model — discovery vs mutation (v1.27); unified review queue + `enforce()` (v1.28); durable ingestion — checkpoints + incremental (v1.29)
+- [x] Tenant Bearer tokens `vcn_live_…` (v1.30) + write API on reviews/events through authz (v1.33) + **MCP over HTTP** on Bearer (v1.34) — OAuth sign-in flow still open
+- [x] **Connector pack in core** — HubSpot (v1.31); Google Ads, GA4, Gmail, Slack (v1.32); Drive (v1.35); credentials decrypted from the vault into sync (v1.36). All real APIs, incremental via `source_sync_checkpoint`
+- [x] Scheduled syncs on Temporal — `sourceSyncWorkflow` + `SourceScheduleService` (v1.37) — **but see Activation: nothing calls `ensureSourceSchedule` yet**
+- [x] Multi-user review routing — assign / snooze / per-person queues (v1.38)
+- [x] Actions framework — gated connector writes, `action_run` + review-queue integration (v1.39); `gmail.send` (v1.39); `hubspot.update` (v1.41)
+- [x] Event-trigger runner — `emitEvent` dedupe + fan-out to subscribed workflows, `POST /api/v1/events` (v1.40)
+- [x] Teams — `role: lead|specialist`, `agentType`, `team` grouping; `/dashboard/teams` (v1.42)
+- [x] White-label brand slot + chat-runtime skills fix (v1.43)
+
 ---
 
 ## What's next — ordered by dependency
 
 Targets are soft; order is the commitment. Each phase title flags `(OSS)` for open-source work or `(proprietary)` for `vocion-cloud` work. The repo split is summarized [below](#repo-split-oss-vs-proprietary).
 
+### Activation sprint (V-act) — ⟵ CURRENT
+
+*2026-07-01 audit conclusion: the capability gap is closed; the **activation** gap is not. The live
+RevOps box has 5 agents, 4 sources, 4 missions authored — and 0 credentials, 0 documents, 0 runs,
+no worker container. Everything below makes shipped capability reachable without psql or SSH.*
+
+- [ ] **Credential onboarding** — `/dashboard/sources/<slug>` credential form (paste API key / run OAuth) → `source_credential` via the vault; per-source "test connection" + "sync now"; CLI fallback (`npm run creds:set -- --source hubspot`) for headless installs
+- [ ] **Schedule dispatch wiring** — `workspace:apply` + the sources oRPC route call `ensureSourceSchedule` on upsert (and delete the schedule on source removal) so authored `schedule:` crons become live Temporal schedules; same for workflow `trigger: schedule`
+- [ ] **Worker deploy target** — `worker` build stage in `packages/core/Dockerfile` (standalone output trims `src/scripts/*` today, so the compose `worker`/`temporal-worker` commands crash); compose profiles enabled in the reference deploy; feedback worker + Temporal worker run as first-class containers
+- [ ] **Model refresh — Fable 5** — default `main` role `claude-sonnet-4-6` → **`claude-fable-5`** (env-overridable as today); keep `claude-haiku-4-5-20251001` classifier; align workspace defaults (RevOps `workspace.yaml` still declares `gpt-5.4-mini`); re-run evals + Langfuse pricing bootstrap for the new model
+- [ ] **Token issuance UI** — `/dashboard/admin` page to issue/revoke `vcn_live_…` tokens (service exists; issuance is a manual DB path today)
+- [ ] **Onboarding-to-project routing** — a second sign-up currently lands in an empty second project (prod has `projects=2`, one dark); default new members into the account's existing project, invites flow later
+- [ ] **Measurement slice (Phase 9 pull-forward)** — approval rate, time-to-approve, runs/day, cost per run on `/dashboard/metrics`; enough to prove ROI on the reference deployments, full Phase 9 stays put
+
+**Exit:** a fresh deployment goes `terraform apply` → sign in → paste credentials → first scheduled
+sync lands documents → an agent proposes a gated action → it's approved from the review queue —
+zero SSH, zero psql.
+
+### Pipeline-green track (engineering health — unblocks semantic-release)
+
+*Git tags are stuck at `vocion-v0.5.5` while `main` has accumulated `feat:` commits (v0.6.0-worthy);
+`release.yml` only fires on CI success and CI is red. Audited 2026-07-01:*
+
+- [ ] CI `build` job runs `npm run build-local` from the repo root, but the script lives in `packages/core/package.json` → fails with "Missing script"; point it at the workspace (`npm run build-local -w @vocion/core`) or add a root alias
+- [ ] Unit-test env — provide `DATABASE_URL` + `AUTH_SECRET` in the CI test job (T3 env validation currently throws "Invalid environment variables"; vitest already stubs the LLM keys)
+- [ ] Fix the 2 real `WorkflowService.test.ts` failures — assertion shape drift on action-step output (`input.text` / `input.body`)
+- [ ] Delete stray `auth.js` at repo root (it contains a commit-message fragment, not code) — unblocks knip
+- [ ] Crowdin — add `CROWDIN_PROJECT_ID` + `CROWDIN_PERSONAL_TOKEN` secrets or gate the job on secret presence
+- [ ] Re-test `drizzle-kit generate` — the 0021/0022 "snapshot collision" folklore didn't reproduce in audit (snapshots chain cleanly); if it generates, retire hand-written migrations
+- [ ] Confirm `release.yml` cuts `v0.6.0` on the next green main
+
+**Exit:** every PR runs green CI; semantic-release cuts tags again; hand-written migrations retired.
+
 ### Phase 2 — Interface layer (finish)
 
 Skills, context, and review queues reachable from wherever people already work. Delivers on the landing page's "run from web, Slack, Teams, CLI, your own app" promise. Inbound *and* outbound — a draft that needs review pings the right channel instead of waiting for someone to refresh the dashboard.
 
 **Inbound channels**
-- [ ] MCP HTTP + OAuth transport — needed for cloud + multi-tenant MCP
+- [x] MCP over HTTP transport — multi-tenant via Bearer token (`/api/mcp`, Streamable HTTP) *(v1.34)*; **OAuth sign-in flow still open**
 - [ ] ChatGPT Actions + listed GPT — OAuth, OpenAPI autogenerated from oRPC
 - [ ] Slack bot — slash commands, DMs, interactive approval messages
 - [ ] Teams bot — Bot Framework adapter
@@ -223,6 +273,12 @@ The signal worth most is what humans actually *did* with the draft, not what the
 **Exit:** a thumb-down with note (or an edit, or a chat correction) on any resource produces a classified, routed improvement PR within a week, with a generated eval fixture so the regression can't recur silently.
 
 ### Phase 5 — Plugin SDK v1 + connector pack
+
+> **Status update (2026-07-01 audit):** the **1.0-blocking connector pack shipped in core** —
+> HubSpot, Gmail, Slack, Drive, Google Ads, GA4 (v1.31–v1.36): real APIs, incremental sync with
+> checkpoints, credentials from the encrypted vault. What remains of this phase is the *plugin
+> packaging* story (connectors as npm plugins, SDK publish) and the broader pack below.
+
 The plugin contract validated by shipping the connectors the landing page names. "Real business systems, not toy demos" requires the connectors actually exist.
 
 **SDK v1**
@@ -240,18 +296,25 @@ The plugin contract validated by shipping the connectors the landing page names.
 - [ ] Postgres generic (configurable schema, read-only)
 - [ ] Custom REST source — `source.yaml` declaring base URL, auth, paginated endpoints, mapping to objects
 - [ ] Inbound webhook source — tenant-registered endpoint + signature verification + payload→object mapping
-- [ ] Existing connectors (HubSpot, Gmail, Zoom, Google Drive) repackaged as plugins
+- [ ] Existing in-core connectors (HubSpot, Gmail, Slack, Drive, Google Ads, GA4 — shipped v1.31–v1.36) repackaged as plugins; add Zoom/transcripts
 
 **Exit:** an outside developer can publish a skill or source plugin to npm without a core PR; the 12 connectors named on the landing page either ship in core or have a published plugin.
 
 ### Phase 6 — Triggers + durable runner
 
-Workflows today only run on manual + naive event invocation against a Postgres-backed sequential runner. This phase lights up every trigger source the landing page implies ("scheduled jobs, API triggers, your own app") and swaps the runner under the hood for a durable one without changing `workflow.yaml`.
+> **Status update (2026-07-01 audit):** partially pulled forward. **Event triggering shipped** —
+> `EventService.emitEvent` dedupes + fans out to workflows subscribed via `trigger: { type: event }`,
+> with `POST /api/v1/events` as the webhook-shaped inbound (v1.40). **Temporal is live for source
+> syncs** (`sourceSyncWorkflow`, v1.37) and `vocionWorkflow` + `approvalSignal` exist for durable
+> step execution — but workflow dispatch still defaults in-process, and `SourceScheduleService`
+> has **no callers** (schedule dispatch wiring is in the Activation sprint). The rest below is open.
+
+Workflows today only run on manual + event invocation against a Postgres-backed sequential runner. This phase lights up every trigger source the landing page implies ("scheduled jobs, API triggers, your own app") and swaps the runner under the hood for a durable one without changing `workflow.yaml`.
 
 **Trigger sources** (each as a source plugin where it makes sense)
-- [ ] Schedule (cron) — `workflow.yaml` `trigger: { kind: schedule, cron: '0 9 * * MON' }`
-- [ ] Webhook (inbound HTTP) — tenant-registered endpoint + signature verification + payload→object mapping
-- [ ] Event bus (in-app) — workflows publish + subscribe; chains run-to-run without external infra
+- [~] Schedule (cron) — `workflow.yaml` `trigger: { kind: schedule, cron: '0 9 * * MON' }` — **partial:** Temporal schedule mechanism shipped for sources (v1.37); dispatch wiring for both sources + workflows is the Activation-sprint item
+- [~] Webhook (inbound HTTP) — **partial:** `POST /api/v1/events` (Bearer-authed, dedupe-keyed) covers the generic case (v1.40); tenant-registered endpoints + signature verification still open
+- [x] Event bus (in-app) — workflows publish + subscribe via `emitEvent`; chains run-to-run without external infra *(v1.40)*
 - [ ] Queue subscriber — SQS, Pub/Sub, Kafka, Redis Streams; message → workflow input
 - [ ] Postgres CDC — `LISTEN/NOTIFY` or `pg_logical` row-watch; insert/update fires a workflow
 - [ ] SMS / voice — Twilio inbound message + call as trigger source
@@ -270,9 +333,14 @@ Workflows today only run on manual + naive event invocation against a Postgres-b
 
 ### Phase 7 — Public API (write side)
 
-*Read side shipped.* Delivers on "run from your own app" + "API triggers" promises.
+> **Status update (2026-07-01 audit):** the 1.0-blocking slice shipped — Bearer tokens (v1.30),
+> the reviews write API (list / assign / snooze / decide, v1.33 + v1.38), and `POST /api/v1/events`
+> (v1.40), all through `authz`. Token *issuance* is still a manual path (UI in the Activation
+> sprint). The full write surface below remains open.
 
-- [ ] Tenant-scoped Bearer tokens (`vcn_live_...`) — dashboard-issued, hashed at rest, per-token audit
+*Read side shipped; write side shipped for reviews + events.* Delivers on "run from your own app" + "API triggers" promises.
+
+- [x] Tenant-scoped Bearer tokens (`vcn_live_...`) — hashed at rest (SHA-256), per-token grants + last-used audit *(v1.30)*; **dashboard issuance UI still open (Activation sprint)**
 - [ ] `POST` / `PATCH` on all resource CRUD — equivalent to workspace-as-code writes
 - [ ] `POST /api/v1/objects/:slug/instances` — object ingest
 - [ ] `POST /api/v1/skills/:slug/runs` + `/workflows/:slug/runs` — run triggers (same path the trigger sources call internally)
