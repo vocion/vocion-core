@@ -32,9 +32,11 @@ export function EmptyState({ agentName = 'this agent', suggestions = [], onPick 
         {' '}
         <span className="text-brand-amber-deep">{agentName}</span>
       </h2>
-      <p className="mt-2 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-        Try one of these, or type your own
-      </p>
+      {suggestions.length > 0 && (
+        <p className="mt-2 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+          Try one of these, or type your own
+        </p>
+      )}
 
       {suggestions.length > 0 && (
         <div className="mt-8 w-full max-w-xl divide-y divide-border rounded-xl border border-border bg-background shadow-sm">

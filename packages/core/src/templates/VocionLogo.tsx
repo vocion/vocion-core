@@ -18,8 +18,32 @@
 const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion';
 const BRAND_TAGLINE = process.env.NEXT_PUBLIC_BRAND_TAGLINE || '';
 const BRAND_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || '';
+// Full lockup (mark + wordmark as ONE image). When set it replaces both the
+// glyph and the wordmark text — only the tagline renders beneath it. Use for
+// deployments whose brand asset already includes the company name.
+const BRAND_LOCKUP = process.env.NEXT_PUBLIC_BRAND_LOCKUP || '';
 
 export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' | 'lg' }) => {
+  if (BRAND_LOCKUP) {
+    const lockupH
+      = props.size === 'sm'
+        ? 'h-6'
+        : props.size === 'lg'
+          ? 'h-10'
+          : 'h-8';
+    return (
+      <div className="flex min-w-0 flex-col items-start gap-1">
+        {/* eslint-disable-next-line next/no-img-element */}
+        <img src={BRAND_LOCKUP} alt={BRAND_NAME} className={`w-auto ${lockupH}`} />
+        {!props.isTextHidden && BRAND_TAGLINE && (
+          <span className="text-[11px] font-medium tracking-wide text-muted-foreground">
+            {BRAND_TAGLINE}
+          </span>
+        )}
+      </div>
+    );
+  }
+
   const iconSize
     = props.size === 'sm'
       ? 'size-6'
