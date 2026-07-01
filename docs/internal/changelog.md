@@ -4,6 +4,33 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-01 — Action framework: gated connector-writes (RevOps load-bearing)
+
+The mutation counterpart to read-only connectors. The action step was a stub; this makes actions real:
+an actor *proposes* a write, authz gates it, and it executes on approval. First action: **`gmail.send`**.
+Ships in `v1.39.0`.
+
+- `libs/actions/{types,registry}.ts` (NEW) — `Action` interface: id, `inputSchema` (zod), `grant`
+  (authz), `external` (autonomy-gate trigger), `sourceSlug` (vault creds), `execute()`. Registry mirrors
+  the source registry.
+- `libs/actions/gmail-send.ts` (NEW) — `gmail.send`: send or (default-safe) create a **draft** as the
+  connected Gmail user; RFC-822 → base64url; creds from the vault. `external`, grant `send_email`.
+- `services/ActionService.ts` (NEW) — `proposeAction` enforces grant + autonomy gate: gated (agent,
+  external, low autonomy) → persist `action_run` `pending` (now in the review queue) → `executeAction`
+  on approval resolves vault creds + runs + records result; non-gated → execute now. `rejectAction`.
+  One-directional (no ReviewService import).
+- `action_run` table (migration `0029`): orgId, actionId, input, status
+  (pending|approved|executing|done|failed|rejected), result, invokedBy, sourceSlug, timestamps.
+- `services/ReviewService.ts` — **actions are the 4th review kind**: pending action_runs surface in the
+  unified/team queue; `decide` dispatches approve→`executeAction`, reject→`rejectAction`.
+- Tests (11): gmail-send (send/draft/no-creds), ActionService gating (gate at low autonomy, execute at
+  high, no-grant 403, execute-on-approval, input validation), ReviewService×actions (queue + decide).
+  Types + lint clean.
+- Autonomy model unchanged: humans/tokens with the grant act directly; **agents** at low autonomy get
+  gated — so a teammate's send lands in the right person's queue (v1.38) for approval.
+
+---
+
 ## 2026-07-01 — Team queue: routing + assignment over the review queue (RevOps foundation)
 
 Makes the unified review queue **multi-user**: pending items route to a specific person, with
