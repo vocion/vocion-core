@@ -1,7 +1,6 @@
 import { setRequestLocale } from 'next-intl/server';
 import { NewChatButton } from '@/features/dashboard/AskChat';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
-import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listAgents } from '@/services/AgentService';
 
@@ -23,9 +22,9 @@ const SEARCH_ONLY_AGENT = {
  * fallback. When the project has no agents authored, ChatShell renders
  * a "no agents yet" empty state pointing at the authoring path.
  *
- * The virtual `__search__` agent (search-only mode against the
- * connected systems) is always appended so users have a fallback path
- * even with an empty agent table.
+ * Deliberately chrome-free: no page TitleBar — the agent header inside
+ * ChatShell IS the identity of this surface (eyebrow · name · scope),
+ * so the agent isn't announced four times on one screen.
  * @param props
  * @param props.params
  */
@@ -43,20 +42,16 @@ export default async function ChatPage(props: {
       name: a.name,
       icon: 'bot' as const,
       eyebrow: a.eyebrow ?? undefined,
-      placeholder: a.description?.trim()
-        ? `Ask ${a.name} — ${a.description.replace(/\.$/, '')}…`
-        : `Ask ${a.name}…`,
+      description: a.description ?? undefined,
+      suggestions: a.suggestions ?? [],
+      placeholder: `Message ${a.name}…`,
     })),
     SEARCH_ONLY_AGENT,
   ];
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] flex-col">
-      <div className="flex items-center justify-between">
-        <TitleBar title="Chat" description="Talk to your agents, grounded in enterprise context" />
-        <NewChatButton />
-      </div>
-      <ChatShell agents={agents} />
+    <div className="flex h-[calc(100vh-6rem)] flex-col">
+      <ChatShell agents={agents} headerAction={<NewChatButton />} />
     </div>
   );
 }
