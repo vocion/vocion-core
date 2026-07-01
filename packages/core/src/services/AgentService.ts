@@ -10,7 +10,16 @@ import { agentSchema } from '@/models/Schema';
 import { listBusinessObjects } from './BusinessObjectService';
 import { executeSkill } from './SkillService';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+// Lazy-init: the OpenAI SDK throws at CONSTRUCTION on an empty apiKey, and a
+// module-scope client crashes every page that imports this service (the whole
+// chat surface) on installs without an OpenAI key — even though the default
+// provider is Anthropic. Only the legacy runAgent path uses this client; build
+// it on first use so key absence fails that call, not the module load.
+let _openai: OpenAI | null = null;
+function openaiClient(): OpenAI {
+  _openai ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY || 'sk-unset' });
+  return _openai;
+}
 
 /* ------------------------------------------------------------------ */
 /* Load agent config                                                   */
@@ -781,7 +790,7 @@ export async function runAgent(opts: {
       input: messages,
     });
 
-    const completion = await openai.chat.completions.create({
+    const completion = await openaiClient().chat.completions.create({
       model: agent.model ?? 'gpt-4o',
       temperature: Number(agent.temperature ?? 0.3),
       messages,
