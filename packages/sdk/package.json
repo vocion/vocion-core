@@ -25,8 +25,8 @@
   ],
   "peerDependencies": {
     "openai": "^6.0.0",
-    "react": "^18.0.0 || ^19.0.0",
-    "zod": "^4.0.0"
+    "react": "^19.2.7",
+    "zod": "^4.4.3"
   },
   "peerDependenciesMeta": {
     "react": {
