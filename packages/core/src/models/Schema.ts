@@ -1488,6 +1488,40 @@ export const apiTokenSchema = pgTable(
   ],
 );
 
+// review_assignment overlays the unified review queue (ReviewService) with
+// per-item routing: who a pending skill/workflow/mission run is assigned to,
+// plus snooze. Keyed by (kind, run_id) so it decorates the derived queue
+// without touching the three run tables. Makes the queue a team queue.
+export const reviewAssignmentSchema = pgTable(
+  'review_assignment',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** 'skill' | 'workflow' | 'mission' — matches ReviewKind. */
+    kind: text('kind').notNull(),
+    /** The run id in the owning table (skill_run / workflow_run / mission_run). */
+    runId: integer('run_id').notNull(),
+    /** Org user this item is routed to. NULL = unassigned (visible to all). */
+    assignedTo: text('assigned_to').references(() => userSchema.id, { onDelete: 'set null' }),
+    /** Who assigned it (user id or `token:<id>`). */
+    assignedBy: text('assigned_by'),
+    /** 'open' | 'snoozed' | 'done'. */
+    status: text('status').default('open').notNull(),
+    note: text('note'),
+    /** When snoozed, hide from the active queue until this time. */
+    snoozedUntil: timestamp('snoozed_until', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('review_assignment_item_idx').on(table.kind, table.runId),
+    index('review_assignment_assignee_idx').on(table.orgId, table.assignedTo),
+  ],
+);
+
 // Re-export `sql` so callers can build the GENERATED-ALWAYS-AS-STORED
 // tsvector expression in raw migrations. Not used at query-time.
 export { sql };
