@@ -62,11 +62,12 @@ export function ChatShell({
   const [pendingHitl, setPendingHitl] = useState<HitlGatePayload | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [allDocuments, setAllDocuments] = useState<IndexedDocument[]>([]);
+  const [currentSlug, setCurrentSlug] = useState<string | undefined>(agentSlug);
 
   // Callers (`chat/page.tsx`) guarantee at least one entry — the virtual
-  // SEARCH_ONLY_AGENT is always appended. When real agents exist the
-  // explicit slug wins; otherwise the first entry is the default.
-  const agent = (agentSlug ? agents.find(a => a.slug === agentSlug) : undefined) ?? agents[0]!;
+  // SEARCH_ONLY_AGENT is always appended. The list arrives lead-first, so
+  // with no explicit slug the default conversation is the team's Lead.
+  const agent = (currentSlug ? agents.find(a => a.slug === currentSlug) : undefined) ?? agents[0]!;
   const agentEyebrow = agent.eyebrow;
   const agentSuggestions = agent.suggestions?.length ? agent.suggestions : suggestions;
   const isStreaming = phase !== 'idle';
@@ -177,7 +178,7 @@ export function ChatShell({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          agent_slug: agentSlug,
+          agent_slug: agent.slug,
           conversation_history: messages
             .slice(-6)
             .filter(m => m.content.trim().length > 0)
@@ -219,7 +220,7 @@ export function ChatShell({
         ],
       }));
     }
-  }, [agentSlug, messages, isStreaming, handleEvent, appendToLatestAgent]);
+  }, [agent.slug, messages, isStreaming, handleEvent, appendToLatestAgent]);
 
   const handlePickSuggestion = useCallback((prompt: string) => {
     setComposerValue(prompt);
@@ -243,6 +244,13 @@ export function ChatShell({
     setPhase('idle');
   }, []);
 
+  // Switching agents starts a fresh conversation — history belongs to the
+  // agent it was had with.
+  const handleSwitchAgent = useCallback((slug: string) => {
+    setCurrentSlug(slug);
+    handleClear();
+  }, [handleClear]);
+
   /* --------------------------------------------------------------- */
   /* Render                                                          */
   /* --------------------------------------------------------------- */
@@ -254,6 +262,9 @@ export function ChatShell({
         eyebrow={agentEyebrow}
         description={agentDescription ?? agent.description}
         action={headerAction}
+        agents={agents}
+        currentSlug={agent.slug}
+        onSwitch={handleSwitchAgent}
       />
 
       <div className="flex flex-1 overflow-hidden">
