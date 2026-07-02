@@ -85,14 +85,18 @@ export function AgentMessage({ message, timestamp, agentName, onShowSources }: A
                 </div>
               );
             }
-            // N.4: full first 2 input args legible (2-line clamp in the
-            // breadcrumb component); output preview truncated to ~80 chars.
-            const inputPreview = run.input
+            // N.4: first 2 input args legible (2-line clamp in the breadcrumb),
+            // hard-capped at ~240 chars — subagent `task` prompts run to
+            // kilobytes and don't belong in the transcript DOM.
+            const rawPreview = run.input
               ? Object.entries(run.input)
                   .slice(0, 2)
                   .map(([k, v]) => `${k}=${typeof v === 'string' ? `"${v}"` : JSON.stringify(v)}`)
                   .join(', ')
               : undefined;
+            const inputPreview = rawPreview && rawPreview.length > 240
+              ? `${rawPreview.slice(0, 240)}…`
+              : rawPreview;
             const outputPreview = run.output
               ? (run.output.length > 80 ? `${run.output.slice(0, 80)}…` : run.output)
               : undefined;
