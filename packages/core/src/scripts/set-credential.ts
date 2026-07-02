@@ -52,8 +52,10 @@ function parseArgs(argv: string[]) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  if (!args.project || !args.source || !args.token) {
-    console.error('Usage: set-credential --project <id|slug> --source <slug> --token <token> [--field k=v] [--display name]');
+  // --token is optional when --field pairs are given (e.g. Google refresh
+  // credentials are { refreshToken, clientId, clientSecret } with no token).
+  if (!args.project || !args.source || (!args.token && Object.keys(args.fields).length === 0)) {
+    console.error('Usage: set-credential --project <id|slug> --source <slug> [--token <token>] [--field k=v]… [--display name]');
     process.exit(1);
   }
 
@@ -70,7 +72,7 @@ async function main() {
   const { installId, credentialId } = await storeCredentialForSource({
     orgId: project.id, // orgId == projectId for auth.js-created rows
     sourceSlug: args.source,
-    raw: { token: args.token, ...args.fields },
+    raw: { ...(args.token ? { token: args.token } : {}), ...args.fields },
     displayName: args.display,
     userId: 'cli',
     projectId: project.id,
