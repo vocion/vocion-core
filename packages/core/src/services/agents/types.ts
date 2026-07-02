@@ -72,6 +72,8 @@ export type RuntimeContext = {
   orgId: string;
   /** Who triggered the run (user id, 'mcp', 'scheduled', etc.). */
   userId?: string;
+  /** The agent this graph belongs to — stamps proposals/audit (`agent:<slug>`). */
+  agentSlug?: string;
   /** Configured source slugs (knowledge_source.slug) this agent may reach. */
   connectorSources: string[];
   /** Object type slugs this agent can read. */

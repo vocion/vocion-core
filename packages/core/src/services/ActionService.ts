@@ -54,6 +54,8 @@ export async function proposeAction(input: {
   input: Record<string, unknown>;
   principal: Principal;
   invokedBy?: string;
+  /** Agent-proposal envelope — confidence (0–1), rationale, evidence uris. */
+  proposal?: { confidence?: number; rationale?: string; evidence?: string[] };
 }): Promise<ProposeResult> {
   const action = getAction(input.actionId);
   if (!action) {
@@ -85,6 +87,7 @@ export async function proposeAction(input: {
       status: gated ? 'pending' : 'approved',
       invokedBy: input.invokedBy ?? input.principal.id,
       sourceSlug: action.sourceSlug ?? null,
+      proposal: input.proposal ?? null,
     })
     .returning({ id: actionRunSchema.id });
 
