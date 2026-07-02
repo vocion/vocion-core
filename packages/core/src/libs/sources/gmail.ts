@@ -9,6 +9,7 @@
 import type { SourceConnector, SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
+import { resolveGoogleAccessToken } from './googleAuth';
 
 const gmailConfigSchema = z.object({
   /** Gmail search query (e.g. `in:inbox`, `from:client.com`). */
@@ -37,10 +38,9 @@ export const gmailConnector: SourceConnector<typeof gmailConfigSchema> = {
   configSchema: gmailConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = gmailConfigSchema.parse(ctx.config);
-    const token = ctx.credentials?.token as string | undefined;
-    if (!token) {
-      throw new Error('Gmail connector requires credentials.token');
-    }
+    // Durable path: refresh-token exchange (see googleAuth); legacy fallback
+    // accepts a raw short-lived credentials.token.
+    const token = await resolveGoogleAccessToken(ctx.credentials);
     const headers = { authorization: `Bearer ${token}` };
     const q = ctx.since
       ? `${cfg.query} after:${Math.floor(ctx.since.getTime() / 1000)}`
