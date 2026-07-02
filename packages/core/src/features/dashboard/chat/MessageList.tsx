@@ -21,21 +21,32 @@ export type MessageListProps = {
   agentName: string;
   /** Provided when streaming so the latest message scrolls into view. */
   streaming?: boolean;
+  /** Live status line while streaming — rendered in the last agent message's work timeline. */
+  activity?: string | null;
 };
 
-export function MessageList({ messages, agentName, streaming = false }: MessageListProps) {
+export function MessageList({ messages, agentName, streaming = false, activity }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, streaming]);
+  }, [messages.length, streaming, activity]);
 
+  const lastIdx = messages.length - 1;
   return (
     <div className="flex flex-1 flex-col gap-8 overflow-y-auto px-6 py-6">
       <div className="mx-auto w-full max-w-4xl space-y-8">
         {messages.map((msg, i) => msg.role === 'user'
           ? <UserMessage key={i} content={msg.content} />
-          : <AgentMessage key={i} message={msg} agentName={agentName} />)}
+          : (
+              <AgentMessage
+                key={i}
+                message={msg}
+                agentName={agentName}
+                streaming={streaming && i === lastIdx}
+                activity={i === lastIdx ? activity : undefined}
+              />
+            ))}
         <div ref={bottomRef} />
       </div>
     </div>
