@@ -4,6 +4,33 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-02 — Credential onboarding + chat system-prompt fix + dev-runtime fixes (v1.45)
+
+The first Activation-sprint slice: a source connector can be given credentials without psql, so the
+connector pack can finally touch real data. Verified end-to-end on a Docker-free local (PGlite).
+
+- **feat(sources) — credential onboarding.** `SourceCredentialService` gains `ensureInstall` +
+  `storeCredentialForSource` + `credentialStatusForOrg` (root cause: nothing ever created a
+  `source_install`, so the vault had no anchor and every apikey/OAuth connector refused —
+  prod had 0 credentials). `POST /rpc/sources/[id]/credentials` (admin-only) stores an AES-GCM
+  encrypted token; the sources GET now returns `authKind` + `credentialConnected`. UI: a
+  Connect / Update-key dialog + "Connected / Needs credentials" badge, Sync-now disabled until
+  connected. CLI fallback: `npm run creds:set -- --project <id|slug> --source <slug> --token …`.
+  Verified: store → `source_install` row → vault decrypt round-trips the exact token; UI shows
+  hubspot connected=true.
+- **fix(agents) — chat "System messages must be first".** The agent's system prompt was passed as an
+  input `{role:'system'}` message; deepagents prepends its own system message, so ours became an
+  illegal second one and every turn errored. Now supplied via `createDeepAgent({ systemPrompt })` and
+  dropped from the messages. Verified: a real turn streams thinking→answering→delta→done, no error.
+- **fix(retrieval) — chunker off the wasm tokenizer.** `chunker.ts` imported the wasm `tiktoken`,
+  which Turbopack dev can't resolve (`Missing tiktoken_bg.wasm`) — 500-ing every route that
+  transitively imports the chunker (sources, agent runtime). Swapped to pure-JS `js-tiktoken` (already
+  in-tree via `@langchain/core`, same `cl100k_base`). Local dev now runs the agent + sources.
+- **ops** — new deploy CI in metacto-vocion-agents (push to main → SSH bootstrap → health gate),
+  retiring the manual SSH deploy.
+
+---
+
 ## 2026-07-01 — Brand lockup mode + chat de-dupe + module-load crash fix
 
 UX pass from RevOps dogfooding, previewed locally before deploy (new working rule). Ships in `v1.44.0`.

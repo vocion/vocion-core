@@ -266,6 +266,31 @@ export async function listSources(orgId: string): Promise<Array<{
   }));
 }
 
+/**
+ * Fetch a single org-scoped source by id — used by the credentials route to
+ * resolve the connector slug (`config._connector`) before storing a token.
+ * @param orgId
+ * @param sourceId
+ */
+export async function getSourceById(orgId: string, sourceId: number): Promise<
+  { id: number; slug: string; kind: string | null; config: Record<string, unknown> } | null
+> {
+  const [row] = await db
+    .select({
+      id: knowledgeSourceSchema.id,
+      slug: knowledgeSourceSchema.slug,
+      kind: knowledgeSourceSchema.kind,
+      configJson: knowledgeSourceSchema.configJson,
+    })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.id, sourceId)))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  return { id: row.id, slug: row.slug, kind: row.kind, config: row.configJson ?? {} };
+}
+
 function generateSlug(kind: string, config: Record<string, unknown>): string {
   // Pick a stable, human-readable slug derived from the config when
   // we can — falls back to a kind-prefixed timestamp otherwise.
