@@ -1,6 +1,6 @@
 'use client';
 
-import { Globe, Loader2, Plus, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Globe, KeyRound, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -13,6 +13,9 @@ type Source = {
   lastSyncedAt: string | null;
   enabled: string;
   createdAt: string;
+  authKind: 'none' | 'apikey' | 'oauth';
+  credentialConnected: boolean;
+  credentialUpdatedAt: string | null;
 };
 
 type ConnectorTile = {
@@ -30,6 +33,7 @@ export function SourcesPanel() {
   const [picker, setPicker] = useState(false);
   const [addingKind, setAddingKind] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [connectingSource, setConnectingSource] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -114,6 +118,7 @@ export function SourcesPanel() {
                     source={s}
                     syncing={syncingId === s.id}
                     onSync={() => handleSync(s.id)}
+                    onConnect={() => setConnectingSource(s)}
                   />
                 ))}
               </div>
@@ -144,13 +149,147 @@ export function SourcesPanel() {
             />
           )
         : null}
+      {connectingSource
+        ? (
+            <ConnectCredentialDialog
+              source={connectingSource}
+              onClose={() => setConnectingSource(null)}
+              onConnected={async () => {
+                setConnectingSource(null);
+                await refresh();
+              }}
+            />
+          )
+        : null}
     </div>
   );
 }
 
-function SourceRow({ source, syncing, onSync }: { source: Source; syncing: boolean; onSync: () => void }) {
+/** Connector-specific credential fields. All read `token`; a couple take extras. */
+const CRED_FIELDS: Record<string, { label: string; help: string; extra?: { key: string; label: string } }> = {
+  hubspot: { label: 'Private-app token', help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).' },
+  slack: { label: 'Bot / user token', help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).' },
+  gmail: { label: 'OAuth access token', help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)' },
+  drive: { label: 'OAuth access token', help: 'A Google OAuth access token with drive.readonly.' },
+  ga4: { label: 'OAuth access token', help: 'A Google OAuth access token with analytics.readonly.' },
+  googleAds: { label: 'OAuth access token', help: 'A Google Ads OAuth access token.', extra: { key: 'developerToken', label: 'Developer token' } },
+};
+
+function ConnectCredentialDialog({ source, onClose, onConnected }: {
+  source: Source;
+  onClose: () => void;
+  onConnected: () => Promise<void> | void;
+}) {
+  const connectorSlug = ((source.config?._connector as string | undefined) ?? source.slug);
+  const spec = CRED_FIELDS[connectorSlug] ?? { label: 'Token', help: 'Paste the connector access token.' };
+  const [token, setToken] = useState('');
+  const [extra, setExtra] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const credentials: Record<string, string> = { token: token.trim() };
+      if (spec.extra && extra.trim()) {
+        credentials[spec.extra.key] = extra.trim();
+      }
+      const res = await fetch(`/rpc/sources/${source.id}/credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Failed to store credential');
+        return;
+      }
+      await onConnected();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
+        <form onSubmit={submit}>
+          <div className="flex items-center gap-2 border-b px-4 py-3">
+            <KeyRound className="size-4 text-muted-foreground" />
+            <h3 className="font-display text-lg">
+              Connect
+              {' '}
+              {source.slug}
+            </h3>
+          </div>
+          <div className="space-y-4 p-4">
+            <p className="text-xs text-muted-foreground">{spec.help}</p>
+            <label className="block">
+              <span className="text-sm font-medium text-foreground/80">{spec.label}</span>
+              <input
+                type="password"
+                required
+                autoComplete="off"
+                value={token}
+                onChange={e => setToken(e.target.value)}
+                placeholder="••••••••••••••••"
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+              />
+            </label>
+            {spec.extra
+              ? (
+                  <label className="block">
+                    <span className="text-sm font-medium text-foreground/80">{spec.extra.label}</span>
+                    <input
+                      type="text"
+                      value={extra}
+                      onChange={e => setExtra(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                    />
+                  </label>
+                )
+              : null}
+            <p className="text-[11px] text-muted-foreground">Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.</p>
+            {error
+              ? (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                    {error}
+                  </div>
+                )
+              : null}
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+            <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !token.trim()}
+              className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
+            >
+              {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
+              Save credential
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function SourceRow({ source, syncing, onSync, onConnect }: {
+  source: Source;
+  syncing: boolean;
+  onSync: () => void;
+  onConnect: () => void;
+}) {
   const last = source.lastSyncedAt ? new Date(source.lastSyncedAt) : null;
   const lastLabel = last ? formatRelative(last) : 'never';
+  const needsCreds = source.authKind !== 'none' && !source.credentialConnected;
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="flex items-start gap-3">
@@ -166,6 +305,23 @@ function SourceRow({ source, syncing, onSync }: { source: Source; syncing: boole
             {describeSourceConfig(source.config)}
           </p>
         </div>
+        {source.authKind !== 'none'
+          ? (
+              source.credentialConnected
+                ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="size-3.5" />
+                      Connected
+                    </span>
+                  )
+                : (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                      <KeyRound className="size-3.5" />
+                      Needs credentials
+                    </span>
+                  )
+            )
+          : null}
       </div>
       <div className="mt-3 flex items-center justify-between gap-2">
         <Badge variant="outline" className="font-mono text-[10px]">
@@ -173,26 +329,41 @@ function SourceRow({ source, syncing, onSync }: { source: Source; syncing: boole
           {' '}
           {lastLabel}
         </Badge>
-        <button
-          type="button"
-          onClick={onSync}
-          disabled={syncing}
-          className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
-        >
-          {syncing
+        <div className="flex items-center gap-2">
+          {source.authKind !== 'none'
             ? (
-                <>
-                  <Loader2 className="size-3 animate-spin" />
-                  Syncing…
-                </>
+                <button
+                  type="button"
+                  onClick={onConnect}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
+                >
+                  <KeyRound className="size-3" />
+                  {source.credentialConnected ? 'Update key' : 'Connect'}
+                </button>
               )
-            : (
-                <>
-                  <RefreshCw className="size-3" />
-                  Sync now
-                </>
-              )}
-        </button>
+            : null}
+          <button
+            type="button"
+            onClick={onSync}
+            disabled={syncing || needsCreds}
+            title={needsCreds ? 'Connect credentials first' : undefined}
+            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
+          >
+            {syncing
+              ? (
+                  <>
+                    <Loader2 className="size-3 animate-spin" />
+                    Syncing…
+                  </>
+                )
+              : (
+                  <>
+                    <RefreshCw className="size-3" />
+                    Sync now
+                  </>
+                )}
+          </button>
+        </div>
       </div>
     </div>
   );

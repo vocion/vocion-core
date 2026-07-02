@@ -12,6 +12,7 @@
 
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listConnectors } from '@/libs/sources/registry';
+import { credentialStatusForOrg } from '@/services/SourceCredentialService';
 import { addSource, listSources } from '@/services/SourceSyncService';
 
 export async function GET() {
@@ -20,6 +21,22 @@ export async function GET() {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const sources = await listSources(orgId);
+  const credStatus = await credentialStatusForOrg(orgId);
+  const connectorBySlug = new Map(listConnectors().map(c => [c.slug, c]));
+  // Decorate each source with its connector's auth requirement + whether a live
+  // credential is stored, so the UI shows Connect / Connected without a second
+  // round-trip. `authKind: 'none'` (e.g. web) needs no credential.
+  const withStatus = sources.map((s) => {
+    const connectorSlug = (s.config?._connector as string | undefined) ?? s.slug;
+    const authKind = connectorBySlug.get(connectorSlug)?.authKind ?? 'none';
+    const st = credStatus[connectorSlug];
+    return {
+      ...s,
+      authKind,
+      credentialConnected: authKind === 'none' ? true : (st?.connected ?? false),
+      credentialUpdatedAt: st?.updatedAt ?? null,
+    };
+  });
   const connectors = listConnectors().map(c => ({
     slug: c.slug,
     name: c.name,
@@ -27,7 +44,7 @@ export async function GET() {
     icon: c.icon,
     authKind: c.authKind,
   }));
-  return Response.json({ sources, connectors });
+  return Response.json({ sources: withStatus, connectors });
 }
 
 export async function POST(req: Request) {
