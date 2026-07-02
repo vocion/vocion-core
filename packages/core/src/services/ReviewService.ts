@@ -211,5 +211,56 @@ export async function decide(
       action === 'approve'
         ? await executeAction(item.id, orgId)
         : await rejectAction(item.id, orgId, opts?.reason);
+      // The decision is training signal: record what a good/bad proposal
+      // looks like in the `crm-updates` learning step so agents check their
+      // next proposals against real operator judgment. Never blocks the
+      // decision itself.
+      await recordActionDecisionLearning(item.id, orgId, action, opts?.reason).catch(() => {});
   }
+}
+
+/**
+ * Approve/reject on a proposed action → a learning rule. This is the capture
+ * side of the trust ladder: accumulated decisions teach agents which update
+ * classes are safe (approved) vs which need stronger evidence (rejected).
+ * No-ops quietly when the workspace has no `crm-updates` learning step.
+ * @param runId
+ * @param orgId
+ * @param decision
+ * @param reason
+ */
+async function recordActionDecisionLearning(
+  runId: number,
+  orgId: string,
+  decision: 'approve' | 'reject',
+  reason?: string,
+): Promise<void> {
+  const [run] = await db
+    .select({
+      actionId: actionRunSchema.actionId,
+      input: actionRunSchema.input,
+      proposal: actionRunSchema.proposal,
+      invokedBy: actionRunSchema.invokedBy,
+    })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+    .limit(1);
+  if (!run || !run.invokedBy?.startsWith('agent:')) {
+    return; // only agent proposals train agents
+  }
+  const input = (run.input ?? {}) as { objectType?: string; properties?: Record<string, unknown> };
+  const props = Object.keys(input.properties ?? {}).join(', ') || 'n/a';
+  const conf = run.proposal?.confidence != null ? ` (confidence ${run.proposal.confidence})` : '';
+  const rationale = run.proposal?.rationale ? ` Rationale was: ${run.proposal.rationale.slice(0, 140)}` : '';
+  const ruleText = decision === 'approve'
+    ? `APPROVED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${props}].${rationale} — this class of update matched operator judgment; similar evidence justifies similar proposals.`
+    : `REJECTED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${props}].${reason ? ` Operator reason: ${reason.slice(0, 120)}.` : ''}${rationale} — do not propose this class again without stronger evidence.`;
+  const { addLearning } = await import('./LearningsService');
+  await addLearning({
+    orgId,
+    stepName: 'crm-updates',
+    ruleText,
+    source: `action_run:${runId}`,
+    createdBy: 'review-decision',
+  });
 }
