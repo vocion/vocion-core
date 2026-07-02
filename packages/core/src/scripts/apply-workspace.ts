@@ -1,13 +1,55 @@
 import process from 'node:process';
 import { parseArgs } from 'node:util';
+import { eq, or } from 'drizzle-orm';
+import { db } from '@/libs/DB';
 import { applyWorkspace, loadWorkspace, WorkspaceValidationError } from '@/libs/workspace';
+import { projectSchema } from '@/models/Schema';
 import 'dotenv/config';
+
+/**
+ * Resolve which org_id to apply under. The app aliases orgId → the active
+ * project id, so workspace rows MUST land under a real project id — not the
+ * manifest's placeholder orgId (which required a manual post-apply re-key).
+ * Precedence:
+ *   1. --project <id|slug>  → that project's id (explicit, for deploys)
+ *   2. --org <id>           → raw override (back-compat / advanced)
+ *   3. exactly one project  → auto-target it (local "just works", no re-key)
+ *   4. otherwise            → manifest orgId (with a warning)
+ * @param projectArg
+ * @param orgArg
+ * @param manifestOrgId
+ */
+async function resolveOrgId(projectArg: string | undefined, orgArg: string | undefined, manifestOrgId: string): Promise<string> {
+  if (projectArg) {
+    const [p] = await db
+      .select({ id: projectSchema.id })
+      .from(projectSchema)
+      .where(or(eq(projectSchema.id, projectArg), eq(projectSchema.slug, projectArg)))
+      .limit(1);
+    if (!p) {
+      console.error(`\n✗ no project matches --project "${projectArg}" (by id or slug)\n`);
+      process.exit(2);
+    }
+    return p.id;
+  }
+  if (orgArg) {
+    return orgArg;
+  }
+  const projects = await db.select({ id: projectSchema.id, slug: projectSchema.slug }).from(projectSchema);
+  if (projects.length === 1) {
+    console.log(`  (auto-targeting the sole project: ${projects[0]!.slug} / ${projects[0]!.id})`);
+    return projects[0]!.id;
+  }
+  console.warn(`  ⚠ ${projects.length} projects exist — applying under manifest orgId "${manifestOrgId}". Pass --project <id|slug> to target one (avoids a re-key).`);
+  return manifestOrgId;
+}
 
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     options: {
       'dry-run': { type: 'boolean', default: false },
       'org': { type: 'string' },
+      'project': { type: 'string' },
       'applied-by': { type: 'string' },
       'help': { type: 'boolean', short: 'h', default: false },
     },
@@ -32,15 +74,19 @@ async function main(): Promise<void> {
     throw err;
   }
 
+  const orgId = values['dry-run']
+    ? (values.project ?? values.org ?? loaded.manifest.orgId)
+    : await resolveOrgId(values.project, values.org, loaded.manifest.orgId);
+
   console.log(`✓ loaded context from ${loaded.sourcePath}`);
-  console.log(`  org: ${values.org ?? loaded.manifest.orgId}`);
+  console.log(`  org: ${orgId}`);
   console.log(`  sha: ${loaded.sha}`);
   console.log(`  agents: ${loaded.agents.length}, skills: ${loaded.skills.length}, objectTypes: ${loaded.objectTypes.length}, workflows: ${loaded.workflows.length}, playbooks: ${loaded.playbooks.length}, learningSteps: ${loaded.learningSteps.length}, evalDatasets: ${loaded.evalDatasets.length}, sources: ${loaded.sources.length}`);
   console.log(`  files: ${loaded.fileCount}`);
 
   const result = await applyWorkspace(loaded, {
     dryRun: values['dry-run'],
-    orgId: values.org,
+    orgId,
     appliedBy: values['applied-by'] ?? process.env.USER ?? 'cli',
   });
 
@@ -74,7 +120,9 @@ positional:
 
 options:
   --dry-run              validate and diff without writing
-  --org <id>             override orgId from manifest
+  --project <id|slug>    apply under this project's id (recommended — no re-key).
+                         Defaults to the sole project when exactly one exists.
+  --org <id>             raw orgId override (advanced / back-compat)
   --applied-by <name>    who triggered the apply (default: $USER)
   -h, --help             show this help
 
