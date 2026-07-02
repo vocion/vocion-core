@@ -85,7 +85,7 @@
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.1",
     "gray-matter": "^4.0.3",
-    "js-tiktoken": "^1.0.22",
+    "js-tiktoken": "^1.0.21",
     "langfuse": "^3.38.6",
     "lucide-react": "^0.577.0",
     "next": "^16.1.6",
