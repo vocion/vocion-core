@@ -4,6 +4,27 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-02 — Work timeline, search browse, decisions-train-agents (v1.49 → v1.50)
+
+The afternoon wave — all verified on the live local corpus (~12.4k real docs).
+
+- **feat(chat) — work timeline (v1.49).** One consolidated, collapsible chain-of-thought block per
+  agent message: "Delegated: Pipeline Analyst" (name recovered from the subagent prompt), "Searched
+  sources ('…')", "Proposed: hubspot.update · 88% confidence · queued for your approval" — live
+  statuses while streaming, one-line summary after. Replaces raw task/kwargs breadcrumbs.
+- **feat(search) — browse before you search (v1.49).** Default result set = most-recent documents
+  with first-chunk blurbs; per-source filter chips with live doc counts, combinable with queries.
+- **feat(review) — decisions train the agents (v1.50).** Every approve/reject on an agent-proposed
+  action writes a learning rule to the `crm-updates` step, mounted into revenue agents each turn.
+  Verified: rejecting a 0.72-confidence proposal produced "REJECTED… do not propose this class again
+  without stronger evidence." The capture side of the trust ladder.
+- **fix(auth) — stale-session guard (v1.49).** Dead projectId → a clear "Session expired" screen,
+  never a silently-empty workspace.
+- **fix(ui)** — in-app docs/roadmap viewers retired (Docs → public site); Teams page shows each
+  agent's skill names (registry showcase); Crowdin skips gracefully without secrets.
+
+---
+
 ## 2026-07-02 — Daily brief runs on real data; releases restored (v1.47.1 → v1.48)
 
 The first end-to-end demo of the RevOps loop on live CRM data, and the release pipeline back.
