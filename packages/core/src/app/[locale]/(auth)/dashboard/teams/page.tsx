@@ -5,6 +5,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listTeams } from '@/services/AgentService';
+import { listSkills } from '@/services/SkillService';
 
 function accentCssVar(name: string | null | undefined): string {
   if (name === 'teal') {
@@ -28,6 +29,11 @@ export default async function TeamsPage(props: {
   const { orgId } = await auth();
 
   const teams = orgId ? await listTeams(orgId) : [];
+  // Skill slug → display name, so each agent card shows its actual skills.
+  const skills = orgId ? await listSkills(orgId) : [];
+  const skillName = new Map(skills.map((s: { slug: string; name: string }) => [s.slug, s.name]));
+  const skillChips = (slugs: string[] | null | undefined) =>
+    (slugs ?? []).map(s => skillName.get(s) ?? s);
   const named = teams.filter(t => t.team !== 'ungrouped' || t.lead || t.specialists.length > 0);
   const total = named.reduce((n, t) => n + (t.lead ? 1 : 0) + t.specialists.length, 0);
 
@@ -44,7 +50,7 @@ export default async function TeamsPage(props: {
               icon={Users}
               title="No teams yet"
               description="Author agents with a `team` + `role: lead|specialist` in workspace/<org>/agents/ and run workspace:apply. A team is one lead + its specialists."
-              action={{ label: 'How teams work', href: '/dashboard/docs/docs/concepts/agents' }}
+              action={{ label: 'How teams work', href: 'https://www.vocion.ai/docs/features/teams' }}
             />
           )
         : (
@@ -76,7 +82,14 @@ export default async function TeamsPage(props: {
                         description={team.lead.description ?? undefined}
                         status={team.lead.active === 'true' ? 'active' : 'inactive'}
                         accentColor={accentCssVar(team.lead.accent)}
-                        footer={<>Coordinates the team · runs missions</>}
+                        footer={(
+                          <span className="flex flex-wrap gap-1">
+                            <span className="mr-1">Coordinates the team ·</span>
+                            {skillChips(team.lead.skillSlugs).map(n => (
+                              <span key={n} className="rounded-full border border-border px-1.5 py-0.5 text-[10px]">{n}</span>
+                            ))}
+                          </span>
+                        )}
                       />
                     </div>
                   )}
@@ -86,7 +99,6 @@ export default async function TeamsPage(props: {
                       <div className="mb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">Specialists</div>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {team.specialists.map((a) => {
-                          const skillCount = a.skillSlugs?.length ?? 0;
                           return (
                             <CatalogCard
                               key={a.id}
@@ -98,12 +110,13 @@ export default async function TeamsPage(props: {
                               status={a.active === 'true' ? 'active' : 'inactive'}
                               accentColor={accentCssVar(a.accent)}
                               footer={(
-                                <>
-                                  {skillCount}
-                                  {' '}
-                                  skill
-                                  {skillCount === 1 ? '' : 's'}
-                                </>
+                                <span className="flex flex-wrap gap-1">
+                                  {skillChips(a.skillSlugs).length > 0
+                                    ? skillChips(a.skillSlugs).map(n => (
+                                        <span key={n} className="rounded-full border border-border px-1.5 py-0.5 text-[10px]">{n}</span>
+                                      ))
+                                    : <span>No skills wired</span>}
+                                </span>
                               )}
                             />
                           );
