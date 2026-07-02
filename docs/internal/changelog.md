@@ -4,6 +4,28 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-02 — Google OAuth refresh, propose_action with confidence, sync CLI (v1.47)
+
+The CRM-copilot substrate: durable Google auth, and agents that can queue CRM changes for approval.
+
+- **feat(sources) — durable Google credentials.** `libs/sources/googleAuth.ts`: connectors + actions
+  resolve access tokens from `{ refreshToken, clientId, clientSecret }` (minted per run, cached to
+  expiry) with raw-token fallback. gmail/drive connectors + `gmail.send` wired. One-time consent via
+  `npm run google:oauth` — loopback listener → refresh token → vault, per connector. Kills the
+  hourly-expiry problem for Gmail/Drive.
+- **feat(actions) — `propose_action` agent tool + proposal envelope.** Agents can propose registered
+  writes (`hubspot.update`, `gmail.send`) with **confidence (0–1), rationale, and evidence uris**;
+  proposals ride the authz gate into the review queue as pending `action_run`s (migration `0032`
+  adds `action_run.proposal`). The agent recommends; a human decides — groundwork for the
+  recommended→automated trust ladder.
+- **feat(scripts) — `npm run sync:source`** — CLI backfills with progress ticks (`--full` for
+  re-fetch); the ops path used to load 235 deals + 4k companies + contacts.
+- RevOps workspace: `crm-email-sweep` mission (48h in/out mail sweep → CRM update proposals),
+  daily-brief v2 (NEW LEADS = contact `lifecyclestage`; ACTIVE OPPORTUNITIES with priority + next
+  action), gmail source covers sent+received.
+
+---
+
 ## 2026-07-02 — Workspace→project binding, per-connector credentials, source visibility (v1.46)
 
 Fixes surfaced by running real HubSpot data through the local loop (235 deals + 4,295 companies synced).
