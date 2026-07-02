@@ -295,17 +295,7 @@ export function ChatShell({
         <div className="flex flex-1 flex-col">
           {messages.length === 0
             ? <EmptyState agentName={agent.name} suggestions={agentSuggestions} onPick={handlePickSuggestion} />
-            : <MessageList messages={messages} agentName={agent.name} streaming={isStreaming} />}
-
-          {isStreaming && activity && (
-            <div className="mx-auto flex w-full max-w-4xl items-center gap-2 px-6 pb-2 text-xs text-muted-foreground">
-              <span className="relative flex size-2">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/60" />
-                <span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" />
-              </span>
-              {activity}
-            </div>
-          )}
+            : <MessageList messages={messages} agentName={agent.name} streaming={isStreaming} activity={activity} />}
 
           {pendingHitl && (
             <HitlGate

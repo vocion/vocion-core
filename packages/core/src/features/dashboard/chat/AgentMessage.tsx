@@ -5,7 +5,7 @@ import { AlertCircle, FileText, Sparkles } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
-import { ToolBreadcrumb } from './ToolBreadcrumb';
+import { WorkTimeline } from './WorkTimeline';
 
 /**
  * Agent message (Phase C).
@@ -32,6 +32,10 @@ export type AgentMessageProps = {
   onCitationClick?: (n: number) => void;
   /** Optional handler when the "Sources · N" pill is clicked. Opens the SourcesPanel. */
   onShowSources?: () => void;
+  /** True while this message is still streaming — the work timeline stays expanded + live. */
+  streaming?: boolean;
+  /** Live status line while streaming (rendered inside the work timeline). */
+  activity?: string | null;
 };
 
 function formatTime(ts: number | undefined): string {
@@ -42,11 +46,15 @@ function formatTime(ts: number | undefined): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-export function AgentMessage({ message, timestamp, agentName, onShowSources }: AgentMessageProps) {
+export function AgentMessage({ message, timestamp, agentName, onShowSources, streaming = false, activity }: AgentMessageProps) {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
   const hasToolError = runs.some(r => r.type === 'tool' && r.state === 'error');
+  // One consolidated work timeline instead of breadcrumbs scattered through
+  // the transcript; text runs render below it in order.
+  const toolRuns = runs.filter((r): r is Extract<AgentRun, { type: 'tool' }> => r.type === 'tool');
+  const textRuns = runs.filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text');
 
   return (
     <div className="flex gap-3">
@@ -77,39 +85,14 @@ export function AgentMessage({ message, timestamp, agentName, onShowSources }: A
           )}
         </div>
         <div className="mt-2 text-sm leading-relaxed">
-          {runs.map((run, i) => {
-            if (run.type === 'text') {
-              return (
-                <div key={i} className="prose prose-sm max-w-none dark:prose-invert">
-                  <Markdown remarkPlugins={[remarkGfm]}>{run.text}</Markdown>
-                </div>
-              );
-            }
-            // N.4: first 2 input args legible (2-line clamp in the breadcrumb),
-            // hard-capped at ~240 chars — subagent `task` prompts run to
-            // kilobytes and don't belong in the transcript DOM.
-            const rawPreview = run.input
-              ? Object.entries(run.input)
-                  .slice(0, 2)
-                  .map(([k, v]) => `${k}=${typeof v === 'string' ? `"${v}"` : JSON.stringify(v)}`)
-                  .join(', ')
-              : undefined;
-            const inputPreview = rawPreview && rawPreview.length > 240
-              ? `${rawPreview.slice(0, 240)}…`
-              : rawPreview;
-            const outputPreview = run.output
-              ? (run.output.length > 80 ? `${run.output.slice(0, 80)}…` : run.output)
-              : undefined;
-            return (
-              <ToolBreadcrumb
-                key={i}
-                name={run.name}
-                state={run.state ?? 'done'}
-                inputPreview={inputPreview}
-                outputPreview={outputPreview}
-              />
-            );
-          })}
+          {(toolRuns.length > 0 || streaming) && (
+            <WorkTimeline runs={toolRuns} streaming={streaming} activity={activity} />
+          )}
+          {textRuns.map((run, i) => (
+            <div key={i} className="prose prose-sm max-w-none dark:prose-invert">
+              <Markdown remarkPlugins={[remarkGfm]}>{run.text}</Markdown>
+            </div>
+          ))}
         </div>
         {message.confidence && (
           <div className="mt-2 flex justify-end">
