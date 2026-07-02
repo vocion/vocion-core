@@ -250,6 +250,8 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
         const output = {
           __card: 'send-stub' as const,
           stubbed: true as const,
+          /** The exact interpolated step input — the audit record of what the action WOULD have done. */
+          input: actionInput,
           envelope: {
             to: typeof toRaw === 'string' ? toRaw : undefined,
             subject: typeof subjectRaw === 'string' ? subjectRaw : undefined,

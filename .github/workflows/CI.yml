@@ -34,7 +34,8 @@ jobs:
           key: nextjs-${{ matrix.node-version }}-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('src/**') }}
 
       - name: Build Next.js
-        run: npm run build-local
+        # build-local lives in the @vocion/core workspace, not the repo root.
+        run: npm run build-local --workspace @vocion/core
         env:
           NEXT_PUBLIC_SENTRY_DISABLED: 'true' # Only upload Sentry source maps in deployment
           NEXT_PUBLIC_APP_URL: http://localhost:3008
@@ -106,6 +107,11 @@ jobs:
         uses: docker://mcr.microsoft.com/playwright:v1.58.2
         with:
           args: npm run test -- --coverage
+        env:
+          # T3 env validation needs these present; unit tests mock the DB +
+          # LLM clients (vitest stubs the API keys), values are never dialed.
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_test
+          AUTH_SECRET: ci-only-secret-not-used-by-unit-tests
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

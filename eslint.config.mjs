@@ -30,6 +30,8 @@ export default antfu(
     // Ignored paths
     ignores: [
       'packages/core/migrations/**/*',
+      // Agent skill docs (Claude Code skills) — markdown for agents, not shipped code.
+      '.claude/**/*',
     ],
   },
   // --- Accessibility Rules ---
