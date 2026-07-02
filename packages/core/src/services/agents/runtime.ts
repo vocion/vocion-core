@@ -39,6 +39,7 @@ import {
   updateLearningTool,
 } from './tools/learnings';
 import { lookupObjectsTool } from './tools/lookupObjects';
+import { proposeActionTool } from './tools/proposeAction';
 import { runCodeTool } from './tools/runCode';
 import { runOperationTool } from './tools/runOperation';
 import { listRecentRunsTool, listRunFeedbackTool } from './tools/runs';
@@ -105,6 +106,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   const noopEmit: RuntimeContext['emit'] = () => {};
   const ctx: RuntimeContext = {
     orgId,
+    agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
@@ -136,6 +138,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     listRecentRunsTool(ctx),
     listRunFeedbackTool(ctx),
     requestHumanReviewTool(ctx),
+    proposeActionTool(ctx),
   ];
 
   const subagents = (row.subagents ?? []).map((s): SubAgent => ({
