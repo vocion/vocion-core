@@ -41,7 +41,12 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
           mode: 'hybrid',
           k: ctx.searchConfig.maxResults ?? 15,
           sourceSlugs,
-          rerank: true,
+          // No LLM rerank inside the agent turn: deepagents' streamEvents taps
+          // every nested model call, so the reranker's "[2,3,0,…]" id-ordering
+          // output leaked into the chat response. Hybrid RRF + the heuristic
+          // reRankResults below already order well; drop the LLM pass (also
+          // cuts a full model round-trip of latency per search).
+          rerank: false,
           onEvent: (e) => {
             // Project SearchEvent -> AgentEvent. The chat UI's
             // ThinkingPanel reads this to animate "Searching ·
