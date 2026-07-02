@@ -225,6 +225,13 @@
       "when": 1782000800000,
       "tag": "0031_agent_role_team",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1782000900000,
+      "tag": "0032_action_proposal",
+      "breakpoints": true
     }
   ]
 }

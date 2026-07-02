@@ -1548,6 +1548,11 @@ export const actionRunSchema = pgTable(
     invokedBy: text('invoked_by'),
     /** The source whose vault credentials the action needs (e.g. `gmail`). */
     sourceSlug: text('source_slug'),
+    /**
+     * Agent-proposal envelope: confidence (0–1), rationale, evidence doc uris.
+     * Surfaced in the review queue + daily brief; feeds the trust ladder.
+     */
+    proposal: jsonb('proposal').$type<{ confidence?: number; rationale?: string; evidence?: string[] }>(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     executedAt: timestamp('executed_at', { mode: 'date' }),
   },
