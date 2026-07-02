@@ -296,7 +296,8 @@ The plugin contract validated by shipping the connectors the landing page names.
 - [ ] Postgres generic (configurable schema, read-only)
 - [ ] Custom REST source — `source.yaml` declaring base URL, auth, paginated endpoints, mapping to objects
 - [ ] Inbound webhook source — tenant-registered endpoint + signature verification + payload→object mapping
-- [ ] Existing in-core connectors (HubSpot, Gmail, Slack, Drive, Google Ads, GA4 — shipped v1.31–v1.36) repackaged as plugins; add Zoom/transcripts
+- [ ] **Transcript connectors — Zoom, Loom, Granola** (meeting/video transcripts as retrievable docs; feeds Revenue Insights' objection/quote mining + Proposal Writer's discovery grounding — RevOps P3)
+- [ ] Existing in-core connectors (HubSpot, Gmail, Slack, Drive, Google Ads, GA4 — shipped v1.31–v1.36) repackaged as plugins
 
 **Exit:** an outside developer can publish a skill or source plugin to npm without a core PR; the 12 connectors named on the landing page either ship in core or have a published plugin.
 
