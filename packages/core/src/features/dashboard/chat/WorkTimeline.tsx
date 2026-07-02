@@ -41,7 +41,7 @@ function toStep(run: Extract<AgentRun, { type: 'tool' }>): Step {
       // deepagents subagent dispatch — recover the specialist's name from its
       // prompt ("You are the Pipeline Analyst …") instead of "general-purpose".
       const desc = String(input.description ?? '');
-      const m = desc.match(/you are (?:the )?([A-Z][\w-]*(?: [A-Z][\w-]*){0,3})/i);
+      const m = desc.match(/[Yy]ou are (?:the )?([A-Z][a-z-]+(?: [A-Z][a-z-]+){0,3})/);
       const who = m?.[1]?.trim() ?? String(input.subagent_type ?? 'specialist');
       return { label: `Delegated: ${who}`, detail: undefined, state };
     }

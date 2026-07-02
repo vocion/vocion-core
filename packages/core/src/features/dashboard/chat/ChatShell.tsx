@@ -107,11 +107,11 @@ export function ChatShell({
           : 'Searching connected sources…');
         return;
       }
-      case 'subagent_start': {
-        const name = String(evt.name ?? 'specialist');
-        setActivity(`Delegating to ${name.replace(/[-_]/g, ' ')}…`);
+      case 'subagent_start':
+        // Subagent names are deepagents plumbing ("general-purpose") — the
+        // timeline's Delegated step carries the friendly specialist name.
+        setActivity('Specialist working…');
         return;
-      }
       case 'subagent_end':
         setActivity('Assembling the answer…');
         return;
