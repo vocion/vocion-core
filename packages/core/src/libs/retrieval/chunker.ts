@@ -17,7 +17,7 @@
  * For very short content (< chunkTokens) returns a single chunk.
  */
 
-import { get_encoding } from 'tiktoken';
+import { getEncoding } from 'js-tiktoken';
 
 export type Chunk = {
   /** Zero-based position in the document. */
@@ -61,31 +61,32 @@ export function chunkText(content: string, opts: ChunkOptions = {}): Chunk[] {
   }
   const stride = chunkTokens - overlapTokens;
 
-  const enc = get_encoding(opts.encoding ?? DEFAULTS.encoding);
-  try {
-    const tokens = enc.encode(trimmed);
-    if (tokens.length <= chunkTokens) {
-      // Whole document fits in one chunk; return as-is.
-      return [{ index: 0, content: trimmed, tokens: tokens.length }];
-    }
-    const chunks: Chunk[] = [];
-    let cursor = 0;
-    let index = 0;
-    while (cursor < tokens.length) {
-      const end = Math.min(cursor + chunkTokens, tokens.length);
-      const slice = tokens.slice(cursor, end);
-      const decoded = new TextDecoder().decode(enc.decode(slice));
-      chunks.push({ index, content: decoded, tokens: slice.length });
-      index += 1;
-      if (end === tokens.length) {
-        break;
-      }
-      cursor += stride;
-    }
-    return chunks;
-  } finally {
-    enc.free();
+  // js-tiktoken (pure JS, no wasm) — the wasm `tiktoken` build fails to
+  // resolve `tiktoken_bg.wasm` under Turbopack dev, 500-ing every route that
+  // transitively imports this chunker (sources, agent runtime). js-tiktoken is
+  // already in the tree via @langchain/core, same `cl100k_base` encoding, and
+  // its `decode` returns a string directly (no TextDecoder, no `free()`).
+  const enc = getEncoding(opts.encoding ?? DEFAULTS.encoding);
+  const tokens = enc.encode(trimmed);
+  if (tokens.length <= chunkTokens) {
+    // Whole document fits in one chunk; return as-is.
+    return [{ index: 0, content: trimmed, tokens: tokens.length }];
   }
+  const chunks: Chunk[] = [];
+  let cursor = 0;
+  let index = 0;
+  while (cursor < tokens.length) {
+    const end = Math.min(cursor + chunkTokens, tokens.length);
+    const slice = tokens.slice(cursor, end);
+    const decoded = enc.decode(slice);
+    chunks.push({ index, content: decoded, tokens: slice.length });
+    index += 1;
+    if (end === tokens.length) {
+      break;
+    }
+    cursor += stride;
+  }
+  return chunks;
 }
 
 /**
