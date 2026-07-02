@@ -63,6 +63,9 @@ export function ChatShell({
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [allDocuments, setAllDocuments] = useState<IndexedDocument[]>([]);
   const [currentSlug, setCurrentSlug] = useState<string | undefined>(agentSlug);
+  // Live activity line — what the team is doing RIGHT NOW during a long turn
+  // (retrieval, subagent delegation, tool runs). Cleared once text streams.
+  const [activity, setActivity] = useState<string | null>(null);
 
   // Callers (`chat/page.tsx`) guarantee at least one entry — the virtual
   // SEARCH_ONLY_AGENT is always appended. The list arrives lead-first, so
@@ -91,11 +94,29 @@ export function ChatShell({
     switch (evt.type) {
       case 'thinking':
         setPhase('thinking');
+        setActivity('Thinking…');
         return;
       case 'answering':
         setPhase('answering');
         return;
+      case 'retrieval_progress': {
+        const stage = String(evt.stage ?? 'searching');
+        const meta = (evt.meta as { candidates?: number }) ?? {};
+        setActivity(stage === 'reranking'
+          ? `Searching — ranking ${meta.candidates ?? ''} candidates…`
+          : 'Searching connected sources…');
+        return;
+      }
+      case 'subagent_start': {
+        const name = String(evt.name ?? 'specialist');
+        setActivity(`Delegating to ${name.replace(/[-_]/g, ' ')}…`);
+        return;
+      }
+      case 'subagent_end':
+        setActivity('Assembling the answer…');
+        return;
       case 'response_delta': {
+        setActivity(null);
         const delta = String(evt.delta ?? '');
         appendToLatestAgent((m) => {
           const runs = m.runs ?? [];
@@ -110,6 +131,7 @@ export function ChatShell({
       case 'tool_start': {
         const name = String(evt.tool ?? 'tool');
         const input = (evt.input as Record<string, unknown>) ?? {};
+        setActivity(`Running ${name.replace(/[-_]/g, ' ')}…`);
         appendToLatestAgent(m => ({
           ...m,
           runs: [...(m.runs ?? []), { type: 'tool', name, input, state: 'pending' }],
@@ -144,9 +166,11 @@ export function ChatShell({
       }
       case 'done':
         setPhase('idle');
+        setActivity(null);
         return;
       case 'error': {
         setPhase('idle');
+        setActivity(null);
         const msg = String(evt.message ?? 'error');
         appendToLatestAgent(m => ({
           ...m,
@@ -272,6 +296,16 @@ export function ChatShell({
           {messages.length === 0
             ? <EmptyState agentName={agent.name} suggestions={agentSuggestions} onPick={handlePickSuggestion} />
             : <MessageList messages={messages} agentName={agent.name} streaming={isStreaming} />}
+
+          {isStreaming && activity && (
+            <div className="mx-auto flex w-full max-w-4xl items-center gap-2 px-6 pb-2 text-xs text-muted-foreground">
+              <span className="relative flex size-2">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/60" />
+                <span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" />
+              </span>
+              {activity}
+            </div>
+          )}
 
           {pendingHitl && (
             <HitlGate
