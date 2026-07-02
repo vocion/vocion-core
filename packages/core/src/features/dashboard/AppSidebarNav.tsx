@@ -38,10 +38,21 @@ export const AppSidebarNav = (props: {
                         }
                       }}
                     >
-                      <Link href={item.url}>
-                        <item.icon />
-                        <span>{item.title}</span>
-                      </Link>
+                      {/* External URLs (e.g. the public docs site) bypass the
+                          locale-aware Link, which would prefix them. */}
+                      {item.url.startsWith('http')
+                        ? (
+                            <a href={item.url} target="_blank" rel="noreferrer">
+                              <item.icon />
+                              <span>{item.title}</span>
+                            </a>
+                          )
+                        : (
+                            <Link href={item.url}>
+                              <item.icon />
+                              <span>{item.title}</span>
+                            </Link>
+                          )}
                     </SidebarMenuButton>
                   )}
             </SidebarMenuItem>

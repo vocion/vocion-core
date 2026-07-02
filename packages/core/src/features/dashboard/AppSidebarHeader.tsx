@@ -1,6 +1,6 @@
 'use client';
 
-import { BookOpen, CreditCard, HeartPulse, LifeBuoy, LogOut, Map, Send, User as UserIcon } from 'lucide-react';
+import { BookOpen, CreditCard, HeartPulse, LifeBuoy, LogOut, Send, User as UserIcon } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import {
@@ -59,16 +59,10 @@ export const AppSidebarHeader = () => {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/docs">
+                <a href="https://www.vocion.ai/docs" target="_blank" rel="noreferrer">
                   <BookOpen className="mr-2 size-4" />
                   Docs
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/dashboard/roadmap">
-                  <Map className="mr-2 size-4" />
-                  Roadmap
-                </Link>
+                </a>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
