@@ -4,6 +4,26 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-02 — Daily brief runs on real data; releases restored (v1.47.1 → v1.48)
+
+The first end-to-end demo of the RevOps loop on live CRM data, and the release pipeline back.
+
+- **Releases restored.** CI greened (v1.47.1 = first auto-cut GitHub Release since May 26). Root cause
+  of the tag collision: pre-rebrand v1.x tags orphaned from main → semantic-release recomputed v1.0.0.
+  Fixed by tagging the real milestone commits v1.42.0–v1.47.0; the version line continues.
+- **fix(agents) — create_artifact JSON-string args.** The daily brief produced a complete report then
+  died at the finish line: the model passed `doc` as a JSON string, strict schema threw. Schema now
+  accepts string|object (transforms can't serialize to the model-facing JSON Schema); handler coerces.
+- **feat(chat) — live activity line.** Long multi-subagent turns looked frozen ("no visible thinking");
+  retrieval/subagent/tool events now render as a live line (Searching… / Delegating to specialist… /
+  Assembling…). Tool-input previews capped at 240 chars.
+- **Verified on real data:** 235 deals + 4k+ companies/contacts synced from HubSpot; the Revenue Lead
+  delegated to Pipeline Analyst + Follow-Up Coordinator and produced a tiered brief (past-due $240K
+  deal flagged with today-action, MQLs to qualify, per-deal next steps). Goal 1 demonstrable locally.
+- Roadmap: transcript connectors (Zoom, Loom, Granola) added to the sources pack.
+
+---
+
 ## 2026-07-02 — Google OAuth refresh, propose_action with confidence, sync CLI (v1.47)
 
 The CRM-copilot substrate: durable Google auth, and agents that can queue CRM changes for approval.
