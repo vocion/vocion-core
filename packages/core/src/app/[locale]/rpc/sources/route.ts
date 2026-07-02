@@ -13,7 +13,7 @@
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listConnectors } from '@/libs/sources/registry';
 import { credentialStatusForOrg } from '@/services/SourceCredentialService';
-import { addSource, listSources } from '@/services/SourceSyncService';
+import { addSource, documentCountsForOrg, listSources } from '@/services/SourceSyncService';
 
 export async function GET() {
   const { orgId } = await auth();
@@ -22,10 +22,12 @@ export async function GET() {
   }
   const sources = await listSources(orgId);
   const credStatus = await credentialStatusForOrg(orgId);
+  const docCounts = await documentCountsForOrg(orgId);
   const connectorBySlug = new Map(listConnectors().map(c => [c.slug, c]));
-  // Decorate each source with its connector's auth requirement + whether a live
-  // credential is stored, so the UI shows Connect / Connected without a second
-  // round-trip. `authKind: 'none'` (e.g. web) needs no credential.
+  // Decorate each source with its connector's auth requirement, whether a live
+  // credential is stored, the object type it pulls, and how many documents it
+  // has ingested — so the Sources page shows what each connector actually
+  // pulled without a second round-trip. `authKind: 'none'` (e.g. web) needs no credential.
   const withStatus = sources.map((s) => {
     const connectorSlug = (s.config?._connector as string | undefined) ?? s.slug;
     const authKind = connectorBySlug.get(connectorSlug)?.authKind ?? 'none';
@@ -33,6 +35,8 @@ export async function GET() {
     return {
       ...s,
       authKind,
+      objectType: (s.config?.objectType as string | undefined) ?? null,
+      documentCount: docCounts[s.id] ?? 0,
       credentialConnected: authKind === 'none' ? true : (st?.connected ?? false),
       credentialUpdatedAt: st?.updatedAt ?? null,
     };

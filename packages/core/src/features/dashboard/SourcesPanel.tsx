@@ -14,6 +14,8 @@ type Source = {
   enabled: string;
   createdAt: string;
   authKind: 'none' | 'apikey' | 'oauth';
+  objectType: string | null;
+  documentCount: number;
   credentialConnected: boolean;
   credentialUpdatedAt: string | null;
 };
@@ -297,11 +299,19 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
           <Globe className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="truncate font-display">{source.slug}</span>
             <Badge variant="outline" className="font-mono text-[10px]">{source.kind}</Badge>
+            {source.objectType
+              ? <Badge variant="outline" className="font-mono text-[10px]">{source.objectType}</Badge>
+              : null}
           </div>
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs font-medium text-foreground/70">
+            {source.documentCount > 0
+              ? `${source.documentCount.toLocaleString()} document${source.documentCount === 1 ? '' : 's'} ingested`
+              : 'No documents yet'}
+          </p>
+          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
             {describeSourceConfig(source.config)}
           </p>
         </div>
