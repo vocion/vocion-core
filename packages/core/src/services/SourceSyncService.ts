@@ -20,10 +20,10 @@
  * off, then poll status. Until then: cap pages low.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
+import { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
 import {
   ensureSource,
   ingestDocument,
@@ -158,8 +158,11 @@ export async function runSync(opts: {
 
   const { since, cursor } = await beginSync(opts.sourceId, opts.orgId, !!opts.incremental);
   // Resolve decrypted credentials from the vault so token/OAuth connectors can
-  // authenticate. Undefined for connectors that need none (e.g. `web`).
-  const credentials = await getCredentialsForSource(opts.orgId, row.slug);
+  // authenticate. Credentials are per-CONNECTOR, not per-source — one HubSpot
+  // token serves the deals/contacts/companies sources alike — so look up by the
+  // connector slug (config._connector), not the source slug. Undefined for
+  // connectors that need none (e.g. `web`).
+  const credentials = await getCredentialsForSource(opts.orgId, connectorSlug);
   const cutoff = new Date();
   const result: SyncResult = {
     sourceId: opts.sourceId,
@@ -264,6 +267,24 @@ export async function listSources(orgId: string): Promise<Array<{
     enabled: r.enabled,
     createdAt: r.createdAt,
   }));
+}
+
+/**
+ * Ingested-document count per source for an org — powers the Sources UI's
+ * "N documents" so you can see what each connector actually pulled.
+ * @param orgId
+ */
+export async function documentCountsForOrg(orgId: string): Promise<Record<number, number>> {
+  const rows = await db
+    .select({ sourceId: knowledgeDocumentSchema.sourceId, count: sql<number>`count(*)::int` })
+    .from(knowledgeDocumentSchema)
+    .where(eq(knowledgeDocumentSchema.orgId, orgId))
+    .groupBy(knowledgeDocumentSchema.sourceId);
+  const map: Record<number, number> = {};
+  for (const r of rows) {
+    map[r.sourceId] = Number(r.count);
+  }
+  return map;
 }
 
 /**
