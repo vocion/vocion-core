@@ -33,6 +33,8 @@
     "db:migrate": "dotenv -c -- drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "creds:set": "dotenv -c -- tsx src/scripts/set-credential.ts",
+    "google:oauth": "dotenv -c -- tsx src/scripts/google-oauth.ts",
+    "sync:source": "dotenv -c -- tsx src/scripts/sync-source.ts",
     "workspace:apply": "dotenv -c -- tsx src/scripts/apply-workspace.ts",
     "workspace:check": "dotenv -c -- tsx src/scripts/apply-workspace.ts --dry-run",
     "workspace:export": "dotenv -c -- tsx src/scripts/export-workspace.ts",

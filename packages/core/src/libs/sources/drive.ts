@@ -12,6 +12,7 @@
 import type { SourceConnector, SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
+import { resolveGoogleAccessToken } from './googleAuth';
 
 const driveConfigSchema = z.object({
   /** Drive query (e.g. `"<folderId>" in parents`). Defaults to non-trashed files. */
@@ -47,10 +48,9 @@ export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
   configSchema: driveConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = driveConfigSchema.parse(ctx.config);
-    const token = ctx.credentials?.token as string | undefined;
-    if (!token) {
-      throw new Error('Drive connector requires credentials.token');
-    }
+    // Durable path: refresh-token exchange (see googleAuth); legacy fallback
+    // accepts a raw short-lived credentials.token.
+    const token = await resolveGoogleAccessToken(ctx.credentials);
     const headers = { authorization: `Bearer ${token}` };
     const q = ctx.since
       ? `${cfg.query} and modifiedTime > '${ctx.since.toISOString()}'`
