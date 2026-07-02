@@ -16,7 +16,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Skip gracefully when Crowdin secrets aren't configured (forks / installs
+      # that don't localize) instead of failing every push red.
+      - name: Check Crowdin secrets
+        id: creds
+        run: |
+          if [ -n "${{ secrets.CROWDIN_PROJECT_ID }}" ] && [ -n "${{ secrets.CROWDIN_PERSONAL_TOKEN }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Crowdin secrets not configured — skipping sync."
+          fi
+
       - name: Crowdin action
+        if: steps.creds.outputs.present == 'true'
         uses: crowdin/github-action@v2
         with:
           upload_sources: true
