@@ -57,6 +57,115 @@ export async function storeCredential(input: {
 }
 
 /**
+ * Find-or-create the org-scoped `source_install` for a connector slug. Nothing
+ * else creates installs (sources are added as `knowledge_source` rows), so
+ * without this the credential vault has no anchor and every apikey/OAuth
+ * connector refuses at sync time. Returns the install id.
+ * @param orgId
+ * @param sourceSlug
+ * @param userId
+ * @param projectId
+ */
+export async function ensureInstall(
+  orgId: string,
+  sourceSlug: string,
+  userId?: string | null,
+  projectId?: string | null,
+): Promise<number> {
+  const [existing] = await db
+    .select({ id: sourceInstallSchema.id })
+    .from(sourceInstallSchema)
+    .where(and(
+      eq(sourceInstallSchema.orgId, orgId),
+      eq(sourceInstallSchema.sourceSlug, sourceSlug),
+    ))
+    .limit(1);
+  if (existing) {
+    // Re-enable if it was soft-disabled; credentials outlive the toggle.
+    await db
+      .update(sourceInstallSchema)
+      .set({ disabled: 'false' })
+      .where(eq(sourceInstallSchema.id, existing.id));
+    return existing.id;
+  }
+  const [row] = await db
+    .insert(sourceInstallSchema)
+    .values({
+      orgId,
+      projectId: projectId ?? orgId,
+      sourceSlug,
+      installedBy: userId ?? 'system',
+    })
+    .returning({ id: sourceInstallSchema.id });
+  return row!.id;
+}
+
+/**
+ * The onboarding entry point: encrypt + persist credentials for a source slug,
+ * creating the install if needed. This is what the Sources UI + the creds CLI
+ * call — the one path that turns a pasted token into a live, decryptable
+ * credential the sync pipeline can use.
+ * @param input
+ * @param input.orgId
+ * @param input.sourceSlug
+ * @param input.raw
+ * @param input.displayName
+ * @param input.userId
+ * @param input.projectId
+ */
+export async function storeCredentialForSource(input: {
+  orgId: string;
+  sourceSlug: string;
+  raw: RawCredentials;
+  displayName?: string;
+  userId?: string | null;
+  projectId?: string | null;
+}): Promise<{ installId: number; credentialId: number }> {
+  const installId = await ensureInstall(input.orgId, input.sourceSlug, input.userId, input.projectId);
+  const credentialId = await storeCredential({
+    orgId: input.orgId,
+    installId,
+    displayName: input.displayName ?? `${input.sourceSlug} credential`,
+    raw: input.raw,
+    userId: input.userId,
+  });
+  return { installId, credentialId };
+}
+
+/** Whether a source slug has a live (non-revoked) credential, and when it was set. */
+export type CredentialStatus = { connected: boolean; updatedAt: string | null };
+
+/**
+ * Connection status for every source slug in an org — drives the "Connected /
+ * Needs credentials" badge in the Sources UI without decrypting anything.
+ * @param orgId
+ */
+export async function credentialStatusForOrg(orgId: string): Promise<Record<string, CredentialStatus>> {
+  const rows = await db
+    .select({
+      slug: sourceInstallSchema.sourceSlug,
+      createdAt: sourceCredentialSchema.createdAt,
+      revokedAt: sourceCredentialSchema.revokedAt,
+    })
+    .from(sourceInstallSchema)
+    .leftJoin(sourceCredentialSchema, eq(sourceCredentialSchema.installId, sourceInstallSchema.id))
+    .where(eq(sourceInstallSchema.orgId, orgId));
+
+  const status: Record<string, CredentialStatus> = {};
+  for (const r of rows) {
+    const live = !!r.createdAt && !r.revokedAt;
+    const prev = status[r.slug];
+    if (!prev || (live && !prev.connected)) {
+      status[r.slug] = {
+        connected: live,
+        updatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+      };
+    }
+  }
+  return status;
+}
+
+/**
  * Resolve the decrypted credentials for a source in an org, or `undefined` when
  * the source has no install or no live credential (e.g. the `web` connector,
  * which needs none). Picks the most recent non-revoked credential for the
