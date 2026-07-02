@@ -270,6 +270,60 @@ export async function listSources(orgId: string): Promise<Array<{
 }
 
 /**
+ * Most-recent documents across the org's corpus — the Search page's default
+ * result set (browse-before-you-search). Optional per-source filter; each row
+ * carries the first chunk's opening text as a blurb.
+ * @param orgId
+ * @param opts
+ * @param opts.sourceSlug
+ * @param opts.limit
+ */
+export async function listRecentDocuments(
+  orgId: string,
+  opts: { sourceSlug?: string; limit?: number } = {},
+): Promise<Array<{ id: number; title: string | null; uri: string | null; sourceSlug: string; updatedAt: Date | null; blurb: string | null }>> {
+  const limit = Math.min(opts.limit ?? 25, 100);
+  const rows = await db
+    .select({
+      id: knowledgeDocumentSchema.id,
+      title: knowledgeDocumentSchema.title,
+      uri: knowledgeDocumentSchema.uri,
+      sourceSlug: knowledgeSourceSchema.slug,
+      lastModifiedAt: knowledgeDocumentSchema.lastModifiedAt,
+      ingestedAt: knowledgeDocumentSchema.ingestedAt,
+    })
+    .from(knowledgeDocumentSchema)
+    .innerJoin(knowledgeSourceSchema, eq(knowledgeDocumentSchema.sourceId, knowledgeSourceSchema.id))
+    .where(opts.sourceSlug
+      ? and(eq(knowledgeDocumentSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, opts.sourceSlug))
+      : eq(knowledgeDocumentSchema.orgId, orgId))
+    .orderBy(sql`coalesce(${knowledgeDocumentSchema.lastModifiedAt}, ${knowledgeDocumentSchema.ingestedAt}) desc`)
+    .limit(limit);
+  if (rows.length === 0) {
+    return [];
+  }
+  // First-chunk blurbs in one query (content lives on chunks, not documents).
+  const ids = rows.map(r => r.id);
+  const chunks = await db.execute(sql`
+    select document_id, left(content, 220) as blurb
+    from knowledge_chunk
+    where document_id in (${sql.join(ids.map(i => sql`${i}`), sql`, `)}) and chunk_idx = 0
+  `);
+  const blurbs = new Map<number, string>();
+  for (const c of ((chunks as unknown as { rows?: Array<{ document_id: number; blurb: string }> }).rows ?? (chunks as unknown as Array<{ document_id: number; blurb: string }>))) {
+    blurbs.set(Number(c.document_id), c.blurb);
+  }
+  return rows.map(r => ({
+    id: r.id,
+    title: r.title,
+    uri: r.uri,
+    sourceSlug: r.sourceSlug,
+    updatedAt: r.lastModifiedAt ?? r.ingestedAt,
+    blurb: blurbs.get(r.id) ?? null,
+  }));
+}
+
+/**
  * Ingested-document count per source for an org — powers the Sources UI's
  * "N documents" so you can see what each connector actually pulled.
  * @param orgId
