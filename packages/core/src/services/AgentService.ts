@@ -998,9 +998,11 @@ export async function runAgentDeep(opts: {
     .filter(t => t.content.trim().length > 0)
     .map(t => ({ role: t.role, content: t.content }));
 
+  // The agent's system prompt is supplied to the graph via createDeepAgent's
+  // `systemPrompt` (see runtime.ts). It must NOT also appear here — deepagents
+  // prepends its own system message, so a second one is rejected by the model.
   const input = {
     messages: [
-      { role: 'system', content: compiled.agentRow.systemPrompt },
       ...history,
       { role: 'user', content: opts.message },
     ],

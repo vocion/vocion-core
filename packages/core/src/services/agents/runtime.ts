@@ -150,6 +150,13 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     model,
     tools,
     subagents,
+    // The agent's authored prompt goes HERE — deepagents combines it with its
+    // own base/middleware system prompt and guarantees a single leading system
+    // message. Passing it as an input `{role:'system'}` message instead makes
+    // it a SECOND system message once the middleware prepends its own, which
+    // the model API rejects ("System messages are only permitted as the first
+    // passed message").
+    systemPrompt: row.systemPrompt ?? undefined,
     backend: new StateBackend(),
     // `skills` mounts deepagents's SKILL.md auto-loader at the given
     // virtual-FS path(s). deepagents expects an array of string source
