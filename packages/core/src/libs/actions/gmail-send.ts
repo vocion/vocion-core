@@ -11,6 +11,7 @@
 import type { Action } from './types';
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
+import { resolveGoogleAccessToken } from '@/libs/sources/googleAuth';
 
 const gmailSendInput = z.object({
   to: z.string().min(1),
@@ -44,10 +45,9 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
   external: true,
   sourceSlug: 'gmail',
   async execute(ctx, input) {
-    const token = ctx.credentials?.token as string | undefined;
-    if (!token) {
-      throw new Error('gmail.send requires connected Gmail credentials (credentials.token)');
-    }
+    // Durable path: refresh-token exchange (see googleAuth); falls back to a
+    // raw short-lived credentials.token.
+    const token = await resolveGoogleAccessToken(ctx.credentials);
     const raw = toRfc822(input);
     const headers = { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' };
 
