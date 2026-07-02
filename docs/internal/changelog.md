@@ -4,6 +4,26 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-02 — Workspace→project binding, per-connector credentials, source visibility (v1.46)
+
+Fixes surfaced by running real HubSpot data through the local loop (235 deals + 4,295 companies synced).
+
+- **feat(workspace)** — `workspace:apply --project <id|slug>` binds directly to a project (auto-targets
+  the sole project when one exists). Kills the placeholder-org + manual re-key dance that made fresh
+  installs look empty ("why don't I see the team?"). Bootstrap's re-key step becomes obsolete.
+- **fix(sources)** — credentials resolve by **connector** slug, not source slug: one HubSpot token now
+  serves the deals/contacts/companies sources. Previously the second and third HubSpot sources refused
+  with "requires a private-app token" despite the stored credential.
+- **feat(sources)** — the Sources page shows each source's **object type** and **ingested document
+  count** ("235 documents ingested"), so what each connector pulled is legible at a glance.
+- **fix(agents)** — in-turn LLM rerank disabled: deepagents' streamEvents taps nested model calls, so
+  the reranker's `[2,3,0,…]` id-array leaked into chat responses. Hybrid RRF + heuristic reorder stay;
+  also removes a model round-trip per search.
+- RevOps workspace: `hubspot-contacts` (lifecyclestage — the lead signal) + `hubspot-companies`
+  sources; Revenue Lead prompt hardened to synthesize search results, never echo raw records.
+
+---
+
 ## 2026-07-02 — Credential onboarding + chat system-prompt fix + dev-runtime fixes (v1.45)
 
 The first Activation-sprint slice: a source connector can be given credentials without psql, so the
