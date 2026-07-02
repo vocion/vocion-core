@@ -10,7 +10,6 @@ import {
   FileText,
   GitBranch,
   LineChart,
-  Map as MapIcon,
   MessageSquare,
   Plug,
   ScrollText,
@@ -106,14 +105,16 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           ]}
         />
 
-        {/* 4. Settings — settings + reference (orphan routes get a home) */}
+        {/* 4. Settings. Docs points at the PUBLIC docs site — the in-app
+            viewer rendered repo-internal docs (incl. the internal roadmap)
+            that go stale between image builds and don't belong in a
+            multi-user product surface. */}
         <AppSidebarNav
           label={t('settings_section_label')}
           items={[
             { title: t('billing'), url: '/dashboard/billing', icon: Settings },
             { title: t('admin'), url: '/dashboard/admin', icon: ShieldCheck },
-            { title: t('docs'), url: '/dashboard/docs', icon: FileText },
-            { title: t('roadmap'), url: '/dashboard/roadmap', icon: MapIcon },
+            { title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText },
           ]}
         />
       </SidebarContent>
