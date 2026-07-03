@@ -3,7 +3,6 @@
 import {
   Activity,
   BookOpen,
-  Bot,
   CalendarClock,
   CheckSquare,
   Compass,
@@ -73,8 +72,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
             { title: 'Missions', url: '/dashboard/missions', icon: Compass },
             { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
             { title: 'Automation', url: '/dashboard/automation', icon: CalendarClock },
-            { title: 'Teams', url: '/dashboard/teams', icon: Users },
-            { title: t('agents'), url: '/dashboard/agents', icon: Bot },
+            { title: t('agents'), url: '/dashboard/agents', icon: Users },
             { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
             { title: t('search'), url: '/dashboard/search', icon: BookOpen },
           ]}
