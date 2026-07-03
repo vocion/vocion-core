@@ -269,3 +269,6 @@ export async function recordWorkflowCompletedActivity(input: RecordWorkflowCompl
 
 /* Source-sync activity (Temporal Schedules). */
 export * from './sourceSync';
+/* Schedule-fired starters: mission heartbeats + workflow cron triggers. */
+export * from './startMissionRun';
+export * from './startWorkflowRun';

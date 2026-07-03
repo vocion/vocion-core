@@ -54,6 +54,7 @@ export function listMissionRuns(orgId: string, opts: { status?: string; limit?: 
  * @param opts.team.members
  * @param opts.autonomyLevel
  * @param opts.invokedBy
+ * @param opts.mode
  */
 export async function startMission(opts: {
   orgId: string;
@@ -63,11 +64,20 @@ export async function startMission(opts: {
   team?: { lead: string; members: string[] };
   autonomyLevel?: number;
   invokedBy?: string;
+  /**
+   * `planned` (default) — the lead decomposes the brief into a task graph.
+   * `heartbeat` — a standing-responsibility check: ONE lead-agent task, no
+   * planner. The lead reviews the charter against current state, does only
+   * what's needed now (workflows, skills, tools, open-ended work), and
+   * reports. Cheap enough to run hourly.
+   */
+  mode?: 'planned' | 'heartbeat';
 }): Promise<MissionRunSummary> {
   let team = opts.team;
   let goal: string | undefined;
   let missionId: number | undefined;
   let autonomyLevel = opts.autonomyLevel;
+  let charter: { successCriteria: string[]; name?: string } | undefined;
 
   if (opts.missionSlug) {
     const template = await getMission(opts.orgId, opts.missionSlug);
@@ -78,6 +88,7 @@ export async function startMission(opts: {
     team = team ?? template.defaultTeam;
     goal = template.goal;
     autonomyLevel = autonomyLevel ?? (template.autonomyPolicy as { level?: number } | null)?.level;
+    charter = { successCriteria: template.successCriteria ?? [], name: template.name };
   }
   if (!team?.lead) {
     throw new Error('a mission needs a team (lead + members) or a template slug');
@@ -99,12 +110,41 @@ export async function startMission(opts: {
     createdBy: opts.invokedBy,
   }).returning();
 
-  // Plan, then execute (in-process MVP; Temporal-durable sessions are Phase 2).
-  const tasks = await planMission({ orgId: opts.orgId, brief: opts.brief, goal, team, userId: opts.invokedBy });
+  // Heartbeat mode: one lead task, no planner. Planned mode: decompose first.
+  // (Both execute in-process for now; Temporal-durable sessions are Phase 2.)
+  const tasks = opts.mode === 'heartbeat'
+    ? [{
+        id: 'heartbeat-check',
+        title: charter?.name ? `Heartbeat check: ${charter.name}` : 'Heartbeat check',
+        ownerAgentSlug: team.lead,
+        type: 'analysis' as const,
+        status: 'pending' as const,
+        dependsOn: [],
+      }]
+    : await planMission({ orgId: opts.orgId, brief: opts.brief, goal, team, userId: opts.invokedBy });
   await db.update(missionRunSchema).set({ plan: { tasks }, status: 'running' }).where(eq(missionRunSchema.id, run!.id));
   await executeMissionRun(run!.id, opts.orgId);
 
   return (await getMissionRun(run!.id, opts.orgId))!;
+}
+
+/**
+ * The standing brief a heartbeat run carries — built from the mission
+ * charter so the lead knows this is a periodic check, not a fresh project.
+ * @param template
+ * @param template.name
+ * @param template.goal
+ * @param template.successCriteria
+ */
+export function heartbeatBrief(template: { name: string; goal: string; successCriteria?: string[] | null }): string {
+  return [
+    `Heartbeat check of your standing mission "${template.name}".`,
+    `Charter: ${template.goal}`,
+    template.successCriteria?.length
+      ? `Responsibilities:\n${template.successCriteria.map(c => `- ${c}`).join('\n')}`
+      : '',
+    `This is a periodic check, not a fresh project. Review the current state, do ONLY what is needed right now (use your skills, propose actions for anything touching external systems), and finish with a short report. If nothing needs doing, say so in one paragraph and stop.`,
+  ].filter(Boolean).join('\n\n');
 }
 
 /**
