@@ -77,7 +77,7 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
         <>
           <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Standing missions (responsibilities)</h2>
           <p className="mb-3 text-xs text-muted-foreground">
-            A mission is a charter a team owns, not a one-off. Missions with a heartbeat get checked on that cadence — the lead reviews the charter, does only what's needed, and reports. Any mission can also be briefed manually.
+            A mission is a charter a team owns, not a one-off. Missions with a schedule get checked on that cadence — the lead reviews the charter, does only what's needed, and reports. Any mission can also be briefed manually.
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {templates.map(t => (
@@ -89,7 +89,7 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
                 <div className="text-sm font-medium">{t.name}</div>
                 {t.description && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{t.description}</p>}
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                  <TriggerBadge trigger={null} heartbeat={t.heartbeat} />
+                  <TriggerBadge trigger={null} schedule={t.schedule} />
                   <span>
                     Team:
                     {' '}

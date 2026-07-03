@@ -134,7 +134,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   }
 
   // Reconcile Temporal Schedules against the authored triggers: workflow
-  // `trigger: {type: schedule}`, mission `heartbeat`, source `schedule`.
+  // `trigger: {type: schedule}`, mission `schedule`, source `schedule`.
   // Best-effort — a dev box without Temporal still applies cleanly; the
   // schedules materialize on the next apply where Temporal is reachable.
   if (!dryRun) {
@@ -185,12 +185,12 @@ async function reconcileSchedules(
   try {
     await getTemporalClient();
   } catch {
-    console.warn('[workspace:apply] Temporal unreachable — skipping schedule reconciliation (workflow schedules, mission heartbeats, source syncs). Re-apply with Temporal up to materialize them.');
+    console.warn('[workspace:apply] Temporal unreachable — skipping schedule reconciliation (workflow schedules, mission schedules, source syncs). Re-apply with Temporal up to materialize them.');
     return;
   }
 
   const { ensureWorkflowSchedule, removeWorkflowSchedule } = await import('@/services/WorkflowScheduleService');
-  const { ensureMissionHeartbeat, removeMissionHeartbeat } = await import('@/services/MissionScheduleService');
+  const { ensureMissionSchedule, removeMissionSchedule } = await import('@/services/MissionScheduleService');
   const { ensureSourceSchedule, removeSourceSchedule } = await import('@/services/SourceScheduleService');
   const { knowledgeSourceSchema: srcSchema } = await import('@/models/Schema');
 
@@ -209,13 +209,13 @@ async function reconcileSchedules(
 
   for (const mission of loaded.missions) {
     try {
-      if (mission.status === 'active' && mission.heartbeat) {
-        await ensureMissionHeartbeat({ orgId, missionSlug: mission.slug, cron: mission.heartbeat });
+      if (mission.status === 'active' && mission.schedule) {
+        await ensureMissionSchedule({ orgId, missionSlug: mission.slug, cron: mission.schedule });
       } else {
-        await removeMissionHeartbeat(orgId, mission.slug);
+        await removeMissionSchedule(orgId, mission.slug);
       }
     } catch (err) {
-      errors.push({ resource: 'missionHeartbeat', slug: mission.slug, message: (err as Error).message });
+      errors.push({ resource: 'missionSchedule', slug: mission.slug, message: (err as Error).message });
     }
   }
 
@@ -420,7 +420,7 @@ async function upsertMission(orgId: string, mission: LoadedMission, dryRun: bool
     autonomyPolicy: mission.autonomyPolicy as unknown as Record<string, unknown>,
     successCriteria: mission.successCriteria,
     desiredArtifacts: mission.desiredArtifacts,
-    heartbeat: mission.heartbeat ?? null,
+    schedule: mission.schedule ?? null,
   };
 
   if (!existing) {
