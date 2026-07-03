@@ -11,16 +11,18 @@ import { clerkAuth as auth } from '@/libs/Auth';
  */
 
 /**
- * Ensures the user belongs to an organization.
- * Redirects to organization selection if no organization is found.
+ * Ensures the user belongs to an organization (project).
+ * Redirects to the dashboard root if none is found. (The Clerk-era
+ * `/onboarding/organization-selection` page no longer exists — sessions
+ * without a project can't self-serve one; they land on the dashboard.)
  * @returns Promise containing orgId and has function for role checking.
- * @throws {redirect} Redirects to organization selection if no orgId.
+ * @throws {redirect} Redirects to /dashboard if no orgId.
  */
 export const requireOrganization = async () => {
   const { orgId, has } = await auth();
 
   if (!orgId) {
-    redirect('/onboarding/organization-selection');
+    redirect('/dashboard');
   }
 
   return { orgId, has };
