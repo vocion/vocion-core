@@ -69,6 +69,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           items={[
             { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
             { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
+            { title: 'Activity', url: '/dashboard/activity', icon: Activity },
             { title: t('search'), url: '/dashboard/search', icon: BookOpen },
           ]}
         />
