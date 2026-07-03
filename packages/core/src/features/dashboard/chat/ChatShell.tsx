@@ -15,6 +15,7 @@ import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
 import { SourcesPanel } from './SourcesPanel';
+import { describeToolCall } from './WorkTimeline';
 
 /**
  * ChatShell — Phase C orchestrator.
@@ -131,7 +132,10 @@ export function ChatShell({
       case 'tool_start': {
         const name = String(evt.tool ?? 'tool');
         const input = (evt.input as Record<string, unknown>) ?? {};
-        setActivity(`Running ${name.replace(/[-_]/g, ' ')}…`);
+        // Same human labels the timeline uses, present tense — "Delegating:
+        // Pipeline Analyst…" instead of "Running task…".
+        const live = describeToolCall(name, input, true);
+        setActivity(live.detail ? `${live.label} ${live.detail}` : live.label);
         appendToLatestAgent(m => ({
           ...m,
           runs: [...(m.runs ?? []), { type: 'tool', name, input, state: 'pending' }],
