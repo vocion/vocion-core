@@ -13,10 +13,10 @@ import {
   MessageSquare,
   Plug,
   ScrollText,
-  Settings,
   ShieldCheck,
   Sparkles,
   TestTube,
+  UserPlus,
   Users,
   Wrench,
   Zap,
@@ -105,15 +105,17 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           ]}
         />
 
-        {/* 4. Settings. Docs points at the PUBLIC docs site — the in-app
-            viewer rendered repo-internal docs (incl. the internal roadmap)
-            that go stale between image builds and don't belong in a
-            multi-user product surface. */}
+        {/* 4. Settings. Members replaced Billing in the nav (billing page
+            stays routable at /dashboard/billing, it's just not something a
+            single-tenant deploy needs front-and-center). "System" is the
+            old Admin link — same status page, clearer name. Docs points at
+            the PUBLIC docs site — the in-app viewer rendered repo-internal
+            docs that go stale between image builds. */}
         <AppSidebarNav
           label={t('settings_section_label')}
           items={[
-            { title: t('billing'), url: '/dashboard/billing', icon: Settings },
-            { title: t('admin'), url: '/dashboard/admin', icon: ShieldCheck },
+            { title: 'Members', url: '/dashboard/members', icon: UserPlus },
+            { title: 'System', url: '/dashboard/admin', icon: ShieldCheck },
             { title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText },
           ]}
         />
@@ -125,7 +127,9 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           {' '}
           {new Date().getFullYear()}
           {' '}
-          Vocion · Apache 2.0
+          {/* Deployments override via NEXT_PUBLIC_BRAND_ATTRIBUTION
+              (same pattern as the NEXT_PUBLIC_BRAND_* logo vars). */}
+          {process.env.NEXT_PUBLIC_BRAND_ATTRIBUTION || 'Vocion · Apache 2.0'}
         </div>
       </SidebarFooter>
       <SidebarRail />
