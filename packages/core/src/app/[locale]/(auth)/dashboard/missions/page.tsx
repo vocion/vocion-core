@@ -83,7 +83,7 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
             {templates.map(t => (
               <Link
                 key={t.id}
-                href={`/dashboard/missions/new?template=${t.slug}`}
+                href={`/dashboard/missions/${t.slug}`}
                 className="rounded-lg border border-border bg-background p-4 transition hover:border-primary/30"
               >
                 <div className="text-sm font-medium">{t.name}</div>
