@@ -8,4 +8,5 @@ BEGIN
     ALTER TABLE "mission" RENAME COLUMN "heartbeat" TO "schedule";
   END IF;
 END $$;
+--> statement-breakpoint
 ALTER TABLE "mission" ADD COLUMN IF NOT EXISTS "schedule" text;
