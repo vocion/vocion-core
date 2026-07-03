@@ -18,11 +18,11 @@ import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
 import { tool as makeTool } from '@langchain/core/tools';
 import { createDeepAgent, StateBackend } from 'deepagents';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { buildChatModel } from '@/libs/llm';
-import { agentSchema } from '@/models/Schema';
+import { agentSchema, playbookSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
 import { mountPlaybooks } from '@/services/playbooks/mount';
 import { crawlSiteTool } from './tools/crawlSite';
@@ -149,6 +149,18 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
 
   const model = buildChatModel('main');
 
+  // Only mount deepagents' SkillsMiddleware when the org actually HAS
+  // playbooks. The middleware requires initialized state fields and fails in
+  // the webpack production bundle ("Middleware SkillsMiddleware has required
+  // state fields that must be initialized") — dev/Turbopack tolerated it, so
+  // this broke PROD chat only. With zero playbooks the middleware buys
+  // nothing; playbook bodies still mount via initialFiles for the file tools.
+  const [playbookCount] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(playbookSchema)
+    .where(eq(playbookSchema.orgId, orgId));
+  const hasPlaybooks = Number(playbookCount?.n ?? 0) > 0;
+
   const graph = createDeepAgent({
     model,
     tools,
@@ -161,14 +173,8 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     // passed message").
     systemPrompt: row.systemPrompt ?? undefined,
     backend: new StateBackend(),
-    // `skills` mounts deepagents's SKILL.md auto-loader at the given
-    // virtual-FS path(s). deepagents expects an array of string source
-    // PATHS (`skills?: string[]`) — passing objects made SkillsMiddleware
-    // call `.includes`/`.replace` on a non-string and throw
-    // ("d.replace is not a function"), which surfaced as a tool error in
-    // chat. Playbook bodies are seeded into `initialFiles` per-turn via
-    // `mountPlaybooks`; the middleware lazy-loads on `task` activation.
-    skills: ['/playbooks/'],
+    // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).
+    ...(hasPlaybooks ? { skills: ['/playbooks/'] } : {}),
   });
 
   // Attach the mutable RuntimeContext for the request adapter to update.
@@ -216,10 +222,31 @@ export function bindRequestEmit(
 /* Initial-files builder — playbooks + AGENTS.md + (Phase 5) learnings */
 /* ------------------------------------------------------------------ */
 
+/**
+ * deepagents' FilesystemMiddleware validates the `files` state as
+ * `Record<string, FileData>` (content + mimeType + timestamps) — NOT
+ * plain strings. Passing raw strings fails the middleware's state
+ * validation the moment the mount is non-empty ("Middleware
+ * "FilesystemMiddleware" has required state fields that must be
+ * initialized" with issue paths like `files./learnings/global.md`).
+ * Orgs with no playbooks/learnings passed `{}` and never noticed.
+ */
+type MountedFileData = {
+  content: string;
+  mimeType: string;
+  created_at: string;
+  modified_at: string;
+};
+
+function toFileData(content: string): MountedFileData {
+  const now = new Date().toISOString();
+  return { content, mimeType: 'text/markdown', created_at: now, modified_at: now };
+}
+
 export async function buildInitialFiles(
   orgId: string,
   agentSlug: string,
-): Promise<Record<string, string>> {
+): Promise<Record<string, MountedFileData>> {
   const [row] = await db
     .select()
     .from(agentSchema)
@@ -232,10 +259,9 @@ export async function buildInitialFiles(
     agentTags: row.playbookTags ?? null,
   });
   const learnings = await bundleStepMarkdown(orgId, row.learningSteps ?? []);
-  return {
-    ...playbooks,
-    ...learnings,
-  };
+  return Object.fromEntries(
+    Object.entries({ ...playbooks, ...learnings }).map(([path, body]) => [path, toFileData(body)]),
+  );
 }
 
 /* ------------------------------------------------------------------ */
