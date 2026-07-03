@@ -54,6 +54,7 @@ import {
   submitFeedback as submitMissionFeedbackRoute,
 } from './Missions';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
+import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
 import {
   approve,
   cancel,
@@ -98,6 +99,11 @@ export const router = {
     cancel: cancelMissionRoute,
     submitFeedback: submitMissionFeedbackRoute,
     promote: promoteMissionRoute,
+  },
+  profile: {
+    get: getProfileRoute,
+    updateName: updateNameRoute,
+    changePassword: changePasswordRoute,
   },
   members: {
     list: listMembersRoute,

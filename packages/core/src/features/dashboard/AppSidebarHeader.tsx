@@ -1,6 +1,6 @@
 'use client';
 
-import { BookOpen, CreditCard, HeartPulse, LifeBuoy, LogOut, Send, User as UserIcon } from 'lucide-react';
+import { BookOpen, LogOut, User as UserIcon, Users as UsersIcon } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import {
@@ -47,15 +47,15 @@ export const AppSidebarHeader = () => {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/billing">
-                  <CreditCard className="mr-2 size-4" />
-                  Billing
+                <Link href="/dashboard/profile">
+                  <UserIcon className="mr-2 size-4" />
+                  Profile
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/admin">
-                  <HeartPulse className="mr-2 size-4" />
-                  System
+                <Link href="/dashboard/members">
+                  <UsersIcon className="mr-2 size-4" />
+                  Members
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
@@ -65,26 +65,7 @@ export const AppSidebarHeader = () => {
                 </a>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <a href="mailto:support@vocion.ai">
-                  <LifeBuoy className="mr-2 size-4" />
-                  Support
-                </a>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <a href="mailto:feedback@vocion.ai">
-                  <Send className="mr-2 size-4" />
-                  Feedback
-                </a>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/dashboard/account/profile">
-                  <UserIcon className="mr-2 size-4" />
-                  Profile
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => signOut({ callbackUrl: '/' })}>
+              <DropdownMenuItem onClick={() => signOut({ callbackUrl: '/sign-in' })}>
                 <LogOut className="mr-2 size-4" />
                 Sign out
               </DropdownMenuItem>
