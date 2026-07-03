@@ -4,6 +4,7 @@ import { CheckCircle2, Globe, KeyRound, Loader2, Plus, RefreshCw } from 'lucide-
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Link } from '@/libs/I18nNavigation';
 
 type Source = {
   id: number;
@@ -300,7 +301,7 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate font-display">{source.slug}</span>
+            <Link href={`/dashboard/sources/${source.slug}`} className="truncate font-display hover:underline">{source.slug}</Link>
             <Badge variant="outline" className="font-mono text-[10px]">{source.kind}</Badge>
             {source.objectType
               ? <Badge variant="outline" className="font-mono text-[10px]">{source.objectType}</Badge>

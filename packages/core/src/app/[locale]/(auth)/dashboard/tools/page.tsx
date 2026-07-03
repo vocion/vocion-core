@@ -1,6 +1,7 @@
 import { Check, TriangleAlert, Wrench } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { Link } from '@/libs/I18nNavigation';
 import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -50,7 +51,11 @@ export default async function ToolsPage(props: {
                   const status = statusByCapability.get(tool.capability);
                   const isReady = status?.ready ?? true;
                   return (
-                    <div key={tool.name} className="rounded-lg border border-border bg-background p-4">
+                    <Link
+                      key={tool.name}
+                      href={`/dashboard/tools/${tool.name}`}
+                      className="block rounded-lg border border-border bg-background p-4 transition hover:border-primary/30 hover:bg-muted/40"
+                    >
                       <div className="mb-2 flex items-center gap-2">
                         <Wrench className="size-4 text-primary" />
                         <span className="text-sm font-medium">{tool.title}</span>
@@ -90,7 +95,7 @@ export default async function ToolsPage(props: {
                             )
                           : null}
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
