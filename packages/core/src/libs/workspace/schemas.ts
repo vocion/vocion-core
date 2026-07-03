@@ -363,6 +363,15 @@ export const SourceManifestSchema = z.object({
    * omitted, the source only syncs on manual trigger via /dashboard/sources.
    */
   schedule: z.string().optional().describe('Cron expression for scheduled sync. Manual-only when omitted.'),
+  /**
+   * Per-connection ACL. Omitted = org-wide. `restricted` limits retrieval
+   * (chat + search) to the listed member emails; enforced as an
+   * intersection at query time. Scheduled team runs keep access.
+   */
+  access: z.object({
+    visibility: z.enum(['org', 'restricted']).default('org'),
+    users: z.array(z.string().email()).default([]),
+  }).optional(),
   enabled: z.boolean().default(true),
 });
 export type SourceManifest = z.infer<typeof SourceManifestSchema>;

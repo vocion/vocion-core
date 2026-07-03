@@ -1365,6 +1365,14 @@ export const knowledgeSourceSchema = pgTable(
     kind: text('kind').default('plugin').notNull(),
     /** Source-plugin-specific config (folder ids, repo names, etc.) */
     configJson: jsonb('config_json').$type<Record<string, unknown>>().default({}).notNull(),
+    /**
+     * Per-connection ACL. Null / `{visibility:'org'}` = every member can
+     * retrieve from this source. `{visibility:'restricted', users:[emails]}`
+     * = only the listed members see its content in chat + search. Enforced
+     * as an INTERSECTION at query time (agent scope ∩ user grants); runs
+     * with no human in the loop (schedules) keep team access.
+     */
+    accessPolicy: jsonb('access_policy').$type<{ visibility?: 'org' | 'restricted'; users?: string[] }>(),
     enabled: text('enabled').default('true').notNull(),
     lastSyncedAt: timestamp('last_synced_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })

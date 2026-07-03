@@ -44,6 +44,8 @@ export type LegacySearchArgs = {
    * must pass orgId explicitly.
    */
   orgId?: string;
+  /** Per-user connection ACL — forwarded to retrieval as an intersection. */
+  allowedSourceSlugs?: string[];
 };
 
 export async function searchLegacyShape(args: LegacySearchArgs): Promise<{ top_documents: LegacyDocumentShape[]; results?: LegacyDocumentShape[] }> {
@@ -65,6 +67,7 @@ export async function searchLegacyShape(args: LegacySearchArgs): Promise<{ top_d
   const hits = await nativeSearch(args.query, {
     orgId,
     sourceSlugs: args.search_filters?.source_type,
+    allowedSourceSlugs: args.allowedSourceSlugs,
     mode: 'hybrid',
     k: 15,
   });

@@ -613,6 +613,7 @@ async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean): 
     slug: src.slug,
     kind: 'plugin' as const,
     configJson: { ...src.config, _connector: src.kind } as Record<string, unknown>,
+    accessPolicy: src.access ?? null,
     enabled: String(src.enabled),
   };
 
@@ -628,6 +629,7 @@ async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean): 
     && existing.kind === payload.kind
     && existing.enabled === payload.enabled
     && canonical(existing.configJson) === canonical(payload.configJson)
+    && canonical(existing.accessPolicy ?? null) === canonical(payload.accessPolicy)
   ) {
     return 'unchanged';
   }
