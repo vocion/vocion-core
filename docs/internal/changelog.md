@@ -4,6 +4,30 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-03 — Automations: the four-object model (v1.55)
+
+Chris's axiom, enforced in the schema: **workflows are deterministic, missions are agent-driven,
+automations are the WHEN.** Agents = who, missions = goals, workflows = procedures, automations =
+`{when: schedule|event} → {do: workflow | checkMission}`.
+
+- **feat(automations)** — first-class automation object (migration 0035, `workspace/<org>/automations/`
+  YAML, one Temporal Schedule namespace, EventService matches event-whens on emit). Missions +
+  workflows carry NO trigger logic; embedded-trigger legacy paths warn as deprecated. The Automation
+  page is now a real object list (when → do, human cadence, live next-fire).
+- **feat(missions)** — detail page: full charter, team, checked-by automations, recent runs,
+  "Check now" (missions.check RPC), backing YAML editable inline (workspace writer). Mission cards
+  link here instead of jumping into the start-form. Briefing + sweep restored as pure-goal missions;
+  the v1.54 `agent` workflow step is removed from the authoring schema (tolerated at runtime).
+- **feat(chat)** — real chain-of-thought streaming: deepagents' native `.reasoning` projection →
+  `thinking_delta` events → live Reasoning step in the timeline. Opt-in via `VOCION_THINKING_BUDGET`
+  (forces temperature 1 on main; thinking tokens bill as output). Enabled on the metacto box.
+- **infra** — everything verified LOCAL-FIRST (migration, apply, fireAutomation E2E, prod build)
+  before deploy; prod cleaned of legacy schedules; five `automationFire` schedules live.
+- Queued: #114 mission working memory (checks remember what they flagged), #116 `ask` step
+  (human-input as a workflow step, for discovery-followup transcripts).
+
+---
+
 ## 2026-07-03 — Workflows are procedures, missions are goals (v1.54)
 
 The boundary Chris called for, enforced everywhere: if the steps are the same every run it's a
