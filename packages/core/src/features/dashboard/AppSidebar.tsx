@@ -73,33 +73,40 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           ]}
         />
 
-        {/* 2. Intelligence — the working layer: who does the work (agents),
-            the shapes work takes (missions = goals, workflows = procedures,
-            automation = the clocks/triggers), and the capabilities they run
-            on (skills, tools) with the checks that prove them (evals). */}
+        {/* 2. Team — who works for you and the shapes their work takes:
+            open-ended goals (missions), fixed procedures (workflows), and
+            the clocks/triggers that start them (automation). */}
         <AppSidebarNav
-          label="Intelligence"
+          label="Team"
           items={[
             { title: t('agents'), url: '/dashboard/agents', icon: Users },
             { title: 'Missions', url: '/dashboard/missions', icon: Compass },
             { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
             { title: 'Automation', url: '/dashboard/automation', icon: CalendarClock },
-            { title: t('skills'), url: '/dashboard/skills', icon: Zap },
-            { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
-            { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
           ]}
         />
 
-        {/* 3. Context — what the team knows: data in (sources), the entities
-            it models (objects), procedural know-how (playbooks), and the
-            rules it has learned (learnings). */}
+        {/* 3. Knowledge — what the team knows: data in (sources), the
+            entities it models (objects), procedural know-how (playbooks),
+            and the rules it has learned (learnings). */}
         <AppSidebarNav
-          label="Context"
+          label="Knowledge"
           items={[
             { title: t('sources'), url: '/dashboard/sources', icon: Plug },
             { title: t('objects'), url: '/dashboard/objects', icon: Database },
             { title: t('playbooks'), url: '/dashboard/playbooks', icon: ScrollText },
             { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
+          ]}
+        />
+
+        {/* 4. Build — how capabilities are made and proven: typed LLM calls
+            (skills), the built-in tool belt, and regression checks (evals). */}
+        <AppSidebarNav
+          label="Build"
+          items={[
+            { title: t('skills'), url: '/dashboard/skills', icon: Zap },
+            { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
+            { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
           ]}
         />
 
