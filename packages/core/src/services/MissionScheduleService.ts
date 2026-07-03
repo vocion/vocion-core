@@ -1,24 +1,24 @@
 /**
- * MissionScheduleService — turns a mission's `heartbeat` cron into a live
- * Temporal Schedule that fires `missionHeartbeat` (→ `startMissionRunActivity`
- * → a heartbeat-mode mission run) on that cadence.
+ * MissionScheduleService — turns a mission's `schedule` cron into a live
+ * Temporal Schedule that fires `missionScheduledCheck`
+ * (→ `startMissionRunActivity` → a check-mode mission run) on that cadence.
  *
- * A mission is a standing responsibility; the heartbeat is the team
+ * A mission is a standing responsibility; the schedule is the team
  * periodically checking it. Mirrors Source/WorkflowScheduleService — same
  * idempotent ensure/remove shape, own schedule-id namespace
- * (`mission-heartbeat-…`). `workspace:apply` reconciles these against the
- * authored `heartbeat` field.
+ * (`mission-schedule-…`). `workspace:apply` reconciles these against the
+ * authored `schedule` field.
  */
 
 import type { ScheduleOptions } from '@temporalio/client';
 import {
   getTemporalClient,
-  MISSION_HEARTBEAT_WORKFLOW,
-  missionHeartbeatScheduleIdFor,
+  MISSION_SCHEDULED_CHECK_WORKFLOW,
+  missionScheduleIdFor,
   VOCION_WORKFLOWS_TASK_QUEUE,
 } from '@/libs/temporal/client';
 
-export type MissionHeartbeatSpec = {
+export type MissionScheduleSpec = {
   orgId: string;
   missionSlug: string;
   /** Cron expression from the mission manifest, e.g. `0 * * * 1-5` (hourly, weekdays). */
@@ -26,17 +26,17 @@ export type MissionHeartbeatSpec = {
 };
 
 /**
- * Build the Temporal `ScheduleOptions` for a mission's heartbeat.
+ * Build the Temporal `ScheduleOptions` for a mission's schedule.
  * Pure — no client, no I/O — so it's unit-testable.
  * @param spec
  */
-export function buildMissionHeartbeatOptions(spec: MissionHeartbeatSpec): ScheduleOptions {
+export function buildMissionScheduleOptions(spec: MissionScheduleSpec): ScheduleOptions {
   return {
-    scheduleId: missionHeartbeatScheduleIdFor(spec.orgId, spec.missionSlug),
+    scheduleId: missionScheduleIdFor(spec.orgId, spec.missionSlug),
     spec: { cronExpressions: [spec.cron] },
     action: {
       type: 'startWorkflow',
-      workflowType: MISSION_HEARTBEAT_WORKFLOW,
+      workflowType: MISSION_SCHEDULED_CHECK_WORKFLOW,
       taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
       args: [{ orgId: spec.orgId, missionSlug: spec.missionSlug }],
     },
@@ -44,12 +44,12 @@ export function buildMissionHeartbeatOptions(spec: MissionHeartbeatSpec): Schedu
 }
 
 /**
- * Create (or update) the mission's heartbeat Schedule. Idempotent.
+ * Create (or update) the mission's Schedule. Idempotent.
  * @param spec
  */
-export async function ensureMissionHeartbeat(spec: MissionHeartbeatSpec): Promise<void> {
+export async function ensureMissionSchedule(spec: MissionScheduleSpec): Promise<void> {
   const client = await getTemporalClient();
-  const options = buildMissionHeartbeatOptions(spec);
+  const options = buildMissionScheduleOptions(spec);
   try {
     await client.schedule.create(options);
   } catch (err) {
@@ -63,14 +63,14 @@ export async function ensureMissionHeartbeat(spec: MissionHeartbeatSpec): Promis
 }
 
 /**
- * Delete a mission's heartbeat Schedule. No-op if it doesn't exist.
+ * Delete a mission's Schedule. No-op if it doesn't exist.
  * @param orgId
  * @param missionSlug
  */
-export async function removeMissionHeartbeat(orgId: string, missionSlug: string): Promise<void> {
+export async function removeMissionSchedule(orgId: string, missionSlug: string): Promise<void> {
   const client = await getTemporalClient();
   try {
-    await client.schedule.getHandle(missionHeartbeatScheduleIdFor(orgId, missionSlug)).delete();
+    await client.schedule.getHandle(missionScheduleIdFor(orgId, missionSlug)).delete();
   } catch (err) {
     if (!isNotFound(err)) {
       throw err;
@@ -79,18 +79,18 @@ export async function removeMissionHeartbeat(orgId: string, missionSlug: string)
 }
 
 /**
- * Describe a mission's heartbeat (next fire times) — best-effort, for the
+ * Describe a mission's schedule (next fire times) — best-effort, for the
  * automation UI. Returns null when the schedule (or Temporal) is absent.
  * @param orgId
  * @param missionSlug
  */
-export async function describeMissionHeartbeat(
+export async function describeMissionSchedule(
   orgId: string,
   missionSlug: string,
 ): Promise<{ nextActionTimes: Date[]; paused: boolean } | null> {
   try {
     const client = await getTemporalClient();
-    const desc = await client.schedule.getHandle(missionHeartbeatScheduleIdFor(orgId, missionSlug)).describe();
+    const desc = await client.schedule.getHandle(missionScheduleIdFor(orgId, missionSlug)).describe();
     return {
       nextActionTimes: (desc.info.nextActionTimes ?? []).slice(0, 3),
       paused: desc.state.paused ?? false,

@@ -206,13 +206,13 @@ export const MissionManifestSchema = z.object({
   successCriteria: z.array(z.string()).default([]),
   desiredArtifacts: z.array(z.string()).default([]),
   /**
-   * A mission is a STANDING responsibility, not a one-off. When `heartbeat`
+   * A mission is a STANDING responsibility, not a one-off. When `schedule`
    * is set (5-field cron, UTC), the team's lead checks the charter on that
    * cadence: review current state, do only what's needed now — via
    * workflows, skills, tools, or open-ended agent work — and report.
-   * Each check is one mission run (mode: heartbeat, no planner).
+   * Each check is one mission run (mode: check, no planner).
    */
-  heartbeat: z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'heartbeat must be a 5-field cron').optional(),
+  schedule: z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'schedule must be a 5-field cron').optional(),
 });
 export type MissionManifest = z.infer<typeof MissionManifestSchema>;
 

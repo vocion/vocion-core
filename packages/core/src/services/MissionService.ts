@@ -66,12 +66,12 @@ export async function startMission(opts: {
   invokedBy?: string;
   /**
    * `planned` (default) — the lead decomposes the brief into a task graph.
-   * `heartbeat` — a standing-responsibility check: ONE lead-agent task, no
-   * planner. The lead reviews the charter against current state, does only
-   * what's needed now (workflows, skills, tools, open-ended work), and
-   * reports. Cheap enough to run hourly.
+   * `check` — a standing-responsibility check (fired by the mission's
+   * schedule): ONE lead-agent task, no planner. The lead reviews the charter
+   * against current state, does only what's needed now (workflows, skills,
+   * tools, open-ended work), and reports. Cheap enough to run hourly.
    */
-  mode?: 'planned' | 'heartbeat';
+  mode?: 'planned' | 'check';
 }): Promise<MissionRunSummary> {
   let team = opts.team;
   let goal: string | undefined;
@@ -110,12 +110,12 @@ export async function startMission(opts: {
     createdBy: opts.invokedBy,
   }).returning();
 
-  // Heartbeat mode: one lead task, no planner. Planned mode: decompose first.
+  // Check mode: one lead task, no planner. Planned mode: decompose first.
   // (Both execute in-process for now; Temporal-durable sessions are Phase 2.)
-  const tasks = opts.mode === 'heartbeat'
+  const tasks = opts.mode === 'check'
     ? [{
-        id: 'heartbeat-check',
-        title: charter?.name ? `Heartbeat check: ${charter.name}` : 'Heartbeat check',
+        id: 'scheduled-check',
+        title: charter?.name ? `Scheduled check: ${charter.name}` : 'Scheduled check',
         ownerAgentSlug: team.lead,
         type: 'analysis' as const,
         status: 'pending' as const,
@@ -129,16 +129,16 @@ export async function startMission(opts: {
 }
 
 /**
- * The standing brief a heartbeat run carries — built from the mission
+ * The standing brief a scheduled check carries — built from the mission
  * charter so the lead knows this is a periodic check, not a fresh project.
  * @param template
  * @param template.name
  * @param template.goal
  * @param template.successCriteria
  */
-export function heartbeatBrief(template: { name: string; goal: string; successCriteria?: string[] | null }): string {
+export function scheduledCheckBrief(template: { name: string; goal: string; successCriteria?: string[] | null }): string {
   return [
-    `Heartbeat check of your standing mission "${template.name}".`,
+    `Scheduled check of your standing mission "${template.name}".`,
     `Charter: ${template.goal}`,
     template.successCriteria?.length
       ? `Responsibilities:\n${template.successCriteria.map(c => `- ${c}`).join('\n')}`

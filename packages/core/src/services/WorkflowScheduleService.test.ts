@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMissionHeartbeatOptions } from './MissionScheduleService';
+import { buildMissionScheduleOptions } from './MissionScheduleService';
 import { buildWorkflowScheduleOptions } from './WorkflowScheduleService';
 
 describe('buildWorkflowScheduleOptions', () => {
@@ -27,17 +27,17 @@ describe('buildWorkflowScheduleOptions', () => {
   });
 });
 
-describe('buildMissionHeartbeatOptions', () => {
+describe('buildMissionScheduleOptions', () => {
   const spec = { orgId: 'org_metacto', missionSlug: 'crm-email-sweep', cron: '0 13,17,21 * * 1-5' };
 
-  it('builds a cron Schedule that starts the mission heartbeat', () => {
-    const opts = buildMissionHeartbeatOptions(spec);
+  it('builds a cron Schedule that starts the mission check', () => {
+    const opts = buildMissionScheduleOptions(spec);
 
-    expect(opts.scheduleId).toBe('mission-heartbeat-org_metacto-crm-email-sweep');
+    expect(opts.scheduleId).toBe('mission-schedule-org_metacto-crm-email-sweep');
     expect(opts.spec).toEqual({ cronExpressions: ['0 13,17,21 * * 1-5'] });
     expect(opts.action).toMatchObject({
       type: 'startWorkflow',
-      workflowType: 'missionHeartbeat',
+      workflowType: 'missionScheduledCheck',
       taskQueue: 'vocion-workflows',
     });
     expect((opts.action as { args: unknown[] }).args).toEqual([
@@ -46,7 +46,7 @@ describe('buildMissionHeartbeatOptions', () => {
   });
 
   it('does not collide with workflow schedules for the same slug', () => {
-    const mission = buildMissionHeartbeatOptions({ ...spec, missionSlug: 'shared-slug' });
+    const mission = buildMissionScheduleOptions({ ...spec, missionSlug: 'shared-slug' });
     const workflow = buildWorkflowScheduleOptions({ orgId: 'org_metacto', workflowSlug: 'shared-slug', cron: '0 6 * * *' });
 
     expect(mission.scheduleId).not.toBe(workflow.scheduleId);

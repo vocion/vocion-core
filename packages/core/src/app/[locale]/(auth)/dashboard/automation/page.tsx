@@ -3,18 +3,19 @@ import { CalendarClock, Compass, Database, GitBranch, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { cronToText } from '@/features/dashboard/TriggerBadge';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { knowledgeSourceSchema, missionSchema, workflowSchema } from '@/models/Schema';
-import { describeMissionHeartbeat } from '@/services/MissionScheduleService';
+import { describeMissionSchedule } from '@/services/MissionScheduleService';
 import { describeWorkflowSchedule } from '@/services/WorkflowScheduleService';
 
 /**
  * Automation — every clock and event subscription in one place.
  *
  * Three trigger families:
- *   - Mission heartbeats — standing responsibilities the team checks on a cron
+ *   - Mission schedules — standing responsibilities the team checks on a cron
  *   - Workflow triggers — cron-scheduled or event-subscribed fixed procedures
  *   - Source syncs — connector refresh crons
  *
@@ -40,12 +41,12 @@ export default async function AutomationPage(props: {
     db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, orgId)),
   ]);
 
-  const heartbeats = await Promise.all(
+  const missionSchedules = await Promise.all(
     missions
-      .filter(m => m.heartbeat && m.status === 'active')
+      .filter(m => m.schedule && m.status === 'active')
       .map(async m => ({
         ...m,
-        live: await describeMissionHeartbeat(orgId, m.slug),
+        live: await describeMissionSchedule(orgId, m.slug),
       })),
   );
 
@@ -71,36 +72,36 @@ export default async function AutomationPage(props: {
     return s.enabled === 'true' && cfg?.schedule;
   });
 
-  const total = heartbeats.length + scheduled.length + eventSubs.length + syncing.length;
+  const total = missionSchedules.length + scheduled.length + eventSubs.length + syncing.length;
 
   return (
     <>
       <TitleBar
         title="Automation"
-        description="Everything that runs without a human pressing a button — heartbeats, schedules, and event subscriptions"
+        description="Everything that runs without a human pressing a button — schedules and event subscriptions"
       />
 
       {total === 0 && (
         <EmptyState
           icon={CalendarClock}
           title="Nothing is automated yet"
-          description="Give a mission a heartbeat cron, a workflow a schedule or event trigger, or a source a sync schedule in your workspace YAML, then run workspace:apply."
+          description="Give a mission a schedule, a workflow a schedule or event trigger, or a source a sync schedule in your workspace YAML, then run workspace:apply."
         />
       )}
 
-      {heartbeats.length > 0 && (
+      {missionSchedules.length > 0 && (
         <Section
           icon={<Compass className="size-4 text-primary" />}
-          title="Mission heartbeats"
+          title="Mission schedules"
           description="Standing responsibilities — the team's lead checks the charter on this cadence and does only what's needed."
         >
-          {heartbeats.map(m => (
+          {missionSchedules.map(m => (
             <Row
               key={m.slug}
               href="/dashboard/missions"
               name={m.name}
               slug={m.slug}
-              cron={m.heartbeat!}
+              cron={m.schedule!}
               next={m.live?.nextActionTimes?.[0] ?? null}
               paused={m.live?.paused ?? false}
               missing={!m.live}
@@ -167,7 +168,7 @@ export default async function AutomationPage(props: {
             return (
               <div key={s.slug} className="flex items-center gap-3 border-b border-border py-2 text-sm last:border-0">
                 <Link href="/dashboard/sources" className="font-medium hover:underline">{s.slug}</Link>
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{cfg.schedule}</code>
+                <span className="text-[11px] text-muted-foreground" title={cfg.schedule}>{cronToText(cfg.schedule ?? '')}</span>
               </div>
             );
           })}
@@ -207,7 +208,7 @@ function Row(props: {
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border py-2 text-sm last:border-0">
       <Link href={props.href} className="font-medium hover:underline">{props.name}</Link>
-      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{props.cron}</code>
+      <span className="text-[11px] text-muted-foreground" title={props.cron}>{cronToText(props.cron)}</span>
       {props.paused && <span className="text-[11px] text-amber-600">paused</span>}
       {props.next && (
         <span className="text-[11px] text-muted-foreground">

@@ -4,7 +4,7 @@
  * re-exported here so it lands in the deterministic sandbox bundle.
  */
 
-export * from './missionHeartbeat';
+export * from './missionScheduledCheck';
 export * from './scheduledWorkflowTrigger';
 export * from './sourceSyncWorkflow';
 export * from './vocionWorkflow';
