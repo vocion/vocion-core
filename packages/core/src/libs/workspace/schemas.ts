@@ -116,11 +116,10 @@ const InterpolatableStringSchema = z.string().describe(
 );
 
 /**
- * Step types:
- *   - `skill`   — invoke a skill with interpolated input
- *   - `agent`   — dispatch a prompt to an agent (the full runtime: search,
- *                 subagents, propose_action). This is how a FIXED workflow
- *                 borrows open-ended agent capability for one step.
+ * Step types — workflows are DETERMINISTIC: same structure every run.
+ * Open-ended agent work belongs in missions, never in a workflow step.
+ *   - `skill`   — invoke a skill (typed LLM call) with interpolated input
+ *   - `sync`    — refresh named sources so downstream steps read live data
  *   - `approve` — HITL pause; workflow resumes after runtime_approve
  *   - `action`  — connector-backed action (v1 = registered stubs only)
  */
@@ -129,15 +128,6 @@ const SkillStepSchema = z.object({
   type: z.literal('skill').default('skill'),
   skill: z.string().describe('skill slug to invoke'),
   input: z.record(z.string(), z.unknown()).default({}),
-  /** Optional — persist this step's output into named variable (defaults to step name). */
-  outputAs: z.string().optional(),
-});
-
-const AgentStepSchema = z.object({
-  name: SlugSchema,
-  type: z.literal('agent'),
-  agent: z.string().describe('agent slug to dispatch'),
-  prompt: InterpolatableStringSchema.describe('the task message for the agent'),
   /** Optional — persist this step's output into named variable (defaults to step name). */
   outputAs: z.string().optional(),
 });
@@ -169,7 +159,7 @@ const SyncStepSchema = z.object({
   sources: z.array(z.string()).min(1),
 });
 
-const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, AgentStepSchema, ApproveStepSchema, ActionStepSchema, SyncStepSchema]);
+const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, ApproveStepSchema, ActionStepSchema, SyncStepSchema]);
 
 const ManualTriggerSchema = z.object({
   type: z.literal('manual').default('manual'),
@@ -189,6 +179,41 @@ const ScheduleTriggerSchema = z.object({
 });
 
 const WorkflowTriggerSchema = z.discriminatedUnion('type', [ManualTriggerSchema, EventTriggerSchema, ScheduleTriggerSchema]);
+
+/* ----------------------------------------------------------------
+ * Automation manifest — the WHEN of the system
+ * ---------------------------------------------------------------- */
+
+/**
+ * An automation binds a trigger to a piece of work:
+ *   when: {schedule: '<cron UTC>'} | {event: '<type>', filter?}
+ *   do:   {workflow: '<slug>', input?} | {checkMission: '<slug>'}
+ *
+ * Missions and workflows contain NO trigger logic — missions are pure
+ * goals, workflows are pure procedures. Automations are the only place
+ * time and events live.
+ */
+export const AutomationManifestSchema = z.object({
+  slug: SlugSchema,
+  name: z.string().optional(),
+  description: z.string().optional(),
+  status: z.enum(['active', 'disabled']).default('active'),
+  when: z.object({
+    /** 5-field cron, UTC. */
+    schedule: z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'schedule must be a 5-field cron').optional(),
+    /** Event type, e.g. `prospect.reply`. */
+    event: z.string().optional(),
+    /** Payload filter for event-whens: every key must equal the payload's value. */
+    filter: z.record(z.string(), z.unknown()).optional(),
+  }).refine(w => !!w.schedule !== !!w.event, { message: 'when must have exactly one of schedule | event' }),
+  do: z.object({
+    workflow: z.string().optional(),
+    checkMission: z.string().optional(),
+    /** Fixed input passed to workflow runs. */
+    input: z.record(z.string(), z.unknown()).optional(),
+  }).refine(d => !!d.workflow !== !!d.checkMission, { message: 'do must have exactly one of workflow | checkMission' }),
+});
+export type AutomationManifest = z.infer<typeof AutomationManifestSchema>;
 
 export const WorkflowManifestSchema = z.object({
   slug: SlugSchema,

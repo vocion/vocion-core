@@ -43,6 +43,13 @@ export type HitlGatePayload = {
 
 export type AgentEvent
   = | { type: 'thinking' }
+    /**
+     * Incremental chunk of the model's chain-of-thought (Anthropic
+     * extended thinking). Only emitted when `VOCION_THINKING_BUDGET`
+     * is set — see `libs/llm/langchain.ts`. Never contains response
+     * text; response text streams separately as `response_delta`.
+     */
+    | { type: 'thinking_delta'; delta: string }
     | { type: 'tool_start'; tool: string; input: Record<string, unknown> }
     | { type: 'tool_end'; tool: string; input: Record<string, unknown>; output: string }
     | { type: 'subagent_start'; name: string }

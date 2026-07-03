@@ -925,6 +925,25 @@ export async function runAgent(opts: {
  * plus a `Promise<finalState>` (`run.output`). We consume the three
  * projections in parallel, fan tokens out as `response_delta`, and let
  * tool factories emit `documents` / `skill_result` through the closure.
+ *
+ * Reasoning / chain-of-thought (investigated against deepagents@1.10.1):
+ * each item yielded by `run.messages` is a `ChatModelStreamHandle`
+ * (`@langchain/langgraph` → `@langchain/core/language_models/stream`
+ * `ChatModelStream`), which exposes a `.reasoning` projection alongside
+ * `.text` — an AsyncIterable of incremental reasoning deltas. The chain
+ * is: Anthropic SSE `thinking_delta` → `@langchain/anthropic` emits an
+ * `AIMessageChunk` with a `{ type: 'thinking' }` content block →
+ * `@langchain/core` compat converts it to a `reasoning-delta` stream
+ * event → `msg.reasoning` yields the delta string. So no raw-event
+ * fallback or custom `handleLLMNewToken` callback is needed. (For the
+ * record: the underlying standard LangChain `streamEvents(input,
+ * { version: 'v2' })` is also still callable — deepagents' `streamEvents`
+ * type is an intersection with `ReactAgent['streamEvents']`, so the v3
+ * wrapper does not shadow the v2 surface — but the v3 `.reasoning`
+ * projection is the cleaner mechanism.) Reasoning only flows when the
+ * model is built with thinking enabled (`VOCION_THINKING_BUDGET`, see
+ * `libs/llm/langchain.ts`); otherwise `msg.reasoning` simply completes
+ * without yielding.
  * @param opts
  * @param opts.orgId
  * @param opts.agentSlug
@@ -1020,15 +1039,29 @@ export async function runAgentDeep(opts: {
     await Promise.all([
       (async () => {
         for await (const msg of run.messages) {
-          let started = false;
-          for await (const token of msg.text) {
-            if (!started) {
-              started = true;
-              emit({ type: 'answering' });
-            }
-            finalText += token;
-            emit({ type: 'response_delta', delta: token });
-          }
+          // `.text` and `.reasoning` are independent replay-buffered
+          // projections over the same message lifecycle, so consuming
+          // both concurrently is safe and nothing is double-emitted:
+          // thinking tokens only ever appear on `.reasoning`, response
+          // tokens only on `.text`.
+          await Promise.all([
+            (async () => {
+              let started = false;
+              for await (const token of msg.text) {
+                if (!started) {
+                  started = true;
+                  emit({ type: 'answering' });
+                }
+                finalText += token;
+                emit({ type: 'response_delta', delta: token });
+              }
+            })(),
+            (async () => {
+              for await (const delta of msg.reasoning) {
+                emit({ type: 'thinking_delta', delta });
+              }
+            })(),
+          ]);
         }
       })(),
       (async () => {

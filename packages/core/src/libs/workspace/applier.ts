@@ -1,8 +1,8 @@
-import type { LoadedAgent, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedWorkflow, LoadedWorkspace } from './loader';
+import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedWorkflow, LoadedWorkspace } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { agentSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, skillSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, skillSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -24,6 +24,7 @@ export type ApplyResult = {
     objectTypes: ResourceCounts;
     workflows: ResourceCounts;
     missions: ResourceCounts;
+    automations: ResourceCounts;
     playbooks: ResourceCounts;
     learningSteps: ResourceCounts;
     evalDatasets: ResourceCounts;
@@ -45,6 +46,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     objectTypes: blank(),
     workflows: blank(),
     missions: blank(),
+    automations: blank(),
     playbooks: blank(),
     learningSteps: blank(),
     evalDatasets: blank(),
@@ -94,6 +96,15 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
       bump(counts.missions, outcome);
     } catch (err) {
       errors.push({ resource: 'mission', slug: mission.slug, message: (err as Error).message });
+    }
+  }
+
+  for (const automation of loaded.automations) {
+    try {
+      const outcome = await upsertAutomation(orgId, automation, dryRun);
+      bump(counts.automations, outcome);
+    } catch (err) {
+      errors.push({ resource: 'automation', slug: automation.slug, message: (err as Error).message });
     }
   }
 
@@ -189,15 +200,31 @@ async function reconcileSchedules(
     return;
   }
 
+  const { ensureAutomationSchedule, removeAutomationSchedule } = await import('@/services/AutomationService');
   const { ensureWorkflowSchedule, removeWorkflowSchedule } = await import('@/services/WorkflowScheduleService');
   const { ensureMissionSchedule, removeMissionSchedule } = await import('@/services/MissionScheduleService');
   const { ensureSourceSchedule, removeSourceSchedule } = await import('@/services/SourceScheduleService');
   const { knowledgeSourceSchema: srcSchema } = await import('@/models/Schema');
 
+  // Automations are the first-class WHEN. Schedule-whens get a Temporal
+  // Schedule; event-whens are matched by EventService at emit time.
+  for (const automation of loaded.automations) {
+    try {
+      if (automation.status === 'active' && automation.when.schedule) {
+        await ensureAutomationSchedule({ orgId, slug: automation.slug, cron: automation.when.schedule });
+      } else {
+        await removeAutomationSchedule(orgId, automation.slug);
+      }
+    } catch (err) {
+      errors.push({ resource: 'automationSchedule', slug: automation.slug, message: (err as Error).message });
+    }
+  }
+
   for (const workflow of loaded.workflows) {
     try {
       const trigger = workflow.trigger as { type?: string; cron?: string; input?: Record<string, unknown> };
       if (workflow.status === 'active' && trigger?.type === 'schedule' && trigger.cron) {
+        console.warn(`[workspace:apply] DEPRECATED: workflow "${workflow.slug}" embeds a schedule trigger — move it to an automation ({when: {schedule}, do: {workflow}}).`);
         await ensureWorkflowSchedule({ orgId, workflowSlug: workflow.slug, cron: trigger.cron, input: trigger.input });
       } else {
         await removeWorkflowSchedule(orgId, workflow.slug);
@@ -210,6 +237,7 @@ async function reconcileSchedules(
   for (const mission of loaded.missions) {
     try {
       if (mission.status === 'active' && mission.schedule) {
+        console.warn(`[workspace:apply] DEPRECATED: mission "${mission.slug}" embeds a schedule — missions are pure goals; move the cadence to an automation ({when: {schedule}, do: {checkMission}}).`);
         await ensureMissionSchedule({ orgId, missionSlug: mission.slug, cron: mission.schedule });
       } else {
         await removeMissionSchedule(orgId, mission.slug);
@@ -434,6 +462,43 @@ async function upsertMission(orgId: string, mission: LoadedMission, dryRun: bool
   }
   if (!dryRun) {
     await db.update(missionSchema).set(payload).where(eq(missionSchema.id, existing.id));
+  }
+  return 'updated';
+}
+
+async function upsertAutomation(orgId: string, automation: LoadedAutomation, dryRun: boolean): Promise<UpsertOutcome> {
+  const [existing] = await db
+    .select()
+    .from(automationSchema)
+    .where(and(eq(automationSchema.orgId, orgId), eq(automationSchema.slug, automation.slug)));
+
+  const payload = {
+    orgId,
+    slug: automation.slug,
+    name: automation.name ?? automation.slug,
+    description: automation.description ?? null,
+    status: automation.status,
+    whenConfig: automation.when as { schedule?: string; event?: string; filter?: Record<string, unknown> },
+    doConfig: automation.do as { workflow?: string; checkMission?: string; input?: Record<string, unknown> },
+  };
+
+  if (!existing) {
+    if (!dryRun) {
+      await db.insert(automationSchema).values(payload);
+    }
+    return 'created';
+  }
+  if (
+    existing.name === payload.name
+    && (existing.description ?? null) === payload.description
+    && existing.status === payload.status
+    && canonical(existing.whenConfig) === canonical(payload.whenConfig)
+    && canonical(existing.doConfig) === canonical(payload.doConfig)
+  ) {
+    return 'unchanged';
+  }
+  if (!dryRun) {
+    await db.update(automationSchema).set(payload).where(eq(automationSchema.id, existing.id));
   }
   return 'updated';
 }
