@@ -116,8 +116,11 @@ const InterpolatableStringSchema = z.string().describe(
 );
 
 /**
- * Step types (v1):
+ * Step types:
  *   - `skill`   — invoke a skill with interpolated input
+ *   - `agent`   — dispatch a prompt to an agent (the full runtime: search,
+ *                 subagents, propose_action). This is how a FIXED workflow
+ *                 borrows open-ended agent capability for one step.
  *   - `approve` — HITL pause; workflow resumes after runtime_approve
  *   - `action`  — connector-backed action (v1 = registered stubs only)
  */
@@ -126,6 +129,15 @@ const SkillStepSchema = z.object({
   type: z.literal('skill').default('skill'),
   skill: z.string().describe('skill slug to invoke'),
   input: z.record(z.string(), z.unknown()).default({}),
+  /** Optional — persist this step's output into named variable (defaults to step name). */
+  outputAs: z.string().optional(),
+});
+
+const AgentStepSchema = z.object({
+  name: SlugSchema,
+  type: z.literal('agent'),
+  agent: z.string().describe('agent slug to dispatch'),
+  prompt: InterpolatableStringSchema.describe('the task message for the agent'),
   /** Optional — persist this step's output into named variable (defaults to step name). */
   outputAs: z.string().optional(),
 });
@@ -145,7 +157,7 @@ const ActionStepSchema = z.object({
   input: z.record(z.string(), z.unknown()).default({}),
 });
 
-const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, ApproveStepSchema, ActionStepSchema]);
+const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, AgentStepSchema, ApproveStepSchema, ActionStepSchema]);
 
 const ManualTriggerSchema = z.object({
   type: z.literal('manual').default('manual'),
@@ -156,8 +168,15 @@ const EventTriggerSchema = z.object({
   event: z.string(),
   filter: z.record(z.string(), z.unknown()).optional(),
 });
+const ScheduleTriggerSchema = z.object({
+  type: z.literal('schedule'),
+  /** Standard 5-field cron, UTC — e.g. `0 12 * * 1-5` (weekdays 12:00 UTC). */
+  cron: z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'cron must have 5 space-separated fields'),
+  /** Optional fixed input passed to every scheduled run. */
+  input: z.record(z.string(), z.unknown()).optional(),
+});
 
-const WorkflowTriggerSchema = z.discriminatedUnion('type', [ManualTriggerSchema, EventTriggerSchema]);
+const WorkflowTriggerSchema = z.discriminatedUnion('type', [ManualTriggerSchema, EventTriggerSchema, ScheduleTriggerSchema]);
 
 export const WorkflowManifestSchema = z.object({
   slug: SlugSchema,
@@ -186,6 +205,14 @@ export const MissionManifestSchema = z.object({
   autonomyPolicy: z.object({ level: z.number().int().min(1).max(5).default(1) }).default({ level: 1 }),
   successCriteria: z.array(z.string()).default([]),
   desiredArtifacts: z.array(z.string()).default([]),
+  /**
+   * A mission is a STANDING responsibility, not a one-off. When `heartbeat`
+   * is set (5-field cron, UTC), the team's lead checks the charter on that
+   * cadence: review current state, do only what's needed now — via
+   * workflows, skills, tools, or open-ended agent work — and report.
+   * Each check is one mission run (mode: heartbeat, no planner).
+   */
+  heartbeat: z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'heartbeat must be a 5-field cron').optional(),
 });
 export type MissionManifest = z.infer<typeof MissionManifestSchema>;
 

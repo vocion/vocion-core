@@ -86,3 +86,19 @@ export const VOCION_WORKFLOWS_TASK_QUEUE = 'vocion-workflows';
 
 /** Workflow type name registered for scheduled source syncs. */
 export const SOURCE_SYNC_WORKFLOW = 'sourceSyncWorkflow';
+
+/** Workflow type a workflow-trigger Schedule starts — fires startWorkflow via activity. */
+export const SCHEDULED_WORKFLOW_TRIGGER = 'scheduledWorkflowTrigger';
+
+/** Workflow type a mission-heartbeat Schedule starts — fires a heartbeat-mode mission run. */
+export const MISSION_HEARTBEAT_WORKFLOW = 'missionHeartbeat';
+
+/**
+ * Schedule ID convention for mission heartbeats — `mission-heartbeat-<orgId>-<slug>`.
+ * Distinct namespace from workflow + source schedules.
+ * @param orgId
+ * @param missionSlug
+ */
+export function missionHeartbeatScheduleIdFor(orgId: string, missionSlug: string): string {
+  return `mission-heartbeat-${orgId}-${missionSlug}`;
+}
