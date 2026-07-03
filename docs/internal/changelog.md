@@ -4,6 +4,28 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-03 — Workflows are procedures, missions are goals (v1.54)
+
+The boundary Chris called for, enforced everywhere: if the steps are the same every run it's a
+scheduled WORKFLOW; a mission is an OBJECTIVE a team owns ("No Lead Goes Cold"), optionally
+checked on a schedule. Automation = schedules & triggers that call both.
+
+- **feat(workflows) — sync steps.** `{type: sync, sources: [gmail, hubspot]}` pulls live data
+  before the steps that read it (Ziggy-comparison lesson: fresh-hours mail beats index-freshness).
+  Per-source failures degrade, never kill the run.
+- **restructure (metacto)** — crm-email-sweep + daily-revenue-briefing converted missions →
+  scheduled workflows (sync → analyst agent step → lead agent step with interpolated hand-off;
+  chain verified end-to-end). Remaining missions reworded as goals with check-in schedules.
+- **feat(chat) — live work visibility.** The timeline header is now the current step
+  ("Delegating: Pipeline Analyst… · 32s") instead of "Working…"; tool activity shares the human
+  labels of the audit trail; completed steps show output snippets.
+- **prompts** — briefing demands judgment: so-what per item, WHAT'S AT RISK with silence-duration,
+  a closing watch-item pattern, and offers to do the work via the review queue.
+- Queued from the Ziggy comparison: per-mission working memory so scheduled checks remember what
+  they flagged last time (open threads, commitments, escalation).
+
+---
+
 ## 2026-07-03 — Heartbeats: missions become standing responsibilities (v1.52)
 
 The mission/workflow boundary, made crisp: **in a workflow the author decides the steps; in a
