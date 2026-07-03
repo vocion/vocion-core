@@ -8,4 +8,6 @@ export const ApiError = {
     new ORPCError(API_ERROR_CODE.FORBIDDEN, { status: 403, data: clientData }),
   notFound: (clientData?: any) =>
     new ORPCError(API_ERROR_CODE.NOT_FOUND, { status: 404, data: clientData }),
+  badRequest: (message?: string) =>
+    new ORPCError(API_ERROR_CODE.BAD_REQUEST, { status: 400, message }),
 };
