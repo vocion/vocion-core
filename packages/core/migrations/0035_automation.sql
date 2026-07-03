@@ -13,4 +13,5 @@ CREATE TABLE IF NOT EXISTS "automation" (
   "updated_at" timestamp DEFAULT now() NOT NULL,
   "created_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "automation_org_slug_idx" ON "automation" ("org_id", "slug");
