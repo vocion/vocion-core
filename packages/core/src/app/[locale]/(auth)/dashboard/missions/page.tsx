@@ -30,7 +30,7 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
     <>
       <TitleBar
         title="Missions"
-        description="Open-ended team work. Brief the assignment, watch the team plan and run it, approve what matters, and teach it as you go."
+        description="Objectives a team owns — not procedures. Brief a goal in plain language, or let a standing mission check itself on its schedule. Deterministic routines belong in Workflows."
       />
 
       <div className="mb-6">
@@ -75,9 +75,9 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
 
       {templates.length > 0 && (
         <>
-          <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Standing missions (responsibilities)</h2>
+          <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Standing missions (objectives)</h2>
           <p className="mb-3 text-xs text-muted-foreground">
-            A mission is a charter a team owns, not a one-off. Missions with a schedule get checked on that cadence — the lead reviews the charter, does only what's needed, and reports. Any mission can also be briefed manually.
+            A mission is an objective a team owns — "no lead goes cold" — not a step sequence. Missions with a schedule get checked on that cadence: the lead reviews the goal against current state, does only what's needed (skills, workflows, tools), and reports. Repeatable procedures should be Workflows instead.
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {templates.map(t => (

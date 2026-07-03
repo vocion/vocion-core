@@ -60,7 +60,7 @@ export function MissionBriefForm({
 
       {templates.length > 0 && (
         <div>
-          <label htmlFor="tmpl" className="mb-1.5 block text-sm font-medium">Starting team (optional)</label>
+          <label htmlFor="tmpl" className="mb-1.5 block text-sm font-medium">Standing mission (optional)</label>
           <select
             id="tmpl"
             value={missionSlug}
