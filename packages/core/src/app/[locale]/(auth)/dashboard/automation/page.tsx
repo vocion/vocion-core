@@ -78,7 +78,7 @@ export default async function AutomationPage(props: {
     <>
       <TitleBar
         title="Automation"
-        description="Everything that runs without a human pressing a button — schedules and event subscriptions"
+        description="Schedules & triggers — everything that starts work without a human pressing a button"
       />
 
       {total === 0 && (
@@ -92,8 +92,8 @@ export default async function AutomationPage(props: {
       {missionSchedules.length > 0 && (
         <Section
           icon={<Compass className="size-4 text-primary" />}
-          title="Mission schedules"
-          description="Standing responsibilities — the team's lead checks the charter on this cadence and does only what's needed."
+          title="Mission check-ins"
+          description="Standing objectives — the team's lead checks the goal on this cadence and does only what's needed."
         >
           {missionSchedules.map(m => (
             <Row
