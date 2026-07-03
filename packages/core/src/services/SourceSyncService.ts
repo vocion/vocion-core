@@ -20,7 +20,7 @@
  * off, then poll status. Until then: cap pages low.
  */
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
 import { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
@@ -277,10 +277,11 @@ export async function listSources(orgId: string): Promise<Array<{
  * @param opts
  * @param opts.sourceSlug
  * @param opts.limit
+ * @param opts.allowedSourceSlugs
  */
 export async function listRecentDocuments(
   orgId: string,
-  opts: { sourceSlug?: string; limit?: number } = {},
+  opts: { sourceSlug?: string; limit?: number; allowedSourceSlugs?: string[] } = {},
 ): Promise<Array<{ id: number; title: string | null; uri: string | null; sourceSlug: string; updatedAt: Date | null; blurb: string | null }>> {
   const limit = Math.min(opts.limit ?? 25, 100);
   const rows = await db
@@ -294,9 +295,12 @@ export async function listRecentDocuments(
     })
     .from(knowledgeDocumentSchema)
     .innerJoin(knowledgeSourceSchema, eq(knowledgeDocumentSchema.sourceId, knowledgeSourceSchema.id))
-    .where(opts.sourceSlug
-      ? and(eq(knowledgeDocumentSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, opts.sourceSlug))
-      : eq(knowledgeDocumentSchema.orgId, orgId))
+    .where(and(
+      eq(knowledgeDocumentSchema.orgId, orgId),
+      opts.sourceSlug ? eq(knowledgeSourceSchema.slug, opts.sourceSlug) : undefined,
+      // Per-user connection ACL — restricted sources drop out of browse too.
+      opts.allowedSourceSlugs ? inArray(knowledgeSourceSchema.slug, opts.allowedSourceSlugs) : undefined,
+    ))
     .orderBy(sql`coalesce(${knowledgeDocumentSchema.lastModifiedAt}, ${knowledgeDocumentSchema.ingestedAt}) desc`)
     .limit(limit);
   if (rows.length === 0) {
