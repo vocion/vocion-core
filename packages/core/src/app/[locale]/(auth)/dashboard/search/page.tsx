@@ -24,7 +24,7 @@ export default async function SearchPage(props: {
   const { locale } = await props.params;
   const { q, source } = await props.searchParams;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId } = await auth();
 
   const query = (q ?? '').trim();
   const sourceFilter = (source ?? '').trim() || undefined;
@@ -43,11 +43,15 @@ export default async function SearchPage(props: {
   let results: SearchDoc[] = [];
   let error: string | null = null;
 
+  const { allowedSourceSlugsForUser } = await import('@/services/SourceAccessService');
+  const allowedSourceSlugs = orgId && userId ? await allowedSourceSlugsForUser(orgId, userId) : undefined;
+
   if (query) {
     try {
       const data = await searchLegacyShape({
         query,
         search_filters: sourceFilter ? { source_type: [sourceFilter] } : undefined,
+        allowedSourceSlugs,
       });
       results = (data?.top_documents ?? data?.results ?? []) as SearchDoc[];
     } catch (err) {
@@ -56,7 +60,7 @@ export default async function SearchPage(props: {
   } else if (orgId) {
     // Default result set: the most recent documents across the corpus —
     // browse before you search, filterable by source.
-    const recent = await listRecentDocuments(orgId, { sourceSlug: sourceFilter, limit: 25 });
+    const recent = await listRecentDocuments(orgId, { sourceSlug: sourceFilter, limit: 25, allowedSourceSlugs });
     results = recent.map(r => ({
       document_id: String(r.id),
       semantic_identifier: r.title ?? `document ${r.id}`,

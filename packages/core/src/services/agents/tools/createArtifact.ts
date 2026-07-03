@@ -10,7 +10,10 @@ import { z } from 'zod';
 import { toChartSvg, toCsv } from '@/libs/tools/artifacts/build';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 
-/** Models often stringify nested tool args — parse JSON strings back to objects. */
+/**
+ * Models often stringify nested tool args — parse JSON strings back to objects.
+ * @param v
+ */
 function coerceJsonString(v: unknown): unknown {
   if (typeof v === 'string') {
     try {

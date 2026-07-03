@@ -86,6 +86,10 @@ export async function POST(request: Request): Promise<Response> {
   if (!userId || !orgId) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
+  // Per-user connection ACL: everything this member's chat retrieves is
+  // constrained to their granted sources (restricted connections drop out).
+  const { allowedSourceSlugsForUser } = await import('@/services/SourceAccessService');
+  const allowedSourceSlugs = await allowedSourceSlugsForUser(orgId, userId);
 
   const body = await request.json();
   const message = body.message as string;
@@ -182,6 +186,7 @@ export async function POST(request: Request): Promise<Response> {
 
       try {
         await runAgentDeep({
+          allowedSourceSlugs,
           orgId,
           agentSlug,
           message,

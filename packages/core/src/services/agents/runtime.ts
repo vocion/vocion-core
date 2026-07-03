@@ -212,10 +212,12 @@ export function bindRequestEmit(
   compiled: CompiledAgentGraph,
   emit: RuntimeContext['emit'],
   userId?: string,
+  allowedSourceSlugs?: string[],
 ): void {
   const internal = compiled as unknown as { __ctx: RuntimeContext };
   internal.__ctx.emit = emit;
   internal.__ctx.userId = userId;
+  internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
 }
 
 /* ------------------------------------------------------------------ */

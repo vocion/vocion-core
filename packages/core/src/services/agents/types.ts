@@ -83,6 +83,11 @@ export type RuntimeContext = {
   agentSlug?: string;
   /** Configured source slugs (knowledge_source.slug) this agent may reach. */
   connectorSources: string[];
+  /**
+   * Per-user ACL for THIS request (SourceAccessService). When set, every
+   * retrieval intersects with it. Unset for non-user runs (schedules).
+   */
+  allowedSourceSlugs?: string[];
   /** Object type slugs this agent can read. */
   objectTypeSlugs: string[];
   /** Per-agent retrieval tuning. */

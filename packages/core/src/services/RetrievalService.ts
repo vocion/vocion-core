@@ -62,6 +62,13 @@ export type SearchOptions = {
   /** Filter to a list of source slugs. */
   sourceSlugs?: string[];
   /**
+   * Per-user ACL constraint (SourceAccessService.allowedSourceSlugsForUser).
+   * When present, results come ONLY from these slugs — an intersection with
+   * any requested sourceSlugs. Empty array = the user may see nothing.
+   * Omit for non-user contexts (scheduled team runs).
+   */
+  allowedSourceSlugs?: string[];
+  /**
    * Scope to a client account. The cross-client isolation boundary: with a
    * `clientId`, retrieval returns org-wide/shared docs (client_id IS NULL) plus
    * that client's docs — never another client's. WITHOUT a `clientId`, only
@@ -118,6 +125,19 @@ export async function search(query: string, opts: SearchOptions): Promise<Search
   const mode = opts.mode ?? 'hybrid';
   const k = opts.k ?? DEFAULT_K;
   const perArm = Math.min(opts.candidatesPerArm ?? k * 2, 50);
+
+  // Per-user ACL: constrain to the caller's allowed sources. Requested
+  // slugs intersect with the grant; no request = the grant itself is the
+  // filter. An empty intersection returns nothing rather than leaking.
+  if (opts.allowedSourceSlugs) {
+    const allowed = new Set(opts.allowedSourceSlugs);
+    const requested = opts.sourceSlugs ?? (opts.sourceSlug ? [opts.sourceSlug] : null);
+    const effective = requested ? requested.filter(s => allowed.has(s)) : [...allowed];
+    if (effective.length === 0) {
+      return [];
+    }
+    opts = { ...opts, sourceSlug: undefined, sourceSlugs: effective };
+  }
 
   const scope: Scope = {
     orgId: opts.orgId,
