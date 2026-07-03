@@ -22,6 +22,9 @@ const BRAND_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || '';
 // glyph and the wordmark text — only the tagline renders beneath it. Use for
 // deployments whose brand asset already includes the company name.
 const BRAND_LOCKUP = process.env.NEXT_PUBLIC_BRAND_LOCKUP || '';
+// Dark-mode variant of the lockup (e.g. a white wordmark). Only used when
+// BRAND_LOCKUP is also set; the pair swaps via the `.dark` class variant.
+const BRAND_LOCKUP_DARK = process.env.NEXT_PUBLIC_BRAND_LOCKUP_DARK || '';
 
 export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' | 'lg' }) => {
   if (BRAND_LOCKUP) {
@@ -34,7 +37,11 @@ export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' |
     return (
       <div className="flex min-w-0 flex-col items-start gap-1">
         {/* eslint-disable-next-line next/no-img-element */}
-        <img src={BRAND_LOCKUP} alt={BRAND_NAME} className={`w-auto ${lockupH}`} />
+        <img src={BRAND_LOCKUP} alt={BRAND_NAME} className={`w-auto ${lockupH} ${BRAND_LOCKUP_DARK ? 'dark:hidden' : ''}`} />
+        {BRAND_LOCKUP_DARK && (
+          // eslint-disable-next-line next/no-img-element
+          <img src={BRAND_LOCKUP_DARK} alt={BRAND_NAME} className={`hidden w-auto dark:block ${lockupH}`} />
+        )}
         {!props.isTextHidden && BRAND_TAGLINE && (
           <span className="text-[11px] font-medium tracking-wide text-muted-foreground">
             {BRAND_TAGLINE}

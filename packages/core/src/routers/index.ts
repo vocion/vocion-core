@@ -35,6 +35,14 @@ import {
   update as updateLearning,
 } from './Learnings';
 import {
+  changeRoleRoute,
+  createInviteRoute,
+  listInvitesRoute,
+  listMembersRoute,
+  removeMemberRoute,
+  revokeInviteRoute,
+} from './Members';
+import {
   cancel as cancelMissionRoute,
   get as getMissionRoute,
   getRun as getMissionRunRoute,
@@ -90,6 +98,14 @@ export const router = {
     cancel: cancelMissionRoute,
     submitFeedback: submitMissionFeedbackRoute,
     promote: promoteMissionRoute,
+  },
+  members: {
+    list: listMembersRoute,
+    invites: listInvitesRoute,
+    invite: createInviteRoute,
+    revokeInvite: revokeInviteRoute,
+    changeRole: changeRoleRoute,
+    remove: removeMemberRoute,
   },
   conversations: {
     list: listConvs,

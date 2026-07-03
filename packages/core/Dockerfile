@@ -67,6 +67,10 @@ ARG NEXT_PUBLIC_BRAND_MARK=
 ENV NEXT_PUBLIC_BRAND_MARK=${NEXT_PUBLIC_BRAND_MARK}
 ARG NEXT_PUBLIC_BRAND_LOCKUP=
 ENV NEXT_PUBLIC_BRAND_LOCKUP=${NEXT_PUBLIC_BRAND_LOCKUP}
+ARG NEXT_PUBLIC_BRAND_LOCKUP_DARK=
+ENV NEXT_PUBLIC_BRAND_LOCKUP_DARK=${NEXT_PUBLIC_BRAND_LOCKUP_DARK}
+ARG NEXT_PUBLIC_BRAND_ATTRIBUTION=
+ENV NEXT_PUBLIC_BRAND_ATTRIBUTION=${NEXT_PUBLIC_BRAND_ATTRIBUTION}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -131,13 +135,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/README.md ./README.md
 # package.json + the workspace root marker so `getRepoRoot()` resolves
 # to /app inside the container (the standalone build's CWD).
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
-
-# tiktoken's WASM tokenizer table — standalone tracing sometimes
-# misses it (Next.js doesn't follow dynamic-import-of-wasm reliably).
-# Copy it into both the workspace + the standalone path Next.js
-# expects to keep retrieval/ingest paths working.
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/tiktoken/tiktoken_bg.wasm ./node_modules/tiktoken/tiktoken_bg.wasm
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/tiktoken/tiktoken_bg.wasm ./packages/core/node_modules/tiktoken/tiktoken_bg.wasm
 
 USER nextjs
 EXPOSE 3000
