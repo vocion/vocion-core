@@ -44,6 +44,7 @@ import {
 } from './Members';
 import {
   cancel as cancelMissionRoute,
+  check as checkMissionRoute,
   get as getMissionRoute,
   getRun as getMissionRunRoute,
   listRuns as listMissionRunsRoute,
@@ -91,6 +92,7 @@ export const router = {
   },
   missions: {
     list: listMissionsRoute,
+    check: checkMissionRoute,
     get: getMissionRoute,
     start: startMissionRoute,
     listRuns: listMissionRunsRoute,
