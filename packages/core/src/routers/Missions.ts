@@ -48,6 +48,27 @@ export const start = os
     return startMission({ orgId, invokedBy: userId, ...input });
   });
 
+/** Run a check of a standing mission NOW — the same pass its automation fires. */
+export const check = os
+  .input(z.object({ slug: z.string().min(1) }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { scheduledCheckBrief } = await import('@/services/MissionService');
+    const template = await getMission(orgId, input.slug);
+    if (!template) {
+      throw ApiError.notFound();
+    }
+    const run = await startMission({
+      orgId,
+      missionSlug: input.slug,
+      brief: scheduledCheckBrief(template),
+      title: `Check: ${template.name}`,
+      mode: 'check',
+      invokedBy: userId ?? 'manual-check',
+    });
+    return { runId: run.id, status: run.status };
+  });
+
 export const listRuns = os
   .input(z.object({
     status: z.string().optional(),
