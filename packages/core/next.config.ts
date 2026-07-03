@@ -18,6 +18,12 @@ const baseConfig: NextConfig = {
   },
   poweredByHeader: false,
   reactStrictMode: true,
+  // Temporal's client can't be webpack-bundled: its gRPC/proto data files
+  // don't ride into the bundle, so Connection.connect() throws at runtime
+  // (the dashboard then shows "not scheduled yet" for every schedule).
+  // Externalizing keeps it a real node_modules dependency, which `output:
+  // standalone` traces into the runtime image.
+  serverExternalPackages: ['@temporalio/client', '@temporalio/common', '@temporalio/proto'],
   reactCompiler: process.env.NODE_ENV === 'production', // Keep the development environment fast
   outputFileTracingIncludes: {
     '/': ['./migrations/**/*'],
