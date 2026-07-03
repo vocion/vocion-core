@@ -4,6 +4,25 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-02 — Members + link invites; prod chat fixed (v1.50.1 → v1.51)
+
+- **fix(agents) — prod chat crash (v1.50.1).** Mounted playbooks/learnings now pass to deepagents as
+  structured `FileData` (content + mimeType + timestamps), not raw strings. Raw strings failed
+  FilesystemMiddleware state validation the moment an org had learnings — empty orgs passed silently,
+  which is why dev looked fine and prod (with learnings applied) broke on the first chip. Skills
+  middleware now mounts only when playbooks exist. Verified against a local production build.
+- **feat(members) — team member management (v1.51).** `/dashboard/members`: roster with roles, admin
+  role changes + removal (last-admin guarded, no self-removal), and LINK-based invites — mint a
+  one-time 14-day link bound to the invited email, copy it, share it via Slack/DM; no mailer needed.
+  Drives the existing `/sign-up?invite=` accept flow. New `members.*` oRPC routes +
+  `TeamMembersService`.
+- **feat(brand)** — `NEXT_PUBLIC_BRAND_LOCKUP_DARK` (dark-mode logo swap) +
+  `NEXT_PUBLIC_BRAND_ATTRIBUTION` (footer copyright), both Dockerfile build args.
+- **fix(build)** — dropped the unused wasm `tiktoken` dep; its leftover Dockerfile COPY was failing
+  the prod image build. Nav: Members replaces Billing in Settings; Admin renamed System.
+
+---
+
 ## 2026-07-02 — Work timeline, search browse, decisions-train-agents (v1.49 → v1.50)
 
 The afternoon wave — all verified on the live local corpus (~12.4k real docs).
