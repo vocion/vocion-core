@@ -20,6 +20,13 @@ export const Env = createEnv({
     LANGFUSE_PROJECT_ID: z.string().default('demo'),
     LANGFUSE_PUBLIC_KEY: z.string().optional(),
     LANGFUSE_SECRET_KEY: z.string().optional(),
+    /**
+     * Anthropic extended-thinking budget (tokens, e.g. 2048) for the
+     * `main` model role. Unset = thinking disabled (default behavior).
+     * See `libs/llm/langchain.ts` — enabling this forces temperature 1
+     * on the main model per the Anthropic API constraint.
+     */
+    VOCION_THINKING_BUDGET: z.coerce.number().int().positive().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -47,6 +54,7 @@ export const Env = createEnv({
     LANGFUSE_PROJECT_ID: process.env.LANGFUSE_PROJECT_ID,
     LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY,
     LANGFUSE_SECRET_KEY: process.env.LANGFUSE_SECRET_KEY,
+    VOCION_THINKING_BUDGET: process.env.VOCION_THINKING_BUDGET,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

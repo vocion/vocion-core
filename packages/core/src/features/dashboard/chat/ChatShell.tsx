@@ -97,6 +97,15 @@ export function ChatShell({
         setPhase('thinking');
         setActivity('Thinking…');
         return;
+      case 'thinking_delta': {
+        // Chain-of-thought token (Anthropic extended thinking).
+        // Accumulate into the message's thinkingText — WorkTimeline
+        // renders the live tail while streaming and the full text after.
+        const delta = String(evt.delta ?? '');
+        setActivity('Reasoning…');
+        appendToLatestAgent(m => ({ ...m, thinkingText: (m.thinkingText ?? '') + delta }));
+        return;
+      }
       case 'answering':
         setPhase('answering');
         return;

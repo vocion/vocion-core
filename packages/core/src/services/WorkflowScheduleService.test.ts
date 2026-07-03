@@ -52,3 +52,20 @@ describe('buildMissionScheduleOptions', () => {
     expect(mission.scheduleId).not.toBe(workflow.scheduleId);
   });
 });
+
+describe('buildAutomationScheduleOptions', () => {
+  it('builds a cron Schedule that fires the automation dispatcher', async () => {
+    const { buildAutomationScheduleOptions } = await import('./AutomationService');
+    const opts = buildAutomationScheduleOptions({ orgId: 'org_metacto', slug: 'morning-briefing', cron: '0 12 * * 1-5' });
+
+    expect(opts.scheduleId).toBe('automation-org_metacto-morning-briefing');
+    expect(opts.action).toMatchObject({
+      type: 'startWorkflow',
+      workflowType: 'automationFire',
+      taskQueue: 'vocion-workflows',
+    });
+    expect((opts.action as { args: unknown[] }).args).toEqual([
+      { orgId: 'org_metacto', slug: 'morning-briefing' },
+    ]);
+  });
+});

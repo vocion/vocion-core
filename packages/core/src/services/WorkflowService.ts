@@ -254,17 +254,17 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
           finishedAt: new Date().toISOString(),
         };
         scope.steps[name] = { output };
-      } else if (step.type === 'agent') {
-        // Dispatch an interpolated prompt to a full agent (search, subagents,
-        // propose_action — everything chat has). Lazy import: AgentService
-        // pulls in the deepagents runtime, which most workflow runs (pure
-        // skill/action sequences) never need.
+      } else if ((step as { type: string }).type === 'agent') {
+        // DEPRECATED (v1.55): workflows are deterministic; open-ended agent
+        // work belongs in missions. The authoring schema no longer accepts
+        // `agent` steps — this case only tolerates DB rows authored on v1.54.
+        const legacy = step as unknown as { agent: string; prompt: string; outputAs?: string };
         const { runAgentDeep } = await import('@/services/AgentService');
-        const resolved = interpolateString(step.prompt, scope);
+        const resolved = interpolateString(legacy.prompt, scope);
         const prompt = typeof resolved === 'string' ? resolved : JSON.stringify(resolved);
         const result = await runAgentDeep({
           orgId: run.orgId,
-          agentSlug: step.agent,
+          agentSlug: legacy.agent,
           message: prompt,
           userId: `workflow:${workflow.slug}:${runId}`,
         });
@@ -275,7 +275,7 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
           startedAt: stepResults[name]!.startedAt,
           finishedAt: new Date().toISOString(),
         };
-        scope.steps[step.outputAs ?? name] = { output };
+        scope.steps[legacy.outputAs ?? name] = { output };
       } else if (step.type === 'approve') {
         stepResults[name] = {
           ...stepResults[name],

@@ -85,8 +85,8 @@ export function AgentMessage({ message, timestamp, agentName, onShowSources, str
           )}
         </div>
         <div className="mt-2 text-sm leading-relaxed">
-          {(toolRuns.length > 0 || streaming) && (
-            <WorkTimeline runs={toolRuns} streaming={streaming} activity={activity} />
+          {(toolRuns.length > 0 || streaming || message.thinkingText) && (
+            <WorkTimeline runs={toolRuns} streaming={streaming} activity={activity} thinkingText={message.thinkingText} />
           )}
           {textRuns.map((run, i) => (
             <div key={i} className="prose prose-sm max-w-none dark:prose-invert">

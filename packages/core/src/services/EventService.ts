@@ -95,6 +95,30 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
     }
   }
 
+  // Automations are the first-class event subscribers ({when: {event}} ->
+  // {do: workflow | checkMission}). The workflow-embedded triggers above
+  // remain as a deprecated legacy path.
+  const { automationSchema } = await import('@/models/Schema');
+  const { fireAutomation } = await import('@/services/AutomationService');
+  const automations = await db
+    .select()
+    .from(automationSchema)
+    .where(eq(automationSchema.orgId, input.orgId));
+  for (const a of automations) {
+    if (a.status !== 'active' || a.whenConfig.event !== input.type || !matchesFilter(payload, a.whenConfig.filter)) {
+      continue;
+    }
+    try {
+      const res = await fireAutomation(input.orgId, a.slug, {
+        input: payload,
+        invokedBy: input.invokedBy ?? `event:${input.type}`,
+      });
+      triggered.push({ slug: `automation:${a.slug}`, runId: res.runId });
+    } catch {
+      // Same tolerance as workflows above - one bad automation never drops the event.
+    }
+  }
+
   const [row] = await db
     .insert(eventLogSchema)
     .values({ orgId: input.orgId, type: input.type, payload, dedupeKey: input.dedupeKey ?? null, triggered, invokedBy: input.invokedBy ?? null })

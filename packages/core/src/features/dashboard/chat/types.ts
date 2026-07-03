@@ -49,6 +49,13 @@ export type ChatMessage = {
   skillResults?: SkillResult[];
   /** v0.2+ inline tool breadcrumb runs (rev-ai style). Optional for back-compat with older messages. */
   runs?: AgentRun[];
+  /**
+   * Accumulated chain-of-thought text streamed via `thinking_delta`
+   * events (Anthropic extended thinking — only present when the server
+   * runs with VOCION_THINKING_BUDGET set). Rendered as the "Reasoning"
+   * step at the top of the WorkTimeline.
+   */
+  thinkingText?: string;
   /** Agent's self-assessment of this turn's confidence (N.2). Null when the runtime didn't expose a signal. */
   confidence?: 'confident' | 'uncertain' | 'speculative' | null;
 };

@@ -73,6 +73,43 @@ function resolveModel(role: ModelRole, provider: LangChainProvider): string {
   return DEFAULTS[provider][role];
 }
 
+/**
+ * Extended-thinking opt-in (Anthropic only).
+ *
+ * When `VOCION_THINKING_BUDGET` is set to a positive integer (tokens,
+ * e.g. 2048) and the role is `main`, the Anthropic model is constructed
+ * with extended thinking enabled. Two hard API constraints apply:
+ *
+ *   - `thinking: { type: 'enabled', budget_tokens: N }` requires
+ *     `temperature: 1` — any other value is rejected with a 400.
+ *   - `budget_tokens` must be ≥ 1024 and < `max_tokens`.
+ *
+ * Note: `budget_tokens` is deprecated (but functional) on the 4.6
+ * family (our default main model is claude-sonnet-4-6) and REMOVED on
+ * Opus 4.7+/Fable — those models 400 on it and take
+ * `thinking: { type: 'adaptive' }` instead. If `VOCION_LLM_MODEL_MAIN`
+ * is pointed at a 4.7+ model, this flag must be revisited.
+ *
+ * Registered as an optional server var in `src/libs/Env.ts`; read via
+ * `process.env` here to match the other `VOCION_LLM_*` vars in this file.
+ * @param role
+ */
+function resolveThinkingBudget(role: ModelRole): number | null {
+  if (role !== 'main') {
+    return null;
+  }
+  const raw = process.env.VOCION_THINKING_BUDGET;
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  // Anthropic enforces a 1024-token minimum thinking budget.
+  return Math.max(parsed, 1024);
+}
+
 /** Options for `buildChatModel`. Override the per-role default if needed. */
 export type BuildChatModelOptions = {
   /** Override the resolved provider. */
@@ -108,6 +145,22 @@ export function buildChatModel(
       const apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) {
         throw new Error(`ANTHROPIC_API_KEY is not set; cannot construct chat model for role ${role}`);
+      }
+      const thinkingBudget = resolveThinkingBudget(role);
+      if (thinkingBudget !== null) {
+        return new ChatAnthropic({
+          model,
+          // Extended thinking requires temperature 1 — override the
+          // deterministic default 0 ONLY on this opt-in path.
+          temperature: 1,
+          streaming,
+          apiKey,
+          thinking: { type: 'enabled', budget_tokens: thinkingBudget },
+          // budget_tokens must be < max_tokens. The langchain default for
+          // the 4.x family is 16384; raise the cap when a large budget
+          // would collide with it.
+          ...(thinkingBudget + 4096 > 16384 ? { maxTokens: thinkingBudget + 4096 } : {}),
+        });
       }
       return new ChatAnthropic({
         model,

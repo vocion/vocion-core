@@ -4,6 +4,7 @@
  * re-exported here so it lands in the deterministic sandbox bundle.
  */
 
+export * from './automationFire';
 export * from './missionScheduledCheck';
 export * from './scheduledWorkflowTrigger';
 export * from './sourceSyncWorkflow';
