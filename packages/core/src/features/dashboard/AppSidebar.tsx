@@ -61,38 +61,45 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
       </SidebarHeader>
 
       <SidebarContent>
-        {/* 1. Workspace — day-to-day work surfaces. Chat / Review / Search
-            are the always-there actions; Workflows + Agents are the
-            higher-level "your active work" surfaces (kick off a run, talk
-            to an agent), promoted here from Capabilities. */}
+        {/* 1. Workspace — where a USER lives day to day: talk to the team,
+            approve its work, find things. Everything else is configuration
+            or monitoring. */}
         <AppSidebarNav
           label={t('main_section_label')}
           items={[
             { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
-            { title: 'Missions', url: '/dashboard/missions', icon: Compass },
-            { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
-            { title: 'Automation', url: '/dashboard/automation', icon: CalendarClock },
-            { title: t('agents'), url: '/dashboard/agents', icon: Users },
             { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
             { title: t('search'), url: '/dashboard/search', icon: BookOpen },
           ]}
         />
 
-        {/* 2. Capabilities — the authored primitives. Order mirrors the
-            /solve marketing page for "what you build with": data in
-            (sources, objects) → typed callable (skills) → memory layer
-            (playbooks, learnings, evals). Workflows + Agents moved up
-            to Workspace since they're things you USE, not author. */}
+        {/* 2. Intelligence — the working layer: who does the work (agents),
+            the shapes work takes (missions = goals, workflows = procedures,
+            automation = the clocks/triggers), and the capabilities they run
+            on (skills, tools) with the checks that prove them (evals). */}
         <AppSidebarNav
-          label={t('capabilities_section_label')}
+          label="Intelligence"
+          items={[
+            { title: t('agents'), url: '/dashboard/agents', icon: Users },
+            { title: 'Missions', url: '/dashboard/missions', icon: Compass },
+            { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
+            { title: 'Automation', url: '/dashboard/automation', icon: CalendarClock },
+            { title: t('skills'), url: '/dashboard/skills', icon: Zap },
+            { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
+            { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
+          ]}
+        />
+
+        {/* 3. Context — what the team knows: data in (sources), the entities
+            it models (objects), procedural know-how (playbooks), and the
+            rules it has learned (learnings). */}
+        <AppSidebarNav
+          label="Context"
           items={[
             { title: t('sources'), url: '/dashboard/sources', icon: Plug },
             { title: t('objects'), url: '/dashboard/objects', icon: Database },
-            { title: t('skills'), url: '/dashboard/skills', icon: Zap },
-            { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
             { title: t('playbooks'), url: '/dashboard/playbooks', icon: ScrollText },
             { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
-            { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
           ]}
         />
 
