@@ -1,0 +1,54 @@
+import { describe, expect, it } from 'vitest';
+import { buildMissionHeartbeatOptions } from './MissionScheduleService';
+import { buildWorkflowScheduleOptions } from './WorkflowScheduleService';
+
+describe('buildWorkflowScheduleOptions', () => {
+  const spec = { orgId: 'org_metacto', workflowSlug: 'weekly_report', cron: '0 12 * * 1-5' };
+
+  it('builds a cron Schedule that starts the scheduled-workflow trigger', () => {
+    const opts = buildWorkflowScheduleOptions(spec);
+
+    expect(opts.scheduleId).toBe('workflow-schedule-org_metacto-weekly_report');
+    expect(opts.spec).toEqual({ cronExpressions: ['0 12 * * 1-5'] });
+    expect(opts.action).toMatchObject({
+      type: 'startWorkflow',
+      workflowType: 'scheduledWorkflowTrigger',
+      taskQueue: 'vocion-workflows',
+    });
+    expect((opts.action as { args: unknown[] }).args).toEqual([
+      { orgId: 'org_metacto', workflowSlug: 'weekly_report', input: {} },
+    ]);
+  });
+
+  it('passes fixed trigger input through to every scheduled run', () => {
+    const opts = buildWorkflowScheduleOptions({ ...spec, input: { mode: 'weekly' } });
+
+    expect((opts.action as { args: Array<{ input: unknown }> }).args[0]!.input).toEqual({ mode: 'weekly' });
+  });
+});
+
+describe('buildMissionHeartbeatOptions', () => {
+  const spec = { orgId: 'org_metacto', missionSlug: 'crm-email-sweep', cron: '0 13,17,21 * * 1-5' };
+
+  it('builds a cron Schedule that starts the mission heartbeat', () => {
+    const opts = buildMissionHeartbeatOptions(spec);
+
+    expect(opts.scheduleId).toBe('mission-heartbeat-org_metacto-crm-email-sweep');
+    expect(opts.spec).toEqual({ cronExpressions: ['0 13,17,21 * * 1-5'] });
+    expect(opts.action).toMatchObject({
+      type: 'startWorkflow',
+      workflowType: 'missionHeartbeat',
+      taskQueue: 'vocion-workflows',
+    });
+    expect((opts.action as { args: unknown[] }).args).toEqual([
+      { orgId: 'org_metacto', missionSlug: 'crm-email-sweep' },
+    ]);
+  });
+
+  it('does not collide with workflow schedules for the same slug', () => {
+    const mission = buildMissionHeartbeatOptions({ ...spec, missionSlug: 'shared-slug' });
+    const workflow = buildWorkflowScheduleOptions({ orgId: 'org_metacto', workflowSlug: 'shared-slug', cron: '0 6 * * *' });
+
+    expect(mission.scheduleId).not.toBe(workflow.scheduleId);
+  });
+});

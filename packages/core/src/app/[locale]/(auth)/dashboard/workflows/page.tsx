@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { TriggerBadge } from '@/features/dashboard/TriggerBadge';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { listWorkflows } from '@/services/WorkflowService';
@@ -59,12 +60,15 @@ export default async function WorkflowsPage(props: {
                     </div>
                     <div className="mb-2 font-mono text-[11px] text-muted-foreground">{w.slug}</div>
                     {w.description && <p className="text-xs leading-relaxed text-muted-foreground">{w.description}</p>}
-                    <div className="mt-3 text-[11px] text-muted-foreground">
-                      {steps}
-                      {' '}
-                      {steps === 1 ? 'step' : 'steps'}
-                      {' · v'}
-                      {w.version ?? 1}
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                      <TriggerBadge trigger={w.trigger} />
+                      <span>
+                        {steps}
+                        {' '}
+                        {steps === 1 ? 'step' : 'steps'}
+                        {' · v'}
+                        {w.version ?? 1}
+                      </span>
                     </div>
                   </Link>
                 );

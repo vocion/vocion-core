@@ -222,6 +222,28 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
           skillRunId: result.runId,
         };
         scope.steps[step.outputAs ?? name] = { output };
+      } else if (step.type === 'agent') {
+        // Dispatch an interpolated prompt to a full agent (search, subagents,
+        // propose_action — everything chat has). Lazy import: AgentService
+        // pulls in the deepagents runtime, which most workflow runs (pure
+        // skill/action sequences) never need.
+        const { runAgentDeep } = await import('@/services/AgentService');
+        const resolved = interpolateString(step.prompt, scope);
+        const prompt = typeof resolved === 'string' ? resolved : JSON.stringify(resolved);
+        const result = await runAgentDeep({
+          orgId: run.orgId,
+          agentSlug: step.agent,
+          message: prompt,
+          userId: `workflow:${workflow.slug}:${runId}`,
+        });
+        const output = result.response;
+        stepResults[name] = {
+          status: 'completed',
+          output,
+          startedAt: stepResults[name]!.startedAt,
+          finishedAt: new Date().toISOString(),
+        };
+        scope.steps[step.outputAs ?? name] = { output };
       } else if (step.type === 'approve') {
         stepResults[name] = {
           ...stepResults[name],
