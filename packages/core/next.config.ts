@@ -21,11 +21,6 @@ const baseConfig: NextConfig = {
   reactCompiler: process.env.NODE_ENV === 'production', // Keep the development environment fast
   outputFileTracingIncludes: {
     '/': ['./migrations/**/*'],
-    // tiktoken ships its tokenizer table as a wasm binary that
-    // Next's standalone build doesn't pick up automatically — opt
-    // it into every route's trace so retrieval/ingest paths work
-    // in the slim runtime image.
-    '/**': ['../../node_modules/tiktoken/tiktoken_bg.wasm', './node_modules/tiktoken/tiktoken_bg.wasm'],
   },
 };
 
