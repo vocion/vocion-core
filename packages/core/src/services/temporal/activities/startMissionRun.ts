@@ -1,13 +1,13 @@
 /**
- * startMissionRun activity — lets a mission's heartbeat Schedule fire a
+ * startMissionRun activity — lets a mission's Schedule fire a
  * standing-responsibility check on its cron.
  *
- * Runs in the worker process with full deps. The run is heartbeat-mode:
- * one lead-agent task built from the mission charter, no planner. Approval
+ * Runs in the worker process with full deps. The run is check-mode: one
+ * lead-agent task built from the mission charter, no planner. Approval
  * gates park the run in Postgres for the review queue as usual.
  */
 
-import { getMission, heartbeatBrief, startMission } from '@/services/MissionService';
+import { getMission, scheduledCheckBrief, startMission } from '@/services/MissionService';
 
 export type StartMissionRunActivityInput = {
   orgId: string;
@@ -24,10 +24,10 @@ export async function startMissionRunActivity(
   const run = await startMission({
     orgId: input.orgId,
     missionSlug: input.missionSlug,
-    brief: heartbeatBrief(template),
-    title: `Heartbeat: ${template.name}`,
-    mode: 'heartbeat',
-    invokedBy: 'heartbeat',
+    brief: scheduledCheckBrief(template),
+    title: `Scheduled check: ${template.name}`,
+    mode: 'check',
+    invokedBy: 'schedule',
   });
   return { id: run.id, status: run.status };
 }

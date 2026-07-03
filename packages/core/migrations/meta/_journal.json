@@ -239,6 +239,13 @@
       "when": 1782001000000,
       "tag": "0033_mission_heartbeat",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1782001100000,
+      "tag": "0034_mission_schedule_rename",
+      "breakpoints": true
     }
   ]
 }
