@@ -4,6 +4,29 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-03 — Heartbeats: missions become standing responsibilities (v1.52)
+
+The mission/workflow boundary, made crisp: **in a workflow the author decides the steps; in a
+mission the team decides.** And time is now a first-class trigger.
+
+- **feat(missions) — heartbeat crons.** A mission is a charter a team owns continuously. Optional
+  `heartbeat` (5-field cron) creates a Temporal Schedule firing a heartbeat-mode run: one lead-agent
+  task from the charter — check state, do only what's needed, report or say "nothing needed."
+  No planner; hourly-cheap. Migration 0033.
+- **feat(workflows) — schedule triggers + agent steps.** `trigger: {type: schedule, cron}` runs a
+  workflow on a cron; the new `agent` step dispatches a prompt to a full agent (search, subagents,
+  propose_action) inside a fixed sequence.
+- **feat(dashboard) — Automation page.** Every clock in one place: mission heartbeats, scheduled
+  workflows, event subscriptions, source-sync crons, with Temporal next-fire times.
+- **feat(profile).** /dashboard/profile (name + password change) + the header user menu now points
+  at real pages (the old Profile link was a dead Clerk route).
+- **infra (metacto deploy).** vocion-temporal-worker container added — Schedules previously fired
+  into a queue nobody drained. `workspace:apply` now reconciles all three schedule families
+  idempotently and skips with a warning when Temporal is down.
+- Verified: heartbeat-mode `crm-email-sweep` run completed headless on the local corpus.
+
+---
+
 ## 2026-07-02 — Members + link invites; prod chat fixed (v1.50.1 → v1.51)
 
 - **fix(agents) — prod chat crash (v1.50.1).** Mounted playbooks/learnings now pass to deepagents as
