@@ -734,6 +734,12 @@ export const missionSchema = pgTable(
     /** Plain-language success criteria + expected artifacts. */
     successCriteria: jsonb('success_criteria').$type<string[]>().default([]),
     desiredArtifacts: jsonb('desired_artifacts').$type<string[]>().default([]),
+    /**
+     * Standing-responsibility heartbeat — 5-field cron (UTC). When set, a
+     * Temporal Schedule fires a heartbeat-mode run (the lead checks the
+     * charter, does only what's needed) on this cadence. Null = brief-only.
+     */
+    heartbeat: text('heartbeat'),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },

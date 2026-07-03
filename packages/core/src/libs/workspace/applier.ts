@@ -133,6 +133,14 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     }
   }
 
+  // Reconcile Temporal Schedules against the authored triggers: workflow
+  // `trigger: {type: schedule}`, mission `heartbeat`, source `schedule`.
+  // Best-effort — a dev box without Temporal still applies cleanly; the
+  // schedules materialize on the next apply where Temporal is reachable.
+  if (!dryRun) {
+    await reconcileSchedules(orgId, loaded, errors);
+  }
+
   let versionId: number | null = null;
   if (!dryRun) {
     const [row] = await db.insert(workspaceVersionSchema).values({
@@ -159,6 +167,76 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 }
 
 type UpsertOutcome = 'created' | 'updated' | 'unchanged';
+
+/**
+ * Ensure/remove Temporal Schedules to match the authored workspace. One
+ * connectivity probe up front: if Temporal is unreachable, log one warning
+ * and skip — never fail the apply over scheduling.
+ * @param orgId
+ * @param loaded
+ * @param errors
+ */
+async function reconcileSchedules(
+  orgId: string,
+  loaded: LoadedWorkspace,
+  errors: ApplyResult['errors'],
+): Promise<void> {
+  const { getTemporalClient } = await import('@/libs/temporal/client');
+  try {
+    await getTemporalClient();
+  } catch {
+    console.warn('[workspace:apply] Temporal unreachable — skipping schedule reconciliation (workflow schedules, mission heartbeats, source syncs). Re-apply with Temporal up to materialize them.');
+    return;
+  }
+
+  const { ensureWorkflowSchedule, removeWorkflowSchedule } = await import('@/services/WorkflowScheduleService');
+  const { ensureMissionHeartbeat, removeMissionHeartbeat } = await import('@/services/MissionScheduleService');
+  const { ensureSourceSchedule, removeSourceSchedule } = await import('@/services/SourceScheduleService');
+  const { knowledgeSourceSchema: srcSchema } = await import('@/models/Schema');
+
+  for (const workflow of loaded.workflows) {
+    try {
+      const trigger = workflow.trigger as { type?: string; cron?: string; input?: Record<string, unknown> };
+      if (workflow.status === 'active' && trigger?.type === 'schedule' && trigger.cron) {
+        await ensureWorkflowSchedule({ orgId, workflowSlug: workflow.slug, cron: trigger.cron, input: trigger.input });
+      } else {
+        await removeWorkflowSchedule(orgId, workflow.slug);
+      }
+    } catch (err) {
+      errors.push({ resource: 'workflowSchedule', slug: workflow.slug, message: (err as Error).message });
+    }
+  }
+
+  for (const mission of loaded.missions) {
+    try {
+      if (mission.status === 'active' && mission.heartbeat) {
+        await ensureMissionHeartbeat({ orgId, missionSlug: mission.slug, cron: mission.heartbeat });
+      } else {
+        await removeMissionHeartbeat(orgId, mission.slug);
+      }
+    } catch (err) {
+      errors.push({ resource: 'missionHeartbeat', slug: mission.slug, message: (err as Error).message });
+    }
+  }
+
+  for (const src of loaded.sources) {
+    try {
+      if (src.enabled && src.schedule) {
+        const [row] = await db
+          .select({ id: srcSchema.id })
+          .from(srcSchema)
+          .where(and(eq(srcSchema.orgId, orgId), eq(srcSchema.slug, src.slug)));
+        if (row) {
+          await ensureSourceSchedule({ orgId, sourceId: row.id, sourceSlug: src.slug, cron: src.schedule });
+        }
+      } else {
+        await removeSourceSchedule(orgId, src.slug);
+      }
+    } catch (err) {
+      errors.push({ resource: 'sourceSchedule', slug: src.slug, message: (err as Error).message });
+    }
+  }
+}
 
 async function upsertObjectType(orgId: string, ot: LoadedObjectType, dryRun: boolean): Promise<UpsertOutcome> {
   const [existing] = await db
@@ -342,6 +420,7 @@ async function upsertMission(orgId: string, mission: LoadedMission, dryRun: bool
     autonomyPolicy: mission.autonomyPolicy as unknown as Record<string, unknown>,
     successCriteria: mission.successCriteria,
     desiredArtifacts: mission.desiredArtifacts,
+    heartbeat: mission.heartbeat ?? null,
   };
 
   if (!existing) {

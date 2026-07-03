@@ -232,6 +232,13 @@
       "when": 1782000900000,
       "tag": "0032_action_proposal",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1782001000000,
+      "tag": "0033_mission_heartbeat",
+      "breakpoints": true
     }
   ]
 }
