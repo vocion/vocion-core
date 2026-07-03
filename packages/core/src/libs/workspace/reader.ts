@@ -110,11 +110,14 @@ export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): Primitive
     return { files, contextPath, editInGitPath: `${contextPath}/agents/${dirName}.yaml` };
   }
 
-  // Everything else lives in a directory with multiple files
-  const dir = join(base, kindDir(kind), dirName);
-  if (!existsSync(dir)) {
+  // Everything else lives in a directory with multiple files.
+  // Skills were renamed to operations/ in v0.2 workspaces — try both.
+  const dirsToTry = kind === 'skill' ? [kindDir(kind), 'operations'] : [kindDir(kind)];
+  const foundDirName = dirsToTry.find(d => existsSync(join(base, d, dirName)));
+  if (!foundDirName) {
     return null;
   }
+  const dir = join(base, foundDirName, dirName);
 
   const fileNames = readdirSync(dir).filter(n => n.endsWith('.yaml') || n.endsWith('.md') || n.endsWith('.js') || n.endsWith('.mjs'));
   if (fileNames.length === 0) {
@@ -131,11 +134,11 @@ export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): Primitive
   });
 
   const files = fileNames.map(n => ({
-    path: `${kindDir(kind)}/${dirName}/${n}`,
-    fullPath: `${contextPath}/${kindDir(kind)}/${dirName}/${n}`,
+    path: `${foundDirName}/${dirName}/${n}`,
+    fullPath: `${contextPath}/${foundDirName}/${dirName}/${n}`,
     content: readFileSync(join(dir, n), 'utf-8'),
     language: detectLanguage(n),
   }));
 
-  return { files, contextPath, editInGitPath: `${contextPath}/${kindDir(kind)}/${dirName}` };
+  return { files, contextPath, editInGitPath: `${contextPath}/${foundDirName}/${dirName}` };
 }

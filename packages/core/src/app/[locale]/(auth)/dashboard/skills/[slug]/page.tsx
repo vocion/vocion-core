@@ -1,4 +1,4 @@
-import { ArrowLeft, Search, Send, Zap } from 'lucide-react';
+import { ArrowLeft, FileText, Search, Send, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -7,9 +7,9 @@ import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { getSkillActivity } from '@/libs/activity';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
-import { Link } from '@/libs/I18nNavigation';
 import { getSkill } from '@/services/SkillService';
 
 const categoryIcons: Record<string, React.ReactNode> = {
@@ -72,12 +72,26 @@ export default async function SkillDetailPage(props: {
         description={skill.description}
       />
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Config label="Model" value={skill.model ?? '—'} mono />
         <Config label="Temp" value={skill.temperature ?? '—'} />
         <Config label="Category" value={skill.category ?? 'query'} />
+        <Config label="Approval" value={skill.requiresApproval === 'true' ? 'Human (HITL)' : 'Automatic'} />
         <Config label="Version" value={`v${skill.version}`} />
       </div>
+
+      <section className="mb-6 rounded-md border border-border p-5">
+        <h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
+          <FileText className="size-4 text-primary" />
+          Prompt template
+        </h2>
+        <pre className="max-h-[32rem] overflow-auto rounded-md bg-muted/40 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">{skill.promptTemplate}</pre>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          {'{{variable}}'}
+          {' '}
+          placeholders are interpolated from the input at run time.
+        </p>
+      </section>
 
       <PrimitiveActivity kind="skill" slug={slug} {...activity} />
 
@@ -103,6 +117,13 @@ export default async function SkillDetailPage(props: {
             ))}
           </div>
         </section>
+      )}
+
+      {inputSchema && (
+        <details className="mb-6 rounded-md border border-border p-5">
+          <summary className="cursor-pointer text-sm font-semibold">Input schema (JSON)</summary>
+          <pre className="mt-3 overflow-x-auto rounded-md bg-muted/40 p-4 font-mono text-xs leading-relaxed">{JSON.stringify(inputSchema, null, 2)}</pre>
+        </details>
       )}
 
       {sourceFiles && (
