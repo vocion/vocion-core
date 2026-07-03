@@ -4,6 +4,24 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-03 (evening) — Connection ACLs + the executable demo (v1.58–v1.59)
+
+- **feat(access) — per-connection ACL.** `access: {visibility: restricted, users: [emails]}` on any
+  source; enforced as an intersection (agent scope ∩ member grants) in chat, search, and browse.
+  Empty intersection = nothing, never a leak. Scheduled team runs keep access; outputs are the
+  curated surface. Gmail restricted to chris@ on the metacto deploy. Migration 0036 + 3 PGlite tests.
+- **test(e2e) — `npm run e2e:demo`.** The briefing + sweep as an executable scorecard. Local 8/8;
+  PROD 9/9 against live data — sweep queued 4 real scored proposals (88/82/75%) into review.
+- **feat(dashboard) — Activity.** One stream (mission checks, workflow runs, event fires, syncs),
+  needs-attention pinned; Workspace = Chat · Review · Activity · Search.
+- **incident** — a feature-branch merge + pin-fix rolled prod core back a month mid-day; restored
+  within the hour, work preserved. New rule: THE PIN ONLY MOVES FORWARD; rebase the deploy repo
+  before bumping. Consider branch protection on metacto-vocion-agents main.
+- Autonomy milestone: the system ran its own briefing (12:00 UTC) and sweep (13:00 UTC) today with
+  zero humans involved.
+
+---
+
 ## 2026-07-03 — Automations: the four-object model (v1.55)
 
 Chris's axiom, enforced in the schema: **workflows are deterministic, missions are agent-driven,
