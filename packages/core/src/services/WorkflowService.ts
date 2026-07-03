@@ -222,6 +222,38 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
           skillRunId: result.runId,
         };
         scope.steps[step.outputAs ?? name] = { output };
+      } else if (step.type === 'sync') {
+        // Freshness gate: incrementally sync the named sources so downstream
+        // agent steps read live data (last-hours mail, current CRM state),
+        // not index-freshness. Per-source failures are recorded, not fatal —
+        // a dead connector degrades the read; it shouldn't kill the briefing.
+        const { runSync } = await import('@/services/SourceSyncService');
+        const { knowledgeSourceSchema } = await import('@/models/Schema');
+        const results: Record<string, string> = {};
+        for (const slug of step.sources) {
+          try {
+            const [src] = await db
+              .select({ id: knowledgeSourceSchema.id })
+              .from(knowledgeSourceSchema)
+              .where(and(eq(knowledgeSourceSchema.orgId, run.orgId), eq(knowledgeSourceSchema.slug, slug)));
+            if (!src) {
+              results[slug] = 'unknown source';
+              continue;
+            }
+            const r = await runSync({ orgId: run.orgId, sourceId: src.id, incremental: true });
+            results[slug] = `synced (${r.created} new, ${r.updated} updated${r.errors ? `, ${r.errors} errors` : ''})`;
+          } catch (err) {
+            results[slug] = `sync failed: ${(err as Error).message.slice(0, 120)}`;
+          }
+        }
+        const output = results;
+        stepResults[name] = {
+          status: 'completed',
+          output,
+          startedAt: stepResults[name]!.startedAt,
+          finishedAt: new Date().toISOString(),
+        };
+        scope.steps[name] = { output };
       } else if (step.type === 'agent') {
         // Dispatch an interpolated prompt to a full agent (search, subagents,
         // propose_action — everything chat has). Lazy import: AgentService

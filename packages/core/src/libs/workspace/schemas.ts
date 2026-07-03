@@ -157,7 +157,19 @@ const ActionStepSchema = z.object({
   input: z.record(z.string(), z.unknown()).default({}),
 });
 
-const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, AgentStepSchema, ApproveStepSchema, ActionStepSchema]);
+const SyncStepSchema = z.object({
+  name: SlugSchema,
+  type: z.literal('sync'),
+  /**
+   * Source slugs to incrementally sync before downstream steps read. Gives a
+   * scheduled workflow LIVE data (last-hours email, fresh CRM state) instead
+   * of index-freshness. Per-source failures degrade gracefully — the step
+   * records them and the workflow continues on the existing index.
+   */
+  sources: z.array(z.string()).min(1),
+});
+
+const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, AgentStepSchema, ApproveStepSchema, ActionStepSchema, SyncStepSchema]);
 
 const ManualTriggerSchema = z.object({
   type: z.literal('manual').default('manual'),
