@@ -606,6 +606,40 @@ export const agentSchema = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Automations — the WHEN of the system, as a first-class object       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Agents are WHO, missions are GOALS, workflows are PROCEDURES; an
+ * automation binds a trigger to one of them: `{when: schedule|event,
+ * do: run workflow | check mission}`. Authored in
+ * workspace/<org>/automations/*.yaml; schedule-whens materialize as
+ * Temporal Schedules; event-whens are matched by EventService on emit.
+ */
+export const automationSchema = pgTable(
+  'automation',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    /** `active` | `disabled` */
+    status: text('status').default('active'),
+    /** `{schedule: '<cron UTC>'}` or `{event: '<type>', filter?: {...}}`. */
+    whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string; filter?: Record<string, unknown> }>().notNull(),
+    /** `{workflow: '<slug>', input?: {...}}` or `{checkMission: '<slug>'}`. */
+    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; input?: Record<string, unknown> }>().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('automation_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Workflows — orchestrations that compose skills + HITL + actions    */
 /* ------------------------------------------------------------------ */
 

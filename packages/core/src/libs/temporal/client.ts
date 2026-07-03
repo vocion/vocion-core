@@ -93,6 +93,18 @@ export const SCHEDULED_WORKFLOW_TRIGGER = 'scheduledWorkflowTrigger';
 /** Workflow type a mission's Schedule starts — fires a check-mode mission run. */
 export const MISSION_SCHEDULED_CHECK_WORKFLOW = 'missionScheduledCheck';
 
+/** Workflow type an automation's Schedule starts — dispatches its `do`. */
+export const AUTOMATION_FIRE_WORKFLOW = 'automationFire';
+
+/**
+ * Schedule ID convention for automations — `automation-<orgId>-<slug>`.
+ * @param orgId
+ * @param slug
+ */
+export function automationScheduleIdFor(orgId: string, slug: string): string {
+  return `automation-${orgId}-${slug}`;
+}
+
 /**
  * Schedule ID convention for mission schedules — `mission-schedule-<orgId>-<slug>`.
  * Distinct namespace from workflow + source schedules.

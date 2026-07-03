@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod';
-import type { AgentManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, SourceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
+import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, SourceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
@@ -7,6 +7,7 @@ import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
 import {
   AgentManifestSchema,
+  AutomationManifestSchema,
   EvalDatasetManifestSchema,
   LearningStepManifestSchema,
   MissionManifestSchema,
@@ -34,6 +35,7 @@ export type LoadedSkill = SkillManifest & { resolvedPromptTemplate: string; sour
 export type LoadedObjectType = ObjectTypeManifest & { resolvedClassificationPrompt: string | null; sourceFile: string };
 export type LoadedWorkflow = WorkflowManifest & { sourceFile: string };
 export type LoadedMission = MissionManifest & { sourceFile: string };
+export type LoadedAutomation = AutomationManifest & { sourceFile: string };
 
 export type LoadedLearningStep = LearningStepManifest & { sourceFile: string };
 export type LoadedEvalDataset = EvalDatasetManifest & { sourceFile: string };
@@ -57,6 +59,7 @@ export type LoadedWorkspace = {
   objectTypes: LoadedObjectType[];
   workflows: LoadedWorkflow[];
   missions: LoadedMission[];
+  automations: LoadedAutomation[];
   playbooks: LoadedPlaybook[];
   learningSteps: LoadedLearningStep[];
   evalDatasets: LoadedEvalDataset[];
@@ -147,6 +150,14 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       return { ...parsed, sourceFile: file };
     });
 
+  const automations = walkDir(join(abs, 'automations'))
+    .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
+    .map((file) => {
+      files.push(file);
+      const parsed = parseFile(file, AutomationManifestSchema, 'automation');
+      return { ...parsed, sourceFile: file };
+    });
+
   const playbooksDir = join(abs, 'playbooks');
   const playbooks = walkDir(playbooksDir)
     .filter(f => basename(f) === 'SKILL.md')
@@ -184,6 +195,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   assertUniqueSlugs(objectTypes, 'object type');
   assertUniqueSlugs(workflows, 'workflow');
   assertUniqueSlugs(missions, 'mission');
+  assertUniqueSlugs(automations, 'automation');
   assertUniqueSlugs(playbooks, 'playbook');
   assertUniqueNames(learningSteps, 'learning step');
   assertUniqueSlugs(evalDatasets, 'eval dataset');
@@ -198,6 +210,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     objectTypes,
     workflows,
     missions,
+    automations,
     playbooks,
     learningSteps,
     evalDatasets,

@@ -267,8 +267,9 @@ export async function recordWorkflowCompletedActivity(input: RecordWorkflowCompl
     .where(eq(workflowRunSchema.id, input.runId));
 }
 
+/* Schedule-fired starters: automations + legacy mission/workflow crons. */
+export * from './fireAutomation';
 /* Source-sync activity (Temporal Schedules). */
 export * from './sourceSync';
-/* Schedule-fired starters: mission checks + workflow cron triggers. */
 export * from './startMissionRun';
 export * from './startWorkflowRun';

@@ -1,7 +1,7 @@
 'use client';
 
 import type { AgentRun } from './types';
-import { Check, ChevronDown, ChevronRight, CircleAlert, Loader2 } from 'lucide-react';
+import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 /**
@@ -24,6 +24,12 @@ export type WorkTimelineProps = {
   streaming: boolean;
   /** Live status text while streaming (from ChatShell's event reducer). */
   activity?: string | null;
+  /**
+   * Accumulated chain-of-thought text (Anthropic extended thinking).
+   * While streaming, the live tail renders as the first timeline step;
+   * once done it collapses into an expandable "Reasoning" step.
+   */
+  thinkingText?: string;
 };
 
 type Step = {
@@ -129,19 +135,22 @@ function useElapsed(active: boolean): number {
   return Math.floor((now - start) / 1000);
 }
 
-export function WorkTimeline({ runs, streaming, activity }: WorkTimelineProps) {
+export function WorkTimeline({ runs, streaming, activity, thinkingText }: WorkTimelineProps) {
   const [open, setOpen] = useState(false);
+  const [reasoningOpen, setReasoningOpen] = useState(false);
   const elapsed = useElapsed(streaming);
   const steps = runs.map(toStep);
   const errors = steps.filter(s => s.state === 'error').length;
   const specialists = runs.filter(r => r.name === 'task').length;
   const expanded = streaming || open;
+  const hasReasoning = Boolean(thinkingText && thinkingText.trim().length > 0);
 
-  if (steps.length === 0 && !streaming) {
+  if (steps.length === 0 && !streaming && !hasReasoning) {
     return null;
   }
 
   const summary = [
+    hasReasoning ? 'reasoned' : null,
     `${steps.length} step${steps.length === 1 ? '' : 's'}`,
     specialists > 0 ? `${specialists} specialist${specialists === 1 ? '' : 's'}` : null,
     errors > 0 ? `${errors} error${errors === 1 ? '' : 's'}` : null,
@@ -180,6 +189,45 @@ export function WorkTimeline({ runs, streaming, activity }: WorkTimelineProps) {
 
       {expanded && (
         <ol className="space-y-1 border-t border-border/60 px-3 py-2">
+          {hasReasoning && (
+            <li className="flex items-start gap-2 text-xs">
+              <Brain className="mt-0.5 size-3 shrink-0 text-brand-amber-deep" aria-hidden />
+              <span className="min-w-0 flex-1">
+                {streaming
+                  ? (
+                      <>
+                        <span className="text-foreground/85">Reasoning</span>
+                        {/* Live tail — the last ~200 chars of the chain-of-thought */}
+                        <span className="block text-[11px] text-muted-foreground/70 italic">
+                          {thinkingText!.length > 200 ? `…${thinkingText!.slice(-200)}` : thinkingText}
+                        </span>
+                      </>
+                    )
+                  : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReasoningOpen(v => !v);
+                          }}
+                          className="inline-flex items-center gap-1 text-foreground/85 transition hover:text-foreground"
+                        >
+                          Reasoning
+                          {reasoningOpen
+                            ? <ChevronDown className="size-3" aria-hidden />
+                            : <ChevronRight className="size-3" aria-hidden />}
+                        </button>
+                        {reasoningOpen && (
+                          <span className="mt-1 block max-h-48 overflow-y-auto rounded border border-border/50 bg-background/60 p-2 text-[11px] whitespace-pre-wrap text-muted-foreground italic">
+                            {thinkingText}
+                          </span>
+                        )}
+                      </>
+                    )}
+              </span>
+            </li>
+          )}
           {steps.map((s, i) => (
             <li key={i} className="flex items-start gap-2 text-xs">
               {s.state === 'pending'
