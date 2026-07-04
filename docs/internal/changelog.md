@@ -4,6 +4,24 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-07-03 (night) — Memory, trust, ask steps, briefings (v1.60)
+
+The "Trust & the Daily Loop" sprint — every open feature task closed.
+
+- **feat(missions) — working memory.** Per-mission notes read into every check brief and rewritten
+  via update_mission_notes; thread aging emerged live ("[Check #2 open]"). Migration 0037.
+- **feat(trust) — auto-execution rules.** trust.yaml {action, autoApproveAbove, enabled}; cleared
+  proposals execute immediately, audited under Review → "Executed automatically". DEFAULT OFF.
+  Also fixed a real gap: pending proposals had NO UI — Review now renders the queue with
+  confidence chips + Approve/Reject (decisions keep training learnings). Migration 0038.
+- **feat(workflows) — ask steps.** Human input as a deterministic step: pause with a question in
+  Review, resume with text as {{steps.x.output}}. discovery_followup v2 opens with one.
+- **feat(briefings) — the front door.** publish_briefing + /dashboard/briefings + nav; the briefing
+  charter ends with publishing. Migration 0039.
+- Everything verified LOCAL-FIRST with live runs before deploy; 172 unit tests green.
+
+---
+
 ## 2026-07-03 (evening) — Connection ACLs + the executable demo (v1.58–v1.59)
 
 - **feat(access) — per-connection ACL.** `access: {visibility: restricted, users: [emails]}` on any
