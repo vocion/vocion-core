@@ -2,6 +2,7 @@
 
 import type { AgentRun, ChatMessage, IndexedDocument } from './types';
 import { AlertCircle, FileText, Sparkles } from 'lucide-react';
+import { memo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
@@ -46,7 +47,13 @@ function formatTime(ts: number | undefined): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-export function AgentMessage({ message, timestamp, agentName, onShowSources, streaming = false, activity }: AgentMessageProps) {
+/**
+ * Memoized: during streaming only the LAST message's object identity
+ * changes per flush (ChatShell's reducer replaces just that element),
+ * so every completed message — including its markdown parse — skips
+ * re-rendering entirely while tokens stream in below it.
+ */
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, streaming = false, activity }: AgentMessageProps) => {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
@@ -102,4 +109,4 @@ export function AgentMessage({ message, timestamp, agentName, onShowSources, str
       </div>
     </div>
   );
-}
+});
