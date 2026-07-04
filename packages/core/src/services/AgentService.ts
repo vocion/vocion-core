@@ -950,6 +950,7 @@ export async function runAgent(opts: {
  * @param opts.message
  * @param opts.userId
  * @param opts.allowedSourceSlugs
+ * @param opts.missionSlug
  * @param opts.conversationHistory
  * @param opts.onEvent
  */
@@ -960,6 +961,8 @@ export async function runAgentDeep(opts: {
   userId?: string;
   /** Per-user connection ACL — restricts retrieval to these source slugs. */
   allowedSourceSlugs?: string[];
+  /** Set for mission runs — lets mission-scoped tools (update_mission_notes) resolve their mission. */
+  missionSlug?: string;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   onEvent?: (event: import('./agents/types').AgentEvent) => void;
 }): Promise<{
@@ -986,7 +989,7 @@ export async function runAgentDeep(opts: {
   }
 
   const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug);
-  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs);
+  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug);
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
 

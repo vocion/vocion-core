@@ -1,5 +1,5 @@
 import { and, desc, eq } from 'drizzle-orm';
-import { CalendarClock, Compass, Plus, Target, Users } from 'lucide-react';
+import { CalendarClock, Compass, NotebookPen, Plus, Target, Users } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { StatusPill } from '@/components/ui/status-pill';
@@ -146,6 +146,17 @@ export default async function MissionDetailPage(props: {
           </section>
         </div>
       </div>
+
+      {mission.workingNotes && (
+        <section className="mb-6 rounded-md border border-border p-5">
+          <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
+            <NotebookPen className="size-4 text-primary" />
+            Working notes
+            <span className="text-xs font-normal text-muted-foreground">the team's memory between checks — open threads, commitments, escalation</span>
+          </h2>
+          <pre className="max-h-72 overflow-y-auto text-xs leading-relaxed whitespace-pre-wrap text-foreground/85">{mission.workingNotes}</pre>
+        </section>
+      )}
 
       <section className="mb-6 rounded-md border border-border p-5">
         <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">

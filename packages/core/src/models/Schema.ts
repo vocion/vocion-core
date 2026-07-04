@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
-import { bigint, customType, index, integer, jsonb, pgTable, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -774,6 +774,13 @@ export const missionSchema = pgTable(
      * does only what's needed) on this cadence. Null = brief-only.
      */
     schedule: text('schedule'),
+    /**
+     * Working memory across checks: open threads (with how many checks
+     * they've been open), commitments + due dates, escalation state.
+     * Read into every check brief; rewritten by the lead via the
+     * update_mission_notes tool. Never set by workspace:apply.
+     */
+    workingNotes: text('working_notes'),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
@@ -1576,6 +1583,52 @@ export const reviewAssignmentSchema = pgTable(
   ],
 );
 
+/**
+ * Briefings — the daily front door. Published by the team at the end of a
+ * briefing check (publish_briefing tool); rendered newest-first under
+ * Workspace → Briefings.
+ */
+export const briefingSchema = pgTable(
+  'briefing',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    title: text('title').notNull(),
+    /** Markdown body. */
+    content: text('content').notNull(),
+    /** Who published — usually `agent:<slug>` via a mission check. */
+    publishedBy: text('published_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('briefing_org_created_idx').on(table.orgId, table.createdAt),
+  ],
+);
+
+/**
+ * Trust ladder execution rules. `{actionId, threshold, enabled}` per org —
+ * a pending proposal whose confidence >= threshold on an ENABLED rule
+ * executes without waiting for review (audited via proposal.autoApproved).
+ * Authored in workspace/<org>/trust.yaml; default OFF.
+ */
+export const trustRuleSchema = pgTable(
+  'trust_rule',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    actionId: text('action_id').notNull(),
+    /** Minimum confidence (0-1) to auto-execute. */
+    threshold: real('threshold').notNull(),
+    /** 'true' | 'false' — string for consistency with sibling tables. */
+    enabled: text('enabled').default('false').notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('trust_rule_org_action_idx').on(table.orgId, table.actionId),
+  ],
+);
+
 // action_run — a proposed connector-write action (gmail.send, hubspot.update).
 // Gated actions persist here as 'pending' and surface in the review queue as a
 // 4th kind; they execute only on approval. Non-gated actions record their run
@@ -1600,7 +1653,7 @@ export const actionRunSchema = pgTable(
      * Agent-proposal envelope: confidence (0–1), rationale, evidence doc uris.
      * Surfaced in the review queue + daily brief; feeds the trust ladder.
      */
-    proposal: jsonb('proposal').$type<{ confidence?: number; rationale?: string; evidence?: string[] }>(),
+    proposal: jsonb('proposal').$type<{ confidence?: number; rationale?: string; evidence?: string[]; autoApproved?: boolean; autoApprovedThreshold?: number }>(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     executedAt: timestamp('executed_at', { mode: 'date' }),
   },
