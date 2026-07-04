@@ -535,6 +535,29 @@ export const agentSchema = pgTable(
     documentSetIds: jsonb('document_set_ids').$type<number[]>().default([]),
     /** JSONB rules for what requires HITL approval */
     approvalPolicy: jsonb('approval_policy').$type<Record<string, unknown>>().default({}),
+    /**
+     * Harness config (v0.3) — per-agent knobs for the reusable agent
+     * harness (services/agents/harness.ts). Authored as the `harness:`
+     * block in workspace agent YAML. `interrupts` lists tool/operation
+     * slugs that must pause for human approval (routed through the
+     * existing hitl_gate machinery) before executing.
+     */
+    harnessConfig: jsonb('harness_config').$type<{
+      /** Which harness executes this agent: 'local' (in-process deepagents loop, default) or 'agentcore' (AWS AgentCore managed harness). */
+      provider?: 'local' | 'agentcore';
+      interrupts?: string[];
+      maxTokens?: number;
+      /** Built-in tool names to withhold from this agent (e.g. propose_action for agents with no CRM writes). */
+      excludeTools?: string[];
+      /** agentcore provider only: Bedrock model id for the managed harness (defaults to the harness service default). */
+      model?: string;
+    }>().default({}).notNull(),
+    /**
+     * agentcore provider only: ARN of the provisioned AgentCore harness.
+     * Written by workspace:apply when it creates/updates the harness;
+     * read by the invoke adapter. NULL for local-provider agents.
+     */
+    harnessArn: text('harness_arn'),
     /** Search tuning: recency decay, source weights, result limits */
     searchConfig: jsonb('search_config').$type<{
       recencyDecay?: number;
