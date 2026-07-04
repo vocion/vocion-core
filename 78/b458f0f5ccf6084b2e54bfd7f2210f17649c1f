@@ -1,0 +1,37 @@
+packages/core/src/features/dashboard/chat/ChatShell.tsx
+  s_033710d3f947f4::t_a90a91893ed7df 11,94-147,159-160,184-185,189,203,220,227,232-243,248,258,314-324,326,336
+packages/core/src/services/agents/harness.ts
+  s_033710d3f947f4::t_3a64cf9fe5b592 138-164
+  s_033710d3f947f4::t_febf3c2307c62a 2-24
+  s_033710d3f947f4::t_f8e7f69071574c 121-129
+  s_033710d3f947f4::t_9f6045b89cf6b6 172-176,204,290
+  s_033710d3f947f4::t_a7c0161e0c8812 1,25-120,130-137,165-171,177-203,205-289,291-302
+packages/core/src/features/dashboard/chat/MessageList.tsx
+  s_033710d3f947f4::t_627b80f0307d70 4,12-20,33-35,37-57,59-61,63-70,74
+packages/core/src/features/dashboard/chat/AgentMessage.tsx
+  s_033710d3f947f4::t_a29b5168907b22 50-55
+  s_033710d3f947f4::t_0fea329119cf52 56
+  s_033710d3f947f4::t_0352d97e2fd0b8 112
+  s_033710d3f947f4::t_9e22d39bbdb12d 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "78b458f0f5ccf6084b2e54bfd7f2210f17649c1f",
+  "prompts": {},
+  "humans": {
+    "h_338974d7a3d8d0": {
+      "author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_033710d3f947f4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "35e85350-9bd4-434e-8204-3a8fc61fbb8c",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
