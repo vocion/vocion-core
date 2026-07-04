@@ -39,7 +39,9 @@ import {
   updateLearningTool,
 } from './tools/learnings';
 import { lookupObjectsTool } from './tools/lookupObjects';
+import { updateMissionNotesTool } from './tools/missionNotes';
 import { proposeActionTool } from './tools/proposeAction';
+import { publishBriefingTool } from './tools/publishBriefing';
 import { runCodeTool } from './tools/runCode';
 import { runOperationTool } from './tools/runOperation';
 import { listRecentRunsTool, listRunFeedbackTool } from './tools/runs';
@@ -139,6 +141,8 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     listRunFeedbackTool(ctx),
     requestHumanReviewTool(ctx),
     proposeActionTool(ctx),
+    updateMissionNotesTool(ctx),
+    publishBriefingTool(ctx),
   ];
 
   const subagents = (row.subagents ?? []).map((s): SubAgent => ({
@@ -213,11 +217,13 @@ export function bindRequestEmit(
   emit: RuntimeContext['emit'],
   userId?: string,
   allowedSourceSlugs?: string[],
+  missionSlug?: string,
 ): void {
   const internal = compiled as unknown as { __ctx: RuntimeContext };
   internal.__ctx.emit = emit;
   internal.__ctx.userId = userId;
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
+  internal.__ctx.missionSlug = missionSlug;
 }
 
 /* ------------------------------------------------------------------ */
