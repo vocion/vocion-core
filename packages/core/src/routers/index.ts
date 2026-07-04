@@ -59,8 +59,11 @@ import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile
 import {
   approve,
   cancel,
+  decideActionRoute,
   getRun,
   getWorkflowRunRoute,
+  listAutoExecutedRoute,
+  listPendingActionsRoute,
   listPendingSkillRuns,
   listWorkflowRunsRoute,
   reject,
@@ -144,6 +147,9 @@ export const router = {
   },
   review: {
     listSkillRuns: listPendingSkillRuns,
+    listPendingActions: listPendingActionsRoute,
+    listAutoExecuted: listAutoExecutedRoute,
+    decideAction: decideActionRoute,
     getSkillRun: getRun,
     approveSkillRun: approve,
     rejectSkillRun: reject,

@@ -1,7 +1,7 @@
 import type { ZodType } from 'zod';
-import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, SourceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
+import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, SourceManifest, TrustManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
@@ -15,6 +15,7 @@ import {
   PlaybookManifestSchema,
   SkillManifestSchema,
   SourceManifestSchema,
+  TrustManifestSchema,
   WorkflowManifestSchema,
   WorkspaceManifestSchema,
 } from './schemas';
@@ -60,6 +61,7 @@ export type LoadedWorkspace = {
   workflows: LoadedWorkflow[];
   missions: LoadedMission[];
   automations: LoadedAutomation[];
+  trust: TrustManifest | null;
   playbooks: LoadedPlaybook[];
   learningSteps: LoadedLearningStep[];
   evalDatasets: LoadedEvalDataset[];
@@ -150,6 +152,14 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       return { ...parsed, sourceFile: file };
     });
 
+  const trustPath = ['trust.yaml', 'trust.yml'].map(n => join(abs, n)).find(existsSync) ?? null;
+  const trust: TrustManifest | null = trustPath
+    ? (() => {
+        files.push(trustPath);
+        return parseFile(trustPath, TrustManifestSchema, 'trust') as TrustManifest;
+      })()
+    : null;
+
   const automations = walkDir(join(abs, 'automations'))
     .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
     .map((file) => {
@@ -211,6 +221,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     workflows,
     missions,
     automations,
+    trust,
     playbooks,
     learningSteps,
     evalDatasets,
