@@ -10,9 +10,9 @@ import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { getWorkflowActivity } from '@/libs/activity';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
-import { Link } from '@/libs/I18nNavigation';
 import { getWorkflow, listWorkflowRuns } from '@/services/WorkflowService';
 
 const RUN_STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
