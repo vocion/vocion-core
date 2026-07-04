@@ -109,8 +109,8 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
   const rejectSkill = (id: number, note?: string) => runAction(async () => {
     await client.review.rejectSkillRun({ id, reason: note });
   });
-  const resumeWorkflow = (id: number) => runAction(async () => {
-    await client.review.resumeWorkflow({ id });
+  const resumeWorkflow = (id: number, input?: string) => runAction(async () => {
+    await client.review.resumeWorkflow(input !== undefined ? { id, input } : { id });
   });
   const cancelWorkflow = (id: number) => runAction(async () => {
     await client.review.cancelWorkflow({ id });
@@ -150,7 +150,7 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
                 run={run}
                 isOpen={openId === `wf-${run.id}`}
                 onToggle={() => setOpenId(openId === `wf-${run.id}` ? null : `wf-${run.id}`)}
-                onResume={() => resumeWorkflow(run.id)}
+                onResume={input => resumeWorkflow(run.id, input)}
                 onCancel={() => cancelWorkflow(run.id)}
                 busy={pending}
               />
@@ -317,13 +317,17 @@ function WorkflowRunCard({
   run: WorkflowRunRow;
   isOpen: boolean;
   onToggle: () => void;
-  onResume: () => void;
+  onResume: (input?: string) => void;
   onCancel: () => void;
   busy: boolean;
 }) {
   const created = typeof run.createdAt === 'string' ? new Date(run.createdAt) : run.createdAt;
-  const awaitingStep = run.pauseReason?.replace(/^awaiting_approval:/, '');
+  // `awaiting_approval:<step>` = approve gate; `awaiting_input:<step>` = ask
+  // step — the run resumes only once a human supplies text.
+  const awaitingInput = !!run.pauseReason?.startsWith('awaiting_input:');
+  const awaitingStep = run.pauseReason?.replace(/^awaiting_(?:approval|input):/, '');
   const awaitingResult = awaitingStep ? run.stepResults[awaitingStep] : undefined;
+  const [askInput, setAskInput] = useState('');
 
   return (
     <div className="rounded-md border border-border bg-background">
@@ -360,16 +364,34 @@ function WorkflowRunCard({
         <div className="space-y-3 border-t border-border p-3">
           {(awaitingResult?.output as { prompt?: string } | undefined)?.prompt && (
             <div className="rounded-md bg-muted/50 p-2 text-xs">
-              <strong>Review prompt: </strong>
+              <strong>{awaitingInput ? 'Input requested: ' : 'Review prompt: '}</strong>
               {(awaitingResult!.output as { prompt: string }).prompt}
             </div>
           )}
+          {awaitingInput && (
+            <textarea
+              value={askInput}
+              onChange={e => setAskInput(e.target.value)}
+              rows={6}
+              placeholder="Paste the requested text here…"
+              className="w-full rounded-md border border-border bg-background p-2 font-mono text-xs outline-none focus:border-primary/50"
+            />
+          )}
           <RunDetail label="Step results" value={run.stepResults} />
           <div className="flex gap-2 pt-2">
-            <Button size="sm" onClick={onResume} disabled={busy}>
-              <RotateCw className="mr-1 size-4" />
-              Approve + resume
-            </Button>
+            {awaitingInput
+              ? (
+                  <Button size="sm" onClick={() => onResume(askInput)} disabled={busy || askInput.trim() === ''}>
+                    <RotateCw className="mr-1 size-4" />
+                    Submit & resume
+                  </Button>
+                )
+              : (
+                  <Button size="sm" onClick={() => onResume()} disabled={busy}>
+                    <RotateCw className="mr-1 size-4" />
+                    Approve + resume
+                  </Button>
+                )}
             <Button size="sm" variant="outline" disabled={busy} onClick={onCancel}>
               <XCircle className="mr-1 size-4" />
               Cancel run
