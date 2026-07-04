@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MIT",
   "engines": {
     "node": ">=20"
@@ -54,7 +54,10 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
     "@auth/drizzle-adapter": "^1.11.2",
+    "@aws-sdk/client-bedrock-agentcore": "^3.1079.0",
+    "@aws-sdk/client-bedrock-agentcore-control": "^3.1079.0",
     "@aws-sdk/client-kms": "^3.1045.0",
+    "@aws-sdk/client-sts": "^3.1079.0",
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/lang-yaml": "^6.1.3",

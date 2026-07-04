@@ -252,7 +252,7 @@ export async function removeLearning(opts: { orgId: string; ruleId: number }) {
 
 /**
  * Returns `{ '/learnings/<step>.md': content }` for the given step
- * names. Used by services/agents/runtime.ts:buildInitialFiles to seed
+ * names. Used by services/agents/harness.ts:buildInitialFiles to seed
  * the agent's deepagents StateBackend per turn.
  * @param orgId
  * @param stepNames

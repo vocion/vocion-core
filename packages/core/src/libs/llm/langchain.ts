@@ -120,6 +120,8 @@ export type BuildChatModelOptions = {
   temperature?: number;
   /** Anthropic-only: enable streaming. Default `true`. */
   streaming?: boolean;
+  /** Cap on output tokens. Unset = the provider integration's default. */
+  maxTokens?: number;
 };
 
 /**
@@ -158,8 +160,13 @@ export function buildChatModel(
           thinking: { type: 'enabled', budget_tokens: thinkingBudget },
           // budget_tokens must be < max_tokens. The langchain default for
           // the 4.x family is 16384; raise the cap when a large budget
-          // would collide with it.
-          ...(thinkingBudget + 4096 > 16384 ? { maxTokens: thinkingBudget + 4096 } : {}),
+          // would collide with it, and keep any caller-supplied cap above
+          // the thinking budget.
+          ...(opts.maxTokens
+            ? { maxTokens: Math.max(opts.maxTokens, thinkingBudget + 4096) }
+            : thinkingBudget + 4096 > 16384
+              ? { maxTokens: thinkingBudget + 4096 }
+              : {}),
         });
       }
       return new ChatAnthropic({
@@ -167,6 +174,7 @@ export function buildChatModel(
         temperature,
         streaming,
         apiKey,
+        ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
       });
     }
     case 'openai': {
@@ -179,6 +187,7 @@ export function buildChatModel(
         temperature,
         streaming,
         apiKey,
+        ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
       });
     }
   }

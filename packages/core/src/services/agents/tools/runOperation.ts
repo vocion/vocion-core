@@ -18,12 +18,31 @@ import { executeSkill } from '@/services/OperationService';
  */
 export function runOperationTool(ctx: RuntimeContext) {
   const slugs = ctx.operationSlugs;
+  const interrupts = ctx.harnessConfig.interrupts ?? [];
   return tool(
     async (args) => {
       const { slug, input } = args;
       if (slugs.length > 0 && !slugs.includes(slug)) {
         return `Operation "${slug}" is not in scope for this agent. Available: ${slugs.join(', ')}.`;
       }
+
+      // Harness interrupt gate: operations listed in the agent's
+      // `harness.interrupts` pause for human approval BEFORE executing.
+      // Same conversational HITL contract as request_human_review: the
+      // gate renders in the UI, the user's next turn carries the
+      // decision, and the model re-calls with `approved: true`.
+      if (interrupts.includes(slug) && !args.approved) {
+        ctx.emit({
+          type: 'hitl_gate',
+          gate: {
+            name: `run-${slug.replace(/_/g, '-')}`,
+            question: `Run the "${slug}" operation with these inputs?`,
+            payload: { operation: slug, input },
+          },
+        });
+        return `[Operation "${slug}" is interrupt-gated: it was NOT executed. An approval gate was shown to the user. Stop and wait for their decision in the next turn. If they approve, call run_operation again with approved: true; if they reject, abandon it.]`;
+      }
+
       const result = await executeSkill({
         orgId: ctx.orgId,
         skillSlug: slug,
@@ -60,6 +79,7 @@ export function runOperationTool(ctx: RuntimeContext) {
       schema: z.object({
         slug: z.string().describe('operation slug to invoke'),
         input: z.record(z.string(), z.unknown()).describe('arguments matching the operation\'s declared inputSchema'),
+        approved: z.boolean().optional().describe('for interrupt-gated operations ONLY: set true after — and only after — the user has explicitly approved this exact operation in a later turn'),
       }),
     },
   );
