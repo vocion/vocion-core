@@ -141,6 +141,47 @@ describe('WorkflowService', () => {
     expect((resumed.stepResults.final?.output as { input: { body: string } }).input.body).toBe('draft body');
   });
 
+  it('pauses at an ask step and resumes with human input flowing downstream', async () => {
+    pluginRegistry.register(
+      { id: 'test.ask', version: '1.0.0' },
+      [defineSkill({
+        slug: 'summarize',
+        name: 'Summarize',
+        version: '1.0.0',
+        requiresApproval: false,
+        inputSchema: z.object({ transcript: z.string() }),
+        outputSchema: z.object({ received: z.string() }),
+        async run(_ctx, input) {
+          return { received: input.transcript };
+        },
+      })],
+    );
+
+    await seedWorkflow('ask_then_skill', [
+      { name: 'transcript', type: 'ask', prompt: 'Paste the call transcript' },
+      { name: 'summary', type: 'skill', skill: 'summarize', input: { transcript: '{{steps.transcript.output}}' } },
+    ]);
+
+    const first = await startWorkflow({ orgId: ORG, slug: 'ask_then_skill' });
+
+    expect(first.status).toBe('paused');
+    expect(first.pauseReason).toBe('awaiting_input:transcript');
+    expect(first.stepResults.transcript?.status).toBe('awaiting_approval');
+    expect(first.stepResults.transcript?.output).toEqual({ prompt: 'Paste the call transcript', kind: 'ask' });
+    expect(first.stepResults.summary).toBeUndefined();
+
+    // an ask step resumes only WITH data
+    await expect(resumeWorkflow(first.id, ORG)).rejects.toThrow(/awaiting input/);
+
+    const resumed = await resumeWorkflow(first.id, ORG, { input: 'Call with Jane Doe of Acme' });
+
+    expect(resumed.status).toBe('completed');
+    expect(resumed.stepResults.transcript?.status).toBe('completed');
+    expect(resumed.stepResults.transcript?.output).toBe('Call with Jane Doe of Acme');
+    expect(resumed.stepResults.summary?.status).toBe('completed');
+    expect(resumed.stepResults.summary?.output).toEqual({ received: 'Call with Jane Doe of Acme' });
+  });
+
   it('fails a run when a step throws', async () => {
     pluginRegistry.register(
       { id: 'test.boom', version: '1.0.0' },
