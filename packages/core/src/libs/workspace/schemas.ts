@@ -81,6 +81,26 @@ export const AgentManifestSchema = z.object({
   accent: z.string().optional(),
   /** Short tagline shown above the chat title. */
   eyebrow: z.string().optional(),
+  /**
+   * Harness config (v0.3) — per-agent knobs for the reusable agent
+   * harness. `provider` selects where the agent loop executes:
+   * `local` (in-process deepagents loop, the default) or `agentcore`
+   * (the AWS AgentCore managed harness — provisioned by
+   * workspace:apply, invoked via InvokeHarness; operations execute
+   * client-side in vocion-core as inline functions). `interrupts`
+   * lists skill/tool slugs that pause for human approval (via the
+   * hitl_gate flow) before executing; `maxTokens` caps the model's
+   * output tokens; `excludeTools` withholds built-in tools by name
+   * (e.g. `propose_action` for agents that should have no CRM-write
+   * surface at all); `model` (agentcore only) sets the Bedrock model.
+   */
+  harness: z.object({
+    provider: z.enum(['local', 'agentcore']).default('local'),
+    interrupts: z.array(z.string()).default([]),
+    maxTokens: z.number().int().positive().optional(),
+    excludeTools: z.array(z.string()).default([]),
+    model: z.string().optional(),
+  }).partial().default({}),
 }).refine(
   v => !!(v.systemPromptFile || v.systemPrompt),
   { message: 'agent must have either systemPromptFile or inline systemPrompt' },

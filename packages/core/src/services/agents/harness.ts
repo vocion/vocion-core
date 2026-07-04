@@ -1,15 +1,27 @@
 /**
- * Deepagents runtime — Phase 4.
+ * The agent HARNESS — the reusable execution layer every Vocion agent
+ * runs on. An agent is pure declarative config (workspace YAML → the
+ * `agent` table); the harness is everything that turns that definition
+ * into a running agent:
  *
- * Builds (and LRU-caches) compiled `createDeepAgent` graphs per
- * `(orgId, agentSlug)`. Each graph wires:
- *   - LangChain `BaseChatModel` from the role registry (Phase 1).
- *   - Tool factories from `./tools/*` (Phase 4) plus run_operation.
+ *   definition (agent row)  ──►  compiled graph  ──►  event stream
+ *
+ * Per `(orgId, agentSlug)` it builds (and LRU-caches) a compiled
+ * `createDeepAgent` graph wiring:
+ *   - LangChain `BaseChatModel` from the role registry, honoring the
+ *     agent's `harness_config` knobs (e.g. `maxTokens`).
+ *   - Tool factories from `./tools/*` plus run_operation. Operations
+ *     listed in `harness_config.interrupts` pause for human approval
+ *     through the hitl_gate flow before executing (tools/runOperation.ts).
  *   - Subagents from the `agent.subagents` JSONB column.
- *   - Playbook mount via deepagents `createSkillsMiddleware`
- *     (Phase 3 supplied the `playbookSchema` rows and mount helper).
+ *   - Playbook mount via deepagents `createSkillsMiddleware`.
  *
- * The runtime is OPT-IN behind `VOCION_AGENT_RUNTIME=deepagents`. The
+ * The harness DEPLOYS AS PART OF CORE — in-process with the Next.js
+ * app, same compose/EC2 topology; there is no separate runtime service
+ * to host per agent. Entry points: chat SSE (`/rpc/agent/stream` →
+ * AgentService.runAgentDeep), missions, workflows.
+ *
+ * The harness is OPT-IN behind `VOCION_AGENT_RUNTIME=deepagents`. The
  * legacy hand-rolled loop in services/AgentService.ts stays the default
  * until the new path is verified end-to-end against existing flows.
  */
@@ -106,6 +118,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   // attach its own emit before each `streamEvents` call. See the
   // emitter pattern in `runAgentDeep` in services/AgentService.ts.)
   const noopEmit: RuntimeContext['emit'] = () => {};
+  const harnessConfig = row.harnessConfig ?? {};
   const ctx: RuntimeContext = {
     orgId,
     agentSlug: row.slug,
@@ -113,6 +126,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     operationSlugs: row.skillSlugs ?? [],
+    harnessConfig,
     emit: noopEmit,
   };
 
@@ -121,6 +135,10 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   //
   // Retrieval is the native pgvector path (`search_knowledge`). Source-typed
   // filtering uses per-connector slugs (knowledge_source.slug).
+  // `harness.excludeTools` withholds built-ins by name — the tool never
+  // reaches the model's catalog, so the agent can't even offer it (vs.
+  // `interrupts`, which keeps the tool but gates execution).
+  const excludeTools = new Set(harnessConfig.excludeTools ?? []);
   const tools = [
     searchKnowledgeTool(ctx),
     webSearchTool(ctx),
@@ -143,7 +161,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     proposeActionTool(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
-  ];
+  ].filter(t => !excludeTools.has(t.name));
 
   const subagents = (row.subagents ?? []).map((s): SubAgent => ({
     name: s.name,
@@ -151,7 +169,11 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     systemPrompt: s.systemPrompt,
   }));
 
-  const model = buildChatModel('main');
+  // Per-agent output cap from the harness block (falls back to the
+  // langchain provider default when unset).
+  const model = buildChatModel('main', {
+    ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
+  });
 
   // Only mount deepagents' SkillsMiddleware when the org actually HAS
   // playbooks. The middleware requires initialized state fields and fails in

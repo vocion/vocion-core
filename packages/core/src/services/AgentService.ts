@@ -1,6 +1,6 @@
 /* eslint-disable style/brace-style, regexp/no-unused-capturing-group, no-console */
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import { db } from '@/libs/DB';
 import { cleanUsageDetails, langfuse, traceFor } from '@/libs/Langfuse';
@@ -973,7 +973,7 @@ export async function runAgentDeep(opts: {
   // Local import keeps the legacy `runAgent` path from pulling
   // deepagents/LangChain modules at module-load time. (Cuts cold-start
   // for callers that never use the new runtime.)
-  const { bindRequestEmit, buildInitialFiles, getCompiledAgent } = await import('./agents/runtime');
+  const { bindRequestEmit, buildInitialFiles, getCompiledAgent } = await import('./agents/harness');
   const { createLangfuseCallback } = await import('@/libs/Langfuse');
   const { chargeUsage, preflightCheck } = await import('./BudgetService');
 
@@ -986,6 +986,18 @@ export async function runAgentDeep(opts: {
     const message = `Budget exceeded for agent "${opts.agentSlug}" (${budgetCheck.reason}: ${budgetCheck.current}/${budgetCheck.limit}). Raise the cap on /dashboard/agents/${opts.agentSlug} or wait for the next period.`;
     emit({ type: 'error', message });
     throw new Error(message);
+  }
+
+  // Harness provider dispatch: `harness.provider: agentcore` agents run
+  // on the AWS AgentCore managed harness (same event/return contract);
+  // everything else runs the in-process deepagents loop below.
+  const [agentRow] = await db
+    .select({ harnessConfig: agentSchema.harnessConfig })
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.slug, opts.agentSlug)));
+  if (agentRow?.harnessConfig?.provider === 'agentcore') {
+    const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
+    return runAgentOnAgentCoreHarness(opts);
   }
 
   const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug);

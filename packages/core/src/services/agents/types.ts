@@ -97,6 +97,19 @@ export type RuntimeContext = {
   /** Operation slugs this agent can invoke via the `run_operation` tool. */
   operationSlugs: string[];
   /**
+   * Per-agent harness knobs (`agent.harness_config`, authored as the
+   * `harness:` block in workspace YAML). `interrupts` lists operation
+   * slugs that must pause for human approval (hitl_gate) before
+   * executing; `maxTokens` caps the model's output for this agent.
+   */
+  harnessConfig: {
+    provider?: 'local' | 'agentcore';
+    interrupts?: string[];
+    maxTokens?: number;
+    excludeTools?: string[];
+    model?: string;
+  };
+  /**
    * Side-channel for emitting structured events the LLM stream can't
    * naturally produce (documents sidebar, skill_result cards). Tool
    * implementations call this; the runtime forwards to the SSE client.
