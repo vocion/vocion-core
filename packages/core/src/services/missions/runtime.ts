@@ -10,7 +10,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { missionRunSchema } from '@/models/Schema';
+import { missionRunSchema, missionSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
 import { clampAutonomyLevel, taskNeedsApproval } from './autonomy';
 
@@ -49,6 +49,11 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
     throw new Error(`mission run ${runId} not found`);
   }
   const level = clampAutonomyLevel((run.autonomyPolicy as { level?: number } | null)?.level);
+  // Resolve the mission slug so mission-scoped tools (update_mission_notes)
+  // can persist working memory. Ad-hoc briefs without a template have none.
+  const missionSlug = run.missionId
+    ? (await db.select({ slug: missionSchema.slug }).from(missionSchema).where(eq(missionSchema.id, run.missionId)))[0]?.slug ?? null
+    : null;
   const tasks: Task[] = run.plan?.tasks ?? [];
   const artifacts: Artifact[] = [...(run.artifacts ?? [])];
 
@@ -87,6 +92,7 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
         agentSlug: task.ownerAgentSlug,
         message: taskMessage({ brief: run.brief, goal: run.goal, task, priorOutputs }),
         userId: run.createdBy ?? 'mission',
+        missionSlug: missionSlug ?? undefined,
       });
       task.status = 'completed';
       task.output = result.response;

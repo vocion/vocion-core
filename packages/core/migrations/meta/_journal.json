@@ -260,6 +260,27 @@
       "when": 1782001300000,
       "tag": "0036_source_access_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1782001400000,
+      "tag": "0037_mission_working_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1782001500000,
+      "tag": "0038_trust_rule",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1782001600000,
+      "tag": "0039_briefing",
+      "breakpoints": true
     }
   ]
 }

@@ -88,6 +88,8 @@ export type RuntimeContext = {
    * retrieval intersects with it. Unset for non-user runs (schedules).
    */
   allowedSourceSlugs?: string[];
+  /** The mission this run belongs to (check/brief runs) — for mission-scoped tools. */
+  missionSlug?: string;
   /** Object type slugs this agent can read. */
   objectTypeSlugs: string[];
   /** Per-agent retrieval tuning. */
