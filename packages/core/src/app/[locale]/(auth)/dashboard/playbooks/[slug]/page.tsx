@@ -9,11 +9,11 @@ import { DocViewer } from '@/features/dashboard/DocViewer';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
-import { getWorkspacePath } from '@/libs/workspace/reader';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { fromRepoRoot } from '@/libs/repo-root';
+import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
+import { getWorkspacePath } from '@/libs/workspace/reader';
 import { playbookSchema } from '@/models/Schema';
 
 type Props = {

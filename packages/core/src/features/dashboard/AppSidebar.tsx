@@ -11,6 +11,7 @@ import {
   GitBranch,
   LineChart,
   MessageSquare,
+  Newspaper,
   Plug,
   ScrollText,
   ShieldCheck,
@@ -68,6 +69,7 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           label={t('main_section_label')}
           items={[
             { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
+            { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
             { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
             { title: 'Activity', url: '/dashboard/activity', icon: Activity },
             { title: t('search'), url: '/dashboard/search', icon: BookOpen },
