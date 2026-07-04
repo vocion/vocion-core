@@ -8,7 +8,7 @@ import type {
   IndexedDocument,
   StreamingPhase,
 } from './types';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AgentHeader } from './AgentHeader';
 import { ChatComposer } from './ChatComposer';
 import { EmptyState } from './EmptyState';
@@ -91,6 +91,60 @@ export function ChatShell({
     });
   }, []);
 
+  /* --------------------------------------------------------------- */
+  /* Delta batching — token deltas arrive far faster than the screen  */
+  /* refreshes. Accumulate them in refs and fold into React state at  */
+  /* most once per animation frame, so a 1000-token reply costs ~60   */
+  /* renders instead of ~1000. Ordering with non-delta events (tool   */
+  /* runs, documents) is preserved by flushing synchronously before   */
+  /* any other message mutation.                                      */
+  /* --------------------------------------------------------------- */
+
+  const pendingResponseRef = useRef('');
+  const pendingThinkingRef = useRef('');
+  const flushFrameRef = useRef<number | null>(null);
+
+  const flushDeltas = useCallback(() => {
+    if (flushFrameRef.current !== null) {
+      cancelAnimationFrame(flushFrameRef.current);
+      flushFrameRef.current = null;
+    }
+    const responseText = pendingResponseRef.current;
+    const thinkingText = pendingThinkingRef.current;
+    if (!responseText && !thinkingText) {
+      return;
+    }
+    pendingResponseRef.current = '';
+    pendingThinkingRef.current = '';
+    appendToLatestAgent((m) => {
+      let next = m;
+      if (thinkingText) {
+        next = { ...next, thinkingText: (next.thinkingText ?? '') + thinkingText };
+      }
+      if (responseText) {
+        const runs = next.runs ?? [];
+        const last = runs[runs.length - 1];
+        next = last && last.type === 'text'
+          ? { ...next, runs: [...runs.slice(0, -1), { type: 'text', text: last.text + responseText }] }
+          : { ...next, runs: [...runs, { type: 'text', text: responseText }] };
+      }
+      return next;
+    });
+  }, [appendToLatestAgent]);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushFrameRef.current === null) {
+      flushFrameRef.current = requestAnimationFrame(flushDeltas);
+    }
+  }, [flushDeltas]);
+
+  // Unmount mid-stream: drop the pending frame (state is gone anyway).
+  useEffect(() => () => {
+    if (flushFrameRef.current !== null) {
+      cancelAnimationFrame(flushFrameRef.current);
+    }
+  }, []);
+
   const handleEvent = useCallback((evt: { type: string; [k: string]: unknown }) => {
     switch (evt.type) {
       case 'thinking':
@@ -101,9 +155,9 @@ export function ChatShell({
         // Chain-of-thought token (Anthropic extended thinking).
         // Accumulate into the message's thinkingText — WorkTimeline
         // renders the live tail while streaming and the full text after.
-        const delta = String(evt.delta ?? '');
         setActivity('Reasoning…');
-        appendToLatestAgent(m => ({ ...m, thinkingText: (m.thinkingText ?? '') + delta }));
+        pendingThinkingRef.current += String(evt.delta ?? '');
+        scheduleFlush();
         return;
       }
       case 'answering':
@@ -127,18 +181,12 @@ export function ChatShell({
         return;
       case 'response_delta': {
         setActivity(null);
-        const delta = String(evt.delta ?? '');
-        appendToLatestAgent((m) => {
-          const runs = m.runs ?? [];
-          const last = runs[runs.length - 1];
-          if (last && last.type === 'text') {
-            return { ...m, runs: [...runs.slice(0, -1), { type: 'text', text: last.text + delta }] };
-          }
-          return { ...m, runs: [...runs, { type: 'text', text: delta }] };
-        });
+        pendingResponseRef.current += String(evt.delta ?? '');
+        scheduleFlush();
         return;
       }
       case 'tool_start': {
+        flushDeltas();
         const name = String(evt.tool ?? 'tool');
         const input = (evt.input as Record<string, unknown>) ?? {};
         // Same human labels the timeline uses, present tense — "Delegating:
@@ -152,6 +200,7 @@ export function ChatShell({
         return;
       }
       case 'tool_end': {
+        flushDeltas();
         const name = String(evt.tool ?? 'tool');
         const output = String(evt.output ?? '');
         appendToLatestAgent((m) => {
@@ -168,20 +217,35 @@ export function ChatShell({
         return;
       }
       case 'documents': {
+        flushDeltas();
         const docs = (evt.documents as IndexedDocument[]) ?? [];
         setAllDocuments(prev => [...prev, ...docs]);
         appendToLatestAgent(m => ({ ...m, documents: [...(m.documents ?? []), ...docs] }));
         return;
       }
       case 'hitl_gate': {
+        flushDeltas();
         setPendingHitl(evt.gate as HitlGatePayload);
         return;
       }
       case 'done':
+        flushDeltas();
+        // Backfill `content` from the streamed text runs. Streaming only
+        // accumulates into `runs`; `conversation_history` reads `content`
+        // (and drops empty entries), so without this the agent never sees
+        // its own prior replies and re-answers earlier turns.
+        appendToLatestAgent(m => ({
+          ...m,
+          content: m.content || (m.runs ?? [])
+            .filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text')
+            .map(r => r.text)
+            .join('\n\n'),
+        }));
         setPhase('idle');
         setActivity(null);
         return;
       case 'error': {
+        flushDeltas();
         setPhase('idle');
         setActivity(null);
         const msg = String(evt.message ?? 'error');
@@ -191,7 +255,7 @@ export function ChatShell({
         }));
       }
     }
-  }, [appendToLatestAgent]);
+  }, [appendToLatestAgent, flushDeltas, scheduleFlush]);
 
   /* --------------------------------------------------------------- */
   /* Send                                                            */
@@ -247,7 +311,19 @@ export function ChatShell({
           }
         }
       }
+      // Stream closed — fold in any deltas still buffered and make sure
+      // `content` is populated (covers streams that end without a `done`
+      // event; see the `done` case for why content must be backfilled).
+      flushDeltas();
+      appendToLatestAgent(m => ({
+        ...m,
+        content: m.content || (m.runs ?? [])
+          .filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text')
+          .map(r => r.text)
+          .join('\n\n'),
+      }));
     } catch (err) {
+      flushDeltas();
       setPhase('idle');
       appendToLatestAgent(m => ({
         ...m,
@@ -257,7 +333,7 @@ export function ChatShell({
         ],
       }));
     }
-  }, [agent.slug, messages, isStreaming, handleEvent, appendToLatestAgent]);
+  }, [agent.slug, messages, isStreaming, handleEvent, appendToLatestAgent, flushDeltas]);
 
   const handlePickSuggestion = useCallback((prompt: string) => {
     setComposerValue(prompt);
