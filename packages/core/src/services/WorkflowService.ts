@@ -8,7 +8,7 @@ import { executeSkill } from './SkillService';
 /**
  * Workflow execution. v1 scope:
  *   - Sequential step execution (no parallel)
- *   - Step types: `skill`, `approve`, `action`
+ *   - Step types: `skill`, `approve`, `ask`, `action`, `sync`
  *   - `action` steps are stubs — they record intent but perform no side effects
  *     (v2 wires concrete actions: gmail.send_email, hubspot.update_deal, etc.)
  *   - No durable scheduler — if the process dies mid-run, the run is stuck at
@@ -82,7 +82,7 @@ export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRu
   return runLoop(run!.id);
 }
 
-export async function resumeWorkflow(runId: number, orgId: string): Promise<WorkflowRunSummary> {
+export async function resumeWorkflow(runId: number, orgId: string, payload?: { input?: string }): Promise<WorkflowRunSummary> {
   const [run] = await db
     .select()
     .from(workflowRunSchema)
@@ -94,14 +94,26 @@ export async function resumeWorkflow(runId: number, orgId: string): Promise<Work
     throw new Error(`workflow_run ${runId} is ${run.status}; nothing to resume`);
   }
 
-  // Mark the current (approve) step complete and advance the cursor — otherwise
-  // the loop would sit on the same approve step and re-pause.
+  // Mark the current (approve | ask) step complete and advance the cursor —
+  // otherwise the loop would sit on the same step and re-pause.
   const stepResults = { ...(run.stepResults as Record<string, StepResult>) };
   const currentIdx = run.currentStep ?? 0;
   const [wf] = await db.select().from(workflowSchema).where(eq(workflowSchema.id, run.workflowId));
   const steps = (wf?.steps ?? []) as unknown as WorkflowStep[];
   const currentStep = steps[currentIdx];
-  if (currentStep && currentStep.type === 'approve') {
+  if (currentStep && currentStep.type === 'ask') {
+    // An ask step resumes WITH data — the human's text becomes the step's
+    // output, interpolable downstream via {{steps.<name>.output}}.
+    if (payload?.input === undefined || payload.input === '') {
+      throw new Error(`workflow_run ${runId} is awaiting input for step "${currentStep.name}"; pass { input } to resume`);
+    }
+    stepResults[currentStep.name] = {
+      ...stepResults[currentStep.name],
+      status: 'completed',
+      output: payload.input,
+      finishedAt: new Date().toISOString(),
+    };
+  } else if (currentStep && currentStep.type === 'approve') {
     stepResults[currentStep.name] = {
       ...stepResults[currentStep.name],
       status: 'completed',
@@ -287,6 +299,26 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
           currentStep: cursor,
           status: 'paused',
           pauseReason: `awaiting_approval:${name}`,
+          pausedAt: new Date(),
+        });
+        const [paused] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
+        return summarize(paused!);
+      } else if (step.type === 'ask') {
+        // Human input as a step: pause the run in Review until a human
+        // supplies text via resumeWorkflow(runId, orgId, { input }). Reuses
+        // the `awaiting_approval` StepStatus; the `kind: 'ask'` discriminator
+        // tells the review UI to render a textarea instead of an approve
+        // button. The supplied text replaces this output on resume.
+        stepResults[name] = {
+          ...stepResults[name],
+          status: 'awaiting_approval',
+          output: { prompt: step.prompt, kind: 'ask' },
+        };
+        await persistState(runId, {
+          stepResults,
+          currentStep: cursor,
+          status: 'paused',
+          pauseReason: `awaiting_input:${name}`,
           pausedAt: new Date(),
         });
         const [paused] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
