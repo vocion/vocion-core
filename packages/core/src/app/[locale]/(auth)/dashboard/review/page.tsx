@@ -1,4 +1,5 @@
 import { setRequestLocale } from 'next-intl/server';
+import { ActionProposals } from '@/features/dashboard/ActionProposals';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -75,6 +76,7 @@ export default async function ReviewPage(props: {
           : `${total} ${total === 1 ? 'item needs' : 'items need'} attention — pending skill drafts and paused workflow runs.`}
       />
       <ReviewQueue initialSkillRuns={skillRuns} initialWorkflowRuns={workflowRuns} />
+      <ActionProposals />
     </>
   );
 }

@@ -121,6 +121,7 @@ const InterpolatableStringSchema = z.string().describe(
  *   - `skill`   — invoke a skill (typed LLM call) with interpolated input
  *   - `sync`    — refresh named sources so downstream steps read live data
  *   - `approve` — HITL pause; workflow resumes after runtime_approve
+ *   - `ask`     — HITL input; pause until a human supplies text
  *   - `action`  — connector-backed action (v1 = registered stubs only)
  */
 const SkillStepSchema = z.object({
@@ -138,6 +139,21 @@ const ApproveStepSchema = z.object({
   prompt: z.string().describe('what is being approved — shown in the review queue'),
   /** Optional — reference to prior step whose output is being reviewed. */
   reviews: z.string().optional(),
+});
+
+/**
+ * Human input as a step. Pauses the run in Review until a human supplies
+ * text (e.g. "paste the call transcript"); the run then resumes with that
+ * text as the step's output, interpolable downstream via
+ * `{{steps.<name>.output}}`. Deterministic: the question is fixed at
+ * authoring time — only the data comes from the human.
+ */
+const AskStepSchema = z.object({
+  name: SlugSchema,
+  type: z.literal('ask'),
+  prompt: z.string().describe('what to ask the human — shown in the review queue'),
+  /** Optional — persist this step's output into named variable (defaults to step name). */
+  outputAs: z.string().optional(),
 });
 
 const ActionStepSchema = z.object({
@@ -159,7 +175,7 @@ const SyncStepSchema = z.object({
   sources: z.array(z.string()).min(1),
 });
 
-const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, ApproveStepSchema, ActionStepSchema, SyncStepSchema]);
+const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, ApproveStepSchema, AskStepSchema, ActionStepSchema, SyncStepSchema]);
 
 const ManualTriggerSchema = z.object({
   type: z.literal('manual').default('manual'),
@@ -193,6 +209,20 @@ const WorkflowTriggerSchema = z.discriminatedUnion('type', [ManualTriggerSchema,
  * goals, workflows are pure procedures. Automations are the only place
  * time and events live.
  */
+/**
+ * Trust ladder rules — workspace/<org>/trust.yaml. A pending proposal whose
+ * confidence >= autoApproveAbove on an ENABLED rule executes without review
+ * (audited). Keep rules few and thresholds high; disable to revert.
+ */
+export const TrustManifestSchema = z.object({
+  rules: z.array(z.object({
+    action: z.string().describe('registered action id, e.g. hubspot.update'),
+    autoApproveAbove: z.number().min(0).max(1),
+    enabled: z.boolean().default(false),
+  })).default([]),
+});
+export type TrustManifest = z.infer<typeof TrustManifestSchema>;
+
 export const AutomationManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().optional(),
