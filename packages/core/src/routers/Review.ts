@@ -30,6 +30,11 @@ const ListWorkflowRunsInput = z.object({
 });
 
 const RunIdInput = z.object({ id: z.number().int().positive() });
+const ResumeInput = z.object({
+  id: z.number().int().positive(),
+  /** Human-supplied text for a run paused on an `ask` step (`awaiting_input:<step>`). */
+  input: z.string().optional(),
+});
 const RejectInput = z.object({ id: z.number().int().positive(), reason: z.string().optional() });
 const CancelInput = z.object({ id: z.number().int().positive(), reason: z.string().optional() });
 const ApproveInput = z.object({
@@ -43,6 +48,47 @@ const FeedbackInput = z.object({
   rating: z.enum(['up', 'down']).nullable().optional(),
   note: z.string().optional(),
 });
+
+/** Pending action proposals (the sweep's CRM updates) with confidence envelopes. */
+export const listPendingActionsRoute = os.handler(async () => {
+  const { orgId } = await guardAuth();
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const { and, desc, eq } = await import('drizzle-orm');
+  return db
+    .select()
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'pending')))
+    .orderBy(desc(actionRunSchema.createdAt))
+    .limit(50);
+});
+
+/** Recently auto-executed proposals (trust-ladder audit surface). */
+export const listAutoExecutedRoute = os.handler(async () => {
+  const { orgId } = await guardAuth();
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const { and, desc, eq, sql } = await import('drizzle-orm');
+  return db
+    .select()
+    .from(actionRunSchema)
+    .where(and(
+      eq(actionRunSchema.orgId, orgId),
+      sql`${actionRunSchema.proposal} ->> 'autoApproved' = 'true'`,
+    ))
+    .orderBy(desc(actionRunSchema.createdAt))
+    .limit(20);
+});
+
+/** Approve or reject a pending action proposal. */
+export const decideActionRoute = os
+  .input(z.object({ id: z.number().int().positive(), decision: z.enum(['approve', 'reject']), reason: z.string().optional() }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { decide } = await import('@/services/ReviewService');
+    await decide({ kind: 'action', id: input.id }, input.decision, orgId, { reason: input.reason, reviewedBy: userId });
+    return { ok: true };
+  });
 
 export const listPendingSkillRuns = os
   .input(ListSkillRunsInput)
@@ -133,10 +179,10 @@ export const getWorkflowRunRoute = os
   });
 
 export const resume = os
-  .input(RunIdInput)
+  .input(ResumeInput)
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
-    return resumeWorkflow(input.id, orgId);
+    return resumeWorkflow(input.id, orgId, input.input !== undefined ? { input: input.input } : undefined);
   });
 
 export const cancel = os

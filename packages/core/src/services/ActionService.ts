@@ -47,6 +47,10 @@ export type ProposeResult = {
  * @param input.input
  * @param input.principal
  * @param input.invokedBy
+ * @param input.proposal
+ * @param input.proposal.confidence
+ * @param input.proposal.rationale
+ * @param input.proposal.evidence
  */
 export async function proposeAction(input: {
   orgId: string;
@@ -92,6 +96,24 @@ export async function proposeAction(input: {
     .returning({ id: actionRunSchema.id });
 
   if (gated) {
+    // Trust ladder: an ENABLED rule whose threshold this proposal's
+    // confidence clears executes it now — audited, never silent. The
+    // default (no rule) keeps every external action in the review queue.
+    const { trustDecision } = await import('@/services/TrustService');
+    const trust = await trustDecision(input.orgId, action.id, input.proposal?.confidence);
+    if (trust.auto) {
+      await db
+        .update(actionRunSchema)
+        .set({
+          proposal: {
+            ...(input.proposal ?? {}),
+            autoApproved: true,
+            autoApprovedThreshold: trust.threshold,
+          } as never,
+        })
+        .where(eq(actionRunSchema.id, run!.id));
+      return executeAction(run!.id, input.orgId);
+    }
     return { runId: run!.id, status: 'pending' };
   }
   return executeAction(run!.id, input.orgId);

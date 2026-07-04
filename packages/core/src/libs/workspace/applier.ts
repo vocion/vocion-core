@@ -2,7 +2,7 @@ import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningSt
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, skillSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, skillSchema, trustRuleSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -141,6 +141,25 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
       bump(counts.sources, outcome);
     } catch (err) {
       errors.push({ resource: 'source', slug: src.slug, message: (err as Error).message });
+    }
+  }
+
+  // Trust rules: full replace per org from workspace/<org>/trust.yaml.
+  // Absent file (or empty rules) = no auto-execution anywhere.
+  if (!dryRun) {
+    try {
+      await db.delete(trustRuleSchema).where(eq(trustRuleSchema.orgId, orgId));
+      const rules = loaded.trust?.rules ?? [];
+      if (rules.length > 0) {
+        await db.insert(trustRuleSchema).values(rules.map(r => ({
+          orgId,
+          actionId: r.action,
+          threshold: r.autoApproveAbove,
+          enabled: String(r.enabled),
+        })));
+      }
+    } catch (err) {
+      errors.push({ resource: 'trustRule', slug: 'trust.yaml', message: (err as Error).message });
     }
   }
 
