@@ -1,0 +1,19 @@
+packages/core/postcss.config.mjs
+  s_3b1740b95d457e::t_1f4acaeecce132 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ad31932622379dadbc614160234af77b0ed059b2",
+  "prompts": {},
+  "sessions": {
+    "s_3b1740b95d457e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "166c5bd5-70f0-4f8a-9fdd-b8bf572bab87",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
