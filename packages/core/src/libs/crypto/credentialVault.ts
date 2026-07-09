@@ -27,8 +27,10 @@
  * generate from `crypto.randomBytes`).
  */
 
+import { Buffer } from 'node:buffer';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import process from 'node:process';
+import { localVault } from './localVault';
 
 export type EncryptResult = {
   ciphertext: string; // base64
@@ -115,8 +117,10 @@ export function buildCredentialVault(): CredentialVault {
       '[vault] WARNING: running in production without KMS. Set VOCION_CREDENTIAL_VAULT=kms + VOCION_KMS_KEY_ARN to use AWS KMS.',
     );
   }
-  // eslint-disable-next-line ts/no-require-imports
-  const { localVault } = require('./localVault') as typeof import('./localVault');
+  // Static import — a lazy `require()` here resolves to a namespace-wrapped
+  // module under Turbopack's ESM server bundle ("localVault is not a
+  // function"). localVault is dependency-light so eager loading is free;
+  // only the KMS path (heavy AWS SDK) stays lazy.
   _vault = localVault();
   return _vault;
 }
