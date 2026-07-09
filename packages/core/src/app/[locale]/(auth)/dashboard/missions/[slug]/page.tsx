@@ -1,5 +1,5 @@
-import { and, desc, eq } from 'drizzle-orm';
-import { CalendarClock, Compass, NotebookPen, Plus, Target, Users } from 'lucide-react';
+import { and, eq } from 'drizzle-orm';
+import { Activity, CalendarClock, NotebookPen, Plus, Target, Users } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { StatusPill } from '@/components/ui/status-pill';
@@ -11,7 +11,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
-import { missionRunSchema, missionSchema } from '@/models/Schema';
+import { missionSchema } from '@/models/Schema';
 import { listAutomations } from '@/services/AutomationService';
 import { isEntityStatus } from '@/types/Status';
 
@@ -42,10 +42,7 @@ export default async function MissionDetailPage(props: {
     notFound();
   }
 
-  const [runs, automations] = await Promise.all([
-    db.select().from(missionRunSchema).where(and(eq(missionRunSchema.orgId, orgId), eq(missionRunSchema.missionId, mission.id))).orderBy(desc(missionRunSchema.createdAt)).limit(10),
-    listAutomations(orgId),
-  ]);
+  const automations = await listAutomations(orgId);
   const checkers = automations.filter(a => a.doConfig.checkMission === slug && a.status === 'active');
   const sourceFiles = readPrimitiveFiles('mission', slug);
   const team = mission.defaultTeam;
@@ -158,25 +155,16 @@ export default async function MissionDetailPage(props: {
         </section>
       )}
 
-      <section className="mb-6 rounded-md border border-border p-5">
-        <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
-          <Compass className="size-4 text-primary" />
-          Recent checks & runs
-        </h2>
-        {runs.length === 0
-          ? <p className="text-sm text-muted-foreground">No runs yet — "Check now" fires the same pass the automation runs.</p>
-          : (
-              <div className="flex flex-col">
-                {runs.map(r => (
-                  <Link key={r.id} href={`/dashboard/missions/runs/${r.id}`} className="flex items-center gap-3 border-b border-border py-2 text-sm last:border-0 hover:bg-muted/40">
-                    <span className="min-w-0 flex-1 truncate">{r.title}</span>
-                    <span className="text-[11px] text-muted-foreground">{r.createdAt?.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px]">{r.status}</span>
-                  </Link>
-                ))}
-              </div>
-            )}
-      </section>
+      <div className="mb-6">
+        <Link
+          href={`/dashboard/activity?kind=mission&slug=${slug}`}
+          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition hover:text-foreground"
+        >
+          <Activity className="size-4" />
+          View this mission's runs in Activity
+          <span aria-hidden>→</span>
+        </Link>
+      </div>
 
       {sourceFiles && (
         <PrimitiveFiles
