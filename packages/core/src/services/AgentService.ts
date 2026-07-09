@@ -25,9 +25,9 @@ function openaiClient(): OpenAI {
 /* Load agent config                                                   */
 /* ------------------------------------------------------------------ */
 
-export const getAgent = (_orgId: string, slug: string) => {
+export const getAgent = (orgId: string, slug: string) => {
   return db.query.agentSchema.findFirst({
-    where: eq(agentSchema.slug, slug),
+    where: and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, slug)),
   });
 };
 
@@ -39,35 +39,60 @@ export const listAgents = (_orgId: string) => {
 
 export type AgentRow = Awaited<ReturnType<typeof listAgents>>[number];
 
-export type TeamView = {
-  /** Team slug (or 'ungrouped' for agents with no team). */
-  team: string;
-  /** The lead agent (interactive/orchestration layer), if one is designated. */
-  lead: AgentRow | null;
-  /** The specialist agents on the team. */
+export type AgentHierarchyView = {
+  /** A primary agent — one with no parent. The front door you talk to. */
+  primary: AgentRow;
+  /** The specialized agents that report to this primary (parentAgentSlug === primary.slug). */
   specialists: AgentRow[];
 };
 
 /**
- * Group an org's agents into teams — each a lead + its specialists. The org
- * chart of the deployment: you talk to a team's Lead, which coordinates its
- * specialists. Agents with no `team` fall under 'ungrouped'.
+ * Group an org's agents into the primary → specialized hierarchy. A primary
+ * agent has no `parentAgentSlug`; a specialist names its primary in that field.
+ * The relationship is one level deep. A specialist whose parent slug resolves
+ * to no agent in the org is surfaced defensively as its own primary, so no
+ * agent is ever dropped from the registry.
+ *
+ * Pure (no DB) so it can be unit-tested; `listAgentHierarchy` wraps it.
+ * @param agents - All agents in the org.
+ */
+export function groupAgentHierarchy(agents: AgentRow[]): AgentHierarchyView[] {
+  const bySlug = new Map(agents.map(a => [a.slug, a]));
+  const specialistsByParent = new Map<string, AgentRow[]>();
+  const primaries: AgentRow[] = [];
+
+  for (const a of agents) {
+    const parent = a.parentAgentSlug;
+    if (parent && bySlug.has(parent) && parent !== a.slug) {
+      const list = specialistsByParent.get(parent) ?? [];
+      list.push(a);
+      specialistsByParent.set(parent, list);
+    } else {
+      // No parent, or a dangling/self parent — treat as a primary.
+      primaries.push(a);
+    }
+  }
+
+  const byName = (a: AgentRow, b: AgentRow) => a.name.localeCompare(b.name);
+
+  return primaries
+    .map(primary => ({
+      primary,
+      specialists: (specialistsByParent.get(primary.slug) ?? []).sort(byName),
+    }))
+    // Primaries that lead a team first, then alphabetical.
+    .sort((a, b) => {
+      const bySpecialists = (b.specialists.length > 0 ? 1 : 0) - (a.specialists.length > 0 ? 1 : 0);
+      return bySpecialists !== 0 ? bySpecialists : byName(a.primary, b.primary);
+    });
+}
+
+/**
+ * Load an org's agents and group them into the primary → specialized hierarchy.
  * @param orgId - The active project/org id whose agents to group.
  */
-export async function listTeams(orgId: string): Promise<TeamView[]> {
-  const agents = await listAgents(orgId);
-  const byTeam = new Map<string, AgentRow[]>();
-  for (const a of agents) {
-    const key = a.team ?? 'ungrouped';
-    const list = byTeam.get(key) ?? [];
-    list.push(a);
-    byTeam.set(key, list);
-  }
-  return [...byTeam.entries()].map(([team, members]) => ({
-    team,
-    lead: members.find(m => m.role === 'lead') ?? null,
-    specialists: members.filter(m => m.role !== 'lead'),
-  }));
+export async function listAgentHierarchy(orgId: string): Promise<AgentHierarchyView[]> {
+  return groupAgentHierarchy(await listAgents(orgId));
 }
 
 /* ------------------------------------------------------------------ */
