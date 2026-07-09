@@ -5,6 +5,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
+import { assertAgentHierarchy } from './hierarchy';
 import {
   AgentManifestSchema,
   AutomationManifestSchema,
@@ -201,6 +202,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     });
 
   assertUniqueSlugs(agents, 'agent');
+  assertAgentHierarchy(agents);
   assertUniqueSlugs(skills, 'skill');
   assertUniqueSlugs(objectTypes, 'object type');
   assertUniqueSlugs(workflows, 'workflow');

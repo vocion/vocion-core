@@ -288,6 +288,13 @@
       "when": 1782001700000,
       "tag": "0040_agent_harness",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1782001800000,
+      "tag": "0041_agent_parent",
+      "breakpoints": true
     }
   ]
 }
