@@ -10,7 +10,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
-import { missionRunSchema, missionSchema, workflowSchema } from '@/models/Schema';
+import { agentSchema, missionRunSchema, missionSchema, workflowSchema } from '@/models/Schema';
 import { clampAutonomyLevel } from './missions/autonomy';
 import { planMission } from './missions/planner';
 import { executeMissionRun } from './missions/runtime';
@@ -85,13 +85,23 @@ export async function startMission(opts: {
       throw new Error(`mission template "${opts.missionSlug}" not found`);
     }
     missionId = template.id;
-    team = team ?? template.defaultTeam;
+    // Missions now own one agent (template.agentSlug). If that agent is a
+    // lead, the team is the specialists that report to it via
+    // agent.parent_agent_slug (see 0041). If it's a specialist, the team is
+    // just that one agent.
+    if (!team) {
+      const specialists = await db
+        .select({ slug: agentSchema.slug })
+        .from(agentSchema)
+        .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.parentAgentSlug, template.agentSlug)));
+      team = { lead: template.agentSlug, members: specialists.map(s => s.slug) };
+    }
     goal = template.goal;
     autonomyLevel = autonomyLevel ?? (template.autonomyPolicy as { level?: number } | null)?.level;
     charter = { successCriteria: template.successCriteria ?? [], name: template.name };
   }
   if (!team?.lead) {
-    throw new Error('a mission needs a team (lead + members) or a template slug');
+    throw new Error('a mission needs an agent (or a template slug)');
   }
   const level = clampAutonomyLevel(autonomyLevel);
   const workspaceSha = await getCurrentWorkspaceSha(opts.orgId).catch(() => null);
