@@ -1,12 +1,15 @@
 import type { DefaultSession } from 'next-auth';
 import { DrizzleAdapter } from '@auth/drizzle-adapter';
 import bcrypt from 'bcrypt';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
+import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { accountMembershipSchema, authAccountSchema, projectSchema, sessionSchema, userSchema, verificationTokenSchema } from '@/models/Schema';
 import { db } from './DB';
+
+const ACTIVE_PROJECT_COOKIE = 'vocion_active_project';
 
 /**
  * auth.js (next-auth v5) configuration. This is the default auth backend
@@ -87,11 +90,18 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       // On first sign-in, `user` is set — populate id + resolve tenancy.
       if (user?.id) {
         token.id = user.id;
         const tenancy = await resolveTenancyForUser(user.id);
+        token.accountId = tenancy.accountId;
+        token.projectId = tenancy.projectId;
+        token.role = tenancy.role;
+      } else if (trigger === 'update' && typeof token.id === 'string') {
+        // Session.update() (e.g. after project switch) — re-resolve tenancy so
+        // the new vocion_active_project cookie is honored on the next issue.
+        const tenancy = await resolveTenancyForUser(token.id);
         token.accountId = tenancy.accountId;
         token.projectId = tenancy.projectId;
         token.role = tenancy.role;
@@ -102,9 +112,18 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       if (typeof token.id === 'string') {
         session.user.id = token.id;
       }
-      session.user.accountId = (token.accountId as string | null | undefined) ?? null;
-      session.user.projectId = (token.projectId as string | null | undefined) ?? null;
-      session.user.role = (token.role as 'admin' | 'member' | null | undefined) ?? null;
+      // Resolve tenancy on every session read so the vocion_active_project
+      // cookie is authoritative — no JWT rotation dance needed on switch.
+      if (typeof token.id === 'string') {
+        const tenancy = await resolveTenancyForUser(token.id);
+        session.user.accountId = tenancy.accountId;
+        session.user.projectId = tenancy.projectId;
+        session.user.role = tenancy.role;
+      } else {
+        session.user.accountId = null;
+        session.user.projectId = null;
+        session.user.role = null;
+      }
       return session;
     },
   },
@@ -112,11 +131,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
 
 /**
  * Find the user's current tenant + active project. Self-hosted: each
- * user belongs to exactly one tenant_account; the active project is the
- * first one (or whatever the user last selected — TODO: read from
- * `vocion_active_project` cookie). Cloud: same query but the user may
- * belong to multiple accounts — needs the account_id resolved from a
- * separate cookie.
+ * user belongs to exactly one tenant_account; the active project is
+ * whichever the `vocion_active_project` cookie names (if the user has
+ * access to it), else the first project on the account.
  * @param userId
  */
 async function resolveTenancyForUser(userId: string): Promise<{
@@ -135,6 +152,33 @@ async function resolveTenancyForUser(userId: string): Promise<{
 
   if (!membership) {
     return { accountId: null, projectId: null, role: null };
+  }
+
+  // Honor `vocion_active_project` cookie when the named project belongs to
+  // the user's account. `cookies()` is available in both Route Handlers and
+  // Server Actions — the JWT callback runs in one of those contexts.
+  let requestedId: string | undefined;
+  try {
+    const jar = await cookies();
+    requestedId = jar.get(ACTIVE_PROJECT_COOKIE)?.value;
+  } catch {
+    // cookies() throws when called outside a request scope; fall through
+    // to the default first-project selection.
+  }
+
+  if (requestedId) {
+    const [chosen] = await db
+      .select({ id: projectSchema.id })
+      .from(projectSchema)
+      .where(and(eq(projectSchema.id, requestedId), eq(projectSchema.accountId, membership.accountId)))
+      .limit(1);
+    if (chosen) {
+      return {
+        accountId: membership.accountId,
+        projectId: chosen.id,
+        role: membership.role as 'admin' | 'member',
+      };
+    }
   }
 
   const [proj] = await db
