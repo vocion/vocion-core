@@ -28,11 +28,21 @@ export const AgentManifestSchema = z.object({
   description: z.string().optional(),
   icon: z.string().optional(),
   active: z.boolean().default(true),
-  /** Team hierarchy: `lead` = the interactive/orchestration agent; `specialist` = a role-based team member. */
-  role: z.enum(['lead', 'specialist']).default('specialist'),
+  /**
+   * Slug of the primary agent this specialist reports to. Omit for
+   * primary agents. One level deep: the referenced agent must itself
+   * have no `parent`. Source of truth for the agent hierarchy.
+   */
+  parent: SlugSchema.optional(),
+  /**
+   * DEPRECATED — derived from `parent` ('specialist' when parent is
+   * set, 'lead' otherwise). If authored, it must match the derived
+   * value; workspace:check errors on a mismatch.
+   */
+  role: z.enum(['lead', 'specialist']).optional(),
   /** The work mode this agent primarily runs. */
   agentType: z.enum(['mission', 'workflow', 'operational']).optional(),
-  /** Team slug this agent belongs to (groups a lead + its specialists), e.g. `revenue-operations`. */
+  /** DEPRECATED display label. Hierarchy comes from `parent`, not this. */
   team: z.string().optional(),
   model: z.string().optional(),
   temperature: z.union([z.string(), z.number()]).optional(),
