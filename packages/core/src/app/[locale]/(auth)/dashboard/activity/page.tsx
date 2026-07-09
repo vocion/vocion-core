@@ -62,23 +62,29 @@ function Row({ item }: { item: ActivityItem }) {
 
 export default async function ActivityPage(props: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ kind?: string }>;
+  searchParams: Promise<{ kind?: string; slug?: string }>;
 }) {
   const { locale } = await props.params;
-  const { kind } = await props.searchParams;
+  const { kind, slug } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
     return null;
   }
 
-  const all = await activityFeed(orgId, 50);
-  const attention = all.filter(i => ATTENTION_STATUSES.has(i.status));
   const activeKind = (kind && kind in KIND_META ? kind : null) as ActivityKind | null;
-  const feed = activeKind ? all.filter(i => i.kind === activeKind) : all;
+  // If narrowing to a specific definition, the DB does the filter (cheaper).
+  // The unfiltered feed still fills the tab-chip counts.
+  const [feed, all] = await Promise.all([
+    activityFeed(orgId, { kind: activeKind ?? undefined, slug, limit: 50 }),
+    slug ? activityFeed(orgId, { limit: 50 }) : Promise.resolve(null),
+  ]);
+  const chipSource = all ?? feed;
+  const attention = feed.filter(i => ATTENTION_STATUSES.has(i.status));
   const counts = Object.fromEntries(
-    (Object.keys(KIND_META) as ActivityKind[]).map(k => [k, all.filter(i => i.kind === k).length]),
+    (Object.keys(KIND_META) as ActivityKind[]).map(k => [k, chipSource.filter(i => i.kind === k).length]),
   ) as Record<ActivityKind, number>;
+  const scopedTo = slug ? `${activeKind ? KIND_META[activeKind].label.replace(/s$/, '') : ''} “${slug}”`.trim() : null;
 
   return (
     <>
@@ -86,6 +92,14 @@ export default async function ActivityPage(props: {
         title="Activity"
         description="Everything the team did — checks, runs, fires, and syncs — newest first. Decisions that need you live in Review."
       />
+
+      {scopedTo && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+          <span className="text-muted-foreground">Scoped to</span>
+          <span className="font-medium">{scopedTo}</span>
+          <Link href="/dashboard/activity" className="ml-auto text-muted-foreground underline hover:text-foreground">clear</Link>
+        </div>
+      )}
 
       {attention.length > 0 && (
         <section className="mb-6 rounded-md border border-amber-500/40 bg-amber-500/5 p-5">
@@ -104,7 +118,7 @@ export default async function ActivityPage(props: {
         >
           All ·
           {' '}
-          {all.length}
+          {chipSource.length}
         </Link>
         {(Object.keys(KIND_META) as ActivityKind[]).map(k => (
           <Link
