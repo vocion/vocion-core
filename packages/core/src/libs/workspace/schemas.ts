@@ -298,7 +298,12 @@ export const MissionManifestSchema = z.object({
   status: z.enum(['active', 'disabled', 'draft']).default('active'),
   version: z.number().int().positive().default(1),
   goal: z.string(),
-  defaultTeam: z.object({ lead: z.string(), members: z.array(z.string()).default([]) }),
+  /**
+   * The single agent that owns this mission. If it's a lead
+   *  (via agent.parent_agent_slug reverse-lookup), that lead's specialists
+   *  are the team the runtime can hand off to.
+   */
+  agent: z.string(),
   autonomyPolicy: z.object({ level: z.number().int().min(1).max(5).default(1) }).default({ level: 1 }),
   successCriteria: z.array(z.string()).default([]),
   desiredArtifacts: z.array(z.string()).default([]),
