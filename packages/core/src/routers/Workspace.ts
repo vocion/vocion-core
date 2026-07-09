@@ -3,10 +3,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, relative } from 'node:path';
 import process from 'node:process';
 import { ORPCError, os } from '@orpc/server';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { db } from '@/libs/DB';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
-import { applyWorkspace, loadWorkspace } from '@/libs/workspace';
-import { guardAuth } from './AuthGuards';
+import { applyWorkspace, getCurrentWorkspaceSha, invalidateCurrentContextShaCache, loadWorkspace } from '@/libs/workspace';
+import { projectSchema } from '@/models/Schema';
+import { guardAuth, guardRole } from './AuthGuards';
 
 /**
  * Read files that back a primitive instance from the tenant's context
@@ -179,3 +182,76 @@ export const writeFile = os
       applied,
     };
   });
+
+/**
+ * Resolve the workspace directory for a project. Multi-workspace installs
+ * map project slugs to folders via VOCION_WORKSPACE_MAP
+ * ("<projectSlug>:<path>,<projectSlug>:<path>"); single-workspace installs
+ * fall back to WORKSPACE_PATH. Returns null when the project has no
+ * workspace folder on this box (drift check silently skips).
+ * @param projectId
+ */
+async function workspacePathForProject(projectId: string): Promise<string | null> {
+  const [proj] = await db
+    .select({ slug: projectSchema.slug })
+    .from(projectSchema)
+    .where(eq(projectSchema.id, projectId))
+    .limit(1);
+  const map = process.env.VOCION_WORKSPACE_MAP ?? '';
+  if (proj && map) {
+    for (const pair of map.split(',')) {
+      const idx = pair.indexOf(':');
+      if (idx > 0 && pair.slice(0, idx).trim() === proj.slug) {
+        return pair.slice(idx + 1).trim();
+      }
+    }
+    // Map configured but this project isn't in it — no workspace here.
+    return null;
+  }
+  return WORKSPACE_PATH;
+}
+
+/**
+ * Drift check — compare the workspace FILES' sha against the last APPLIED
+ * sha for the caller's active project. Backs the "workspace changed —
+ * apply?" banner shown on dashboard load.
+ */
+export const driftStatus = os.handler(async () => {
+  const { orgId, projectId } = await guardAuth();
+  const path = await workspacePathForProject(projectId!);
+  if (!path || !existsSync(fromRepoRoot(path))) {
+    return { available: false as const };
+  }
+  try {
+    const loaded = loadWorkspace(path);
+    const appliedSha = await getCurrentWorkspaceSha(orgId!);
+    return {
+      available: true as const,
+      path,
+      currentSha: loaded.sha,
+      appliedSha,
+      drifted: appliedSha !== null && appliedSha !== loaded.sha,
+      neverApplied: appliedSha === null,
+    };
+  } catch {
+    // Unparseable workspace — the check is informational, never fatal.
+    return { available: false as const };
+  }
+});
+
+/**
+ * Apply the active project's workspace directory to the DB — the button on
+ * the drift banner. Admin-gated: an apply rewrites agents/skills/missions
+ * for the whole project.
+ */
+export const applyNow = os.handler(async () => {
+  const { orgId, projectId } = await guardRole('org:admin');
+  const path = await workspacePathForProject(projectId!);
+  if (!path || !existsSync(fromRepoRoot(path))) {
+    throw new ORPCError('NOT_FOUND', { message: 'no workspace directory for this project on this host' });
+  }
+  const loaded = loadWorkspace(path);
+  const result = await applyWorkspace(loaded, { orgId: orgId!, appliedBy: 'ui-drift-banner' });
+  invalidateCurrentContextShaCache();
+  return { sha: loaded.sha, counts: result.counts, errors: result.errors };
+});
