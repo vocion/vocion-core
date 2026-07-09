@@ -611,12 +611,22 @@ export const agentSchema = pgTable(
     icon: text('icon'),
     /** Whether this agent is active */
     active: text('active').default('true'),
-    /** Team hierarchy: 'lead' (interactive/orchestration) | 'specialist' (role-based member). */
+    /**
+     * Hierarchy role, derived from `parentAgentSlug` by workspace:apply —
+     * 'lead' (primary agent, no parent) | 'specialist' (has a parent).
+     * Do not author directly; kept as a column for chat-surface grouping.
+     */
     role: text('role').default('specialist').notNull(),
     /** Primary work mode: 'mission' | 'workflow' | 'operational'. */
     agentType: text('agent_type'),
-    /** Team slug grouping a lead + its specialists (e.g. 'revenue-operations'). */
+    /** Legacy display label. Hierarchy comes from `parentAgentSlug`, not this. */
     team: text('team'),
+    /**
+     * Slug of the primary agent this specialist reports to (same org).
+     * NULL = primary agent. One level deep: a parent cannot itself have
+     * a parent. Slug reference, no FK — same convention as skillSlugs.
+     */
+    parentAgentSlug: text('parent_agent_slug'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, skillSchema, trustRuleSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { deriveRole } from './hierarchy';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -404,9 +405,10 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     langfuseProjectId: agent.langfuseProjectId ?? null,
     icon: agent.icon ?? null,
     active: String(agent.active),
-    role: agent.role,
+    role: deriveRole(agent.parent),
     agentType: agent.agentType ?? null,
     team: agent.team ?? null,
+    parentAgentSlug: agent.parent ?? null,
   };
 
   if (!existing) {
@@ -808,6 +810,10 @@ function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unkn
     'langfuseProjectId',
     'icon',
     'active',
+    'role',
+    'agentType',
+    'team',
+    'parentAgentSlug',
   ] as const;
   const pick = (src: Record<string, unknown>): Record<string, unknown> => {
     const out: Record<string, unknown> = {};

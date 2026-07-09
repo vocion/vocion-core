@@ -41,7 +41,7 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
             <span>Learnings</span>
           </div>
         )}
-        description="Whitelisted rule buckets the self-improver subagent feeds, gated by human approval. Each step is mounted into the agent's virtual FS at /learnings/<step>.md."
+        description="Whitelisted rule buckets the self-improver agent feeds, gated by human approval. Each step is mounted into the agent's virtual FS at /learnings/<step>.md."
       />
 
       {steps.length === 0
