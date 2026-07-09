@@ -794,8 +794,12 @@ export const missionSchema = pgTable(
     status: text('status').default('active'),
     /** The open-ended goal this mission pursues. */
     goal: text('goal').notNull(),
-    /** Default team: { lead: agentSlug, members: agentSlug[] }. */
-    defaultTeam: jsonb('default_team').$type<{ lead: string; members: string[] }>().notNull(),
+    /**
+     * The single agent that owns this mission. If that agent is a lead
+     *  (some other agents have parent_agent_slug pointing to it — see 0041),
+     *  the runtime resolves the team by reverse-lookup.
+     */
+    agentSlug: text('agent_slug').notNull(),
     /** Per-action autonomy policy (see services/missions/autonomy.ts). */
     autonomyPolicy: jsonb('autonomy_policy').$type<Record<string, unknown>>().default({}),
     /** Plain-language success criteria + expected artifacts. */
