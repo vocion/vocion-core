@@ -56,6 +56,7 @@ import {
 } from './Missions';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
+import { list as listProjects, setActive as setActiveProject } from './Projects';
 import {
   approve,
   cancel,
@@ -109,6 +110,10 @@ export const router = {
     get: getProfileRoute,
     updateName: updateNameRoute,
     changePassword: changePasswordRoute,
+  },
+  projects: {
+    list: listProjects,
+    setActive: setActiveProject,
   },
   members: {
     list: listMembersRoute,
