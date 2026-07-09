@@ -18,6 +18,7 @@ import { hubspotConnector } from './hubspot';
 import { localFilesConnector } from './localFiles';
 import { slackConnector } from './slack';
 import { webConnector } from './web';
+import { zoomConnector } from './zoom';
 
 const registry = new Map<string, SourceConnector>();
 
@@ -44,3 +45,4 @@ registerConnector(gmailConnector);
 registerConnector(googleCalendarConnector);
 registerConnector(slackConnector);
 registerConnector(driveConnector);
+registerConnector(zoomConnector);
