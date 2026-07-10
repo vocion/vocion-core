@@ -363,8 +363,13 @@ export function ChatShell({
     }
     handoffSentRef.current = true;
     try {
-      const { question, contextTitle, context } = JSON.parse(raw) as { question: string; contextTitle: string; context: string };
-      void sendMessage(`${question}\n\n---\nCONTEXT — "${contextTitle}" (carried over from the Briefings page):\n\n${context}`);
+      const { question, contextTitle, context, excerpt } = JSON.parse(raw) as { question: string; contextTitle: string; context: string; excerpt?: string };
+      const parts = [question];
+      if (excerpt) {
+        parts.push(`---\nThe question is specifically about this highlighted passage:\n> ${excerpt.replaceAll('\n', '\n> ')}`);
+      }
+      parts.push(`---\nCONTEXT — "${contextTitle}" (carried over from the Briefings page):\n\n${context}`);
+      void sendMessage(parts.join('\n\n'));
     } catch {
       /* malformed stash — ignore */
     }
