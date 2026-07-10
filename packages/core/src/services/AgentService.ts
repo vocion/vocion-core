@@ -1016,11 +1016,14 @@ export async function runAgentDeep(opts: {
   // Harness provider dispatch: `harness.provider: agentcore` agents run
   // on the AWS AgentCore managed harness (same event/return contract);
   // everything else runs the in-process deepagents loop below.
+  // VOCION_DISABLE_AGENTCORE=1 forces the local loop — for dev machines
+  // with no AWS credentials / no provisioned harness, where an
+  // agentcore-pinned agent would otherwise be unchattable ("Tool error").
   const [agentRow] = await db
     .select({ harnessConfig: agentSchema.harnessConfig })
     .from(agentSchema)
     .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.slug, opts.agentSlug)));
-  if (agentRow?.harnessConfig?.provider === 'agentcore') {
+  if (agentRow?.harnessConfig?.provider === 'agentcore' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
     const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
     return runAgentOnAgentCoreHarness(opts);
   }
