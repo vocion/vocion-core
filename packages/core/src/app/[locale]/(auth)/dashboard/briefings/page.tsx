@@ -51,7 +51,7 @@ export default async function BriefingsPage(props: {
             />
           )
         : (
-            <>
+            <div data-briefing-root>
               <article className="mb-6 rounded-md border border-border p-6">
                 <div className="mb-1 flex flex-wrap items-center gap-2">
                   <h2 className="text-lg font-semibold">{latest.title}</h2>
@@ -85,7 +85,7 @@ export default async function BriefingsPage(props: {
               )}
 
               <BriefingChatStarter briefingTitle={latest.title} briefingContent={latest.content} />
-            </>
+            </div>
           )}
     </>
   );
