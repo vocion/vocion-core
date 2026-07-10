@@ -4,6 +4,7 @@ import { setRequestLocale } from 'next-intl/server';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { EmptyState } from '@/components/ui/empty-state';
+import { BriefingChatStarter } from '@/features/dashboard/BriefingChatStarter';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
@@ -82,6 +83,8 @@ export default async function BriefingsPage(props: {
                   ))}
                 </section>
               )}
+
+              <BriefingChatStarter briefingTitle={latest.title} briefingContent={latest.content} />
             </>
           )}
     </>
