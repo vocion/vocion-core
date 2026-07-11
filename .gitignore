@@ -75,3 +75,6 @@ infra/terraform/crash.log
 
 # AWS production env (operator-managed; never commit)
 infra/aws/.env.production
+
+# agent-runtime build artifacts
+packages/agent-runtime/dist/
