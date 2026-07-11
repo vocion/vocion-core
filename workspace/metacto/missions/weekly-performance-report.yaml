@@ -4,14 +4,7 @@ description: An AI team analyzes the week's campaign, analytics, and CRM data an
 status: active
 version: 1
 goal: Explain what changed this week, what matters, and what to recommend — and produce a client-ready report.
-defaultTeam:
-  lead: account-strategist
-  members:
-    - paid-media-analyst
-    - lifecycle-analyst
-    - creative-strategist
-    - report-writer
-    - qa-reviewer
+agent: account-strategist
 autonomyPolicy:
   level: 1
 successCriteria:

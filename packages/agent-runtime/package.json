@@ -1,0 +1,28 @@
+{
+  "name": "@vocion/agent-runtime",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vocion BYOA agent runtime — the deepagents loop as a standalone artifact (/invocations + /ping), hostable on AWS Bedrock AgentCore Runtime or any container/host.",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "node esbuild.config.mjs",
+    "check:types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@langchain/anthropic": "^1.3.29",
+    "@langchain/aws": "^1.0.4",
+    "@langchain/core": "^1.1.45",
+    "deepagents": "^1.10.1",
+    "langfuse": "^3.38.6",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "esbuild": "~0.18.20",
+    "tsx": "^4.21.0",
+    "vitest": "^4.0.18"
+  }
+}
