@@ -1017,6 +1017,8 @@ export async function runAgentDeep(opts: {
   //   - `runtime`  (BYOA): the standalone agent-runtime artifact
   //     (localhost in dev, AgentCore Runtime when deployed). Also
   //     selectable fleet-wide via VOCION_AGENT_PROVIDER=runtime.
+  //     VOCION_DISABLE_RUNTIME=1 forces the in-process loop instead —
+  //     for dev machines where the artifact isn't running on :8080.
   //   - `agentcore` (managed harness): AWS runs the loop, tools call
   //     back inline. VOCION_DISABLE_AGENTCORE=1 forces the local loop —
   //     for dev machines with no AWS credentials / no provisioned
@@ -1028,7 +1030,7 @@ export async function runAgentDeep(opts: {
     .from(agentSchema)
     .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.slug, opts.agentSlug)));
   const provider = process.env.VOCION_AGENT_PROVIDER ?? agentRow?.harnessConfig?.provider;
-  if (provider === 'runtime') {
+  if (provider === 'runtime' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
     return runAgentOnRuntime(opts);
   }
