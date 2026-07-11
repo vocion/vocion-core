@@ -17,11 +17,17 @@
 
 import process from 'node:process';
 
-process.env.VOCION_AGENT_PROVIDER = 'runtime';
-
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+// Default: exercise whatever provider the agent's harness config picks
+// (post-cutover that IS the runtime). Pass --provider runtime|local|agentcore
+// to force one for comparison runs.
+const forced = arg('provider');
+if (forced) {
+  process.env.VOCION_AGENT_PROVIDER = forced;
 }
 
 async function main(): Promise<void> {
