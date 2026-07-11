@@ -13,8 +13,10 @@ set -euo pipefail
 
 ENV="${ENV:-dev}"
 REGION="${REGION:-us-west-2}"
-PROFILE="${AWS_PROFILE:-metacto}"
-aws() { command aws --region "$REGION" --profile "$PROFILE" "$@"; }
+PROFILE="${AWS_PROFILE:-}"
+# Local: uses the AWS_PROFILE you export (e.g. metacto). CI: no profile —
+# ambient OIDC credentials from configure-aws-credentials.
+aws() { if [ -n "$PROFILE" ]; then command aws --region "$REGION" --profile "$PROFILE" "$@"; else command aws --region "$REGION" "$@"; fi; }
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PKG="$ROOT/packages/agent-runtime"

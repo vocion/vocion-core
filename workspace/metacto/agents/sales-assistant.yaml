@@ -6,6 +6,12 @@ active: true
 model: gpt-5.4
 temperature: '0.3'
 systemPromptFile: sales-assistant.system-prompt.md
+# BYOA cutover: this agent runs on the standalone agent-runtime artifact
+# (localhost :8080 in dev — `npm run dev:agent-runtime`; AgentCore Runtime
+# when VOCION_AGENT_RUNTIME_ARN is set). VOCION_DISABLE_RUNTIME=1 falls
+# back to the in-process loop.
+harness:
+  provider: runtime
 # v0.2 — chat UX ornaments and deepagents-runtime fields.
 accent: amber
 eyebrow: Workspace · Sales Assistant
