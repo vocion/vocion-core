@@ -4,12 +4,7 @@ description: When the numbers don't add up, the team investigates from multiple 
 status: active
 version: 1
 goal: Diagnose an unexpected change (e.g. CPL improved but booked calls dropped) and recommend next steps.
-defaultTeam:
-  lead: account-strategist
-  members:
-    - paid-media-analyst
-    - lifecycle-analyst
-    - data-qa
+agent: account-strategist
 autonomyPolicy:
   level: 1
 successCriteria:

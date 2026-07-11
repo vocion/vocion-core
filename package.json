@@ -9,6 +9,7 @@
   "workspaces": [
     "packages/core",
     "packages/sdk",
+    "packages/agent-runtime",
     "packages/plugins/*"
   ],
   "scripts": {

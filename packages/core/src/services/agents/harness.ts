@@ -37,28 +37,7 @@ import { buildChatModel } from '@/libs/llm';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
 import { mountPlaybooks } from '@/services/playbooks/mount';
-import { crawlSiteTool } from './tools/crawlSite';
-import { createArtifactTool } from './tools/createArtifact';
-import { fetchUrlTool } from './tools/fetchUrl';
-import { generateImageTool } from './tools/generateImage';
-import { requestHumanReviewTool } from './tools/hitl';
-import {
-  addLearningTool,
-  checkLearningDedupTool,
-  getLearningsTool,
-  listLearningStepsTool,
-  removeLearningTool,
-  updateLearningTool,
-} from './tools/learnings';
-import { lookupObjectsTool } from './tools/lookupObjects';
-import { updateMissionNotesTool } from './tools/missionNotes';
-import { proposeActionTool } from './tools/proposeAction';
-import { publishBriefingTool } from './tools/publishBriefing';
-import { runCodeTool } from './tools/runCode';
-import { runOperationTool } from './tools/runOperation';
-import { listRecentRunsTool, listRunFeedbackTool } from './tools/runs';
-import { searchKnowledgeTool } from './tools/searchKnowledge';
-import { webSearchTool } from './tools/webSearch';
+import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
 /* LRU cache of compiled graphs                                        */
@@ -139,29 +118,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   // reaches the model's catalog, so the agent can't even offer it (vs.
   // `interrupts`, which keeps the tool but gates execution).
   const excludeTools = new Set(harnessConfig.excludeTools ?? []);
-  const tools = [
-    searchKnowledgeTool(ctx),
-    webSearchTool(ctx),
-    fetchUrlTool(ctx),
-    crawlSiteTool(ctx),
-    generateImageTool(ctx),
-    runCodeTool(ctx),
-    createArtifactTool(ctx),
-    lookupObjectsTool(ctx),
-    runOperationTool(ctx),
-    listLearningStepsTool(ctx),
-    getLearningsTool(ctx),
-    checkLearningDedupTool(ctx),
-    addLearningTool(ctx),
-    updateLearningTool(ctx),
-    removeLearningTool(ctx),
-    listRecentRunsTool(ctx),
-    listRunFeedbackTool(ctx),
-    requestHumanReviewTool(ctx),
-    proposeActionTool(ctx),
-    updateMissionNotesTool(ctx),
-    publishBriefingTool(ctx),
-  ].filter(t => !excludeTools.has(t.name));
+  const tools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
 
   const subagents = (row.subagents ?? []).map((s): SubAgent => ({
     name: s.name,

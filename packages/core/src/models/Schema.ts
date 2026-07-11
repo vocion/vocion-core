@@ -543,8 +543,8 @@ export const agentSchema = pgTable(
      * existing hitl_gate machinery) before executing.
      */
     harnessConfig: jsonb('harness_config').$type<{
-      /** Which harness executes this agent: 'local' (in-process deepagents loop, default) or 'agentcore' (AWS AgentCore managed harness). */
-      provider?: 'local' | 'agentcore';
+      /** Which harness executes this agent: 'local' (in-process deepagents loop, default), 'agentcore' (AWS AgentCore managed harness), or 'runtime' (BYOA agent-runtime artifact). */
+      provider?: 'local' | 'agentcore' | 'runtime';
       interrupts?: string[];
       maxTokens?: number;
       /** Built-in tool names to withhold from this agent (e.g. propose_action for agents with no CRM writes). */
