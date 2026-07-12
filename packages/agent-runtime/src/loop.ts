@@ -12,6 +12,7 @@ import type { SubAgent } from 'deepagents';
 import type { AgentEvent, InvocationRequest } from './contract.js';
 import { createHash } from 'node:crypto';
 import { createDeepAgent, StateBackend } from 'deepagents';
+import { loadHistory, memoryEnabled, saveTurn } from './memory.js';
 import { buildChatModel } from './model.js';
 import { buildTransportTools } from './tools.js';
 import { createRuntimeTrace } from './tracing.js';
@@ -133,7 +134,21 @@ export async function runInvocation(
 
   emit({ type: 'thinking' });
 
-  const history = (req.conversationHistory ?? [])
+  // Context source: prefer AgentCore Memory when enabled, but only when
+  // it's at least as complete as the payload history — conversations
+  // that predate Memory (or hit a failed write) keep their Postgres
+  // history. Callers running VOCION_MEMORY_AUTHORITATIVE=1 omit payload
+  // history entirely, so Memory wins by construction and turns stop
+  // being resent. Every failure degrades to payload — chat never breaks.
+  let sourceTurns = req.conversationHistory ?? [];
+  const useMemory = memoryEnabled(req.memory);
+  if (useMemory) {
+    const fromMemory = await loadHistory(req.memory!);
+    if (fromMemory !== null && fromMemory.length >= sourceTurns.length) {
+      sourceTurns = fromMemory;
+    }
+  }
+  const history = sourceTurns
     .filter(t => t.content.trim().length > 0)
     .map(t => ({ role: t.role, content: t.content }));
 
@@ -212,6 +227,9 @@ export async function runInvocation(
     throw err;
   }
 
+  if (useMemory) {
+    await saveTurn(req.memory!, req.message, finalText);
+  }
   await trace.end({ response: finalText.slice(0, 500), toolCalls: toolCallCount.n });
   emit({ type: 'done', response: finalText, traceId: trace.traceId });
 }

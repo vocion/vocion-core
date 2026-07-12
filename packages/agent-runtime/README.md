@@ -39,3 +39,4 @@ Rollback: `update-agent-runtime` with any previous image tag in ECR (tags are `<
 | `VOCION_LLM_MODEL_MAIN` | model id override |
 | `LANGFUSE_PUBLIC_KEY` / `SECRET_KEY` / `BASE_URL` | optional in-artifact tracing; degrades to usage-only when unset |
 | `VOCION_TOOL_TIMEOUT_MS` | per-tool-call timeout (default 120000) |
+| `VOCION_AGENTCORE_MEMORY_ID` | enables AgentCore Memory sessions: history loads from Memory, completed turns append to it (needs AWS creds); failures degrade silently to payload history |

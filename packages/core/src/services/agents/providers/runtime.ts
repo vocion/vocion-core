@@ -47,6 +47,8 @@ export type RuntimeRunOptions = {
   userId?: string;
   allowedSourceSlugs?: string[];
   missionSlug?: string;
+  /** Persisted conversation id — keys the AgentCore Memory session (Phase 5). */
+  conversationId?: number;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   onEvent?: (event: AgentEvent) => void;
 };
@@ -93,6 +95,19 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   const files = await buildInitialFiles(opts.orgId, opts.agentSlug);
   const hc = row.harnessConfig ?? {};
 
+  // AgentCore Memory session (Phase 5, opt-in): keyed by the persisted
+  // conversation. Default posture is belt-and-suspenders — history still
+  // rides the payload and the artifact prefers whichever source is more
+  // complete. VOCION_MEMORY_AUTHORITATIVE=1 omits payload history for
+  // the real token savings once Memory-backed conversations are trusted.
+  const memorySession = process.env.VOCION_AGENTCORE_MEMORY_ID && opts.conversationId
+    ? {
+        sessionId: `vocion-conv-${opts.conversationId}-${opts.orgId}`.replace(/[^\w-]/g, '-').slice(0, 100),
+        actorId: (opts.userId ?? 'system').replace(/[^\w-]/g, '-').slice(0, 100),
+      }
+    : undefined;
+  const omitHistory = memorySession && process.env.VOCION_MEMORY_AUTHORITATIVE === '1';
+
   const payload = {
     version: 1 as const,
     agent: {
@@ -110,10 +125,11 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
       excludeTools: hc.excludeTools,
     },
     message: opts.message,
-    conversationHistory: opts.conversationHistory,
+    conversationHistory: omitHistory ? undefined : opts.conversationHistory,
     files,
     tools: { endpoint: TOOL_ENDPOINT(), catalog, claim },
     trace: { orgId: opts.orgId, userId: opts.userId ?? 'system' },
+    memory: memorySession,
   };
 
   // Relay the artifact's SSE stream. `usage` is consumed here (budget
