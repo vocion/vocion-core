@@ -116,6 +116,27 @@ for _ in $(seq 1 30); do
 done
 echo "-- memory status: ${STATUS:-unknown}"
 
+# Long-term extraction strategies (facts + preferences, per-actor
+# namespaces). Idempotent: only added when absent.
+HAVE_STRATEGIES=$(aws bedrock-agentcore-control get-memory --memory-id "$MEMORY_ID" \
+  --query "length(memory.strategies[?name=='vocion_facts'])" --output text 2>/dev/null || echo 0)
+if [[ "$HAVE_STRATEGIES" == "0" ]]; then
+  echo "-- adding long-term memory strategies (vocion_facts, vocion_preferences)"
+  aws bedrock-agentcore-control update-memory --memory-id "$MEMORY_ID" --memory-strategies '{
+    "addMemoryStrategies": [
+      { "semanticMemoryStrategy": { "name": "vocion_facts", "description": "Durable facts stated by or about the user (companies, deals, people, constraints).", "namespaces": ["/facts/{actorId}"] } },
+      { "userPreferenceMemoryStrategy": { "name": "vocion_preferences", "description": "How this user likes to work: formats, tone, length, channels, cadences.", "namespaces": ["/preferences/{actorId}"] } }
+    ]
+  }' >/dev/null
+  for _ in $(seq 1 24); do
+    S=$(aws bedrock-agentcore-control get-memory --memory-id "$MEMORY_ID" --query 'memory.status' --output text)
+    [[ "$S" == "ACTIVE" ]] && break
+    sleep 5
+  done
+else
+  echo "-- long-term memory strategies present"
+fi
+
 # ---------------------------------------------------------------- 4. SSM
 put() { aws ssm put-parameter --name "$1" --value "$2" --type String --overwrite >/dev/null; }
 put "${SSM_PREFIX}/ecr-repo-uri" "$REPO_URI"
