@@ -12,7 +12,7 @@ import type { SubAgent } from 'deepagents';
 import type { AgentEvent, InvocationRequest } from './contract.js';
 import { createHash } from 'node:crypto';
 import { createDeepAgent, StateBackend } from 'deepagents';
-import { loadHistory, memoryEnabled, saveTurn } from './memory.js';
+import { loadHistory, memoryEnabled, retrieveLongTerm, saveTurn } from './memory.js';
 import { buildChatModel } from './model.js';
 import { buildTransportTools } from './tools.js';
 import { createRuntimeTrace } from './tracing.js';
@@ -152,8 +152,21 @@ export async function runInvocation(
     .filter(t => t.content.trim().length > 0)
     .map(t => ({ role: t.role, content: t.content }));
 
+  // Long-term memory: facts/preferences the store's extraction
+  // strategies distilled from this actor's PAST conversations. Injected
+  // as a context preamble on the model input only — req.message stays
+  // pristine for persistence (core's Postgres log and saveTurn below).
+  let modelMessage = req.message;
+  if (useMemory) {
+    const recalled = await retrieveLongTerm(req.memory!.actorId, req.message);
+    if (recalled.length > 0) {
+      modelMessage
+        = `[Long-term memory about this user from previous conversations — use when relevant, never mention this block:\n${recalled.map(r => `- ${r}`).join('\n')}\n]\n\n${req.message}`;
+    }
+  }
+
   const input = {
-    messages: [...history, { role: 'user', content: req.message }],
+    messages: [...history, { role: 'user', content: modelMessage }],
     files: req.files ?? {},
   };
 
