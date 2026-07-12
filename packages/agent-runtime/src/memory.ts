@@ -112,3 +112,45 @@ export async function saveTurn(
     console.warn(`memory: saveTurn failed (turn not persisted to Memory): ${(err as Error).message}`);
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Long-term memory — extraction strategies (facts + preferences)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Retrieve long-term memory records relevant to this turn — facts and
+ * preferences the store's extraction strategies distilled from PAST
+ * conversations (namespaced per actor, so recall crosses sessions).
+ * Returns [] on any failure or when no strategies are configured.
+ * @param actorId
+ * @param query
+ */
+export async function retrieveLongTerm(actorId: string, query: string): Promise<string[]> {
+  const id = memoryId();
+  if (!id) {
+    return [];
+  }
+  try {
+    const { RetrieveMemoryRecordsCommand } = await import('@aws-sdk/client-bedrock-agentcore');
+    const c = await client();
+    const namespaces = [`/facts/${actorId}`, `/preferences/${actorId}`];
+    const results = await Promise.all(namespaces.map(async (namespace) => {
+      try {
+        const res = await c.send(new RetrieveMemoryRecordsCommand({
+          memoryId: id,
+          namespace,
+          searchCriteria: { searchQuery: query.slice(0, 500), topK: 5 },
+        }));
+        return (res.memoryRecordSummaries ?? [])
+          .map(r => r.content?.text?.trim())
+          .filter((t): t is string => Boolean(t));
+      } catch {
+        return [];
+      }
+    }));
+    return results.flat();
+  } catch (err) {
+    console.warn(`memory: retrieveLongTerm failed: ${(err as Error).message}`);
+    return [];
+  }
+}
