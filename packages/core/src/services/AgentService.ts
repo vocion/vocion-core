@@ -988,6 +988,8 @@ export async function runAgentDeep(opts: {
   allowedSourceSlugs?: string[];
   /** Set for mission runs — lets mission-scoped tools (update_mission_notes) resolve their mission. */
   missionSlug?: string;
+  /** Persisted conversation id — keys the AgentCore Memory session on the runtime provider (Phase 5, opt-in). */
+  conversationId?: number;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   onEvent?: (event: import('./agents/types').AgentEvent) => void;
 }): Promise<{

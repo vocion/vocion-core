@@ -116,6 +116,14 @@ export type InvocationRequest = {
   /** Non-authoritative tags for tracing (authority lives in the claim). */
   trace?: { orgId: string; userId: string; sessionId?: string };
   sessionId?: string;
+  /**
+   * AgentCore Memory session (Phase 5, opt-in). When present AND the
+   * artifact has VOCION_AGENTCORE_MEMORY_ID, the loop loads its history
+   * from Memory (the caller may then omit conversationHistory) and
+   * appends the completed turn. Absent → payload history, exactly as
+   * before.
+   */
+  memory?: { sessionId: string; actorId: string };
 };
 
 /** Tool endpoint response: the tool's output plus any side-channel events it emitted. */
