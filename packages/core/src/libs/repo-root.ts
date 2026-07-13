@@ -45,7 +45,7 @@ export function getRepoRoot(): string {
 }
 
 /**
- * Resolve a repo-relative path (e.g. `workspace/metacto`, `docs/README.md`)
+ * Resolve a repo-relative path (e.g. `workspace/<org>`, `docs/README.md`)
  * to an absolute path anchored at the monorepo root.
  * @param segments
  */

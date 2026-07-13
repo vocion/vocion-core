@@ -2,7 +2,7 @@
 
 Skills are the unit of productization. A skill is a typed, named, versioned capability — something the platform can run with structured input and structured output, with optional human approval before its output is released.
 
-This doc is the **product spec** for skills (concept-level). For the **developer guide** to authoring plugin skills, see [`writing-a-plugin.md`](../docs/guides/writing-a-plugin.md). For prompt-skill authoring, see [`/workspace/README.md`](../workspace/README.md#add-a-new-skill).
+This doc is the **product spec** for skills (concept-level). For the **developer guide** to authoring plugin skills, see [`writing-a-plugin.md`](../docs/guides/writing-a-plugin.md). For prompt-skill authoring, see [`docs/workspace.md`](../docs/workspace.md#add-a-new-operation).
 
 ## What a skill carries
 
@@ -72,6 +72,6 @@ For Algren's NINJIO-account work (planned): `meeting_prep_pack`, `urgency_classi
 ## Related
 
 - [`writing-a-plugin.md`](../docs/guides/writing-a-plugin.md) — plugin SDK developer guide (typed contract, registry, executor, evals)
-- [`/workspace/README.md`](../workspace/README.md) — prompt-skill authoring guide
+- [`docs/workspace.md`](../docs/workspace.md) — prompt-skill authoring guide
 - [`object-model.md`](./object-model.md) — what skills operate on (business object types)
 - [`product-surfaces.md`](./product-surfaces.md) — `/dashboard/skills` UI spec

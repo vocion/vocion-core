@@ -24,6 +24,7 @@ import { dirname, join } from 'node:path';
 import process from 'node:process';
 import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { getWorkspacePath } from '@/libs/workspace/reader';
 import { playbookSchema } from '@/models/Schema';
 
 export type PlaybookMountFile = {
@@ -114,8 +115,8 @@ function filterByTags<T extends { tags: string[] }>(rows: T[], agentTags: string
  * workspace directory. Resolution rule: `workspace/<org-slug>/playbooks/<slug>/SKILL.md`
  * where `<org-slug>` is the directory under `workspace/` that owns this
  * org. For multi-tenant deployments where one org maps to one folder,
- * we read the path from `WORKSPACE_PATH` env (defaulting to
- * `workspace/metacto`).
+ * we read the path from the `WORKSPACE_PATH` env; when it is unset no
+ * workspace is configured and the playbook mounts without SKILL.md.
  *
  * This is a v0.2 simplification — a future phase will write the file
  * path onto the `playbook` row at apply time so we don't have to
@@ -124,7 +125,10 @@ function filterByTags<T extends { tags: string[] }>(rows: T[], agentTags: string
  * @param slug
  */
 function locateSkillMdFromContext(_orgId: string, slug: string): string | null {
-  const contextPath = process.env.WORKSPACE_PATH || 'workspace/metacto';
+  const contextPath = getWorkspacePath();
+  if (!contextPath) {
+    return null;
+  }
   const candidate = join(process.cwd(), contextPath, 'playbooks', slug, 'SKILL.md');
   try {
     readFileSync(candidate, 'utf8');

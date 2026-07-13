@@ -18,7 +18,7 @@ import { getLLMClient } from '@/libs/llm';
 import { pluginRegistry } from '@/libs/plugins';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
-import { getCurrentWorkspaceSha } from '@/libs/workspace';
+import { getCurrentWorkspaceSha, getWorkspacePath } from '@/libs/workspace';
 import { skillRunSchema, skillSchema } from '@/models/Schema';
 
 /**
@@ -77,7 +77,10 @@ async function runPostprocessScript(
     throw new Error(`scriptFile must be .js or .mjs (got ${ext || 'none'})`);
   }
 
-  const contextPath = process.env.WORKSPACE_PATH ?? 'workspace/metacto';
+  const contextPath = getWorkspacePath();
+  if (!contextPath) {
+    throw new Error(`skill ${opts.skillSlug}: scriptFile requires WORKSPACE_PATH to be set`);
+  }
   const slugDir = opts.skillSlug.replace(/_/g, '-');
   // Accept either a bare filename ("postprocess.js") or a full path.
   const relPath = scriptFile.includes('/')
