@@ -94,18 +94,22 @@ export const AgentManifestSchema = z.object({
   /**
    * Harness config (v0.3) — per-agent knobs for the reusable agent
    * harness. `provider` selects where the agent loop executes:
-   * `local` (in-process deepagents loop, the default) or `agentcore`
+   * `local` (in-process deepagents loop, the default), `agentcore`
    * (the AWS AgentCore managed harness — provisioned by
    * workspace:apply, invoked via InvokeHarness; operations execute
-   * client-side in vocion-core as inline functions). `interrupts`
-   * lists skill/tool slugs that pause for human approval (via the
-   * hitl_gate flow) before executing; `maxTokens` caps the model's
-   * output tokens; `excludeTools` withholds built-in tools by name
-   * (e.g. `propose_action` for agents that should have no CRM-write
-   * surface at all); `model` (agentcore only) sets the Bedrock model.
+   * client-side in vocion-core as inline functions), or `runtime`
+   * (the BYOA artifact — packages/agent-runtime: our deepagents loop
+   * hosted out-of-process, localhost in dev / AgentCore Runtime when
+   * deployed; tools execute in core via the claim-verified tool
+   * endpoint). `interrupts` lists skill/tool slugs that pause for
+   * human approval (via the hitl_gate flow) before executing;
+   * `maxTokens` caps the model's output tokens; `excludeTools`
+   * withholds built-in tools by name (e.g. `propose_action` for agents
+   * that should have no CRM-write surface at all); `model`
+   * (agentcore/runtime) overrides the model id.
    */
   harness: z.object({
-    provider: z.enum(['local', 'agentcore']).default('local'),
+    provider: z.enum(['local', 'agentcore', 'runtime']).default('local'),
     interrupts: z.array(z.string()).default([]),
     maxTokens: z.number().int().positive().optional(),
     excludeTools: z.array(z.string()).default([]),
@@ -298,7 +302,12 @@ export const MissionManifestSchema = z.object({
   status: z.enum(['active', 'disabled', 'draft']).default('active'),
   version: z.number().int().positive().default(1),
   goal: z.string(),
-  defaultTeam: z.object({ lead: z.string(), members: z.array(z.string()).default([]) }),
+  /**
+   * The single agent that owns this mission. If it's a lead
+   *  (via agent.parent_agent_slug reverse-lookup), that lead's specialists
+   *  are the team the runtime can hand off to.
+   */
+  agent: z.string(),
   autonomyPolicy: z.object({ level: z.number().int().min(1).max(5).default(1) }).default({ level: 1 }),
   successCriteria: z.array(z.string()).default([]),
   desiredArtifacts: z.array(z.string()).default([]),
