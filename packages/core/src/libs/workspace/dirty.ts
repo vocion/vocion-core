@@ -20,6 +20,9 @@ export type ContextDirtyState = {
 
 export function getWorkspaceDirtyState(): ContextDirtyState {
   const contextPath = getWorkspacePath();
+  if (!contextPath) {
+    return { isGitRepo: false, dirty: false, changedFiles: [], error: 'no workspace configured (WORKSPACE_PATH not set)' };
+  }
   const base = fromRepoRoot(contextPath);
 
   if (!existsSync(base)) {

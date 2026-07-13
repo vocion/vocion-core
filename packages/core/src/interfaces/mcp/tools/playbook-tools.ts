@@ -5,6 +5,7 @@ import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
+import { getWorkspacePath } from '@/libs/workspace/reader';
 import { playbookSchema } from '@/models/Schema';
 
 /**
@@ -70,7 +71,10 @@ function playbookGetTool(config: McpConfig): ToolModule {
       if (!row) {
         throw new Error(`playbook ${slug} not found`);
       }
-      const contextPath = process.env.WORKSPACE_PATH || 'workspace/metacto';
+      const contextPath = getWorkspacePath();
+      if (!contextPath) {
+        throw new Error('WORKSPACE_PATH is not set — playbook files unavailable');
+      }
       const folder = join(process.cwd(), contextPath, 'playbooks', slug);
       const target = resource ? join(folder, resource) : join(folder, 'SKILL.md');
       const content = readFileSync(target, 'utf8');

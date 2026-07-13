@@ -2,7 +2,7 @@ import process from 'node:process';
 import { parseArgs } from 'node:util';
 import { eq, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { applyWorkspace, loadWorkspace, WorkspaceValidationError } from '@/libs/workspace';
+import { applyWorkspace, getWorkspacePath, loadWorkspace, WorkspaceValidationError } from '@/libs/workspace';
 import { projectSchema } from '@/models/Schema';
 import 'dotenv/config';
 
@@ -61,7 +61,12 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const contextPath = positionals[0] ?? process.env.WORKSPACE_PATH ?? 'workspace/metacto';
+  const contextPath = positionals[0] ?? getWorkspacePath();
+  if (!contextPath) {
+    console.error('no workspace path given — pass one (npm run workspace:apply -- <path>) or set WORKSPACE_PATH.');
+    console.error('to scaffold a new workspace: npm run workspace:scaffold -- <name>');
+    process.exit(1);
+  }
 
   let loaded;
   try {
@@ -116,7 +121,8 @@ apply-workspace — reconcile a git-backed workspace directory to the database.
 usage: npx tsx src/scripts/apply-workspace.ts [path] [options]
 
 positional:
-  path                   workspace directory to apply (default: $WORKSPACE_PATH or workspace/metacto)
+  path                   workspace directory to apply (default: $WORKSPACE_PATH; required if unset —
+                         scaffold one with \`npm run workspace:scaffold -- <name>\`)
 
 options:
   --dry-run              validate and diff without writing

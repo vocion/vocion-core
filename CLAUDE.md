@@ -88,8 +88,8 @@ src/
 ├── utils/AppConfig.ts     # App name, pricing plans, locale config
 └── locales/               # Translation files (en.json, fr.json)
 
-workspace/                   # Git-backed client context
-└── <org>/                 # Per-tenant authoring directory
+../workspace/              # Git-backed client context — OUTSIDE this repo,
+└── <org>/                 # at the peer level of the checkout ($WORKSPACE_PATH)
     ├── agents/            # YAML — slug, prompt, subagents, suggestions
     ├── operations/        # v0.2: renamed from skills/. Typed LLM calls.
     ├── playbooks/         # v0.2: markdown + YAML procedural guides
@@ -101,14 +101,15 @@ workspace/                   # Git-backed client context
 
 ## Context as Code
 
-Every authored resource lives in `workspace/<org>/` as YAML + markdown — never hardcoded in TS. Edit the files, then:
+Every authored resource lives in a workspace — a git-backed directory of YAML + markdown that sits **outside this repo** (usually `../workspace/<org>/`, beside the checkout) — never hardcoded in TS. The app locates it via the `WORKSPACE_PATH` env var; unset means no workspace is configured (reads show empty state, applies/writes error explicitly).
 
 ```bash
-npm run workspace:check      # validate + diff
-npm run workspace:apply      # sync to DB; records a workspace_version row
+npm run workspace:scaffold -- <name>              # create ../workspace/<name> (peer of this checkout)
+npm run workspace:check -- <path>                 # validate + diff
+npm run workspace:apply -- <path> --project <id>  # sync to DB; records a workspace_version row
 ```
 
-Every operation run + agent run + eval run stamps the active `workspace_sha` so you can trace any output back to the exact prompts that produced it. See `workspace/README.md` for authoring.
+Every operation run + agent run + eval run stamps the active `workspace_sha` so you can trace any output back to the exact prompts that produced it. See `docs/workspace.md` for authoring.
 
 ## Agent runtime (v0.2)
 
