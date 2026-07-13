@@ -1,0 +1,66 @@
+name: Deploy agent-runtime
+
+# Deploys the BYOA agent runtime to AgentCore Runtime (dev) when the
+# artifact or its infra changes on main. Thin wrapper: all real logic
+# lives in infra/agentcore/*.sh, runnable identically on a laptop.
+#
+# ACTIVATION (one-time, requires an AWS admin decision):
+#   1. AWS_PROFILE=metacto bash infra/agentcore/provision-ci-role.sh
+#   2. gh secret set AWS_DEPLOY_ROLE_ARN --repo vocion/vocion-core \
+#        --body <role arn printed by step 1>
+# Until the secret exists, this workflow fails fast at the credentials
+# step and touches nothing.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - packages/agent-runtime/**
+      - infra/agentcore/**
+      - .github/workflows/deploy-agent-runtime.yml
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-agent-runtime
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install workspace deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck + test the artifact
+        run: |
+          npx tsc --noEmit -p packages/agent-runtime
+          npx vitest run --root packages/core src/services/agents/
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Set up QEMU (arm64 build on x86 runner)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Deploy runtime
+        run: ENV=dev bash infra/agentcore/deploy-runtime.sh
+
+      - name: Smoke-invoke deployed runtime
+        run: ENV=dev bash infra/agentcore/smoke-invoke.sh

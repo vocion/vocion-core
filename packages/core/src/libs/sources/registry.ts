@@ -13,10 +13,13 @@ import { fileImportConnector } from './fileImport';
 import { ga4Connector } from './ga4';
 import { gmailConnector } from './gmail';
 import { googleAdsConnector } from './googleAds';
+import { googleCalendarConnector } from './googleCalendar';
+import { granolaConnector } from './granola';
 import { hubspotConnector } from './hubspot';
 import { localFilesConnector } from './localFiles';
 import { slackConnector } from './slack';
 import { webConnector } from './web';
+import { zoomConnector } from './zoom';
 
 const registry = new Map<string, SourceConnector>();
 
@@ -40,5 +43,8 @@ registerConnector(hubspotConnector);
 registerConnector(googleAdsConnector);
 registerConnector(ga4Connector);
 registerConnector(gmailConnector);
+registerConnector(googleCalendarConnector);
+registerConnector(granolaConnector);
 registerConnector(slackConnector);
 registerConnector(driveConnector);
+registerConnector(zoomConnector);

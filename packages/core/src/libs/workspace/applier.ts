@@ -477,7 +477,7 @@ async function upsertMission(orgId: string, mission: LoadedMission, dryRun: bool
     version: mission.version,
     status: mission.status,
     goal: mission.goal,
-    defaultTeam: mission.defaultTeam,
+    agentSlug: mission.agent,
     autonomyPolicy: mission.autonomyPolicy as unknown as Record<string, unknown>,
     successCriteria: mission.successCriteria,
     desiredArtifacts: mission.desiredArtifacts,

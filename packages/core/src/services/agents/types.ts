@@ -61,7 +61,13 @@ export type AgentEvent
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     | { type: 'done'; response: string; traceId?: string }
-    | { type: 'error'; message: string };
+    | { type: 'error'; message: string }
+    /**
+     * Runtime-internal (BYOA artifact → core provider): per-model-turn
+     * token usage for budget charging. Consumed by the runtime provider,
+     * never forwarded to the browser.
+     */
+    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number };
 
 /* ------------------------------------------------------------------ */
 /* Runtime context — what tool factories close over                    */
@@ -103,7 +109,7 @@ export type RuntimeContext = {
    * executing; `maxTokens` caps the model's output for this agent.
    */
   harnessConfig: {
-    provider?: 'local' | 'agentcore';
+    provider?: 'local' | 'agentcore' | 'runtime';
     interrupts?: string[];
     maxTokens?: number;
     excludeTools?: string[];

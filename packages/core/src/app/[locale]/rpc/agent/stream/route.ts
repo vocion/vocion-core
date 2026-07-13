@@ -191,6 +191,7 @@ export async function POST(request: Request): Promise<Response> {
           agentSlug,
           message,
           userId,
+          conversationId: conversationId ?? undefined,
           conversationHistory,
           onEvent: sendEvent,
         });

@@ -71,7 +71,7 @@ import {
   resume,
   submitFeedback,
 } from './Review';
-import { readPrimitive, writeFile } from './Workspace';
+import { applyNow as applyWorkspaceNow, readPrimitive, driftStatus as workspaceDriftStatus, writeFile } from './Workspace';
 
 export const router = {
   businessObject: {
@@ -89,6 +89,8 @@ export const router = {
   context: {
     readPrimitive,
     writeFile,
+    driftStatus: workspaceDriftStatus,
+    applyNow: applyWorkspaceNow,
   },
   playbooks: {
     list: listPlaybooks,

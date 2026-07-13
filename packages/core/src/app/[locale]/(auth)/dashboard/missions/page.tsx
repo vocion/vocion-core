@@ -59,11 +59,9 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                       <TriggerBadge trigger={null} schedule={t.schedule} />
                       <span>
-                        Team:
+                        Agent:
                         {' '}
-                        {1 + t.defaultTeam.members.length}
-                        {' '}
-                        agents
+                        {t.agentSlug}
                       </span>
                     </div>
                   </Link>
