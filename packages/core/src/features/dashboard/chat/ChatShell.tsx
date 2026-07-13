@@ -340,6 +340,41 @@ export function ChatShell({
     void sendMessage(prompt);
   }, [sendMessage]);
 
+  // Handoff from another page (e.g. the Briefings composer): a stashed
+  // { question, contextTitle, context } starts this chat — the context rides
+  // inside the first message so the agent (the team lead, agents[0]) can
+  // answer against it. One-shot: the stash is cleared before sending.
+  const handoffSentRef = useRef(false);
+  useEffect(() => {
+    if (handoffSentRef.current) {
+      return;
+    }
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem('vocion_chat_handoff');
+      if (raw) {
+        sessionStorage.removeItem('vocion_chat_handoff');
+      }
+    } catch {
+      return;
+    }
+    if (!raw) {
+      return;
+    }
+    handoffSentRef.current = true;
+    try {
+      const { question, contextTitle, context, excerpt } = JSON.parse(raw) as { question: string; contextTitle: string; context: string; excerpt?: string };
+      const parts = [question];
+      if (excerpt) {
+        parts.push(`---\nThe question is specifically about this highlighted passage:\n> ${excerpt.replaceAll('\n', '\n> ')}`);
+      }
+      parts.push(`---\nCONTEXT — "${contextTitle}" (carried over from the Briefings page):\n\n${context}`);
+      void sendMessage(parts.join('\n\n'));
+    } catch {
+      /* malformed stash — ignore */
+    }
+  }, [sendMessage]);
+
   const handleApproveHitl = useCallback(() => {
     setPendingHitl(null);
     void sendMessage('approve');

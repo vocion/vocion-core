@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
+import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { projectSchema } from '@/models/Schema';
@@ -76,6 +77,7 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
         <div className="@container flex-1 px-6 py-4">
           {props.children}
         </div>
+        <WorkspaceDriftBanner />
       </SidebarInset>
     </SidebarProvider>
   );

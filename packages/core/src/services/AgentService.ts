@@ -988,6 +988,8 @@ export async function runAgentDeep(opts: {
   allowedSourceSlugs?: string[];
   /** Set for mission runs — lets mission-scoped tools (update_mission_notes) resolve their mission. */
   missionSlug?: string;
+  /** Persisted conversation id — keys the AgentCore Memory session on the runtime provider (Phase 5, opt-in). */
+  conversationId?: number;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   onEvent?: (event: import('./agents/types').AgentEvent) => void;
 }): Promise<{
@@ -1013,14 +1015,28 @@ export async function runAgentDeep(opts: {
     throw new Error(message);
   }
 
-  // Harness provider dispatch: `harness.provider: agentcore` agents run
-  // on the AWS AgentCore managed harness (same event/return contract);
-  // everything else runs the in-process deepagents loop below.
+  // Harness provider dispatch — three execution layers, one contract:
+  //   - `runtime`  (BYOA): the standalone agent-runtime artifact
+  //     (localhost in dev, AgentCore Runtime when deployed). Also
+  //     selectable fleet-wide via VOCION_AGENT_PROVIDER=runtime.
+  //     VOCION_DISABLE_RUNTIME=1 forces the in-process loop instead —
+  //     for dev machines where the artifact isn't running on :8080.
+  //   - `agentcore` (managed harness): AWS runs the loop, tools call
+  //     back inline. VOCION_DISABLE_AGENTCORE=1 forces the local loop —
+  //     for dev machines with no AWS credentials / no provisioned
+  //     harness, where an agentcore-pinned agent would otherwise be
+  //     unchattable ("Tool error").
+  //   - anything else: the in-process deepagents loop below.
   const [agentRow] = await db
     .select({ harnessConfig: agentSchema.harnessConfig })
     .from(agentSchema)
     .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.slug, opts.agentSlug)));
-  if (agentRow?.harnessConfig?.provider === 'agentcore') {
+  const provider = process.env.VOCION_AGENT_PROVIDER ?? agentRow?.harnessConfig?.provider;
+  if (provider === 'runtime' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
+    const { runAgentOnRuntime } = await import('./agents/providers/runtime');
+    return runAgentOnRuntime(opts);
+  }
+  if (provider === 'agentcore' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
     const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
     return runAgentOnAgentCoreHarness(opts);
   }

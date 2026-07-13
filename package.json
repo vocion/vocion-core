@@ -9,11 +9,13 @@
   "workspaces": [
     "packages/core",
     "packages/sdk",
+    "packages/agent-runtime",
     "packages/plugins/*"
   ],
   "scripts": {
     "dev": "npm run dev --workspace @vocion/core",
     "dev:next": "npm run dev:next --workspace @vocion/core",
+    "dev:agent-runtime": "npm run dev --workspace @vocion/agent-runtime",
     "dev:up": "docker compose up -d",
     "dev:down": "docker compose down",
     "dev:status": "docker compose ps",

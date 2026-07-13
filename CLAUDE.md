@@ -117,6 +117,18 @@ Agents run on **LangChain.js + `deepagents@1.10`**. The runtime gives you subage
 
 Opt in by setting `VOCION_AGENT_RUNTIME=deepagents` and pointing the chat at `/rpc/agent/stream`. Default model: `claude-sonnet-4-6` (main) + `claude-haiku-4-5-20251001` (classifier). Override per-role via `VOCION_LLM_MODEL_MAIN` etc.
 
+## BYOA agent runtime (harness provider `runtime`)
+
+The same deepagents loop also ships as a standalone artifact — **`packages/agent-runtime`** — with the BYOA HTTP contract (`POST /invocations` SSE + `GET /ping`), hostable on a laptop or AWS Bedrock AgentCore Runtime (same bundle). Three execution layers now share one event contract, selected per agent via `harness.provider` in workspace YAML (`local` | `agentcore` | `runtime`) or fleet-wide via `VOCION_AGENT_PROVIDER`:
+
+- The artifact is **generic**: agent definitions travel in the invocation payload (compiled from the agent row per request), so `workspace:apply` stays a DB sync and agent edits never redeploy anything.
+- **Tools execute in core**, not the artifact: catalog entries POST back to `/api/internal/agent-tools` with a signed `TenantClaim` (`services/agents/claims.ts`) — orgId/user ACLs come only from the verified claim (`services/agents/toolEndpoint.ts`; cross-tenant test suite in `toolEndpoint.test.ts`). Single tool registry: `services/agents/tools/registry.ts`.
+- Core targets the artifact via `VOCION_AGENT_RUNTIME_ARN` (deployed, SigV4) or `VOCION_AGENT_RUNTIME_URL` (local HTTP, default `:8080`). Budget charging rides `usage` events back from the artifact.
+- **Cutover status**: `sales-assistant` runs on `provider: runtime` (workspace YAML). Dev therefore needs the artifact running — `npm run dev:agent-runtime` (:8080) — or set `VOCION_DISABLE_RUNTIME=1` to force the in-process loop (symmetric to `VOCION_DISABLE_AGENTCORE`).
+- **AgentCore Memory (Phase 5, live)**: when `VOCION_AGENTCORE_MEMORY_ID` is set (core = flag only; the artifact needs it plus AWS creds), runtime-provider conversations with a persisted `conversation_id` get a Memory session (`vocion-conv-<id>-<org>`); the loop loads history from Memory and appends each completed turn (`packages/agent-runtime/src/memory.ts`). Default is belt-and-suspenders — payload history still rides along and the richer source wins; `VOCION_MEMORY_AUTHORITATIVE=1` omits payload history (verified live: turn answered from Memory alone). Postgres stays the system of record for the UI; Memory failures degrade silently to payload history.
+- **Long-term memory (live)**: the store runs two extraction strategies — `vocion_facts` (semantic) + `vocion_preferences` — namespaced `/facts/{actorId}` and `/preferences/{actorId}`. Each turn, the loop retrieves relevant records for the actor and injects them as a context preamble, so recall crosses conversations (verified live: a preference stated in one conversation was recalled in a brand-new one ~50s later, post-extraction). Strategies are provisioned idempotently by `infra/agentcore/provision.sh`.
+- Infra: `infra/agentcore/{provision,deploy-runtime,smoke-invoke}.sh` (ENV=dev, profile `metacto`, us-west-2). E2E: `src/scripts/smoke-runtime.ts` (`--provider` to force a specific provider). CI deploy: `.github/workflows/deploy-agent-runtime.yml` — inert until `provision-ci-role.sh` is run and `AWS_DEPLOY_ROLE_ARN` is set as a repo secret (deliberate human step: it creates GitHub↔AWS federated trust). See `packages/agent-runtime/README.md`.
+
 ## Background worker
 
 The comment-feedback loop ships as a separate process (Next.js doesn't host long-lived workers):

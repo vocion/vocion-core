@@ -11,7 +11,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
-import { missionSchema } from '@/models/Schema';
+import { agentSchema, missionSchema } from '@/models/Schema';
 import { listAutomations } from '@/services/AutomationService';
 import { isEntityStatus } from '@/types/Status';
 
@@ -42,10 +42,14 @@ export default async function MissionDetailPage(props: {
     notFound();
   }
 
-  const automations = await listAutomations(orgId);
+  const [automations, ownerAgent, specialists] = await Promise.all([
+    listAutomations(orgId),
+    db.select({ slug: agentSchema.slug, name: agentSchema.name, role: agentSchema.role }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, mission.agentSlug))).limit(1).then(r => r[0] ?? null),
+    db.select({ slug: agentSchema.slug, name: agentSchema.name }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, mission.agentSlug))),
+  ]);
   const checkers = automations.filter(a => a.doConfig.checkMission === slug && a.status === 'active');
   const sourceFiles = readPrimitiveFiles('mission', slug);
-  const team = mission.defaultTeam;
+  const isLead = ownerAgent?.role === 'lead';
 
   return (
     <>
@@ -95,20 +99,27 @@ export default async function MissionDetailPage(props: {
           <section className="rounded-md border border-border p-5">
             <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
               <Users className="size-4 text-primary" />
-              Team
+              Agent
             </h2>
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              <Link href={`/dashboard/agents/${team.lead}`} className="rounded-full border border-border px-2.5 py-1 font-medium hover:bg-muted">
-                {team.lead}
+              <Link href={`/dashboard/agents/${mission.agentSlug}`} className="rounded-full border border-border px-2.5 py-1 font-medium hover:bg-muted">
+                {ownerAgent?.name ?? mission.agentSlug}
                 {' '}
-                <span className="text-[10px] text-muted-foreground uppercase">lead</span>
+                <span className="text-[10px] text-muted-foreground uppercase">{ownerAgent?.role ?? 'agent'}</span>
               </Link>
-              {team.members.map(m => (
-                <Link key={m} href={`/dashboard/agents/${m}`} className="rounded-full border border-border px-2.5 py-1 hover:bg-muted">
-                  {m}
-                </Link>
-              ))}
             </div>
+            {isLead && specialists.length > 0 && (
+              <>
+                <h3 className="mt-4 mb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">Specialists it can hand off to</h3>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  {specialists.map(s => (
+                    <Link key={s.slug} href={`/dashboard/agents/${s.slug}`} className="rounded-full border border-border px-2.5 py-1 hover:bg-muted">
+                      {s.name}
+                    </Link>
+                  ))}
+                </div>
+              </>
+            )}
             <p className="mt-3 text-xs text-muted-foreground">
               Autonomy level
               {' '}
