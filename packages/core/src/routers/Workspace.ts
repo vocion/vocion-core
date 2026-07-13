@@ -1,11 +1,10 @@
 import { Buffer } from 'node:buffer';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
-import process from 'node:process';
 import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
-import { applyWorkspace, loadWorkspace } from '@/libs/workspace';
+import { applyWorkspace, getWorkspacePath, loadWorkspace } from '@/libs/workspace';
 import { guardAuth } from './AuthGuards';
 
 /**
@@ -37,7 +36,13 @@ const ReadOutput = z.object({
   editInGitPath: z.string(),
 });
 
-const WORKSPACE_PATH = process.env.WORKSPACE_PATH ?? 'workspace/metacto';
+function requireWorkspacePath(): string {
+  const p = getWorkspacePath();
+  if (!p) {
+    throw new ORPCError('NOT_FOUND', { message: 'no workspace configured — WORKSPACE_PATH is not set' });
+  }
+  return p;
+}
 
 function slugToDirname(slug: string): string {
   return slug.replace(/_/g, '-');
@@ -64,10 +69,11 @@ export const readPrimitive = os
     await guardAuth();
     const { kind, slug } = input;
     const dirName = slugToDirname(slug);
-    const base = fromRepoRoot(WORKSPACE_PATH);
+    const workspacePath = requireWorkspacePath();
+    const base = fromRepoRoot(workspacePath);
 
     if (!existsSync(base)) {
-      throw new ORPCError('NOT_FOUND', { message: `Context path not found: ${WORKSPACE_PATH}` });
+      throw new ORPCError('NOT_FOUND', { message: `Context path not found: ${workspacePath}` });
     }
 
     // Agents are single-dir-less (files at workspace/<org>/agents/<slug>.yaml + <slug>.system-prompt.md)
@@ -87,7 +93,7 @@ export const readPrimitive = os
       if (files.length === 0) {
         throw new ORPCError('NOT_FOUND', { message: `No files found for agent "${slug}"` });
       }
-      return { files, contextPath: WORKSPACE_PATH, editInGitPath: `${WORKSPACE_PATH}/agents/${dirName}.yaml` };
+      return { files, contextPath: workspacePath, editInGitPath: `${workspacePath}/agents/${dirName}.yaml` };
     }
 
     // Skill/Workflow/Object/Source: directory with multiple files
@@ -117,11 +123,11 @@ export const readPrimitive = os
       language: detectLanguage(n),
     }));
 
-    return { files, contextPath: WORKSPACE_PATH, editInGitPath: `${WORKSPACE_PATH}/${kindDir(kind)}/${dirName}` };
+    return { files, contextPath: workspacePath, editInGitPath: `${workspacePath}/${kindDir(kind)}/${dirName}` };
   });
 
 const WriteInput = z.object({
-  path: z.string().min(1).describe('repo-relative path under WORKSPACE_PATH, e.g. workspace/metacto/skills/discovery-summary/prompt.md'),
+  path: z.string().min(1).describe('repo-relative path under WORKSPACE_PATH, e.g. workspace/<org>/skills/discovery-summary/prompt.md'),
   content: z.string(),
 });
 
@@ -142,7 +148,8 @@ export const writeFile = os
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
     const repoRoot = getRepoRoot();
-    const contextBase = fromRepoRoot(WORKSPACE_PATH);
+    const workspacePath = requireWorkspacePath();
+    const contextBase = fromRepoRoot(workspacePath);
     const absTarget = fromRepoRoot(input.path);
 
     // Containment guard: target must be inside the configured WORKSPACE_PATH.
@@ -165,7 +172,7 @@ export const writeFile = os
     // Apply to DB so the dashboard reflects the change immediately.
     let applied: { versionId: number | null; sha: string | null } = { versionId: null, sha: null };
     try {
-      const loaded = loadWorkspace(WORKSPACE_PATH);
+      const loaded = loadWorkspace(workspacePath);
       const result = await applyWorkspace(loaded, { orgId });
       applied = { versionId: result.versionId, sha: loaded.sha };
     } catch (err) {
