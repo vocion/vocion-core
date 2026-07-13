@@ -30,7 +30,7 @@ See [`docs/reference/repo-architecture.md`](./docs/reference/repo-architecture.m
 
 ## The five resources
 
-Everything you author lives in `workspace/<org>/` as YAML + markdown:
+Everything you author lives in a **workspace** — a git-backed directory of YAML + markdown that sits *outside* this repo, at the peer level of the checkout (`../workspace/<org>/`). Scaffold one with `npm run workspace:scaffold -- <name>`; see [`docs/workspace.md`](./docs/workspace.md) for the full authoring guide.
 
 | Block | Path | Shape |
 |---|---|---|
@@ -40,7 +40,7 @@ Everything you author lives in `workspace/<org>/` as YAML + markdown:
 | **Workflow** | `workspace/<org>/workflows/<slug>/workflow.yaml` | Sequence of skills + HITL approve gates |
 | **Agent** | `workspace/<org>/agents/<slug>.yaml` + `<slug>.system-prompt.md` | LLM orchestrator wiring skills + workflows |
 
-Apply to DB with `npm run workspace:apply`. Every apply records a `workspace_version` audit row; every `skill_run` stamps the `workspace_sha` so any output traces back to the exact prompts that produced it.
+Apply to DB with `npm run workspace:apply -- <path> --project <id|slug>`. Every apply records a `workspace_version` audit row; every `skill_run` stamps the `workspace_sha` so any output traces back to the exact prompts that produced it.
 
 ## Plugin contract
 
@@ -88,14 +88,22 @@ cp packages/core/.env.example packages/core/.env.local
 # 3. Start the platform (Postgres + Langfuse + Temporal)
 npm run dev:up
 
-# 4. Apply schema + reference context
+# 4. Apply schema
 npm run db:migrate
-npm run workspace:apply
 
-# 5. Run dev server
+# 5. Scaffold your workspace — created at ../workspace/<name>, beside this checkout
+npm run workspace:scaffold -- {workspace_name}
+
+# 6. Point the app at it and apply it to the DB
+export WORKSPACE_PATH=../workspace/{workspace_name}
+npm run workspace:apply -- ../workspace/{workspace_name}
+
+# 7. Run dev server
 npm run dev:next
 # → http://localhost:3000
 ```
+
+The workspace is where all tenant context lives — agents, operations, playbooks, workflows, object types. It's a separate git-tracked directory (usually its own repo, or a directory in the deployment repo that carries vocion-core as a submodule), so client context is reviewable in PRs and never mixed into core. Set `WORKSPACE_PATH` wherever the app runs; without it no workspace is configured. Authoring guide: [`docs/workspace.md`](./docs/workspace.md).
 
 Full install topology, env vars, production deploy, and troubleshooting: [`docs/guides/self-hosting.md`](./docs/guides/self-hosting.md).
 

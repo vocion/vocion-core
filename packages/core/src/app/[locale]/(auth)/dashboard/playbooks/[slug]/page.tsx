@@ -40,10 +40,12 @@ export default async function PlaybookDetailPage(props: Props) {
   // <context>/playbooks/<slug>/SKILL.md plus arbitrary sibling files.
   // The DB row stores metadata + content_sha for change detection; the
   // body itself is content-on-disk so the dashboard can re-read fresh.
+  // With no workspace configured (WORKSPACE_PATH unset) the catalog row
+  // still renders — just with an empty body and no source files panel.
   const contextPath = getWorkspacePath();
-  const playbookDir = fromRepoRoot(join(contextPath, 'playbooks', slug.replace(/_/g, '-')));
-  const skillMdPath = join(playbookDir, 'SKILL.md');
-  const body = existsSync(skillMdPath) ? readFileSync(skillMdPath, 'utf-8') : '';
+  const playbookDir = contextPath ? fromRepoRoot(join(contextPath, 'playbooks', slug.replace(/_/g, '-'))) : null;
+  const skillMdPath = playbookDir ? join(playbookDir, 'SKILL.md') : null;
+  const body = skillMdPath && existsSync(skillMdPath) ? readFileSync(skillMdPath, 'utf-8') : '';
   // Strip the frontmatter for the rendered body (the catalog row already
   // surfaces title/description/tags via the DB).
   const { content: markdownBody } = stripFrontmatter(body);
@@ -58,7 +60,7 @@ export default async function PlaybookDetailPage(props: Props) {
 
   // Source files panel — reuse the PrimitiveFiles pattern but adapt for
   // playbook layout (sourceFiles array on the DB row is repo-relative).
-  const sourceFiles = playbook.sourceFiles.length > 0
+  const sourceFiles = contextPath && playbook.sourceFiles.length > 0
     ? {
         files: playbook.sourceFiles
           .filter(p => existsSync(fromRepoRoot(join(contextPath, 'playbooks', slug.replace(/_/g, '-'), p))))
