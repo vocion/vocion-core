@@ -52,9 +52,22 @@ async function main(): Promise<void> {
       description: a.description,
       icon: a.icon,
       active: a.active !== 'false',
+      parent: a.parentAgentSlug ?? undefined,
       model: a.model,
       temperature: a.temperature,
       systemPromptFile: promptFile,
+      // Chat-UX ornaments + deepagents-runtime fields — without these an
+      // export→apply round-trip silently resets them to schema defaults.
+      accent: a.accent ?? undefined,
+      eyebrow: a.eyebrow ?? undefined,
+      suggestions: (a.suggestions ?? []).length > 0 ? a.suggestions : undefined,
+      subagents: (a.subagents ?? []).length > 0 ? a.subagents : undefined,
+      playbookTags: (a.playbookTags ?? []).length > 0 ? a.playbookTags : undefined,
+      learningSteps: (a.learningSteps ?? []).length > 0 ? a.learningSteps : undefined,
+      // Harness block — carries the execution-layer choice (BYOA
+      // `provider: runtime`, agentcore, interrupts, excludeTools…).
+      // Omitting this is how a round-trip would un-cut-over an agent.
+      harness: Object.keys(a.harnessConfig ?? {}).length > 0 ? a.harnessConfig : undefined,
       skills: a.skillSlugs ?? [],
       connectorSources: a.connectorSources ?? [],
       objectTypes: a.objectTypeSlugs ?? [],
@@ -68,7 +81,10 @@ async function main(): Promise<void> {
   }
 
   // skills/<slug>/skill.yaml + skills/<slug>/prompt.md
-  const skillsDir = join(outDir, 'skills');
+  // v0.2 renamed skills/ → operations/; the loader prefers operations/
+  // when both exist, so exporting to skills/ gets silently ignored in a
+  // scaffolded workspace (scaffold creates operations/).
+  const skillsDir = join(outDir, 'operations');
   mkdirSync(skillsDir, { recursive: true });
   for (const s of skills) {
     const skillDir = join(skillsDir, s.slug.replace(/_/g, '-'));
