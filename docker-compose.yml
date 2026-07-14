@@ -33,11 +33,11 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: vocion
+      POSTGRES_DB: vocion_core
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, pg_isready -U postgres -d vocion]
+      test: [CMD-SHELL, pg_isready -U postgres -d vocion_core]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -59,7 +59,7 @@ services:
       - ./:/app
     environment:
       ENABLE_FEEDBACK_WORKER: '1'
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vocion
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vocion_core
     command: [sh, -c, 'cd packages/core && npm run worker:serve']
 
   # Temporal worker (Phase H.1). Runs vocionWorkflow Workflows +
@@ -80,10 +80,14 @@ services:
       - ./:/app
     environment:
       ENABLE_TEMPORAL_WORKER: '1'
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vocion
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vocion_core
       VOCION_TEMPORAL_ADDRESS: temporal:7233
       VOCION_TEMPORAL_NAMESPACE: default
     command: [sh, -c, 'cd packages/core && npm run temporal:worker']
 
 volumes:
   pgdata:
+    # Explicit name: this is the volume the pre-standalone (umbrella)
+    # compose created — reusing it preserves existing dev data across
+    # the repo relocation. Fresh machines just get it created.
+    name: vocion-pgdata
