@@ -159,7 +159,24 @@ docs/                            # Concepts, guides, reference
 
 ## License
 
-MIT. See the [LICENSE](LICENSE) file.
+`@vocion/core` is **source-available under the [Mozilla Public License 2.0](LICENSE)**
+— an OSI-approved open-source license. You can use, self-host, inspect, modify,
+and build around it, and embed it in a larger proprietary system. MPL is
+file-level copyleft: when you *distribute* modified Vocion files, those files stay
+open under the MPL, but your surrounding application code stays yours.
+
+**You own your intelligence.** Your data, business context, agent configurations,
+workflows, evaluation history, and operational outputs remain yours. Vocion is
+deployable in your environment and portable to another qualified engineering
+partner — Metacto cannot hold your operating intelligence hostage.
+
+Some uses — white-labeling Vocion itself, distributing it under a proprietary
+license, a Metacto-supported managed service, proprietary enterprise modules, or
+commercial warranties/indemnification/SLAs — need a separate agreement. See
+[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+
+"Vocion" and the Vocion logos are trademarks of Metacto, Inc.; the MPL does not
+grant trademark rights.
 
 ## Docs
 
@@ -170,15 +187,7 @@ MIT. See the [LICENSE](LICENSE) file.
 
 ## Contributing
 
-Conventional commits (enforced by commitlint + lefthook):
-
-| Type | Purpose |
-|---|---|
-| `feat` | New feature |
-| `fix` | Bug fix |
-| `docs` | Documentation |
-| `refactor` | Code change (no feature/fix) |
-| `test` | Tests |
-| `chore` | Build/tooling |
-
-Run `npm run check:types`, `npm test`, `npm run lint` before committing. Pre-commit hook handles auto-fix + type check + unused-dep check.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions, local checks, and
+the contributor licensing terms (MPL 2.0 inbound + DCO sign-off). In short:
+conventional commits (enforced by commitlint + lefthook), `git commit -s` to sign
+off, and run `npm run check:types`, `npm test`, `npm run lint` before committing.
