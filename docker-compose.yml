@@ -90,4 +90,7 @@ volumes:
     # Explicit name: this is the volume the pre-standalone (umbrella)
     # compose created — reusing it preserves existing dev data across
     # the repo relocation. Fresh machines just get it created.
-    name: vocion-pgdata
+    # Deployments whose data predates this rename (compose's default
+    # <project>_pgdata naming) override via VOCION_PGDATA_VOLUME so a
+    # recreate keeps mounting the real data volume.
+    name: ${VOCION_PGDATA_VOLUME:-vocion-pgdata}
