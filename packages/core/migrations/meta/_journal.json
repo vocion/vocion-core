@@ -302,6 +302,13 @@
       "when": 1782001900000,
       "tag": "0042_mission_agent_slug",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1782002000000,
+      "tag": "0043_user_adoption_analytics",
+      "breakpoints": true
     }
   ]
 }
