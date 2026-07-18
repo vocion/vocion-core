@@ -118,11 +118,9 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=builder --chown=nextjs:nodejs /app/packages/core/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/packages/core/.next/static ./packages/core/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/packages/core/public ./packages/core/public
-# Git-backed workspace-as-code authoring tree (renamed from context/).
-# `npm run workspace:apply` inside the container reads from here; a
-# deployment can override the path via WORKSPACE_PATH (e.g. a mounted
-# per-org workspace).
-COPY --from=builder --chown=nextjs:nodejs /app/workspace ./workspace
+# The workspace-as-code tree lives OUTSIDE the repo since the
+# workspace-removal change: deployments mount their own tree and point
+# WORKSPACE_PATH at it, so nothing is baked into the image.
 # Drizzle migrations the runtime applies on first boot.
 COPY --from=builder --chown=nextjs:nodejs /app/packages/core/migrations ./packages/core/migrations
 # Public docs corpus served by the in-product viewer + the marketing
