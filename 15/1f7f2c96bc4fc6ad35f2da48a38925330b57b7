@@ -1,0 +1,153 @@
+packages/core/src/routers/Review.ts
+  s_95f82f342db136::t_3e29666853ee72 185-186,188,194-195,197
+  s_95f82f342db136::t_8099456ec80471 11
+  s_95f82f342db136::t_cdfcc3aa8efcde 187
+  s_95f82f342db136::t_e5413ad92f3737 196
+  s_95f82f342db136::t_c57f7426006cac 120,124,134-135,145,150
+packages/core/src/app/[locale]/(auth)/dashboard/adoption/users/[userId]/page.tsx
+  s_95f82f342db136::t_517e552e6d3245 4,6,17,20-23,35-43
+  s_95f82f342db136::t_f0c0f4d135556d 1-3,5,7-16,18-19,24-34,44-51
+packages/core/src/app/[locale]/rpc/agent/stream/route.ts
+  s_95f82f342db136::t_ea0e3e19e7cce3 147
+packages/core/src/features/adoption/AdoptionStatusPill.tsx
+  s_95f82f342db136::t_7697ca9615c1a4 1-43
+packages/core/src/routers/Analytics.ts
+  s_95f82f342db136::t_d37afa78cbc8f1 1-70,73
+  s_95f82f342db136::t_809fe7a128bf84 71-72
+packages/core/src/services/ConversationService.ts
+  s_95f82f342db136::t_ec789a1fdc2499 14
+  s_95f82f342db136::t_3f30257f5bb9d8 122-123
+  s_95f82f342db136::t_8e571ae0393eca 153-159
+  s_95f82f342db136::t_6c6821a34d318a 42-47
+packages/core/src/libs/Auth.ts
+  s_95f82f342db136::t_a339368c9ac352 101-111
+packages/core/src/features/adoption/StatCard.tsx
+  s_95f82f342db136::t_b31822dda8408f 1-45
+packages/core/src/scripts/seed-adoption-demo.ts
+  s_95f82f342db136::t_3dd5dffa38cec2 172
+  s_95f82f342db136::t_e3a9f5356f53ee 1-171,173-226
+package.json
+  s_95f82f342db136::t_12efbf3102aee9 5,93-95
+packages/core/src/services/WorkflowService.ts
+  s_95f82f342db136::t_2a139c560248e5 535-540
+  s_95f82f342db136::t_4a9a9d8ec5fcac 534,541
+packages/core/src/features/dashboard/AppSidebarNavGroup.tsx
+  s_95f82f342db136::t_bfeb241c9f452f 1-72
+packages/core/src/components/ui/collapsible.tsx
+  s_95f82f342db136::t_c373877fded490 1-33
+packages/core/src/features/dashboard/chat/ChatShell.tsx
+  s_95f82f342db136::t_9e0b7c077dfa2e 12
+  s_95f82f342db136::t_77bc7839eed5a0 265-271,284-293,301-303
+  s_95f82f342db136::t_d37e2eee532f50 414-415
+packages/core/src/features/adoption/UserDetailPanel.tsx
+  s_95f82f342db136::t_2d330dbc8139fc 1-170
+packages/core/src/models/Schema.ts
+  s_95f82f342db136::t_418922aced9455 174-177
+  s_95f82f342db136::t_0d56d2fc9efdda 1729-1764
+packages/core/src/features/adoption/AdoptionDashboard.tsx
+  s_95f82f342db136::t_5189b03de2d843 1-311
+packages/core/src/app/[locale]/(auth)/dashboard/adoption/page.tsx
+  s_95f82f342db136::t_355e017c39a9fb 1-33
+packages/core/src/routers/index.ts
+  s_95f82f342db136::t_84fa5f7b71a942 1-8
+  s_95f82f342db136::t_96c637f2157a8c 85-92
+packages/core/src/services/adoption/events.ts
+  s_95f82f342db136::t_20b5d8c2ee56f7 46
+  s_95f82f342db136::t_53c4e2461c1a9d 64-73
+  s_95f82f342db136::t_892ac09a2436f1 1-45,47-63
+packages/core/src/services/adoption/AdoptionService.ts
+  s_95f82f342db136::t_c50d655378b8e4 540-542,544,548,565-566
+  s_95f82f342db136::t_0ed38877c54357 1-193,219-539,543,545-547,549-564,567-593
+  s_95f82f342db136::t_f897496015e46f 194-218
+packages/core/src/routers/Conversations.ts
+  s_95f82f342db136::t_1b805910567ee2 78,84
+packages/core/src/app/[locale]/(auth)/dashboard/layout.tsx
+  s_95f82f342db136::t_ba02d950ec3c70 12
+  s_95f82f342db136::t_53e27ca55623c2 41
+  s_95f82f342db136::t_a36fd70b3e943a 74
+packages/core/src/features/adoption/TrendChart.tsx
+  s_95f82f342db136::t_ee85214f55c7d0 95-97
+  s_95f82f342db136::t_953c22cfda49b6 113
+  s_95f82f342db136::t_82b135a40d8041 1-94,98-112,114-125,128-133
+  s_95f82f342db136::t_ccbc546fd27351 126-127
+packages/core/src/app/[locale]/(auth)/dashboard/adoption/agents/[slug]/page.tsx
+  s_95f82f342db136::t_babd5696e70ac0 1-35
+packages/core/src/scripts/backfill-adoption-events.ts
+  s_95f82f342db136::t_9a23c707b5596e 36
+  s_95f82f342db136::t_2d0f876b1d20b3 141-142,144-161,170
+  s_95f82f342db136::t_524e8af855ba09 25,31,35
+  s_95f82f342db136::t_c277b5a2c2e095 126
+  s_95f82f342db136::t_ca7cf64486c7a3 53-65
+  s_95f82f342db136::t_973065ba46ce2d 185,193
+  s_95f82f342db136::t_a171ece986b85b 1-24,26-30,32-34,37-52,66-125,127-140,143,162-169,171-184,186-192,194-225
+packages/core/src/services/LearningsService.ts
+  s_95f82f342db136::t_5f62883694a969 216-226
+  s_95f82f342db136::t_e8618546388d86 215,227
+packages/core/src/locales/en.json
+  s_95f82f342db136::t_912667f8154042 27,53-54
+packages/core/src/services/adoption/AdoptionService.test.ts
+  s_95f82f342db136::t_4ca1fcdc81e7ef 15
+  s_95f82f342db136::t_ebb94b27a154d8 1-14,16-196,213-229
+  s_95f82f342db136::t_83d4242d5d9c74 197-212
+packages/core/src/services/adoption/attribution.test.ts
+  s_95f82f342db136::t_61e03ee174ba08 1-168
+packages/core/src/services/MissionService.ts
+  s_95f82f342db136::t_31f2d9ca27d87c 204,211
+  s_95f82f342db136::t_95bb7b4174cc19 205-210
+packages/core/src/services/adoption/attribution.ts
+  s_95f82f342db136::t_d35b493a3acb30 1-175
+packages/core/src/locales/fr.json
+  s_95f82f342db136::t_912667f8154042 27,53-54
+packages/core/src/features/adoption/AgentDetailPanel.tsx
+  s_95f82f342db136::t_c1319729428b73 1-95
+packages/core/src/services/SkillService.ts
+  s_95f82f342db136::t_8f40ac4df50dd6 548-553
+  s_95f82f342db136::t_205b0e152e4512 489,496
+  s_95f82f342db136::t_d279f86a0414b4 23
+  s_95f82f342db136::t_cf22153f7b27e2 490-495
+  s_95f82f342db136::t_9fdc058d14c461 547,554
+packages/core/src/services/ReviewService.ts
+  s_95f82f342db136::t_e20256729f9142 196-197,206,212,218,227-244,251
+  s_95f82f342db136::t_608c07572b44a1 245-250
+  s_95f82f342db136::t_6c87c478fb8e89 252-253
+packages/core/package.json
+  s_95f82f342db136::t_05efb59fb46e26 21-22
+  s_95f82f342db136::t_93830cb25e2a60 94
+packages/core/src/features/adoption/format.ts
+  s_95f82f342db136::t_87d37edbdfa1fa 1-69
+packages/core/src/routers/AuthGuards.ts
+  s_95f82f342db136::t_3befe1e3e50f13 6
+  s_95f82f342db136::t_8515b64c6b72c6 53-55
+packages/core/src/features/dashboard/AppSidebar.tsx
+  s_95f82f342db136::t_14bc7b07631b1e 130-136,138
+  s_95f82f342db136::t_b75a9da311225e 5,29
+  s_95f82f342db136::t_f158d1e4be53e5 50-53
+packages/core/src/services/adoption/track.ts
+  s_95f82f342db136::t_81a7e015ab30cf 36
+  s_95f82f342db136::t_aca425fca85fd8 6
+  s_95f82f342db136::t_9a47a6f878caf7 1-5,7-35,37-141
+packages/core/src/routers/Missions.ts
+  s_95f82f342db136::t_3dadfae63d7cc1 93-94,96,102-103,105
+  s_95f82f342db136::t_78f8991335fa10 95,104
+  s_95f82f342db136::t_50f7ef7f3be329 14
+packages/core/migrations/0043_user_adoption_analytics.sql
+  s_95f82f342db136::t_843d5d32550e5f 1-39
+packages/core/migrations/meta/_journal.json
+  s_95f82f342db136::t_598daf4a6bc676 305-311
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "151f7f2c96bc4fc6ad35f2da48a38925330b57b7",
+  "prompts": {},
+  "sessions": {
+    "s_95f82f342db136": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71e99a9-d80f-402b-b0bb-ed799488bf57",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
