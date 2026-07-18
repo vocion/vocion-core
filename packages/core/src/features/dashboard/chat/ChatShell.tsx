@@ -9,6 +9,7 @@ import type {
   StreamingPhase,
 } from './types';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { client } from '@/libs/Orpc';
 import { AgentHeader } from './AgentHeader';
 import { ChatComposer } from './ChatComposer';
 import { EmptyState } from './EmptyState';
@@ -261,6 +262,13 @@ export function ChatShell({
   /* Send                                                            */
   /* --------------------------------------------------------------- */
 
+  // Persisted thread id for this chat. Conversations are the system of
+  // record (and feed the adoption stream); the id is created lazily on
+  // the first send and reset by Clear / agent switch. The virtual
+  // `__search__` entry stays ephemeral — it isn't a real agent, so its
+  // turns must not appear in conversation history or agent metrics.
+  const conversationIdRef = useRef<number | null>(null);
+
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) {
       return;
@@ -273,6 +281,16 @@ export function ChatShell({
     setComposerValue('');
     setPhase('thinking');
 
+    if (conversationIdRef.current === null && agent.slug !== '__search__') {
+      try {
+        const conv = await client.conversations.create({ agentSlug: agent.slug });
+        conversationIdRef.current = conv.id;
+      } catch {
+        /* persistence is best-effort — chat still works ephemerally */
+      }
+    }
+    const conversationId = conversationIdRef.current;
+
     try {
       const resp = await fetch('/rpc/agent/stream', {
         method: 'POST',
@@ -280,6 +298,9 @@ export function ChatShell({
         body: JSON.stringify({
           message: text,
           agent_slug: agent.slug,
+          // With a conversation attached the server replays its own
+          // (authoritative) history and ignores this list.
+          ...(conversationId !== null ? { conversation_id: conversationId } : {}),
           conversation_history: messages
             .slice(-6)
             .filter(m => m.content.trim().length > 0)
@@ -390,6 +411,8 @@ export function ChatShell({
     setAllDocuments([]);
     setPendingHitl(null);
     setPhase('idle');
+    // Next send starts a fresh persisted thread.
+    conversationIdRef.current = null;
   }, []);
 
   // Switching agents starts a fresh conversation — history belongs to the

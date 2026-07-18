@@ -1,5 +1,6 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { trackReviewDecision } from '@/services/adoption/attribution';
 import {
   cancelMission,
   getMission,
@@ -89,15 +90,19 @@ export const getRun = os.input(z.object({ id: z.number().int().positive() })).ha
 });
 
 export const resume = os.input(z.object({ id: z.number().int().positive() })).handler(async ({ input }) => {
-  const { orgId } = await guardAuth();
-  return resumeMission(input.id, orgId);
+  const { orgId, userId } = await guardAuth();
+  const run = await resumeMission(input.id, orgId);
+  void trackReviewDecision({ orgId, userId }, { kind: 'mission', id: input.id }, 'approved');
+  return run;
 });
 
 export const cancel = os
   .input(z.object({ id: z.number().int().positive(), reason: z.string().optional() }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    return cancelMission(input.id, orgId, input.reason);
+    const { orgId, userId } = await guardAuth();
+    const run = await cancelMission(input.id, orgId, input.reason);
+    void trackReviewDecision({ orgId, userId }, { kind: 'mission', id: input.id }, 'rejected');
+    return run;
   });
 
 export const submitFeedback = os

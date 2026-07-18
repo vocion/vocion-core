@@ -20,6 +20,7 @@ import { fromRepoRoot } from '@/libs/repo-root';
 import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
 import { getCurrentWorkspaceSha, getWorkspacePath } from '@/libs/workspace';
 import { skillRunSchema, skillSchema } from '@/models/Schema';
+import { trackReviewDecision, trackReviewFeedback } from '@/services/adoption/attribution';
 
 /**
  * Lazy-init OpenAI client. Constructed on first call rather than at module
@@ -485,6 +486,14 @@ export async function submitSkillRunFeedback(opts: { orgId: string; runId: numbe
       comment: updated.feedbackNote,
     });
   }
+  if (updated) {
+    void trackReviewFeedback(
+      { orgId: opts.orgId, userId: opts.submittedBy },
+      { kind: 'skill', id: updated.id },
+      { rating: opts.rating ?? null, hasNote: !!opts.note },
+      { skillId: updated.skillId },
+    );
+  }
   return updated ?? null;
 }
 
@@ -534,6 +543,14 @@ async function transitionStatus(orgId: string, runId: number, to: 'approved' | '
         comment: feedback.note,
       });
     }
+  }
+  if (updated) {
+    void trackReviewDecision(
+      { orgId, userId: reviewedBy },
+      { kind: 'skill', id: runId },
+      to,
+      { latencyMs: now.getTime() - current.createdAt.getTime(), skillId: current.skillId },
+    );
   }
   return updated ?? null;
 }
