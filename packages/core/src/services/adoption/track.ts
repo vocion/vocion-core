@@ -1,9 +1,22 @@
 import type { AdoptionEventMeta, AdoptionEventType } from './events';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { logger } from '@/libs/Logger';
 import { accountMembershipSchema, userActivityEventSchema } from '@/models/Schema';
 import { ADOPTION_EVENTS, isHumanActor } from './events';
+
+/**
+ * Logger is loaded lazily: its module has a top-level await, and this
+ * file rides along in CLI-script import chains (workspace:apply, the
+ * backfill) that tsx compiles as CJS, where top-level await is fatal.
+ * Logging failures are swallowed — it's telemetry about telemetry.
+ * @param message
+ * @param properties
+ */
+function logWarn(message: string, properties: Record<string, unknown>): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger.warn(message, properties))
+    .catch(() => {});
+}
 
 /**
  * The one write API for the adoption event stream.
@@ -54,7 +67,7 @@ export async function track<T extends AdoptionEventType>(
     if (spec.meta && opts.meta !== undefined) {
       const parsed = spec.meta.safeParse(opts.meta);
       if (!parsed.success) {
-        logger.warn('adoption.track dropped event with malformed metadata', { eventType, error: String(parsed.error) });
+        logWarn('adoption.track dropped event with malformed metadata', { eventType, error: String(parsed.error) });
         return;
       }
     }
@@ -73,7 +86,7 @@ export async function track<T extends AdoptionEventType>(
       })
       .onConflictDoNothing();
   } catch (error) {
-    logger.warn('adoption.track insert failed', { eventType, error: String(error) });
+    logWarn('adoption.track insert failed', { eventType, error: String(error) });
   }
 }
 
@@ -136,6 +149,6 @@ async function touchMembership(
         eq(accountMembershipSchema.userId, actor.userId),
       ));
   } catch (error) {
-    logger.warn('adoption.track membership touch failed', { error: String(error) });
+    logWarn('adoption.track membership touch failed', { error: String(error) });
   }
 }
