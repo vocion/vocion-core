@@ -212,6 +212,19 @@ export async function addLearning(opts: {
       createdBy: opts.createdBy ?? null,
     })
     .returning();
+  if (opts.createdBy && row) {
+    void (async () => {
+      const [{ track }, { agentSlugFromPrincipal }] = await Promise.all([
+        import('@/services/adoption/track'),
+        import('@/services/adoption/attribution'),
+      ]);
+      await track({ orgId: opts.orgId, userId: opts.createdBy! }, 'learning.added', {
+        // Learnings targeted at an agent carry an 'agent:<slug>' source.
+        agentSlug: agentSlugFromPrincipal(opts.source),
+        resource: ['learning', row.id],
+      });
+    })();
+  }
   return { ok: true as const, rule: row };
 }
 

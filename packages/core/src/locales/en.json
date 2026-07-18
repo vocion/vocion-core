@@ -24,6 +24,7 @@
     "capabilities_section_label": "Capabilities",
     "observability_section_label": "Observability",
     "settings_section_label": "Settings",
+    "organization_section_label": "Organization",
     "home": "Overview",
     "ask": "Ask",
     "chat": "Chat",
@@ -49,7 +50,8 @@
     "roadmap": "Roadmap",
     "settings": "Settings",
     "support": "Support",
-    "feedback": "Feedback"
+    "feedback": "Feedback",
+    "adoption": "Adoption"
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",

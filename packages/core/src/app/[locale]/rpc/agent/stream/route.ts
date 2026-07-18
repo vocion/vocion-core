@@ -144,6 +144,7 @@ export async function POST(request: Request): Promise<Response> {
       conversationId,
       role: 'user',
       content: message,
+      userId,
     });
   }
 

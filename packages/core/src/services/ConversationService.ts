@@ -11,6 +11,7 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { conversationMessageSchema, conversationSchema } from '@/models/Schema';
+import { track } from '@/services/adoption/track';
 
 const DEFAULT_TITLE = 'New conversation';
 
@@ -38,6 +39,12 @@ export async function createConversation(opts: {
       createdBy: opts.createdBy ?? null,
     })
     .returning();
+  if (opts.createdBy) {
+    void track({ orgId: opts.orgId, userId: opts.createdBy }, 'chat.conversation_created', {
+      agentSlug: opts.agentSlug,
+      resource: ['conversation', row!.id],
+    });
+  }
   return row!;
 }
 
@@ -112,6 +119,8 @@ export async function appendMessage(opts: {
   role: 'user' | 'assistant';
   content: string;
   runs?: ConversationRun[] | null;
+  /** The person sending a `user` turn — feeds the adoption stream. */
+  userId?: string;
 }) {
   const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
   if (!conv) {
@@ -140,6 +149,13 @@ export async function appendMessage(opts: {
       messageCount: sql`${conversationSchema.messageCount} + 1`,
     })
     .where(eq(conversationSchema.id, opts.conversationId));
+
+  if (opts.role === 'user' && opts.userId) {
+    void track({ orgId: opts.orgId, userId: opts.userId }, 'chat.message_sent', {
+      agentSlug: conv.agentSlug,
+      resource: ['conversation_message', msg!.id],
+    });
+  }
 
   return msg!;
 }

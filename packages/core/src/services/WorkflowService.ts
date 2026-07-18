@@ -531,6 +531,14 @@ export async function submitWorkflowRunFeedback(opts: { orgId: string; runId: nu
     })
     .where(and(eq(workflowRunSchema.id, opts.runId), eq(workflowRunSchema.orgId, opts.orgId)))
     .returning();
+  if (updated) {
+    const { trackReviewFeedback } = await import('@/services/adoption/attribution');
+    void trackReviewFeedback(
+      { orgId: opts.orgId, userId: opts.submittedBy },
+      { kind: 'workflow', id: updated.id },
+      { rating: opts.rating ?? null, hasNote: !!opts.note },
+    );
+  }
   return updated ?? null;
 }
 

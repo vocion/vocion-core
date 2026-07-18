@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  BarChart3,
   BookOpen,
   CalendarClock,
   CheckSquare,
@@ -25,6 +26,7 @@ import {
 import { useTranslations } from 'next-intl';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
+import { AppSidebarNavGroup } from '@/features/dashboard/AppSidebarNavGroup';
 import { ProjectSwitcher } from '@/features/dashboard/ProjectSwitcher';
 import { VocionLogo } from '@/templates/VocionLogo';
 
@@ -45,7 +47,10 @@ import { VocionLogo } from '@/templates/VocionLogo';
  * `--sidebar-accent-foreground` in styles/global.css.
  * @param props
  */
-export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
+export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<typeof Sidebar> & {
+  /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
+  isAdmin?: boolean;
+}) => {
   const t = useTranslations('DashboardLayout');
 
   return (
@@ -122,15 +127,15 @@ export const AppSidebar = (props: React.ComponentProps<typeof Sidebar>) => {
           ]}
         />
 
-        {/* 4. Settings. Members replaced Billing in the nav (billing page
-            stays routable at /dashboard/billing, it's just not something a
-            single-tenant deploy needs front-and-center). "System" is the
-            old Admin link — same status page, clearer name. Docs points at
-            the PUBLIC docs site — the in-app viewer rendered repo-internal
-            docs that go stale between image builds. */}
-        <AppSidebarNav
-          label={t('settings_section_label')}
+        {/* 6. Organization — the account itself: who's adopting the
+            platform (admins only), who's in it, system status, docs.
+            Formerly "Settings"; now an expandable group. Adoption is
+            hidden for members here AND 403-gated at the router — the
+            nav is convenience, not the security boundary. */}
+        <AppSidebarNavGroup
+          label={t('organization_section_label')}
           items={[
+            ...(isAdmin ? [{ title: t('adoption'), url: '/dashboard/adoption', icon: BarChart3 }] : []),
             { title: 'Members', url: '/dashboard/members', icon: UserPlus },
             { title: 'System', url: '/dashboard/admin', icon: ShieldCheck },
             { title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText },
