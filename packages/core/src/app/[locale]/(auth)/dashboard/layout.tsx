@@ -9,6 +9,7 @@ import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner'
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { projectSchema } from '@/models/Schema';
+import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
 
 type DashboardLayoutProps = {
@@ -37,7 +38,7 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
   // restore, re-provision) used to render a fully-EMPTY dashboard with no
   // error — every query scoped to a ghost org. Force a legible re-auth
   // instead of a silent blank workspace.
-  const { orgId } = await auth();
+  const { orgId, has } = await auth();
   if (orgId) {
     const [project] = await db
       .select({ id: projectSchema.id })
@@ -70,7 +71,7 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
-      <AppSidebar />
+      <AppSidebar isAdmin={has({ role: ORG_ROLE.ADMIN })} />
       <SidebarInset>
         <AppSidebarHeader />
 

@@ -171,6 +171,10 @@ export const accountMembershipSchema = pgTable(
     userId: text('user_id').notNull().references(() => userSchema.id, { onDelete: 'cascade' }),
     /** 'admin' | 'member'. Admins can invite + manage projects. */
     role: text('role').notNull(),
+    /** Stamped on each credentials sign-in (JWT issue). */
+    lastLoginAt: timestamp('last_login_at', { mode: 'date' }),
+    /** Touched by the throttled activity heartbeat — dormancy is a one-column query. */
+    lastActiveAt: timestamp('last_active_at', { mode: 'date' }),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
@@ -1719,6 +1723,42 @@ export const eventLogSchema = pgTable(
   table => [
     uniqueIndex('event_log_dedupe_idx').on(table.orgId, table.dedupeKey),
     index('event_log_org_type_idx').on(table.orgId, table.type),
+  ],
+);
+
+// user_activity_event — append-only adoption stream. One narrow row per user
+// action (login, heartbeat, chat message, review decision, feedback, learning),
+// written fire-and-forget by `services/adoption/track.ts`. Every adoption
+// metric reads from this one shape; historical rows are synthesized once by
+// `scripts/backfill-adoption-events.ts` from the source tables.
+export const userActivityEventSchema = pgTable(
+  'user_activity_event',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id'),
+    userId: text('user_id').notNull(),
+    /** Set whenever the event is agent-attributable. */
+    agentSlug: text('agent_slug'),
+    /** `category.verb` taxonomy — see `services/adoption/events.ts`. */
+    eventType: text('event_type').notNull(),
+    /** 'conversation' | 'skill_run' | 'workflow_run' | 'mission_run' | 'learning' | ... */
+    resourceType: text('resource_type'),
+    /** Powers drill-down deep links into existing detail pages. */
+    resourceId: text('resource_id'),
+    /** Small envelope only — counts and enums (decision, rating, latency), never content. */
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('user_activity_event_org_created_idx').on(table.orgId, table.createdAt),
+    index('user_activity_event_org_user_created_idx').on(table.orgId, table.userId, table.createdAt),
+    index('user_activity_event_org_agent_created_idx').on(table.orgId, table.agentSlug, table.createdAt),
+    // Resource-anchored events are naturally unique — this makes the backfill
+    // idempotent (insert ... on conflict do nothing) and guards live double-fires.
+    uniqueIndex('user_activity_event_resource_idx')
+      .on(table.orgId, table.eventType, table.resourceType, table.resourceId)
+      .where(sql`resource_id IS NOT NULL`),
   ],
 );
 

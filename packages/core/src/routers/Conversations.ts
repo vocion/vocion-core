@@ -75,11 +75,12 @@ export const append = os
     content: z.string(),
   }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
+    const { orgId, userId } = await guardAuth();
     return appendMessage({
       orgId,
       conversationId: input.conversationId,
       role: input.role,
       content: input.content,
+      userId,
     });
   });

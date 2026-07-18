@@ -201,6 +201,14 @@ export async function submitMissionRunFeedback(opts: {
   await db.update(missionRunSchema)
     .set({ rating: opts.rating, feedbackNote: opts.note, feedbackBy: opts.by, feedbackAt: new Date() })
     .where(and(eq(missionRunSchema.id, opts.runId), eq(missionRunSchema.orgId, opts.orgId)));
+  if (opts.by) {
+    const { trackReviewFeedback } = await import('@/services/adoption/attribution');
+    void trackReviewFeedback(
+      { orgId: opts.orgId, userId: opts.by },
+      { kind: 'mission', id: opts.runId },
+      { rating: opts.rating, hasNote: !!opts.note },
+    );
+  }
 }
 
 /**

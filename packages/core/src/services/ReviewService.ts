@@ -193,6 +193,8 @@ export async function decide(
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
   switch (item.kind) {
     case 'skill':
+      // `transitionStatus` in SkillService records the adoption event for
+      // this kind — every skill-decision entry path funnels through it.
       action === 'approve'
         ? await approveSkillRun({ orgId, runId: item.id, reviewedBy })
         : await rejectSkillRun({ orgId, runId: item.id, reviewedBy, feedback: opts?.reason ? { note: opts.reason, rating: 'down' } : undefined });
@@ -201,22 +203,52 @@ export async function decide(
       action === 'approve'
         ? await resumeWorkflow(item.id, orgId)
         : await cancelWorkflow(item.id, orgId, opts?.reason);
+      trackDecision(item, action, orgId, reviewedBy);
       return;
     case 'mission':
       action === 'approve'
         ? await resumeMission(item.id, orgId)
         : await cancelMission(item.id, orgId, opts?.reason);
+      trackDecision(item, action, orgId, reviewedBy);
       return;
     case 'action':
       action === 'approve'
         ? await executeAction(item.id, orgId)
         : await rejectAction(item.id, orgId, opts?.reason);
+      trackDecision(item, action, orgId, reviewedBy);
       // The decision is training signal: record what a good/bad proposal
       // looks like in the `crm-updates` learning step so agents check their
       // next proposals against real operator judgment. Never blocks the
       // decision itself.
       await recordActionDecisionLearning(item.id, orgId, action, opts?.reason).catch(() => {});
   }
+}
+
+/**
+ * Adoption-stream capture for HITL decisions. One `review.decided` event
+ * with the run kind in metadata — a new kind routed through `decide()`
+ * inherits tracking with zero extra code. Fire-and-forget.
+ * @param item
+ * @param item.kind
+ * @param item.id
+ * @param action
+ * @param orgId
+ * @param reviewedBy
+ */
+function trackDecision(
+  item: { kind: ReviewKind; id: number },
+  action: 'approve' | 'reject',
+  orgId: string,
+  reviewedBy: string,
+): void {
+  void (async () => {
+    const { trackReviewDecision } = await import('@/services/adoption/attribution');
+    await trackReviewDecision(
+      { orgId, userId: reviewedBy },
+      item,
+      action === 'approve' ? 'approved' : 'rejected',
+    );
+  })();
 }
 
 /**
