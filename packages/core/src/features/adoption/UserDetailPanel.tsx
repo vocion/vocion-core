@@ -4,8 +4,8 @@ import type { AdoptionUserDetail, AdoptionWindow } from '@/services/adoption/Ado
 import { useEffect, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
-import { AdoptionStatusPill } from './AdoptionStatusPill';
 import { PeriodPicker } from './AdoptionDashboard';
+import { AdoptionStatusPill } from './AdoptionStatusPill';
 import { formatAgo, formatDuration } from './format';
 import { StatCard } from './StatCard';
 import { TrendChart } from './TrendChart';
@@ -42,11 +42,11 @@ export function UserDetailPanel(props: { userId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    setError(null);
     client.adoption.userDetail({ userId: props.userId, days })
       .then((d) => {
         if (!cancelled) {
           setDetail(d);
+          setError(null);
         }
       })
       .catch(e => !cancelled && setError(e instanceof Error ? e.message : 'Failed to load'));
