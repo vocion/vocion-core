@@ -1,3 +1,11 @@
+import {
+  adoptionAgentDetailRoute,
+  adoptionAgentsRoute,
+  adoptionOverviewRoute,
+  adoptionTrendRoute,
+  adoptionUserDetailRoute,
+  adoptionUsersRoute,
+} from './Analytics';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
   addLink,
@@ -74,6 +82,14 @@ import {
 import { applyNow as applyWorkspaceNow, readPrimitive, driftStatus as workspaceDriftStatus, writeFile } from './Workspace';
 
 export const router = {
+  adoption: {
+    overview: adoptionOverviewRoute,
+    users: adoptionUsersRoute,
+    agents: adoptionAgentsRoute,
+    trend: adoptionTrendRoute,
+    userDetail: adoptionUserDetailRoute,
+    agentDetail: adoptionAgentDetailRoute,
+  },
   businessObject: {
     listTypes,
     createType,

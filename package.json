@@ -2,7 +2,7 @@
   "name": "vocion",
   "version": "0.0.0",
   "private": true,
-  "description": "Vocion — monorepo root. See packages/core for the framework, packages/sdk for the plugin contract, packages/plugins/* for shipped plugins.",
+  "description": "Vocion \u2014 monorepo root. See packages/core for the framework, packages/sdk for the plugin contract, packages/plugins/* for shipped plugins.",
   "engines": {
     "node": ">=20"
   },
@@ -90,5 +90,8 @@
       "@semantic-release/release-notes-generator",
       "@semantic-release/github"
     ]
+  },
+  "resolutions": {
+    "@langchain/core": "1.2.2"
   }
 }
