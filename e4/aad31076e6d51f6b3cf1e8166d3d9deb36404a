@@ -1,0 +1,19 @@
+packages/core/src/routers/Review.ts
+  s_95f82f342db136::t_7b910f1c0caa24 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "e4aad31076e6d51f6b3cf1e8166d3d9deb36404a",
+  "prompts": {},
+  "sessions": {
+    "s_95f82f342db136": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71e99a9-d80f-402b-b0bb-ed799488bf57",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
