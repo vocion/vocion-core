@@ -1,0 +1,19 @@
+docker-compose.yml
+  s_95f82f342db136::t_9468ad0f244d0c 93-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "da64187188fa5d8fb65707d342d3b46393aa0da9",
+  "prompts": {},
+  "sessions": {
+    "s_95f82f342db136": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71e99a9-d80f-402b-b0bb-ed799488bf57",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
