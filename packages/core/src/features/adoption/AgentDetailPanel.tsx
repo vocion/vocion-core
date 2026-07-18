@@ -19,11 +19,11 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    setError(null);
     client.adoption.agentDetail({ agentSlug: props.agentSlug, days })
       .then((d) => {
         if (!cancelled) {
           setDetail(d);
+          setError(null);
         }
       })
       .catch(e => !cancelled && setError(e instanceof Error ? e.message : 'Failed to load'));

@@ -86,7 +86,6 @@ export function AdoptionDashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    setError(null);
     Promise.all([
       client.adoption.overview({ days }),
       client.adoption.users({ days }),
@@ -98,6 +97,7 @@ export function AdoptionDashboard() {
         setUsers(u);
         setAgents(a);
         setTrend(t);
+        setError(null);
       }
     }).catch((e) => {
       if (!cancelled) {
