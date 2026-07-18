@@ -1,0 +1,28 @@
+packages/core/src/routers/Missions.ts
+  s_95f82f342db136::t_4205a0ac9181c6 3
+packages/core/src/features/adoption/UserDetailPanel.tsx
+  s_95f82f342db136::t_e5ff3b359e02a6 49
+  s_95f82f342db136::t_d24b244855e6bd 8
+packages/core/src/features/adoption/AdoptionDashboard.tsx
+  s_95f82f342db136::t_0395aad089e3bc 100
+packages/core/src/routers/Review.ts
+  s_95f82f342db136::t_90cb121ce2bac4 4
+packages/core/src/features/adoption/AgentDetailPanel.tsx
+  s_95f82f342db136::t_c1f2e7fa109432 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "6ce379241a579a2597a8460a316bda841a510c30",
+  "prompts": {},
+  "sessions": {
+    "s_95f82f342db136": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71e99a9-d80f-402b-b0bb-ed799488bf57",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
