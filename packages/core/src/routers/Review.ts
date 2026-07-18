@@ -8,6 +8,7 @@ import {
   resumeWorkflow,
   submitWorkflowRunFeedback,
 } from '@/services/WorkflowService';
+import { trackReviewDecision } from '@/services/adoption/attribution';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
@@ -116,11 +117,11 @@ export const getRun = os
 export const approve = os
   .input(ApproveInput)
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
+    const { orgId, userId } = await guardAuth();
     const feedback = input.rating !== undefined || input.note !== undefined
       ? { rating: input.rating, note: input.note }
       : undefined;
-    const run = await approveSkillRun({ orgId, runId: input.id, reviewedBy: 'web', feedback });
+    const run = await approveSkillRun({ orgId, runId: input.id, reviewedBy: userId, feedback });
     if (!run) {
       throw ApiError.notFound();
     }
@@ -130,8 +131,8 @@ export const approve = os
 export const reject = os
   .input(RejectInput)
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    const run = await rejectSkillRun({ orgId, runId: input.id, reviewedBy: 'web', feedback: input.reason ? { note: input.reason, rating: 'down' } : undefined });
+    const { orgId, userId } = await guardAuth();
+    const run = await rejectSkillRun({ orgId, runId: input.id, reviewedBy: userId, feedback: input.reason ? { note: input.reason, rating: 'down' } : undefined });
     if (!run) {
       throw ApiError.notFound();
     }
@@ -141,12 +142,12 @@ export const reject = os
 export const submitFeedback = os
   .input(FeedbackInput)
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
+    const { orgId, userId } = await guardAuth();
     const submit = input.kind === 'workflow' ? submitWorkflowRunFeedback : submitSkillRunFeedback;
     const run = await submit({
       orgId,
       runId: input.id,
-      submittedBy: 'web',
+      submittedBy: userId,
       rating: input.rating,
       note: input.note,
     });
@@ -181,13 +182,17 @@ export const getWorkflowRunRoute = os
 export const resume = os
   .input(ResumeInput)
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    return resumeWorkflow(input.id, orgId, input.input !== undefined ? { input: input.input } : undefined);
+    const { orgId, userId } = await guardAuth();
+    const run = await resumeWorkflow(input.id, orgId, input.input !== undefined ? { input: input.input } : undefined);
+    void trackReviewDecision({ orgId, userId }, { kind: 'workflow', id: input.id }, 'approved');
+    return run;
   });
 
 export const cancel = os
   .input(CancelInput)
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    return cancelWorkflow(input.id, orgId, input.reason);
+    const { orgId, userId } = await guardAuth();
+    const run = await cancelWorkflow(input.id, orgId, input.reason);
+    void trackReviewDecision({ orgId, userId }, { kind: 'workflow', id: input.id }, 'rejected');
+    return run;
   });

@@ -98,6 +98,17 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         token.accountId = tenancy.accountId;
         token.projectId = tenancy.projectId;
         token.role = tenancy.role;
+        // Sign-in is the one moment JWT auth becomes observable server-side —
+        // record it for the adoption stream. Fire-and-forget; never blocks auth.
+        if (tenancy.projectId) {
+          const { trackLogin } = await import('@/services/adoption/track');
+          trackLogin({
+            orgId: tenancy.projectId,
+            projectId: tenancy.projectId,
+            accountId: tenancy.accountId,
+            userId: user.id,
+          });
+        }
       } else if (trigger === 'update' && typeof token.id === 'string') {
         // Session.update() (e.g. after project switch) — re-resolve tenancy so
         // the new vocion_active_project cookie is honored on the next issue.

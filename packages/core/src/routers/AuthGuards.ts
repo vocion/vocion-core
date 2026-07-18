@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { projectSchema } from '@/models/Schema';
+import { trackHeartbeat } from '@/services/adoption/track';
 import { ApiError } from './ApiError';
 
 /**
@@ -49,6 +50,9 @@ export const guardAuth = async () => {
   }
 
   const { id: userId, accountId, projectId, role } = session.user;
+  // Every authenticated RPC flows through here — the adoption heartbeat
+  // rides along, throttled to one write per user per 5-minute bucket.
+  trackHeartbeat({ orgId: projectId, projectId, accountId, userId });
   // Back-compat: legacy service-layer queries filter by `org_id`. The
   // column still stores what callers expect — for auth.js-created rows,
   // org_id == projectId. Phase 1.5 will rename the column.
