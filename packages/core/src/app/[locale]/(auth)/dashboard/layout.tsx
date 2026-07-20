@@ -75,7 +75,7 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
       <SidebarInset>
         <AppSidebarHeader />
 
-        <div className="@container flex-1 px-6 py-4">
+        <div className="@container flex-1 px-4 py-4 sm:px-6">
           {props.children}
         </div>
         <WorkspaceDriftBanner />

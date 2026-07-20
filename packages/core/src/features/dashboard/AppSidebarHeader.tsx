@@ -27,8 +27,8 @@ export const AppSidebarHeader = () => {
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-2">
-      <div className="flex items-center gap-2 px-4">
-        <SidebarTrigger className="-ml-1" />
+      <div className="flex items-center gap-2 px-2 sm:px-4">
+        <SidebarTrigger className="-ml-1 size-11 sm:size-7" />
       </div>
 
       <ul className="flex items-center gap-x-1.5">
