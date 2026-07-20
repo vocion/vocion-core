@@ -1,5 +1,7 @@
 'use client';
 
+import { SquarePen } from 'lucide-react';
+
 /**
  * v0.5.2 cleanup: this file was a 1898-LOC catch-all that contained both
  * the legacy `AskChat` chat surface (replaced by ChatShell + the
@@ -19,9 +21,12 @@ export const NewChatButton = () => {
     <button
       type="button"
       onClick={() => window.location.reload()}
-      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+      aria-label="New Chat"
+      title="New Chat"
+      className="inline-flex size-11 items-center justify-center gap-1.5 rounded-md border border-border text-xs font-medium transition-colors hover:bg-muted sm:size-auto sm:px-3 sm:py-1.5"
     >
-      New Chat
+      <SquarePen className="size-4 sm:hidden" aria-hidden="true" />
+      <span className="hidden sm:inline">New Chat</span>
     </button>
   );
 };
