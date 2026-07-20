@@ -52,8 +52,18 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   await page.getByRole('button', { name: 'Create instance + sign in' }).click();
   await page.waitForURL('**/dashboard**');
 
+  // Let the post-sign-up full load go quiet, then navigate CLIENT-SIDE for
+  // the rest of the tour. A page.goto while the dev server is still
+  // streaming/hydrating can park the next page's content in a hidden
+  // streaming template for 15–30s (observed on shot 1: two hidden
+  // 'No teams yet' copies -> strict-mode timeout). Client-side navigation
+  // renders straight into place and never hits that window.
+  // eslint-disable-next-line playwright/no-networkidle -- one-time settle after the only full page load; every later transition is assertion-gated
+  await page.waitForLoadState('networkidle');
+
   // ── Shot 1 — fresh workspace: the Teams empty state is honest + self-solving ──
-  await page.goto('/dashboard/teams');
+  await page.getByRole('link', { name: 'Teams', exact: true }).click();
+  await page.waitForURL('**/dashboard/teams');
 
   await expect(page.getByText('No teams yet')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Load the sample revenue workspace' })).toBeVisible();
@@ -142,8 +152,9 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   await dwell(page, 1500);
   await underTheHood.click(); // collapse again
 
-  // Close on the org chart.
-  await page.goto('/dashboard/teams');
+  // Close on the org chart (client-side, like every navigation above).
+  await page.getByRole('link', { name: 'Teams', exact: true }).click();
+  await page.waitForURL('**/dashboard/teams');
 
   await expect(page.getByRole('heading', { name: 'Revenue Director' })).toBeVisible();
 
