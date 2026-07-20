@@ -156,7 +156,13 @@ export async function getWorkspaceLead(orgId: string): Promise<WorkspaceLeadView
   };
 }
 
-function listTeamAgents(orgId: string): Promise<TeamAgent[]> {
+/**
+ * All agents in the org, in the slim TeamAgent shape. Exported for the
+ * org-chart page, which also needs the agents that are NOT on any team
+ * (rendered as the "not on a team yet" strip — never silently dropped).
+ * @param orgId
+ */
+export function listTeamAgents(orgId: string): Promise<TeamAgent[]> {
   return db
     .select({
       slug: agentSchema.slug,
