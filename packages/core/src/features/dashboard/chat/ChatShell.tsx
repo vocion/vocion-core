@@ -77,13 +77,25 @@ export function ChatShell({
 
   // Callers (`chat/page.tsx`) guarantee at least one entry — the virtual
   // SEARCH_ONLY_AGENT is always appended. `agentSlug` defaults to the
-  // workspace coordinator; if it ever resolves to a missing/deleted agent
-  // the `?? agents[0]` fallback keeps the surface pointed at a real agent.
+  // workspace lead; if it ever resolves to a missing/deleted agent the
+  // `?? agents[0]` fallback keeps the surface pointed at a real agent.
   const agent = (currentSlug ? agents.find(a => a.slug === currentSlug) : undefined) ?? agents[0]!;
-  // Default (coordinator) view shows the dynamic workspace chips; once the user
-  // deliberately switches to a specialist, prefer that agent's own suggestions.
-  const isCoordinator = agent.slug === agents[0]?.slug;
-  const emptyChips = (!isCoordinator && agent.suggestions?.length) ? agent.suggestions : suggestions;
+  // Default = the workspace view (agents[0] is the workspace lead). Nothing
+  // was specifically picked, so the surface speaks for the WORKSPACE: the
+  // "Ask <workspace>" greeting, the dynamic workspace chips, and a neutral
+  // composer. Once a specific agent/team is picked via the ⋯ switcher, the
+  // greeting + placeholder name THAT agent and its own suggestions lead.
+  // The virtual __search__ entry isn't an agent, so it keeps the workspace
+  // greeting (its placeholder already explains itself).
+  const isDefaultView = agent.slug === agents[0]?.slug;
+  const isSearchOnly = agent.slug === '__search__';
+  const emptyChips = (!isDefaultView && agent.suggestions?.length) ? agent.suggestions : suggestions;
+  const emptyGreeting = (isDefaultView || isSearchOnly)
+    ? greeting
+    : { eyebrow: greeting?.eyebrow, workspace: agent.name };
+  // Neutral composer on the workspace view (the ChatComposer default,
+  // "Ask anything…"); the agent's own placeholder once one is picked.
+  const composerPlaceholder = isDefaultView ? undefined : agent.placeholder;
   const isStreaming = phase !== 'idle';
 
   /* --------------------------------------------------------------- */
@@ -453,7 +465,7 @@ export function ChatShell({
           {messages.length === 0
             ? (
                 <EmptyState
-                  greeting={greeting}
+                  greeting={emptyGreeting}
                   suggestions={emptyChips}
                   onPick={handlePickSuggestion}
                 />
@@ -474,7 +486,7 @@ export function ChatShell({
             onChange={setComposerValue}
             onSubmit={() => void sendMessage(composerValue)}
             disabled={isStreaming}
-            placeholder={agent.placeholder}
+            placeholder={composerPlaceholder}
           />
         </div>
 
