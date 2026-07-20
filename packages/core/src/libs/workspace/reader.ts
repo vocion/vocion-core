@@ -13,7 +13,7 @@ import { fromRepoRoot } from '@/libs/repo-root';
  * workflow is a single `workflow.yaml`.
  */
 
-export type PrimitiveKind = 'skill' | 'workflow' | 'object' | 'agent' | 'source' | 'mission' | 'automation';
+export type PrimitiveKind = 'skill' | 'workflow' | 'object' | 'agent' | 'source' | 'mission' | 'automation' | 'team';
 
 export type PrimitiveFile = {
   /** Path relative to the context dir, e.g. `skills/discovery-summary/prompt.md` */
@@ -47,6 +47,7 @@ function kindDir(kind: PrimitiveKind): string {
     case 'agent': return 'agents';
     case 'mission': return 'missions';
     case 'automation': return 'automations';
+    case 'team': return 'teams';
   }
 }
 
@@ -72,8 +73,8 @@ export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): Primitive
     return null;
   }
 
-  // Missions + automations live as single flat YAML files.
-  if (kind === 'mission' || kind === 'automation') {
+  // Missions, automations + teams live as single flat YAML files.
+  if (kind === 'mission' || kind === 'automation' || kind === 'team') {
     const dir = join(base, kindDir(kind));
     const name = `${dirName}.yaml`;
     if (!existsSync(join(dir, name))) {
