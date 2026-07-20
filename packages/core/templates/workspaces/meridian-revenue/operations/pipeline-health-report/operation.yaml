@@ -1,0 +1,8 @@
+slug: pipeline-health-report
+name: Pipeline health report
+description: >-
+  Read-only summary of pipeline health — stage aging, stale deals, and
+  weighted-vs-raw coverage. Runs freely; changes nothing.
+category: query
+requiresApproval: false
+promptFile: prompt.md

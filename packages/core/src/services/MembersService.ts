@@ -1,5 +1,7 @@
 /**
- * Team members — the PEOPLE in a tenant account (not agent teams).
+ * MembersService — the PEOPLE in a tenant account. Not agent teams:
+ * those are TeamService (the F1 `team` table / org chart). `listMembers`
+ * here doubles as the accountable-user picker source for teams.
  *
  * Backs the /dashboard/members settings page: list members with roles,
  * change roles, remove members, and manage link-based invites.

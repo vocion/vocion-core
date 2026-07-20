@@ -1,0 +1,9 @@
+slug: draft-follow-up-email
+name: Draft follow-up email
+description: >-
+  Drafts a follow-up email for a quiet deal or lead. A mutation — the
+  draft always waits in the review queue for human approval; nothing
+  sends on its own.
+category: mutation
+requiresApproval: true
+promptFile: prompt.md

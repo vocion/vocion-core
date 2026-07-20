@@ -1,10 +1,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { stringify as stringifyYaml } from 'yaml';
 import { db } from '@/libs/DB';
-import { agentSchema, businessObjectTypeSchema, skillSchema } from '@/models/Schema';
+import { projectLeadToManifestKeys, teamRowToManifest } from '@/libs/workspace/team-export';
+import { agentSchema, businessObjectTypeSchema, projectSchema, skillSchema, teamSchema, userSchema } from '@/models/Schema';
 import 'dotenv/config';
 
 /**
@@ -26,18 +27,47 @@ async function main(): Promise<void> {
   const agents = await db.select().from(agentSchema).where(eq(agentSchema.orgId, orgId));
   const skills = await db.select().from(skillSchema).where(eq(skillSchema.orgId, orgId));
   const objectTypes = await db.select().from(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.orgId, orgId));
+  const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId));
+  const [project] = await db.select().from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
 
-  // workspace.yaml
+  // accountable_user_id → email, for teams + the workspace default.
+  const accountableIds = [
+    ...teams.map(t => t.accountableUserId),
+    project?.accountableUserId ?? null,
+  ].filter((id): id is string => id !== null);
+  const emailByUserId = new Map<string, string>(
+    accountableIds.length > 0
+      ? (await db.select({ id: userSchema.id, email: userSchema.email }).from(userSchema).where(inArray(userSchema.id, accountableIds)))
+          .map(u => [u.id, u.email] as const)
+      : [],
+  );
+
+  // workspace.yaml — workspace lead + default owner come from the project
+  // row when one matches the org (workspace lead is project config).
   writeFile(join(outDir, 'workspace.yaml'), stringifyYaml({
     version: 1,
     orgId,
     name,
     description: `Exported context for ${name} on ${new Date().toISOString()}`,
+    ...projectLeadToManifestKeys(
+      project ?? { leadAgentSlug: null, accountableUserId: null },
+      emailByUserId,
+    ),
     defaults: {
       model: mode(skills.map(s => s.model ?? 'gpt-4o')),
       temperature: '0.3',
     },
   }));
+
+  // teams/<slug>.yaml — slug is the filename; inherited accountability is
+  // NOT baked in (NULL accountable_user_id exports as an absent key).
+  if (teams.length > 0) {
+    const teamsDir = join(outDir, 'teams');
+    mkdirSync(teamsDir, { recursive: true });
+    for (const t of teams) {
+      writeFile(join(teamsDir, `${t.slug}.yaml`), stringifyYaml(teamRowToManifest(t, emailByUserId), { lineWidth: 0 }));
+    }
+  }
 
   // agents/<slug>.yaml + agents/<slug>.system-prompt.md
   const agentsDir = join(outDir, 'agents');
@@ -53,6 +83,16 @@ async function main(): Promise<void> {
       icon: a.icon,
       active: a.active !== 'false',
       parent: a.parentAgentSlug ?? undefined,
+      // Team membership (F1). Prefer the validated slug ref; fall back to
+      // the legacy free-text label so pre-teams workspaces round-trip.
+      // A lead's own team is OMITTED — apply auto-assigns it, so writing
+      // it out would make the first re-apply a spurious update.
+      team: teams.some(t => t.slug === a.teamSlug && t.leadAgentSlug === a.slug)
+        ? undefined
+        : a.teamSlug ?? a.team ?? undefined,
+      // Work-mode label. Was silently dropped on export before F1, which
+      // made every export→apply round-trip rewrite agentType to NULL.
+      agentType: (a.agentType ?? undefined) as 'mission' | 'workflow' | 'operational' | undefined,
       model: a.model,
       temperature: a.temperature,
       systemPromptFile: promptFile,
@@ -136,6 +176,7 @@ async function main(): Promise<void> {
 
   console.log(`\n✓ exported to ${outDir}`);
   console.log(`  agents: ${agents.length}`);
+  console.log(`  teams: ${teams.length}`);
   console.log(`  skills: ${skills.length}`);
   console.log(`  objectTypes: ${objectTypes.length}`);
   process.exit(0);

@@ -1,8 +1,11 @@
-import { ArrowLeft, ArrowUpRight, CornerUpLeft, ScrollText } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, CornerUpLeft, ScrollText, TriangleAlert } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { createElement } from 'react';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
+import { RailGroup } from '@/features/dashboard/RailGroup';
+import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
+import { agentAccent as accent } from '@/libs/agentAccents';
 import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
@@ -10,6 +13,7 @@ import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent, listAgents } from '@/services/AgentService';
 import { listSkills } from '@/services/SkillService';
+import { getWorkspaceLead, listTeams } from '@/services/TeamService';
 
 /**
  * Agent profile — one readable page per teammate. A clean hero, then a
@@ -18,29 +22,6 @@ import { listSkills } from '@/services/SkillService';
  * — deliberately NOT cards — while the main column carries the specialized
  * agents that report to it and the (demoted) system prompt.
  */
-
-type Accent = { stripe: string; tint: string; ink: string };
-
-/**
- * Map an agent's authored accent name to a small palette (saturated stripe/ink
- * for accents, a soft tint for the hero tile). Tints are light-tuned, so they
- * only ever back small elements.
- * @param name - The agent's `accent` field (amber | teal | violet | indigo | rose).
- */
-function accent(name: string | null | undefined): Accent {
-  switch (name) {
-    case 'teal':
-      return { stripe: 'var(--brand-teal)', tint: 'var(--brand-teal-tint)', ink: 'var(--brand-teal-deep)' };
-    case 'violet':
-      return { stripe: '#7C5CFC', tint: '#F1EEFE', ink: '#5B3FD6' };
-    case 'indigo':
-      return { stripe: '#5B6EF5', tint: '#EEF1FE', ink: '#3F4FD6' };
-    case 'rose':
-      return { stripe: '#F0567A', tint: '#FDEEF2', ink: '#D63A60' };
-    default:
-      return { stripe: 'var(--brand-amber)', tint: 'var(--brand-amber-tint)', ink: 'var(--brand-amber-deep)' };
-  }
-}
 
 /**
  * Title-case a source slug for display (`hubspot` → `Hubspot`).
@@ -68,22 +49,6 @@ function skillCategory(category: string | null): { label: string; gated: boolean
   }
 }
 
-/**
- * A flat metadata group in the left rail — an uppercase label over content,
- * separated from the previous group by a hairline. No surrounding box.
- * @param root0
- * @param root0.label
- * @param root0.children
- */
-function RailGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="border-t border-border/60 pt-5 first:border-0 first:pt-0">
-      <div className="mb-2.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{label}</div>
-      {children}
-    </div>
-  );
-}
-
 export default async function AgentDetailPage(props: {
   params: Promise<{ locale: string; slug: string }>;
 }) {
@@ -105,6 +70,15 @@ export default async function AgentDetailPage(props: {
     ? allAgents.find(a => a.slug === agent.parentAgentSlug) ?? null
     : null;
   const isLead = !agent.parentAgentSlug;
+
+  // Workspace lead (design §2c): when THIS agent is the project-level
+  // lead, its profile carries the "Workspace Lead" badge, the workspace
+  // owner row, and a Consults rail of team leads — its reports are
+  // teams, not specialists.
+  const workspace = await getWorkspaceLead(orgId);
+  const isWorkspaceLead = workspace.leadAgentSlug === slug;
+  const teams = isWorkspaceLead ? await listTeams(orgId) : [];
+  const roleLabel = isWorkspaceLead ? 'Workspace Lead' : isLead ? 'Lead' : 'Specialist';
 
   const allSkills = await listSkills(orgId);
   const skillBySlug = new Map<string, SkillRow>(allSkills.map(s => [s.slug, s]));
@@ -142,10 +116,10 @@ export default async function AgentDetailPage(props: {
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="font-display text-2xl leading-tight font-semibold tracking-tight">{agent.name}</h1>
             <span
-              className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
-              style={{ background: a.tint, color: a.ink }}
+              className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${isWorkspaceLead ? 'text-background' : ''}`}
+              style={isWorkspaceLead ? { background: a.ink } : { background: a.tint, color: a.ink }}
             >
-              {isLead ? 'Lead' : 'Specialist'}
+              {roleLabel}
             </span>
           </div>
 
@@ -177,6 +151,52 @@ export default async function AgentDetailPage(props: {
       <div className="mt-8 grid gap-x-12 gap-y-10 lg:grid-cols-[16rem_minmax(0,1fr)]">
         {/* Left rail — flat grouped metadata, no cards. main-first on mobile. */}
         <aside className="order-2 flex flex-col gap-5 rounded-xl border border-border/60 bg-muted/40 p-5 lg:sticky lg:top-6 lg:order-1 lg:self-start">
+          {isWorkspaceLead && (
+            <>
+              <RailGroup label="Owner">
+                <OwnerChip accountable={workspace.accountable} />
+              </RailGroup>
+
+              {/* The workspace lead's reports are TEAMS — the team leads it
+                  consults for the quarter brief. Lead-less teams are named,
+                  never silently dropped (acceptance #5, #11). */}
+              <RailGroup label="Consults">
+                {teams.length === 0
+                  ? <p className="text-xs text-muted-foreground">No teams yet.</p>
+                  : (
+                      <ul className="flex flex-col gap-3">
+                        {teams.map(team => (
+                          <li key={team.slug}>
+                            {team.lead
+                              ? (
+                                  <Link href={`/dashboard/agents/${team.lead.slug}`} className="group block">
+                                    <span className="block truncate text-sm font-medium text-foreground group-hover:text-primary">
+                                      {team.lead.name}
+                                    </span>
+                                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                                      {team.name}
+                                      {' '}
+                                      Team Lead
+                                    </span>
+                                  </Link>
+                                )
+                              : (
+                                  <div>
+                                    <span className="block truncate text-sm font-medium text-foreground/70">{team.name}</span>
+                                    <span className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--brand-amber-deep)]">
+                                      <TriangleAlert className="size-3 shrink-0" aria-hidden />
+                                      No lead yet — can't be consulted
+                                    </span>
+                                  </div>
+                                )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+              </RailGroup>
+            </>
+          )}
+
           <RailGroup label="Skills">
             {wiredSkills.length === 0
               ? <p className="text-xs text-muted-foreground">None wired.</p>
@@ -236,7 +256,7 @@ export default async function AgentDetailPage(props: {
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Role</dt>
-                <dd className="text-foreground/90">{isLead ? 'Lead' : 'Specialist'}</dd>
+                <dd className="text-foreground/90">{roleLabel}</dd>
               </div>
               {objectTypes.length > 0 && (
                 <div className="flex items-start justify-between gap-3">
@@ -250,7 +270,9 @@ export default async function AgentDetailPage(props: {
 
         {/* Main column — the people this agent works with + its prompt */}
         <div className="order-1 flex flex-col gap-8 lg:order-2">
-          {specialists.length > 0 && (
+          {/* The workspace lead's reports are the teams (Consults rail) —
+              the specialist list is for team leads (design §2c). */}
+          {!isWorkspaceLead && specialists.length > 0 && (
             <section>
               <h2 className="mb-1 font-display text-base font-semibold">Agents</h2>
               <p className="mb-3 text-xs text-muted-foreground">

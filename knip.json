@@ -74,7 +74,7 @@
       "project": ["src/**/*.ts"]
     }
   },
-  "ignoreBinaries": ["dotenv", "tofu", "tsx", "playwright", "production", "checkly", "stripe"],
+  "ignoreBinaries": ["dotenv", "tofu", "tsx", "playwright", "production", "checkly", "stripe", "vitest"],
   "rules": {
     "exports": "off",
     "types": "off",
