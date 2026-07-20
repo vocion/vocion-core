@@ -59,7 +59,7 @@ export function ChatComposer({
   const sendEnabled = !disabled && trimmed.length > 0;
 
   return (
-    <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-6 pt-6 pb-4">
+    <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-4 pt-4 pb-4 sm:px-6 sm:pt-6">
       <div className="mx-auto max-w-3xl">
         <form
           onSubmit={(e) => {
@@ -84,7 +84,7 @@ export function ChatComposer({
           <button
             type="submit"
             disabled={!sendEnabled}
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-amber text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:hover:translate-y-0"
+            className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-amber text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:hover:translate-y-0 sm:size-9"
             aria-label="Send message"
           >
             <Send className="size-4" aria-hidden="true" />
@@ -92,7 +92,8 @@ export function ChatComposer({
         </form>
 
         <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>
+          {/* Keyboard hint is meaningless on a touch keyboard — desktop only. */}
+          <span className="hidden sm:inline">
             <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">Enter</kbd>
             {' '}
             to send ·
@@ -107,7 +108,7 @@ export function ChatComposer({
             <button
               type="button"
               onClick={onClearConversation}
-              className="hover:text-brand-amber-deep"
+              className="ml-auto py-1 hover:text-brand-amber-deep"
             >
               Clear conversation
             </button>
