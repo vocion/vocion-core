@@ -15,10 +15,11 @@ import {
  *
  * "Insert quarter, shoot aliens": the chat surface is messages + composer,
  * period. Everything configurational — starting over, pointing the chat at
- * a specific agent — lives behind this single small trigger instead of
- * permanent chrome. The workspace coordinator answers by default, so the
- * agent list here is deliberately secondary UX: names + a check, no
- * section headers, no explanations.
+ * a specific agent — lives behind this single small trigger. It's portaled
+ * into the shell top bar (beside the account menu) rather than floating over
+ * the conversation, so the canvas stays clean. The workspace coordinator
+ * answers by default, so the agent list here is deliberately secondary UX:
+ * names + a check, no section headers, no explanations.
  */
 
 export type ChatMenuProps = {
@@ -37,7 +38,7 @@ export function ChatMenu({ onNewChat, agents = [], currentSlug, onSwitch }: Chat
       <DropdownMenuTrigger
         aria-label="Chat options"
         title="Chat options"
-        className="flex size-11 items-center justify-center rounded-full bg-background/70 text-muted-foreground backdrop-blur transition hover:bg-muted/60 hover:text-foreground data-[state=open]:bg-muted/60 data-[state=open]:text-foreground"
+        className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground data-[state=open]:text-foreground sm:size-9"
       >
         <MoreHorizontal className="size-5" aria-hidden="true" />
       </DropdownMenuTrigger>

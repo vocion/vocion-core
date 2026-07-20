@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
+import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
@@ -73,11 +74,13 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
     <SidebarProvider defaultOpen={defaultOpen}>
       <AppSidebar isAdmin={has({ role: ORG_ROLE.ADMIN })} />
       <SidebarInset>
-        <AppSidebarHeader />
+        <ShellBarActionsProvider>
+          <AppSidebarHeader />
 
-        <div className="@container flex-1 px-4 py-4 sm:px-6">
-          {props.children}
-        </div>
+          <div className="@container flex-1 px-4 py-4 sm:px-6">
+            {props.children}
+          </div>
+        </ShellBarActionsProvider>
         <WorkspaceDriftBanner />
       </SidebarInset>
     </SidebarProvider>
