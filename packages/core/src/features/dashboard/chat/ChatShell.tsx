@@ -44,6 +44,8 @@ export type ChatShellProps = {
   agents: AgentOption[];
   /** Initial selection. If absent, picks the first entry in `agents`. */
   agentSlug?: string;
+  /** Pre-fills the composer without sending (e.g. the org chart's seeded "how's the quarter?" prompt). */
+  initialComposerValue?: string;
   agentDescription?: string;
   /** Suggestion prompts surfaced in the empty state (fallback — per-agent suggestions win). */
   suggestions?: Array<{ label: string; prompt: string }>;
@@ -54,12 +56,13 @@ export type ChatShellProps = {
 export function ChatShell({
   agents,
   agentSlug,
+  initialComposerValue,
   agentDescription,
   suggestions = [],
   headerAction,
 }: ChatShellProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [composerValue, setComposerValue] = useState('');
+  const [composerValue, setComposerValue] = useState(initialComposerValue ?? '');
   const [phase, setPhase] = useState<StreamingPhase>('idle');
   const [pendingHitl, setPendingHitl] = useState<HitlGatePayload | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
