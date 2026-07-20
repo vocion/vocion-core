@@ -309,6 +309,13 @@
       "when": 1782002000000,
       "tag": "0043_user_adoption_analytics",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1782002100000,
+      "tag": "0044_team",
+      "breakpoints": true
     }
   ]
 }
