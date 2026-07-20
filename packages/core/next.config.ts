@@ -13,9 +13,10 @@ const baseConfig: NextConfig = {
   output: 'standalone',
   // Capture monorepo root one level up so node_modules tracing works.
   outputFileTracingRoot: join(__dirname, '../..'),
-  devIndicators: {
-    position: 'bottom-right',
-  },
+  // Hide the floating Next.js dev indicator ("N" FAB) — it overlaps the
+  // chat composer's thumb zone on a 390px viewport. `false` disables it
+  // entirely in Next 16 (the object form only repositions it).
+  devIndicators: false,
   poweredByHeader: false,
   reactStrictMode: true,
   // Temporal's client can't be webpack-bundled: its gRPC/proto data files
