@@ -17,21 +17,28 @@ import {
  * period. Everything configurational — starting over, pointing the chat at
  * a specific agent — lives behind this single small trigger. It's portaled
  * into the shell top bar (beside the account menu) rather than floating over
- * the conversation, so the canvas stays clean. The workspace coordinator
- * answers by default, so the agent list here is deliberately secondary UX:
- * names + a check, no section headers, no explanations.
+ * the conversation, so the canvas stays clean. The workspace lead answers by
+ * default, so the agent list here is deliberately secondary UX: names + a
+ * check, no section headers, no explanations.
+ *
+ * Leads only: the switcher lists the workspace lead + the team leads (the
+ * parentless primaries) + the virtual Search entry. Specialists (anything
+ * with a parent) stay hidden — you reach them through their lead, not a
+ * long flat roster. A specialist that IS the current selection (deep link)
+ * stays visible so the check always lands somewhere.
  */
 
 export type ChatMenuProps = {
   onNewChat: () => void;
-  /** All available agents — listed when > 1. */
+  /** All available agents — specialists are filtered out here. */
   agents?: AgentOption[];
   currentSlug?: string;
   onSwitch?: (slug: string) => void;
 };
 
 export function ChatMenu({ onNewChat, agents = [], currentSlug, onSwitch }: ChatMenuProps) {
-  const switchable = agents.length > 1 && !!onSwitch;
+  const leads = agents.filter(a => !a.parentSlug || a.slug === currentSlug);
+  const switchable = leads.length > 1 && !!onSwitch;
 
   return (
     <DropdownMenu>
@@ -50,7 +57,7 @@ export function ChatMenu({ onNewChat, agents = [], currentSlug, onSwitch }: Chat
         {switchable && (
           <>
             <DropdownMenuSeparator />
-            {agents.map(a => (
+            {leads.map(a => (
               <DropdownMenuItem key={a.slug} onClick={() => onSwitch?.(a.slug)}>
                 <span className="flex-1 truncate">{a.name}</span>
                 {a.slug === currentSlug && <Check className="ml-2 size-4 shrink-0" aria-hidden="true" />}
