@@ -1,7 +1,7 @@
 'use client';
 
 import type { AgentRun, ChatMessage, IndexedDocument } from './types';
-import { AlertCircle, FileText, Sparkles } from 'lucide-react';
+import { AlertCircle, FileText } from 'lucide-react';
 import { memo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -63,11 +63,12 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   const toolRuns = runs.filter((r): r is Extract<AgentRun, { type: 'tool' }> => r.type === 'tool');
   const textRuns = runs.filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text');
 
+  // No avatar glyph — the transcript is text-first (Claude-app pattern).
+  // The small speaker label carries identity; with named humans and
+  // multiple agents sharing a surface, the NAME is the signal, not a
+  // decorative circle.
   return (
-    <div className="flex gap-3">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
-        <Sparkles className="size-4" aria-hidden="true" />
-      </div>
+    <div className="flex">
       <div className="max-w-2xl min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <span>{agentName}</span>
