@@ -70,12 +70,17 @@ export function ChatShell({
   const [activity, setActivity] = useState<string | null>(null);
 
   // Callers (`chat/page.tsx`) guarantee at least one entry — the virtual
-  // SEARCH_ONLY_AGENT is always appended. The list arrives lead-first, so
-  // with no explicit slug the default conversation is the team's Lead.
+  // SEARCH_ONLY_AGENT is always appended. `agentSlug` defaults to the
+  // workspace coordinator; if it ever resolves to a missing/deleted agent
+  // the `?? agents[0]` fallback keeps the surface pointed at a real agent.
   const agent = (currentSlug ? agents.find(a => a.slug === currentSlug) : undefined) ?? agents[0]!;
-  const agentEyebrow = agent.eyebrow;
   const agentSuggestions = agent.suggestions?.length ? agent.suggestions : suggestions;
   const isStreaming = phase !== 'idle';
+
+  // The specialists this agent coordinates (only a coordinator has any).
+  // Surfaced in the empty state so the workspace scope — one front door
+  // that brings in specialists — is visible before the first message.
+  const teammates = agents.filter(a => a.parentSlug && a.parentSlug === agent.slug).map(a => a.name);
 
   /* --------------------------------------------------------------- */
   /* SSE event reducer — folds streaming events into the messages    */
@@ -430,8 +435,6 @@ export function ChatShell({
     <div className="flex h-full flex-1 flex-col">
       <AgentHeader
         name={agent.name}
-        eyebrow={agentEyebrow}
-        description={agentDescription ?? agent.description}
         action={headerAction}
         agents={agents}
         currentSlug={agent.slug}
@@ -441,7 +444,15 @@ export function ChatShell({
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col">
           {messages.length === 0
-            ? <EmptyState agentName={agent.name} suggestions={agentSuggestions} onPick={handlePickSuggestion} />
+            ? (
+                <EmptyState
+                  agentName={agent.name}
+                  description={agentDescription ?? agent.description}
+                  teammates={teammates}
+                  suggestions={agentSuggestions}
+                  onPick={handlePickSuggestion}
+                />
+              )
             : <MessageList messages={messages} agentName={agent.name} streaming={isStreaming} activity={activity} />}
 
           {pendingHitl && (
