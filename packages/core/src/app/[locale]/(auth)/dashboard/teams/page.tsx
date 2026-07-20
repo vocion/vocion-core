@@ -167,7 +167,7 @@ function WorkspaceLeadBand({ workspace, teams }: { workspace: WorkspaceLeadView;
         <div className="mt-3.5 flex flex-wrap gap-2">
           <Link
             href={`/dashboard/chat?agent=${encodeURIComponent(lead.slug)}&prompt=${encodeURIComponent(t('ask_quarter_prompt'))}`}
-            className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-semibold text-background transition hover:opacity-90"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-semibold text-background transition hover:opacity-90 sm:min-h-0"
             style={{ background: a.ink }}
           >
             {t('ask_quarter')}
@@ -175,7 +175,7 @@ function WorkspaceLeadBand({ workspace, teams }: { workspace: WorkspaceLeadView;
           </Link>
           <Link
             href={`/dashboard/agents/${lead.slug}`}
-            className="inline-flex items-center rounded-lg border border-border bg-background px-3.5 py-1.5 text-sm font-medium transition hover:border-primary/30"
+            className="inline-flex min-h-11 items-center rounded-lg border border-border bg-background px-3.5 py-1.5 text-sm font-medium transition hover:border-primary/30 sm:min-h-0"
           >
             {t('view_profile')}
           </Link>
