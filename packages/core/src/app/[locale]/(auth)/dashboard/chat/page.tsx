@@ -47,18 +47,41 @@ export default async function ChatPage(props: {
   const { orgId } = await auth();
   const dbAgents = orgId ? await listAgents(orgId) : [];
 
-  // Chat defaults to WORKSPACE scope: opening /dashboard/chat lands on the
-  // workspace coordinator — the front-door primary that orchestrates the
-  // team — so the user just starts typing, never has to pick an agent.
-  // `groupAgentHierarchy` sorts primaries-with-a-team first, so its first
-  // primary is the coordinator (a team lead if one exists, else the first
-  // parentless agent). Deterministic and never a dangling/deleted slug.
-  const hierarchy = groupAgentHierarchy(dbAgents);
-  const coordinatorSlug = hierarchy[0]?.primary.slug;
+  // Workspace identity — account + project rows power the greeting AND name
+  // the workspace lead. The chat page mounts under the dashboard layout,
+  // which already guarantees the project row exists.
+  const [ws] = orgId
+    ? await db
+        .select({
+          projectName: projectSchema.name,
+          accountName: tenantAccountSchema.name,
+          leadAgentSlug: projectSchema.leadAgentSlug,
+        })
+        .from(projectSchema)
+        .innerJoin(tenantAccountSchema, eq(projectSchema.accountId, tenantAccountSchema.id))
+        .where(eq(projectSchema.id, orgId))
+        .limit(1)
+    : [];
 
-  // Order the flat list coordinator-first, then its team, so both the
-  // fallback default (agents[0]) and the switcher read team-first.
-  const ordered = hierarchy.flatMap(({ primary, specialists }) => [primary, ...specialists]);
+  // Chat defaults to WORKSPACE scope: opening /dashboard/chat lands on the
+  // workspace lead (`project.leadAgentSlug`, F1) — the front-door agent that
+  // runs the whole workspace and consults the team leads — so the user just
+  // starts typing, never has to pick an agent. When no workspace lead is
+  // configured, fall back to `groupAgentHierarchy`'s first primary (a team
+  // lead if one exists, else the first parentless agent). Deterministic and
+  // never a dangling/deleted slug.
+  const hierarchy = groupAgentHierarchy(dbAgents);
+  const workspaceLeadSlug = ws?.leadAgentSlug ?? undefined;
+  const coordinatorSlug = (workspaceLeadSlug && dbAgents.some(a => a.slug === workspaceLeadSlug))
+    ? workspaceLeadSlug
+    : hierarchy[0]?.primary.slug;
+
+  // Order the flat list workspace-lead-first, then each team (lead followed
+  // by its specialists), so both the fallback default (agents[0]) and the
+  // switcher read workspace-first.
+  const orderedHierarchy = [...hierarchy].sort((a, b) =>
+    Number(b.primary.slug === coordinatorSlug) - Number(a.primary.slug === coordinatorSlug));
+  const ordered = orderedHierarchy.flatMap(({ primary, specialists }) => [primary, ...specialists]);
 
   const agents = [
     ...ordered.map(a => ({
@@ -75,18 +98,8 @@ export default async function ChatPage(props: {
     SEARCH_ONLY_AGENT,
   ];
 
-  // Workspace-scoped greeting ("Metacto" eyebrow + "Ask Metacto Revenue") —
-  // composed from the account + project names, never an agent name. The
-  // chat page mounts under the dashboard layout, which already guarantees the
-  // project row exists.
-  const [ws] = orgId
-    ? await db
-        .select({ projectName: projectSchema.name, accountName: tenantAccountSchema.name })
-        .from(projectSchema)
-        .innerJoin(tenantAccountSchema, eq(projectSchema.accountId, tenantAccountSchema.id))
-        .where(eq(projectSchema.id, orgId))
-        .limit(1)
-    : [];
+  // Workspace-scoped greeting ("Metacto" eyebrow + "Ask Revenue") — a SHORT
+  // label composed from the account + project names, never an agent name.
   const greeting = workspaceGreeting(ws?.accountName, ws?.projectName);
 
   // Dynamic empty-state chips: urgency (recent brief / review queue) first,
