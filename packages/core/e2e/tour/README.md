@@ -51,6 +51,14 @@ npx playwright test --project=tour
 To re-run, restart terminal 1 first — in-memory PGlite resets on restart.
 (With `db-server:file` instead, delete `local.db*` to reset.)
 
+The spec navigates **client-side** (sidebar links, cards) everywhere
+after the initial sign-up load, on purpose: a `page.goto` while the dev
+server is still streaming/hydrating can leave the destination's content
+parked in a hidden streaming template for 15–30s, which surfaces as a
+"resolved to 2 elements, both hidden" strict-mode timeout. If you add
+shots, follow the same pattern — navigate by clicking, gate with an
+assertion.
+
 ## Output
 
 One `.webm` per run under `test-results/**/video.webm` (~45–60s; the
