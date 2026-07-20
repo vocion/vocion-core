@@ -15,12 +15,49 @@ export const WorkspaceManifestSchema = z.object({
   orgId: z.string().min(1).describe('Clerk organization id'),
   name: z.string().min(1),
   description: z.string().optional(),
+  /**
+   * Workspace lead agent (F1) — the agent that runs the whole workspace
+   * and consults the team leads. Must name an agent in this workspace;
+   * applied to `project.leadAgentSlug`. Omit = no workspace lead.
+   */
+  lead: SlugSchema.optional(),
+  /**
+   * Workspace-default accountable human (F1) — an email, resolved to a
+   * user id at apply and stored on `project.accountableUserId`. Teams
+   * without their own `accountableUser` inherit this at read time.
+   */
+  accountableUser: z.string().email().optional(),
   defaults: z.object({
     model: z.string().optional(),
     temperature: z.string().optional(),
   }).partial().optional(),
 });
 export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
+
+/**
+ * Team manifest (F1) — workspace/<org>/teams/<slug>.yaml. The team's
+ * slug comes from the FILENAME (no `slug:` field), so a team cannot
+ * disagree with its own path. Teams are flat by construction: there is
+ * no parent field here and no parent column in the `team` table.
+ */
+export const TeamManifestSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  /**
+   * Slug of the agent leading this team. Optional — a team may exist
+   * before its lead is chosen (rendered "no lead yet") — but when set
+   * it must name an agent in this workspace.
+   */
+  lead: SlugSchema.optional(),
+  /**
+   * The accountable human for this team — an email, resolved to a user
+   * id at apply. Omit to inherit the workspace-level default
+   * (`accountableUser:` in workspace.yaml); inheritance is resolved at
+   * read time and is NOT baked in on export.
+   */
+  accountableUser: z.string().email().optional(),
+});
+export type TeamManifest = z.infer<typeof TeamManifestSchema>;
 
 export const AgentManifestSchema = z.object({
   slug: SlugSchema,
@@ -42,7 +79,12 @@ export const AgentManifestSchema = z.object({
   role: z.enum(['lead', 'specialist']).optional(),
   /** The work mode this agent primarily runs. */
   agentType: z.enum(['mission', 'workflow', 'operational']).optional(),
-  /** DEPRECATED display label. Hierarchy comes from `parent`, not this. */
+  /**
+   * The team this agent belongs to (F1) — a slug matching a file in the
+   * workspace's teams/ dir. Validated whenever the workspace defines
+   * teams; workspaces without a teams/ dir keep the old behavior
+   * (free-text display label, deprecated) byte-for-byte.
+   */
   team: z.string().optional(),
   model: z.string().optional(),
   temperature: z.union([z.string(), z.number()]).optional(),
