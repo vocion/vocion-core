@@ -56,7 +56,7 @@ export function AgentHeader({ name, eyebrow, description, action, agents = [], c
         </div>
       )}
       <div className="flex items-center gap-1.5 font-display text-lg leading-tight font-medium">
-        <span className="truncate">{name}</span>
+        <span className="sm:truncate">{name}</span>
         {switchable && <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
       </div>
       {description && (
@@ -68,8 +68,8 @@ export function AgentHeader({ name, eyebrow, description, action, agents = [], c
   );
 
   return (
-    <header className="border-b border-border bg-background/80 px-6 py-3 backdrop-blur">
-      <div className="mx-auto flex max-w-4xl items-center gap-3">
+    <header className="border-b border-border bg-background/80 px-4 py-3 backdrop-blur sm:px-6">
+      <div className="mx-auto flex max-w-4xl items-center gap-2.5 sm:gap-3">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-amber-tint text-brand-amber-deep">
           <Bot className="size-5" aria-hidden="true" />
         </div>
