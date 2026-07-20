@@ -1,0 +1,16 @@
+version: 1
+# Placeholder — teams.seedSample (and workspace:apply --project) resolve this
+# to the live project id at apply time.
+orgId: proj_meridian_revenue
+name: Meridian Outdoor — Revenue
+description: >-
+  Sample revenue workspace for Meridian Outdoor Supply, a fictional
+  mid-market outdoor-equipment B2B. Four teams under one workspace lead —
+  loaded by the "Load the sample revenue workspace" button on /dashboard/teams.
+lead: revenue-director
+# accountableUser is deliberately omitted: teams.seedSample injects the seeding
+# admin's email at apply time, so the workspace-default owner is a real person
+# in YOUR account. A manual CLI apply may add `accountableUser: <email>`.
+defaults:
+  model: gpt-5.4-mini
+  temperature: '0.3'
