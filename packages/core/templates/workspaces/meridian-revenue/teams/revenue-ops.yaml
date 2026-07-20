@@ -1,0 +1,6 @@
+name: RevOps
+description: >-
+  Pipeline health, follow-ups, and revenue insight — keeps the funnel
+  honest across 38 open deals and flags anything going stale.
+lead: revenue-lead
+# No accountableUser: inherits the workspace default (labeled as inherited).

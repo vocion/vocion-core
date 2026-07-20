@@ -1,0 +1,7 @@
+version: 1
+# TEST FIXTURE — the empty variant: agents but zero teams (design §2a
+# empty state + "you have agents not yet on a team"). Never reachable
+# from teams.seedSample.
+orgId: proj_meridian_empty
+name: Meridian Outdoor — Empty (fixture)
+description: Negative fixture — a workspace with agents but no teams.

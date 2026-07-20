@@ -1,0 +1,8 @@
+name: Marketing
+description: >-
+  Demand and content — 14 MQLs this week, trending +18% quarter over
+  quarter, feeding the discovery-call calendar.
+lead: marketing-lead
+# Explicit owner override — the one team NOT inheriting the workspace default.
+# teams.seedSample creates this sample user (display-only; no sign-in).
+accountableUser: lili.chen@meridianoutdoor.example
