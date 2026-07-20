@@ -12,22 +12,22 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 /**
- * Agent header strip (Phase C).
+ * Agent header strip.
  *
- * The single identity block of the chat surface: eyebrow · agent name ·
- * one-line scope, with an optional action slot (New Chat) on the right.
- * The chat page renders no other chrome above this — the agent header
- * IS the page title.
+ * The chat defaults to the workspace coordinator, so picking a *specific*
+ * agent is secondary UX (per the design tenets: "manually targeting a
+ * team/agent is secondary/tertiary — never the front door"). This strip is
+ * therefore deliberately slim: a compact "Talking to <agent> ⌄" text-button
+ * that opens the switcher, plus a small action slot (New Chat). The identity
+ * of the surface lives in the empty state, not in a big top-of-page block.
  *
- * When more than one agent is available the name is a picker. Leads list
- * first — you brief the Lead; specialists are there when you need to go
- * direct. Switching starts a fresh conversation (parent handles that).
+ * When more than one agent is available the label is a switcher. Coordinators
+ * list first — you brief the coordinator; specialists are there when you need
+ * to go direct. Switching starts a fresh conversation (parent handles that).
  */
 
 export type AgentHeaderProps = {
   name: string;
-  eyebrow?: string;
-  description?: string;
   /** Rendered flush right (e.g. a New Chat button). */
   action?: React.ReactNode;
   /** All available agents — enables the switcher when > 1. */
@@ -43,47 +43,35 @@ function iconFor(a: AgentOption) {
   return a.role === 'lead' ? Compass : Bot;
 }
 
-export function AgentHeader({ name, eyebrow, description, action, agents = [], currentSlug, onSwitch }: AgentHeaderProps) {
+export function AgentHeader({ name, action, agents = [], currentSlug, onSwitch }: AgentHeaderProps) {
   const switchable = agents.length > 1 && !!onSwitch;
   const leads = agents.filter(a => a.role === 'lead');
   const others = agents.filter(a => a.role !== 'lead');
 
-  const identity = (
-    <div className="min-w-0 flex-1 text-left">
-      {eyebrow && (
-        <div className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-          {eyebrow}
-        </div>
-      )}
-      <div className="flex items-center gap-1.5 font-display text-lg leading-tight font-medium">
-        <span className="sm:truncate">{name}</span>
-        {switchable && <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
-      </div>
-      {description && (
-        <div className="truncate text-xs text-muted-foreground">
-          {description}
-        </div>
-      )}
-    </div>
+  // Compact identity — muted "Talking to <name>", the name in full weight.
+  // Same markup whether or not it's a switcher, so the strip never jumps.
+  const label = (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <Bot className="size-4 shrink-0 text-brand-amber-deep" aria-hidden="true" />
+      <span className="shrink-0 text-muted-foreground">Talking to</span>
+      <span className="truncate font-medium text-foreground">{name}</span>
+      {switchable && <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
+    </span>
   );
 
   return (
-    <header className="border-b border-border bg-background/80 px-4 py-3 backdrop-blur sm:px-6">
-      <div className="mx-auto flex max-w-4xl items-center gap-2.5 sm:gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-amber-tint text-brand-amber-deep">
-          <Bot className="size-5" aria-hidden="true" />
-        </div>
-
+    <header className="border-b border-border bg-background/80 px-4 py-1.5 backdrop-blur sm:px-6">
+      <div className="mx-auto flex max-w-4xl items-center justify-between gap-2">
         {switchable
           ? (
               <DropdownMenu>
-                <DropdownMenuTrigger className="min-w-0 flex-1 rounded-md px-1 py-0.5 transition hover:bg-muted/60" title="Switch agent">
-                  {identity}
+                <DropdownMenuTrigger className="flex min-h-11 min-w-0 items-center rounded-md px-2 text-sm transition hover:bg-muted/60" title="Switch agent">
+                  {label}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-72">
                   {leads.length > 0 && (
                     <>
-                      <DropdownMenuLabel className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">Leads — brief the team</DropdownMenuLabel>
+                      <DropdownMenuLabel className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">Coordinator — brief the team</DropdownMenuLabel>
                       {leads.map((a) => {
                         const Icon = iconFor(a);
                         return (
@@ -115,7 +103,7 @@ export function AgentHeader({ name, eyebrow, description, action, agents = [], c
                 </DropdownMenuContent>
               </DropdownMenu>
             )
-          : identity}
+          : <div className="flex min-h-11 min-w-0 items-center px-2 text-sm">{label}</div>}
 
         {action && <div className="shrink-0">{action}</div>}
       </div>

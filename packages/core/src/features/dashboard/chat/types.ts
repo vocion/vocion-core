@@ -73,6 +73,8 @@ export type AgentOption = {
   suggestions?: Array<{ label: string; prompt: string }>;
   /** Team role — leads sort first and are the default point of contact. */
   role?: 'lead' | 'specialist';
+  /** Slug of the primary this agent reports to. Undefined = a primary/coordinator. */
+  parentSlug?: string;
 };
 
 /** HITL gate event payload — emitted by request_human_review tool. */

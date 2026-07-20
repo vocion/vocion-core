@@ -2,7 +2,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { NewChatButton } from '@/features/dashboard/AskChat';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { listAgents } from '@/services/AgentService';
+import { groupAgentHierarchy, listAgents } from '@/services/AgentService';
 
 /**
  * Built-in virtual agent — corpus search without an LLM in the loop.
@@ -36,15 +36,18 @@ export default async function ChatPage(props: {
   const { orgId } = await auth();
   const dbAgents = orgId ? await listAgents(orgId) : [];
 
-  // You brief the LEAD — it coordinates the team. Leads sort first so the
-  // default conversation (agents[0]) is the team's point of contact, not
-  // whichever specialist happens to sort first in the table.
-  const ordered = [...dbAgents].sort((a, b) => {
-    if (a.role !== b.role) {
-      return a.role === 'lead' ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
+  // Chat defaults to WORKSPACE scope: opening /dashboard/chat lands on the
+  // workspace coordinator — the front-door primary that orchestrates the
+  // team — so the user just starts typing, never has to pick an agent.
+  // `groupAgentHierarchy` sorts primaries-with-a-team first, so its first
+  // primary is the coordinator (a team lead if one exists, else the first
+  // parentless agent). Deterministic and never a dangling/deleted slug.
+  const hierarchy = groupAgentHierarchy(dbAgents);
+  const coordinatorSlug = hierarchy[0]?.primary.slug;
+
+  // Order the flat list coordinator-first, then its team, so both the
+  // fallback default (agents[0]) and the switcher read team-first.
+  const ordered = hierarchy.flatMap(({ primary, specialists }) => [primary, ...specialists]);
 
   const agents = [
     ...ordered.map(a => ({
@@ -52,6 +55,7 @@ export default async function ChatPage(props: {
       name: a.name,
       icon: 'bot' as const,
       role: (a.role === 'lead' ? 'lead' : 'specialist') as 'lead' | 'specialist',
+      parentSlug: a.parentAgentSlug ?? undefined,
       eyebrow: a.eyebrow ?? undefined,
       description: a.description ?? undefined,
       suggestions: a.suggestions ?? [],
@@ -62,7 +66,7 @@ export default async function ChatPage(props: {
 
   return (
     <div className="flex h-[calc(100vh-6rem)] flex-col">
-      <ChatShell agents={agents} headerAction={<NewChatButton />} />
+      <ChatShell agents={agents} agentSlug={coordinatorSlug} headerAction={<NewChatButton />} />
     </div>
   );
 }
