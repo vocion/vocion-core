@@ -15,6 +15,13 @@ import { client } from '@/libs/Orpc';
 
 type Project = { id: string; slug: string; name: string; description: string | null };
 
+/**
+ * The current-workspace row at the top of the sidebar drawer. Always names
+ * the workspace you're in; when the account has more than one project it
+ * doubles as a small picker — choosing one sets the `vocion_active_project`
+ * cookie (the session callback re-resolves tenancy from it) and reloads.
+ * Quiet by design: one labeled row, one small menu, nothing else.
+ */
 export const ProjectSwitcher = () => {
   const { data: session } = useSession();
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -36,14 +43,24 @@ export const ProjectSwitcher = () => {
     };
   }, []);
 
-  // Hide until we know whether there's more than one project. Single-project
-  // deployments don't need the affordance.
-  if (!projects || projects.length < 2) {
+  // Hide until the list loads — no flash of a wrong state.
+  if (!projects || projects.length === 0) {
     return null;
   }
 
   const activeId = session?.user?.projectId ?? null;
   const active = projects.find(p => p.id === activeId) ?? projects[0]!;
+
+  // Single-project deployments still get the workspace NAME (you should
+  // always know where you are) — just without a picker.
+  if (projects.length < 2) {
+    return (
+      <div className="flex min-h-11 w-full items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm sm:min-h-9">
+        <Folder className="size-4 shrink-0 text-muted-foreground" />
+        <span className="truncate">{active.name}</span>
+      </div>
+    );
+  }
 
   const switchTo = async (projectId: string) => {
     if (projectId === activeId) {
@@ -66,7 +83,7 @@ export const ProjectSwitcher = () => {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="flex w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted"
+        className="flex min-h-11 w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted sm:min-h-9"
         title="Switch workspace"
       >
         <span className="flex min-w-0 items-center gap-2">
