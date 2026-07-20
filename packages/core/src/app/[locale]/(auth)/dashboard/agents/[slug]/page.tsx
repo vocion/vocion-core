@@ -3,6 +3,8 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { createElement } from 'react';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
+import { RailGroup } from '@/features/dashboard/RailGroup';
+import { agentAccent as accent } from '@/libs/agentAccents';
 import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
@@ -18,29 +20,6 @@ import { listSkills } from '@/services/SkillService';
  * — deliberately NOT cards — while the main column carries the specialized
  * agents that report to it and the (demoted) system prompt.
  */
-
-type Accent = { stripe: string; tint: string; ink: string };
-
-/**
- * Map an agent's authored accent name to a small palette (saturated stripe/ink
- * for accents, a soft tint for the hero tile). Tints are light-tuned, so they
- * only ever back small elements.
- * @param name - The agent's `accent` field (amber | teal | violet | indigo | rose).
- */
-function accent(name: string | null | undefined): Accent {
-  switch (name) {
-    case 'teal':
-      return { stripe: 'var(--brand-teal)', tint: 'var(--brand-teal-tint)', ink: 'var(--brand-teal-deep)' };
-    case 'violet':
-      return { stripe: '#7C5CFC', tint: '#F1EEFE', ink: '#5B3FD6' };
-    case 'indigo':
-      return { stripe: '#5B6EF5', tint: '#EEF1FE', ink: '#3F4FD6' };
-    case 'rose':
-      return { stripe: '#F0567A', tint: '#FDEEF2', ink: '#D63A60' };
-    default:
-      return { stripe: 'var(--brand-amber)', tint: 'var(--brand-amber-tint)', ink: 'var(--brand-amber-deep)' };
-  }
-}
 
 /**
  * Title-case a source slug for display (`hubspot` → `Hubspot`).
@@ -66,22 +45,6 @@ function skillCategory(category: string | null): { label: string; gated: boolean
     default:
       return { label: 'Reads', gated: false };
   }
-}
-
-/**
- * A flat metadata group in the left rail — an uppercase label over content,
- * separated from the previous group by a hairline. No surrounding box.
- * @param root0
- * @param root0.label
- * @param root0.children
- */
-function RailGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="border-t border-border/60 pt-5 first:border-0 first:pt-0">
-      <div className="mb-2.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{label}</div>
-      {children}
-    </div>
-  );
 }
 
 export default async function AgentDetailPage(props: {
