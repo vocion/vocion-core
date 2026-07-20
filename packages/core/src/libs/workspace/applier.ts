@@ -200,6 +200,18 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     await reconcileSchedules(orgId, loaded, errors);
   }
 
+  // Compiled chat graphs bake in subagents — including the F1 team-lead
+  // merge for the workspace lead — so an IN-PROCESS apply (MCP write
+  // tools) must flush the harness LRU or the next chat turn serves the
+  // pre-apply roster. Best-effort: CLI applies run in their own process
+  // (nothing to flush) and must not fail on the harness import.
+  if (!dryRun) {
+    try {
+      const { resetAgentRuntimeCache } = await import('@/services/agents/harness');
+      resetAgentRuntimeCache();
+    } catch { /* apply result is already durable; a stale cache is not */ }
+  }
+
   let versionId: number | null = null;
   if (!dryRun) {
     const [row] = await db.insert(workspaceVersionSchema).values({
