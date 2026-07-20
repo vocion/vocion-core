@@ -13,11 +13,9 @@ import { client } from '@/libs/Orpc';
  * action (the first-run product, design §2a). The button is gated by
  * the caller — it renders ONLY when the workspace has zero teams — and
  * behind a confirm dialog here (trio call: gate it; the apply is
- * additive, never destructive). The secondary path is the quiet YAML
- * authoring docs link.
- *
- * TODO(slice-4): the backing teams.seedSample route is a 501 stub until
- * the sample bundle lands; its message renders in the error line below.
+ * additive, never destructive). The gate is ALSO server-enforced —
+ * teams.seedSample rejects any workspace that already has teams. The
+ * secondary path is the quiet YAML authoring docs link.
  */
 export function TeamsEmptyState() {
   const t = useTranslations('Teams');
