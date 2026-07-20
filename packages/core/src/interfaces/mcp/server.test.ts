@@ -80,6 +80,7 @@ describe('MCP server (end-to-end)', () => {
         expect(names).toContain('workspace_write_skill');
         expect(names).toContain('runtime_run_skill');
         expect(names).toContain('search_query');
+        expect(names).toContain('teams_list');
       } finally {
         await server.close();
       }
