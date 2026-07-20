@@ -152,6 +152,21 @@ export const projectSchema = pgTable(
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description'),
+    /**
+     * Workspace lead agent (F1) — slug of the agent that runs the whole
+     * workspace and consults the team leads. Slug reference, no FK
+     * (same convention as `agent.parentAgentSlug`). The workspace lead
+     * is project CONFIG, not a special team row. Authored as top-level
+     * `lead:` in workspace.yaml. NULL = no workspace lead configured.
+     */
+    leadAgentSlug: text('lead_agent_slug'),
+    /**
+     * Workspace-default accountable human (F1). Teams whose own
+     * `accountableUserId` is NULL inherit this at read time. Authored
+     * as top-level `accountableUser:` (an email) in workspace.yaml,
+     * resolved to a user id at apply.
+     */
+    accountableUserId: text('accountable_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -626,6 +641,14 @@ export const agentSchema = pgTable(
     /** Legacy display label. Hierarchy comes from `parentAgentSlug`, not this. */
     team: text('team'),
     /**
+     * Slug of the team this agent belongs to (see `team.slug`, same
+     * org). Slug reference, no FK — same convention as
+     * `parentAgentSlug`. Authored as `team:` in workspace agent YAML;
+     * validated against the workspace's teams/ dir at check/apply.
+     * NULL = not on a team. Distinct from the legacy `team` label above.
+     */
+    teamSlug: text('team_slug'),
+    /**
      * Slug of the primary agent this specialist reports to (same org).
      * NULL = primary agent. One level deep: a parent cannot itself have
      * a parent. Slug reference, no FK — same convention as skillSlugs.
@@ -641,6 +664,65 @@ export const agentSchema = pgTable(
     uniqueIndex('agent_org_slug_idx').on(table.orgId, table.slug),
   ],
 );
+
+/* ------------------------------------------------------------------ */
+/* Teams — the org-chart grouping of agents (F1)                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A team: an org-chart grouping of agents under a lead agent and an
+ * accountable HUMAN. Catalog only — a team executes nothing itself, so
+ * there is no `team_run` table. Flat by construction: no parent-team
+ * column exists, so nesting is impossible by schema shape, not by
+ * validation. Authored as workspace/<org>/teams/<slug>.yaml.
+ *
+ * The team row's serial PK is the future attachment point for KPIs
+ * (F3) and feedback routing (F4) — those land as FKs to `team.id`,
+ * zero columns here now.
+ */
+export const teamSchema = pgTable(
+  'team',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    /**
+     * Slug of the agent leading this team (same org). Slug reference,
+     * no FK — same convention as `agent.parentAgentSlug`. NULL = no
+     * lead assigned yet (the team still renders, marked "no lead").
+     */
+    leadAgentSlug: text('lead_agent_slug'),
+    /**
+     * The human accountable for this team. NULL = inherit the
+     * workspace default (`project.accountableUserId`) — inheritance is
+     * resolved at read time (TeamService), never baked into the row.
+     */
+    accountableUserId: text('accountable_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('team_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
+
+export const teamRelations = relations(teamSchema, ({ one }) => ({
+  project: one(projectSchema, {
+    fields: [teamSchema.projectId],
+    references: [projectSchema.id],
+  }),
+  accountableUser: one(userSchema, {
+    fields: [teamSchema.accountableUserId],
+    references: [userSchema.id],
+  }),
+}));
 
 /* ------------------------------------------------------------------ */
 /* Automations — the WHEN of the system, as a first-class object       */
