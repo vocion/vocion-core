@@ -1,9 +1,10 @@
-import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedWorkflow, LoadedWorkspace } from './loader';
+import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, skillSchema, trustRuleSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, skillSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
+import { effectiveTeamSlug } from './teams';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -30,6 +31,7 @@ export type ApplyResult = {
     learningSteps: ResourceCounts;
     evalDatasets: ResourceCounts;
     sources: ResourceCounts;
+    teams: ResourceCounts;
   };
   errors: Array<{ resource: string; slug: string; message: string }>;
   versionId: number | null;
@@ -52,6 +54,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     learningSteps: blank(),
     evalDatasets: blank(),
     sources: blank(),
+    teams: blank(),
   };
 
   // Object types first — agents and skills may reference them
@@ -73,9 +76,23 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     }
   }
 
+  // Teams before agents — agents carry a validated `team:` slug ref.
+  for (const team of loaded.teams) {
+    try {
+      const outcome = await upsertTeam(orgId, team, dryRun, errors);
+      bump(counts.teams, outcome);
+    } catch (err) {
+      errors.push({ resource: 'team', slug: team.slug, message: (err as Error).message });
+    }
+  }
+
+  // Workspace lead + workspace-default accountable human are project
+  // config (workspace.yaml `lead:` / `accountableUser:`), not a team row.
+  await applyWorkspaceLeadConfig(orgId, loaded, dryRun, errors);
+
   for (const agent of loaded.agents) {
     try {
-      const outcome = await upsertAgent(orgId, agent, defaults, dryRun);
+      const outcome = await upsertAgent(orgId, agent, defaults, dryRun, loaded.teams);
       bump(counts.agents, outcome);
       // provider: agentcore — provision/refresh the AWS-managed harness
       // after the row lands, and record the ARN the invoke adapter reads.
@@ -374,7 +391,7 @@ async function upsertSkill(orgId: string, skill: LoadedSkill, defaults: { model?
   return 'updated';
 }
 
-async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?: string; temperature?: string }, dryRun: boolean): Promise<UpsertOutcome> {
+async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?: string; temperature?: string }, dryRun: boolean, teams: LoadedTeam[] = []): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
     .from(agentSchema)
@@ -408,6 +425,10 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     role: deriveRole(agent.parent),
     agentType: agent.agentType ?? null,
     team: agent.team ?? null,
+    // Validated team membership (F1). Only meaningful when the workspace
+    // defines teams — the loader validated the ref; leads auto-assign to
+    // the team they lead. NULL in team-less workspaces, exactly as before.
+    teamSlug: effectiveTeamSlug(agent, teams),
     parentAgentSlug: agent.parent ?? null,
   };
 
@@ -426,6 +447,120 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     await db.update(agentSchema).set(payload).where(eq(agentSchema.id, existing.id));
   }
   return 'updated';
+}
+
+/**
+ * Resolve an authored `accountableUser:` email to a user id. Unresolved
+ * emails record a non-fatal error and store NULL — deploy boxes may not
+ * have that user seeded yet; a later apply (after the user signs up)
+ * heals the row.
+ * @param email
+ * @param resource
+ * @param slug
+ * @param errors
+ */
+async function resolveAccountableUser(
+  email: string | undefined,
+  resource: string,
+  slug: string,
+  errors: ApplyResult['errors'],
+): Promise<string | null> {
+  if (email === undefined) {
+    return null;
+  }
+  const [row] = await db
+    .select({ id: userSchema.id })
+    .from(userSchema)
+    .where(eq(userSchema.email, email.toLowerCase()))
+    .limit(1);
+  if (!row) {
+    errors.push({ resource, slug, message: `accountableUser "${email}" does not match any user — storing no owner; re-apply after that user signs up` });
+    return null;
+  }
+  return row.id;
+}
+
+async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, errors: ApplyResult['errors']): Promise<UpsertOutcome> {
+  const [existing] = await db
+    .select()
+    .from(teamSchema)
+    .where(and(eq(teamSchema.orgId, orgId), eq(teamSchema.slug, team.slug)));
+
+  const payload = {
+    orgId,
+    slug: team.slug,
+    name: team.name,
+    description: team.description ?? null,
+    leadAgentSlug: team.lead ?? null,
+    // Explicit owner only — an omitted accountableUser stays NULL so the
+    // workspace default is inherited at read time, never baked in here.
+    accountableUserId: await resolveAccountableUser(team.accountableUser, 'team', team.slug, errors),
+  };
+
+  if (!existing) {
+    if (!dryRun) {
+      await db.insert(teamSchema).values(payload);
+    }
+    return 'created';
+  }
+
+  if (
+    existing.name === payload.name
+    && (existing.description ?? null) === payload.description
+    && (existing.leadAgentSlug ?? null) === payload.leadAgentSlug
+    && (existing.accountableUserId ?? null) === payload.accountableUserId
+  ) {
+    return 'unchanged';
+  }
+
+  if (!dryRun) {
+    await db.update(teamSchema).set(payload).where(eq(teamSchema.id, existing.id));
+  }
+  return 'updated';
+}
+
+/**
+ * Apply workspace.yaml's top-level `lead:` / `accountableUser:` to the
+ * project row (the workspace lead is project config, not a special team).
+ * Declarative: authored values are set, omitted keys clear the columns.
+ * When no project row matches the resolved orgId (manifest-orgId
+ * fallback), warn loudly and skip — never invent a project.
+ * @param orgId
+ * @param loaded
+ * @param dryRun
+ * @param errors
+ */
+async function applyWorkspaceLeadConfig(
+  orgId: string,
+  loaded: LoadedWorkspace,
+  dryRun: boolean,
+  errors: ApplyResult['errors'],
+): Promise<void> {
+  const lead = loaded.manifest.lead ?? null;
+  const accountableUserId = await resolveAccountableUser(loaded.manifest.accountableUser, 'workspace', 'workspace.yaml', errors);
+
+  const [project] = await db
+    .select({ id: projectSchema.id, leadAgentSlug: projectSchema.leadAgentSlug, accountableUserId: projectSchema.accountableUserId })
+    .from(projectSchema)
+    .where(eq(projectSchema.id, orgId))
+    .limit(1);
+
+  if (!project) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined) {
+      console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser NOT applied. Pass --project <id|slug> so they land on a real project.`);
+    }
+    return;
+  }
+
+  if ((project.leadAgentSlug ?? null) === lead && (project.accountableUserId ?? null) === accountableUserId) {
+    return;
+  }
+  if (!dryRun) {
+    await db
+      .update(projectSchema)
+      .set({ leadAgentSlug: lead, accountableUserId })
+      .where(eq(projectSchema.id, project.id));
+  }
 }
 
 async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, dryRun: boolean): Promise<UpsertOutcome> {
@@ -813,6 +948,7 @@ function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unkn
     'role',
     'agentType',
     'team',
+    'teamSlug',
     'parentAgentSlug',
   ] as const;
   const pick = (src: Record<string, unknown>): Record<string, unknown> => {
