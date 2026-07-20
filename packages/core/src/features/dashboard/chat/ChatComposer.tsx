@@ -9,8 +9,11 @@ import { useEffect, useRef } from 'react';
  * - max-width 3xl, centered
  * - rounded-2xl with focus-within ring + amber-tinted shadow
  * - auto-resize textarea (24px → 220px)
- * - 36px square send button, amber filled when enabled
- * - keyboard hint row (Enter / Shift+Enter / Clear conversation)
+ * - square send button, amber filled when enabled
+ *
+ * "Insert quarter, shoot aliens": textarea + send, nothing else. No
+ * keyboard-hint row (Enter-to-send is a convention, not a lesson), no
+ * inline "Clear conversation" — starting over lives in the chat's ⋯ menu.
  *
  * Stateless: parent (`<ChatShell />`) owns the `value` + `onChange`
  * + `onSubmit` + `disabled`. Composer only handles autosize +
@@ -21,7 +24,6 @@ export type ChatComposerProps = {
   value: string;
   onChange: (next: string) => void;
   onSubmit: () => void;
-  onClearConversation?: () => void;
   disabled?: boolean;
   placeholder?: string;
 };
@@ -30,7 +32,6 @@ export function ChatComposer({
   value,
   onChange,
   onSubmit,
-  onClearConversation,
   disabled = false,
   placeholder,
 }: ChatComposerProps) {
@@ -90,30 +91,6 @@ export function ChatComposer({
             <Send className="size-4" aria-hidden="true" />
           </button>
         </form>
-
-        <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-          {/* Keyboard hint is meaningless on a touch keyboard — desktop only. */}
-          <span className="hidden sm:inline">
-            <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">Enter</kbd>
-            {' '}
-            to send ·
-            {' '}
-            <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">Shift</kbd>
-            +
-            <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">Enter</kbd>
-            {' '}
-            for newline
-          </span>
-          {onClearConversation && (
-            <button
-              type="button"
-              onClick={onClearConversation}
-              className="ml-auto py-1 hover:text-brand-amber-deep"
-            >
-              Clear conversation
-            </button>
-          )}
-        </div>
       </div>
     </div>
   );
