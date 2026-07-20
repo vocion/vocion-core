@@ -7,7 +7,7 @@ import {
   listPendingInvites,
   removeMember,
   revokeInvite,
-} from '@/services/TeamMembersService';
+} from '@/services/MembersService';
 import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';

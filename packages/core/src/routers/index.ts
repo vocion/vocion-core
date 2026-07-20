@@ -79,6 +79,7 @@ import {
   resume,
   submitFeedback,
 } from './Review';
+import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
 import { applyNow as applyWorkspaceNow, readPrimitive, driftStatus as workspaceDriftStatus, writeFile } from './Workspace';
 
 export const router = {
@@ -132,6 +133,10 @@ export const router = {
   projects: {
     list: listProjects,
     setActive: setActiveProject,
+  },
+  teams: {
+    list: listTeamsRoute,
+    seedSample: seedSampleTeamsRoute,
   },
   members: {
     list: listMembersRoute,

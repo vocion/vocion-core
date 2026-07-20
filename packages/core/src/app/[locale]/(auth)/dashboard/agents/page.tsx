@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { createElement } from 'react';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { agentAccent as accent } from '@/libs/agentAccents';
 import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
@@ -15,23 +16,6 @@ import { listAgentHierarchy } from '@/services/AgentService';
  * agents, prompt, tools, and skills live. Structure comes from each agent's
  * `parent` field (workspace YAML); a lead has no parent.
  */
-
-type Accent = { stripe: string; tint: string; ink: string };
-
-function accent(name: string | null | undefined): Accent {
-  switch (name) {
-    case 'teal':
-      return { stripe: 'var(--brand-teal)', tint: 'var(--brand-teal-tint)', ink: 'var(--brand-teal-deep)' };
-    case 'violet':
-      return { stripe: '#7C5CFC', tint: '#F1EEFE', ink: '#5B3FD6' };
-    case 'indigo':
-      return { stripe: '#5B6EF5', tint: '#EEF1FE', ink: '#3F4FD6' };
-    case 'rose':
-      return { stripe: '#F0567A', tint: '#FDEEF2', ink: '#D63A60' };
-    default:
-      return { stripe: 'var(--brand-amber)', tint: 'var(--brand-amber-tint)', ink: 'var(--brand-amber-deep)' };
-  }
-}
 
 function count(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;

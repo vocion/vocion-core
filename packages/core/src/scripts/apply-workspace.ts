@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   console.log(`✓ loaded context from ${loaded.sourcePath}`);
   console.log(`  org: ${orgId}`);
   console.log(`  sha: ${loaded.sha}`);
-  console.log(`  agents: ${loaded.agents.length}, skills: ${loaded.skills.length}, objectTypes: ${loaded.objectTypes.length}, workflows: ${loaded.workflows.length}, playbooks: ${loaded.playbooks.length}, learningSteps: ${loaded.learningSteps.length}, evalDatasets: ${loaded.evalDatasets.length}, sources: ${loaded.sources.length}`);
+  console.log(`  agents: ${loaded.agents.length}, teams: ${loaded.teams.length}, skills: ${loaded.skills.length}, objectTypes: ${loaded.objectTypes.length}, workflows: ${loaded.workflows.length}, playbooks: ${loaded.playbooks.length}, learningSteps: ${loaded.learningSteps.length}, evalDatasets: ${loaded.evalDatasets.length}, sources: ${loaded.sources.length}`);
   console.log(`  files: ${loaded.fileCount}`);
 
   const result = await applyWorkspace(loaded, {

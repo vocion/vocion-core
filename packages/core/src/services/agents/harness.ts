@@ -30,11 +30,11 @@ import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
 import { tool as makeTool } from '@langchain/core/tools';
 import { createDeepAgent, StateBackend } from 'deepagents';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { buildChatModel } from '@/libs/llm';
-import { agentSchema, playbookSchema } from '@/models/Schema';
+import { agentSchema, playbookSchema, projectSchema, teamSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
 import { mountPlaybooks } from '@/services/playbooks/mount';
 import { buildDomainTools } from './tools/registry';
@@ -126,6 +126,46 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     systemPrompt: s.systemPrompt,
   }));
 
+  // F1 "consult the leads", chat path: when THIS agent is the workspace
+  // lead (project.lead_agent_slug), the team leads from the `team` table
+  // merge into its dispatchable subagents — "how's the quarter?" in chat
+  // then consults every team, with the team named in each subagent's
+  // description for per-team provenance (acceptance #4). JSONB-authored
+  // subagents win name collisions. Lead-less teams are named in the
+  // system prompt so the answer degrades per team ("no lead yet") rather
+  // than silently omitting one (acceptance #5).
+  let systemPrompt = row.systemPrompt ?? undefined;
+  const [project] = await db
+    .select({ leadAgentSlug: projectSchema.leadAgentSlug })
+    .from(projectSchema)
+    .where(eq(projectSchema.id, orgId))
+    .limit(1);
+  if (project?.leadAgentSlug === row.slug) {
+    const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId));
+    const leadSlugs = teams.map(t => t.leadAgentSlug).filter((s): s is string => s !== null && s !== row.slug);
+    const leadRows = leadSlugs.length > 0
+      ? await db.select().from(agentSchema).where(and(eq(agentSchema.orgId, orgId), inArray(agentSchema.slug, leadSlugs)))
+      : [];
+    const taken = new Set(subagents.map(s => s.name));
+    for (const team of teams) {
+      const lead = leadRows.find(a => a.slug === team.leadAgentSlug);
+      if (!lead || taken.has(lead.slug)) {
+        continue;
+      }
+      taken.add(lead.slug);
+      subagents.push({
+        name: lead.slug,
+        description: `${lead.name} — lead of the ${team.name} team. Consult for: ${team.description ?? lead.description ?? `the ${team.name} team's status and work`}.`,
+        systemPrompt: lead.systemPrompt ?? `You are ${lead.name}, lead of the ${team.name} team.`,
+      });
+    }
+    const leadless = teams.filter(t => t.leadAgentSlug === null).map(t => t.name);
+    if (leadless.length > 0) {
+      const note = `Teams with no lead yet — you cannot consult them; say so plainly per team (e.g. "${leadless[0]} has no lead yet"), never silently omit them: ${leadless.join(', ')}.`;
+      systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
+    }
+  }
+
   // Per-agent output cap from the harness block (falls back to the
   // langchain provider default when unset).
   const model = buildChatModel('main', {
@@ -154,7 +194,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     // it a SECOND system message once the middleware prepends its own, which
     // the model API rejects ("System messages are only permitted as the first
     // passed message").
-    systemPrompt: row.systemPrompt ?? undefined,
+    systemPrompt,
     backend: new StateBackend(),
     // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).
     ...(hasPlaybooks ? { skills: ['/playbooks/'] } : {}),

@@ -12,6 +12,7 @@ import {
   GitBranch,
   LineChart,
   MessageSquare,
+  Network,
   Newspaper,
   Plug,
   ScrollText,
@@ -45,6 +46,7 @@ import { VocionLogo } from '@/templates/VocionLogo';
  *
  * Active-state styling is driven by `--sidebar-accent` +
  * `--sidebar-accent-foreground` in styles/global.css.
+ * @param props.isAdmin
  * @param props
  */
 export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<typeof Sidebar> & {
@@ -82,11 +84,14 @@ export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<t
         />
 
         {/* 2. Team — who works for you and the shapes their work takes:
-            open-ended goals (missions), fixed procedures (workflows), and
-            the clocks/triggers that start them (automation). */}
+            the org chart (teams — the hero view, F1), the flat roster
+            (agents), open-ended goals (missions), fixed procedures
+            (workflows), and the clocks/triggers that start them
+            (automation). */}
         <AppSidebarNav
           label="Team"
           items={[
+            { title: t('teams'), url: '/dashboard/teams', icon: Network },
             { title: t('agents'), url: '/dashboard/agents', icon: Users },
             { title: 'Missions', url: '/dashboard/missions', icon: Compass },
             { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
