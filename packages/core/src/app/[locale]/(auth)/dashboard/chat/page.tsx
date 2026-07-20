@@ -1,5 +1,4 @@
 import { setRequestLocale } from 'next-intl/server';
-import { NewChatButton } from '@/features/dashboard/AskChat';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { groupAgentHierarchy, listAgents } from '@/services/AgentService';
@@ -22,9 +21,9 @@ const SEARCH_ONLY_AGENT = {
  * fallback. When the project has no agents authored, ChatShell renders
  * a "no agents yet" empty state pointing at the authoring path.
  *
- * Deliberately chrome-free: no page TitleBar — the agent header inside
- * ChatShell IS the identity of this surface (eyebrow · name · scope),
- * so the agent isn't announced four times on one screen.
+ * Deliberately chrome-free: no TitleBar, no header strip at all —
+ * "insert quarter, shoot aliens." The surface is messages + composer;
+ * new-chat and agent targeting live behind ChatShell's single ⋯ menu.
  * @param props
  * @param props.params
  */
@@ -66,7 +65,7 @@ export default async function ChatPage(props: {
 
   return (
     <div className="flex h-[calc(100vh-6rem)] flex-col">
-      <ChatShell agents={agents} agentSlug={coordinatorSlug} headerAction={<NewChatButton />} />
+      <ChatShell agents={agents} agentSlug={coordinatorSlug} />
     </div>
   );
 }

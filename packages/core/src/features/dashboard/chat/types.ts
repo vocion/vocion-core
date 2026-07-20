@@ -65,9 +65,9 @@ export type AgentOption = {
   name: string;
   icon: 'bot' | 'search';
   placeholder: string;
-  /** Small label above the agent name in the chat header (e.g. "RevOps · Follow-Up"). */
+  /** Small context label (e.g. "RevOps · Follow-Up"). Data-in; the stripped-down surface doesn't render it. */
   eyebrow?: string;
-  /** One-line scope shown under the agent name in the chat header. */
+  /** One-line scope of the agent. Data-in; the stripped-down surface doesn't render it. */
   description?: string;
   /** Empty-state one-click prompts, authored per agent in the workspace. */
   suggestions?: Array<{ label: string; prompt: string }>;

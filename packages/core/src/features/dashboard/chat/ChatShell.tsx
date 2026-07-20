@@ -10,8 +10,8 @@ import type {
 } from './types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { client } from '@/libs/Orpc';
-import { AgentHeader } from './AgentHeader';
 import { ChatComposer } from './ChatComposer';
+import { ChatMenu } from './ChatMenu';
 import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
@@ -31,8 +31,12 @@ import { describeToolCall } from './WorkTimeline';
  * agents, render a "no agents yet" empty state pointing at the
  * authoring path. The pre-v0.5.2 default to "Sales Assistant" is gone.
  *
+ * "Insert quarter, shoot aliens": the surface is messages + composer,
+ * period. No permanent header, no picker on the canvas — new chat and
+ * agent targeting live behind the single ⋯ menu (top-right overlay).
+ *
  * Component tree:
- *   <AgentHeader />
+ *   <ChatMenu /> (⋯ overlay, top-right)
  *   <MessageList /> or <EmptyState />
  *   <SourcesPanel /> (right-side, optional)
  *   <HitlGate /> (above composer when pending)
@@ -44,19 +48,14 @@ export type ChatShellProps = {
   agents: AgentOption[];
   /** Initial selection. If absent, picks the first entry in `agents`. */
   agentSlug?: string;
-  agentDescription?: string;
   /** Suggestion prompts surfaced in the empty state (fallback — per-agent suggestions win). */
   suggestions?: Array<{ label: string; prompt: string }>;
-  /** Rendered on the right side of the agent header (e.g. a New Chat button). */
-  headerAction?: React.ReactNode;
 };
 
 export function ChatShell({
   agents,
   agentSlug,
-  agentDescription,
   suggestions = [],
-  headerAction,
 }: ChatShellProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [composerValue, setComposerValue] = useState('');
@@ -76,11 +75,6 @@ export function ChatShell({
   const agent = (currentSlug ? agents.find(a => a.slug === currentSlug) : undefined) ?? agents[0]!;
   const agentSuggestions = agent.suggestions?.length ? agent.suggestions : suggestions;
   const isStreaming = phase !== 'idle';
-
-  // The specialists this agent coordinates (only a coordinator has any).
-  // Surfaced in the empty state so the workspace scope — one front door
-  // that brings in specialists — is visible before the first message.
-  const teammates = agents.filter(a => a.parentSlug && a.parentSlug === agent.slug).map(a => a.name);
 
   /* --------------------------------------------------------------- */
   /* SSE event reducer — folds streaming events into the messages    */
@@ -432,14 +426,16 @@ export function ChatShell({
   /* --------------------------------------------------------------- */
 
   return (
-    <div className="flex h-full flex-1 flex-col">
-      <AgentHeader
-        name={agent.name}
-        action={headerAction}
-        agents={agents}
-        currentSlug={agent.slug}
-        onSwitch={handleSwitchAgent}
-      />
+    <div className="relative flex h-full flex-1 flex-col">
+      {/* The single small menu — everything configurational lives here. */}
+      <div className="absolute top-2 right-3 z-20">
+        <ChatMenu
+          onNewChat={handleClear}
+          agents={agents}
+          currentSlug={agent.slug}
+          onSwitch={handleSwitchAgent}
+        />
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col">
@@ -447,8 +443,6 @@ export function ChatShell({
             ? (
                 <EmptyState
                   agentName={agent.name}
-                  description={agentDescription ?? agent.description}
-                  teammates={teammates}
                   suggestions={agentSuggestions}
                   onPick={handlePickSuggestion}
                 />
@@ -468,7 +462,6 @@ export function ChatShell({
             value={composerValue}
             onChange={setComposerValue}
             onSubmit={() => void sendMessage(composerValue)}
-            onClearConversation={messages.length > 0 ? handleClear : undefined}
             disabled={isStreaming}
             placeholder={agent.placeholder}
           />
