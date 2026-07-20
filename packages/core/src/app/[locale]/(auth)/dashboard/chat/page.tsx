@@ -1,7 +1,12 @@
+import { eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { db } from '@/libs/DB';
+import { projectSchema, tenantAccountSchema } from '@/models/Schema';
 import { groupAgentHierarchy, listAgents } from '@/services/AgentService';
+import { buildWorkspaceChips } from '@/services/chat/suggestions';
+import { workspaceGreeting } from '@/services/chat/workspaceLabel';
 
 /**
  * Built-in virtual agent — corpus search without an LLM in the loop.
@@ -22,10 +27,11 @@ const SEARCH_ONLY_AGENT = {
  * a "no agents yet" empty state pointing at the authoring path.
  *
  * Deliberately chrome-free: no TitleBar, no header strip at all —
- * "insert quarter, shoot aliens." The surface is messages + composer;
- * new-chat and agent targeting live behind ChatShell's single ⋯ menu.
- * @param props
- * @param props.params
+ * "insert quarter, shoot aliens." The surface is messages + composer; the
+ * chat's New chat / Switch agent live behind a single ⋯ menu that ChatShell
+ * portals into the shell top bar (not floating on the canvas).
+ * @param props - Route props.
+ * @param props.params - The locale route params.
  */
 export default async function ChatPage(props: {
   params: Promise<{ locale: string }>;
@@ -63,9 +69,35 @@ export default async function ChatPage(props: {
     SEARCH_ONLY_AGENT,
   ];
 
+  // Workspace-scoped greeting ("Metacto" eyebrow + "Ask Metacto Revenue") —
+  // composed from the account + project names, never an agent name. The
+  // chat page mounts under the dashboard layout, which already guarantees the
+  // project row exists.
+  const [ws] = orgId
+    ? await db
+        .select({ projectName: projectSchema.name, accountName: tenantAccountSchema.name })
+        .from(projectSchema)
+        .innerJoin(tenantAccountSchema, eq(projectSchema.accountId, tenantAccountSchema.id))
+        .where(eq(projectSchema.id, orgId))
+        .limit(1)
+    : [];
+  const greeting = workspaceGreeting(ws?.accountName, ws?.projectName);
+
+  // Dynamic empty-state chips: urgency (recent brief / review queue) first,
+  // then team capabilities across agents. Falls back to capability chips when
+  // no live urgency data exists (the pre-F1 default).
+  const chips = orgId
+    ? await buildWorkspaceChips({ orgId, agents, coordinatorSlug })
+    : [];
+
   return (
     <div className="flex h-[calc(100vh-6rem)] flex-col">
-      <ChatShell agents={agents} agentSlug={coordinatorSlug} />
+      <ChatShell
+        agents={agents}
+        agentSlug={coordinatorSlug}
+        greeting={greeting}
+        suggestions={chips.map(c => ({ label: c.label, prompt: c.prompt }))}
+      />
     </div>
   );
 }

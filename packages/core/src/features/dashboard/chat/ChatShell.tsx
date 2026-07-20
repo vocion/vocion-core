@@ -9,6 +9,7 @@ import type {
   StreamingPhase,
 } from './types';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { client } from '@/libs/Orpc';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
@@ -48,14 +49,17 @@ export type ChatShellProps = {
   agents: AgentOption[];
   /** Initial selection. If absent, picks the first entry in `agents`. */
   agentSlug?: string;
-  /** Suggestion prompts surfaced in the empty state (fallback — per-agent suggestions win). */
+  /** Dynamic workspace-scoped empty-state chips (urgency + capability). */
   suggestions?: Array<{ label: string; prompt: string }>;
+  /** Empty-state greeting: org eyebrow + "Ask <workspace>". */
+  greeting?: { eyebrow?: string; workspace: string };
 };
 
 export function ChatShell({
   agents,
   agentSlug,
   suggestions = [],
+  greeting,
 }: ChatShellProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [composerValue, setComposerValue] = useState('');
@@ -73,7 +77,10 @@ export function ChatShell({
   // workspace coordinator; if it ever resolves to a missing/deleted agent
   // the `?? agents[0]` fallback keeps the surface pointed at a real agent.
   const agent = (currentSlug ? agents.find(a => a.slug === currentSlug) : undefined) ?? agents[0]!;
-  const agentSuggestions = agent.suggestions?.length ? agent.suggestions : suggestions;
+  // Default (coordinator) view shows the dynamic workspace chips; once the user
+  // deliberately switches to a specialist, prefer that agent's own suggestions.
+  const isCoordinator = agent.slug === agents[0]?.slug;
+  const emptyChips = (!isCoordinator && agent.suggestions?.length) ? agent.suggestions : suggestions;
   const isStreaming = phase !== 'idle';
 
   /* --------------------------------------------------------------- */
@@ -427,23 +434,24 @@ export function ChatShell({
 
   return (
     <div className="relative flex h-full flex-1 flex-col">
-      {/* The single small menu — everything configurational lives here. */}
-      <div className="absolute top-2 right-3 z-20">
+      {/* The single small chat menu — portaled into the shell top bar beside
+          the account menu, so the conversation canvas stays clean. */}
+      <ShellBarActionsPortal>
         <ChatMenu
           onNewChat={handleClear}
           agents={agents}
           currentSlug={agent.slug}
           onSwitch={handleSwitchAgent}
         />
-      </div>
+      </ShellBarActionsPortal>
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col">
           {messages.length === 0
             ? (
                 <EmptyState
-                  agentName={agent.name}
-                  suggestions={agentSuggestions}
+                  greeting={greeting}
+                  suggestions={emptyChips}
                   onPick={handlePickSuggestion}
                 />
               )
