@@ -123,8 +123,17 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   await dwell(page, 3000);
 
   // ── Shot 8 — under the hood: YAML exists but never blocks the leader ──
-  await page.goto('/dashboard/teams/revenue-ops');
+  // Client-side navigation (sidebar → team card), NOT page.goto: a full load
+  // re-hydrates and swaps the DOM ~1.5s in, detaching the node an action has
+  // already pinned — goto → scrollIntoViewIfNeeded flaked on exactly that.
+  await page.getByRole('link', { name: 'Teams', exact: true }).click();
+  await page.waitForURL('**/dashboard/teams');
+  await page.getByRole('heading', { name: 'RevOps' }).click();
+  await page.waitForURL('**/dashboard/teams/revenue-ops');
   const underTheHood = page.getByText('Under the hood', { exact: true });
+
+  await expect(underTheHood).toBeVisible(); // gate: detail page settled
+
   await underTheHood.scrollIntoViewIfNeeded();
   await underTheHood.click();
 
