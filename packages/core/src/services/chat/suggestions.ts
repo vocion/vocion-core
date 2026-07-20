@@ -169,14 +169,20 @@ export async function buildWorkspaceChips(opts: {
   // (b) capability — always available from agent config.
   const capability = capabilityChips(opts.agents);
 
+  // De-dupe by prompt AND by label — two chips can carry different prompts
+  // under the same visible label (e.g. an urgency chip and an agent's own
+  // "What needs my attention today?"), and a duplicated chip label reads
+  // as a bug regardless of what it sends.
   const seen = new Set<string>();
   const merged: WorkspaceChip[] = [];
   for (const chip of [...urgency, ...capability]) {
-    const key = chip.prompt.trim().toLowerCase();
-    if (seen.has(key)) {
+    const promptKey = `p:${chip.prompt.trim().toLowerCase()}`;
+    const labelKey = `l:${chip.label.trim().toLowerCase()}`;
+    if (seen.has(promptKey) || seen.has(labelKey)) {
       continue;
     }
-    seen.add(key);
+    seen.add(promptKey);
+    seen.add(labelKey);
     merged.push(chip);
     if (merged.length >= MAX_CHIPS) {
       break;
