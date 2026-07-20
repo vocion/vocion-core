@@ -1,6 +1,6 @@
 'use client';
 
-import type { PendingInvite, TeamMember } from '@/services/TeamMembersService';
+import type { PendingInvite, TeamMember } from '@/services/MembersService';
 import { Check, Copy, Link2, Trash2, UserPlus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';

@@ -69,9 +69,10 @@ export function EmptyState({
 }
 
 function ActionButton({ action, variant }: { action: Action; variant: 'primary' | 'secondary' }) {
+  // min-h-11 below `sm`: a 44px touch target on phones; desktop stays compact.
   const classes = variant === 'primary'
-    ? 'inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90'
-    : 'inline-flex items-center rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium transition hover:border-primary/30';
+    ? 'inline-flex min-h-11 items-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 sm:min-h-0'
+    : 'inline-flex min-h-11 items-center rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium transition hover:border-primary/30 sm:min-h-0';
   if ('href' in action) {
     return <Link href={action.href} className={classes}>{action.label}</Link>;
   }

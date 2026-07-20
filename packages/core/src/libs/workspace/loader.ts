@@ -1,8 +1,8 @@
 import type { ZodType } from 'zod';
-import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, SourceManifest, TrustManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
+import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, SourceManifest, TeamManifest, TrustManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { assertAgentHierarchy } from './hierarchy';
@@ -16,11 +16,13 @@ import {
   PlaybookManifestSchema,
   SkillManifestSchema,
   SourceManifestSchema,
+  TeamManifestSchema,
   TrustManifestSchema,
   WorkflowManifestSchema,
   WorkspaceManifestSchema,
 } from './schemas';
 import { computeWorkspaceSha } from './sha';
+import { assertTeams } from './teams';
 
 export type LoadedAgent = AgentManifest & {
   resolvedSystemPrompt: string;
@@ -42,6 +44,8 @@ export type LoadedAutomation = AutomationManifest & { sourceFile: string };
 export type LoadedLearningStep = LearningStepManifest & { sourceFile: string };
 export type LoadedEvalDataset = EvalDatasetManifest & { sourceFile: string };
 export type LoadedSource = SourceManifest & { sourceFile: string };
+/** A team — slug derived from the filename (teams/<slug>.yaml). */
+export type LoadedTeam = TeamManifest & { slug: string; sourceFile: string };
 
 export type LoadedPlaybook = PlaybookManifest & {
   /** Markdown body (everything after the YAML frontmatter). */
@@ -67,6 +71,7 @@ export type LoadedWorkspace = {
   learningSteps: LoadedLearningStep[];
   evalDatasets: LoadedEvalDataset[];
   sources: LoadedSource[];
+  teams: LoadedTeam[];
   sha: string;
   sourcePath: string;
   fileCount: number;
@@ -201,8 +206,24 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       return { ...parsed, sourceFile: file };
     });
 
+  // Teams (F1): slug comes from the filename, so a team can't disagree
+  // with its own path. teams/revenue-ops.yaml → slug "revenue-ops".
+  const teams = walkDir(join(abs, 'teams'))
+    .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
+    .map((file) => {
+      files.push(file);
+      const parsed = parseFile(file, TeamManifestSchema, 'team');
+      const slug = basename(file, extname(file));
+      if (!/^[a-z][a-z0-9_-]*$/.test(slug)) {
+        throw new WorkspaceValidationError(file, 'team', [`filename "${slug}" is not a valid team slug (lowercase, start with a letter, letters/numbers/dashes/underscores)`]);
+      }
+      return { ...parsed, slug, sourceFile: file };
+    });
+
   assertUniqueSlugs(agents, 'agent');
   assertAgentHierarchy(agents);
+  assertUniqueSlugs(teams, 'team');
+  assertTeams(agents, teams, manifest);
   assertUniqueSlugs(skills, 'skill');
   assertUniqueSlugs(objectTypes, 'object type');
   assertUniqueSlugs(workflows, 'workflow');
@@ -228,6 +249,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     learningSteps,
     evalDatasets,
     sources,
+    teams,
     sha,
     sourcePath: abs,
     fileCount: files.length + 1,

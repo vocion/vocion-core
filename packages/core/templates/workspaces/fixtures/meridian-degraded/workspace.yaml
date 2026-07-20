@@ -1,0 +1,7 @@
+version: 1
+# TEST FIXTURE — the degraded variant of the Meridian sample (design §2a
+# negative states): no workspace lead, no workspace owner, and one team
+# with no lead agent. Never reachable from teams.seedSample.
+orgId: proj_meridian_degraded
+name: Meridian Outdoor — Degraded (fixture)
+description: Negative fixture — lead-less team, no workspace lead, no owner anywhere.

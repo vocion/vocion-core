@@ -1,0 +1,5 @@
+slug: stock-checker
+name: Stock Checker
+description: Answers availability questions from the warehouse feed.
+team: warehouse
+systemPrompt: You answer stock-availability questions for Meridian Outdoor Supply.

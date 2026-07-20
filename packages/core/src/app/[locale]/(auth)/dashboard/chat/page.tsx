@@ -26,17 +26,23 @@ const SEARCH_ONLY_AGENT = {
  * fallback. When the project has no agents authored, ChatShell renders
  * a "no agents yet" empty state pointing at the authoring path.
  *
- * Deliberately chrome-free: no TitleBar, no header strip at all —
- * "insert quarter, shoot aliens." The surface is messages + composer; the
- * chat's New chat / Switch agent live behind a single ⋯ menu that ChatShell
- * portals into the shell top bar (not floating on the canvas).
- * @param props - Route props.
- * @param props.params - The locale route params.
+ * Deep-linkable: `?agent=<slug>` starts with that agent (unknown slugs fall
+ * back to the workspace-coordinator default) and `?prompt=<text>` pre-fills
+ * the composer without sending.
+ *
+ * Deliberately chrome-free: no TitleBar, no header strip — "insert quarter,
+ * shoot aliens." The surface is messages + composer; New chat / Switch agent
+ * live behind a single ⋯ menu that ChatShell portals into the shell top bar.
+ * @param props
+ * @param props.params
+ * @param props.searchParams
  */
 export default async function ChatPage(props: {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<{ agent?: string; prompt?: string }>;
 }) {
   const { locale } = await props.params;
+  const { agent: requestedSlug, prompt: seededPrompt } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId } = await auth();
   const dbAgents = orgId ? await listAgents(orgId) : [];
@@ -94,9 +100,10 @@ export default async function ChatPage(props: {
     <div className="flex h-[calc(100vh-6rem)] flex-col">
       <ChatShell
         agents={agents}
-        agentSlug={coordinatorSlug}
+        agentSlug={requestedSlug ?? coordinatorSlug}
         greeting={greeting}
         suggestions={chips.map(c => ({ label: c.label, prompt: c.prompt }))}
+        initialComposerValue={seededPrompt}
       />
     </div>
   );
