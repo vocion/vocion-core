@@ -1,5 +1,6 @@
 'use client';
 
+import type { EmptyStateSuggestion } from './EmptyState';
 import type {
   AgentOption,
   AgentRun,
@@ -43,6 +44,43 @@ import { describeToolCall } from './WorkTimeline';
  *   <HitlGate /> (above composer when pending)
  *   <ChatComposer />
  */
+
+/* ----------------------------------------------------------------- */
+/* Active-conversation persistence                                     */
+/*                                                                     */
+/* The conversation itself is persisted server-side (Postgres is the   */
+/* system of record). To RESUME it after navigating away and back we   */
+/* only need to remember WHICH thread was active — stashed per agent   */
+/* in localStorage and rehydrated via conversations.get on mount.      */
+/* ----------------------------------------------------------------- */
+
+const ACTIVE_CONVERSATION_KEY = 'vocion:chat:active:';
+
+function readActiveConversation(agentSlug: string): number | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_CONVERSATION_KEY + agentSlug);
+    const id = raw ? Number.parseInt(raw, 10) : Number.NaN;
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeActiveConversation(agentSlug: string, id: number): void {
+  try {
+    localStorage.setItem(ACTIVE_CONVERSATION_KEY + agentSlug, String(id));
+  } catch {
+    /* private mode / storage disabled — resume just won't persist */
+  }
+}
+
+function clearActiveConversation(agentSlug: string): void {
+  try {
+    localStorage.removeItem(ACTIVE_CONVERSATION_KEY + agentSlug);
+  } catch {
+    /* ignore */
+  }
+}
 
 export type ChatShellProps = {
   /** Agents available to pick from. Empty array renders the no-agents empty state. */
@@ -89,7 +127,44 @@ export function ChatShell({
   // greeting (its placeholder already explains itself).
   const isDefaultView = agent.slug === agents[0]?.slug;
   const isSearchOnly = agent.slug === '__search__';
-  const emptyChips = (!isDefaultView && agent.suggestions?.length) ? agent.suggestions : suggestions;
+
+  // Per-agent chips are SYNTHESIZED server-side from that agent's declared
+  // context (mission × skills × tracker state — services/chat/synthesis.ts)
+  // and fetched lazily when the agent is picked. A picked agent NEVER falls
+  // back to the workspace chip set — wrong grounding ("How's the quarter?"
+  // on the GTM lead). While the fetch is in flight the empty state shows a
+  // skeleton shimmer; on failure the server already degraded to that agent's
+  // deterministic mission-derived chips, so an empty result here means the
+  // agent genuinely has nothing declared to suggest.
+  const [synthesizedChips, setSynthesizedChips] = useState<Record<string, EmptyStateSuggestion[]>>({});
+  const needsAgentChips = !isDefaultView && !isSearchOnly;
+  useEffect(() => {
+    if (!needsAgentChips) {
+      return;
+    }
+    const slug = agent.slug;
+    if (synthesizedChips[slug] !== undefined) {
+      return;
+    }
+    let cancelled = false;
+    client.chat.suggestions({ agentSlug: slug })
+      .then((chips) => {
+        if (!cancelled) {
+          setSynthesizedChips(prev => ({ ...prev, [slug]: chips.map(c => ({ label: c.label, prompt: c.prompt })) }));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSynthesizedChips(prev => ({ ...prev, [slug]: [] }));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsAgentChips, agent.slug, synthesizedChips]);
+
+  const emptyChips = needsAgentChips ? (synthesizedChips[agent.slug] ?? []) : suggestions;
+  const emptyChipsLoading = needsAgentChips && synthesizedChips[agent.slug] === undefined;
   const emptyGreeting = (isDefaultView || isSearchOnly)
     ? greeting
     : { eyebrow: greeting?.eyebrow, workspace: agent.name };
@@ -290,6 +365,74 @@ export function ChatShell({
   // turns must not appear in conversation history or agent metrics.
   const conversationIdRef = useRef<number | null>(null);
 
+  // Resume the agent's saved thread on mount / agent-switch, so navigating
+  // away and back doesn't start over. We stash the active id per agent
+  // (localStorage) and rehydrate the transcript from conversations.get.
+  // __search__ is ephemeral and never resumes; an explicit page handoff
+  // also starts fresh (it stashes its own prompt in sessionStorage).
+  const hydratedSlugRef = useRef<string | null>(null);
+  useEffect(() => {
+    const slug = agent.slug;
+    if (isSearchOnly || hydratedSlugRef.current === slug) {
+      return;
+    }
+    hydratedSlugRef.current = slug;
+    let handoffPending = false;
+    try {
+      handoffPending = sessionStorage.getItem('vocion_chat_handoff') !== null;
+    } catch {
+      /* ignore */
+    }
+    if (handoffPending) {
+      return;
+    }
+    const storedId = readActiveConversation(slug);
+    if (storedId === null) {
+      return;
+    }
+    let cancelled = false;
+    client.conversations.get({ id: storedId })
+      .then((conv) => {
+        if (cancelled || agent.slug !== slug) {
+          return;
+        }
+        const rows = (conv.messages ?? []) as Array<{
+          role: 'user' | 'assistant';
+          content: string;
+          runsJson: unknown;
+          confidence: ChatMessage['confidence'];
+        }>;
+        const hydrated: ChatMessage[] = rows.map((row) => {
+          const runsRaw = Array.isArray(row.runsJson) ? (row.runsJson as AgentRun[]) : [];
+          const runs = runsRaw.length > 0
+            ? runsRaw.map(r => (r.type === 'tool' ? { ...r, state: 'done' as const } : r))
+            : (row.role === 'assistant' && row.content ? [{ type: 'text' as const, text: row.content }] : undefined);
+          return {
+            role: row.role,
+            content: row.content ?? '',
+            ...(runs ? { runs } : {}),
+            ...(row.confidence ? { confidence: row.confidence } : {}),
+          };
+        });
+        if (hydrated.length > 0) {
+          conversationIdRef.current = storedId;
+          setMessages(hydrated);
+        } else {
+          // Stored id points at an empty/deleted thread — forget it.
+          clearActiveConversation(slug);
+        }
+      })
+      .catch(() => {
+        // Thread gone/inaccessible — forget it so we start clean.
+        if (!cancelled) {
+          clearActiveConversation(slug);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.slug, isSearchOnly]);
+
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) {
       return;
@@ -306,6 +449,7 @@ export function ChatShell({
       try {
         const conv = await client.conversations.create({ agentSlug: agent.slug });
         conversationIdRef.current = conv.id;
+        writeActiveConversation(agent.slug, conv.id);
       } catch {
         /* persistence is best-effort — chat still works ephemerally */
       }
@@ -427,21 +571,33 @@ export function ChatShell({
     void sendMessage('reject');
   }, [sendMessage]);
 
-  const handleClear = useCallback(() => {
+  // Reset only the in-memory transcript. Does NOT touch the per-agent saved
+  // conversation — used by agent-switch, which must leave the other agent's
+  // thread resumable.
+  const resetTranscript = useCallback(() => {
     setMessages([]);
     setAllDocuments([]);
     setPendingHitl(null);
     setPhase('idle');
-    // Next send starts a fresh persisted thread.
     conversationIdRef.current = null;
   }, []);
 
-  // Switching agents starts a fresh conversation — history belongs to the
-  // agent it was had with.
+  // "New chat" — explicitly forget THIS agent's thread so the next send
+  // starts a fresh persisted one and a later remount doesn't resume it.
+  const handleClear = useCallback(() => {
+    resetTranscript();
+    clearActiveConversation(agent.slug);
+  }, [resetTranscript, agent.slug]);
+
+  // Switching agents shows that agent's own thread: drop the current
+  // transcript and let the resume effect hydrate the target agent's saved
+  // conversation (the slug change re-fires it). The previous agent's saved
+  // thread is left intact, so switching back resumes it.
   const handleSwitchAgent = useCallback((slug: string) => {
+    resetTranscript();
+    hydratedSlugRef.current = null;
     setCurrentSlug(slug);
-    handleClear();
-  }, [handleClear]);
+  }, [resetTranscript]);
 
   /* --------------------------------------------------------------- */
   /* Render                                                          */
@@ -467,6 +623,7 @@ export function ChatShell({
                 <EmptyState
                   greeting={emptyGreeting}
                   suggestions={emptyChips}
+                  suggestionsLoading={emptyChipsLoading}
                   onPick={handlePickSuggestion}
                 />
               )

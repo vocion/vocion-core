@@ -1,6 +1,7 @@
 import { and, desc, eq, gte } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { briefingSchema, missionRunSchema } from '@/models/Schema';
+import { synthesizeAgentChips } from './synthesis';
 
 /**
  * Workspace suggestion chips — the empty-state prompt starters.
@@ -10,21 +11,28 @@ import { briefingSchema, missionRunSchema } from '@/models/Schema';
  * invitation, so they should point at what actually matters RIGHT NOW, not a
  * hardcoded marketing list.
  *
- * v1 signal sources, in priority order, each degrading gracefully to the next:
+ * Signal sources, in priority order, each degrading gracefully to the next:
  *
- *   (a) URGENCY / BRIEF — recent briefing output + mission runs waiting on a
- *       human. When the workspace has fresh, time-sensitive work, one or two
- *       chips surface it so the operator lands straight on it. This is the
- *       seam the future "Founder GTM — time-sensitive action items" chip
- *       plugs into (see the TODO in `urgencyChips`).
+ *   (a) SYNTHESIZED — per lead, from its declared context (mission × skills
+ *       × tracker state; see `./synthesis.ts`), sampled ACROSS leads for
+ *       breadth. The head of this list is the two constant-label anchors
+ *       ("What should I do?" / "What can you do?") — the only chips visible
+ *       before the "More" caret; specific starters rank behind it.
  *
- *   (b) TEAM / LEAD CAPABILITIES — the agents' own declared `suggestions`,
- *       sampled ACROSS different agents/leads so the chips cover the team's
- *       breadth ("what needs my attention", "pipeline health", "draft a
- *       proposal") rather than three variations from one agent.
+ *   (b) URGENCY / BRIEF — recent briefing output + mission runs waiting on a
+ *       human. Folded behind "More" alongside the specific synthesized
+ *       starters.
  *
- * Returns 2–4 chips. Fast by design: two cheap indexed reads + in-memory
- * ranking, no LLM on the page-load path.
+ *   (c) TEAM / LEAD CAPABILITIES (legacy YAML) — agents' `suggestions`
+ *       survive only as last-resort filler for agents with nothing declared
+ *       to synthesize from (no missions, no tracker) — per the
+ *       emergent-capability architecture, chips must derive from live
+ *       declared context, not canned prompt strings.
+ *
+ * Returns up to 6 chips (UI shows 2 + More). The synthesis layer is one
+ * cached small-model call per lead (15-min TTL + apply-time bust) with a
+ * deterministic no-LLM fallback, so a cold page load pays at most a short
+ * Haiku call and warm loads pay nothing.
  */
 
 export type WorkspaceChip = {
@@ -47,7 +55,13 @@ export type ChipAgent = {
   suggestions?: Array<{ label: string; prompt: string }>;
 };
 
-const MAX_CHIPS = 4;
+/**
+ * Total chips returned. The UI shows the first 2 (the constant-label anchors,
+ * per Chris 2026-07-20: "What should I do?" + "What can you do?") and folds
+ * the rest — urgency + specific synthesized starters — behind the quiet
+ * "More" caret.
+ */
+const MAX_CHIPS = 6;
 /** Briefings older than this aren't "what needs my attention today". */
 const URGENCY_WINDOW_DAYS = 3;
 
@@ -110,9 +124,52 @@ async function urgencyChips(orgId: string, coordinatorSlug?: string): Promise<Wo
 }
 
 /**
- * (b) Capability signal — sample the agents' declared suggestions ACROSS
- * different agents so the chips cover the team's breadth. Coordinator-first,
- * then one from each specialist, before taking any agent's second suggestion.
+ * (b) Capability signal — synthesized per lead from mission × skills ×
+ * tracker state. Leads front their teams, so their synthesized chips ARE the
+ * team's live capabilities; round-robin across leads keeps breadth. Capped
+ * at 3 leads so a cold cache costs at most 3 parallel small-model calls.
+ * @param orgId - Active project/org id.
+ * @param agents - The chat agent list (used to pick leads).
+ */
+async function synthesizedCapabilityChips(orgId: string, agents: ChipAgent[]): Promise<WorkspaceChip[]> {
+  const real = agents.filter(a => a.slug !== '__search__');
+  const leads = real.filter(a => a.role === 'lead');
+  const targets = (leads.length > 0 ? leads : real).slice(0, 3);
+
+  const perAgent = await Promise.all(targets.map(async (agent) => {
+    try {
+      const chips = await synthesizeAgentChips(orgId, agent.slug);
+      return chips.map(c => ({
+        label: c.label,
+        prompt: c.prompt,
+        agentSlug: agent.slug,
+        source: 'capability' as const,
+      }));
+    } catch {
+      // Synthesis is best-effort — a failure for one lead must never break
+      // the empty state; the YAML filler below covers the gap.
+      return [];
+    }
+  }));
+
+  // Round-robin: one chip per lead (breadth) before any lead's second chip.
+  const merged: WorkspaceChip[] = [];
+  const maxDepth = Math.max(0, ...perAgent.map(list => list.length));
+  for (let depth = 0; depth < maxDepth; depth++) {
+    for (const list of perAgent) {
+      const chip = list[depth];
+      if (chip) {
+        merged.push(chip);
+      }
+    }
+  }
+  return merged;
+}
+
+/**
+ * (b-fallback) Legacy capability signal — the agents' declared YAML
+ * `suggestions`, sampled ACROSS different agents. Only fills slots the
+ * synthesized chips left empty (agents with no missions/tracker declared).
  * @param agents - The chat agent list; real agents carry `suggestions`.
  */
 function capabilityChips(agents: ChipAgent[]): WorkspaceChip[] {
@@ -141,9 +198,11 @@ function capabilityChips(agents: ChipAgent[]): WorkspaceChip[] {
 }
 
 /**
- * Build the empty-state chips for a workspace. Urgency chips lead (capped at
- * 2 so the surface stays quiet); capability chips fill the rest up to 4.
- * De-duplicated by prompt.
+ * Build the empty-state chips for a workspace. Synthesized chips lead — the
+ * first two are the constant-label anchors the UI shows before "More" —
+ * then urgency chips (capped at 2), then YAML capability filler for agents
+ * with nothing declared to synthesize from. Capped at {@link MAX_CHIPS}.
+ * De-duplicated by prompt and label.
  * @param opts - orgId + the chat agent list + optional coordinator slug.
  * @param opts.orgId - Active project/org id.
  * @param opts.agents - The chat agent list (real agents carry `suggestions`).
@@ -158,24 +217,28 @@ export async function buildWorkspaceChips(opts: {
     ?? opts.agents.find(a => a.role === 'lead')?.slug
     ?? opts.agents.find(a => a.slug !== '__search__')?.slug;
 
-  // (a) urgency — best-effort; a DB hiccup must never break the empty state.
-  let urgency: WorkspaceChip[] = [];
-  try {
-    urgency = (await urgencyChips(opts.orgId, coordinatorSlug)).slice(0, 2);
-  } catch {
-    urgency = [];
-  }
+  // (a) urgency + (b) synthesized capability — both best-effort and gathered
+  // in parallel; a DB or model hiccup must never break the empty state.
+  const [urgencyResult, synthesizedResult] = await Promise.allSettled([
+    urgencyChips(opts.orgId, coordinatorSlug),
+    synthesizedCapabilityChips(opts.orgId, opts.agents),
+  ]);
+  const urgency = urgencyResult.status === 'fulfilled' ? urgencyResult.value.slice(0, 2) : [];
+  const synthesized = synthesizedResult.status === 'fulfilled' ? synthesizedResult.value : [];
 
-  // (b) capability — always available from agent config.
+  // (b-fallback) YAML capability chips — fill only what synthesis left empty.
   const capability = capabilityChips(opts.agents);
 
-  // De-dupe by prompt AND by label — two chips can carry different prompts
-  // under the same visible label (e.g. an urgency chip and an agent's own
-  // "What needs my attention today?"), and a duplicated chip label reads
-  // as a bug regardless of what it sends.
+  // Order: synthesized chips FIRST — their head is the two constant-label
+  // anchors ("What should I do?" / "What can you do?"), which are the only
+  // chips visible before "More" — then urgency, then YAML filler, all behind
+  // the caret. De-dupe by prompt AND by label — two chips can carry different
+  // prompts under the same visible label (e.g. multiple leads' anchors), and
+  // a duplicated chip label reads as a bug regardless of what it sends; the
+  // first (coordinator lead's) wins.
   const seen = new Set<string>();
   const merged: WorkspaceChip[] = [];
-  for (const chip of [...urgency, ...capability]) {
+  for (const chip of [...synthesized, ...urgency, ...capability]) {
     const promptKey = `p:${chip.prompt.trim().toLowerCase()}`;
     const labelKey = `l:${chip.label.trim().toLowerCase()}`;
     if (seen.has(promptKey) || seen.has(labelKey)) {
