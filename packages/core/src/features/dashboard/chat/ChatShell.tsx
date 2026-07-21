@@ -83,6 +83,26 @@ function clearActiveConversation(agentSlug: string): void {
   }
 }
 
+/** The last agent the user was talking to — restored on refresh so a reload
+ *  doesn't kick you back to the workspace default. */
+const ACTIVE_AGENT_KEY = 'vocion:chat:agent';
+
+function readActiveAgent(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_AGENT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeActiveAgent(slug: string): void {
+  try {
+    localStorage.setItem(ACTIVE_AGENT_KEY, slug);
+  } catch {
+    /* ignore */
+  }
+}
+
 export type ChatShellProps = {
   /** Agents available to pick from. Empty array renders the no-agents empty state. */
   agents: AgentOption[];
@@ -379,6 +399,25 @@ export function ChatShell({
   // (localStorage) and rehydrate the transcript from conversations.get.
   // __search__ is ephemeral and never resumes; an explicit page handoff
   // also starts fresh (it stashes its own prompt in sessionStorage).
+  // Explicit agent switch = start FRESH (don't resume that agent's old
+  // thread). Set just before setCurrentSlug so the resume effect skips.
+  const freshSwitchRef = useRef(false);
+
+  // On mount (refresh/navigate-back), restore the last agent the user was on
+  // — otherwise a reload snaps back to the workspace default (Director). This
+  // changes agent.slug, which drives the resume effect below for that agent.
+  const restoredAgentRef = useRef(false);
+  useEffect(() => {
+    if (restoredAgentRef.current) {
+      return;
+    }
+    restoredAgentRef.current = true;
+    const stored = readActiveAgent();
+    if (stored && stored !== agent.slug && agents.some(a => a.slug === stored)) {
+      setCurrentSlug(stored);
+    }
+  }, [agents, agent.slug]);
+
   const hydratedSlugRef = useRef<string | null>(null);
   useEffect(() => {
     const slug = agent.slug;
@@ -386,6 +425,11 @@ export function ChatShell({
       return;
     }
     hydratedSlugRef.current = slug;
+    if (freshSwitchRef.current) {
+      // Explicit switch to this agent — fresh chat, no resume.
+      freshSwitchRef.current = false;
+      return;
+    }
     let handoffPending = false;
     try {
       handoffPending = sessionStorage.getItem('vocion_chat_handoff') !== null;
@@ -459,6 +503,7 @@ export function ChatShell({
         const conv = await client.conversations.create({ agentSlug: agent.slug });
         conversationIdRef.current = conv.id;
         writeActiveConversation(agent.slug, conv.id);
+        writeActiveAgent(agent.slug);
       } catch {
         /* persistence is best-effort — chat still works ephemerally */
       }
@@ -603,8 +648,14 @@ export function ChatShell({
   // conversation (the slug change re-fires it). The previous agent's saved
   // thread is left intact, so switching back resumes it.
   const handleSwitchAgent = useCallback((slug: string) => {
-    resetTranscript();
+    // Explicit switch = a FRESH chat with that agent (the reported bug was
+    // switching landing you in an old thread). Persist the choice so a refresh
+    // keeps you here; abandon any prior saved thread for that agent.
+    freshSwitchRef.current = true;
     hydratedSlugRef.current = null;
+    clearActiveConversation(slug);
+    writeActiveAgent(slug);
+    resetTranscript();
     setCurrentSlug(slug);
   }, [resetTranscript]);
 
