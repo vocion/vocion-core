@@ -1,7 +1,7 @@
 'use client';
 
 import type { AgentRun } from './types';
-import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, Loader2 } from 'lucide-react';
+import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, Loader2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 /**
@@ -50,11 +50,20 @@ export function describeToolCall(name: string, input: Record<string, unknown>, l
   switch (name) {
     case 'task': {
       // deepagents subagent dispatch — recover the specialist's name from its
-      // prompt ("You are the Pipeline Analyst …") instead of "general-purpose".
+      // prompt ("You are the Pipeline Analyst …"). The raw runtime name is
+      // "general-purpose" (plumbing, not human), so soften anything that looks
+      // like a code name to a plain "a specialist".
       const desc = String(input.description ?? '');
       const m = desc.match(/[Yy]ou are (?:the )?([A-Z][a-z-]+(?: [A-Z][a-z-]+){0,3})/);
-      const who = m?.[1]?.trim() ?? String(input.subagent_type ?? 'specialist');
-      return { label: live ? `Delegating: ${who}…` : `Delegated: ${who}` };
+      let who = (m?.[1] ?? String(input.subagent_type ?? '')).trim();
+      if (!who || who.includes('-') || /^(?:general.?purpose|specialist)$/i.test(who)) {
+        who = 'a specialist';
+      }
+      // Surface WHAT the specialist was asked to do — strip the "You are…"
+      // role boilerplate and quote a short summary of the actual task.
+      const summary = desc.replace(/^.*?[Yy]ou are[^.]*\.\s*/, '').replace(/\s+/g, ' ').trim();
+      const detail = summary ? `“${summary.slice(0, 100)}${summary.length > 100 ? '…' : ''}”` : undefined;
+      return { label: live ? `Handing off to ${who}…` : `Delegated to ${who}`, detail };
     }
     case 'search_knowledge': {
       const q = String(input.query ?? '');
@@ -143,13 +152,15 @@ function useElapsed(active: boolean): number {
 }
 
 export function WorkTimeline({ runs, streaming, activity, thinkingText }: WorkTimelineProps) {
+  // Collapsed by DEFAULT — even while streaming. The header carries the single
+  // live status line; tap to open the full chain of thought (a bottom sheet on
+  // mobile, an inline panel on desktop). No duplicated status lines.
   const [open, setOpen] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const elapsed = useElapsed(streaming);
   const steps = runs.map(toStep);
   const errors = steps.filter(s => s.state === 'error').length;
   const specialists = runs.filter(r => r.name === 'task').length;
-  const expanded = streaming || open;
   const hasReasoning = Boolean(thinkingText && thinkingText.trim().length > 0);
 
   if (steps.length === 0 && !streaming && !hasReasoning) {
@@ -163,110 +174,101 @@ export function WorkTimeline({ runs, streaming, activity, thinkingText }: WorkTi
     errors > 0 ? `${errors} error${errors === 1 ? '' : 's'}` : null,
   ].filter(Boolean).join(' · ');
 
-  // While streaming, the header IS the live step: the current activity (or
-  // the last in-flight tool), plus an elapsed ticker so long turns visibly
-  // progress. "Working…" only as a last resort.
+  // The header's live text: the current activity (or the last in-flight tool).
+  // Shown ONLY here — never repeated in the panel — so there's one status line.
   const pending = runs.filter(r => r.state === 'pending');
   const livePending = pending.length > 0
     ? describeToolCall(pending[pending.length - 1]!.name, pending[pending.length - 1]!.input ?? {}, true).label
     : null;
   const headerLive = activity ?? livePending ?? 'Working…';
+  const headerText = streaming ? headerLive : `Worked · ${summary}`;
+  const hasDetail = steps.length > 0 || hasReasoning;
 
   return (
-    <div className="my-2 rounded-lg border border-border/70 bg-muted/20">
+    <div className="my-2">
       <button
         type="button"
-        onClick={() => setOpen(v => !v)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-muted-foreground transition hover:text-foreground"
+        onClick={() => hasDetail && setOpen(v => !v)}
+        aria-expanded={open}
+        disabled={!hasDetail}
+        className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground transition enabled:hover:text-foreground"
       >
         {streaming
-          ? <Loader2 className="size-3.5 animate-spin text-brand-amber-deep" aria-hidden />
-          : expanded
-            ? <ChevronDown className="size-3.5" aria-hidden />
-            : <ChevronRight className="size-3.5" aria-hidden />}
-        <span className="min-w-0 flex-1 truncate font-medium">
-          {streaming ? headerLive : `Worked · ${summary}`}
-        </span>
+          ? <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
+          : <Brain className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />}
+        <span className="min-w-0 flex-1 truncate font-medium">{headerText}</span>
         {streaming && elapsed >= 3 && (
           <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
             {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
           </span>
         )}
+        {hasDetail && (
+          <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${open ? 'rotate-180' : ''}`} aria-hidden />
+        )}
       </button>
 
-      {expanded && (
-        <ol className="space-y-1 border-t border-border/60 px-3 py-2">
-          {hasReasoning && (
-            <li className="flex items-start gap-2 text-xs">
-              <Brain className="mt-0.5 size-3 shrink-0 text-brand-amber-deep" aria-hidden />
-              <span className="min-w-0 flex-1">
-                {streaming
-                  ? (
-                      <>
-                        <span className="text-foreground/85">Reasoning</span>
-                        {/* Live tail — the last ~200 chars of the chain-of-thought */}
-                        <span className="block text-[11px] text-muted-foreground/70 italic">
-                          {thinkingText!.length > 200 ? `…${thinkingText!.slice(-200)}` : thinkingText}
-                        </span>
-                      </>
-                    )
-                  : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setReasoningOpen(v => !v);
-                          }}
-                          className="inline-flex items-center gap-1 text-foreground/85 transition hover:text-foreground"
-                        >
-                          Reasoning
-                          {reasoningOpen
-                            ? <ChevronDown className="size-3" aria-hidden />
-                            : <ChevronRight className="size-3" aria-hidden />}
-                        </button>
-                        {reasoningOpen && (
-                          <span className="mt-1 block max-h-48 overflow-y-auto rounded border border-border/50 bg-background/60 p-2 text-[11px] whitespace-pre-wrap text-muted-foreground italic">
-                            {thinkingText}
-                          </span>
-                        )}
-                      </>
-                    )}
-              </span>
-            </li>
-          )}
-          {steps.map((s, i) => (
-            <li key={i} className="flex min-w-0 items-start gap-2 text-xs">
-              {s.state === 'pending'
-                ? <Loader2 className="mt-0.5 size-3 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
-                : s.state === 'error'
-                  ? <CircleAlert className="mt-0.5 size-3 shrink-0 text-[var(--brand-fail)]" aria-hidden />
-                  : <Check className="mt-0.5 size-3 shrink-0 text-[var(--brand-pass)]" aria-hidden />}
-              <span className="min-w-0 flex-1 break-words">
-                <span className={s.state === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/85'}>{s.label}</span>
-                {s.detail && (
-                  <span className="ml-1.5 text-muted-foreground">{s.detail}</span>
-                )}
-                {s.output && (
-                  <span className="mt-0.5 line-clamp-2 block break-words text-[11px] text-muted-foreground/70">
-                    →
-                    {' '}
-                    {s.output}
+      {open && hasDetail && (
+        <>
+          {/* Mobile: dim, tap-to-close backdrop. Desktop: none (inline panel). */}
+          <button
+            type="button"
+            aria-label="Close details"
+            onClick={() => setOpen(false)}
+            className="fixed inset-0 z-40 bg-black/40 sm:hidden"
+          />
+          <div className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border-t border-border bg-background p-4 shadow-2xl sm:static sm:z-auto sm:mt-1 sm:max-h-none sm:rounded-lg sm:border sm:border-border/60 sm:bg-muted/20 sm:p-3 sm:shadow-none">
+            <div className="mb-3 flex items-center justify-between sm:hidden">
+              <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Chain of thought</span>
+              <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
+                <X className="size-4" aria-hidden />
+              </button>
+            </div>
+            <ol className="space-y-2">
+              {hasReasoning && (
+                <li className="flex items-start gap-2 text-xs">
+                  <Brain className="mt-0.5 size-3 shrink-0 text-brand-amber-deep" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      onClick={() => setReasoningOpen(v => !v)}
+                      className="inline-flex items-center gap-1 text-foreground/85 transition hover:text-foreground"
+                    >
+                      Reasoning
+                      {reasoningOpen
+                        ? <ChevronDown className="size-3" aria-hidden />
+                        : <ChevronRight className="size-3" aria-hidden />}
+                    </button>
+                    <span className={`mt-1 block break-words whitespace-pre-wrap text-[11px] text-muted-foreground italic ${reasoningOpen ? '' : 'line-clamp-3'}`}>
+                      {thinkingText}
+                    </span>
                   </span>
-                )}
-              </span>
-            </li>
-          ))}
-          {streaming && activity && (
-            <li className="flex items-start gap-2 text-xs">
-              <span className="relative mt-1 flex size-2 shrink-0">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/60" />
-                <span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" />
-              </span>
-              <span className="text-muted-foreground">{activity}</span>
-            </li>
-          )}
-        </ol>
+                </li>
+              )}
+              {steps.map((s, i) => (
+                <li key={i} className="flex min-w-0 items-start gap-2 text-xs">
+                  {s.state === 'pending'
+                    ? <Loader2 className="mt-0.5 size-3 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
+                    : s.state === 'error'
+                      ? <CircleAlert className="mt-0.5 size-3 shrink-0 text-[var(--brand-fail)]" aria-hidden />
+                      : <Check className="mt-0.5 size-3 shrink-0 text-[var(--brand-pass)]" aria-hidden />}
+                  <span className="min-w-0 flex-1 break-words">
+                    <span className={s.state === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/85'}>{s.label}</span>
+                    {s.detail && (
+                      <span className="ml-1.5 text-muted-foreground">{s.detail}</span>
+                    )}
+                    {s.output && (
+                      <span className="mt-0.5 line-clamp-2 block break-words text-[11px] text-muted-foreground/70">
+                        →
+                        {' '}
+                        {s.output}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </>
       )}
     </div>
   );
