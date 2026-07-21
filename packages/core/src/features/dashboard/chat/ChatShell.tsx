@@ -326,6 +326,14 @@ export function ChatShell({
         setPendingHitl(evt.gate as HitlGatePayload);
         return;
       }
+      case 'recommended_action': {
+        // A2UI: attach a clickable action card to the current answer. No side
+        // effect yet — the gated review item is created only if the user taps.
+        flushDeltas();
+        const rec = evt.recommendation as NonNullable<ChatMessage['recommendations']>[number];
+        appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []), rec] }));
+        return;
+      }
       case 'done':
         flushDeltas();
         // Backfill `content` from the streamed text runs. Streaming only
