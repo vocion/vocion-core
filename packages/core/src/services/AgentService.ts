@@ -986,48 +986,85 @@ export async function runAgent(opts: {
  * @param opts.onEvent
  */
 /**
- * Streaming stripper for a leading raw-data block in an answer.
+ * Strip tool-output echoes from a finished reply.
  *
- * A live turn proved claude-sonnet-4-6 reliably prepends the retrieved record
- * set (a `[{…}]` JSON array — the lookup_objects output) to its reply before
- * synthesizing, and ignores every prompt telling it not to. Prompts/tool-format
- * can't fix a model that insists on narrating its data, so we mechanically drop
- * a leading JSON array/object from the streamed text. Conservative: it only
- * engages when the reply's first non-space chars are `[{` or `{"` (a data
- * dump), which no genuine prose answer opens with — everything else passes
- * through untouched, token-for-token. Returns the emittable slice per token.
+ * Live turns proved claude-sonnet-4-6 reliably pastes raw tool output —
+ * lookup_objects' `[{…}]` record JSON, search_knowledge's `[1] … [2] …`
+ * results — verbatim into its answer, and ignores every prompt telling it
+ * not to. Per-tool formatting is whack-a-mole; this is the general fix: after
+ * the run, remove any substring that matches a tool's output (we collect them
+ * all), plus a leading JSON block if one survives. Verbatim match is exact and
+ * safe — the model pastes byte-for-byte, so this never touches genuine prose.
+ * @param text - The full assembled reply.
+ * @param toolOutputs - Every tool output produced this turn.
  */
-function makeLeadingDumpStripper(): (token: string) => string {
-  let decided: 'unknown' | 'strip' | 'pass' | 'done' = 'unknown';
-  let buf = '';
-  return (token: string): string => {
-    if (decided === 'pass' || decided === 'done') {
-      return token;
-    }
-    buf += token;
-    if (decided === 'unknown') {
-      const head = buf.replace(/^\s+/, '');
-      if (head.length < 2) {
-        return ''; // not enough to judge yet
+function stripToolEchoes(text: string, toolOutputs: string[]): string {
+  // Whitespace-normalized matching: the model reformats newlines/indentation
+  // when it pastes tool output, so exact indexOf misses. Build a normalized
+  // view with an index map back to the raw text, match there, delete in raw.
+  const map: number[] = [];
+  let norm = '';
+  let prevSpace = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (/\s/.test(c)) {
+      if (!prevSpace) {
+        norm += ' ';
+        map.push(i);
+        prevSpace = true;
       }
-      if (/^\[\s*\{/.test(head) || head.startsWith('{"')) {
-        decided = 'strip';
-        buf = head;
-      } else {
-        decided = 'pass';
-        const out = buf;
-        buf = '';
-        return out;
-      }
+    } else {
+      norm += c;
+      map.push(i);
+      prevSpace = false;
     }
-    // Scan the buffer for the balanced end of the leading JSON value,
-    // respecting strings + escapes (record values contain [ ] { } too).
+  }
+  const ranges: Array<[number, number]> = [];
+  for (const rawOut of toolOutputs) {
+    const nT = (rawOut ?? '').replace(/\s+/g, ' ').trim();
+    if (nT.length < 60) {
+      continue; // too short to be a dump — don't risk nuking real prose
+    }
+    // Match the whole output, or (for a partial/truncated paste) a long prefix.
+    const probe = nT.length > 400 ? nT.slice(0, 400) : nT;
+    let from = 0;
+    let idx = norm.indexOf(probe, from);
+    while (idx >= 0) {
+      const rawStart = map[idx]!;
+      // Extend to the end of the full match if the whole output is present,
+      // else to the end of the probe.
+      const full = norm.startsWith(nT, idx);
+      const normEnd = idx + (full ? nT.length : probe.length) - 1;
+      const rawEnd = (map[Math.min(normEnd, map.length - 1)] ?? text.length - 1) + 1;
+      ranges.push([rawStart, rawEnd]);
+      from = normEnd + 1;
+      idx = norm.indexOf(probe, from);
+    }
+  }
+  let out = text;
+  if (ranges.length > 0) {
+    ranges.sort((a, b) => a[0] - b[0]);
+    let result = '';
+    let cursor = 0;
+    for (const [s, e] of ranges) {
+      if (s < cursor) {
+        continue; // overlapping — already covered
+      }
+      result += text.slice(cursor, s);
+      cursor = e;
+    }
+    result += text.slice(cursor);
+    out = result;
+  }
+  // A leading JSON array/object the model opened with (balanced scan,
+  // string-aware since record values contain brackets).
+  const head = out.replace(/^\s+/, '');
+  if (/^\[\s*\{/.test(head) || head.startsWith('{"')) {
     let depth = 0;
     let inStr = false;
     let esc = false;
-    let endIdx = -1;
-    for (let i = 0; i < buf.length; i++) {
-      const c = buf[i];
+    for (let i = 0; i < head.length; i++) {
+      const c = head[i];
       if (inStr) {
         if (esc) {
           esc = false;
@@ -1045,19 +1082,13 @@ function makeLeadingDumpStripper(): (token: string) => string {
       } else if (c === ']' || c === '}') {
         depth--;
         if (depth === 0) {
-          endIdx = i;
+          out = head.slice(i + 1);
           break;
         }
       }
     }
-    if (endIdx >= 0) {
-      decided = 'done';
-      const rest = buf.slice(endIdx + 1).replace(/^\s+/, '');
-      buf = '';
-      return rest;
-    }
-    return ''; // still inside the leading data block — suppress
-  };
+  }
+  return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export async function runAgentDeep(opts: {
@@ -1126,6 +1157,9 @@ export async function runAgentDeep(opts: {
   bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug);
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
+  // Full (untruncated) tool outputs — the sanitizer needs the whole thing to
+  // strip a verbatim echo (toolCallLog truncates for the event/audit surface).
+  const rawToolOutputs: string[] = [];
 
   // Langfuse trace via the v0.2 BaseCallbackHandler adapter.
   const { handler: langfuseHandler, trace } = createLangfuseCallback({
@@ -1191,20 +1225,13 @@ export async function runAgentDeep(opts: {
           // tokens only on `.text`.
           await Promise.all([
             (async () => {
-              let started = false;
-              // Drop a leading record-dump the model insists on prepending.
-              const strip = makeLeadingDumpStripper();
+              // Buffer the reply — do NOT stream it live. The model reliably
+              // pastes verbatim tool output (record JSON, search results) into
+              // its answer; we sanitize the FULL text against the tool outputs
+              // after the run, then emit the clean answer. A live token stream
+              // can't strip a mid-reply echo whose end it hasn't seen yet.
               for await (const token of msg.text) {
-                const out = strip(token);
-                if (!out) {
-                  continue;
-                }
-                if (!started) {
-                  started = true;
-                  emit({ type: 'answering' });
-                }
-                finalText += out;
-                emit({ type: 'response_delta', delta: out });
+                finalText += token;
               }
             })(),
             (async () => {
@@ -1227,7 +1254,11 @@ export async function runAgentDeep(opts: {
           let outputStr = '';
           try {
             const out = await (call as { output: Promise<unknown> }).output;
-            outputStr = typeof out === 'string' ? out : JSON.stringify(out).slice(0, 2000);
+            const outputFull = typeof out === 'string' ? out : JSON.stringify(out);
+            if (outputFull) {
+              rawToolOutputs.push(outputFull);
+            }
+            outputStr = outputFull.slice(0, 2000);
           } catch (err) {
             outputStr = `tool error: ${(err as Error).message}`;
           }
@@ -1256,6 +1287,15 @@ export async function runAgentDeep(opts: {
     trace.update({ output: { error: message } });
     await langfuse.flushAsync();
     throw err;
+  }
+
+  // Sanitize: strip any verbatim tool-output the model echoed into the reply
+  // (record JSON, search results) — proven behavior; prompts don't stop it.
+  // Then emit the clean answer as one delta (we buffered instead of streaming).
+  finalText = stripToolEchoes(finalText, rawToolOutputs);
+  if (finalText.trim().length > 0) {
+    emit({ type: 'answering' });
+    emit({ type: 'response_delta', delta: finalText });
   }
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
