@@ -166,6 +166,21 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     }
   }
 
+  // deepagents auto-injects a built-in `general-purpose` subagent whose prompt
+  // is generic (DEFAULT_SUBAGENT_PROMPT — no answer-style rules). So when the
+  // lead delegates "what should I do" to it, that subagent calls lookup_objects
+  // and, told nothing otherwise, pastes the raw record back — the lead's
+  // "synthesize, never dump" rule never reaches the actor that composes the
+  // reply. Pre-define our own `general-purpose` carrying the discipline; the
+  // injector skips its default when one already exists by that name.
+  if (!subagents.some(s => s.name === 'general-purpose')) {
+    subagents.push({
+      name: 'general-purpose',
+      description: 'General-purpose worker for research and multi-step tasks the lead delegates.',
+      systemPrompt: 'You do delegated research and multi-step work, then return a concise, SYNTHESIZED result to the lead. NEVER paste raw tool output, record field-dumps (key: value lists), internal ids, /dashboard/... deep-links, or profile URLs — name people and the human reason in plain language. Return only what the lead needs to answer, tightly.',
+    });
+  }
+
   // Per-agent output cap from the harness block (falls back to the
   // langchain provider default when unset).
   const model = buildChatModel('main', {
