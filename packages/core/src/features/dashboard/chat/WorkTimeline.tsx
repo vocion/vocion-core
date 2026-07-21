@@ -96,6 +96,13 @@ function outputSnippet(output: unknown): string | undefined {
   if (!s || s.length < 3) {
     return undefined;
   }
+  // Never surface raw structured payloads — tool kwargs / state dumps like
+  // write_todos' `{"lg_name":"Command","update":{...}}`. They're noise to a
+  // human and, unwrapped, blow out the layout width. Plain-language labels
+  // (describeToolCall) already say what happened; the raw object adds nothing.
+  if (/^[[{]/.test(s) || (s.includes('":') && s.includes('{'))) {
+    return undefined;
+  }
   return s.length > 140 ? `${s.slice(0, 140)}…` : s;
 }
 
@@ -229,19 +236,19 @@ export function WorkTimeline({ runs, streaming, activity, thinkingText }: WorkTi
             </li>
           )}
           {steps.map((s, i) => (
-            <li key={i} className="flex items-start gap-2 text-xs">
+            <li key={i} className="flex min-w-0 items-start gap-2 text-xs">
               {s.state === 'pending'
                 ? <Loader2 className="mt-0.5 size-3 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
                 : s.state === 'error'
                   ? <CircleAlert className="mt-0.5 size-3 shrink-0 text-[var(--brand-fail)]" aria-hidden />
                   : <Check className="mt-0.5 size-3 shrink-0 text-[var(--brand-pass)]" aria-hidden />}
-              <span className="min-w-0">
+              <span className="min-w-0 flex-1 break-words">
                 <span className={s.state === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/85'}>{s.label}</span>
                 {s.detail && (
                   <span className="ml-1.5 text-muted-foreground">{s.detail}</span>
                 )}
                 {s.output && (
-                  <span className="block truncate text-[11px] text-muted-foreground/70">
+                  <span className="mt-0.5 line-clamp-2 block break-words text-[11px] text-muted-foreground/70">
                     →
                     {' '}
                     {s.output}
