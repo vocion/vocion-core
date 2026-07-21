@@ -999,7 +999,20 @@ export async function runAgent(opts: {
  * @param toolOutputs - Every tool output produced this turn.
  */
 function stripToolEchoes(text: string, toolOutputs: string[]): string {
-  // Whitespace-normalized matching: the model reformats newlines/indentation
+  // Primary path: the model was told to lay raw data out inside <scratch>…
+  // </scratch> (see harness OUTPUT_DISCIPLINE). If it did, the answer is
+  // everything after the last close tag — deterministic, format-agnostic,
+  // no content-matching. Also drop a stray unclosed <scratch> opener.
+  const closeIdx = text.lastIndexOf('</scratch>');
+  if (closeIdx >= 0) {
+    return text.slice(closeIdx + '</scratch>'.length).replace(/\n{3,}/g, '\n\n').trim();
+  }
+  if (/<scratch>/i.test(text)) {
+    text = text.replace(/<scratch>[\s\S]*$/i, '');
+  }
+
+  // Fallback (model didn't use the block): whitespace-normalized matching.
+  // The model reformats newlines/indentation
   // when it pastes tool output, so exact indexOf misses. Build a normalized
   // view with an index map back to the raw text, match there, delete in raw.
   const map: number[] = [];
@@ -1089,6 +1102,43 @@ function stripToolEchoes(text: string, toolOutputs: string[]): string {
     }
   }
   return out.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Heuristic: does a reply still contain a raw-data dump (search hits, record
+ * JSON, email headers, deep-links) after the deterministic strips? Cheap regex
+ * gate so the LLM cleaner below runs ONLY when needed — not on every turn.
+ * @param t - The candidate reply.
+ */
+function looksLikeDump(t: string): boolean {
+  return /\[\d+\]\s*\*\*|\[gmail\]|\bSubject:\s|\bFrom:\s|"[a-z_]+":\s*"|owed_action|\/dashboard\//i.test(t);
+}
+
+/**
+ * Last-resort cleaner for the stubborn case: the model pasted raw tool output
+ * (esp. search results) into its reply and reformatted it past any string
+ * match. A cheap classifier-model pass reliably strips raw-data blocks while
+ * preserving the synthesis verbatim — format-agnostic where string-matching
+ * fails. Degrades to the original text on any error/timeout.
+ * @param text - The reply to clean.
+ */
+async function cleanAnswerWithLLM(text: string): Promise<string> {
+  try {
+    const { buildChatModel } = await import('@/libs/llm');
+    const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+    const model = buildChatModel('classifier', { temperature: 0, streaming: false, maxTokens: 2048 });
+    const sys = 'You clean an AI assistant reply for display to a user. The reply may contain PASTED RAW DATA the user must never see: search results (like "[1] **title** [gmail] From:/Subject:/body"), record JSON, field:value dumps, tool output, internal ids, or /dashboard links. Remove ALL such raw-data blocks. Keep the human-facing synthesis EXACTLY as written — same wording, same markdown, same tables. If a fact was only in the raw data (e.g. an email address), keep it stated in plain prose. If there is no raw data, return the text unchanged. Output ONLY the cleaned reply.';
+    const res = await model.invoke(
+      [new SystemMessage(sys), new HumanMessage(text)],
+      { signal: AbortSignal.timeout(15_000) },
+    );
+    const out = typeof res.content === 'string'
+      ? res.content
+      : (Array.isArray(res.content) ? res.content.map(c => (c as { text?: string }).text ?? '').join('') : '');
+    return out.trim() || text;
+  } catch {
+    return text;
+  }
 }
 
 export async function runAgentDeep(opts: {
@@ -1292,7 +1342,19 @@ export async function runAgentDeep(opts: {
   // Sanitize: strip any verbatim tool-output the model echoed into the reply
   // (record JSON, search results) — proven behavior; prompts don't stop it.
   // Then emit the clean answer as one delta (we buffered instead of streaming).
+  // Surface the model's <scratch> data-review in the CHAIN OF THOUGHT (the
+  // "work behind" the answer) before stripping it from the reply — so the raw
+  // data is visible on demand in the timeline, never dumped in the answer.
+  const scratch = finalText.match(/<scratch>([\s\S]*?)<\/scratch>/i)?.[1]?.trim();
+  if (scratch) {
+    emit({ type: 'thinking_delta', delta: `${scratch}\n` });
+  }
   finalText = stripToolEchoes(finalText, rawToolOutputs);
+  // Stubborn residue (reformatted search-result dumps that beat string-matching)
+  // — clean with a cheap model pass, but only when a dump is actually detected.
+  if (looksLikeDump(finalText)) {
+    finalText = await cleanAnswerWithLLM(finalText);
+  }
   if (finalText.trim().length > 0) {
     emit({ type: 'answering' });
     emit({ type: 'response_delta', delta: finalText });

@@ -166,6 +166,20 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     }
   }
 
+  // Output discipline (CORE, all agents). The main model reliably PASTES raw
+  // tool output — record JSON, search hits — into its reply and ignores "don't
+  // paste" rules; fighting that with content-stripping is whack-a-mole (it
+  // pretty-prints/reformats so nothing matches). Instead give it a sanctioned
+  // place to lay data out — a <scratch> block we strip deterministically — so
+  // the user only ever sees what's AFTER it. Delimiter-based = format-agnostic.
+  const OUTPUT_DISCIPLINE = [
+    'OUTPUT FORMAT (strict):',
+    'You may lay out raw data to reason over — record JSON, and ESPECIALLY search results and email contents (From/Subject/body, message lists) — but ONLY inside a single <scratch>…</scratch> block at the very START of your reply.',
+    'Everything AFTER </scratch> is the answer the user sees. It must be clean synthesis in plain language: NO raw records, JSON, field:value lists, search hits, email headers/bodies, ids, or /dashboard links. When asked to "find an email" or "go get" something, the answer is the EXTRACTED fact in words (e.g. "Eric — ericb@exactcustomer.com"), never the search results you read to find it.',
+    'If you have no raw data to lay out, skip the scratch block and just answer.',
+  ].join(' ');
+  systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE].filter(Boolean).join('\n\n');
+
   // deepagents auto-injects a built-in `general-purpose` subagent whose prompt
   // is generic (DEFAULT_SUBAGENT_PROMPT — no answer-style rules). So when the
   // lead delegates "what should I do" to it, that subagent calls lookup_objects
