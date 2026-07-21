@@ -116,6 +116,30 @@ function outputSnippet(output: unknown): string | undefined {
 }
 
 /**
+ * lookup_objects returns a JSON record array (kept out of the answer). Surface
+ * it HERE instead — a count + the contact/title names — so the source data the
+ * agent used is visible on demand in the chain of thought, never dumped in the
+ * reply. Returns null for non-record output.
+ * @param raw - The tool's output string.
+ */
+function summarizeRecords(raw: unknown): { detail: string; names: string } | null {
+  try {
+    const arr = JSON.parse(String(raw ?? '')) as Array<Record<string, unknown>>;
+    if (!Array.isArray(arr) || arr.length === 0) {
+      return null;
+    }
+    const names = arr
+      .map(r => String(r.contact ?? r.title ?? '').trim())
+      .filter(Boolean);
+    const shown = names.slice(0, 6).join(', ');
+    const more = names.length > 6 ? ` +${names.length - 6} more` : '';
+    return { detail: `${arr.length} record${arr.length === 1 ? '' : 's'}`, names: `${shown}${more}` };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Turn a raw tool run into a human-legible step.
  * @param run
  */
@@ -126,6 +150,14 @@ function toStep(run: Extract<AgentRun, { type: 'tool' }>): Step {
     return { label: 'Error', detail: String(run.output ?? '').slice(0, 160), state: 'error' };
   }
   const { label, detail } = describeToolCall(run.name, input);
+  // Records are the one tool output worth showing in the timeline — the count
+  // and who, so "Looked up records" isn't an empty step.
+  if (run.name === 'lookup_objects' && state === 'done') {
+    const summary = summarizeRecords(run.output);
+    if (summary) {
+      return { label, detail: summary.detail, output: summary.names, state };
+    }
+  }
   return {
     label,
     detail,
@@ -231,14 +263,14 @@ export function WorkTimeline({ runs, streaming, activity, thinkingText }: WorkTi
                     <button
                       type="button"
                       onClick={() => setReasoningOpen(v => !v)}
-                      className="inline-flex items-center gap-1 text-foreground/85 transition hover:text-foreground"
+                      className="inline-flex items-center gap-1 font-medium text-foreground/85 transition hover:text-foreground"
                     >
-                      Reasoning
+                      Reasoning & data reviewed
                       {reasoningOpen
                         ? <ChevronDown className="size-3" aria-hidden />
                         : <ChevronRight className="size-3" aria-hidden />}
                     </button>
-                    <span className={`mt-1 block break-words whitespace-pre-wrap text-[11px] text-muted-foreground italic ${reasoningOpen ? '' : 'line-clamp-3'}`}>
+                    <span className={`mt-1.5 block break-words whitespace-pre-wrap rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground ${reasoningOpen ? 'max-h-72 overflow-y-auto' : 'line-clamp-3'}`}>
                       {thinkingText}
                     </span>
                   </span>
