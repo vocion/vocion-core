@@ -14,9 +14,11 @@ import { runAgentDeep } from '@/services/AgentService';
 type Ev = { type: string; [k: string]: unknown };
 
 const DUMP_MARKERS = [
-  '/dashboard/objects', 'DATA to SYNTHESIZE', 'record(s).',
-  'owed_action:', 'owed action:', 'linkedin_url', 'channel: linkedin',
-  'event_date:', 'event date:', 'relationship_status', 'priority: high;',
+  // record-dump (lookup_objects)
+  '/dashboard/objects', 'DATA to SYNTHESIZE', 'owed_action:', 'linkedin_url',
+  'channel: linkedin', 'relationship_status', '"owed_action"', '"contact_title"',
+  // search-result dump (search_knowledge)
+  '[gmail]', 'Subject:', 'From:', 'semantic_identifier', '] From:',
 ];
 
 async function main(): Promise<void> {
