@@ -28,12 +28,14 @@ export type MessageListProps = {
   streaming?: boolean;
   /** Live status line while streaming — rendered in the last agent message's work timeline. */
   activity?: string | null;
+  /** Opens the Sources drawer when a message's "Sources · N" pill is clicked. */
+  onShowSources?: () => void;
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, streaming = false, activity }: MessageListProps) {
+export function MessageList({ messages, agentName, streaming = false, activity, onShowSources }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
   // position changes must never themselves cause a re-render.
@@ -82,6 +84,7 @@ export function MessageList({ messages, agentName, streaming = false, activity }
                 agentName={agentName}
                 streaming={streaming && i === lastIdx}
                 activity={i === lastIdx ? activity : undefined}
+                onShowSources={onShowSources}
               />
             ))}
       </div>

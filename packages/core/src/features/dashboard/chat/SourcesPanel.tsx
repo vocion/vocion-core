@@ -26,8 +26,17 @@ export function SourcesPanel({ documents, open, onClose }: SourcesPanelProps) {
     return null;
   }
   return (
-    <aside className="flex w-96 shrink-0 flex-col border-l border-border bg-background">
-      <header className="flex items-center justify-between border-b border-border px-4 py-3">
+    <>
+      {/* Mobile: dim + tap-to-close backdrop. Desktop: no backdrop, the
+          panel is a static side column. */}
+      <button
+        type="button"
+        aria-label="Close sources"
+        onClick={onClose}
+        className="fixed inset-0 z-40 bg-black/40 sm:hidden"
+      />
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-[85vw] max-w-sm shrink-0 flex-col border-l border-border bg-background shadow-xl sm:static sm:z-auto sm:w-96 sm:max-w-none sm:shadow-none">
+        <header className="flex items-center justify-between border-b border-border px-4 py-3">
         <div>
           <div className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
             Sources
@@ -97,5 +106,6 @@ export function SourcesPanel({ documents, open, onClose }: SourcesPanelProps) {
             )}
       </div>
     </aside>
+    </>
   );
 }
