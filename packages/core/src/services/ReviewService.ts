@@ -12,7 +12,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, missionRunSchema, reviewAssignmentSchema, skillRunSchema, workflowRunSchema } from '@/models/Schema';
-import { executeAction, rejectAction } from '@/services/ActionService';
+import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { approveSkillRun, rejectSkillRun } from '@/services/SkillService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
@@ -188,7 +188,7 @@ export async function decide(
   item: { kind: ReviewKind; id: number },
   action: 'approve' | 'reject',
   orgId: string,
-  opts?: { reason?: string; reviewedBy?: string },
+  opts?: { reason?: string; reviewedBy?: string; editedInput?: Record<string, unknown> },
 ): Promise<void> {
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
   switch (item.kind) {
@@ -212,9 +212,17 @@ export async function decide(
       trackDecision(item, action, orgId, reviewedBy);
       return;
     case 'action':
-      action === 'approve'
-        ? await executeAction(item.id, orgId)
-        : await rejectAction(item.id, orgId, opts?.reason);
+      if (action === 'approve') {
+        // Edit-then-approve: if the operator edited the draft in the queue,
+        // persist the edited payload FIRST (re-validated in ActionService),
+        // so executeAction — which re-reads the row — sends what they see.
+        if (opts?.editedInput) {
+          await updateActionInput(item.id, orgId, opts.editedInput);
+        }
+        await executeAction(item.id, orgId);
+      } else {
+        await rejectAction(item.id, orgId, opts?.reason);
+      }
       trackDecision(item, action, orgId, reviewedBy);
       // The decision is training signal: record what a good/bad proposal
       // looks like in the `crm-updates` learning step so agents check their

@@ -167,6 +167,31 @@ export async function executeAction(runId: number, orgId: string): Promise<Propo
 }
 
 /**
+ * Overwrite a PENDING action's input — the operator edited the draft in the
+ * review queue before approving (edit-then-approve). Re-validates against the
+ * action's own input schema so an edit can never smuggle a malformed payload
+ * into execution. No-op-safe: only touches rows still `pending` for this org.
+ * @param runId
+ * @param orgId
+ * @param input - The edited payload (same shape the action expects).
+ */
+export async function updateActionInput(runId: number, orgId: string, input: Record<string, unknown>): Promise<void> {
+  const [run] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId))).limit(1);
+  if (!run) {
+    throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);
+  }
+  if (run.status !== 'pending') {
+    throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status}, not pending — cannot edit`);
+  }
+  const action = getAction(run.actionId);
+  const parsed = action ? action.inputSchema.parse(input) : input;
+  await db
+    .update(actionRunSchema)
+    .set({ input: parsed as Record<string, unknown> })
+    .where(eq(actionRunSchema.id, runId));
+}
+
+/**
  * Reject a pending action (from the review queue) — never executes.
  * @param runId
  * @param orgId
