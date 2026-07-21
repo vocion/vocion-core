@@ -39,9 +39,21 @@ export type AgentRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' };
 
+/** A2UI: a one-tap recommended action rendered as a card in the answer. */
+export type RecommendedAction = {
+  actionId: string;
+  input: Record<string, unknown>;
+  label: string;
+  rationale?: string;
+  confidence?: number;
+  agentSlug?: string;
+};
+
 export type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
+  /** A2UI recommended-action cards emitted during this turn (clickable). */
+  recommendations?: RecommendedAction[];
   documents?: IndexedDocument[];
   citationCount?: number;
   thinkingSteps?: ThinkingStep[];

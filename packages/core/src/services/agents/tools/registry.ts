@@ -32,6 +32,7 @@ import {
 import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
 import { proposeActionTool } from './proposeAction';
+import { recommendActionTool } from './recommendAction';
 import { publishBriefingTool } from './publishBriefing';
 import { runCodeTool } from './runCode';
 import { runOperationTool } from './runOperation';
@@ -60,6 +61,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     listRunFeedbackTool(ctx),
     requestHumanReviewTool(ctx),
     proposeActionTool(ctx),
+    recommendActionTool(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
   ] as StructuredToolInterface[];

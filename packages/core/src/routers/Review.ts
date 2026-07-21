@@ -81,6 +81,36 @@ export const listAutoExecutedRoute = os.handler(async () => {
     .limit(20);
 });
 
+/**
+ * JIT-create a review item from an A2UI recommended-action card (user tapped
+ * "prepare for review" on an agent recommendation). Reuses the AGENT's
+ * authority — same principal shape as propose_action — so the write rides the
+ * normal gate and lands `pending` for approval (never auto-fires; gmail.send is
+ * guarded regardless). Returns the new run id so the UI can link to review.
+ */
+export const proposeFromRecommendationRoute = os
+  .input(z.object({
+    actionId: z.string(),
+    input: z.record(z.string(), z.unknown()),
+    agentSlug: z.string().optional(),
+    rationale: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { proposeAction } = await import('@/services/ActionService');
+    const agentId = input.agentSlug ? `agent:${input.agentSlug}` : 'agent:unknown';
+    const res = await proposeAction({
+      orgId,
+      actionId: input.actionId,
+      input: input.input,
+      principal: { kind: 'agent', id: agentId, scope: { orgId }, grants: ['*'], autonomy: 2 },
+      invokedBy: userId ?? agentId,
+      proposal: { confidence: input.confidence, rationale: input.rationale },
+    });
+    return res;
+  });
+
 /** Approve or reject a pending action proposal. */
 export const decideActionRoute = os
   .input(z.object({
