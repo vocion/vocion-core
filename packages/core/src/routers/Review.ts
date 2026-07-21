@@ -83,11 +83,21 @@ export const listAutoExecutedRoute = os.handler(async () => {
 
 /** Approve or reject a pending action proposal. */
 export const decideActionRoute = os
-  .input(z.object({ id: z.number().int().positive(), decision: z.enum(['approve', 'reject']), reason: z.string().optional() }))
+  .input(z.object({
+    id: z.number().int().positive(),
+    decision: z.enum(['approve', 'reject']),
+    reason: z.string().optional(),
+    /** Operator-edited payload (edit-then-approve) — only applied on approve. */
+    editedInput: z.record(z.string(), z.unknown()).optional(),
+  }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
     const { decide } = await import('@/services/ReviewService');
-    await decide({ kind: 'action', id: input.id }, input.decision, orgId, { reason: input.reason, reviewedBy: userId });
+    await decide({ kind: 'action', id: input.id }, input.decision, orgId, {
+      reason: input.reason,
+      reviewedBy: userId,
+      editedInput: input.decision === 'approve' ? input.editedInput : undefined,
+    });
     return { ok: true };
   });
 
