@@ -29,6 +29,7 @@ const {
   deterministicFallbackChips,
   invalidateChipCache,
   NEXT_ACTIONS_LABEL,
+  NEXT_ACTIONS_PROMPT,
   sanitizeDataText,
   synthesizeAgentChips,
 } = await import('@/services/chat/synthesis');
@@ -161,12 +162,11 @@ describe('deterministicFallbackChips (pure)', () => {
 
     expect(chips[0]!.label).toBe(NEXT_ACTIONS_LABEL);
     expect(chips[1]!.label).toBe(CAPABILITIES_LABEL);
-    // The injected next-actions prompt carries the grounding-priority order:
-    // missions/tracker first, sources only as supplement.
-    expect(chips[0]!.prompt).toContain('missions and tracker records first');
-    expect(chips[0]!.prompt).toContain('source activity only to update or correct');
-    // ...and the real urgent count from the digest.
-    expect(chips[0]!.prompt).toContain('2 follow ups overdue');
+    // The "What should I do?" anchor is a GENERIC, brief-first trigger — the
+    // urgent specifics (counts, names) emerge when the agent answers it, and
+    // must NEVER be baked into the chip prompt.
+    expect(chips[0]!.prompt).toBe(NEXT_ACTIONS_PROMPT);
+    expect(chips[0]!.prompt.toLowerCase()).not.toContain('overdue');
     expect(chips[1]!.prompt).toContain('Post-Event Follow-Through');
     // Mission chips rank behind the anchors (the UI folds them under More).
     expect(chips.slice(2).map(c => c.label)).toEqual(['Post-Event Follow-Through', 'Referral Warming']);
@@ -254,7 +254,7 @@ describe('synthesizeAgentChips (PGlite + mocked model)', () => {
       'Draft the Carlo Marcelino note',
       'Second thing',
     ]);
-    expect(chips[0]!.prompt).toBe('Rank my next actions from the tracker, missions first.');
+    expect(chips[0]!.prompt).toBe(NEXT_ACTIONS_PROMPT); // fixed generic anchor, not model-generated
     expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 
@@ -265,7 +265,7 @@ describe('synthesizeAgentChips (PGlite + mocked model)', () => {
 
     expect(chips[0]!.label).toBe(NEXT_ACTIONS_LABEL);
     expect(chips[1]!.label).toBe(CAPABILITIES_LABEL);
-    expect(chips[0]!.prompt).toContain('2 follow ups overdue');
+    expect(chips[0]!.prompt).toBe(NEXT_ACTIONS_PROMPT);
     expect(chips.map(c => c.label)).toContain('Post-Event Follow-Through');
   });
 
@@ -275,7 +275,7 @@ describe('synthesizeAgentChips (PGlite + mocked model)', () => {
     const chips = await synthesizeAgentChips(ORG, 'founder-gtm-lead');
 
     expect(chips[0]!.label).toBe(NEXT_ACTIONS_LABEL);
-    expect(chips[0]!.prompt).toContain('missions and tracker records first');
+    expect(chips[0]!.prompt).toBe(NEXT_ACTIONS_PROMPT);
   });
 
   it('returns [] for an unknown agent without calling the model', async () => {
