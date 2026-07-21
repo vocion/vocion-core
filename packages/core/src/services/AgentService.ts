@@ -485,17 +485,23 @@ async function executeTool(
       const isUrl = (v: unknown): boolean => typeof v === 'string' && /^https?:\/\//i.test(v);
       const compact = (v: unknown): string =>
         (Array.isArray(v) ? (v as unknown[]).join(', ') : String(v ?? '')).replace(/\s+/g, ' ').trim().slice(0, 120);
+      // Compact JSON, not prose — the model echoes human-readable tool output
+      // verbatim (proven in a live turn); raw JSON it must read + synthesize.
       const rows = objects.map((obj) => {
         const meta = (obj.metadata ?? {}) as Record<string, unknown>;
-        const fields = Object.entries(meta)
-          .filter(([k, v]) => v != null && !noiseKey.test(k) && !isUrl(v))
-          .slice(0, 8)
-          .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${compact(v)}`)
-          .join('; ');
-        const summary = obj.summary ? ` — ${compact(obj.summary)}` : '';
-        return `- ${obj.title} [${obj.status}]${fields ? ` · ${fields}` : ''}${summary}`;
-      }).join('\n');
-      return `${objects.length} record(s). DATA to SYNTHESIZE — do NOT paste these fields, ids, or links back to the user; name people and reasons in plain language.\n${rows}`;
+        const rec: Record<string, unknown> = { title: obj.title, status: obj.status };
+        for (const [k, v] of Object.entries(meta)) {
+          if (v == null || noiseKey.test(k) || isUrl(v)) {
+            continue;
+          }
+          rec[k] = compact(v);
+        }
+        if (obj.summary) {
+          rec.summary = compact(obj.summary);
+        }
+        return rec;
+      });
+      return JSON.stringify(rows);
     }
 
     case 'run_discovery_summary': {
@@ -979,6 +985,81 @@ export async function runAgent(opts: {
  * @param opts.conversationHistory
  * @param opts.onEvent
  */
+/**
+ * Streaming stripper for a leading raw-data block in an answer.
+ *
+ * A live turn proved claude-sonnet-4-6 reliably prepends the retrieved record
+ * set (a `[{…}]` JSON array — the lookup_objects output) to its reply before
+ * synthesizing, and ignores every prompt telling it not to. Prompts/tool-format
+ * can't fix a model that insists on narrating its data, so we mechanically drop
+ * a leading JSON array/object from the streamed text. Conservative: it only
+ * engages when the reply's first non-space chars are `[{` or `{"` (a data
+ * dump), which no genuine prose answer opens with — everything else passes
+ * through untouched, token-for-token. Returns the emittable slice per token.
+ */
+function makeLeadingDumpStripper(): (token: string) => string {
+  let decided: 'unknown' | 'strip' | 'pass' | 'done' = 'unknown';
+  let buf = '';
+  return (token: string): string => {
+    if (decided === 'pass' || decided === 'done') {
+      return token;
+    }
+    buf += token;
+    if (decided === 'unknown') {
+      const head = buf.replace(/^\s+/, '');
+      if (head.length < 2) {
+        return ''; // not enough to judge yet
+      }
+      if (/^\[\s*\{/.test(head) || head.startsWith('{"')) {
+        decided = 'strip';
+        buf = head;
+      } else {
+        decided = 'pass';
+        const out = buf;
+        buf = '';
+        return out;
+      }
+    }
+    // Scan the buffer for the balanced end of the leading JSON value,
+    // respecting strings + escapes (record values contain [ ] { } too).
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    let endIdx = -1;
+    for (let i = 0; i < buf.length; i++) {
+      const c = buf[i];
+      if (inStr) {
+        if (esc) {
+          esc = false;
+        } else if (c === '\\') {
+          esc = true;
+        } else if (c === '"') {
+          inStr = false;
+        }
+        continue;
+      }
+      if (c === '"') {
+        inStr = true;
+      } else if (c === '[' || c === '{') {
+        depth++;
+      } else if (c === ']' || c === '}') {
+        depth--;
+        if (depth === 0) {
+          endIdx = i;
+          break;
+        }
+      }
+    }
+    if (endIdx >= 0) {
+      decided = 'done';
+      const rest = buf.slice(endIdx + 1).replace(/^\s+/, '');
+      buf = '';
+      return rest;
+    }
+    return ''; // still inside the leading data block — suppress
+  };
+}
+
 export async function runAgentDeep(opts: {
   orgId: string;
   agentSlug: string;
@@ -1098,6 +1179,11 @@ export async function runAgentDeep(opts: {
     await Promise.all([
       (async () => {
         for await (const msg of run.messages) {
+          // Only ASSISTANT text is the answer. `run.messages` also yields the
+          // ToolMessage (tool result) — its `.text` is the raw tool output,
+          // and streaming that as response_delta is what dumped the record
+          // JSON into chat ahead of the real answer. Skip non-AI messages
+          // here; tool output is surfaced via `run.toolCalls` below.
           // `.text` and `.reasoning` are independent replay-buffered
           // projections over the same message lifecycle, so consuming
           // both concurrently is safe and nothing is double-emitted:
@@ -1106,13 +1192,19 @@ export async function runAgentDeep(opts: {
           await Promise.all([
             (async () => {
               let started = false;
+              // Drop a leading record-dump the model insists on prepending.
+              const strip = makeLeadingDumpStripper();
               for await (const token of msg.text) {
+                const out = strip(token);
+                if (!out) {
+                  continue;
+                }
                 if (!started) {
                   started = true;
                   emit({ type: 'answering' });
                 }
-                finalText += token;
-                emit({ type: 'response_delta', delta: token });
+                finalText += out;
+                emit({ type: 'response_delta', delta: out });
               }
             })(),
             (async () => {

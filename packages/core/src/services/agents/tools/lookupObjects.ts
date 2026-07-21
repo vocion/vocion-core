@@ -31,17 +31,25 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
       if (objects.length === 0) {
         return 'No records found for this type.';
       }
+      // Return compact JSON, NOT prose. A live turn proved the model happily
+      // echoes any human-readable tool output (and even a "synthesize"
+      // instruction line) straight into chat. A raw JSON array is data the
+      // model won't paste as an answer — it has to read + synthesize it.
       const rows = objects.map((obj) => {
         const meta = (obj.metadata ?? {}) as Record<string, unknown>;
-        const fields = Object.entries(meta)
-          .filter(([k, v]) => v != null && !NOISE_KEY.test(k) && !isUrl(v))
-          .slice(0, 8)
-          .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${compactValue(v)}`)
-          .join('; ');
-        const summary = obj.summary ? ` — ${compactValue(obj.summary)}` : '';
-        return `- ${obj.title} [${obj.status}]${fields ? ` · ${fields}` : ''}${summary}`;
-      }).join('\n');
-      return `${objects.length} record(s). This is DATA to SYNTHESIZE — do NOT paste these fields, ids, or links back to the user; name people and reasons in plain language.\n${rows}`;
+        const rec: Record<string, unknown> = { title: obj.title, status: obj.status };
+        for (const [k, v] of Object.entries(meta)) {
+          if (v == null || NOISE_KEY.test(k) || isUrl(v)) {
+            continue;
+          }
+          rec[k] = compactValue(v);
+        }
+        if (obj.summary) {
+          rec.summary = compactValue(obj.summary);
+        }
+        return rec;
+      });
+      return JSON.stringify(rows);
     },
     {
       name: 'lookup_objects',
