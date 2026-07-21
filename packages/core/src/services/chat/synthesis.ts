@@ -26,8 +26,9 @@ import { listBusinessObjects } from '@/services/BusinessObjectService';
  * Grounding priority (also explicit from Chris): missions + tracker/wiki
  * records are the PRIORITY data; raw source activity (email/CRM ingest) is
  * a SUPPLEMENT for recency/corrections only — never the lead signal. That
- * ordering is baked into the digest, the synthesis instructions, AND the
- * injected "What should I do?" prompt itself.
+ * ordering is baked into the digest and the synthesis instructions. The
+ * "What should I do?" anchor stays a GENERIC brief-first trigger — the
+ * emergent, grounded read happens when the AGENT answers it, not in the chip.
  *
  * One cheap classifier-role LLM call (Haiku by default) over a COMPACT
  * digest of those inputs, cached per org+agent. Deterministic fallback
@@ -44,10 +45,21 @@ export type SynthesizedChip = {
   rank: number;
 };
 
-/** Anchor chip 1 — constant label, emergent prompt (ranked next actions). */
+/** Anchor chip 1 — constant label, generic brief-first prompt. */
 export const NEXT_ACTIONS_LABEL = 'What should I do?';
 /** Anchor chip 2 — constant label, emergent prompt (capabilities). */
 export const CAPABILITIES_LABEL = 'What can you do?';
+
+/**
+ * The "What should I do?" anchor sends a GENERIC, brief-first trigger — never
+ * a pre-computed to-do list. WHICH contacts, what's overdue, whether to group
+ * — all of that EMERGES when the agent answers at runtime, shaped by its
+ * missions + live records + skills. Baking counts/names/output-format into
+ * this string is the anti-pattern: it hardcodes the very flow the harness is
+ * supposed to discover. This is a general guide into a creative agent, not a
+ * script. Keep it broad; let the agent reason.
+ */
+export const NEXT_ACTIONS_PROMPT = 'What should I do right now? Start from today’s brief — pull it up if we have one, or offer to build it if we don’t — then give me your read: the most important moves right now, and why. Work from your missions and live records.';
 
 /* ------------------------------------------------------------------ */
 /* Cache                                                               */
@@ -226,11 +238,11 @@ You receive the teammate's DECLARED CONTEXT, in priority order:
 2. SUPPLEMENT data — recent raw source activity (email/CRM/docs ingest volume). Use it only as a recency hint; it must never outweigh or replace the missions/tracker.
 
 Return STRICT JSON, nothing else:
-{"next_actions_prompt": "...", "capabilities_prompt": "...", "extra_chips": [{"label": "...", "prompt": "...", "rank": 1}]}
+{"capabilities_prompt": "...", "extra_chips": [{"label": "...", "prompt": "...", "rank": 1}]}
 
-- next_actions_prompt: the message sent when the user taps "What should I do?". Written in the USER's voice, addressed to the teammate ("I have…", "tell me…"), and specific: ask the teammate for its ranked next actions, referencing the real urgent state (counts, names, dates) from the tracker digest. It MUST explicitly instruct the teammate to ground its answer in its missions and tracker records first, and to use recent source activity only to update or correct that picture — never as the lead signal.
 - capabilities_prompt: the message sent when the user taps "What can you do?". Written in the USER's voice, addressed to the teammate (e.g. "What can you do for me? Walk me through…") — NEVER as the teammate describing itself. Ask it to explain what it can do, grounded in its actual missions and skills (so it answers with those, not a generic capability list).
 - extra_chips: 0 to 3 OPTIONAL more-specific starters (e.g. drafting one named overdue touch). Labels short (under 50 characters), human, specific — real counts and real contact names over generic phrasing. Prompts are complete first-person messages. Rank 1 = most urgent. These render behind a "More" control, so include only genuinely useful specific actions.
+- Do NOT produce the "What should I do?" prompt — that anchor is a fixed generic trigger; the app supplies it. You only produce the capabilities prompt and the optional specific starters.
 
 Hard rules:
 - GROUNDED, NEVER INVENT: every name, company, count, and date in any prompt or label MUST appear verbatim in the context below. Do not invent, guess, round, or extrapolate any fact. If the tracker digest is empty, reference only the missions and skills.
@@ -287,7 +299,6 @@ const ExtraChipZ = z.object({
 });
 
 const SynthesisZ = z.object({
-  next_actions_prompt: z.string().min(1).max(900),
   capabilities_prompt: z.string().min(1).max(900),
   extra_chips: z.array(ExtraChipZ).max(5).default([]),
 });
@@ -305,23 +316,18 @@ const SynthesisZ = z.object({
  * next-actions prompt carries the grounding-priority instruction
  * (missions/tracker first, sources as supplement only).
  * @param missions - The agent's active missions.
- * @param digest - The tracker digest (for urgent counts).
+ * @param _digest - Unused now (the anchor is a generic trigger); kept for a stable signature.
  */
 export function deterministicFallbackChips(
   missions: SynthesisInput['missions'],
-  digest: TrackerDigest,
+  _digest: TrackerDigest,
 ): SynthesizedChip[] {
-  const overdueBits = digest.byType
-    .filter(t => t.overdueCount > 0)
-    .map(t => `${t.overdueCount} ${t.typeSlug.replace(/-/g, ' ')}${t.overdueCount === 1 ? '' : 's'} overdue`);
-  const urgencyClause = overdueBits.length > 0
-    ? ` I can see ${overdueBits.join(' and ')} in the tracker — cover those first.`
-    : '';
-
   const chips: SynthesizedChip[] = [
     {
       label: NEXT_ACTIONS_LABEL,
-      prompt: `What should I do right now? Give me your ranked next actions. Ground your answer in your missions and tracker records first — they are the priority data — and use recent source activity only to update or correct that picture.${urgencyClause}`,
+      // Same generic brief-first trigger as the model path — the urgent
+      // specifics emerge when the agent answers, never baked into the chip.
+      prompt: NEXT_ACTIONS_PROMPT,
       rank: 1,
     },
     {
@@ -479,7 +485,7 @@ async function synthesizeViaModel(input: SynthesisInput, orgId: string, agentSlu
     .slice(0, 3)
     .map((c, i) => ({ label: c.label.trim(), prompt: c.prompt.trim(), rank: i + 3 }));
   const chips: SynthesizedChip[] = [
-    { label: NEXT_ACTIONS_LABEL, prompt: parsed.next_actions_prompt.trim(), rank: 1 },
+    { label: NEXT_ACTIONS_LABEL, prompt: NEXT_ACTIONS_PROMPT, rank: 1 },
     { label: CAPABILITIES_LABEL, prompt: parsed.capabilities_prompt.trim(), rank: 2 },
     ...extras,
   ];
