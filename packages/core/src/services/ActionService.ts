@@ -96,6 +96,17 @@ export async function proposeAction(input: {
     .returning({ id: actionRunSchema.id });
 
   if (gated) {
+    // Never-auto guard (safety invariant): an outbound send to a real
+    // person — gmail.send, or any external action carrying the send_email
+    // grant — ALWAYS requires an explicit human approve, no matter what
+    // trust rules exist. A misconfigured or over-eager threshold must never
+    // be able to fire an email on its own. This is deliberately not
+    // configurable here; revisit only once UC5 trust reporting exists and a
+    // human opts in explicitly. Fails safe — it can only keep the item in
+    // the review queue, never release it.
+    if (action.id === 'gmail.send' || action.grant === 'send_email') {
+      return { runId: run!.id, status: 'pending' };
+    }
     // Trust ladder: an ENABLED rule whose threshold this proposal's
     // confidence clears executes it now — audited, never silent. The
     // default (no rule) keeps every external action in the review queue.
