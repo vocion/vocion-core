@@ -19,6 +19,7 @@ import {
   remove as removeObject,
   update as updateObject,
 } from './BusinessObject';
+import { suggestions as chatSuggestions } from './Chat';
 import {
   append as appendConvMessage,
   create as createConv,
@@ -145,6 +146,9 @@ export const router = {
     revokeInvite: revokeInviteRoute,
     changeRole: changeRoleRoute,
     remove: removeMemberRoute,
+  },
+  chat: {
+    suggestions: chatSuggestions,
   },
   conversations: {
     list: listConvs,

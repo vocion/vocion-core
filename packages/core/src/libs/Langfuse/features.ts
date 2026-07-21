@@ -20,6 +20,8 @@ export const FEATURES = {
   WORKFLOW_STEP: 'workflow.step',
   /** Haiku-based feedback bucket classifier. */
   FEEDBACK_CLASSIFY: 'feedback.classify',
+  /** Emergent chip synthesis — mission × skills × tracker state → chips. */
+  CHIP_SYNTHESIS: 'chat.chip-synthesis',
   /** OAuth token-refresh round-trips for Source plugins. */
   SOURCE_OAUTH: 'source.oauth',
   /** Native pgvector + Postgres FTS hybrid retrieval. */

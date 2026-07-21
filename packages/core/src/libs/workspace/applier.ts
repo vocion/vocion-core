@@ -252,6 +252,18 @@ async function reconcileSchedules(
   loaded: LoadedWorkspace,
   errors: ApplyResult['errors'],
 ): Promise<void> {
+  // Schedule-ownership guard. Reconciling Temporal Schedules makes THIS
+  // process the scheduler-of-record. Local dev commonly runs against the
+  // prod DB over an SSH tunnel — 127.0.0.1 looks local but ISN'T — so a URL
+  // heuristic can't tell dev from prod. Require an explicit opt-in instead:
+  // only the deployment that should own crons sets VOCION_SCHEDULE_OWNER=1.
+  // Everyone else skips, so a stray local worker can never fight prod's
+  // scheduler (duplicate drafts, double source syncs).
+  if (process.env.VOCION_SCHEDULE_OWNER !== '1') {
+    console.warn('[workspace:apply] Skipping schedule reconciliation — VOCION_SCHEDULE_OWNER != 1, so this process is not the scheduler-of-record. Set VOCION_SCHEDULE_OWNER=1 on the single deployment that should own mission/source/workflow crons (the prod box), never on a dev machine pointed at prod data.');
+    return;
+  }
+
   const { getTemporalClient } = await import('@/libs/temporal/client');
   try {
     await getTemporalClient();

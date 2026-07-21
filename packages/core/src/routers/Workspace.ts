@@ -9,6 +9,7 @@ import { db } from '@/libs/DB';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
 import { applyWorkspace, getCurrentWorkspaceSha, getWorkspacePath, invalidateCurrentContextShaCache, loadWorkspace } from '@/libs/workspace';
 import { projectSchema } from '@/models/Schema';
+import { invalidateChipCache } from '@/services/chat/synthesis';
 import { guardAuth, guardRole } from './AuthGuards';
 
 /**
@@ -262,5 +263,8 @@ export const applyNow = os.handler(async () => {
   const loaded = loadWorkspace(path);
   const result = await applyWorkspace(loaded, { orgId: orgId!, appliedBy: 'ui-drift-banner' });
   invalidateCurrentContextShaCache();
+  // An apply rewrites the missions/skills chips are synthesized from —
+  // regenerate on the next page load instead of waiting out the TTL.
+  invalidateChipCache(orgId!);
   return { sha: loaded.sha, counts: result.counts, errors: result.errors };
 });
