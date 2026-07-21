@@ -30,6 +30,27 @@ export type SkillResultEventPayload = {
   prospectCompany?: string;
 };
 
+/**
+ * A2UI: an actionable recommendation rendered as a clickable card in the chat
+ * answer. NO side effect on emit — the gated review item (action_run) is
+ * JIT-created only when the user taps the card (review.propose), reusing the
+ * agent's authority so it lands `pending` for approval like any agent proposal.
+ */
+export type RecommendedActionPayload = {
+  /** Registered action to propose on click, e.g. 'gmail.send'. */
+  actionId: string;
+  /** Pre-filled payload for that action (draft to/subject/body, CRM props, …). */
+  input: Record<string, unknown>;
+  /** Short button label, e.g. "Draft the note to Carlo Marcelino". */
+  label: string;
+  /** One-line why. */
+  rationale?: string;
+  /** Agent confidence 0–1 from grounding quality. */
+  confidence?: number;
+  /** Recommending agent — reconstructs the propose principal on click. */
+  agentSlug?: string;
+};
+
 export type HitlGatePayload = {
   /** Unique name for the gate, e.g. 'blueprint-review' or 'send-email'. */
   name: string;
@@ -59,6 +80,7 @@ export type AgentEvent
     | { type: 'documents'; documents: SearchDocument[] }
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
+    | { type: 'recommended_action'; recommendation: RecommendedActionPayload }
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }

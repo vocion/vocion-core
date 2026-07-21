@@ -6,6 +6,7 @@ import { memo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
+import { RecommendedActionCard } from './RecommendedActionCard';
 import { WorkTimeline } from './WorkTimeline';
 
 /**
@@ -100,6 +101,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             <div key={i} className="prose prose-sm max-w-none dark:prose-invert">
               <Markdown remarkPlugins={[remarkGfm]}>{run.text}</Markdown>
             </div>
+          ))}
+          {(message.recommendations ?? []).map((rec, i) => (
+            <RecommendedActionCard key={i} rec={rec} />
           ))}
         </div>
         {message.confidence && (
