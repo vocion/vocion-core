@@ -51,15 +51,15 @@ export const NEXT_ACTIONS_LABEL = 'What should I do?';
 export const CAPABILITIES_LABEL = 'What can you do?';
 
 /**
- * The "What should I do?" anchor sends a GENERIC, brief-first trigger — never
- * a pre-computed to-do list. WHICH contacts, what's overdue, whether to group
- * — all of that EMERGES when the agent answers at runtime, shaped by its
- * missions + live records + skills. Baking counts/names/output-format into
- * this string is the anti-pattern: it hardcodes the very flow the harness is
- * supposed to discover. This is a general guide into a creative agent, not a
- * script. Keep it broad; let the agent reason.
+ * The "What should I do?" anchor sends a PLAIN, short question — nothing more.
+ * The structured framing (start from the brief, ground in missions, surface
+ * what's urgent) is the AGENT's job: it interprets this plain ask via its own
+ * system prompt and shows that reframe in the chain of thought. Baking the
+ * structure — let alone counts/names — into the chip is the anti-pattern: it
+ * hardcodes the flow the harness should discover, and it clutters the user's
+ * transcript with a paragraph they didn't write. Keep it human and short.
  */
-export const NEXT_ACTIONS_PROMPT = 'What should I do right now? Start from today’s brief — pull it up if we have one, or offer to build it if we don’t — then give me your read: the most important moves right now, and why. Work from your missions and live records.';
+export const NEXT_ACTIONS_PROMPT = 'What should I do right now?';
 
 /* ------------------------------------------------------------------ */
 /* Cache                                                               */
