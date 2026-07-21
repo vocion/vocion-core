@@ -477,25 +477,25 @@ async function executeTool(
     case 'lookup_objects': {
       const objects = await listBusinessObjects(orgId, args.type_slug as string | undefined);
       if (objects.length === 0) {
-        return 'No business objects found for this type.';
+        return 'No records found for this type.';
       }
-      return objects.map((obj) => {
-        const meta = obj.metadata as Record<string, unknown>;
-        const metaStr = Object.entries(meta)
-          .filter(([, v]) => v != null)
-          .map(([k, v]) => `${k}: ${Array.isArray(v) ? (v as string[]).join(', ') : v}`)
-          .join('\n   ');
-        const docLinks = obj.documentLinks.map(l =>
-          `  - [${l.sourceType}] ${l.semanticIdentifier ?? l.onyxDocumentId} (${l.role})${l.link ? ` — ${l.link}` : ''}`,
-        ).join('\n');
-        return [
-          `**${obj.title}** (${obj.type.label}) — Status: ${obj.status}`,
-          `   View: /dashboard/objects/${obj.id}`,
-          metaStr ? `   ${metaStr}` : '',
-          obj.summary ? `   Summary: ${obj.summary}` : '',
-          docLinks ? `   Linked sources:\n${docLinks}` : '',
-        ].filter(Boolean).join('\n');
-      }).join('\n\n');
+      // Compact, sanitized digest — no internal ids / deep-links / URLs. DATA
+      // to synthesize, never to paste back verbatim (see lookupObjects.ts).
+      const noiseKey = /(?:^|_)(?:id|ids|url|urls|link|links|slug)$|linkedin/i;
+      const isUrl = (v: unknown): boolean => typeof v === 'string' && /^https?:\/\//i.test(v);
+      const compact = (v: unknown): string =>
+        (Array.isArray(v) ? (v as unknown[]).join(', ') : String(v ?? '')).replace(/\s+/g, ' ').trim().slice(0, 120);
+      const rows = objects.map((obj) => {
+        const meta = (obj.metadata ?? {}) as Record<string, unknown>;
+        const fields = Object.entries(meta)
+          .filter(([k, v]) => v != null && !noiseKey.test(k) && !isUrl(v))
+          .slice(0, 8)
+          .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${compact(v)}`)
+          .join('; ');
+        const summary = obj.summary ? ` — ${compact(obj.summary)}` : '';
+        return `- ${obj.title} [${obj.status}]${fields ? ` · ${fields}` : ''}${summary}`;
+      }).join('\n');
+      return `${objects.length} record(s). DATA to SYNTHESIZE — do NOT paste these fields, ids, or links back to the user; name people and reasons in plain language.\n${rows}`;
     }
 
     case 'run_discovery_summary': {
