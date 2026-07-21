@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
 
@@ -33,6 +34,8 @@ export type EmptyStateProps = {
   /** True while a picked agent's chips are being synthesized server-side. */
   suggestionsLoading?: boolean;
   onPick: (prompt: string) => void;
+  /** Optional interactive title (the agent-switcher caret) replacing the plain name. */
+  titleSlot?: ReactNode;
 };
 
 /**
@@ -49,7 +52,7 @@ const VISIBLE_CHIPS = 2;
  */
 const chipClass = 'min-h-11 max-w-full truncate rounded-full border border-border/70 bg-background px-3.5 py-1.5 text-sm text-muted-foreground transition hover:border-brand-amber hover:bg-brand-amber-tint hover:text-brand-amber-deep animate-in fade-in fill-mode-both duration-150';
 
-export function EmptyState({ greeting, suggestions = [], suggestionsLoading = false, onPick }: EmptyStateProps) {
+export function EmptyState({ greeting, suggestions = [], suggestionsLoading = false, onPick, titleSlot }: EmptyStateProps) {
   const [expanded, setExpanded] = useState(false);
   const workspace = greeting?.workspace ?? 'your workspace';
 
@@ -68,7 +71,7 @@ export function EmptyState({ greeting, suggestions = [], suggestionsLoading = fa
         <h2 className="font-display text-2xl font-light tracking-tight sm:text-3xl">
           Ask
           {' '}
-          <span className="text-brand-amber-deep">{workspace}</span>
+          {titleSlot ?? <span className="text-brand-amber-deep">{workspace}</span>}
         </h2>
 
         {/* Chip cloud — left-aligned wrapping row. min-h reserves two pill

@@ -12,6 +12,7 @@ import type {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { client } from '@/libs/Orpc';
+import { AgentSwitcher } from './AgentSwitcher';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
 import { EmptyState } from './EmptyState';
@@ -608,12 +609,23 @@ export function ChatShell({
       {/* The single small chat menu — portaled into the shell top bar beside
           the account menu, so the conversation canvas stays clean. */}
       <ShellBarActionsPortal>
-        <ChatMenu
-          onNewChat={handleClear}
-          agents={agents}
-          currentSlug={agent.slug}
-          onSwitch={handleSwitchAgent}
-        />
+        <div className="flex items-center gap-1">
+          {/* Persistent agent-switch caret — available mid-conversation, not
+              just on the empty state. Same switcher, compact variant. */}
+          <AgentSwitcher
+            agents={agents}
+            currentSlug={agent.slug}
+            onSwitch={handleSwitchAgent}
+            label={agent.name}
+            variant="bar"
+          />
+          <ChatMenu
+            onNewChat={handleClear}
+            agents={agents}
+            currentSlug={agent.slug}
+            onSwitch={handleSwitchAgent}
+          />
+        </div>
       </ShellBarActionsPortal>
 
       <div className="flex flex-1 overflow-hidden">
@@ -625,9 +637,26 @@ export function ChatShell({
                   suggestions={emptyChips}
                   suggestionsLoading={emptyChipsLoading}
                   onPick={handlePickSuggestion}
+                  titleSlot={(
+                    <AgentSwitcher
+                      agents={agents}
+                      currentSlug={agent.slug}
+                      onSwitch={handleSwitchAgent}
+                      label={emptyGreeting?.workspace ?? agent.name}
+                      variant="title"
+                    />
+                  )}
                 />
               )
-            : <MessageList messages={messages} agentName={agent.name} streaming={isStreaming} activity={activity} />}
+            : (
+                <MessageList
+                  messages={messages}
+                  agentName={agent.name}
+                  streaming={isStreaming}
+                  activity={activity}
+                  onShowSources={() => setSourcesOpen(true)}
+                />
+              )}
 
           {pendingHitl && (
             <HitlGate
