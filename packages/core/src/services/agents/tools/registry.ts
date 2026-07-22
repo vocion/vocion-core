@@ -30,6 +30,7 @@ import {
   updateLearningTool,
 } from './learnings';
 import { getBriefingTool, refreshBriefingTool } from './briefing';
+import { freshenSourceTool } from './freshenSource';
 import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
 import { proposeActionTool } from './proposeAction';
@@ -67,6 +68,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     publishBriefingTool(ctx),
     getBriefingTool(ctx),
     refreshBriefingTool(ctx),
+    freshenSourceTool(ctx),
   ] as StructuredToolInterface[];
 }
 
