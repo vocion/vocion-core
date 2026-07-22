@@ -59,26 +59,44 @@ async function main(): Promise<void> {
   let citeCount = 0;
   let drawerOpened = false;
   let focused = false;
+  let detailOpened = false;
+  let backWorked = false;
   if (hasCites) {
     citeCount = await page.locator('button[aria-label^="Open source"]').count();
     await cite.scrollIntoViewIfNeeded();
     await cite.click();
     await page.waitForTimeout(1200);
-    // The Sources drawer is present with its "Sources" header.
-    drawerOpened = (await page.getByText(/^Sources$/).count()) > 0 || (await page.getByText(/document/i).count()) > 0;
-    // A focused (ring-highlighted) source card exists.
-    focused = (await page.locator('.ring-brand-amber\\/40, [class*="ring-brand-amber"]').count()) > 0;
+    drawerOpened = (await page.getByText(/\d+ document/i).count()) > 0;
+    focused = (await page.locator('[class*="ring-brand-amber"]').count()) > 0;
+
+    // Deeper UX: tap a source card → detail slide-over ("Open in …" + back).
+    const card = page.getByRole('button', { name: /Details/i }).first();
+    if (await card.count() > 0) {
+      await card.click({ force: true });
+      await page.waitForTimeout(700);
+      // Detail pane always shows a "Back to sources" control; "Open in" only
+      // when the source has an external link (many internal docs don't).
+      const back = page.getByRole('button', { name: /Back to sources/i }).first();
+      detailOpened = (await back.count()) > 0;
+      await page.screenshot({ path: SHOT, fullPage: true });
+      if (await back.count() > 0) {
+        await back.click();
+        await page.waitForTimeout(500);
+        backWorked = (await page.getByText(/\d+ document/i).count()) > 0 && (await page.getByRole('link', { name: /Open in/i }).count()) === 0;
+      }
+    }
   }
-  await page.waitForTimeout(800);
-  await page.screenshot({ path: SHOT, fullPage: true });
+  await page.waitForTimeout(400);
 
   console.warn('\n===== E2E CITATION PROOF =====');
   console.warn(`inline [n] superscripts rendered: ${hasCites ? `YES ✓ (${citeCount})` : 'NO ✗'}`);
   console.warn(`tap opened Sources drawer:        ${drawerOpened ? 'YES ✓' : 'NO ✗'}`);
   console.warn(`drawer focused the tapped source: ${focused ? 'YES ✓' : 'NO ✗'}`);
+  console.warn(`card → detail slide-over:         ${detailOpened ? 'YES ✓' : 'NO ✗'}`);
+  console.warn(`back → list:                      ${backWorked ? 'YES ✓' : 'NO ✗'}`);
   console.warn(`screenshot: ${SHOT}`);
   await browser.close();
-  process.exit(hasCites && drawerOpened ? 0 : 2);
+  process.exit(hasCites && drawerOpened && detailOpened ? 0 : 2);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
