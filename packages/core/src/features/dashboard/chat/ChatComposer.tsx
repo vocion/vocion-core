@@ -1,6 +1,6 @@
 'use client';
 
-import { Send } from 'lucide-react';
+import { ArrowUp, Square } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 /**
@@ -26,6 +26,10 @@ export type ChatComposerProps = {
   onSubmit: () => void;
   disabled?: boolean;
   placeholder?: string;
+  /** True while a turn is streaming — the send button becomes a Stop button. */
+  streaming?: boolean;
+  /** Abort the in-flight turn (shown as Stop while streaming). */
+  onStop?: () => void;
 };
 
 export function ChatComposer({
@@ -34,6 +38,8 @@ export function ChatComposer({
   onSubmit,
   disabled = false,
   placeholder,
+  streaming = false,
+  onStop,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -79,17 +85,32 @@ export function ChatComposer({
             placeholder={placeholder ?? 'Ask anything…'}
             disabled={disabled}
             rows={1}
-            className="flex-1 resize-none border-0 bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-50"
+            // 16px on mobile: iOS Safari auto-zooms (and scroll-cuts) any focused
+            // input under 16px. Compact 14px only from sm: up (no mobile zoom).
+            className="flex-1 resize-none border-0 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
             style={{ minHeight: 24, maxHeight: 220 }}
           />
-          <button
-            type="submit"
-            disabled={!sendEnabled}
-            className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-amber text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:hover:translate-y-0 sm:size-9"
-            aria-label="Send message"
-          >
-            <Send className="size-4" aria-hidden="true" />
-          </button>
+          {streaming
+            ? (
+                <button
+                  type="button"
+                  onClick={() => onStop?.()}
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm transition hover:border-brand-amber hover:text-brand-amber-deep sm:size-9"
+                  aria-label="Stop generating"
+                >
+                  <Square className="size-3.5 fill-current" aria-hidden="true" />
+                </button>
+              )
+            : (
+                <button
+                  type="submit"
+                  disabled={!sendEnabled}
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-amber text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50 disabled:shadow-none disabled:hover:translate-y-0 sm:size-9"
+                  aria-label="Send message"
+                >
+                  <ArrowUp className="size-5 sm:size-[18px]" aria-hidden="true" />
+                </button>
+              )}
         </form>
       </div>
     </div>
