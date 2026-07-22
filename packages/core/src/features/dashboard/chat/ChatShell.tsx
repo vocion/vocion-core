@@ -10,7 +10,7 @@ import type {
   StreamingPhase,
   TraceNode,
 } from './types';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { client } from '@/libs/Orpc';
 import { AgentSwitcher } from './AgentSwitcher';
@@ -131,6 +131,24 @@ export function ChatShell({
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [focusCitation, setFocusCitation] = useState<number | null>(null);
   const [allDocuments, setAllDocuments] = useState<IndexedDocument[]>([]);
+  // Citation numbers the assistant answers actually reference (`[n]`) — drives
+  // the drawer's "Cited" tab vs. the full retrieved "All" set.
+  const citedIndices = useMemo(() => {
+    const set = new Set<number>();
+    for (const m of messages) {
+      if (m.role !== 'assistant') {
+        continue;
+      }
+      const text = (m.runs ?? [])
+        .filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text')
+        .map(r => r.text)
+        .join('\n') || m.content || '';
+      for (const match of text.matchAll(/\[(\d{1,3})\](?!\()/g)) {
+        set.add(Number(match[1]));
+      }
+    }
+    return [...set];
+  }, [messages]);
   const [currentSlug, setCurrentSlug] = useState<string | undefined>(agentSlug);
   // Live activity line — what the team is doing RIGHT NOW during a long turn
   // (retrieval, subagent delegation, tool runs). Cleared once text streams.
@@ -881,6 +899,7 @@ export function ChatShell({
           open={sourcesOpen && allDocuments.length > 0}
           onClose={() => setSourcesOpen(false)}
           focusCitation={focusCitation}
+          citedIndices={citedIndices}
         />
       </div>
     </div>
