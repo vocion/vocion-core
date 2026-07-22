@@ -172,6 +172,13 @@ export function SourcesPanel({ documents, open, onClose, focusCitation }: Source
                                 {num}
                                 ]
                               </span>
+                              {doc.foundBy && (
+                                <span className="rounded-full bg-brand-amber/10 px-1.5 py-0.5 text-[9px] font-medium text-brand-amber-deep">
+                                  via
+                                  {' '}
+                                  {doc.foundBy}
+                                </span>
+                              )}
                               <span className="ml-auto text-[10px] font-medium text-muted-foreground/70 transition group-hover:text-brand-amber-deep">Details →</span>
                             </div>
                             <div className="text-sm leading-snug font-medium">{doc.semantic_identifier}</div>
