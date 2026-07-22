@@ -1,9 +1,10 @@
 'use client';
 
-import { Check, Loader2, ShieldCheck, X, Zap } from 'lucide-react';
+import { Check, Layers, Loader2, ShieldCheck, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { client } from '@/libs/Orpc';
+import { ActionQueueTriage } from './ActionQueueTriage';
 
 /**
  * Action proposals — the sweep's CRM updates + outbound sends awaiting a
@@ -51,6 +52,7 @@ export function ActionProposals() {
   const [auto, setAuto] = useState<ActionRun[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [triageOpen, setTriageOpen] = useState(false);
   // Operator edits to email drafts, keyed by proposal id. Absent = untouched.
   const [edits, setEdits] = useState<Record<number, EmailEdit>>({});
 
@@ -103,17 +105,28 @@ export function ActionProposals() {
 
   return (
     <div className="mt-6 space-y-6">
+      <ActionQueueTriage open={triageOpen} onClose={() => setTriageOpen(false)} onDone={refresh} />
       {pending.length > 0 && (
         <section className="rounded-md border border-border p-5">
-          <h2 className="mb-1 flex flex-wrap items-center gap-2 text-base font-semibold">
-            <Zap className="size-4 text-primary" />
-            Proposed actions
-            <span className="text-xs font-normal text-muted-foreground">
-              {pending.length}
-              {' '}
-              awaiting you — edit anything before approving; nothing sends without your ok
-            </span>
-          </h2>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex flex-wrap items-center gap-2 text-base font-semibold">
+              <Zap className="size-4 text-primary" />
+              Proposed actions
+              <span className="text-xs font-normal text-muted-foreground">
+                {pending.length}
+                {' '}
+                awaiting you — edit anything before approving; nothing sends without your ok
+              </span>
+            </h2>
+            {pending.length > 1 && (
+              <Button size="sm" variant="outline" onClick={() => setTriageOpen(true)}>
+                <Layers className="size-3.5" />
+                Catch up (
+                {pending.length}
+                )
+              </Button>
+            )}
+          </div>
           {pending.map((p) => {
             const email = isEmail(p);
             const draft = isDraftMode(p);
