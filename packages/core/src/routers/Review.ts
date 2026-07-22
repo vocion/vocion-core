@@ -124,6 +124,29 @@ export const proposeFromRecommendationRoute = os
     return res;
   });
 
+/** Record a typed triage signal (skip/save/rewrite/edit) from the UI. */
+export const recordSignalRoute = os
+  .input(z.object({
+    runId: z.number().int().positive(),
+    signal: z.enum(['approve', 'edit', 'reject', 'skip', 'save', 'rewrite']),
+    hint: z.string().max(300).optional(),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { recordActionSignal } = await import('@/services/ReviewService');
+    await recordActionSignal({ orgId, runId: input.runId, signal: input.signal, userId: userId ?? undefined, hint: input.hint });
+    return { ok: true };
+  });
+
+/** Rewrite-with-AI on a pending draft — returns the rewrite (unsaved) + records a `rewrite` signal. */
+export const rewriteDraftRoute = os
+  .input(z.object({ runId: z.number().int().positive(), hint: z.string().max(300).optional() }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { rewriteDraft } = await import('@/services/ReviewService');
+    return rewriteDraft({ orgId, runId: input.runId, hint: input.hint, userId: userId ?? undefined });
+  });
+
 /**
  * Stable upsert key from an action + its input, so re-proposing the same owed
  * action updates the pending item instead of stacking a duplicate. Keyed on

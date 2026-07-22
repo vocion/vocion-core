@@ -20,7 +20,11 @@ import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { briefingSchema } from '@/models/Schema';
 
-const BRIEFING_MISSION = 'daily-revenue-briefing';
+// Which mission regenerates the brief is workspace-specific — configurable so
+// core carries no Metacto-specific slug. Defaults to the common name; other
+// workspaces override via env, and refresh_briefing degrades gracefully when
+// no such mission exists.
+const BRIEFING_MISSION = process.env.VOCION_BRIEFING_MISSION ?? 'daily-revenue-briefing';
 
 async function latestBriefing(orgId: string) {
   const [row] = await db
