@@ -8,6 +8,8 @@ import { FEATURES } from '@/libs/Langfuse/features';
 import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
 import { agentSchema } from '@/models/Schema';
 import { listBusinessObjects } from './BusinessObjectService';
+import type { RawStreamEvent } from './agents/traceEmitter';
+import { extractChunk, parseJsonArgs, toolOutputContent, TraceEmitter } from './agents/traceEmitter';
 import { executeSkill } from './SkillService';
 
 // Lazy-init: the OpenAI SDK throws at CONSTRUCTION on an empty apiKey, and a
@@ -1254,83 +1256,87 @@ export async function runAgentDeep(opts: {
 
   let finalText = '';
 
+  // Typed hierarchical trace: consume the RAW LangChain `streamEvents(v2)`
+  // stream (not the flat deepagents v3 projection) so a specialist's own
+  // reasoning, tools, and citations are attributable and nested. The
+  // `TraceEmitter` maps each raw event to typed `trace_node`s; here we also
+  // derive the answer text (LEAD assistant text only — a subagent's text
+  // stays in its nested reason node and never leaks into the reply) and the
+  // tool outputs the post-run sanitizer needs.
+  const tracer = new TraceEmitter({ leadName: compiled.agentRow.name ?? compiled.agentRow.slug ?? 'Assistant' });
+  const PLUMBING = new Set(['write_todos', 'ls', 'glob', 'grep', 'read_file', 'edit_file', 'write_file']);
+
+  const nsFor = (ev: RawStreamEvent): string => {
+    const cp = ev.metadata?.checkpoint_ns;
+    if (typeof cp === 'string') {
+      return cp;
+    }
+    if (Array.isArray(cp)) {
+      return cp.join('|');
+    }
+    return String(ev.metadata?.langgraph_node ?? '');
+  };
+
   try {
-    const run = await compiled.graph.streamEvents(input as never, {
-      version: 'v3',
+    const stream = await compiled.graph.streamEvents(input as never, {
+      version: 'v2',
       callbacks: [langfuseHandler],
     } as never);
 
-    await Promise.all([
-      (async () => {
-        for await (const msg of run.messages) {
-          // Only ASSISTANT text is the answer. `run.messages` also yields the
-          // ToolMessage (tool result) — its `.text` is the raw tool output,
-          // and streaming that as response_delta is what dumped the record
-          // JSON into chat ahead of the real answer. Skip non-AI messages
-          // here; tool output is surfaced via `run.toolCalls` below.
-          // `.text` and `.reasoning` are independent replay-buffered
-          // projections over the same message lifecycle, so consuming
-          // both concurrently is safe and nothing is double-emitted:
-          // thinking tokens only ever appear on `.reasoning`, response
-          // tokens only on `.text`.
-          await Promise.all([
-            (async () => {
-              // Buffer the reply — do NOT stream it live. The model reliably
-              // pastes verbatim tool output (record JSON, search results) into
-              // its answer; we sanitize the FULL text against the tool outputs
-              // after the run, then emit the clean answer. A live token stream
-              // can't strip a mid-reply echo whose end it hasn't seen yet.
-              for await (const token of msg.text) {
-                finalText += token;
-              }
-            })(),
-            (async () => {
-              for await (const delta of msg.reasoning) {
-                emit({ type: 'thinking_delta', delta });
-              }
-            })(),
-          ]);
-        }
-      })(),
-      (async () => {
-        for await (const call of run.toolCalls) {
-          const name = (call as { name?: string }).name ?? 'tool';
-          // The deepagents v3 toolCalls projection exposes input/output
-          // as deferred values. We log the start eagerly, then `await`
-          // the output for the end event.
-          const inputPromise = (call as { input: Promise<Record<string, unknown>> | Record<string, unknown> }).input;
-          const inputResolved = inputPromise instanceof Promise ? await inputPromise : inputPromise;
-          emit({ type: 'tool_start', tool: name, input: inputResolved ?? {} });
-          let outputStr = '';
-          try {
-            const out = await (call as { output: Promise<unknown> }).output;
-            const outputFull = typeof out === 'string' ? out : JSON.stringify(out);
-            if (outputFull) {
-              rawToolOutputs.push(outputFull);
-            }
-            outputStr = outputFull.slice(0, 2000);
-          } catch (err) {
-            outputStr = `tool error: ${(err as Error).message}`;
-          }
-          emit({ type: 'tool_end', tool: name, input: inputResolved ?? {}, output: outputStr });
-          toolCallLog.push({ tool: name, input: inputResolved ?? {}, output: outputStr });
-        }
-      })(),
-      (async () => {
-        for await (const sub of run.subagents) {
-          const name = (sub as { name?: string }).name ?? 'subagent';
-          emit({ type: 'subagent_start', name });
-          try {
-            await (sub as { output?: Promise<unknown> }).output;
-          } catch {
-            /* surfaces via parent flow */
-          }
-          emit({ type: 'subagent_end', name });
-        }
-      })(),
-    ]);
+    for await (const evUnknown of stream as AsyncIterable<RawStreamEvent>) {
+      const ev = evUnknown;
 
-    await run.output;
+      // 1) Typed trace nodes for the UI (reason/tool/skill/search/delegate + citations).
+      for (const node of tracer.handle(ev)) {
+        emit(node);
+      }
+
+      // 2) Derive the answer + backward-compatible events from the same stream.
+      const isLead = !nsFor(ev).includes('|');
+      switch (ev.event) {
+        case 'on_chat_model_stream': {
+          const { text, thinking } = extractChunk(ev.data?.chunk);
+          if (isLead && text) {
+            // Buffer the LEAD's reply — sanitized after the run, then emitted
+            // once (a live stream can't strip a mid-reply echo).
+            finalText += text;
+          }
+          if (isLead && thinking) {
+            emit({ type: 'thinking_delta', delta: thinking });
+          }
+          break;
+        }
+        case 'on_tool_start': {
+          const tool = ev.name ?? 'tool';
+          // `task` (delegation) is surfaced as a delegate trace node, not a
+          // tool breadcrumb; plumbing tools are noise.
+          if (tool !== 'task' && !PLUMBING.has(tool)) {
+            emit({ type: 'tool_start', tool, input: parseJsonArgs(ev.data?.input) });
+          }
+          break;
+        }
+        case 'on_tool_end': {
+          const tool = ev.name ?? 'tool';
+          const outputFull = toolOutputContent(ev.data?.output);
+          if (outputFull) {
+            rawToolOutputs.push(outputFull);
+          }
+          if (tool !== 'task' && !PLUMBING.has(tool)) {
+            const input = parseJsonArgs(ev.data?.input);
+            const outputStr = outputFull.slice(0, 2000);
+            emit({ type: 'tool_end', tool, input, output: outputStr });
+            toolCallLog.push({ tool, input, output: outputStr });
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    // Note: per-actor citations ride on the `trace_node` events (so the trace
+    // can show "found by <specialist>"); the Sources drawer keeps using the
+    // richer `documents` event the search tool emits via ctx.emit.
   } catch (err) {
     const message = (err as Error).message ?? 'agent run failed';
     emit({ type: 'error', message });

@@ -38,19 +38,65 @@ async function main(): Promise<void> {
   for (const e of events) {
     byType[e.type] = (byType[e.type] ?? 0) + 1;
   }
-  const subagents = events.filter(e => e.type === 'subagent_start').map(e => e.name);
   const recs = events.filter(e => e.type === 'recommended_action').map(e => (e.recommendation as { label: string }).label);
   const hits = DUMP_MARKERS.filter(m => res.response.includes(m));
+
+  // Typed trace analysis — fold trace_node events by id (last status wins).
+  type Node = { id: string; parentId?: string; actor: { id: string; kind: string; name: string }; kind: string; status: string; label: string; result?: string; citations?: Array<{ sourceType: string; title: string; actorId: string }> };
+  const nodeMap = new Map<string, Node>();
+  const nodeDeltas = new Map<string, number>();
+  for (const e of events) {
+    if (e.type !== 'trace_node') {
+      continue;
+    }
+    const n = e as unknown as Node & { delta?: string };
+    const prev = nodeMap.get(n.id);
+    nodeMap.set(n.id, { ...prev, ...n, citations: n.citations ?? prev?.citations });
+    if (n.delta) {
+      nodeDeltas.set(n.id, (nodeDeltas.get(n.id) ?? 0) + n.delta.length);
+    }
+  }
+  const nodes = [...nodeMap.values()];
+  const kinds: Record<string, number> = {};
+  for (const n of nodes) {
+    kinds[n.kind] = (kinds[n.kind] ?? 0) + 1;
+  }
+  const delegates = nodes.filter(n => n.kind === 'delegate');
+  const specialists = new Set(nodes.filter(n => n.actor.kind === 'specialist').map(n => n.actor.name));
+  const allCites = nodes.flatMap(n => n.citations ?? []);
+  const citesByActor: Record<string, number> = {};
+  for (const c of allCites) {
+    citesByActor[c.actorId] = (citesByActor[c.actorId] ?? 0) + 1;
+  }
 
   console.warn('\n===== LIVE TURN REPORT =====');
   console.warn(`agent=${agentSlug}  msg="${message}"  took=${secs}s`);
   console.warn('events:', JSON.stringify(byType));
   console.warn('tool calls:', res.toolCalls.map(t => t.tool).join(', ') || '(none)');
-  console.warn('delegated to:', subagents.join(', ') || '(none — answered directly) ✓');
   console.warn(`recommend_action cards: ${recs.length}${recs.length ? ` → ${JSON.stringify(recs)}` : ' ✗ (none)'}`);
   console.warn('DUMP markers in answer:', hits.length ? `✗ ${JSON.stringify(hits)}` : 'NONE ✓');
   console.warn(`response length: ${res.response.length}`);
-  console.warn('\n--- response (first 1400 chars) ---\n' + res.response.slice(0, 1400));
+
+  console.warn('\n----- TYPED TRACE -----');
+  console.warn(`trace nodes: ${nodes.length}  by kind: ${JSON.stringify(kinds)}`);
+  console.warn(`delegations: ${delegates.length}${delegates.length ? ` → ${JSON.stringify(delegates.map(d => d.actor.name === 'a specialist' ? d.label.replace(/^Delegating to /, '') : d.label))}` : ''}`);
+  console.warn(`specialists seen: ${specialists.size ? [...specialists].join(', ') : '(none)'}`);
+  console.warn(`citations: ${allCites.length}  by actor: ${JSON.stringify(citesByActor)}`);
+  const nested = nodes.filter(n => n.parentId);
+  console.warn(`NESTED nodes (delegate work surfaced): ${nested.length}${nested.length ? ` → ${JSON.stringify(nested.slice(0, 8).map(n => `${n.actor.name}:${n.kind}`))}` : ' ✗'}`);
+  // Render the tree.
+  console.warn('\n--- trace tree ---');
+  const roots = nodes.filter(n => !n.parentId);
+  for (const r of roots) {
+    const cites = r.citations?.length ? `  [${r.citations.length} cite]` : '';
+    console.warn(`• ${r.label}${r.result ? ` — ${r.result}` : ''}${cites}  (${r.actor.name})`);
+    for (const c of nodes.filter(n => n.parentId === r.id)) {
+      const cc = c.citations?.length ? `  [${c.citations.length} cite]` : '';
+      const think = nodeDeltas.get(c.id) ? `  (${nodeDeltas.get(c.id)} chars)` : '';
+      console.warn(`    └─ ${c.label}${c.result ? ` — ${c.result}` : ''}${cc}${think}  (${c.actor.name})`);
+    }
+  }
+  console.warn('\n--- response (first 1000 chars) ---\n' + res.response.slice(0, 1000));
   process.exit(0);
 }
 
