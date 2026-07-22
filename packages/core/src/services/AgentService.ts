@@ -9,6 +9,7 @@ import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
 import { agentSchema } from '@/models/Schema';
 import { listBusinessObjects } from './BusinessObjectService';
 import type { RawStreamEvent } from './agents/traceEmitter';
+import { AnswerStreamer } from './agents/answerStream';
 import { extractChunk, parseJsonArgs, toolOutputContent, TraceEmitter } from './agents/traceEmitter';
 import { executeSkill } from './SkillService';
 
@@ -987,161 +988,6 @@ export async function runAgent(opts: {
  * @param opts.conversationHistory
  * @param opts.onEvent
  */
-/**
- * Strip tool-output echoes from a finished reply.
- *
- * Live turns proved claude-sonnet-4-6 reliably pastes raw tool output —
- * lookup_objects' `[{…}]` record JSON, search_knowledge's `[1] … [2] …`
- * results — verbatim into its answer, and ignores every prompt telling it
- * not to. Per-tool formatting is whack-a-mole; this is the general fix: after
- * the run, remove any substring that matches a tool's output (we collect them
- * all), plus a leading JSON block if one survives. Verbatim match is exact and
- * safe — the model pastes byte-for-byte, so this never touches genuine prose.
- * @param text - The full assembled reply.
- * @param toolOutputs - Every tool output produced this turn.
- */
-function stripToolEchoes(text: string, toolOutputs: string[]): string {
-  // Primary path: the model was told to lay raw data out inside <scratch>…
-  // </scratch> (see harness OUTPUT_DISCIPLINE). If it did, the answer is
-  // everything after the last close tag — deterministic, format-agnostic,
-  // no content-matching. Also drop a stray unclosed <scratch> opener.
-  const closeIdx = text.lastIndexOf('</scratch>');
-  if (closeIdx >= 0) {
-    return text.slice(closeIdx + '</scratch>'.length).replace(/\n{3,}/g, '\n\n').trim();
-  }
-  if (/<scratch>/i.test(text)) {
-    text = text.replace(/<scratch>[\s\S]*$/i, '');
-  }
-
-  // Fallback (model didn't use the block): whitespace-normalized matching.
-  // The model reformats newlines/indentation
-  // when it pastes tool output, so exact indexOf misses. Build a normalized
-  // view with an index map back to the raw text, match there, delete in raw.
-  const map: number[] = [];
-  let norm = '';
-  let prevSpace = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]!;
-    if (/\s/.test(c)) {
-      if (!prevSpace) {
-        norm += ' ';
-        map.push(i);
-        prevSpace = true;
-      }
-    } else {
-      norm += c;
-      map.push(i);
-      prevSpace = false;
-    }
-  }
-  const ranges: Array<[number, number]> = [];
-  for (const rawOut of toolOutputs) {
-    const nT = (rawOut ?? '').replace(/\s+/g, ' ').trim();
-    if (nT.length < 60) {
-      continue; // too short to be a dump — don't risk nuking real prose
-    }
-    // Match the whole output, or (for a partial/truncated paste) a long prefix.
-    const probe = nT.length > 400 ? nT.slice(0, 400) : nT;
-    let from = 0;
-    let idx = norm.indexOf(probe, from);
-    while (idx >= 0) {
-      const rawStart = map[idx]!;
-      // Extend to the end of the full match if the whole output is present,
-      // else to the end of the probe.
-      const full = norm.startsWith(nT, idx);
-      const normEnd = idx + (full ? nT.length : probe.length) - 1;
-      const rawEnd = (map[Math.min(normEnd, map.length - 1)] ?? text.length - 1) + 1;
-      ranges.push([rawStart, rawEnd]);
-      from = normEnd + 1;
-      idx = norm.indexOf(probe, from);
-    }
-  }
-  let out = text;
-  if (ranges.length > 0) {
-    ranges.sort((a, b) => a[0] - b[0]);
-    let result = '';
-    let cursor = 0;
-    for (const [s, e] of ranges) {
-      if (s < cursor) {
-        continue; // overlapping — already covered
-      }
-      result += text.slice(cursor, s);
-      cursor = e;
-    }
-    result += text.slice(cursor);
-    out = result;
-  }
-  // A leading JSON array/object the model opened with (balanced scan,
-  // string-aware since record values contain brackets).
-  const head = out.replace(/^\s+/, '');
-  if (/^\[\s*\{/.test(head) || head.startsWith('{"')) {
-    let depth = 0;
-    let inStr = false;
-    let esc = false;
-    for (let i = 0; i < head.length; i++) {
-      const c = head[i];
-      if (inStr) {
-        if (esc) {
-          esc = false;
-        } else if (c === '\\') {
-          esc = true;
-        } else if (c === '"') {
-          inStr = false;
-        }
-        continue;
-      }
-      if (c === '"') {
-        inStr = true;
-      } else if (c === '[' || c === '{') {
-        depth++;
-      } else if (c === ']' || c === '}') {
-        depth--;
-        if (depth === 0) {
-          out = head.slice(i + 1);
-          break;
-        }
-      }
-    }
-  }
-  return out.replace(/\n{3,}/g, '\n\n').trim();
-}
-
-/**
- * Heuristic: does a reply still contain a raw-data dump (search hits, record
- * JSON, email headers, deep-links) after the deterministic strips? Cheap regex
- * gate so the LLM cleaner below runs ONLY when needed — not on every turn.
- * @param t - The candidate reply.
- */
-function looksLikeDump(t: string): boolean {
-  return /\[\d+\]\s*\*\*|\[gmail\]|\bSubject:\s|\bFrom:\s|"[a-z_]+":\s*"|owed_action|\/dashboard\//i.test(t);
-}
-
-/**
- * Last-resort cleaner for the stubborn case: the model pasted raw tool output
- * (esp. search results) into its reply and reformatted it past any string
- * match. A cheap classifier-model pass reliably strips raw-data blocks while
- * preserving the synthesis verbatim — format-agnostic where string-matching
- * fails. Degrades to the original text on any error/timeout.
- * @param text - The reply to clean.
- */
-async function cleanAnswerWithLLM(text: string): Promise<string> {
-  try {
-    const { buildChatModel } = await import('@/libs/llm');
-    const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-    const model = buildChatModel('classifier', { temperature: 0, streaming: false, maxTokens: 2048 });
-    const sys = 'You clean an AI assistant reply for display to a user. The reply may contain PASTED RAW DATA the user must never see: search results (like "[1] **title** [gmail] From:/Subject:/body"), record JSON, field:value dumps, tool output, internal ids, or /dashboard links. Remove ALL such raw-data blocks. Keep the human-facing synthesis EXACTLY as written — same wording, same markdown, same tables. If a fact was only in the raw data (e.g. an email address), keep it stated in plain prose. If there is no raw data, return the text unchanged. Output ONLY the cleaned reply.';
-    const res = await model.invoke(
-      [new SystemMessage(sys), new HumanMessage(text)],
-      { signal: AbortSignal.timeout(15_000) },
-    );
-    const out = typeof res.content === 'string'
-      ? res.content
-      : (Array.isArray(res.content) ? res.content.map(c => (c as { text?: string }).text ?? '').join('') : '');
-    return out.trim() || text;
-  } catch {
-    return text;
-  }
-}
 
 export async function runAgentDeep(opts: {
   orgId: string;
@@ -1277,6 +1123,13 @@ export async function runAgentDeep(opts: {
     return String(ev.metadata?.langgraph_node ?? '');
   };
 
+  // True streaming: the LEAD's answer streams live token-by-token via the
+  // AnswerStreamer, which strips a leading <scratch>…</scratch> block (routed
+  // to chain-of-thought) so raw data never dumps into the answer. No post-run
+  // buffering.
+  const answerStreamer = new AnswerStreamer();
+  let answering = false;
+
   try {
     const stream = await compiled.graph.streamEvents(input as never, {
       version: 'v2',
@@ -1296,13 +1149,27 @@ export async function runAgentDeep(opts: {
       switch (ev.event) {
         case 'on_chat_model_stream': {
           const { text, thinking } = extractChunk(ev.data?.chunk);
-          if (isLead && text) {
-            // Buffer the LEAD's reply — sanitized after the run, then emitted
-            // once (a live stream can't strip a mid-reply echo).
-            finalText += text;
-          }
           if (isLead && thinking) {
             emit({ type: 'thinking_delta', delta: thinking });
+          }
+          if (isLead && text) {
+            const { answer, thinking: scratch } = answerStreamer.push(text);
+            if (scratch) {
+              emit({ type: 'thinking_delta', delta: scratch });
+            }
+            if (answer) {
+              if (!answering) {
+                answering = true;
+                emit({ type: 'answering' });
+                // Reasoning is over once the answer begins — close open reason
+                // nodes so they stop spinning "Thinking" during the tail.
+                for (const node of tracer.closeReasoning()) {
+                  emit(node);
+                }
+              }
+              finalText += answer;
+              emit({ type: 'response_delta', delta: answer });
+            }
           }
           break;
         }
@@ -1345,26 +1212,16 @@ export async function runAgentDeep(opts: {
     throw err;
   }
 
-  // Sanitize: strip any verbatim tool-output the model echoed into the reply
-  // (record JSON, search results) — proven behavior; prompts don't stop it.
-  // Then emit the clean answer as one delta (we buffered instead of streaming).
-  // Surface the model's <scratch> data-review in the CHAIN OF THOUGHT (the
-  // "work behind" the answer) before stripping it from the reply — so the raw
-  // data is visible on demand in the timeline, never dumped in the answer.
-  const scratch = finalText.match(/<scratch>([\s\S]*?)<\/scratch>/i)?.[1]?.trim();
-  if (scratch) {
-    emit({ type: 'thinking_delta', delta: `${scratch}\n` });
+  // Release any held-back tail (partial-tag boundary) from the streamer.
+  const tail = answerStreamer.flush();
+  if (tail.thinking) {
+    emit({ type: 'thinking_delta', delta: tail.thinking });
   }
-  finalText = stripToolEchoes(finalText, rawToolOutputs);
-  // Stubborn residue (reformatted search-result dumps that beat string-matching)
-  // — clean with a cheap model pass, but only when a dump is actually detected.
-  if (looksLikeDump(finalText)) {
-    finalText = await cleanAnswerWithLLM(finalText);
+  if (tail.answer) {
+    finalText += tail.answer;
+    emit({ type: 'response_delta', delta: tail.answer });
   }
-  if (finalText.trim().length > 0) {
-    emit({ type: 'answering' });
-    emit({ type: 'response_delta', delta: finalText });
-  }
+  finalText = finalText.trim();
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
   await langfuse.flushAsync();

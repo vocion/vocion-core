@@ -266,8 +266,8 @@ export class TraceEmitter {
   /** Every citation surfaced this turn, deduped by title+actor. */
   private readonly citationsSeen = new Set<string>();
   private readonly allCitations: TraceCitation[] = [];
-  /** reason node ids already opened, so we emit `start` once then `progress`. */
-  private readonly openReason = new Set<string>();
+  /** open reason nodes (id → actor/parent), so we emit `start` once then `progress`, and can close them when the answer begins. */
+  private readonly openReason = new Map<string, { actor: TraceActor; parentId?: string }>();
   /** node id → subject for the label (the query / skill name), so the `done` label matches `start`. */
   private readonly nodeSubjects = new Map<string, string>();
 
@@ -290,6 +290,28 @@ export class TraceEmitter {
   /** All citations surfaced this turn (lead + every specialist). */
   citations(): TraceCitation[] {
     return this.allCitations;
+  }
+
+  /**
+   * Close any still-open reason nodes with a `done` status — call when the
+   * answer starts streaming, so reasoning stops spinning "Thinking" while the
+   * model does its post-answer tail (tool calls, drafts).
+   */
+  closeReasoning(): TraceNodeEvent[] {
+    const out: TraceNodeEvent[] = [];
+    for (const [id, { actor, parentId }] of this.openReason) {
+      out.push({
+        type: 'trace_node',
+        id,
+        parentId,
+        actor,
+        kind: 'reason',
+        status: 'done',
+        label: labelFor('reason', 'done', ''),
+      });
+    }
+    this.openReason.clear();
+    return out;
   }
 
   private recordCitations(cites: TraceCitation[]): TraceCitation[] {
@@ -321,7 +343,7 @@ export class TraceEmitter {
         const parentId = taskIdOf(ns);
         const first = !this.openReason.has(id);
         if (first) {
-          this.openReason.add(id);
+          this.openReason.set(id, { actor, parentId });
         }
         return [{
           type: 'trace_node',
