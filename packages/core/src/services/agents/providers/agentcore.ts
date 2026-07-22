@@ -275,6 +275,7 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
   const ctx: RuntimeContext = {
     orgId: opts.orgId,
     userId: opts.userId,
+    citationSeq: { current: 0 },
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     allowedSourceSlugs: opts.allowedSourceSlugs,

@@ -109,9 +109,16 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       const maxResults = ctx.searchConfig.maxResults ?? 15;
       const docs = reRankResults(filteredDocs, ctx.searchConfig, { wantsDiscovery: discoveryIntent }).slice(0, maxResults);
 
-      ctx.emit({ type: 'documents', documents: docs.slice(0, 15).map(toSearchDocument) });
+      // Allocate a contiguous global citation block for THIS search so the
+      // [n] numbers stay unique across multiple searches in one turn — the
+      // model is instructed to cite them inline and the UI maps [n] → source.
+      const shown = docs.slice(0, 15);
+      const base = ctx.citationSeq.current;
+      ctx.citationSeq.current += shown.length;
 
-      return docs.slice(0, 15).map((d, i) => renderDocLine(d, i)).join('\n\n');
+      ctx.emit({ type: 'documents', documents: shown.map((d, i) => toSearchDocument(d, base + i + 1)) });
+
+      return shown.map((d, i) => renderDocLine(d, base + i)).join('\n\n');
     },
     {
       name: 'search_knowledge',

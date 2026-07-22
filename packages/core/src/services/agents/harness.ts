@@ -107,6 +107,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     operationSlugs: row.skillSlugs ?? [],
     harnessConfig,
     emit: noopEmit,
+    citationSeq: { current: 0 },
   };
 
   // Tools: built-ins from createDeepAgent (ls/read_file/.../task/write_todos)
@@ -177,6 +178,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     'You may lay out raw data to reason over — record JSON, and ESPECIALLY search results and email contents (From/Subject/body, message lists) — but ONLY inside a single <scratch>…</scratch> block at the very START of your reply.',
     'Everything AFTER </scratch> is the answer the user sees. It must be clean synthesis in plain language: NO raw records, JSON, field:value lists, search hits, email headers/bodies, ids, or /dashboard links. When asked to "find an email" or "go get" something, the answer is the EXTRACTED fact in words (e.g. "Eric — ericb@exactcustomer.com"), never the search results you read to find it.',
     'If you have no raw data to lay out, skip the scratch block and just answer.',
+    'CITATIONS: search_knowledge results are numbered like "[3] **title** [source]". When a sentence in your answer states a fact you got from a specific search result, cite it inline with that bracketed number immediately after the claim, e.g. "He owns healthcare-IT at Gauge [3]." Use the exact numbers from the results (they are globally unique for this turn); cite more than one where relevant ("[2][5]"); never invent a number or cite a source you did not use. Only facts grounded in search results get a marker — not every sentence.',
   ].join(' ');
   systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE].filter(Boolean).join('\n\n');
 
@@ -272,6 +274,8 @@ export function bindRequestEmit(
   internal.__ctx.userId = userId;
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
   internal.__ctx.missionSlug = missionSlug;
+  // Fresh citation numbering per turn (the graph/ctx is reused across requests).
+  internal.__ctx.citationSeq = { current: 0 };
 }
 
 /* ------------------------------------------------------------------ */

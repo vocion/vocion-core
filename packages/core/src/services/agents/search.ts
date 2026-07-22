@@ -81,7 +81,7 @@ export function reRankResults(
  * Project a raw doc to the shape the chat sidebar expects.
  * @param doc
  */
-export function toSearchDocument(doc: RawDoc): SearchDocument {
+export function toSearchDocument(doc: RawDoc, citationIndex?: number): SearchDocument {
   return {
     document_id: doc.document_id ?? '',
     semantic_identifier: doc.semantic_identifier ?? doc.document_id ?? '',
@@ -90,6 +90,7 @@ export function toSearchDocument(doc: RawDoc): SearchDocument {
     blurb: (doc.blurb ?? doc.content ?? '').slice(0, 2000),
     metadata: doc.metadata,
     updated_at: doc.updated_at ?? doc.last_modified,
+    ...(citationIndex ? { citationIndex } : {}),
   };
 }
 

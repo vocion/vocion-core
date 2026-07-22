@@ -73,6 +73,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   const catalog = buildToolCatalog({
     orgId: opts.orgId,
     userId: opts.userId,
+    citationSeq: { current: 0 },
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     allowedSourceSlugs: opts.allowedSourceSlugs,

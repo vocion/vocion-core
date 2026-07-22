@@ -51,6 +51,7 @@ export async function executeToolCall(opts: {
   const ctx: RuntimeContext = {
     orgId: claim.orgId,
     userId: claim.userId,
+    citationSeq: { current: 0 },
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     allowedSourceSlugs: claim.allowedSourceSlugs,
