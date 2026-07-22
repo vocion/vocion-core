@@ -1,47 +1,69 @@
 'use client';
 
-import type { AgentRun } from './types';
-import { Brain, Check, ChevronDown, ChevronRight, CircleAlert, Loader2, X } from 'lucide-react';
+import type { AgentRun, IndexedDocument } from './types';
+import {
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  ExternalLink,
+  GitBranch,
+  Loader2,
+  type LucideIcon,
+  PencilLine,
+  Rows3,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Wrench,
+  X,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { sourceLabels } from './helpers';
 
 /**
- * WorkTimeline — the chain-of-thought surface.
+ * WorkTimeline — the agent Activity trace (redesign).
  *
- * One consolidated, collapsible block per agent message showing the team's
- * work as legible steps — "Delegated: Pipeline Analyst", "Searched sources
- * ('open deals…')", "Proposed CRM update (0.88 confidence)" — instead of
- * scattered raw tool breadcrumbs with kwargs dumps.
- *
- *   - streaming: expanded; the HEADER is the live current step ("Delegating:
- *     Pipeline Analyst · 32s"), completed steps show output snippets, and the
- *     current activity pulses as the last row.
- *   - done: collapses to a one-line summary ("Worked · 5 steps · 2 specialists")
- *     that expands on click for the audit trail.
+ * Minimal by default: one collapsed line ("Worked it out · 5 steps · 1
+ * specialist · 3 sources"). Tap to explore a curated, typed trace — reasoning,
+ * meaningful tool steps (plumbing hidden), delegation to named specialists,
+ * and first-class citations. Bottom drawer on mobile, inline panel on desktop.
  */
 
 export type WorkTimelineProps = {
   runs: Extract<AgentRun, { type: 'tool' }>[];
   streaming: boolean;
-  /** Live status text while streaming (from ChatShell's event reducer). */
   activity?: string | null;
-  /**
-   * Accumulated chain-of-thought text (Anthropic extended thinking).
-   * While streaming, the live tail renders as the first timeline step;
-   * once done it collapses into an expandable "Reasoning" step.
-   */
   thinkingText?: string;
+  /** Sources the answer drew on — rendered as citations inside the trace. */
+  documents?: IndexedDocument[];
 };
 
-type Step = {
-  label: string;
-  detail?: string;
-  output?: string;
-  state: 'pending' | 'done' | 'error';
-};
+// Plumbing the operator shouldn't have to see — hidden from the curated trace.
+const PLUMBING = new Set(['write_todos', 'ls', 'glob', 'grep', 'read_file', 'edit_file', 'write_file']);
+
+type Kind = 'delegation' | 'records' | 'search' | 'draft' | 'proposal' | 'skill' | 'generic';
+
+function kindFor(name: string): { kind: Kind; icon: LucideIcon } {
+  switch (name) {
+    case 'task': return { kind: 'delegation', icon: GitBranch };
+    case 'lookup_objects': return { kind: 'records', icon: Rows3 };
+    case 'search_knowledge':
+    case 'web_search': return { kind: 'search', icon: Search };
+    case 'create_artifact': return { kind: 'draft', icon: PencilLine };
+    case 'propose_action':
+    case 'request_human_review': return { kind: 'proposal', icon: ShieldCheck };
+    case 'run_operation': return { kind: 'skill', icon: Wrench };
+    default:
+      return /draft/i.test(name)
+        ? { kind: 'draft', icon: PencilLine }
+        : { kind: 'generic', icon: Sparkles };
+  }
+}
 
 /**
- * One human-legible description per tool call — shared by the timeline steps
- * AND the live activity line, so "what it's doing" and "what it did" agree.
+ * One human-legible description per tool call — shared by the trace nodes AND
+ * the live activity line, so "what it's doing" and "what it did" agree.
  * @param name
  * @param input
  * @param live - present-tense phrasing for the live activity line
@@ -49,18 +71,12 @@ type Step = {
 export function describeToolCall(name: string, input: Record<string, unknown>, live = false): { label: string; detail?: string } {
   switch (name) {
     case 'task': {
-      // deepagents subagent dispatch — recover the specialist's name from its
-      // prompt ("You are the Pipeline Analyst …"). The raw runtime name is
-      // "general-purpose" (plumbing, not human), so soften anything that looks
-      // like a code name to a plain "a specialist".
       const desc = String(input.description ?? '');
       const m = desc.match(/[Yy]ou are (?:the )?([A-Z][a-z-]+(?: [A-Z][a-z-]+){0,3})/);
       let who = (m?.[1] ?? String(input.subagent_type ?? '')).trim();
       if (!who || who.includes('-') || /^(?:general.?purpose|specialist)$/i.test(who)) {
         who = 'a specialist';
       }
-      // Surface WHAT the specialist was asked to do — strip the "You are…"
-      // role boilerplate and quote a short summary of the actual task.
       const summary = desc.replace(/^.*?[Yy]ou are[^.]*\.\s*/, '').replace(/\s+/g, ' ').trim();
       const detail = summary ? `“${summary.slice(0, 100)}${summary.length > 100 ? '…' : ''}”` : undefined;
       return { label: live ? `Handing off to ${who}…` : `Delegated to ${who}`, detail };
@@ -73,8 +89,8 @@ export function describeToolCall(name: string, input: Record<string, unknown>, l
       return { label: live ? 'Looking up records…' : 'Looked up records', detail: String(input.type ?? input.object_type ?? '') || undefined };
     case 'propose_action': {
       const actionId = String(input.action_id ?? 'action');
-      const conf = typeof input.confidence === 'number' ? ` · ${Math.round((input.confidence as number) * 100)}% confidence` : '';
-      return { label: live ? `Proposing: ${actionId}${conf}…` : `Proposed: ${actionId}${conf}`, detail: live ? undefined : 'queued for your approval' };
+      const conf = typeof input.confidence === 'number' ? ` · ${Math.round((input.confidence as number) * 100)}%` : '';
+      return { label: live ? `Proposing ${actionId}${conf}…` : `Proposed ${actionId}${conf}`, detail: live ? undefined : 'queued for your approval' };
     }
     case 'create_artifact':
       return { label: live ? 'Creating artifact…' : 'Created artifact', detail: String(input.kind ?? '') || undefined };
@@ -84,31 +100,16 @@ export function describeToolCall(name: string, input: Record<string, unknown>, l
       return { label: `${live ? 'Running' : 'Ran'} skill: ${String(input.operation ?? input.slug ?? '')}` };
     case 'web_search':
       return { label: live ? 'Searching the web…' : 'Searched the web', detail: String(input.query ?? '').slice(0, 90) || undefined };
-    case 'write_todos':
-      return { label: live ? 'Planning…' : 'Planned the work' };
-    case 'read_file':
-    case 'ls':
-    case 'glob':
-    case 'grep':
-      return { label: live ? 'Reading context…' : 'Read context', detail: String(input.file_path ?? input.pattern ?? '') || undefined };
     default:
       return { label: `${live ? 'Running' : 'Ran'} ${name.replace(/[-_]/g, ' ')}${live ? '…' : ''}` };
   }
 }
 
-/**
- * Trim a tool output into a one-line snippet for the audit trail.
- * @param output
- */
 function outputSnippet(output: unknown): string | undefined {
   const s = String(output ?? '').replaceAll(/\s+/g, ' ').trim();
   if (!s || s.length < 3) {
     return undefined;
   }
-  // Never surface raw structured payloads — tool kwargs / state dumps like
-  // write_todos' `{"lg_name":"Command","update":{...}}`. They're noise to a
-  // human and, unwrapped, blow out the layout width. Plain-language labels
-  // (describeToolCall) already say what happened; the raw object adds nothing.
   if (/^[[{]/.test(s) || (s.includes('":') && s.includes('{'))) {
     return undefined;
   }
@@ -116,11 +117,9 @@ function outputSnippet(output: unknown): string | undefined {
 }
 
 /**
- * lookup_objects returns a JSON record array (kept out of the answer). Surface
- * it HERE instead — a count + the contact/title names — so the source data the
- * agent used is visible on demand in the chain of thought, never dumped in the
- * reply. Returns null for non-record output.
- * @param raw - The tool's output string.
+ * lookup_objects returns a JSON record array. Surface a count + the names here
+ * (the "data reviewed"), never dumped in the reply.
+ * @param raw
  */
 function summarizeRecords(raw: unknown): { detail: string; names: string } | null {
   try {
@@ -128,48 +127,34 @@ function summarizeRecords(raw: unknown): { detail: string; names: string } | nul
     if (!Array.isArray(arr) || arr.length === 0) {
       return null;
     }
-    const names = arr
-      .map(r => String(r.contact ?? r.title ?? '').trim())
-      .filter(Boolean);
+    const names = arr.map(r => String(r.contact ?? r.title ?? '').trim()).filter(Boolean);
     const shown = names.slice(0, 6).join(', ');
-    const more = names.length > 6 ? ` +${names.length - 6} more` : '';
-    return { detail: `${arr.length} record${arr.length === 1 ? '' : 's'}`, names: `${shown}${more}` };
+    return { detail: `${arr.length} record${arr.length === 1 ? '' : 's'}`, names: `${shown}${names.length > 6 ? ` +${names.length - 6} more` : ''}` };
   } catch {
     return null;
   }
 }
 
-/**
- * Turn a raw tool run into a human-legible step.
- * @param run
- */
-function toStep(run: Extract<AgentRun, { type: 'tool' }>): Step {
+type Node = { icon: LucideIcon; kind: Kind; label: string; detail?: string; drillLabel?: string; drill?: string; state: 'pending' | 'done' | 'error' };
+
+function toNode(run: Extract<AgentRun, { type: 'tool' }>): Node {
   const input = run.input ?? {};
   const state = run.state ?? 'done';
   if (run.name === 'error') {
-    return { label: 'Error', detail: String(run.output ?? '').slice(0, 160), state: 'error' };
+    return { icon: CircleAlert, kind: 'generic', label: 'Error', detail: String(run.output ?? '').slice(0, 160), state: 'error' };
   }
+  const { icon, kind } = kindFor(run.name);
   const { label, detail } = describeToolCall(run.name, input);
-  // Records are the one tool output worth showing in the timeline — the count
-  // and who, so "Looked up records" isn't an empty step.
   if (run.name === 'lookup_objects' && state === 'done') {
-    const summary = summarizeRecords(run.output);
-    if (summary) {
-      return { label, detail: summary.detail, output: summary.names, state };
+    const s = summarizeRecords(run.output);
+    if (s) {
+      return { icon, kind, label, detail: s.detail, drillLabel: `the ${s.detail}`, drill: s.names, state };
     }
   }
-  return {
-    label,
-    detail,
-    output: state === 'done' ? outputSnippet(run.output) : undefined,
-    state,
-  };
+  const out = state === 'done' ? outputSnippet(run.output) : undefined;
+  return { icon, kind, label, detail, drill: out, state };
 }
 
-/**
- * Seconds-elapsed ticker for the streaming header.
- * @param active
- */
 function useElapsed(active: boolean): number {
   const [start] = useState(() => Date.now());
   const [now, setNow] = useState(start);
@@ -183,38 +168,60 @@ function useElapsed(active: boolean): number {
   return Math.floor((now - start) / 1000);
 }
 
-export function WorkTimeline({ runs, streaming, activity, thinkingText }: WorkTimelineProps) {
-  // Collapsed by DEFAULT — even while streaming. The header carries the single
-  // live status line; tap to open the full chain of thought (a bottom sheet on
-  // mobile, an inline panel on desktop). No duplicated status lines.
+function Marker({ node }: { node: Node }) {
+  const cls = node.state === 'error' ? 'text-[var(--brand-fail)]' : node.state === 'pending' ? 'text-brand-amber-deep' : 'text-[var(--brand-pass)]';
+  if (node.state === 'pending') {
+    return <Loader2 className={`size-3.5 shrink-0 animate-spin ${cls}`} aria-hidden />;
+  }
+  const Icon = node.icon;
+  return <Icon className={`size-3.5 shrink-0 ${node.kind === 'delegation' ? 'text-brand-amber-deep' : cls}`} aria-hidden />;
+}
+
+function Citation({ doc }: { doc: IndexedDocument }) {
+  const label = sourceLabels[doc.source_type] ?? doc.source_type;
+  return (
+    <a href={doc.link} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-xl border border-border px-3 py-2 transition hover:border-brand-amber/40">
+      <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wide text-muted-foreground uppercase">{label}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium">{doc.semantic_identifier}</span>
+        {doc.blurb && <span className="block truncate text-[11px] text-muted-foreground">{doc.blurb}</span>}
+      </span>
+      <ExternalLink className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+    </a>
+  );
+}
+
+export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [] }: WorkTimelineProps) {
   const [open, setOpen] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
+  const [drillOpen, setDrillOpen] = useState<number | null>(null);
   const elapsed = useElapsed(streaming);
-  const steps = runs.map(toStep);
-  const errors = steps.filter(s => s.state === 'error').length;
-  const specialists = runs.filter(r => r.name === 'task').length;
-  const hasReasoning = Boolean(thinkingText && thinkingText.trim().length > 0);
 
-  if (steps.length === 0 && !streaming && !hasReasoning) {
+  // Curate: hide plumbing from the trace and the counts.
+  const visible = runs.filter(r => !PLUMBING.has(r.name));
+  const nodes = visible.map(toNode);
+  const specialists = visible.filter(r => r.name === 'task').length;
+  const errors = nodes.filter(n => n.state === 'error').length;
+  const sources = documents.length;
+  const hasReasoning = Boolean(thinkingText && thinkingText.trim().length > 0);
+  const hasDetail = nodes.length > 0 || hasReasoning || sources > 0;
+
+  if (nodes.length === 0 && !streaming && !hasReasoning && sources === 0) {
     return null;
   }
 
   const summary = [
-    hasReasoning ? 'reasoned' : null,
-    `${steps.length} step${steps.length === 1 ? '' : 's'}`,
+    `${nodes.length} step${nodes.length === 1 ? '' : 's'}`,
     specialists > 0 ? `${specialists} specialist${specialists === 1 ? '' : 's'}` : null,
+    sources > 0 ? `${sources} source${sources === 1 ? '' : 's'}` : null,
     errors > 0 ? `${errors} error${errors === 1 ? '' : 's'}` : null,
   ].filter(Boolean).join(' · ');
 
-  // The header's live text: the current activity (or the last in-flight tool).
-  // Shown ONLY here — never repeated in the panel — so there's one status line.
-  const pending = runs.filter(r => r.state === 'pending');
+  const pending = visible.filter(r => r.state === 'pending');
   const livePending = pending.length > 0
     ? describeToolCall(pending[pending.length - 1]!.name, pending[pending.length - 1]!.input ?? {}, true).label
     : null;
-  const headerLive = activity ?? livePending ?? 'Working…';
-  const headerText = streaming ? headerLive : `Worked · ${summary}`;
-  const hasDetail = steps.length > 0 || hasReasoning;
+  const headerText = streaming ? (activity ?? livePending ?? 'Working…') : `Worked it out · ${summary}`;
 
   return (
     <div className="my-2">
@@ -234,71 +241,77 @@ export function WorkTimeline({ runs, streaming, activity, thinkingText }: WorkTi
             {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
           </span>
         )}
-        {hasDetail && (
-          <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${open ? 'rotate-180' : ''}`} aria-hidden />
-        )}
+        {hasDetail && <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${open ? 'rotate-180' : ''}`} aria-hidden />}
       </button>
 
       {open && hasDetail && (
         <>
-          {/* Mobile: dim, tap-to-close backdrop. Desktop: none (inline panel). */}
-          <button
-            type="button"
-            aria-label="Close details"
-            onClick={() => setOpen(false)}
-            className="fixed inset-0 z-40 bg-black/40 sm:hidden"
-          />
-          <div className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border-t border-border bg-background p-4 shadow-2xl sm:static sm:z-auto sm:mt-1 sm:max-h-none sm:rounded-lg sm:border sm:border-border/60 sm:bg-muted/20 sm:p-3 sm:shadow-none">
-            <div className="mb-3 flex items-center justify-between sm:hidden">
-              <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Chain of thought</span>
-              <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
-                <X className="size-4" aria-hidden />
-              </button>
-            </div>
-            <ol className="space-y-2">
-              {hasReasoning && (
-                <li className="flex items-start gap-2 text-xs">
-                  <Brain className="mt-0.5 size-3 shrink-0 text-brand-amber-deep" aria-hidden />
-                  <span className="min-w-0 flex-1">
-                    <button
-                      type="button"
-                      onClick={() => setReasoningOpen(v => !v)}
-                      className="inline-flex items-center gap-1 font-medium text-foreground/85 transition hover:text-foreground"
-                    >
-                      Reasoning & data reviewed
-                      {reasoningOpen
-                        ? <ChevronDown className="size-3" aria-hidden />
-                        : <ChevronRight className="size-3" aria-hidden />}
-                    </button>
-                    <span className={`mt-1.5 block break-words whitespace-pre-wrap rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground ${reasoningOpen ? 'max-h-72 overflow-y-auto' : 'line-clamp-3'}`}>
-                      {thinkingText}
+          <button type="button" aria-label="Close details" onClick={() => setOpen(false)} className="fixed inset-0 z-40 bg-black/40 sm:hidden" />
+          <div className="fixed inset-x-0 bottom-0 z-50 max-h-[82vh] overflow-y-auto rounded-t-2xl border-t border-border bg-background shadow-2xl sm:static sm:z-auto sm:mt-1 sm:max-h-none sm:rounded-xl sm:border sm:border-border/60 sm:bg-muted/20 sm:shadow-none">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-3">
+              <span className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">Activity</span>
+              {streaming
+                ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-amber-deep">
+                      <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" /><span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" /></span>
+                      live
                     </span>
+                  )
+                : (
+                    <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted sm:hidden">
+                      <X className="size-4" aria-hidden />
+                    </button>
+                  )}
+            </div>
+
+            {/* trace */}
+            <ol className="relative px-4 py-2 sm:px-3">
+              {hasReasoning && (
+                <li className="relative py-2 pl-7">
+                  <span className="absolute top-2.5 left-0"><Brain className="size-3.5 text-brand-amber-deep" aria-hidden /></span>
+                  <button type="button" onClick={() => setReasoningOpen(v => !v)} className="inline-flex items-center gap-1 text-[13px] font-semibold text-foreground/90 transition hover:text-foreground">
+                    Reasoning &amp; data reviewed
+                    <ChevronRight className={`size-3 transition ${reasoningOpen ? 'rotate-90' : ''}`} aria-hidden />
+                  </button>
+                  <span className={`mt-1.5 block break-words whitespace-pre-wrap rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed text-muted-foreground ${reasoningOpen ? 'max-h-72 overflow-y-auto' : 'line-clamp-2'}`}>
+                    {thinkingText}
                   </span>
                 </li>
               )}
-              {steps.map((s, i) => (
-                <li key={i} className="flex min-w-0 items-start gap-2 text-xs">
-                  {s.state === 'pending'
-                    ? <Loader2 className="mt-0.5 size-3 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
-                    : s.state === 'error'
-                      ? <CircleAlert className="mt-0.5 size-3 shrink-0 text-[var(--brand-fail)]" aria-hidden />
-                      : <Check className="mt-0.5 size-3 shrink-0 text-[var(--brand-pass)]" aria-hidden />}
-                  <span className="min-w-0 flex-1 break-words">
-                    <span className={s.state === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/85'}>{s.label}</span>
-                    {s.detail && (
-                      <span className="ml-1.5 text-muted-foreground">{s.detail}</span>
-                    )}
-                    {s.output && (
-                      <span className="mt-0.5 line-clamp-2 block break-words text-[11px] text-muted-foreground/70">
-                        →
-                        {' '}
-                        {s.output}
-                      </span>
-                    )}
-                  </span>
+              {nodes.map((n, i) => (
+                <li key={i} className="relative py-2 pl-7">
+                  <span className="absolute top-2.5 left-0"><Marker node={n} /></span>
+                  <div className="text-[13px] leading-snug">
+                    <span className={`font-semibold ${n.state === 'error' ? 'text-[var(--brand-fail)]' : n.kind === 'delegation' ? 'text-brand-amber-deep' : 'text-foreground/90'}`}>{n.label}</span>
+                    {n.detail && <span className="ml-1.5 text-muted-foreground">{n.detail}</span>}
+                  </div>
+                  {n.drill && (
+                    n.drillLabel
+                      ? (
+                          <>
+                            <button type="button" onClick={() => setDrillOpen(o => (o === i ? null : i))} className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-brand-amber-deep">
+                              {n.drillLabel}
+                              <ChevronRight className={`size-3 transition ${drillOpen === i ? 'rotate-90' : ''}`} aria-hidden />
+                            </button>
+                            {drillOpen === i && (
+                              <span className="mt-1 block break-words rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed text-muted-foreground">{n.drill}</span>
+                            )}
+                          </>
+                        )
+                      : <span className="mt-0.5 line-clamp-2 block break-words text-[11px] text-muted-foreground/70">{n.drill}</span>
+                  )}
                 </li>
               ))}
             </ol>
+
+            {sources > 0 && (
+              <div className="border-t border-border px-4 py-3 sm:px-3">
+                <div className="mb-2 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">Grounded in</div>
+                <div className="grid gap-1.5">
+                  {documents.slice(0, 8).map((d, i) => <Citation key={`${d.document_id}-${i}`} doc={d} />)}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
