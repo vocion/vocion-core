@@ -231,6 +231,14 @@ function detailFor(tool: string, args: Record<string, unknown>): string | undefi
  * humanized subagent_type, then a neutral label.
  */
 function specialistName(subagentType: string, description = ''): string {
+  // A real named subagent (declared in workspace YAML) wins — show ITS name.
+  if (subagentType && subagentType !== 'general-purpose') {
+    return subagentType
+      .split(/[-_]/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+  // Generic subagent: mine a role from the brief ("You are a GTM ROI analyst").
   const m = description.match(/[Yy]ou are (?:an?|the)\s+([A-Za-z][\w /-]*?(?:analyst|lead|specialist|researcher|writer|manager|strategist|expert|engineer|agent|advisor|assistant))/i);
   if (m?.[1]) {
     return m[1]
@@ -238,12 +246,6 @@ function specialistName(subagentType: string, description = ''): string {
       .replace(/\s+/g, ' ')
       .split(' ')
       .map(w => (w.length > 3 || /[A-Z]/.test(w) ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-      .join(' ');
-  }
-  if (subagentType && subagentType !== 'general-purpose') {
-    return subagentType
-      .split(/[-_]/)
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
       .join(' ');
   }
   return 'a specialist';
