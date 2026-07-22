@@ -786,10 +786,16 @@ export function ChatShell({
           the account menu, so the conversation canvas stays clean. */}
       <ShellBarActionsPortal>
         <div className="flex items-center gap-1">
-          {/* Plain agent name — no switcher caret here. Switching lives on the
-              empty state; the ⋯ menu is a single New-chat action for now (more
-              to come). */}
-          <span className="max-w-[52vw] truncate text-[15px] font-semibold text-foreground">{agent.name}</span>
+          {/* Agent title = the switcher (caret dropdown). The ⋯ menu is a
+              single New-chat action for now — switching lives on the title,
+              not duplicated in the menu. */}
+          <AgentSwitcher
+            agents={agents}
+            currentSlug={agent.slug}
+            onSwitch={handleSwitchAgent}
+            label={agent.name}
+            variant="bar"
+          />
           <ChatMenu onNewChat={handleClear} />
         </div>
       </ShellBarActionsPortal>
