@@ -95,7 +95,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
         </div>
         <div className="mt-2 text-sm leading-relaxed">
           {(toolRuns.length > 0 || streaming || message.thinkingText) && (
-            <WorkTimeline runs={toolRuns} streaming={streaming} activity={activity} thinkingText={message.thinkingText} />
+            <WorkTimeline runs={toolRuns} streaming={streaming} activity={activity} thinkingText={message.thinkingText} documents={message.documents} />
           )}
           {textRuns.map((run, i) => (
             <div key={i} className="prose prose-sm max-w-none dark:prose-invert">
