@@ -34,9 +34,15 @@ async function main(): Promise<void> {
   }
   await ctx.addCookies([{ name: 'vocion_active_project', value: 'proj-revenue-f8429a692aab3703f82a4f15169b8662', domain: new URL(BASE).hostname, path: '/' }]);
 
-  console.warn('create a conversation (short turn)…');
+  console.warn('create a conversation with a NON-default agent (reproduces the reload agent-swap)…');
   await page.goto(`${BASE}/en/dashboard/chat`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
+  const switcher = page.getByLabel('Switch agent').first();
+  if (await switcher.count() > 0) {
+    await switcher.click();
+    await page.getByRole('menuitem', { name: /Founder GTM Lead/i }).click().catch(() => {});
+    await page.waitForTimeout(500);
+  }
   const composer = page.getByPlaceholder(/Message|Ask/i).first();
   await composer.waitFor({ state: 'visible', timeout: 20_000 });
   await composer.fill('Say hi in one short sentence.');

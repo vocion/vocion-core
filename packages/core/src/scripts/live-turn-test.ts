@@ -41,6 +41,12 @@ async function main(): Promise<void> {
   const recs = events.filter(e => e.type === 'recommended_action').map(e => (e.recommendation as { label: string }).label);
   const hits = DUMP_MARKERS.filter(m => res.response.includes(m));
 
+  // Inline citations: markers in the answer + whether emitted docs carry a citationIndex to map them.
+  const citeMarkers = [...new Set(res.response.match(/\[\d{1,3}\](?!\()/g) ?? [])];
+  const emittedDocs = events.filter(e => e.type === 'documents').flatMap(e => (e.documents as Array<{ citationIndex?: number }>) ?? []);
+  const indexedDocs = emittedDocs.filter(d => typeof d.citationIndex === 'number').length;
+  const maxIdx = Math.max(0, ...emittedDocs.map(d => d.citationIndex ?? 0));
+
   // Typed trace analysis — fold trace_node events by id (last status wins).
   type Node = { id: string; parentId?: string; actor: { id: string; kind: string; name: string }; kind: string; status: string; label: string; result?: string; citations?: Array<{ sourceType: string; title: string; actorId: string }> };
   const nodeMap = new Map<string, Node>();
@@ -75,6 +81,7 @@ async function main(): Promise<void> {
   console.warn('tool calls:', res.toolCalls.map(t => t.tool).join(', ') || '(none)');
   console.warn(`recommend_action cards: ${recs.length}${recs.length ? ` → ${JSON.stringify(recs)}` : ' ✗ (none)'}`);
   console.warn('DUMP markers in answer:', hits.length ? `✗ ${JSON.stringify(hits)}` : 'NONE ✓');
+  console.warn(`inline citations: ${citeMarkers.length ? `${citeMarkers.length} distinct ${JSON.stringify(citeMarkers.slice(0, 12))}` : '✗ none'}  · indexed docs: ${indexedDocs} (max [${maxIdx}])`);
   console.warn(`response length: ${res.response.length}`);
 
   console.warn('\n----- TYPED TRACE -----');

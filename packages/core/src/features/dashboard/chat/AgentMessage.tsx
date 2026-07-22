@@ -54,7 +54,16 @@ function formatTime(ts: number | undefined): string {
  * so every completed message — including its markdown parse — skips
  * re-rendering entirely while tokens stream in below it.
  */
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, streaming = false, activity }: AgentMessageProps) => {
+/**
+ * Turn inline `[n]` citation markers the model emits into real markdown links
+ * with a private scheme, so react-markdown's `a` renderer can make them
+ * tappable superscripts. Skips `[n](…)` (already a link) and `[n]:` (link defs).
+ */
+function citeLinkify(text: string): string {
+  return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
+}
+
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity }: AgentMessageProps) => {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
@@ -99,7 +108,30 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           )}
           {textRuns.map((run, i) => (
             <div key={i} className="prose prose-sm max-w-none dark:prose-invert">
-              <Markdown remarkPlugins={[remarkGfm]}>{run.text}</Markdown>
+              <Markdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  a({ href, children, ...props }) {
+                    const m = typeof href === 'string' && href.startsWith('vocion-cite:') ? href.slice('vocion-cite:'.length) : null;
+                    if (m !== null) {
+                      const n = Number(m);
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => onCitationClick?.(n)}
+                          className="mx-0.5 inline-flex items-baseline align-super rounded-sm bg-brand-amber/15 px-1 text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
+                          aria-label={`Open source ${n}`}
+                        >
+                          {n}
+                        </button>
+                      );
+                    }
+                    return <a href={href} target="_blank" rel="noreferrer" {...props}>{children}</a>;
+                  },
+                }}
+              >
+                {citeLinkify(run.text)}
+              </Markdown>
             </div>
           ))}
           {(message.recommendations ?? []).map((rec, i) => (

@@ -14,6 +14,8 @@ export type IndexedDocument = {
   blurb: string;
   metadata?: Record<string, string>;
   updated_at?: string;
+  /** Global 1-based citation number for the turn — matches the inline `[n]` marker in the answer. */
+  citationIndex?: number;
 };
 
 export type ThinkingStep = {
