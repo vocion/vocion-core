@@ -88,15 +88,41 @@ async function main(): Promise<void> {
   }
   await page.waitForTimeout(400);
 
+  // Persistence: reload and confirm the cited sources survive (documents_json
+  // rehydrates) — tapping a citation should open a NON-empty drawer.
+  let survivedReload = false;
+  // Wait for the turn to FULLY finish (Send button back = not streaming) and
+  // the assistant message + documents to persist (SSE `finally`) before reload.
+  await page.getByLabel('Send message').waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {});
+  await page.waitForTimeout(6000);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(5000);
+  const transcriptBack = await page.getByText(new RegExp(MSG.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).count();
+  const supAfter = await page.locator('button[aria-label^="Open source"]').count();
+  const pillAfter = await page.getByText(/Sources ·/i).count();
+  console.warn(`  [reload debug] transcript=${transcriptBack} superscripts=${supAfter} sourcesPill=${pillAfter}`);
+  const citeAfter = page.locator('button[aria-label^="Open source"]').first();
+  if (await citeAfter.count() > 0) {
+    await citeAfter.click();
+    await page.waitForTimeout(1000);
+    const cardsAfter = await page.getByRole('button', { name: /Details/i }).count();
+    survivedReload = cardsAfter > 0;
+  } else if (pillAfter > 0) {
+    await page.getByText(/Sources ·/i).first().click();
+    await page.waitForTimeout(1000);
+    survivedReload = (await page.getByRole('button', { name: /Details/i }).count()) > 0;
+  }
+
   console.warn('\n===== E2E CITATION PROOF =====');
   console.warn(`inline [n] superscripts rendered: ${hasCites ? `YES ✓ (${citeCount})` : 'NO ✗'}`);
   console.warn(`tap opened Sources drawer:        ${drawerOpened ? 'YES ✓' : 'NO ✗'}`);
   console.warn(`drawer focused the tapped source: ${focused ? 'YES ✓' : 'NO ✗'}`);
   console.warn(`card → detail slide-over:         ${detailOpened ? 'YES ✓' : 'NO ✗'}`);
   console.warn(`back → list:                      ${backWorked ? 'YES ✓' : 'NO ✗'}`);
+  console.warn(`sources survive RELOAD:           ${survivedReload ? 'YES ✓' : 'NO ✗'}`);
   console.warn(`screenshot: ${SHOT}`);
   await browser.close();
-  process.exit(hasCites && drawerOpened && detailOpened ? 0 : 2);
+  process.exit(hasCites && drawerOpened && detailOpened && survivedReload ? 0 : 2);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

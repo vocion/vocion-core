@@ -1125,6 +1125,20 @@ export const conversationMessageSchema = pgTable('conversation_message', {
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string }
   >>(),
   /**
+   * Cited/pulled source documents for this assistant turn — so inline `[n]`
+   * citations still resolve (and the Sources drawer repopulates) after a
+   * reload. Nullable for user turns + legacy rows.
+   */
+  documentsJson: jsonb('documents_json').$type<Array<{
+    document_id: string;
+    semantic_identifier: string;
+    link: string;
+    source_type: string;
+    blurb: string;
+    citationIndex?: number;
+    foundBy?: string;
+  }>>(),
+  /**
    * Per-message Langfuse trace id for the assistant turn that
    * produced this row. Populated by AgentService at write time so the
    * chat UI can deep-link to the trace. Nullable for legacy rows + for
