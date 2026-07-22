@@ -16,6 +16,8 @@ export type IndexedDocument = {
   updated_at?: string;
   /** Global 1-based citation number for the turn — matches the inline `[n]` marker in the answer. */
   citationIndex?: number;
+  /** Specialist that surfaced this source (set only when a delegate's search found it). */
+  foundBy?: string;
 };
 
 export type ThinkingStep = {

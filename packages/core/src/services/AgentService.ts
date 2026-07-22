@@ -1014,7 +1014,22 @@ export async function runAgentDeep(opts: {
   const { createLangfuseCallback } = await import('@/libs/Langfuse');
   const { chargeUsage, preflightCheck } = await import('./BudgetService');
 
-  const emit = opts.onEvent ?? (() => {});
+  const rawEmit = opts.onEvent ?? (() => {});
+  // When a DELEGATE's search surfaces sources, tag those documents with the
+  // specialist's name so the Sources drawer can show "via <specialist>".
+  // `activeSpecialist` is set while a subagent's search tool is executing (the
+  // window in which it emits its `documents` event via ctx.emit).
+  let activeSpecialist: string | null = null;
+  const emit = (event: import('./agents/types').AgentEvent): void => {
+    if (event.type === 'documents' && activeSpecialist) {
+      for (const d of event.documents) {
+        if (!d.foundBy) {
+          d.foundBy = activeSpecialist;
+        }
+      }
+    }
+    rawEmit(event);
+  };
 
   // Phase 7 — pre-flight budget check. Refuse the run if the agent
   // is over its hard cap; otherwise proceed.
@@ -1140,8 +1155,18 @@ export async function runAgentDeep(opts: {
       const ev = evUnknown;
 
       // 1) Typed trace nodes for the UI (reason/tool/skill/search/delegate + citations).
-      for (const node of tracer.handle(ev)) {
+      const nodes = tracer.handle(ev);
+      for (const node of nodes) {
         emit(node);
+      }
+      // Track a delegate's active search so its emitted documents get attributed.
+      if (ev.event === 'on_tool_start') {
+        const specialistSearch = nodes.find(n => n.kind === 'search' && n.actor.kind === 'specialist');
+        if (specialistSearch) {
+          activeSpecialist = specialistSearch.actor.name;
+        }
+      } else if (ev.event === 'on_tool_end' && (ev.name === 'search_knowledge' || ev.name === 'web_search')) {
+        activeSpecialist = null;
       }
 
       // 2) Derive the answer + backward-compatible events from the same stream.

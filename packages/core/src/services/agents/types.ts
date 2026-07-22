@@ -24,6 +24,8 @@ export type SearchDocument = {
    * to this source. Stable across multiple searches in one turn.
    */
   citationIndex?: number;
+  /** Display name of the specialist that surfaced this source (set only when a delegate's search found it). */
+  foundBy?: string;
 };
 
 export type SkillResultEventPayload = {
