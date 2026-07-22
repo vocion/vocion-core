@@ -191,15 +191,29 @@ function detailFor(tool: string, args: Record<string, unknown>): string | undefi
   return undefined;
 }
 
-/** Humanize a subagent_type into a display name. */
-function specialistName(subagentType: string): string {
-  if (!subagentType || subagentType === 'general-purpose') {
-    return 'a specialist';
+/**
+ * Best display name for a delegated specialist. The subagent_type is often the
+ * generic 'general-purpose', so first mine the brief for a stated role
+ * ("You are a GTM ROI analyst …" → "GTM ROI Analyst"); fall back to a
+ * humanized subagent_type, then a neutral label.
+ */
+function specialistName(subagentType: string, description = ''): string {
+  const m = description.match(/[Yy]ou are (?:an?|the)\s+([A-Za-z][\w /-]*?(?:analyst|lead|specialist|researcher|writer|manager|strategist|expert|engineer|agent|advisor|assistant))/i);
+  if (m?.[1]) {
+    return m[1]
+      .trim()
+      .replace(/\s+/g, ' ')
+      .split(' ')
+      .map(w => (w.length > 3 || /[A-Z]/.test(w) ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+      .join(' ');
   }
-  return subagentType
-    .split(/[-_]/)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
+  if (subagentType && subagentType !== 'general-purpose') {
+    return subagentType
+      .split(/[-_]/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+  return 'a specialist';
 }
 
 export type TraceEmitterOptions = {
@@ -302,9 +316,10 @@ export class TraceEmitter {
         if (kind === 'delegate') {
           // Record the specialist so its nested events attribute correctly.
           const subagentType = typeof args.subagent_type === 'string' ? args.subagent_type : '';
-          const name = specialistName(subagentType);
+          const description = typeof args.description === 'string' ? args.description : '';
+          const name = specialistName(subagentType, description);
           this.specialists.set(id, { id, kind: 'specialist', name });
-          const brief = typeof args.description === 'string' ? args.description.replace(/\s+/g, ' ').trim().slice(0, 140) : undefined;
+          const brief = description ? description.replace(/\s+/g, ' ').trim().slice(0, 140) : undefined;
           return [{
             type: 'trace_node',
             id,
