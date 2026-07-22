@@ -119,6 +119,8 @@ export async function appendMessage(opts: {
   role: 'user' | 'assistant';
   content: string;
   runs?: ConversationRun[] | null;
+  /** Cited source documents for an assistant turn — persisted so citations survive reload. */
+  documents?: Array<{ document_id: string; semantic_identifier: string; link: string; source_type: string; blurb: string; citationIndex?: number; foundBy?: string }> | null;
   /** The person sending a `user` turn — feeds the adoption stream. */
   userId?: string;
 }) {
@@ -139,6 +141,7 @@ export async function appendMessage(opts: {
       role: opts.role,
       content: opts.content,
       runsJson: opts.runs ?? null,
+      documentsJson: opts.documents && opts.documents.length > 0 ? opts.documents : null,
     })
     .returning();
 

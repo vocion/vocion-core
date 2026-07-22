@@ -534,23 +534,35 @@ export function ChatShell({
           role: 'user' | 'assistant';
           content: string;
           runsJson: unknown;
+          documentsJson: unknown;
           confidence: ChatMessage['confidence'];
         }>;
+        const restoredDocs: IndexedDocument[] = [];
         const hydrated: ChatMessage[] = rows.map((row) => {
           const runsRaw = Array.isArray(row.runsJson) ? (row.runsJson as AgentRun[]) : [];
           const runs = runsRaw.length > 0
             ? runsRaw.map(r => (r.type === 'tool' ? { ...r, state: 'done' as const } : r))
             : (row.role === 'assistant' && row.content ? [{ type: 'text' as const, text: row.content }] : undefined);
+          // Rehydrate cited sources so inline [n] citations still resolve and
+          // the Sources drawer repopulates after a reload.
+          const docs = Array.isArray(row.documentsJson) ? (row.documentsJson as IndexedDocument[]) : undefined;
+          if (docs) {
+            restoredDocs.push(...docs);
+          }
           return {
             role: row.role,
             content: row.content ?? '',
             ...(runs ? { runs } : {}),
+            ...(docs && docs.length > 0 ? { documents: docs } : {}),
             ...(row.confidence ? { confidence: row.confidence } : {}),
           };
         });
         if (hydrated.length > 0) {
           conversationIdRef.current = storedId;
           setMessages(hydrated);
+          if (restoredDocs.length > 0) {
+            setAllDocuments(restoredDocs);
+          }
         } else {
           // Stored id points at an empty/deleted thread — forget it.
           clearActiveConversation(slug);
