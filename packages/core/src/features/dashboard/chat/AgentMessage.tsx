@@ -3,7 +3,7 @@
 import type { AgentRun, ChatMessage, IndexedDocument } from './types';
 import { AlertCircle, FileText } from 'lucide-react';
 import { memo } from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { RecommendedActionCard } from './RecommendedActionCard';
@@ -110,6 +110,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             <div key={i} className="prose prose-sm max-w-none dark:prose-invert">
               <Markdown
                 remarkPlugins={[remarkGfm]}
+                // Keep our private citation scheme; react-markdown's default
+                // sanitizer would strip `vocion-cite:` and drop the link.
+                urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
                 components={{
                   a({ href, children, ...props }) {
                     const m = typeof href === 'string' && href.startsWith('vocion-cite:') ? href.slice('vocion-cite:'.length) : null;

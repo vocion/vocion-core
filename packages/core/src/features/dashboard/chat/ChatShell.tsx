@@ -404,13 +404,17 @@ export function ChatShell({
         // Backfill `content` from the streamed text runs. Streaming only
         // accumulates into `runs`; `conversation_history` reads `content`
         // (and drops empty entries), so without this the agent never sees
-        // its own prior replies and re-answers earlier turns.
+        // its own prior replies and re-answers earlier turns. Also finalize
+        // the trace: any node still "in progress" (e.g. a reason node that
+        // never got a done boundary) would otherwise show a spinner + present
+        // tense ("Thinking") forever after the turn completes.
         appendToLatestAgent(m => ({
           ...m,
           content: m.content || (m.runs ?? [])
             .filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text')
             .map(r => r.text)
             .join('\n\n'),
+          trace: (m.trace ?? []).map(n => (n.status === 'error' ? n : { ...n, status: 'done' as const })),
         }));
         setPhase('idle');
         setActivity(null);
@@ -438,6 +442,8 @@ export function ChatShell({
   // `__search__` entry stays ephemeral — it isn't a real agent, so its
   // turns must not appear in conversation history or agent metrics.
   const conversationIdRef = useRef<number | null>(null);
+  // In-flight turn's abort controller (Stop button).
+  const abortRef = useRef<AbortController | null>(null);
 
   // Resume the agent's saved thread on mount / agent-switch, so navigating
   // away and back doesn't start over. We stash the active id per agent
@@ -590,9 +596,12 @@ export function ChatShell({
     }
     const conversationId = conversationIdRef.current;
 
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const resp = await fetch('/rpc/agent/stream', {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           message: text,
@@ -641,19 +650,41 @@ export function ChatShell({
           .filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text')
           .map(r => r.text)
           .join('\n\n'),
+        trace: (m.trace ?? []).map(n => (n.status === 'error' ? n : { ...n, status: 'done' as const })),
       }));
+      setPhase('idle');
+      setActivity(null);
     } catch (err) {
       flushDeltas();
       setPhase('idle');
+      setActivity(null);
+      // User-initiated Stop (AbortError) is not an error — just finalize the
+      // partial turn cleanly, no error breadcrumb.
+      const aborted = (err as Error).name === 'AbortError';
       appendToLatestAgent(m => ({
         ...m,
-        runs: [
-          ...(m.runs ?? []),
-          { type: 'tool', name: 'error', state: 'error', output: (err as Error).message },
-        ],
+        content: m.content || (m.runs ?? [])
+          .filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text')
+          .map(r => r.text)
+          .join('\n\n'),
+        trace: (m.trace ?? []).map(n => (n.status === 'error' ? n : { ...n, status: aborted ? 'done' as const : n.status })),
+        ...(aborted
+          ? {}
+          : { runs: [...(m.runs ?? []), { type: 'tool' as const, name: 'error', state: 'error' as const, output: (err as Error).message }] }),
       }));
+    } finally {
+      abortRef.current = null;
     }
   }, [agent.slug, messages, isStreaming, handleEvent, appendToLatestAgent, flushDeltas]);
+
+  // Abort the in-flight turn (Stop button). The reader loop throws AbortError,
+  // which the catch above treats as a clean finalize (no error breadcrumb).
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+    flushDeltas();
+    setPhase('idle');
+    setActivity(null);
+  }, [flushDeltas]);
 
   const handlePickSuggestion = useCallback((prompt: string) => {
     setComposerValue(prompt);
@@ -755,21 +786,11 @@ export function ChatShell({
           the account menu, so the conversation canvas stays clean. */}
       <ShellBarActionsPortal>
         <div className="flex items-center gap-1">
-          {/* Persistent agent-switch caret — available mid-conversation, not
-              just on the empty state. Same switcher, compact variant. */}
-          <AgentSwitcher
-            agents={agents}
-            currentSlug={agent.slug}
-            onSwitch={handleSwitchAgent}
-            label={agent.name}
-            variant="bar"
-          />
-          <ChatMenu
-            onNewChat={handleClear}
-            agents={agents}
-            currentSlug={agent.slug}
-            onSwitch={handleSwitchAgent}
-          />
+          {/* Plain agent name — no switcher caret here. Switching lives on the
+              empty state; the ⋯ menu is a single New-chat action for now (more
+              to come). */}
+          <span className="max-w-[52vw] truncate text-[15px] font-semibold text-foreground">{agent.name}</span>
+          <ChatMenu onNewChat={handleClear} />
         </div>
       </ShellBarActionsPortal>
 
@@ -831,6 +852,8 @@ export function ChatShell({
             onChange={setComposerValue}
             onSubmit={() => void sendMessage(composerValue)}
             disabled={isStreaming}
+            streaming={isStreaming}
+            onStop={handleStop}
             placeholder={composerPlaceholder}
           />
         </div>

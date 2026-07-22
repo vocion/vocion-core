@@ -324,6 +324,14 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
   const errors = trace.filter(n => n.status === 'error').length;
   const hasDetail = trace.length > 0;
 
+  // Not every message needs an Activity card. A completed turn where the agent
+  // took no real action (no tools/search/delegation/draft — just a quick
+  // reply) has nothing worth surfacing; hide the "Worked it out · 0 steps"
+  // noise. Keep it while streaming (live status) and whenever there were steps.
+  if (!streaming && steps === 0) {
+    return null;
+  }
+
   const summary = [
     `${steps} step${steps === 1 ? '' : 's'}`,
     specialists > 0 ? `${specialists} specialist${specialists === 1 ? '' : 's'}` : null,
