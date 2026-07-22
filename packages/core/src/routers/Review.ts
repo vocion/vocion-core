@@ -55,11 +55,16 @@ export const listPendingActionsRoute = os.handler(async () => {
   const { orgId } = await guardAuth();
   const { db } = await import('@/libs/DB');
   const { actionRunSchema } = await import('@/models/Schema');
-  const { and, desc, eq } = await import('drizzle-orm');
+  const { and, desc, eq, gt, isNull, or } = await import('drizzle-orm');
   return db
     .select()
     .from(actionRunSchema)
-    .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'pending')))
+    .where(and(
+      eq(actionRunSchema.orgId, orgId),
+      eq(actionRunSchema.status, 'pending'),
+      // Drop stale suggestions — expired items fall out of the queue.
+      or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, new Date())),
+    ))
     .orderBy(desc(actionRunSchema.createdAt))
     .limit(50);
 });
@@ -95,6 +100,10 @@ export const proposeFromRecommendationRoute = os
     agentSlug: z.string().optional(),
     rationale: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
+    /** Upsert key (object type + id + action) — re-surfacing updates in place. */
+    dedupKey: z.string().optional(),
+    /** Days until this suggestion goes stale (drops from the queue). */
+    expiresInDays: z.number().positive().max(90).optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
@@ -107,9 +116,28 @@ export const proposeFromRecommendationRoute = os
       principal: { kind: 'agent', id: agentId, scope: { orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: userId ?? agentId,
       proposal: { confidence: input.confidence, rationale: input.rationale },
+      // Explicit key wins; otherwise derive a stable one from the action + its
+      // primary target so the same owed action doesn't duplicate in the queue.
+      dedupKey: input.dedupKey ?? deriveDedupKey(input.actionId, input.input),
+      expiresAt: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86_400_000) : undefined,
     });
     return res;
   });
+
+/**
+ * Stable upsert key from an action + its input, so re-proposing the same owed
+ * action updates the pending item instead of stacking a duplicate. Keyed on
+ * the action's primary target (recipient for a send, object id for a CRM write).
+ */
+function deriveDedupKey(actionId: string, input: Record<string, unknown>): string | undefined {
+  const s = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : undefined);
+  if (actionId === 'gmail.send') {
+    const to = s(input.to);
+    return to ? `gmail.send:${to}` : undefined;
+  }
+  const objId = s(input.objectId) ?? s(input.object_id) ?? s(input.recordId) ?? s(input.id);
+  return objId ? `${actionId}:${objId}` : undefined;
+}
 
 /** Approve or reject a pending action proposal. */
 export const decideActionRoute = os

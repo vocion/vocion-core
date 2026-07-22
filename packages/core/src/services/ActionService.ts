@@ -60,12 +60,46 @@ export async function proposeAction(input: {
   invokedBy?: string;
   /** Agent-proposal envelope — confidence (0–1), rationale, evidence uris. */
   proposal?: { confidence?: number; rationale?: string; evidence?: string[] };
+  /**
+   * Upsert key for agent-suggested actions — (object type + id + action slug).
+   * If a PENDING action_run already exists for (orgId, dedupKey), it is
+   * UPDATED in place (input/proposal/expiry refreshed) instead of duplicated.
+   */
+  dedupKey?: string;
+  /** When this suggestion goes stale (drops from the queue/brief). */
+  expiresAt?: Date;
 }): Promise<ProposeResult> {
   const action = getAction(input.actionId);
   if (!action) {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${input.actionId}`);
   }
   const parsed = action.inputSchema.parse(input.input);
+
+  // Upsert-by-key: a re-surfaced owed action updates its existing PENDING row
+  // rather than stacking duplicates in the queue. Only PENDING rows dedupe —
+  // a decided (done/rejected) action can be proposed fresh later.
+  if (input.dedupKey) {
+    const [existing] = await db
+      .select({ id: actionRunSchema.id })
+      .from(actionRunSchema)
+      .where(and(
+        eq(actionRunSchema.orgId, input.orgId),
+        eq(actionRunSchema.dedupKey, input.dedupKey),
+        eq(actionRunSchema.status, 'pending'),
+      ))
+      .limit(1);
+    if (existing) {
+      await db
+        .update(actionRunSchema)
+        .set({
+          input: parsed as Record<string, unknown>,
+          proposal: input.proposal ?? null,
+          expiresAt: input.expiresAt ?? null,
+        })
+        .where(eq(actionRunSchema.id, existing.id));
+      return { runId: existing.id, status: 'pending' };
+    }
+  }
 
   let decision;
   try {
@@ -92,6 +126,8 @@ export async function proposeAction(input: {
       invokedBy: input.invokedBy ?? input.principal.id,
       sourceSlug: action.sourceSlug ?? null,
       proposal: input.proposal ?? null,
+      dedupKey: input.dedupKey ?? null,
+      expiresAt: input.expiresAt ?? null,
     })
     .returning({ id: actionRunSchema.id });
 
