@@ -239,11 +239,45 @@ function TraceCitations({ node }: { node: TraceNode }) {
   );
 }
 
+/** The tool/input/result call detail for a tool·search·skill node's drill. */
+function CallDetail({ node }: { node: TraceNode }) {
+  const rows: Array<[string, string]> = [];
+  if (node.tool) {
+    rows.push(['tool', node.tool]);
+  }
+  if (node.args) {
+    rows.push(['input', node.args]);
+  }
+  const resultLine = node.resultDetail ?? node.result;
+  if (resultLine) {
+    rows.push(['result', resultLine]);
+  }
+  if (rows.length === 0) {
+    return null;
+  }
+  return (
+    <span className="mt-1 block max-h-60 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+      {rows.map(([k, v]) => (
+        <span key={k} className="block">
+          <span className="text-muted-foreground/60">{k.padEnd(7)}</span>
+          {v}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** A single trace node row (used at the root and, indented, for delegate children). */
 function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: boolean; open: boolean; onToggle: () => void }) {
   const isReason = node.kind === 'reason';
   const drillText = isReason ? node.text?.trim() : undefined;
-  const hasDrill = Boolean(drillText) || (node.citations?.length ?? 0) > 0;
+  // A tool·search·skill node drills into its call detail (tool / input / result).
+  const hasCallDetail = !isReason && node.kind !== 'delegate' && Boolean(node.tool || node.args || node.resultDetail);
+  const hasCitations = (node.citations?.length ?? 0) > 0;
+  const hasDrill = Boolean(drillText) || hasCallDetail;
+  const drillLabel = drillText
+    ? (open ? 'Hide reasoning' : 'Show reasoning')
+    : (open ? 'Hide call' : 'Show call');
   return (
     <li className={`relative py-1.5 pl-7 ${nested ? 'ml-4 border-l border-border/50' : ''}`}>
       <span className="absolute top-2 left-0 grid size-4 place-items-center"><TraceMarker node={node} /></span>
@@ -255,19 +289,17 @@ function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: 
         {node.actor.kind === 'specialist' && !nested && <span className="text-[10px] text-muted-foreground/60">· {node.actor.name}</span>}
       </div>
       {hasDrill && (
-        <>
-          {drillText && (
-            <button type="button" onClick={onToggle} className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-amber-deep">
-              {open ? 'Hide reasoning' : 'Show reasoning'}
-              <ChevronRight className={`size-3 transition ${open ? 'rotate-90' : ''}`} aria-hidden />
-            </button>
-          )}
-          {drillText && open && (
-            <span className="mt-1 block max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{drillText}</span>
-          )}
-          {!drillText && <TraceCitations node={node} />}
-        </>
+        <button type="button" onClick={onToggle} className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-amber-deep">
+          {drillLabel}
+          <ChevronRight className={`size-3 transition ${open ? 'rotate-90' : ''}`} aria-hidden />
+        </button>
       )}
+      {open && drillText && (
+        <span className="mt-1 block max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{drillText}</span>
+      )}
+      {open && hasCallDetail && <CallDetail node={node} />}
+      {/* Citations always visible under a search node (the sources it surfaced). */}
+      {hasCitations && <TraceCitations node={node} />}
     </li>
   );
 }

@@ -18,6 +18,12 @@ export type SearchDocument = {
   blurb: string;
   metadata?: Record<string, unknown>;
   updated_at?: string;
+  /**
+   * Global 1-based citation number for THIS turn — matches the `[n]` marker
+   * the model is instructed to cite inline, so the UI can map a tapped marker
+   * to this source. Stable across multiple searches in one turn.
+   */
+  citationIndex?: number;
 };
 
 export type SkillResultEventPayload = {
@@ -102,6 +108,12 @@ export type TraceNodeEvent = {
   label: string;
   /** Input summary — the query, the record type, the delegate brief. Never a raw dump. */
   detail?: string;
+  /** Raw tool name (e.g. `lookup_objects`) — shown in the call-detail drill. */
+  tool?: string;
+  /** Compact input args for the call-detail drill (e.g. `{"type_slug":"follow-up"}`). Never a raw dump. */
+  args?: string;
+  /** Curated result preview for the drill — record names / hit titles, never raw JSON. */
+  resultDetail?: string;
   /** Incremental text for `reason`/`progress` nodes; the renderer appends. */
   delta?: string;
   /** Output summary — a count or short synopsis. Never a raw dump. */

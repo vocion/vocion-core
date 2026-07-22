@@ -54,7 +54,7 @@ describe('traceEmitter — lead work', () => {
   it('emits a search node with citations on tool end, attributed to the lead', () => {
     const em = new TraceEmitter({ leadName: 'Lead' });
     const start = em.handle({ event: 'on_tool_start', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s1' }, data: { input: { input: '{"query":"Gauge follow-up"}' } } });
-    expect(start[0]).toMatchObject({ kind: 'search', status: 'start', detail: '"Gauge follow-up"' });
+    expect(start[0]).toMatchObject({ kind: 'search', status: 'start', detail: '"Gauge follow-up"', tool: 'search_knowledge', args: '{"query":"Gauge follow-up"}' });
     expect(start[0]?.label).toBe('Searching "Gauge follow-up"');
 
     const end = em.handle({ event: 'on_tool_end', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s1' }, data: { output: { content: '[1] **Gauge <> metacto** [granola] pipeline talk' } } });
@@ -68,6 +68,13 @@ describe('traceEmitter — lead work', () => {
     const out = em.handle({ event: 'on_tool_start', name: 'run_operation', metadata: { checkpoint_ns: 'tools:op1' }, data: { input: { input: '{"operation":"draft_follow_up"}' } } });
     expect(out[0]).toMatchObject({ kind: 'skill', status: 'start', detail: 'draft_follow_up' });
     expect(out[0]?.label).toBe('Running draft_follow_up');
+  });
+
+  it('carries a record-name preview on lookup_objects for the call drill', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    em.handle({ event: 'on_tool_start', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:l1' }, data: { input: { input: '{"type_slug":"follow-up"}' } } });
+    const end = em.handle({ event: 'on_tool_end', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:l1' }, data: { output: { content: '[{"contact":"Sam Smith"},{"contact":"Jim Lott"}]' } } });
+    expect(end[0]).toMatchObject({ kind: 'tool', result: '2 records', resultDetail: 'Sam Smith, Jim Lott' });
   });
 
   it('drops plumbing tools (write_todos, ls, …)', () => {
