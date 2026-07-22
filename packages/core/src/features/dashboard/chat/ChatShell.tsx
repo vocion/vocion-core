@@ -134,6 +134,14 @@ export function ChatShell({
   // Live activity line — what the team is doing RIGHT NOW during a long turn
   // (retrieval, subagent delegation, tool runs). Cleared once text streams.
   const [activity, setActivity] = useState<string | null>(null);
+  // Boot gate — a reload used to flash through 4 states (default agent →
+  // skeleton chips → chips → transcript). We hold a single stable skeleton
+  // until the restore-agent + resume-conversation sequence settles, then
+  // reveal the final view (transcript OR empty state) in one transition.
+  // `resuming` = a stored conversation will hydrate, so don't show the empty
+  // state's chips at all — show a transcript skeleton straight to transcript.
+  const [booted, setBooted] = useState(false);
+  const [resuming, setResuming] = useState(false);
 
   // Callers (`chat/page.tsx`) guarantee at least one entry — the virtual
   // SEARCH_ONLY_AGENT is always appended. `agentSlug` defaults to the
@@ -438,6 +446,14 @@ export function ChatShell({
   // On mount (refresh/navigate-back), restore the last agent the user was on
   // — otherwise a reload snaps back to the workspace default (Director). This
   // changes agent.slug, which drives the resume effect below for that agent.
+  // Once the boot sequence settles (agent restored + conversation resumed or
+  // confirmed empty), reveal the final view. Idempotent — safe to call on
+  // every resolution path.
+  const settleBoot = useCallback(() => {
+    setResuming(false);
+    setBooted(true);
+  }, []);
+
   const restoredAgentRef = useRef(false);
   useEffect(() => {
     if (restoredAgentRef.current) {
@@ -445,10 +461,18 @@ export function ChatShell({
     }
     restoredAgentRef.current = true;
     const stored = readActiveAgent();
-    if (stored && stored !== agent.slug && agents.some(a => a.slug === stored)) {
-      setCurrentSlug(stored);
+    const target = (stored && agents.some(a => a.slug === stored)) ? stored : agent.slug;
+    if (target !== agent.slug) {
+      setCurrentSlug(target);
     }
-  }, [agents, agent.slug]);
+    // If a saved thread exists for the target agent, hold the empty state and
+    // let the resume effect reveal the transcript directly (no chip flash).
+    if (target !== '__search__' && readActiveConversation(target) !== null) {
+      setResuming(true);
+    } else {
+      settleBoot();
+    }
+  }, [agents, agent.slug, settleBoot]);
 
   const hydratedSlugRef = useRef<string | null>(null);
   useEffect(() => {
@@ -460,6 +484,7 @@ export function ChatShell({
     if (freshSwitchRef.current) {
       // Explicit switch to this agent — fresh chat, no resume.
       freshSwitchRef.current = false;
+      settleBoot();
       return;
     }
     let handoffPending = false;
@@ -469,10 +494,12 @@ export function ChatShell({
       /* ignore */
     }
     if (handoffPending) {
+      settleBoot();
       return;
     }
     const storedId = readActiveConversation(slug);
     if (storedId === null) {
+      settleBoot();
       return;
     }
     let cancelled = false;
@@ -506,17 +533,19 @@ export function ChatShell({
           // Stored id points at an empty/deleted thread — forget it.
           clearActiveConversation(slug);
         }
+        settleBoot();
       })
       .catch(() => {
         // Thread gone/inaccessible — forget it so we start clean.
         if (!cancelled) {
           clearActiveConversation(slug);
+          settleBoot();
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [agent.slug, isSearchOnly]);
+  }, [agent.slug, isSearchOnly, settleBoot]);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) {
@@ -724,33 +753,46 @@ export function ChatShell({
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col">
-          {messages.length === 0
+          {!booted || (resuming && messages.length === 0)
             ? (
-                <EmptyState
-                  greeting={emptyGreeting}
-                  suggestions={emptyChips}
-                  suggestionsLoading={emptyChipsLoading}
-                  onPick={handlePickSuggestion}
-                  titleSlot={(
-                    <AgentSwitcher
-                      agents={agents}
-                      currentSlug={agent.slug}
-                      onSwitch={handleSwitchAgent}
-                      label={emptyGreeting?.workspace ?? agent.name}
-                      variant="title"
-                    />
-                  )}
-                />
+                // One stable skeleton until the restore + resume settles, so a
+                // reload reveals the final view in a single transition instead
+                // of flashing default-agent → chips → transcript.
+                <div className="flex flex-1 flex-col justify-end gap-4 px-4 py-6" aria-hidden>
+                  {[80, 55, 68].map((w, i) => (
+                    <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
+                      <div className="h-16 animate-pulse rounded-2xl bg-muted/50" style={{ width: `${w}%` }} />
+                    </div>
+                  ))}
+                </div>
               )
-            : (
-                <MessageList
-                  messages={messages}
-                  agentName={agent.name}
-                  streaming={isStreaming}
-                  activity={activity}
-                  onShowSources={() => setSourcesOpen(true)}
-                />
-              )}
+            : messages.length === 0
+              ? (
+                  <EmptyState
+                    greeting={emptyGreeting}
+                    suggestions={emptyChips}
+                    suggestionsLoading={emptyChipsLoading}
+                    onPick={handlePickSuggestion}
+                    titleSlot={(
+                      <AgentSwitcher
+                        agents={agents}
+                        currentSlug={agent.slug}
+                        onSwitch={handleSwitchAgent}
+                        label={emptyGreeting?.workspace ?? agent.name}
+                        variant="title"
+                      />
+                    )}
+                  />
+                )
+              : (
+                  <MessageList
+                    messages={messages}
+                    agentName={agent.name}
+                    streaming={isStreaming}
+                    activity={activity}
+                    onShowSources={() => setSourcesOpen(true)}
+                  />
+                )}
 
           {pendingHitl && (
             <HitlGate
