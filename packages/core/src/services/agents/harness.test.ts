@@ -91,7 +91,9 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
 
     // The authored JSONB subagent survives AND wins its name collision
     // with the marketing team's lead — the team-table entry is skipped.
-    expect(names).toEqual(['marketing-lead', 'revenue-lead']);
+    // A `general-purpose` subagent carrying the never-dump discipline is
+    // injected last on every agent (harness.ts) so delegate work synthesizes.
+    expect(names).toEqual(['marketing-lead', 'revenue-lead', 'general-purpose']);
     expect(subagents[0]).toMatchObject({ description: 'Authored marketing subagent', systemPrompt: 'authored prompt' });
 
     // The merged team lead carries its TEAM in the description (the
@@ -117,8 +119,10 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
 
     const { subagents, systemPrompt } = graphOptions();
 
-    expect(subagents).toEqual([]);
-    expect(systemPrompt).toBe('You lead RevOps.');
+    // No team merge for a non-workspace-lead — only the injected discipline subagent.
+    expect(subagents.map(s => s.name)).toEqual(['general-purpose']);
+    // The authored prompt leads; the shared OUTPUT_DISCIPLINE is appended.
+    expect(systemPrompt).toContain('You lead RevOps.');
   });
 
   it('compiles from JSONB alone when no workspace lead is configured', async () => {
@@ -127,8 +131,8 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
 
     const { subagents, systemPrompt } = graphOptions();
 
-    expect(subagents.map(s => s.name)).toEqual(['marketing-lead']);
-    expect(systemPrompt).toBe('You run the whole revenue workspace.');
+    expect(subagents.map(s => s.name)).toEqual(['marketing-lead', 'general-purpose']);
+    expect(systemPrompt).toContain('You run the whole revenue workspace.');
   });
 
   it('serves the compiled graph from the LRU until resetAgentRuntimeCache (the post-apply flush)', async () => {
