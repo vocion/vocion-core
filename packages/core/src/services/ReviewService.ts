@@ -223,7 +223,14 @@ export async function decide(
       } else {
         await rejectAction(item.id, orgId, opts?.reason);
       }
-      trackDecision(item, action, orgId, reviewedBy);
+      // Typed signal: edit-then-approve is a distinct signal from a clean
+      // approve (the operator changed the wording → weaker tone match).
+      await recordActionSignal({
+        orgId,
+        runId: item.id,
+        userId: reviewedBy,
+        signal: action === 'approve' ? (opts?.editedInput ? 'edit' : 'approve') : 'reject',
+      }).catch(() => {});
       // The decision is training signal: record what a good/bad proposal
       // looks like in the `crm-updates` learning step so agents check their
       // next proposals against real operator judgment. Never blocks the
@@ -257,6 +264,85 @@ function trackDecision(
       action === 'approve' ? 'approved' : 'rejected',
     );
   })();
+}
+
+/** Every distinct triage decision on an agent-suggested action. */
+export type ActionSignal = 'approve' | 'edit' | 'reject' | 'skip' | 'save' | 'rewrite';
+
+const SIGNAL_TO_DECISION = {
+  approve: 'approved',
+  edit: 'edited',
+  reject: 'rejected',
+  skip: 'skipped',
+  save: 'saved',
+  rewrite: 'rewritten',
+} as const;
+
+/**
+ * Record a TYPED triage signal on the adoption stream — approve/edit/reject
+ * are terminal; skip/save leave the item pending; rewrite = the human asked AI
+ * to redo the draft. Distinct signals so downstream scoring/alignment + the
+ * per-user tone prompt can weight them differently (an edit or rewrite says
+ * "close but wrong voice"; a reject says "wrong call"). Fire-and-forget.
+ */
+export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string }): Promise<void> {
+  try {
+    const [run] = await db
+      .select({ invokedBy: actionRunSchema.invokedBy, actionId: actionRunSchema.actionId })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
+      .limit(1);
+    const agentSlug = run?.invokedBy?.startsWith('agent:') ? run.invokedBy.slice('agent:'.length) : undefined;
+    const { track } = await import('@/services/adoption/track');
+    // Scope dimensions travel together: userId (individual) + orgId (workspace)
+    // on the actor, actionId (action type) in meta.
+    await track({ orgId: opts.orgId, userId: opts.userId ?? 'web' }, 'review.decided', {
+      agentSlug,
+      resource: ['action_run', opts.runId],
+      meta: { kind: 'action', decision: SIGNAL_TO_DECISION[opts.signal], ...(run?.actionId ? { actionId: run.actionId } : {}), ...(opts.hint ? { hint: opts.hint } : {}) },
+    });
+  } catch {
+    /* signal capture never blocks the decision */
+  }
+}
+
+/**
+ * Rewrite-with-AI on a pending action's draft. Returns the rewritten input
+ * (NOT persisted — the human reviews it, then Send with editedInput) and
+ * records a `rewrite` signal. The rewrite instruction is itself a tone signal:
+ * the human wanted the agent's wording changed.
+ */
+export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: string; userId?: string }): Promise<{ input: Record<string, unknown>; body: string }> {
+  const [run] = await db
+    .select({ input: actionRunSchema.input, actionId: actionRunSchema.actionId })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId), eq(actionRunSchema.status, 'pending')))
+    .limit(1);
+  if (!run) {
+    throw new Error(`no pending action ${opts.runId}`);
+  }
+  const input = (run.input ?? {}) as Record<string, unknown>;
+  const original = String(input.body ?? input.notes ?? '');
+  const { buildChatModel } = await import('@/libs/llm');
+  const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+  const model = buildChatModel('main', { temperature: 0.4, streaming: false, maxTokens: 1200 });
+  // Generic house-style rewrite — no workspace-specific voice baked into core.
+  // (The learned per-user tone prompt, when built, will supply the voice.)
+  const sys = 'You rewrite an outbound draft in the sender\'s established voice: concise, specific, no filler or "just checking in". Preserve the core ask and any concrete details/names. It stays a DRAFT for human review. Return ONLY the rewritten text, no preamble.';
+  const user = `${opts.hint ? `Instruction: ${opts.hint}\n\n` : ''}Rewrite this:\n\n${original}`;
+  let rewritten = original;
+  try {
+    const res = await model.invoke([new SystemMessage(sys), new HumanMessage(user)], { signal: AbortSignal.timeout(20_000) });
+    const out = typeof res.content === 'string'
+      ? res.content
+      : (Array.isArray(res.content) ? res.content.map(c => (c as { text?: string }).text ?? '').join('') : '');
+    rewritten = out.trim() || original;
+  } catch {
+    rewritten = original;
+  }
+  await recordActionSignal({ orgId: opts.orgId, runId: opts.runId, signal: 'rewrite', userId: opts.userId, hint: opts.hint });
+  const key = input.body !== undefined ? 'body' : 'notes';
+  return { input: { ...input, [key]: rewritten }, body: rewritten };
 }
 
 /**

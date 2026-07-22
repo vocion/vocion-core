@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Bookmark, Check, Loader2, SkipForward, X } from 'lucide-react';
+import { ArrowRight, Bookmark, Check, Loader2, SkipForward, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { client } from '@/libs/Orpc';
@@ -55,6 +55,8 @@ export function ActionQueueTriage({ open, onClose, onDone }: ActionQueueTriagePr
   const [items, setItems] = useState<ActionRun[]>([]);
   const [idx, setIdx] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [rewriting, setRewriting] = useState(false);
+  const [hint, setHint] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [edit, setEdit] = useState<EmailEdit | null>(null);
   const tally = useRef<Record<Outcome, number>>({ sent: 0, saved: 0, skipped: 0, rejected: 0 });
@@ -81,6 +83,7 @@ export function ActionQueueTriage({ open, onClose, onDone }: ActionQueueTriagePr
 
   // Seed the editable fields when the card changes.
   useEffect(() => {
+    setHint('');
     if (current && isEmail(current)) {
       setEdit({ to: String(current.input.to ?? ''), subject: String(current.input.subject ?? ''), body: String(current.input.body ?? '') });
     } else {
@@ -105,10 +108,30 @@ export function ActionQueueTriage({ open, onClose, onDone }: ActionQueueTriagePr
       } finally {
         setBusy(false);
       }
+    } else {
+      // Save / Skip leave the item pending but are still TYPED signals.
+      void client.review.recordSignal({ runId: current.id, signal: outcome === 'saved' ? 'save' : 'skip' }).catch(() => {});
     }
-    // Save + Skip leave the item pending; all outcomes advance the stepper.
     advance();
   }, [current, edit, advance]);
+
+  // Rewrite-with-AI: ask the model to redo the draft (optionally per a hint).
+  // The rewrite itself is a tone signal, recorded server-side.
+  const onRewrite = useCallback(async () => {
+    if (!current || !isEmail(current)) {
+      return;
+    }
+    setRewriting(true);
+    try {
+      const res = await client.review.rewriteDraft({ runId: current.id, hint: hint.trim() || undefined });
+      setEdit(e => (e ? { ...e, body: res.body } : e));
+      setHint('');
+    } catch {
+      /* keep the current draft */
+    } finally {
+      setRewriting(false);
+    }
+  }, [current, hint]);
 
   if (!open) {
     return null;
@@ -187,9 +210,24 @@ export function ActionQueueTriage({ open, onClose, onDone }: ActionQueueTriagePr
                           className="min-h-32 w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-sm leading-relaxed outline-none focus:border-brand-amber"
                           value={edit.body}
                           onChange={ev => setEdit(e => (e ? { ...e, body: ev.target.value } : e))}
-                          disabled={busy}
+                          disabled={busy || rewriting}
                         />
                       </label>
+                      {/* Rewrite with AI — optional hint, then a rewrite pass. */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-brand-amber"
+                          placeholder="Rewrite hint (optional) — e.g. shorter, warmer"
+                          value={hint}
+                          onChange={ev => setHint(ev.target.value)}
+                          disabled={busy || rewriting}
+                          onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); void onRewrite(); } }}
+                        />
+                        <Button size="sm" variant="outline" onClick={() => void onRewrite()} disabled={busy || rewriting}>
+                          {rewriting ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                          Rewrite
+                        </Button>
+                      </div>
                     </div>
                   )
                 : (

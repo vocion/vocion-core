@@ -77,8 +77,10 @@ import {
   listPendingSkillRuns,
   listWorkflowRunsRoute,
   proposeFromRecommendationRoute,
+  recordSignalRoute,
   reject,
   resume,
+  rewriteDraftRoute,
   submitFeedback,
 } from './Review';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
@@ -184,6 +186,8 @@ export const router = {
     listAutoExecuted: listAutoExecutedRoute,
     decideAction: decideActionRoute,
     propose: proposeFromRecommendationRoute,
+    recordSignal: recordSignalRoute,
+    rewriteDraft: rewriteDraftRoute,
     getSkillRun: getRun,
     approveSkillRun: approve,
     rejectSkillRun: reject,
