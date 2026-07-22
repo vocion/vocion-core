@@ -33,9 +33,23 @@ const KEEPALIVE_INTERVAL_MS = 15_000;
  * assistant turn can be persisted at end-of-stream. Mirrors rev-ai's
  * `_RunCollector` (server/main.py:1182-1212).
  */
+type CollectedDoc = { document_id: string; semantic_identifier: string; link: string; source_type: string; blurb: string; citationIndex?: number; foundBy?: string };
+
 class RunCollector {
   private runs: ConversationRun[] = [];
   private currentText: string | null = null;
+  private documents: CollectedDoc[] = [];
+  private readonly docKeys = new Set<string>();
+
+  onDocuments(docs: CollectedDoc[]): void {
+    for (const d of docs) {
+      const key = `${d.citationIndex ?? ''}:${d.document_id}:${d.semantic_identifier}`;
+      if (!this.docKeys.has(key)) {
+        this.docKeys.add(key);
+        this.documents.push(d);
+      }
+    }
+  }
 
   onTextDelta(delta: string): void {
     if (!delta) {
@@ -70,14 +84,14 @@ class RunCollector {
     }
   }
 
-  finalise(): { text: string; runs: ConversationRun[] } {
+  finalise(): { text: string; runs: ConversationRun[]; documents: CollectedDoc[] } {
     this.flushText();
     const text = this.runs
       .filter((r): r is { type: 'text'; text: string } => r.type === 'text')
       .map(r => r.text)
       .join('\n\n')
       .trim();
-    return { text, runs: this.runs };
+    return { text, runs: this.runs, documents: this.documents };
   }
 }
 
@@ -176,6 +190,8 @@ export async function POST(request: Request): Promise<Response> {
             collector.onToolStart(event.tool, event.input);
           } else if (event.type === 'tool_end') {
             collector.onToolEnd(event.tool, event.output);
+          } else if (event.type === 'documents') {
+            collector.onDocuments(event.documents as CollectedDoc[]);
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -203,7 +219,7 @@ export async function POST(request: Request): Promise<Response> {
         clearInterval(keepaliveTimer);
         // Persist the assistant turn now that the stream is closing.
         if (collector && conversationId !== null) {
-          const { text, runs } = collector.finalise();
+          const { text, runs, documents } = collector.finalise();
           if (text || runs.length > 0) {
             try {
               await appendMessage({
@@ -212,6 +228,7 @@ export async function POST(request: Request): Promise<Response> {
                 role: 'assistant',
                 content: text,
                 runs,
+                documents,
               });
             } catch {
               /* conversation may have been deleted mid-stream */
