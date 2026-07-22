@@ -141,6 +141,39 @@ export function parseCitations(content: string, actorId: string): TraceCitation[
   return out;
 }
 
+/** Compact one-line view of tool args for the call-detail drill (never a dump). */
+function argsPreview(args: Record<string, unknown>): string | undefined {
+  const keys = Object.keys(args);
+  if (keys.length === 0) {
+    return undefined;
+  }
+  const compact: Record<string, unknown> = {};
+  for (const k of keys) {
+    const v = args[k];
+    compact[k] = typeof v === 'string' && v.length > 80 ? `${v.slice(0, 77)}…` : v;
+  }
+  const s = JSON.stringify(compact);
+  return s.length > 200 ? `${s.slice(0, 197)}…` : s;
+}
+
+/** lookup_objects returns a JSON array — pull the record names for the drill. */
+function recordNames(content: string): string | undefined {
+  try {
+    const arr = JSON.parse(content) as Array<Record<string, unknown>>;
+    if (!Array.isArray(arr) || arr.length === 0) {
+      return undefined;
+    }
+    const names = arr.map(r => String(r.contact ?? r.title ?? r.name ?? '').trim()).filter(Boolean);
+    if (names.length === 0) {
+      return undefined;
+    }
+    const shown = names.slice(0, 8).join(', ');
+    return names.length > 8 ? `${shown} +${names.length - 8} more` : shown;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Classify a tool name into a trace-node kind. */
 function kindFor(tool: string): TraceNodeKind {
   if (tool === 'task') {
@@ -348,6 +381,8 @@ export class TraceEmitter {
           status: 'start',
           label: labelFor(kind, 'start', subject),
           detail,
+          tool,
+          args: argsPreview(args),
         }];
       }
 
@@ -377,13 +412,15 @@ export class TraceEmitter {
 
         let citations: TraceCitation[] | undefined;
         let result: string | undefined;
+        let resultDetail: string | undefined;
         if (kind === 'search') {
           const parsed = parseCitations(content, actor.id);
           citations = this.recordCitations(parsed);
           result = parsed.length ? `${parsed.length} source${parsed.length === 1 ? '' : 's'}` : 'no matches';
         } else if (tool === 'lookup_objects') {
-          const count = (content.match(/"title"/g) ?? []).length;
+          const count = (content.match(/"title"|"contact"/g) ?? []).length;
           result = count ? `${count} record${count === 1 ? '' : 's'}` : undefined;
+          resultDetail = recordNames(content);
         }
 
         const subject = this.nodeSubjects.get(id) ?? tool;
@@ -396,6 +433,7 @@ export class TraceEmitter {
           status: 'done',
           label: labelFor(kind, 'done', subject),
           result,
+          resultDetail,
           citations: citations && citations.length ? citations : undefined,
         }];
       }

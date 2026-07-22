@@ -310,6 +310,10 @@ export function ChatShell({
           text: (prev?.text ?? '') + (n.delta ?? ''),
           citations: n.citations ?? prev?.citations,
           result: n.result ?? prev?.result,
+          resultDetail: n.resultDetail ?? prev?.resultDetail,
+          tool: n.tool ?? prev?.tool,
+          args: n.args ?? prev?.args,
+          detail: n.detail ?? prev?.detail,
         };
         delete (merged as { delta?: string }).delta;
         map.set(n.id, merged);

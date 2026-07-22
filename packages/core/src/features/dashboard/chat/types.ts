@@ -61,6 +61,10 @@ export type TraceNode = {
   status: 'start' | 'progress' | 'done' | 'error';
   label: string;
   detail?: string;
+  /** Raw tool name + compact args + curated result preview for the call-detail drill. */
+  tool?: string;
+  args?: string;
+  resultDetail?: string;
   /** Accumulated reasoning text (from `delta` progress events). */
   text?: string;
   result?: string;
