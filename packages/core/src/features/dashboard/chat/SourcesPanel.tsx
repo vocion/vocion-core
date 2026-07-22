@@ -2,6 +2,7 @@
 
 import type { IndexedDocument } from './types';
 import { ExternalLink, FileText, X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { sourceColors, sourceLabels } from './helpers';
 
 /**
@@ -19,9 +20,17 @@ export type SourcesPanelProps = {
   documents: IndexedDocument[];
   open: boolean;
   onClose: () => void;
+  /** Citation number (`[n]`) to scroll to + highlight when the panel opens from an inline citation tap. */
+  focusCitation?: number | null;
 };
 
-export function SourcesPanel({ documents, open, onClose }: SourcesPanelProps) {
+export function SourcesPanel({ documents, open, onClose, focusCitation }: SourcesPanelProps) {
+  const focusRef = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    if (open && focusCitation != null && focusRef.current) {
+      focusRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [open, focusCitation]);
   if (!open) {
     return null;
   }
@@ -70,13 +79,15 @@ export function SourcesPanel({ documents, open, onClose }: SourcesPanelProps) {
                 {documents.map((doc, i) => {
                   const color = sourceColors[doc.source_type] ?? '#666';
                   const label = sourceLabels[doc.source_type] ?? doc.source_type;
+                  const num = doc.citationIndex ?? i + 1;
+                  const focused = focusCitation != null && num === focusCitation;
                   return (
-                    <li key={`${doc.document_id}-${i}`}>
+                    <li key={`${doc.document_id}-${i}`} ref={focused ? focusRef : undefined}>
                       <a
                         href={doc.link}
                         target="_blank"
                         rel="noreferrer"
-                        className="group flex flex-col gap-2 rounded-lg border border-border bg-background p-3 transition hover:border-brand-amber/40 hover:shadow-sm"
+                        className={`group flex flex-col gap-2 rounded-lg border bg-background p-3 transition hover:border-brand-amber/40 hover:shadow-sm ${focused ? 'border-brand-amber ring-2 ring-brand-amber/40' : 'border-border'}`}
                       >
                         <div className="flex items-center gap-2">
                           <span
@@ -88,7 +99,7 @@ export function SourcesPanel({ documents, open, onClose }: SourcesPanelProps) {
                           </span>
                           <span className="text-[10px] text-muted-foreground">
                             [
-                            {i + 1}
+                            {num}
                             ]
                           </span>
                           <ExternalLink

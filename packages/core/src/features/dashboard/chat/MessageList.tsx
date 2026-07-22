@@ -30,12 +30,14 @@ export type MessageListProps = {
   activity?: string | null;
   /** Opens the Sources drawer when a message's "Sources · N" pill is clicked. */
   onShowSources?: () => void;
+  /** Opens the Sources drawer focused on citation `[n]` when an inline marker is tapped. */
+  onCitationClick?: (n: number) => void;
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, streaming = false, activity, onShowSources }: MessageListProps) {
+export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
   // position changes must never themselves cause a re-render.
@@ -85,6 +87,7 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
                 streaming={streaming && i === lastIdx}
                 activity={i === lastIdx ? activity : undefined}
                 onShowSources={onShowSources}
+                onCitationClick={onCitationClick}
               />
             ))}
       </div>

@@ -129,6 +129,7 @@ export function ChatShell({
   const [phase, setPhase] = useState<StreamingPhase>('idle');
   const [pendingHitl, setPendingHitl] = useState<HitlGatePayload | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [focusCitation, setFocusCitation] = useState<number | null>(null);
   const [allDocuments, setAllDocuments] = useState<IndexedDocument[]>([]);
   const [currentSlug, setCurrentSlug] = useState<string | undefined>(agentSlug);
   // Live activity line — what the team is doing RIGHT NOW during a long turn
@@ -458,6 +459,11 @@ export function ChatShell({
     setBooted(true);
   }, []);
 
+  // The agent we're booting toward (stored or default). Set synchronously in
+  // the restore effect; the hydrate effect only settles boot for THIS slug, so
+  // a hydrate pass for the pre-restore (default) slug can't prematurely reveal
+  // the empty-state chips before the swap-to-restored-agent completes.
+  const bootTargetRef = useRef<string | null>(null);
   const restoredAgentRef = useRef(false);
   useEffect(() => {
     if (restoredAgentRef.current) {
@@ -466,6 +472,7 @@ export function ChatShell({
     restoredAgentRef.current = true;
     const stored = readActiveAgent();
     const target = (stored && agents.some(a => a.slug === stored)) ? stored : agent.slug;
+    bootTargetRef.current = target;
     if (target !== agent.slug) {
       setCurrentSlug(target);
     }
@@ -503,7 +510,12 @@ export function ChatShell({
     }
     const storedId = readActiveConversation(slug);
     if (storedId === null) {
-      settleBoot();
+      // Only reveal the empty state for the agent we're actually booting toward.
+      // A hydrate pass for the pre-restore (default) slug must NOT settle — the
+      // restore effect is about to swap us to the real agent, which resumes.
+      if (bootTargetRef.current === null || slug === bootTargetRef.current) {
+        settleBoot();
+      }
       return;
     }
     let cancelled = false;
@@ -727,6 +739,12 @@ export function ChatShell({
     setCurrentSlug(slug);
   }, [resetTranscript]);
 
+  // Inline citation tap — open the Sources drawer focused on that `[n]`.
+  const handleCitationClick = useCallback((n: number) => {
+    setFocusCitation(n);
+    setSourcesOpen(true);
+  }, []);
+
   /* --------------------------------------------------------------- */
   /* Render                                                          */
   /* --------------------------------------------------------------- */
@@ -794,7 +812,8 @@ export function ChatShell({
                     agentName={agent.name}
                     streaming={isStreaming}
                     activity={activity}
-                    onShowSources={() => setSourcesOpen(true)}
+                    onShowSources={() => { setFocusCitation(null); setSourcesOpen(true); }}
+                    onCitationClick={handleCitationClick}
                   />
                 )}
 
@@ -820,6 +839,7 @@ export function ChatShell({
           documents={allDocuments}
           open={sourcesOpen && allDocuments.length > 0}
           onClose={() => setSourcesOpen(false)}
+          focusCitation={focusCitation}
         />
       </div>
     </div>

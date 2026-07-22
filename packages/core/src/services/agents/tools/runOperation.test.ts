@@ -11,6 +11,7 @@ function makeCtx(overrides: Partial<RuntimeContext> = {}): { ctx: RuntimeContext
   const events: AgentEvent[] = [];
   const ctx: RuntimeContext = {
     orgId: 'org_test',
+    citationSeq: { current: 0 },
     agentSlug: 'hiring-manager',
     connectorSources: [],
     objectTypeSlugs: [],

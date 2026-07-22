@@ -217,4 +217,11 @@ export type RuntimeContext = {
    * implementations call this; the runtime forwards to the SSE client.
    */
   emit: (event: AgentEvent) => void;
+  /**
+   * Per-turn global citation counter. `search_knowledge` allocates a
+   * contiguous block for each call so the `[n]` numbers the model sees (and
+   * is instructed to cite inline) stay unique + stable across multiple
+   * searches in one turn. Reset per request in `bindRequestEmit`.
+   */
+  citationSeq: { current: number };
 };
