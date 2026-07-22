@@ -1791,11 +1791,27 @@ export const actionRunSchema = pgTable(
      * Surfaced in the review queue + daily brief; feeds the trust ladder.
      */
     proposal: jsonb('proposal').$type<{ confidence?: number; rationale?: string; evidence?: string[]; autoApproved?: boolean; autoApprovedThreshold?: number }>(),
+    /**
+     * Idempotency/upsert key for agent-suggested actions — the review-card
+     * system keys on (object type + object id + action slug), e.g.
+     * `follow-up:1234:gmail.send`. Re-surfacing the same owed action UPDATES
+     * the existing PENDING row instead of piling up duplicates. Nullable:
+     * direct/ad-hoc proposals don't set it.
+     */
+    dedupKey: text('dedup_key'),
+    /**
+     * When this suggestion goes stale and should drop out of the queue /
+     * daily brief / todo recommendations. Nullable = never expires.
+     */
+    expiresAt: timestamp('expires_at', { mode: 'date' }),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     executedAt: timestamp('executed_at', { mode: 'date' }),
   },
   table => [
     index('action_run_org_status_idx').on(table.orgId, table.status),
+    // Lookup for upsert-by-key (dedupe only pending items in code, so a decided
+    // action can be re-proposed later — hence a plain index, not unique).
+    index('action_run_dedup_idx').on(table.orgId, table.dedupKey),
   ],
 );
 
