@@ -116,4 +116,15 @@ describe('traceEmitter — delegation + nested specialist work', () => {
     // The specialist's citation bubbled up to the message-level set.
     expect(em.citations().some(c => c.actorId === TASK_ID && c.sourceType === 'hubspot')).toBe(true);
   });
+
+  it('mines a role name from the brief when subagent_type is generic', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    const del = em.handle({
+      event: 'on_tool_start',
+      name: 'task',
+      metadata: { checkpoint_ns: 'tools:gp1' },
+      data: { input: { input: JSON.stringify({ subagent_type: 'general-purpose', description: 'You are a GTM ROI analyst for Metacto. Rank the follow-ups.' }) } },
+    });
+    expect(del[0]?.label).toBe('Delegating to GTM ROI Analyst');
+  });
 });

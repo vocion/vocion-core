@@ -39,6 +39,35 @@ export type AgentRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' };
 
+/** A source surfaced by an actor during the turn (bubbles into the trace). */
+export type TraceCitation = {
+  sourceType: string;
+  title: string;
+  link?: string;
+  snippet?: string;
+  actorId: string;
+};
+
+/**
+ * One node in the hierarchical activity trace (reasoning / tool / skill /
+ * search / delegation / draft), attributed to the lead or a specialist and
+ * nested via `parentId`. Folded from `trace_node` SSE events in ChatShell.
+ */
+export type TraceNode = {
+  id: string;
+  parentId?: string;
+  actor: { id: string; kind: 'lead' | 'specialist'; name: string };
+  kind: 'reason' | 'tool' | 'skill' | 'search' | 'delegate' | 'draft';
+  status: 'start' | 'progress' | 'done' | 'error';
+  label: string;
+  detail?: string;
+  /** Accumulated reasoning text (from `delta` progress events). */
+  text?: string;
+  result?: string;
+  confidence?: number;
+  citations?: TraceCitation[];
+};
+
 /** A2UI: a one-tap recommended action rendered as a card in the answer. */
 export type RecommendedAction = {
   actionId: string;
@@ -61,6 +90,13 @@ export type ChatMessage = {
   skillResults?: SkillResult[];
   /** v0.2+ inline tool breadcrumb runs (rev-ai style). Optional for back-compat with older messages. */
   runs?: AgentRun[];
+  /**
+   * Typed hierarchical activity trace for this turn — the reasoning, tool
+   * calls, skills, searches (with citations), and delegations (with the
+   * delegate's own nested work). Folded from `trace_node` events; supersedes
+   * the flat `runs`/`thinkingText` for the WorkTimeline when present.
+   */
+  trace?: TraceNode[];
   /**
    * Accumulated chain-of-thought text streamed via `thinking_delta`
    * events (Anthropic extended thinking — only present when the server

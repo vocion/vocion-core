@@ -1,6 +1,6 @@
 'use client';
 
-import type { AgentRun, IndexedDocument } from './types';
+import type { AgentRun, IndexedDocument, TraceNode } from './types';
 import {
   Brain,
   ChevronDown,
@@ -37,6 +37,12 @@ export type WorkTimelineProps = {
   thinkingText?: string;
   /** Sources the answer drew on — rendered as citations inside the trace. */
   documents?: IndexedDocument[];
+  /**
+   * Typed hierarchical trace (reason/tool/skill/search/delegate/draft with
+   * per-actor nesting + citations). When present it drives the trace instead
+   * of the flat `runs`/`thinkingText` fallback.
+   */
+  trace?: TraceNode[];
 };
 
 // Plumbing the operator shouldn't have to see — hidden from the curated trace.
@@ -191,7 +197,180 @@ function Citation({ doc }: { doc: IndexedDocument }) {
   );
 }
 
-export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [] }: WorkTimelineProps) {
+/* ------------------------------------------------------------------ */
+/* Typed-trace rendering (preferred path)                              */
+/* ------------------------------------------------------------------ */
+
+const TRACE_ICON: Record<TraceNode['kind'], LucideIcon> = {
+  reason: Brain,
+  tool: Wrench,
+  skill: Wrench,
+  search: Search,
+  delegate: GitBranch,
+  draft: PencilLine,
+};
+
+function TraceMarker({ node }: { node: TraceNode }) {
+  if (node.status !== 'done' && node.status !== 'error') {
+    return <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />;
+  }
+  if (node.status === 'error') {
+    return <CircleAlert className="size-3.5 shrink-0 text-[var(--brand-fail)]" aria-hidden />;
+  }
+  const Icon = TRACE_ICON[node.kind] ?? Sparkles;
+  return <Icon className={`size-3.5 shrink-0 ${node.kind === 'delegate' ? 'text-brand-amber-deep' : 'text-[var(--brand-pass)]'}`} aria-hidden />;
+}
+
+function TraceCitations({ node }: { node: TraceNode }) {
+  const cites = node.citations ?? [];
+  if (cites.length === 0) {
+    return null;
+  }
+  return (
+    <div className="mt-1.5 grid gap-1">
+      {cites.slice(0, 5).map((c, i) => (
+        <div key={i} className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wide uppercase">{sourceLabels[c.sourceType] ?? c.sourceType}</span>
+          <span className="min-w-0 flex-1 truncate">{c.title}</span>
+        </div>
+      ))}
+      {cites.length > 5 && <span className="text-[10px] text-muted-foreground/60">+{cites.length - 5} more</span>}
+    </div>
+  );
+}
+
+/** A single trace node row (used at the root and, indented, for delegate children). */
+function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: boolean; open: boolean; onToggle: () => void }) {
+  const isReason = node.kind === 'reason';
+  const drillText = isReason ? node.text?.trim() : undefined;
+  const hasDrill = Boolean(drillText) || (node.citations?.length ?? 0) > 0;
+  return (
+    <li className={`relative py-1.5 pl-7 ${nested ? 'ml-4 border-l border-border/50' : ''}`}>
+      <span className="absolute top-2 left-0 grid size-4 place-items-center"><TraceMarker node={node} /></span>
+      <div className="flex flex-wrap items-baseline gap-x-1.5 text-[13px] leading-snug">
+        <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.label}</span>
+        {node.detail && <span className="min-w-0 text-muted-foreground">{node.detail}</span>}
+        {node.result && <span className="text-muted-foreground/80">· {node.result}</span>}
+        {typeof node.confidence === 'number' && <span className="text-[11px] text-[var(--brand-pass)]">· {Math.round(node.confidence * 100)}%</span>}
+        {node.actor.kind === 'specialist' && !nested && <span className="text-[10px] text-muted-foreground/60">· {node.actor.name}</span>}
+      </div>
+      {hasDrill && (
+        <>
+          {drillText && (
+            <button type="button" onClick={onToggle} className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-amber-deep">
+              {open ? 'Hide reasoning' : 'Show reasoning'}
+              <ChevronRight className={`size-3 transition ${open ? 'rotate-90' : ''}`} aria-hidden />
+            </button>
+          )}
+          {drillText && open && (
+            <span className="mt-1 block max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{drillText}</span>
+          )}
+          {!drillText && <TraceCitations node={node} />}
+        </>
+      )}
+    </li>
+  );
+}
+
+export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace }: WorkTimelineProps) {
+  if (trace && trace.length > 0) {
+    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} />;
+  }
+  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} />;
+}
+
+function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[] }) {
+  const [open, setOpen] = useState(false);
+  const [openDrill, setOpenDrill] = useState<string | null>(null);
+  const elapsed = useElapsed(streaming);
+
+  const roots = trace.filter(n => !n.parentId);
+  const childrenOf = (id: string) => trace.filter(n => n.parentId === id);
+  const steps = trace.filter(n => n.kind !== 'reason').length;
+  const specialists = new Set(trace.filter(n => n.actor.kind === 'specialist').map(n => n.actor.id)).size;
+  const sources = documents.length || trace.flatMap(n => n.citations ?? []).length;
+  const errors = trace.filter(n => n.status === 'error').length;
+  const hasDetail = trace.length > 0;
+
+  const summary = [
+    `${steps} step${steps === 1 ? '' : 's'}`,
+    specialists > 0 ? `${specialists} specialist${specialists === 1 ? '' : 's'}` : null,
+    sources > 0 ? `${sources} source${sources === 1 ? '' : 's'}` : null,
+    errors > 0 ? `${errors} error${errors === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(' · ');
+  const headerText = streaming ? (activity ?? 'Working…') : `Worked it out · ${summary}`;
+
+  return (
+    <div className="my-2">
+      <button
+        type="button"
+        onClick={() => hasDetail && setOpen(v => !v)}
+        aria-expanded={open}
+        disabled={!hasDetail}
+        className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground transition enabled:hover:text-foreground"
+      >
+        {streaming
+          ? <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
+          : <Brain className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />}
+        <span className="min-w-0 flex-1 truncate font-medium">{headerText}</span>
+        {streaming && elapsed >= 3 && (
+          <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
+            {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
+          </span>
+        )}
+        {hasDetail && <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${open ? 'rotate-180' : ''}`} aria-hidden />}
+      </button>
+
+      {open && hasDetail && (
+        <>
+          <button type="button" aria-label="Close details" onClick={() => setOpen(false)} className="fixed inset-0 z-40 bg-black/40 sm:hidden" />
+          <div className="fixed inset-x-0 bottom-0 z-50 max-h-[82vh] overflow-y-auto rounded-t-2xl border-t border-border bg-background shadow-2xl sm:static sm:z-auto sm:mt-1 sm:max-h-none sm:rounded-xl sm:border sm:border-border/60 sm:bg-muted/20 sm:shadow-none">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-3">
+              <span className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">Activity</span>
+              {streaming
+                ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-amber-deep">
+                      <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" /><span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" /></span>
+                      live
+                    </span>
+                  )
+                : (
+                    <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted sm:hidden">
+                      <X className="size-4" aria-hidden />
+                    </button>
+                  )}
+            </div>
+
+            <ol className="relative px-4 py-2 sm:px-3">
+              {roots.map((n) => {
+                const kids = childrenOf(n.id);
+                return (
+                  <div key={n.id}>
+                    <TraceRow node={n} open={openDrill === n.id} onToggle={() => setOpenDrill(o => (o === n.id ? null : n.id))} />
+                    {kids.map(k => (
+                      <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
+                    ))}
+                  </div>
+                );
+              })}
+            </ol>
+
+            {documents.length > 0 && (
+              <div className="border-t border-border px-4 py-3 sm:px-3">
+                <div className="mb-2 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">Grounded in</div>
+                <div className="grid gap-1.5">
+                  {documents.slice(0, 8).map((d, i) => <Citation key={`${d.document_id}-${i}`} doc={d} />)}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [] }: Omit<WorkTimelineProps, 'trace'>) {
   const [open, setOpen] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [drillOpen, setDrillOpen] = useState<number | null>(null);

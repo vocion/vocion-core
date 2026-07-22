@@ -8,6 +8,7 @@ import type {
   HitlGatePayload,
   IndexedDocument,
   StreamingPhase,
+  TraceNode,
 } from './types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
@@ -221,6 +222,11 @@ export function ChatShell({
   const pendingResponseRef = useRef('');
   const pendingThinkingRef = useRef('');
   const flushFrameRef = useRef<number | null>(null);
+  // Typed trace nodes accumulate here (merged by id, reason deltas appended)
+  // and fold into message.trace on the same animation frame as text deltas —
+  // reason tokens arrive as fast as response tokens, so they need batching too.
+  const pendingTraceRef = useRef<Map<string, TraceNode>>(new Map());
+  const traceDirtyRef = useRef(false);
 
   const flushDeltas = useCallback(() => {
     if (flushFrameRef.current !== null) {
@@ -229,15 +235,21 @@ export function ChatShell({
     }
     const responseText = pendingResponseRef.current;
     const thinkingText = pendingThinkingRef.current;
-    if (!responseText && !thinkingText) {
+    const traceDirty = traceDirtyRef.current;
+    if (!responseText && !thinkingText && !traceDirty) {
       return;
     }
     pendingResponseRef.current = '';
     pendingThinkingRef.current = '';
+    traceDirtyRef.current = false;
+    const trace = traceDirty ? [...pendingTraceRef.current.values()] : null;
     appendToLatestAgent((m) => {
       let next = m;
       if (thinkingText) {
         next = { ...next, thinkingText: (next.thinkingText ?? '') + thinkingText };
+      }
+      if (trace) {
+        next = { ...next, trace };
       }
       if (responseText) {
         const runs = next.runs ?? [];
@@ -275,6 +287,26 @@ export function ChatShell({
         // renders the live tail while streaming and the full text after.
         setActivity('Reasoning…');
         pendingThinkingRef.current += String(evt.delta ?? '');
+        scheduleFlush();
+        return;
+      }
+      case 'trace_node': {
+        // Typed hierarchical trace — merge by id (reason deltas append to
+        // text), batched onto the animation frame like the other deltas.
+        const n = evt as unknown as TraceNode & { delta?: string };
+        const map = pendingTraceRef.current;
+        const prev = map.get(n.id);
+        const merged: TraceNode = {
+          ...prev,
+          ...n,
+          text: (prev?.text ?? '') + (n.delta ?? ''),
+          citations: n.citations ?? prev?.citations,
+          result: n.result ?? prev?.result,
+        };
+        delete (merged as { delta?: string }).delta;
+        map.set(n.id, merged);
+        traceDirtyRef.current = true;
+        setActivity(n.label);
         scheduleFlush();
         return;
       }
@@ -490,6 +522,9 @@ export function ChatShell({
     if (!text.trim() || isStreaming) {
       return;
     }
+    // Fresh turn — reset the per-turn trace accumulator.
+    pendingTraceRef.current = new Map();
+    traceDirtyRef.current = false;
     setMessages(prev => [
       ...prev,
       { role: 'user', content: text },
