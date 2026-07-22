@@ -51,6 +51,67 @@ export type RecommendedActionPayload = {
   agentSlug?: string;
 };
 
+/* ------------------------------------------------------------------ */
+/* Typed hierarchical trace — reasoning / tools / skills / delegation  */
+/* / citations, attributed to an actor (lead or a specialist) and      */
+/* nested via parentId. Consumed by the chat WorkTimeline renderer.    */
+/* ------------------------------------------------------------------ */
+
+export type TraceActor = {
+  /** Stable actor id — 'lead' for the front-door agent, or the delegation node id for a specialist. */
+  id: string;
+  kind: 'lead' | 'specialist';
+  /** Human display name (agent/subagent). */
+  name: string;
+};
+
+export type TraceCitation = {
+  /** Source system, e.g. 'granola' | 'hubspot' | 'gmail' | 'web'. */
+  sourceType: string;
+  /** Human title/identifier of the cited doc. */
+  title: string;
+  link?: string;
+  snippet?: string;
+  /** Which actor surfaced it (lead or a specialist) — so the UI can attribute delegate citations. */
+  actorId: string;
+};
+
+/**
+ * What a trace node represents. `reason` = model chain-of-thought;
+ * `tool` = a generic tool call; `skill` = a `run_operation` skill
+ * invocation (first-class, carries confidence); `search` = retrieval
+ * (produces citations); `delegate` = a `task` dispatch to a specialist
+ * (children hang under it via parentId); `draft` = a proposed action.
+ */
+export type TraceNodeKind = 'reason' | 'tool' | 'skill' | 'search' | 'delegate' | 'draft';
+
+/**
+ * One node in the hierarchical activity trace. Emitted repeatedly as it
+ * progresses — the renderer keys on `id` and folds `start → progress* →
+ * done`. `label` tense is a pure function of `status`, so a node reads
+ * "Searching…" while active and "Searched" only when done (no more
+ * past-tense-while-running bug). `parentId` nests delegate work.
+ */
+export type TraceNodeEvent = {
+  type: 'trace_node';
+  id: string;
+  parentId?: string;
+  actor: TraceActor;
+  kind: TraceNodeKind;
+  status: 'start' | 'progress' | 'done' | 'error';
+  label: string;
+  /** Input summary — the query, the record type, the delegate brief. Never a raw dump. */
+  detail?: string;
+  /** Incremental text for `reason`/`progress` nodes; the renderer appends. */
+  delta?: string;
+  /** Output summary — a count or short synopsis. Never a raw dump. */
+  result?: string;
+  /** For skills / drafts / delegates. */
+  confidence?: number;
+  /** Sources this node surfaced — bubbles up to the message-level "Grounded in". */
+  citations?: TraceCitation[];
+};
+
 export type HitlGatePayload = {
   /** Unique name for the gate, e.g. 'blueprint-review' or 'send-email'. */
   name: string;
@@ -81,6 +142,7 @@ export type AgentEvent
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
     | { type: 'recommended_action'; recommendation: RecommendedActionPayload }
+    | TraceNodeEvent
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
