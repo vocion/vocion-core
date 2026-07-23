@@ -49,7 +49,7 @@ export function RecommendedActionCard({ rec }: { rec: RecommendedAction }) {
   const busy = state.status === 'working';
 
   return (
-    <div className="mt-3 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+    <div data-testid="recommended-action-card" className="mt-3 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
       {/* Header */}
       <div className="flex items-start gap-2.5 px-4 pt-3.5">
         <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
