@@ -49,15 +49,15 @@ export function RecommendedActionCard({ rec }: { rec: RecommendedAction }) {
   const busy = state.status === 'working';
 
   return (
-    <div data-testid="recommended-action-card" className="mt-3 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      {/* Header */}
-      <div className="flex items-start gap-2.5 px-4 pt-3.5">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
-          {isEmail ? <Mail className="size-4" aria-hidden /> : <Sparkles className="size-4" aria-hidden />}
+    <div data-testid="recommended-action-card" className="mt-2.5 overflow-hidden rounded-xl border border-border bg-card">
+      {/* Header — compact: label + confidence, rationale clamped */}
+      <div className="flex items-start gap-2 px-3 pt-2.5">
+        <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
+          {isEmail ? <Mail className="size-3.5" aria-hidden /> : <Sparkles className="size-3.5" aria-hidden />}
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold break-words">{rec.label}</div>
-          {rec.rationale && <p className="mt-0.5 text-xs text-muted-foreground break-words">{rec.rationale}</p>}
+          {rec.rationale && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground break-words">{rec.rationale}</p>}
         </div>
         {pct !== null && (
           <span
@@ -73,23 +73,18 @@ export function RecommendedActionCard({ rec }: { rec: RecommendedAction }) {
         )}
       </div>
 
-      {/* Draft preview — what will be prepared */}
+      {/* Draft preview — one compact block: to→subject line + 2-line body */}
       {isEmail && (to || subject || body) && (
-        <div className="mx-4 mt-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
-          {to && (
-            <div className="flex gap-2">
-              <span className="w-14 shrink-0 text-muted-foreground">To</span>
-              <span className="min-w-0 flex-1 break-words">{to}</span>
-            </div>
-          )}
-          {subject && (
-            <div className="mt-1 flex gap-2">
-              <span className="w-14 shrink-0 text-muted-foreground">Subject</span>
-              <span className="min-w-0 flex-1 font-medium break-words">{subject}</span>
+        <div className="mx-3 mt-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5 text-xs">
+          {(to || subject) && (
+            <div className="truncate">
+              {to && <span className="text-muted-foreground">{to}</span>}
+              {to && subject && <span className="text-muted-foreground/50"> · </span>}
+              {subject && <span className="font-medium">{subject}</span>}
             </div>
           )}
           {body && (
-            <p className="mt-1.5 line-clamp-3 border-t border-border/50 pt-1.5 leading-relaxed break-words text-foreground/80">
+            <p className="mt-1 line-clamp-2 leading-relaxed break-words text-foreground/80">
               {body}
             </p>
           )}
@@ -97,7 +92,7 @@ export function RecommendedActionCard({ rec }: { rec: RecommendedAction }) {
       )}
 
       {/* CTA */}
-      <div className="flex items-center gap-2 px-4 py-3">
+      <div className="flex items-center gap-2 px-3 py-2.5">
         {state.status === 'done'
           ? (
               <a
