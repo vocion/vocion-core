@@ -1,8 +1,8 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { os } from '@orpc/server';
-import { projectSchema, teamSchema } from '@/models/Schema';
+import { briefingSchema, projectSchema, teamSchema } from '@/models/Schema';
 import { guardAuth } from './AuthGuards';
 
 /**
@@ -41,4 +41,19 @@ export const regenerateRoute = os
     void runAgentDeep({ orgId, agentSlug: runner, message: instruction, userId: userId ?? 'regenerate-brief' })
       .catch((err: unknown) => console.error(`briefings.regenerate failed: ${String(err)}`));
     return { ok: true as const, runner };
+  });
+
+/** Latest brief id for a scope — the client polls this after Regenerate to
+ *  know when the fresh brief has landed. */
+export const latestRoute = os
+  .input(z.object({ teamSlug: z.string().nullable() }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const [row] = await db
+      .select({ id: briefingSchema.id, createdAt: briefingSchema.createdAt })
+      .from(briefingSchema)
+      .where(and(eq(briefingSchema.orgId, orgId), input.teamSlug === null ? isNull(briefingSchema.teamSlug) : eq(briefingSchema.teamSlug, input.teamSlug)))
+      .orderBy(desc(briefingSchema.createdAt))
+      .limit(1);
+    return row ? { id: row.id } : null;
   });

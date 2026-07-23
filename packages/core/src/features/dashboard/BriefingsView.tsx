@@ -1,7 +1,8 @@
 'use client';
 
-import { Clock, Loader2, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import { Check, Clock, Loader2, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from '@/libs/I18nNavigation';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
@@ -38,9 +39,13 @@ function fmt(d: string): string {
 }
 
 export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
+  const router = useRouter();
   const [active, setActive] = useState(0);
-  const [regenBusy, setRegenBusy] = useState(false);
-  const [regenNote, setRegenNote] = useState<string | null>(null);
+  // Regeneration lifecycle: idle → assembling (polling briefings.latest until
+  // a NEWER brief than the baseline lands) → landed (auto-refreshed).
+  const [regen, setRegen] = useState<'idle' | 'assembling' | 'landed' | 'failed'>('idle');
+  const [elapsed, setElapsed] = useState(0);
+  const baselineRef = useRef<number | null>(null);
   const [openHistory, setOpenHistory] = useState<number | null>(null);
 
   const g = groups[active];
@@ -52,17 +57,46 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
   const viewing = openHistory != null ? g.briefs.find(b => b.id === openHistory) ?? latest : latest;
 
   const regenerate = async () => {
-    setRegenBusy(true);
-    setRegenNote(null);
+    setRegen('assembling');
+    setElapsed(0);
+    baselineRef.current = g.briefs[0]?.id ?? null;
     try {
       const res = await client.briefings.regenerate({ teamSlug: g.teamSlug });
-      setRegenNote(res.ok ? `Regenerating — ${res.runner} is assembling it; refresh in a minute or two.` : `Couldn't regenerate: ${res.error}`);
+      if (!res.ok) {
+        setRegen('failed');
+      }
     } catch {
-      setRegenNote('Couldn\'t regenerate.');
-    } finally {
-      setRegenBusy(false);
+      setRegen('failed');
     }
   };
+
+  // Poll until the fresh brief lands, then pull it in automatically — no
+  // manual refresh. Bounded at 5 minutes.
+  const teamSlug = g.teamSlug;
+  useEffect(() => {
+    if (regen !== 'assembling') {
+      return;
+    }
+    const startedAt = Date.now();
+    const tick = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    const poll = setInterval(() => {
+      void client.briefings.latest({ teamSlug })
+        .then((row) => {
+          if (row && row.id !== baselineRef.current) {
+            setRegen('landed');
+            setOpenHistory(null);
+            router.refresh();
+          } else if (Date.now() - startedAt > 5 * 60_000) {
+            setRegen('failed');
+          }
+        })
+        .catch(() => {});
+    }, 8000);
+    return () => {
+      clearInterval(tick);
+      clearInterval(poll);
+    };
+  }, [regen, teamSlug, router]);
 
   return (
     <div>
@@ -72,7 +106,7 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
           <button
             key={grp.teamSlug ?? '__rollup__'}
             type="button"
-            onClick={() => { setActive(i); setOpenHistory(null); setRegenNote(null); }}
+            onClick={() => { setActive(i); setOpenHistory(null); setRegen('idle'); }}
             className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${i === active ? 'bg-brand-amber/15 text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground'}`}
           >
             {grp.teamName}
@@ -98,12 +132,24 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
               )
             : <h2 className="text-base font-semibold text-muted-foreground">No {g.teamName} brief yet</h2>}
         </div>
-        <Button size="sm" variant="outline" onClick={() => void regenerate()} disabled={regenBusy}>
-          {regenBusy ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-          Regenerate
+        <Button size="sm" variant="outline" onClick={() => void regenerate()} disabled={regen === 'assembling'}>
+          {regen === 'assembling' ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+          {regen === 'assembling' ? `Assembling… ${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}` : 'Regenerate'}
         </Button>
       </div>
-      {regenNote && <p className="mt-1 text-xs text-brand-amber-deep">{regenNote}</p>}
+      {regen === 'assembling' && (
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-brand-amber-deep">
+          <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" /><span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" /></span>
+          {g.teamName} lead is assembling the brief — it will appear here automatically (usually 1–2 min).
+        </p>
+      )}
+      {regen === 'landed' && (
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+          <Check className="size-3.5" aria-hidden />
+          Fresh brief loaded.
+        </p>
+      )}
+      {regen === 'failed' && <p className="mt-1 text-xs text-destructive">Regeneration didn't land — check the lead agent's activity or try again.</p>}
 
       {viewing && (
         <div data-briefing-root className="prose prose-sm mt-4 max-w-none rounded-2xl border border-border bg-card p-5 dark:prose-invert">

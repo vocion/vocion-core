@@ -29,13 +29,12 @@ import {
   removeLearningTool,
   updateLearningTool,
 } from './learnings';
-import { getBriefingTool, refreshBriefingTool } from './briefing';
+import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { freshenSourceTool } from './freshenSource';
 import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
 import { proposeActionTool } from './proposeAction';
 import { recommendActionTool } from './recommendAction';
-import { publishBriefingTool } from './publishBriefing';
 import { runCodeTool } from './runCode';
 import { runOperationTool } from './runOperation';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
