@@ -6,7 +6,7 @@ import { memo } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
-import { RecommendedActionCard } from './RecommendedActionCard';
+import { RecommendedActionStack } from './RecommendedActionStack';
 import { WorkTimeline } from './WorkTimeline';
 
 /**
@@ -137,9 +137,11 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               </Markdown>
             </div>
           ))}
-          {(message.recommendations ?? []).map((rec, i) => (
-            <RecommendedActionCard key={i} rec={rec} />
-          ))}
+          {/* One card renders directly; several become the in-chat triage
+              stepper (skip / save-for-later / queue-all). */}
+          {(message.recommendations?.length ?? 0) > 0 && (
+            <RecommendedActionStack recs={message.recommendations!} />
+          )}
         </div>
         {message.confidence && (
           <div className="mt-2 flex justify-end">
