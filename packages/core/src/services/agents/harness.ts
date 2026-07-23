@@ -121,11 +121,26 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   const excludeTools = new Set(harnessConfig.excludeTools ?? []);
   const tools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
 
-  const subagents = (row.subagents ?? []).map((s): SubAgent => ({
-    name: s.name,
-    description: s.description,
-    systemPrompt: s.systemPrompt,
+  // ONE mechanism: agents are agents. A lead's delegable roster DERIVES from
+  // registered agents that name this agent as their parent (parentAgentSlug)
+  // — same rows the Agents page/org chart shows, so delegation and the
+  // registry can't drift. The inline `subagents` JSONB is DEPRECATED: kept
+  // only as a fallback for names not registered (legacy brief-runner etc.).
+  const children = await db
+    .select()
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, row.slug)));
+  const subagents: SubAgent[] = children.map(c => ({
+    name: c.slug,
+    description: c.description ?? c.name,
+    systemPrompt: c.systemPrompt ?? '',
   }));
+  const registered = new Set(subagents.map(s => s.name));
+  for (const s of row.subagents ?? []) {
+    if (!registered.has(s.name)) {
+      subagents.push({ name: s.name, description: s.description, systemPrompt: s.systemPrompt });
+    }
+  }
 
   // F1 "consult the leads", chat path: when THIS agent is the workspace
   // lead (project.lead_agent_slug), the team leads from the `team` table
