@@ -1868,8 +1868,12 @@ export const userActivityEventSchema = pgTable(
     index('user_activity_event_org_agent_created_idx').on(table.orgId, table.agentSlug, table.createdAt),
     // Resource-anchored events are naturally unique — this makes the backfill
     // idempotent (insert ... on conflict do nothing) and guards live double-fires.
+    // The DECISION participates in uniqueness (empty for other event types):
+    // a run legitimately receives multiple review.decided signals (rewritten →
+    // skipped → approved) and the narrower index silently dropped all but the
+    // first (0047).
     uniqueIndex('user_activity_event_resource_idx')
-      .on(table.orgId, table.eventType, table.resourceType, table.resourceId)
+      .on(table.orgId, table.eventType, table.resourceType, table.resourceId, sql`(coalesce(${table.metadata}->>'decision',''))`)
       .where(sql`resource_id IS NOT NULL`),
   ],
 );

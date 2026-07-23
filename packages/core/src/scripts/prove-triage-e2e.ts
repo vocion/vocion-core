@@ -65,13 +65,11 @@ async function main(): Promise<void> {
 
     await page.goto(`${BASE}/en/dashboard/review`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(2500);
-    const catchUp = page.getByRole('button', { name: /Catch up/i }).first();
-    await catchUp.waitFor({ state: 'visible', timeout: 20_000 });
-    await catchUp.click();
-    await page.waitForTimeout(800);
-    // Count-agnostic: the queue may hold other real pending items too.
-    opened = (await page.getByText(/\d+ of \d+/i).count()) > 0;
-    const firstLabel = await page.getByText(/\d+ of \d+/i).first().textContent();
+    // Focus mode IS the page now — no button, no modal.
+    const focus = page.getByTestId('review-focus');
+    await focus.waitFor({ state: 'visible', timeout: 20_000 });
+    opened = (await page.getByText(/\d+ in queue/i).count()) > 0;
+    const firstLabel = await page.locator('input').nth(1).inputValue().catch(() => null); // subject field of the focused item
 
     // Rewrite-with-AI on card 1 (a seeded gmail.send, newest → first): the body
     // should change and a `rewritten` signal is recorded server-side.
@@ -84,23 +82,14 @@ async function main(): Promise<void> {
       rewriteChanged = after.trim().length > 0 && after !== before;
     }
 
-    // Skip the 2 seeded probe cards (records `skip` signals), then Save all &
-    // close — leaving any real pending items untouched.
-    for (let i = 0; i < 2; i++) {
-      const skip = page.getByRole('button', { name: /^Skip$/i }).first();
-      if (await skip.count() === 0) {
-        break;
-      }
-      await skip.click();
-      await page.waitForTimeout(500);
-      const lbl = await page.getByText(/\d+ of \d+/i).first().textContent().catch(() => null);
-      if (lbl && firstLabel && lbl !== firstLabel) {
-        stepped = true;
-      }
-    }
-    await page.getByText(/Save all & close/i).first().click().catch(() => {});
-    await page.waitForTimeout(1500);
+    // Skip the focused (seeded) item — records a `skip` signal and the next
+    // item loads IN PLACE (subject changes). Leaves everything pending.
+    await page.getByRole('button', { name: /^Skip$/i }).first().click();
+    await page.waitForTimeout(900);
+    const secondLabel = await page.locator('input').nth(1).inputValue().catch(() => null);
+    stepped = !!(firstLabel && secondLabel && secondLabel !== firstLabel);
     await page.screenshot({ path: SHOT, fullPage: true });
+    await page.waitForTimeout(2500); // let the fire-and-forget skip signal commit
 
     // Verify the typed signals landed on the adoption stream for the seeded ids.
     const rows = await db.select({ resourceId: userActivityEventSchema.resourceId, metadata: userActivityEventSchema.metadata })
