@@ -212,6 +212,8 @@ export type RuntimeContext = {
     maxTokens?: number;
     excludeTools?: string[];
     model?: string;
+    /** Run the zero-card backstop pass after turns that emit no recommend_action (see workspace schema doc). */
+    recommendActionBackstop?: boolean;
   };
   /**
    * Side-channel for emitting structured events the LLM stream can't
