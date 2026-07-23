@@ -1020,6 +1020,7 @@ export async function runAgentDeep(opts: {
   // `activeSpecialist` is set while a subagent's search tool is executing (the
   // window in which it emits its `documents` event via ctx.emit).
   let activeSpecialist: string | null = null;
+  let recommendationCount = 0;
   const emit = (event: import('./agents/types').AgentEvent): void => {
     if (event.type === 'documents' && activeSpecialist) {
       for (const d of event.documents) {
@@ -1027,6 +1028,9 @@ export async function runAgentDeep(opts: {
           d.foundBy = activeSpecialist;
         }
       }
+    }
+    if (event.type === 'recommended_action') {
+      recommendationCount += 1;
     }
     rawEmit(event);
   };
@@ -1247,6 +1251,41 @@ export async function runAgentDeep(opts: {
     emit({ type: 'response_delta', delta: tail.answer });
   }
   finalText = finalText.trim();
+
+  // Card backstop (structural, workspace-opt-in): prompt compliance for
+  // recommend_action proved unreliable — a long tool output (the daily brief)
+  // anchors the model into prose mode and cards drop from 3 to 0. When the
+  // agent's harness sets recommendActionBackstop and this turn emitted ZERO
+  // cards, run one focused pass over the finished answer whose only job is
+  // emitting the cards the agent's own rules require. Tool execution emits
+  // the recommended_action events through the same request emit.
+  const backstopOn = (compiled.agentRow.harnessConfig as { recommendActionBackstop?: boolean } | null)?.recommendActionBackstop === true;
+  if (backstopOn && recommendationCount === 0 && finalText.length > 300) {
+    try {
+      const { recommendActionTool } = await import('./agents/tools/recommendAction');
+      const internalCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
+      const recTool = recommendActionTool(internalCtx);
+      const { buildChatModel } = await import('@/libs/llm');
+      const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+      const base = buildChatModel('main', { temperature: 0, streaming: false, maxTokens: 4000 });
+      if (!base.bindTools) {
+        throw new Error('model does not support tools');
+      }
+      const model = base.bindTools([recTool]);
+      const sys = `${compiled.agentRow.systemPrompt ?? ''}\n\nBACKSTOP PASS: the answer below was ALREADY delivered to the user — do not rewrite it. Your ONLY job now: emit the recommend_action tool calls your rules above require for the owed/actionable touches NAMED in that answer (top 3–5 by leverage). Real, ready-to-send bodies. If the answer names no actionable touches, call nothing. Output tool calls only — no prose.`;
+      const res = await model.invoke(
+        [new SystemMessage(sys), new HumanMessage(finalText)],
+        { signal: AbortSignal.timeout(45_000) },
+      );
+      for (const call of res.tool_calls ?? []) {
+        if (call.name === 'recommend_action') {
+          await recTool.invoke(call.args as never);
+        }
+      }
+    } catch {
+      /* backstop is best-effort — never fails the turn */
+    }
+  }
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
   await langfuse.flushAsync();

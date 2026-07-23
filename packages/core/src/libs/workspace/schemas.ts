@@ -156,6 +156,15 @@ export const AgentManifestSchema = z.object({
     maxTokens: z.number().int().positive().optional(),
     excludeTools: z.array(z.string()).default([]),
     model: z.string().optional(),
+    /**
+     * Structural guarantee for A2UI action cards: when true and a turn ends
+     * with ZERO recommend_action calls, the runtime runs a small follow-up
+     * pass over the finished answer that emits the cards the agent's rules
+     * require. Exists because prompt compliance alone proved unreliable —
+     * long tool outputs (e.g. the daily brief) anchor the model into prose
+     * mode and it stops calling the tool (observed 3→0 card regression).
+     */
+    recommendActionBackstop: z.boolean().optional(),
   }).partial().default({}),
 }).refine(
   v => !!(v.systemPromptFile || v.systemPrompt),

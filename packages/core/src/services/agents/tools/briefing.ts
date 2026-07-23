@@ -51,7 +51,12 @@ export function getBriefingTool(ctx: RuntimeContext) {
       const when = brief.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
       const fresh = isFromToday(brief.createdAt);
       const status = fresh ? `current (published today, ${when})` : `STALE — last published ${when}, not today; consider refresh_briefing`;
-      return `Latest briefing — "${brief.title}" — ${status}\n\n${brief.content}`;
+      // Recency-position reminder: a long brief in context reliably anchors
+      // the model into prose-advisor mode and it stops emitting action cards
+      // (observed: card count degraded 3→0 once this tool entered the flow).
+      // A reminder at the END of the tool output — the closest thing to the
+      // answer — restores compliance where the distant system prompt loses.
+      return `Latest briefing — "${brief.title}" — ${status}\n\n${brief.content}\n\n---\nREMINDER (harness): the brief above is CONTEXT, not your answer. If you surface actionable/owed touches to the user, your workspace rules still apply — emit the required recommend_action card for EACH touch you name BEFORE writing your answer; never substitute a "want me to draft it?" question for a card.`;
     },
     {
       name: 'get_briefing',
