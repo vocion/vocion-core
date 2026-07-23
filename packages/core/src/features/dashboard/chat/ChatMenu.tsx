@@ -1,7 +1,7 @@
 'use client';
 
 import type { AgentOption } from './types';
-import { Check, MoreHorizontal, SquarePen } from 'lucide-react';
+import { Check, History, MoreHorizontal, SquarePen } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,13 +30,16 @@ import {
 
 export type ChatMenuProps = {
   onNewChat: () => void;
+  /** Recent conversations for the current agent — the history picker. */
+  conversations?: Array<{ id: number; title: string }>;
+  onPickConversation?: (id: number) => void;
   /** All available agents — specialists are filtered out here. */
   agents?: AgentOption[];
   currentSlug?: string;
   onSwitch?: (slug: string) => void;
 };
 
-export function ChatMenu({ onNewChat, agents = [], currentSlug, onSwitch }: ChatMenuProps) {
+export function ChatMenu({ onNewChat, agents = [], currentSlug, onSwitch, conversations = [], onPickConversation }: ChatMenuProps) {
   const leads = agents.filter(a => !a.parentSlug || a.slug === currentSlug);
   const switchable = leads.length > 1 && !!onSwitch;
 
@@ -54,6 +57,20 @@ export function ChatMenu({ onNewChat, agents = [], currentSlug, onSwitch }: Chat
           <SquarePen className="mr-2 size-4 text-muted-foreground" aria-hidden="true" />
           New chat
         </DropdownMenuItem>
+        {conversations.length > 0 && !!onPickConversation && (
+          <>
+            <DropdownMenuSeparator />
+            <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+              <History className="size-3" aria-hidden="true" />
+              Recent chats
+            </div>
+            {conversations.slice(0, 8).map(c => (
+              <DropdownMenuItem key={c.id} onClick={() => onPickConversation(c.id)}>
+                <span className="flex-1 truncate">{c.title}</span>
+              </DropdownMenuItem>
+            ))}
+          </>
+        )}
         {switchable && (
           <>
             <DropdownMenuSeparator />

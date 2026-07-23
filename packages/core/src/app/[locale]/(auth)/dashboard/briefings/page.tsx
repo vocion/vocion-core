@@ -1,92 +1,66 @@
+import type { BriefGroup } from '@/features/dashboard/BriefingsView';
 import { desc, eq } from 'drizzle-orm';
-import { Newspaper } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { EmptyState } from '@/components/ui/empty-state';
-import { BriefingChatStarter } from '@/features/dashboard/BriefingChatStarter';
+import { BriefingsView } from '@/features/dashboard/BriefingsView';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
-import { briefingSchema } from '@/models/Schema';
+import { briefingSchema, projectSchema, teamSchema } from '@/models/Schema';
 
 /**
- * Briefings — the daily front door. The morning automation's briefing check
- * publishes here (publish_briefing); the latest renders open, history below.
- * @param props
- * @param props.params
+ * Briefings — grouped BY TEAM: the workspace ROLLUP tab first (the
+ * director/workspace-lead's cross-team read), then one tab per team. Each tab:
+ * latest brief, previous-brief history, Regenerate, and a floating chat pill
+ * scoped to that team's lead.
  */
-export default async function BriefingsPage(props: {
-  params: Promise<{ locale: string }>;
-}) {
+export default async function BriefingsPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
-    return null;
+    return (
+      <>
+        <TitleBar title="Briefings" description="Team briefs and the workspace rollup." />
+        <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">Sign in to an organization to see briefings.</div>
+      </>
+    );
   }
 
-  const briefings = await db
-    .select()
-    .from(briefingSchema)
-    .where(eq(briefingSchema.orgId, orgId))
-    .orderBy(desc(briefingSchema.createdAt))
-    .limit(30);
+  const [briefings, teams, projects] = await Promise.all([
+    db.select({ id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt, teamSlug: briefingSchema.teamSlug })
+      .from(briefingSchema)
+      .where(eq(briefingSchema.orgId, orgId))
+      .orderBy(desc(briefingSchema.createdAt))
+      .limit(100),
+    db.select({ slug: teamSchema.slug, name: teamSchema.name, lead: teamSchema.leadAgentSlug })
+      .from(teamSchema)
+      .where(eq(teamSchema.orgId, orgId)),
+    db.select({ lead: projectSchema.leadAgentSlug }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1),
+  ]);
 
-  const [latest, ...history] = briefings;
+  const rows = briefings.map(b => ({ ...b, createdAt: b.createdAt.toISOString() }));
+  const groups: BriefGroup[] = [
+    {
+      teamSlug: null,
+      teamName: 'Workspace rollup',
+      leadSlug: projects[0]?.lead ?? null,
+      briefs: rows.filter(b => b.teamSlug == null),
+    },
+    ...teams.map(t => ({
+      teamSlug: t.slug,
+      teamName: t.name,
+      leadSlug: t.lead,
+      briefs: rows.filter(b => b.teamSlug === t.slug),
+    })),
+  ];
 
   return (
     <>
       <TitleBar
         title="Briefings"
-        description="The team's recurring reads — the morning revenue briefing lands here on its automation."
+        description="Each team's brief plus the workspace rollup — regenerate on demand, explore history, or chat with a brief."
       />
-
-      {!latest
-        ? (
-            <EmptyState
-              icon={Newspaper}
-              title="No briefings yet"
-              description="The morning automation publishes the first one at its next fire — or run a check now from the briefing mission."
-            />
-          )
-        : (
-            <div data-briefing-root>
-              <article className="mb-6 rounded-md border border-border p-6">
-                <div className="mb-1 flex flex-wrap items-center gap-2">
-                  <h2 className="text-lg font-semibold">{latest.title}</h2>
-                  <span className="text-xs text-muted-foreground">
-                    {latest.createdAt.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                    {latest.publishedBy ? ` · ${latest.publishedBy}` : ''}
-                  </span>
-                </div>
-                <div className="prose prose-sm mt-3 max-w-none dark:prose-invert">
-                  <Markdown remarkPlugins={[remarkGfm]}>{latest.content}</Markdown>
-                </div>
-              </article>
-
-              {history.length > 0 && (
-                <section className="rounded-md border border-border p-5">
-                  <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Earlier</h3>
-                  {history.map(b => (
-                    <details key={b.id} className="border-b border-border py-2 last:border-0">
-                      <summary className="cursor-pointer text-sm font-medium">
-                        {b.title}
-                        <span className="ml-2 text-xs font-normal text-muted-foreground">
-                          {b.createdAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                        </span>
-                      </summary>
-                      <div className="prose prose-sm mt-2 max-w-none dark:prose-invert">
-                        <Markdown remarkPlugins={[remarkGfm]}>{b.content}</Markdown>
-                      </div>
-                    </details>
-                  ))}
-                </section>
-              )}
-
-              <BriefingChatStarter briefingTitle={latest.title} briefingContent={latest.content} />
-            </div>
-          )}
+      <BriefingsView groups={groups} />
     </>
   );
 }

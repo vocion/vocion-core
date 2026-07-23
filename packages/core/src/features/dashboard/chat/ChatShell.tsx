@@ -162,6 +162,10 @@ export function ChatShell({
   const [booted, setBooted] = useState(false);
   const [resuming, setResuming] = useState(false);
 
+  // Recent conversations for the current agent — powers the history picker in
+  // the ⋯ menu. Refreshed on agent switch and when the menu could be stale.
+  const [recentChats, setRecentChats] = useState<Array<{ id: number; title: string }>>([]);
+
   // Callers (`chat/page.tsx`) guarantee at least one entry — the virtual
   // SEARCH_ONLY_AGENT is always appended. `agentSlug` defaults to the
   // workspace lead; if it ever resolves to a missing/deleted agent the
@@ -744,17 +748,39 @@ export function ChatShell({
     }
     handoffSentRef.current = true;
     try {
-      const { question, contextTitle, context, excerpt } = JSON.parse(raw) as { question: string; contextTitle: string; context: string; excerpt?: string };
+      const { question, contextTitle, context, excerpt, agentSlug: target } = JSON.parse(raw) as { question: string; contextTitle: string; context: string; excerpt?: string; agentSlug?: string };
       const parts = [question];
       if (excerpt) {
         parts.push(`---\nThe question is specifically about this highlighted passage:\n> ${excerpt.replaceAll('\n', '\n> ')}`);
       }
       parts.push(`---\nCONTEXT — "${contextTitle}" (carried over from the Briefings page):\n\n${context}`);
-      void sendMessage(parts.join('\n\n'));
+      const message = parts.join('\n\n');
+      // Scope to the brief's team lead: switch agents first, send when the
+      // switch lands (the follow-up effect below watches agent.slug).
+      if (target && target !== agent.slug && agents.some(a => a.slug === target)) {
+        pendingHandoffRef.current = { forSlug: target, message };
+        freshSwitchRef.current = true;
+        hydratedSlugRef.current = null;
+        clearActiveConversation(target);
+        writeActiveAgent(target);
+        setCurrentSlug(target);
+      } else {
+        void sendMessage(message);
+      }
     } catch {
       /* malformed stash — ignore */
     }
-  }, [sendMessage]);
+  }, [sendMessage, agent.slug, agents]);
+
+  // Fire the stashed handoff message once the agent switch has landed.
+  const pendingHandoffRef = useRef<{ forSlug: string; message: string } | null>(null);
+  useEffect(() => {
+    const pending = pendingHandoffRef.current;
+    if (pending && pending.forSlug === agent.slug) {
+      pendingHandoffRef.current = null;
+      void sendMessage(pending.message);
+    }
+  }, [agent.slug, sendMessage]);
 
   const handleApproveHitl = useCallback(() => {
     setPendingHitl(null);
@@ -806,6 +832,52 @@ export function ChatShell({
     setSourcesOpen(true);
   }, []);
 
+  const agentSlugForChats = agent.slug;
+  useEffect(() => {
+    if (agentSlugForChats === '__search__') {
+      setRecentChats([]);
+      return;
+    }
+    let cancelled = false;
+    void client.conversations.list({ agentSlug: agentSlugForChats, limit: 12 })
+      .then((rows) => {
+        if (!cancelled) {
+          setRecentChats((rows as Array<{ id: number; title: string | null }>).map(r => ({ id: r.id, title: r.title || `Chat #${r.id}` })));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [agentSlugForChats, booted, phase]);
+
+  // History picker: load a past conversation into the transcript + make it
+  // the active thread (so new turns append to it).
+  const handlePickConversation = useCallback(async (id: number) => {
+    try {
+      const conv = await client.conversations.get({ id });
+      const rows = (conv.messages ?? []) as Array<{ role: 'user' | 'assistant'; content: string; runsJson: unknown; documentsJson: unknown; confidence: ChatMessage['confidence'] }>;
+      const restoredDocs: IndexedDocument[] = [];
+      const hydrated: ChatMessage[] = rows.map((row) => {
+        const runsRaw = Array.isArray(row.runsJson) ? (row.runsJson as AgentRun[]) : [];
+        const runs = runsRaw.length > 0
+          ? runsRaw.map(r => (r.type === 'tool' ? { ...r, state: 'done' as const } : r))
+          : (row.role === 'assistant' && row.content ? [{ type: 'text' as const, text: row.content }] : undefined);
+        const docs = Array.isArray(row.documentsJson) ? (row.documentsJson as IndexedDocument[]) : undefined;
+        if (docs) {
+          restoredDocs.push(...docs);
+        }
+        return { role: row.role, content: row.content ?? '', ...(runs ? { runs } : {}), ...(docs && docs.length > 0 ? { documents: docs } : {}), ...(row.confidence ? { confidence: row.confidence } : {}) };
+      });
+      conversationIdRef.current = id;
+      writeActiveConversation(agent.slug, id);
+      setMessages(hydrated);
+      setAllDocuments(restoredDocs);
+    } catch {
+      /* conversation gone — leave the current transcript */
+    }
+  }, [agent.slug]);
+
   /* --------------------------------------------------------------- */
   /* Render                                                          */
   /* --------------------------------------------------------------- */
@@ -826,7 +898,7 @@ export function ChatShell({
             label={agent.name}
             variant="bar"
           />
-          <ChatMenu onNewChat={handleClear} />
+          <ChatMenu onNewChat={handleClear} conversations={recentChats} onPickConversation={id => void handlePickConversation(id)} />
         </div>
       </ShellBarActionsPortal>
 
