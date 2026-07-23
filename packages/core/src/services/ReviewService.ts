@@ -322,7 +322,8 @@ export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: 
     throw new Error(`no pending action ${opts.runId}`);
   }
   const input = (run.input ?? {}) as Record<string, unknown>;
-  const original = String(input.body ?? input.notes ?? '');
+  const props = (input.properties ?? {}) as Record<string, unknown>;
+  const original = String(input.body ?? input.notes ?? props.notes ?? '');
   const { buildChatModel } = await import('@/libs/llm');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
   const model = buildChatModel('main', { temperature: 0.4, streaming: false, maxTokens: 1200 });
@@ -341,6 +342,9 @@ export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: 
     rewritten = original;
   }
   await recordActionSignal({ orgId: opts.orgId, runId: opts.runId, signal: 'rewrite', userId: opts.userId, hint: opts.hint });
+  if (input.body === undefined && input.notes === undefined && props.notes !== undefined) {
+    return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten };
+  }
   const key = input.body !== undefined ? 'body' : 'notes';
   return { input: { ...input, [key]: rewritten }, body: rewritten };
 }
