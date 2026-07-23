@@ -1735,6 +1735,10 @@ export const briefingSchema = pgTable(
     content: text('content').notNull(),
     /** Who published — usually `agent:<slug>` via a mission check. */
     publishedBy: text('published_by'),
+  /** Team this brief belongs to; NULL = the workspace-wide ROLLUP brief. */
+  teamSlug: text('team_slug'),
+  /** Agent that published it (plain slug). */
+  agentSlug: text('agent_slug'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [

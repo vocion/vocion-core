@@ -14,6 +14,8 @@ export type ChatHandoff = {
   context: string;
   /** Optional highlighted excerpt the question is specifically about. */
   excerpt?: string;
+  /** Agent to answer — the brief's team lead (rollup → workspace lead). */
+  agentSlug?: string;
 };
 
 /**
@@ -28,7 +30,7 @@ export type ChatHandoff = {
  * @param props.briefingTitle
  * @param props.briefingContent
  */
-export const BriefingChatStarter = (props: { briefingTitle: string; briefingContent: string }) => {
+export const BriefingChatStarter = (props: { briefingTitle: string; briefingContent: string; agentSlug?: string }) => {
   const router = useRouter();
   const [value, setValue] = useState('');
   const [quote, setQuote] = useState<string | null>(null);
@@ -87,6 +89,7 @@ export const BriefingChatStarter = (props: { briefingTitle: string; briefingCont
       contextTitle: props.briefingTitle,
       context: props.briefingContent,
       excerpt: quote ?? undefined,
+      agentSlug: props.agentSlug,
     };
     sessionStorage.setItem(CHAT_HANDOFF_KEY, JSON.stringify(handoff));
     router.push('/dashboard/chat');
