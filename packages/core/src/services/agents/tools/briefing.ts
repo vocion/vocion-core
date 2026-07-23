@@ -1,36 +1,50 @@
 /**
- * Briefing tools — let an agent GROUND answers in the latest daily brief and
- * REGENERATE it inline when it's stale.
+ * Briefing tools — team-scoped.
  *
- * - get_briefing: read the latest published briefing + a freshness signal, so
- *   "what should I do" can emerge from the brief (not just the tracker).
- * - refresh_briefing: if the latest brief isn't from today, kick off the
- *   daily-revenue-briefing mission (the same pass its automation fires) in the
- *   background and return immediately — never blocks the chat turn on a full
- *   mission run.
- *
- * There is no expiry column on `briefing`; "stale" = the latest brief was not
- * published today (server-local midnight boundary).
+ * Every brief belongs to a TEAM (published by its lead); the workspace lead's
+ * brief is the cross-team ROLLUP (team_slug NULL). Tools:
+ * - publish_briefing: stamps the caller's agent + team.
+ * - get_briefing: the caller's TEAM brief by default (arg `team` to read
+ *   another team's, `rollup` for the workspace rollup) + freshness signal.
+ * - refresh_briefing: regenerates the caller's team brief IN THE BACKGROUND by
+ *   running the team's lead agent with a publish instruction (generic — works
+ *   for every team, no per-team mission required). Rollup refresh runs the
+ *   workspace lead over the latest team briefs. Never blocks the turn.
  */
 
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { briefingSchema } from '@/models/Schema';
+import { agentSchema, briefingSchema, teamSchema } from '@/models/Schema';
 
-// Which mission regenerates the brief is workspace-specific — configurable so
-// core carries no Metacto-specific slug. Defaults to the common name; other
-// workspaces override via env, and refresh_briefing degrades gracefully when
-// no such mission exists.
-const BRIEFING_MISSION = process.env.VOCION_BRIEFING_MISSION ?? 'daily-revenue-briefing';
-
-async function latestBriefing(orgId: string) {
+async function callerTeam(ctx: RuntimeContext): Promise<{ teamSlug: string | null; leadSlug: string | null }> {
+  if (!ctx.agentSlug) {
+    return { teamSlug: null, leadSlug: null };
+  }
   const [row] = await db
-    .select({ id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt })
+    .select({ teamSlug: agentSchema.teamSlug })
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, ctx.orgId), eq(agentSchema.slug, ctx.agentSlug)))
+    .limit(1);
+  const teamSlug = row?.teamSlug ?? null;
+  if (!teamSlug) {
+    return { teamSlug: null, leadSlug: null };
+  }
+  const [team] = await db
+    .select({ lead: teamSchema.leadAgentSlug })
+    .from(teamSchema)
+    .where(and(eq(teamSchema.orgId, ctx.orgId), eq(teamSchema.slug, teamSlug)))
+    .limit(1);
+  return { teamSlug, leadSlug: team?.lead ?? null };
+}
+
+async function latestBriefing(orgId: string, teamSlug: string | null) {
+  const [row] = await db
+    .select({ id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt, teamSlug: briefingSchema.teamSlug })
     .from(briefingSchema)
-    .where(eq(briefingSchema.orgId, orgId))
+    .where(and(eq(briefingSchema.orgId, orgId), teamSlug === null ? isNull(briefingSchema.teamSlug) : eq(briefingSchema.teamSlug, teamSlug)))
     .orderBy(desc(briefingSchema.createdAt))
     .limit(1);
   return row ?? null;
@@ -41,27 +55,69 @@ function isFromToday(d: Date): boolean {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
+export function publishBriefingTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const { title, content, rollup } = args as { title: string; content: string; rollup?: boolean };
+      const { teamSlug } = await callerTeam(ctx);
+      const [row] = await db
+        .insert(briefingSchema)
+        .values({
+          orgId: ctx.orgId,
+          title: title.slice(0, 200),
+          content,
+          publishedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : (ctx.userId ?? null),
+          agentSlug: ctx.agentSlug ?? null,
+          teamSlug: rollup ? null : teamSlug,
+        })
+        .returning({ id: briefingSchema.id });
+      return `Briefing #${row!.id} published${rollup ? ' (workspace rollup)' : teamSlug ? ` for team ${teamSlug}` : ''} — live under Workspace → Briefings.`;
+    },
+    {
+      name: 'publish_briefing',
+      description: 'Publish a briefing (markdown) to the Briefings page, scoped to YOUR team automatically. Set rollup:true only when publishing the cross-team workspace rollup (workspace lead). The FULL briefing goes in content.',
+      schema: z.object({
+        title: z.string().min(1).describe('e.g. "Founder GTM Brief — Thu, Jul 23"'),
+        content: z.string().min(1).describe('The complete briefing, markdown.'),
+        rollup: z.boolean().optional().describe('true = the workspace-wide rollup brief (workspace lead only).'),
+      }),
+    },
+  );
+}
+
 export function getBriefingTool(ctx: RuntimeContext) {
   return tool(
-    async () => {
-      const brief = await latestBriefing(ctx.orgId);
+    async (args) => {
+      const requested = (args as { team?: string }).team?.trim();
+      let scope: string | null;
+      let label: string;
+      if (requested === 'rollup') {
+        scope = null;
+        label = 'workspace rollup';
+      } else if (requested) {
+        scope = requested;
+        label = `team ${requested}`;
+      } else {
+        const { teamSlug } = await callerTeam(ctx);
+        scope = teamSlug;
+        label = teamSlug ? `your team (${teamSlug})` : 'workspace rollup';
+      }
+      let brief = await latestBriefing(ctx.orgId, scope);
+      if (!brief && scope !== null) {
+        brief = await latestBriefing(ctx.orgId, null);
+        label = 'workspace rollup (no team brief yet)';
+      }
       if (!brief) {
-        return 'No briefing has been published yet. Call refresh_briefing to generate today\'s.';
+        return `No ${label} briefing published yet. Call refresh_briefing to generate one.`;
       }
       const when = brief.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-      const fresh = isFromToday(brief.createdAt);
-      const status = fresh ? `current (published today, ${when})` : `STALE — last published ${when}, not today; consider refresh_briefing`;
-      // Recency-position reminder: a long brief in context reliably anchors
-      // the model into prose-advisor mode and it stops emitting action cards
-      // (observed: card count degraded 3→0 once this tool entered the flow).
-      // A reminder at the END of the tool output — the closest thing to the
-      // answer — restores compliance where the distant system prompt loses.
-      return `Latest briefing — "${brief.title}" — ${status}\n\n${brief.content}\n\n---\nREMINDER (harness): the brief above is CONTEXT, not your answer. If you surface actionable/owed touches to the user, your workspace rules still apply — emit the required recommend_action card for EACH touch you name BEFORE writing your answer; never substitute a "want me to draft it?" question for a card.`;
+      const status = isFromToday(brief.createdAt) ? `current (published today, ${when})` : `STALE — last published ${when}, not today; consider refresh_briefing`;
+      return `Latest ${label} briefing — "${brief.title}" — ${status}\n\n${brief.content}\n\n---\nREMINDER (harness): the brief above is CONTEXT, not your answer. If you surface actionable/owed touches to the user, your workspace rules still apply — emit the required recommend_action card for EACH touch you name BEFORE writing your answer; never substitute a "want me to draft it?" question for a card.`;
     },
     {
       name: 'get_briefing',
-      description: 'Read the latest published daily briefing (title, freshness, full markdown). Use it to ground "what should I do"-style answers in the brief\'s emergent priorities — not only the tracker. Tells you if the brief is stale (not from today).',
-      schema: z.object({}),
+      description: 'Read the latest briefing for YOUR team (default), another team (team:"revops"), or the workspace rollup (team:"rollup"). Tells you if it is stale. Use it to ground "what should I do" answers in the team\'s emergent priorities.',
+      schema: z.object({ team: z.string().optional().describe('Team slug, "rollup", or omit for your own team.') }),
     },
   );
 }
@@ -69,31 +125,27 @@ export function getBriefingTool(ctx: RuntimeContext) {
 export function refreshBriefingTool(ctx: RuntimeContext) {
   return tool(
     async () => {
-      const brief = await latestBriefing(ctx.orgId);
+      const { teamSlug, leadSlug } = await callerTeam(ctx);
+      const scope = teamSlug ?? null;
+      const brief = await latestBriefing(ctx.orgId, scope);
       if (brief && isFromToday(brief.createdAt)) {
-        return `Today's briefing ("${brief.title}") is already current — no refresh needed.`;
+        return `Today's ${teamSlug ? `${teamSlug} ` : 'rollup '}briefing ("${brief.title}") is already current — no refresh needed.`;
       }
-      const { getMission, startMission, scheduledCheckBrief } = await import('@/services/MissionService');
-      const template = await getMission(ctx.orgId, BRIEFING_MISSION);
-      if (!template) {
-        return `No "${BRIEFING_MISSION}" mission is configured for this workspace, so I can't regenerate the brief.`;
+      const runner = leadSlug ?? ctx.agentSlug;
+      if (!runner) {
+        return 'No team lead resolved for this agent — cannot regenerate.';
       }
-      // Fire-and-forget: startMission runs the full mission in-process (blocks
-      // until done). We must NOT await it inside a chat turn — kick it off and
-      // return; the fresh brief lands under Briefings when the run completes.
-      void startMission({
-        orgId: ctx.orgId,
-        missionSlug: BRIEFING_MISSION,
-        brief: scheduledCheckBrief(template),
-        title: `Check: ${template.name}`,
-        mode: 'check',
-        invokedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : (ctx.userId ?? 'agent'),
-      }).catch((err: unknown) => console.error(`refresh_briefing mission failed: ${String(err)}`));
-      return 'Generating a fresh briefing now (the revenue lead is assembling it) — it\'ll appear under Workspace → Briefings in a minute or two. Tell the user it\'s regenerating; don\'t wait on it.';
+      const instruction = teamSlug
+        ? `Assemble and publish your team's daily brief NOW. Ground it in the tracker, your missions, and fresh sources (freshen gmail first if relevant). Structure it as a scannable document (sections, priority-ranked actions). Publish via publish_briefing when done — do not ask for permission.`
+        : `Assemble and publish the WORKSPACE ROLLUP brief NOW: read each team's latest brief (get_briefing with team:"<slug>"), synthesize the cross-team picture (top priorities, risks, asks), and publish via publish_briefing with rollup:true. Do not ask for permission.`;
+      const { runAgentDeep } = await import('@/services/AgentService');
+      void runAgentDeep({ orgId: ctx.orgId, agentSlug: runner, message: instruction, userId: ctx.userId ?? 'refresh-briefing' })
+        .catch((err: unknown) => console.error(`refresh_briefing run failed: ${String(err)}`));
+      return `Regenerating the ${teamSlug ?? 'rollup'} briefing in the background (${runner} is assembling it) — it'll appear under Briefings in a minute or two. Tell the user it's regenerating; don't wait on it.`;
     },
     {
       name: 'refresh_briefing',
-      description: 'Regenerate the daily briefing IF it is stale (not from today). Kicks off the briefing mission in the background and returns immediately — never blocks. No-op with a note if today\'s brief already exists.',
+      description: 'Regenerate YOUR team\'s briefing IF stale (not from today) by running the team lead in the background. Returns immediately — never blocks. No-op with a note when today\'s brief exists.',
       schema: z.object({}),
     },
   );
