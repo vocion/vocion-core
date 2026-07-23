@@ -66,7 +66,7 @@ import {
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
-import { regenerateRoute as briefingsRegenerateRoute } from './Briefings';
+import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import {
   approve,
   cancel,
@@ -183,6 +183,7 @@ export const router = {
   },
   briefings: {
     regenerate: briefingsRegenerateRoute,
+    latest: briefingsLatestRoute,
   },
   review: {
     listSkillRuns: listPendingSkillRuns,
