@@ -49,6 +49,19 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
         }
         return rec;
       });
+      // Tracker records ARE grounding — surface them as explorable sources in
+      // the drawer (a lookup-only turn previously had an empty Sources drawer,
+      // which read as "no citations"). Deep-link to the objects page.
+      ctx.emit({
+        type: 'documents',
+        documents: objects.slice(0, 30).map(obj => ({
+          document_id: `object-${obj.id}`,
+          semantic_identifier: obj.title,
+          link: '/dashboard/objects',
+          source_type: 'tracker',
+          blurb: [obj.status, typeof obj.summary === 'string' ? obj.summary : ''].filter(Boolean).join(' — ').slice(0, 200),
+        })),
+      });
       return JSON.stringify(rows);
     },
     {
