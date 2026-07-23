@@ -1,1 +1,6 @@
 public/artifacts/
+
+# session temp/secret leftovers
+.env.local.metacto.bak
+_tmp_shots.mjs
+src/scripts/_tmp_*.ts
