@@ -1,6 +1,6 @@
 'use client';
 
-import { MessageSquare, Send, Sparkles, X } from 'lucide-react';
+import { ArrowUp, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from '@/libs/I18nNavigation';
@@ -139,8 +139,10 @@ export const BriefingChatStarter = (props: { briefingTitle: string; briefingCont
               </button>
             </div>
           )}
-          <div className="flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 shadow-lg">
-            <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
+          {/* Same composer language as /chat (rounded-2xl card, amber focus
+              ring, round amber ArrowUp) so starting a chat here FEELS like
+              already being in the chat. */}
+          <div className="flex items-end gap-2 rounded-2xl border border-border bg-background px-4 py-3 shadow-lg transition focus-within:border-brand-amber focus-within:shadow-[0_8px_28px_rgba(241,135,0,0.10)] focus-within:ring-4 focus-within:ring-brand-amber-tint">
             <input
               ref={inputRef}
               value={value}
@@ -151,17 +153,17 @@ export const BriefingChatStarter = (props: { briefingTitle: string; briefingCont
                   start();
                 }
               }}
-              placeholder={quote ? 'Ask about the highlighted passage…' : 'Ask about this briefing — opens a chat with the team lead…'}
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              placeholder={quote ? 'Ask about the highlighted passage…' : 'Ask about this brief — continues in chat with the team lead…'}
+              className="min-w-0 flex-1 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 sm:text-sm"
             />
             <button
               type="button"
               onClick={start}
               disabled={!value.trim()}
               aria-label="Start chat"
-              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition hover:opacity-90 disabled:opacity-40"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-amber text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50 disabled:shadow-none disabled:hover:translate-y-0 sm:size-9"
             >
-              <Send className="size-4" />
+              <ArrowUp className="size-5 sm:size-[18px]" />
             </button>
           </div>
         </div>
