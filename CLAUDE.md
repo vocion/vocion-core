@@ -200,6 +200,17 @@ requirements/                       # Product specs and case studies
 
 ## Conventions
 
+- **Structural over prompting.** When a model behavior is a REQUIREMENT (cards
+  must emit, raw data must never dump, events must be typed), do not iterate
+  system-prompt wording — prompt once, and if the behavior is still
+  inconsistent, enforce it in code. Levers in order of strength: typed
+  contracts/events the UI consumes, deterministic post-processing, a gated
+  backstop LLM pass that fires only on violation (see
+  `harnessConfig.recommendActionBackstop` in AgentService), recency reminders
+  inside tool outputs (weakest). Prove behavior with a harness/E2E run —
+  "the prompt says so" is not evidence. (Proven: 3 prompt iterations failed
+  to restore action cards; the backstop guaranteed them. Same story for the
+  `<scratch>` strip and the typed trace.)
 - Conventional Commits (enforced by commitlint + lefthook)
 - ESLint with Antfu config
 - Strict TypeScript
