@@ -55,6 +55,8 @@
     "e2e:demo": "dotenv -c -- tsx src/scripts/e2e-demo.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.19",
+    "@ai-sdk/openai": "^4.0.20",
     "@anthropic-ai/sdk": "^0.88.0",
     "@auth/drizzle-adapter": "^1.11.2",
     "@aws-sdk/client-bedrock-agentcore": "^3.1079.0",
@@ -87,6 +89,7 @@
     "@temporalio/workflow": "^1.17.1",
     "@uiw/react-codemirror": "^4.25.9",
     "@vocion/sdk": "*",
+    "ai": "^7.0.37",
     "bcrypt": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

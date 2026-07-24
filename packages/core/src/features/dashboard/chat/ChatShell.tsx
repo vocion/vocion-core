@@ -84,6 +84,30 @@ function clearActiveConversation(agentSlug: string): void {
   }
 }
 
+/** Active mid-turn stream (resumable): survives refresh so we can replay
+ *  missed events + re-attach live via /rpc/agent/stream/resume. */
+const STREAM_STASH_KEY = 'vocion:chat:activestream';
+
+type StreamStash = { streamId: string; agentSlug: string; count: number };
+
+function readStreamStash(): StreamStash | null {
+  try {
+    const raw = sessionStorage.getItem(STREAM_STASH_KEY);
+    return raw ? JSON.parse(raw) as StreamStash : null;
+  } catch {
+    return null;
+  }
+}
+function writeStreamStash(v: StreamStash | null): void {
+  try {
+    if (v) {
+      sessionStorage.setItem(STREAM_STASH_KEY, JSON.stringify(v));
+    } else {
+      sessionStorage.removeItem(STREAM_STASH_KEY);
+    }
+  } catch { /* ignore */ }
+}
+
 /** The last agent the user was talking to — restored on refresh so a reload
  *  doesn't kick you back to the workspace default. */
 const ACTIVE_AGENT_KEY = 'vocion:chat:agent';
@@ -585,6 +609,16 @@ export function ChatShell({
           if (restoredDocs.length > 0) {
             setAllDocuments(restoredDocs);
           }
+          // Mid-turn drop? If a stream stash exists for this agent and the
+          // assistant's reply hasn't persisted yet, replay + re-attach live.
+          const stash = readStreamStash();
+          if (stash && stash.agentSlug === slug) {
+            if (hydrated[hydrated.length - 1]?.role === 'user') {
+              void resumeStream(stash);
+            } else {
+              writeStreamStash(null); // turn already landed
+            }
+          }
         } else {
           // Stored id points at an empty/deleted thread — forget it.
           clearActiveConversation(slug);
@@ -668,7 +702,19 @@ export function ChatShell({
             continue;
           }
           try {
-            handleEvent(JSON.parse(block.slice(6)));
+            const evt = JSON.parse(block.slice(6));
+            if (evt.type === 'stream_meta') {
+              // Resume handle — stash it; replayed events are counted below
+              // so a reconnect asks only for what it missed.
+              streamStashRef.current = { streamId: String(evt.streamId), agentSlug: agent.slug, count: 0 };
+              writeStreamStash(streamStashRef.current);
+            } else {
+              if (streamStashRef.current) {
+                streamStashRef.current.count += 1;
+                writeStreamStash(streamStashRef.current);
+              }
+              handleEvent(evt);
+            }
           } catch {
             /* malformed event, skip */
           }
@@ -688,10 +734,16 @@ export function ChatShell({
       }));
       setPhase('idle');
       setActivity(null);
+      streamStashRef.current = null;
+      writeStreamStash(null);
     } catch (err) {
       flushDeltas();
       setPhase('idle');
       setActivity(null);
+      streamStashRef.current = null;
+      if ((err as Error).name === 'AbortError') {
+        writeStreamStash(null); // explicit Stop — nothing to resume
+      }
       // User-initiated Stop (AbortError) is not an error — just finalize the
       // partial turn cleanly, no error breadcrumb.
       const aborted = (err as Error).name === 'AbortError';
@@ -707,6 +759,9 @@ export function ChatShell({
           : { runs: [...(m.runs ?? []), { type: 'tool' as const, name: 'error', state: 'error' as const, output: (err as Error).message }] }),
       }));
     } finally {
+      // NOTE: the stream stash is NOT cleared here — on a reload the fetch
+      // rejects during unload and this finally raced the navigation, wiping
+      // the resume handle. It clears on normal completion / Stop instead.
       abortRef.current = null;
     }
   }, [agent.slug, messages, isStreaming, handleEvent, appendToLatestAgent, flushDeltas]);
@@ -831,6 +886,70 @@ export function ChatShell({
     setFocusCitation(n);
     setSourcesOpen(true);
   }, []);
+
+  const streamStashRef = useRef<StreamStash | null>(null);
+
+  // RESUME a mid-turn stream after refresh/drop: replay missed events, then
+  // stay attached live until done. Falls back silently (404 = expired; the
+  // finished turn arrives via conversation rehydrate as before).
+  const resumeStream = useCallback(async (stash: StreamStash) => {
+    pendingTraceRef.current = new Map();
+    traceDirtyRef.current = false;
+    setMessages(prev => [...prev, { role: 'assistant', content: '', runs: [] }]);
+    setPhase('thinking');
+    setActivity('Reconnecting to the running turn…');
+    streamStashRef.current = stash;
+    try {
+      const resp = await fetch(`/rpc/agent/stream/resume?id=${encodeURIComponent(stash.streamId)}&after=${stash.count}`);
+      if (!resp.ok || !resp.body) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop() ?? '';
+        for (const block of blocks) {
+          if (!block.startsWith('data: ')) {
+            continue;
+          }
+          try {
+            const evt = JSON.parse(block.slice(6));
+            if (evt.type !== 'stream_meta') {
+              if (streamStashRef.current) {
+                streamStashRef.current.count += 1;
+                writeStreamStash(streamStashRef.current);
+              }
+              handleEvent(evt);
+            }
+          } catch { /* skip */ }
+        }
+      }
+      flushDeltas();
+      appendToLatestAgent(m => ({
+        ...m,
+        content: m.content || (m.runs ?? [])
+          .filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text')
+          .map(r => r.text)
+          .join('\n\n'),
+        trace: (m.trace ?? []).map(n => (n.status === 'error' ? n : { ...n, status: 'done' as const })),
+      }));
+    } catch {
+      // Expired/unreachable — drop the placeholder; rehydrate covers the rest.
+      setMessages(prev => (prev[prev.length - 1]?.role === 'assistant' && !prev[prev.length - 1]?.content ? prev.slice(0, -1) : prev));
+    } finally {
+      setPhase('idle');
+      setActivity(null);
+      streamStashRef.current = null;
+      writeStreamStash(null);
+    }
+  }, [handleEvent, flushDeltas, appendToLatestAgent]);
 
   const agentSlugForChats = agent.slug;
   useEffect(() => {
