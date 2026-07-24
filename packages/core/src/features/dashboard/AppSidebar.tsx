@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  ArrowLeft,
   BarChart3,
   BookOpen,
   CalendarClock,
@@ -14,10 +15,8 @@ import {
   MessageSquare,
   Network,
   Newspaper,
-  Play,
   Plug,
   ScrollText,
-  Settings2,
   ShieldCheck,
   Sparkles,
   TestTube,
@@ -31,41 +30,41 @@ import { useEffect, useState } from 'react';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { AppSidebarNavGroup } from '@/features/dashboard/AppSidebarNavGroup';
-import { ProjectSwitcher } from '@/features/dashboard/ProjectSwitcher';
+import { WorkspaceMenu } from '@/features/dashboard/WorkspaceMenu';
 import { VocionLogo } from '@/templates/VocionLogo';
 
 /**
- * Dashboard left sidebar — two VIEWS behind a segmented toggle:
+ * Dashboard left sidebar — two views, Linear-settings style:
  *
- *   USE (default)  — living in the app day to day: chat with the team,
- *                    read briefs, approve its work, see activity, search.
- *   CONFIGURE      — shaping the app: the team roster + its work shapes,
- *                    knowledge, build primitives, observability, and the
- *                    organization itself.
+ *   WORK (default) — the daily surface only: chat, briefings, review,
+ *                    activity, search. Pure navigation, no chrome.
+ *   MANAGE         — entered via the quiet "Manage workspace" item at the
+ *                    BOTTOM of the work view; swaps the sidebar into the
+ *                    configuration sections with "Back to work" at top.
  *
- * The choice persists per browser (localStorage). Nav-item sweep 2026-07-24:
- * every route below has a real page (no dead links, no stubs) — the split is
- * about focus, not pruning. Active-state styling via `--sidebar-accent`.
+ * The view persists per browser (reloading mid-manage keeps you managing).
+ * Nav sweep 2026-07-24: every route has a real page (no dead links, no
+ * stubs). Active-state styling via `--sidebar-accent`.
  * @param props.isAdmin
  * @param props
  */
 
 const NAV_VIEW_KEY = 'vocion:nav:view';
-type NavView = 'use' | 'configure';
+type NavView = 'work' | 'manage';
 
 export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
 }) => {
   const t = useTranslations('DashboardLayout');
-  const [view, setView] = useState<NavView>('use');
+  const [view, setView] = useState<NavView>('work');
 
   // Restore the persisted view after mount (SSR renders the default).
   useEffect(() => {
     try {
       const stored = localStorage.getItem(NAV_VIEW_KEY);
-      if (stored === 'configure') {
-        setView('configure');
+      if (stored === 'manage') {
+        setView('manage');
       }
     } catch { /* private mode */ }
   }, []);
@@ -84,48 +83,44 @@ export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<t
           <VocionLogo size="sm" />
         </div>
 
-        {/* ProjectSwitcher renders only when there's more than one workspace. */}
-        <ProjectSwitcher />
-
-        {/* Use ⇄ Configure — the two jobs this nav serves. */}
-        <div className="mx-2 mt-2 grid grid-cols-2 gap-0.5 rounded-lg bg-sidebar-accent/50 p-0.5">
-          {([['use', 'Use', Play], ['configure', 'Configure', Settings2]] as const).map(([key, label, Icon]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => pick(key)}
-              aria-pressed={view === key}
-              className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition ${
-                view === key
-                  ? 'bg-sidebar text-sidebar-foreground shadow-sm'
-                  : 'text-sidebar-foreground/60 hover:text-sidebar-foreground'
-              }`}
-            >
-              <Icon className="size-3.5" aria-hidden />
-              {label}
-            </button>
-          ))}
-        </div>
       </SidebarHeader>
 
       <SidebarContent>
-        {view === 'use'
+        {view === 'work'
           ? (
-              // USE — the daily surface, nothing else competing for attention.
-              <AppSidebarNav
-                label={t('main_section_label')}
-                items={[
-                  { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
-                  { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
-                  { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
-                  { title: 'Activity', url: '/dashboard/activity', icon: Activity },
-                  { title: t('search'), url: '/dashboard/search', icon: BookOpen },
-                ]}
-              />
+              // WORK — the daily surface; the only door to config is the
+              // quiet Manage entry at the bottom.
+              <>
+                <AppSidebarNav
+                  label={t('main_section_label')}
+                  items={[
+                    { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
+                    { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
+                    { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
+                    { title: 'Activity', url: '/dashboard/activity', icon: Activity },
+                    { title: t('search'), url: '/dashboard/search', icon: BookOpen },
+                  ]}
+                />
+                {/* Bottom cluster: which workspace you're in + the door to
+                    its configuration. Both are context, not daily nav. */}
+                <div className="mt-auto px-2 pb-1">
+                  <WorkspaceMenu isAdmin={isAdmin} />
+                </div>
+              </>
             )
           : (
               <>
-                {/* CONFIGURE — who works for you + the shapes their work takes. */}
+                <div className="px-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => pick('work')}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-[13px] font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  >
+                    <ArrowLeft className="size-4" aria-hidden />
+                    Back to work
+                  </button>
+                </div>
+                {/* MANAGE — who works for you + the shapes their work takes. */}
                 <AppSidebarNav
                   label="Team"
                   items={[
@@ -177,6 +172,10 @@ export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<t
                     { title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText },
                   ]}
                 />
+
+                <div className="mt-auto px-2 pb-1">
+                  <WorkspaceMenu isAdmin={isAdmin} />
+                </div>
               </>
             )}
       </SidebarContent>

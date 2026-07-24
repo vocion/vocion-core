@@ -314,6 +314,9 @@ export function WorkTimeline({ runs, streaming, activity, thinkingText, document
 function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[] }) {
   const [open, setOpen] = useState(false);
   const [openDrill, setOpenDrill] = useState<string | null>(null);
+  // Steps vs Sources as TABS — a long "Grounded in" list used to run on
+  // forever beneath the steps, burying the trace.
+  const [tab, setTab] = useState<'steps' | 'sources'>('steps');
   const elapsed = useElapsed(streaming);
 
   const roots = trace.filter(n => !n.parentId);
@@ -365,8 +368,20 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
         <>
           <button type="button" aria-label="Close details" onClick={() => setOpen(false)} className="fixed inset-0 z-40 bg-black/40 sm:hidden" />
           <div className="fixed inset-x-0 bottom-0 z-50 max-h-[82vh] overflow-y-auto rounded-t-2xl border-t border-border bg-background shadow-2xl sm:static sm:z-auto sm:mt-1 sm:max-h-none sm:rounded-xl sm:border sm:border-border/60 sm:bg-muted/20 sm:shadow-none">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-3">
-              <span className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">Activity</span>
+            <div className="flex items-center justify-between border-b border-border px-4 py-2.5 sm:px-3">
+              <div className="flex gap-1">
+                {([['steps', `Steps${steps > 0 ? ` (${steps})` : ''}`], ['sources', `Sources${sources > 0 ? ` (${sources})` : ''}`]] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setTab(key)}
+                    disabled={key === 'sources' && sources === 0}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-40 ${tab === key ? 'bg-brand-amber/15 text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               {streaming
                 ? (
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-amber-deep">
@@ -381,6 +396,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
                   )}
             </div>
 
+            {tab === 'steps' && (
             <ol className="relative px-4 py-2 sm:px-3">
               {roots.map((n) => {
                 const kids = childrenOf(n.id);
@@ -394,12 +410,12 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
                 );
               })}
             </ol>
+            )}
 
-            {documents.length > 0 && (
-              <div className="border-t border-border px-4 py-3 sm:px-3">
-                <div className="mb-2 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">Grounded in</div>
+            {tab === 'sources' && documents.length > 0 && (
+              <div className="max-h-[46vh] overflow-y-auto px-4 py-3 sm:px-3">
                 <div className="grid gap-1.5">
-                  {documents.slice(0, 8).map((d, i) => <Citation key={`${d.document_id}-${i}`} doc={d} />)}
+                  {documents.map((d, i) => <Citation key={`${d.document_id}-${i}`} doc={d} />)}
                 </div>
               </div>
             )}
@@ -467,7 +483,7 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
         <>
           <button type="button" aria-label="Close details" onClick={() => setOpen(false)} className="fixed inset-0 z-40 bg-black/40 sm:hidden" />
           <div className="fixed inset-x-0 bottom-0 z-50 max-h-[82vh] overflow-y-auto rounded-t-2xl border-t border-border bg-background shadow-2xl sm:static sm:z-auto sm:mt-1 sm:max-h-none sm:rounded-xl sm:border sm:border-border/60 sm:bg-muted/20 sm:shadow-none">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-3">
+            <div className="flex items-center justify-between border-b border-border px-4 py-2.5 sm:px-3">
               <span className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">Activity</span>
               {streaming
                 ? (
