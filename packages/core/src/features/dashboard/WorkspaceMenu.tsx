@@ -1,6 +1,6 @@
 'use client';
 
-import { BarChart3, CalendarClock, Check, ChevronRight, Compass, Database, FileText, GitBranch, LineChart, LogOut, Network, Plug, ScrollText, Settings2, ShieldCheck, Sparkles, TestTube, UserPlus, Users, Wrench, Zap } from 'lucide-react';
+import { BarChart3, Check, ChevronRight, FileText, LogOut, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import {
@@ -33,46 +33,7 @@ import { Link, useRouter } from '@/libs/I18nNavigation';
  */
 type Project = { id: string; slug: string; name: string; description: string | null };
 
-/** Config surfaces, grouped — reached from the bottom workspace row. */
-const MANAGE_GROUPS: Array<{ label: string; items: Array<{ title: string; url: string; icon: typeof Settings2 }> }> = [
-  {
-    label: 'Team',
-    items: [
-      { title: 'Teams', url: '/dashboard/teams', icon: Network },
-      { title: 'Agents', url: '/dashboard/agents', icon: Users },
-      { title: 'Missions', url: '/dashboard/missions', icon: Compass },
-      { title: 'Workflows', url: '/dashboard/workflows', icon: GitBranch },
-      { title: 'Automation', url: '/dashboard/automation', icon: CalendarClock },
-    ],
-  },
-  {
-    label: 'Knowledge',
-    items: [
-      { title: 'Sources & connections', url: '/dashboard/sources', icon: Plug },
-      { title: 'Objects', url: '/dashboard/objects', icon: Database },
-      { title: 'Playbooks', url: '/dashboard/playbooks', icon: ScrollText },
-      { title: 'Learnings', url: '/dashboard/learnings', icon: Sparkles },
-    ],
-  },
-  {
-    label: 'Build',
-    items: [
-      { title: 'Skills', url: '/dashboard/skills', icon: Zap },
-      { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
-      { title: 'Evals', url: '/dashboard/evals', icon: TestTube },
-    ],
-  },
-  {
-    label: 'Workspace',
-    items: [
-      { title: 'Members', url: '/dashboard/members', icon: UserPlus },
-      { title: 'Observability', url: '/dashboard/observability', icon: LineChart },
-      { title: 'System', url: '/dashboard/admin', icon: ShieldCheck },
-    ],
-  },
-];
-
-export function WorkspaceMenu({ isAdmin = false }: { isAdmin?: boolean }) {
+export function WorkspaceMenu({ isAdmin = false, onManage }: { isAdmin?: boolean; onManage?: () => void }) {
   const { data: session } = useSession();
   const router = useRouter();
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -136,7 +97,7 @@ export function WorkspaceMenu({ isAdmin = false }: { isAdmin?: boolean }) {
         <ChevronRight className="size-3.5 shrink-0 text-sidebar-foreground/40" aria-hidden />
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent side="top" align="start" className="max-h-[80vh] w-64 overflow-y-auto">
+      <DropdownMenuContent side="top" align="start" className="w-60">
         {(projects?.length ?? 0) > 1 && (
           <>
             <DropdownMenuSub>
@@ -156,7 +117,12 @@ export function WorkspaceMenu({ isAdmin = false }: { isAdmin?: boolean }) {
           </>
         )}
 
-        {/* Everything about configuring this workspace. */}
+        {/* Short by design: the CONFIG NAV lives in the sidebar (Manage
+            workspace swaps to it) — not crammed into this dropdown. */}
+        <DropdownMenuItem onClick={() => onManage?.()}>
+          <Settings2 className="mr-2 size-4 text-muted-foreground" aria-hidden />
+          Manage workspace
+        </DropdownMenuItem>
         {isAdmin && (
           <DropdownMenuItem asChild>
             <Link href="/dashboard/adoption">
@@ -165,19 +131,6 @@ export function WorkspaceMenu({ isAdmin = false }: { isAdmin?: boolean }) {
             </Link>
           </DropdownMenuItem>
         )}
-        {MANAGE_GROUPS.map(g => (
-          <div key={g.label}>
-            <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground/70 uppercase">{g.label}</div>
-            {g.items.map(l => (
-              <DropdownMenuItem key={l.url} asChild>
-                <Link href={l.url}>
-                  <l.icon className="mr-2 size-4 text-muted-foreground" aria-hidden />
-                  {l.title}
-                </Link>
-              </DropdownMenuItem>
-            ))}
-          </div>
-        ))}
         <DropdownMenuItem asChild>
           <a href="https://www.vocion.ai/docs" target="_blank" rel="noreferrer">
             <FileText className="mr-2 size-4 text-muted-foreground" aria-hidden />
