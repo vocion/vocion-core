@@ -29,9 +29,15 @@ async function main(): Promise<void> {
   if (hasRow) {
     await wsRow.click();
     await page.waitForTimeout(700);
-    menuHasManage = (await page.getByRole('menuitem', { name: /Sources & connections/i }).count()) > 0
-      && (await page.getByRole('menuitem', { name: /^Agents$/i }).count()) > 0
-      && (await page.getByRole('menuitem', { name: /Members/i }).count()) > 0;
+    const items = await page.getByRole('menuitem').count();
+    const hasManage = (await page.getByRole('menuitem', { name: /Manage workspace/i }).count()) > 0;
+    // Manage swaps the SIDEBAR into config nav (Sources lives there, not here).
+    await page.getByRole('menuitem', { name: /Manage workspace/i }).click();
+    await page.waitForTimeout(800);
+    const sidebarHasSources = (await nav.getByText('Sources', { exact: true }).count()) > 0;
+    const canGoBack = (await nav.getByText(/Back to work/i).count()) > 0;
+    menuHasManage = hasManage && items <= 6 && sidebarHasSources && canGoBack;
+    console.warn(`  menu items: ${items} (tiny ✓ if <=6) · sidebar Sources: ${sidebarHasSources} · back: ${canGoBack}`);
     await page.screenshot({ path: '/Users/chrisfitkin/nav2-menu.png' });
     await page.keyboard.press('Escape');
   }
