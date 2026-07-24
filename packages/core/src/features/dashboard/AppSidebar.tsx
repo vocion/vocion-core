@@ -104,7 +104,7 @@ export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<t
                 {/* Bottom cluster: which workspace you're in + the door to
                     its configuration. Both are context, not daily nav. */}
                 <div className="mt-auto px-2 pb-1">
-                  <WorkspaceMenu isAdmin={isAdmin} />
+                  <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
                 </div>
               </>
             )
@@ -174,7 +174,7 @@ export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<t
                 />
 
                 <div className="mt-auto px-2 pb-1">
-                  <WorkspaceMenu isAdmin={isAdmin} />
+                  <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
                 </div>
               </>
             )}
