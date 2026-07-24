@@ -17,6 +17,7 @@ import type { AgentEvent } from '@/services/agents/types';
 import type { ConversationRun } from '@/services/ConversationService';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
+import { openStream } from '@/libs/streams/buffer';
 import {
   appendMessage,
 
@@ -165,6 +166,12 @@ export async function POST(request: Request): Promise<Response> {
   const collector = conversationId !== null ? new RunCollector() : null;
   const encoder = new TextEncoder();
 
+  // Resumable stream: buffer every event of this turn so a client that drops
+  // (refresh / phone lock) can replay what it missed and re-attach LIVE via
+  // /rpc/agent/stream/resume. stream_meta tells the client its stream id.
+  const streamId = crypto.randomUUID();
+  const buffered = openStream(streamId);
+
   // Multiplex the agent event stream + a 15s keepalive timer into one
   // ReadableStream. Whichever fires first gets written; on disconnect
   // we cancel both. (See ADR 0001 §2 — keepalives.)
@@ -182,6 +189,7 @@ export async function POST(request: Request): Promise<Response> {
       };
 
       const sendEvent = (event: AgentEvent) => {
+        buffered.append(JSON.stringify(event));
         // Tee certain events into the RunCollector for persistence.
         if (collector) {
           if (event.type === 'response_delta') {
@@ -201,6 +209,10 @@ export async function POST(request: Request): Promise<Response> {
         safeEnqueue(encoder.encode(': keepalive\n\n'));
       }, KEEPALIVE_INTERVAL_MS);
 
+      // First frame: the resume handle (not part of the AgentEvent union —
+      // the client stashes it and never reduces it into the transcript).
+      safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'stream_meta', streamId })}\n\n`));
+
       try {
         await runAgentDeep({
           allowedSourceSlugs,
@@ -217,6 +229,7 @@ export async function POST(request: Request): Promise<Response> {
         sendEvent({ type: 'error', message: m });
       } finally {
         clearInterval(keepaliveTimer);
+        buffered.close();
         // Persist the assistant turn now that the stream is closing.
         if (collector && conversationId !== null) {
           const { text, runs, documents } = collector.finalise();
