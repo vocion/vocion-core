@@ -43,8 +43,18 @@ export const ProjectSwitcher = () => {
     };
   }, []);
 
-  // Hide until the list loads — no flash of a wrong state.
-  if (!projects || projects.length === 0) {
+  // Reserve the row while loading: rendering null and popping in later
+  // shoved the whole nav down (visible flash on every load). Same box,
+  // skeleton content — the layout never moves.
+  if (!projects) {
+    return (
+      <div className="flex min-h-11 w-full items-center gap-2 rounded-md border border-transparent px-3 py-2 sm:min-h-9" aria-hidden>
+        <span className="size-4 shrink-0 animate-pulse rounded bg-muted" />
+        <span className="h-3.5 w-28 animate-pulse rounded bg-muted" />
+      </div>
+    );
+  }
+  if (projects.length === 0) {
     return null;
   }
 
