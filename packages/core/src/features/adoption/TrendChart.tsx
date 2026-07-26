@@ -9,6 +9,13 @@ export type TrendSeriesPoint = { day: string } & Record<string, number | string>
  * series over daily buckets, with a hover readout. Deliberately small —
  * if charting needs grow past this, swap in a chart library and keep
  * the props.
+ * @param props
+ * @param props.data
+ * @param props.areaKey
+ * @param props.areaLabel
+ * @param props.lineKey
+ * @param props.lineLabel
+ * @param props.height
  */
 export function TrendChart(props: {
   data: TrendSeriesPoint[];

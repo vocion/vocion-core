@@ -1,5 +1,6 @@
 /* eslint-disable style/brace-style, regexp/no-unused-capturing-group, no-console */
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
+import type { RawStreamEvent } from './agents/traceEmitter';
 import { and, eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import { db } from '@/libs/DB';
@@ -7,10 +8,9 @@ import { cleanUsageDetails, langfuse, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
 import { agentSchema } from '@/models/Schema';
-import { listBusinessObjects } from './BusinessObjectService';
-import type { RawStreamEvent } from './agents/traceEmitter';
 import { AnswerStreamer } from './agents/answerStream';
 import { extractChunk, parseJsonArgs, toolOutputContent, TraceEmitter } from './agents/traceEmitter';
+import { listBusinessObjects } from './BusinessObjectService';
 import { executeSkill } from './SkillService';
 
 // Lazy-init: the OpenAI SDK throws at CONSTRUCTION on an empty apiKey, and a

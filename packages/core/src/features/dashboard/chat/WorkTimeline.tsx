@@ -1,5 +1,6 @@
 'use client';
 
+import type { LucideIcon } from 'lucide-react';
 import type { AgentRun, IndexedDocument, TraceNode } from './types';
 import {
   Brain,
@@ -9,7 +10,7 @@ import {
   ExternalLink,
   GitBranch,
   Loader2,
-  type LucideIcon,
+
   PencilLine,
   Rows3,
   Search,
@@ -234,12 +235,23 @@ function TraceCitations({ node }: { node: TraceNode }) {
           <span className="min-w-0 flex-1 truncate">{c.title}</span>
         </div>
       ))}
-      {cites.length > 5 && <span className="text-[10px] text-muted-foreground/60">+{cites.length - 5} more</span>}
+      {cites.length > 5 && (
+        <span className="text-[10px] text-muted-foreground/60">
+          +
+          {cites.length - 5}
+          {' '}
+          more
+        </span>
+      )}
     </div>
   );
 }
 
-/** The tool/input/result call detail for a tool·search·skill node's drill. */
+/**
+ * The tool/input/result call detail for a tool·search·skill node's drill.
+ * @param root0
+ * @param root0.node
+ */
 function CallDetail({ node }: { node: TraceNode }) {
   const rows: Array<[string, string]> = [];
   if (node.tool) {
@@ -267,7 +279,14 @@ function CallDetail({ node }: { node: TraceNode }) {
   );
 }
 
-/** A single trace node row (used at the root and, indented, for delegate children). */
+/**
+ * A single trace node row (used at the root and, indented, for delegate children).
+ * @param root0
+ * @param root0.node
+ * @param root0.nested
+ * @param root0.open
+ * @param root0.onToggle
+ */
 function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: boolean; open: boolean; onToggle: () => void }) {
   const isReason = node.kind === 'reason';
   const drillText = isReason ? node.text?.trim() : undefined;
@@ -284,9 +303,25 @@ function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: 
       <div className="flex flex-wrap items-baseline gap-x-1.5 text-[13px] leading-snug">
         <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.label}</span>
         {node.detail && <span className="min-w-0 text-muted-foreground">{node.detail}</span>}
-        {node.result && <span className="text-muted-foreground/80">· {node.result}</span>}
-        {typeof node.confidence === 'number' && <span className="text-[11px] text-[var(--brand-pass)]">· {Math.round(node.confidence * 100)}%</span>}
-        {node.actor.kind === 'specialist' && !nested && <span className="text-[10px] text-muted-foreground/60">· {node.actor.name}</span>}
+        {node.result && (
+          <span className="text-muted-foreground/80">
+            ·
+            {node.result}
+          </span>
+        )}
+        {typeof node.confidence === 'number' && (
+          <span className="text-[11px] text-[var(--brand-pass)]">
+            ·
+            {Math.round(node.confidence * 100)}
+            %
+          </span>
+        )}
+        {node.actor.kind === 'specialist' && !nested && (
+          <span className="text-[10px] text-muted-foreground/60">
+            ·
+            {node.actor.name}
+          </span>
+        )}
       </div>
       {hasDrill && (
         <button type="button" onClick={onToggle} className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-amber-deep">
@@ -385,7 +420,10 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
               {streaming
                 ? (
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-amber-deep">
-                      <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" /><span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" /></span>
+                      <span className="relative flex size-2">
+                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" />
+                        <span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" />
+                      </span>
                       live
                     </span>
                   )
@@ -397,19 +435,19 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
             </div>
 
             {tab === 'steps' && (
-            <ol className="relative px-4 py-2 sm:px-3">
-              {roots.map((n) => {
-                const kids = childrenOf(n.id);
-                return (
-                  <div key={n.id}>
-                    <TraceRow node={n} open={openDrill === n.id} onToggle={() => setOpenDrill(o => (o === n.id ? null : n.id))} />
-                    {kids.map(k => (
-                      <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
-                    ))}
-                  </div>
-                );
-              })}
-            </ol>
+              <ol className="relative px-4 py-2 sm:px-3">
+                {roots.map((n) => {
+                  const kids = childrenOf(n.id);
+                  return (
+                    <div key={n.id}>
+                      <TraceRow node={n} open={openDrill === n.id} onToggle={() => setOpenDrill(o => (o === n.id ? null : n.id))} />
+                      {kids.map(k => (
+                        <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
+                      ))}
+                    </div>
+                  );
+                })}
+              </ol>
             )}
 
             {tab === 'sources' && documents.length > 0 && (
@@ -488,7 +526,10 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
               {streaming
                 ? (
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-amber-deep">
-                      <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" /><span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" /></span>
+                      <span className="relative flex size-2">
+                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" />
+                        <span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" />
+                      </span>
                       live
                     </span>
                   )
@@ -508,7 +549,7 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
                     Reasoning &amp; data reviewed
                     <ChevronRight className={`size-3 transition ${reasoningOpen ? 'rotate-90' : ''}`} aria-hidden />
                   </button>
-                  <span className={`mt-1.5 block break-words whitespace-pre-wrap rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed text-muted-foreground ${reasoningOpen ? 'max-h-72 overflow-y-auto' : 'line-clamp-2'}`}>
+                  <span className={`mt-1.5 block rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground ${reasoningOpen ? 'max-h-72 overflow-y-auto' : 'line-clamp-2'}`}>
                     {thinkingText}
                   </span>
                 </li>
@@ -529,11 +570,11 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
                               <ChevronRight className={`size-3 transition ${drillOpen === i ? 'rotate-90' : ''}`} aria-hidden />
                             </button>
                             {drillOpen === i && (
-                              <span className="mt-1 block break-words rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed text-muted-foreground">{n.drill}</span>
+                              <span className="mt-1 block rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words text-muted-foreground">{n.drill}</span>
                             )}
                           </>
                         )
-                      : <span className="mt-0.5 line-clamp-2 block break-words text-[11px] text-muted-foreground/70">{n.drill}</span>
+                      : <span className="mt-0.5 line-clamp-2 block text-[11px] break-words text-muted-foreground/70">{n.drill}</span>
                   )}
                 </li>
               ))}

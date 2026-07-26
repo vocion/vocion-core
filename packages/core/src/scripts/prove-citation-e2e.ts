@@ -125,4 +125,6 @@ async function main(): Promise<void> {
   process.exit(hasCites && drawerOpened && detailOpened && survivedReload ? 0 : 2);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

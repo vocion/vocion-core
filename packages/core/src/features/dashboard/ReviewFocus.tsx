@@ -42,6 +42,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' 
 /**
  * The human answer to "what am I approving?" — action verb + target system +
  * object, derived from the registered action id and its input.
+ * @param p
  */
 function describeAction(p: ActionRun): { title: string; system: string; isEmail: boolean } {
   const input = p.input;
@@ -99,7 +100,7 @@ export function ReviewFocus() {
       const props = (current.input.properties ?? {}) as Record<string, unknown>;
       setEdited(Object.fromEntries(Object.entries(props).map(([k, v]) => [k, str(v)])));
     }
-  }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [current?.id]);
 
   const signal = (runId: number, s: 'skip' | 'save') => {
     void client.review.recordSignal({ runId, signal: s }).catch(() => {});
@@ -118,7 +119,7 @@ export function ReviewFocus() {
       return;
     }
     setHistory(h => h.slice(0, -1));
-    setSkipped(s => {
+    setSkipped((s) => {
       const n = new Set(s);
       n.delete(prev);
       return n;
@@ -244,7 +245,12 @@ export function ReviewFocus() {
               <div className="text-base leading-snug font-semibold break-words">{desc.title}</div>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase">{desc.system}</span>
-                {pct !== null && <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tone(current.proposal?.confidence)}`}>{pct}%</span>}
+                {pct !== null && (
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tone(current.proposal?.confidence)}`}>
+                    {pct}
+                    %
+                  </span>
+                )}
                 {current.input.draft === true && <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">dry run → Drafts</span>}
                 {current.invokedBy && <span className="text-[11px] text-muted-foreground">{current.invokedBy.replace('agent:', 'proposed by ')}</span>}
               </div>
@@ -279,7 +285,11 @@ export function ReviewFocus() {
               value={steer}
               onChange={ev => setSteer(ev.target.value)}
               disabled={busy || steering}
-              onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); void onSteer(); } }}
+              onKeyDown={(ev) => {
+                if (ev.key === 'Enter') {
+                  ev.preventDefault(); void onSteer();
+                }
+              }}
             />
             <Button size="sm" variant="outline" onClick={() => void onSteer()} disabled={busy || steering}>
               {steering ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
@@ -335,7 +345,14 @@ export function ReviewFocus() {
                 </li>
               );
             })}
-            {queue.length > 9 && <li className="px-2.5 text-[11px] text-muted-foreground/60">+{queue.length - 9} more</li>}
+            {queue.length > 9 && (
+              <li className="px-2.5 text-[11px] text-muted-foreground/60">
+                +
+                {queue.length - 9}
+                {' '}
+                more
+              </li>
+            )}
           </ul>
         </aside>
       )}

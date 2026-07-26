@@ -15,15 +15,27 @@ type Ev = { type: string; [k: string]: unknown };
 
 const DUMP_MARKERS = [
   // record-dump (lookup_objects)
-  '/dashboard/objects', 'DATA to SYNTHESIZE', 'owed_action:', 'linkedin_url',
-  'channel: linkedin', 'relationship_status', '"owed_action"', '"contact_title"',
+  '/dashboard/objects',
+  'DATA to SYNTHESIZE',
+  'owed_action:',
+  'linkedin_url',
+  'channel: linkedin',
+  'relationship_status',
+  '"owed_action"',
+  '"contact_title"',
   // search-result dump (search_knowledge)
-  '[gmail]', 'Subject:', 'From:', 'semantic_identifier', '] From:',
+  '[gmail]',
+  'Subject:',
+  'From:',
+  'semantic_identifier',
+  '] From:',
 ];
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: {
-    agent: { type: 'string' }, org: { type: 'string' }, msg: { type: 'string' },
+    agent: { type: 'string' },
+    org: { type: 'string' },
+    msg: { type: 'string' },
   } });
   const orgId = values.org ?? 'proj-revenue-f8429a692aab3703f82a4f15169b8662';
   const agentSlug = values.agent ?? 'founder-gtm-lead';
@@ -103,8 +115,10 @@ async function main(): Promise<void> {
       console.warn(`    └─ ${c.label}${c.result ? ` — ${c.result}` : ''}${cc}${think}  (${c.actor.name})`);
     }
   }
-  console.warn('\n--- response (first 1000 chars) ---\n' + res.response.slice(0, 1000));
+  console.warn(`\n--- response (first 1000 chars) ---\n${res.response.slice(0, 1000)}`);
   process.exit(0);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

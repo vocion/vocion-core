@@ -84,8 +84,10 @@ function clearActiveConversation(agentSlug: string): void {
   }
 }
 
-/** Active mid-turn stream (resumable): survives refresh so we can replay
- *  missed events + re-attach live via /rpc/agent/stream/resume. */
+/**
+ * Active mid-turn stream (resumable): survives refresh so we can replay
+ *  missed events + re-attach live via /rpc/agent/stream/resume.
+ */
 const STREAM_STASH_KEY = 'vocion:chat:activestream';
 
 type StreamStash = { streamId: string; agentSlug: string; count: number };
@@ -108,8 +110,10 @@ function writeStreamStash(v: StreamStash | null): void {
   } catch { /* ignore */ }
 }
 
-/** The last agent the user was talking to — restored on refresh so a reload
- *  doesn't kick you back to the workspace default. */
+/**
+ * The last agent the user was talking to — restored on refresh so a reload
+ *  doesn't kick you back to the workspace default.
+ */
 const ACTIVE_AGENT_KEY = 'vocion:chat:agent';
 
 function readActiveAgent(): string | null {
@@ -1060,7 +1064,9 @@ export function ChatShell({
                     agentName={agent.name}
                     streaming={isStreaming}
                     activity={activity}
-                    onShowSources={() => { setFocusCitation(null); setSourcesOpen(true); }}
+                    onShowSources={() => {
+                      setFocusCitation(null); setSourcesOpen(true);
+                    }}
                     onCitationClick={handleCitationClick}
                   />
                 )}

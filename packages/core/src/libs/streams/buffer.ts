@@ -35,7 +35,10 @@ function sweep(): void {
   }
 }
 
-/** Open a new buffered stream for a turn. Returns append/close bound to it. */
+/**
+ * Open a new buffered stream for a turn. Returns append/close bound to it.
+ * @param id
+ */
 export function openStream(id: string): { append: (data: string) => void; close: () => void } {
   sweep();
   const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set() };
@@ -65,6 +68,10 @@ export function openStream(id: string): { append: (data: string) => void; close:
  * Attach to a stream: replay everything buffered so far (from `after`, a
  * 0-based count of events the client already has), then live events until
  * done. Returns null when the stream is unknown/expired.
+ * @param id
+ * @param after
+ * @param onEvent
+ * @param onDone
  */
 export function attachStream(
   id: string,
@@ -94,7 +101,10 @@ export function attachStream(
   return () => s.subscribers.delete(sub);
 }
 
-/** Is this stream still known (replayable or live)? */
+/**
+ * Is this stream still known (replayable or live)?
+ * @param id
+ */
 export function hasStream(id: string): boolean {
   sweep();
   return streams.has(id);

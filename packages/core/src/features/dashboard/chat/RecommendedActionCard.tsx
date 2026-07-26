@@ -57,18 +57,21 @@ export function RecommendedActionCard({ rec }: { rec: RecommendedAction }) {
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold break-words">{rec.label}</div>
-          {rec.rationale && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground break-words">{rec.rationale}</p>}
+          {rec.rationale && <p className="mt-0.5 line-clamp-2 text-xs break-words text-muted-foreground">{rec.rationale}</p>}
         </div>
         {pct !== null && (
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              pct >= 85 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                : pct >= 60 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+              pct >= 85
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                : pct >= 60
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
                   : 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
             }`}
             title="Agent confidence from grounding"
           >
-            {pct}%
+            {pct}
+            %
           </span>
         )}
       </div>
@@ -119,7 +122,10 @@ export function RecommendedActionCard({ rec }: { rec: RecommendedAction }) {
           <span className="text-[11px] text-muted-foreground">saves to Gmail Drafts — nothing sends without you</span>
         )}
         {state.status === 'error' && (
-          <span className="text-xs text-destructive">Couldn’t prepare it: {state.message}</span>
+          <span className="text-xs text-destructive">
+            Couldn’t prepare it:
+            {state.message}
+          </span>
         )}
       </div>
     </div>
