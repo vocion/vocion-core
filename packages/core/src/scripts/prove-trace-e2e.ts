@@ -99,4 +99,6 @@ async function main(): Promise<void> {
   process.exit(answered && delegateVisible ? 0 : 2);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

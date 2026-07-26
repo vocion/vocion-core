@@ -20,7 +20,11 @@ const EVENT_LABELS: Record<string, string> = {
   'learning.added': 'Added a learning',
 };
 
-/** Deep links for resource-anchored events, where a detail page exists. */
+/**
+ * Deep links for resource-anchored events, where a detail page exists.
+ * @param resourceType
+ * @param resourceId
+ */
 function resourceHref(resourceType: string | null, resourceId: string | null): string | null {
   if (!resourceType || !resourceId) {
     return null;
@@ -34,6 +38,8 @@ function resourceHref(resourceType: string | null, resourceId: string | null): s
 /**
  * One person's adoption story — window aggregates, per-agent breakdown,
  * personal activity trend, and a recent-events timeline.
+ * @param props
+ * @param props.userId
  */
 export function UserDetailPanel(props: { userId: string }) {
   const [days, setDays] = useState<AdoptionWindow>(30);

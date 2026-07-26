@@ -11,6 +11,8 @@ import { TrendChart } from './TrendChart';
 
 /**
  * One agent's adoption curve — reach over time, top users, trust signals.
+ * @param props
+ * @param props.agentSlug
  */
 export function AgentDetailPanel(props: { agentSlug: string }) {
   const [days, setDays] = useState<AdoptionWindow>(30);

@@ -12,6 +12,8 @@ import { briefingSchema, projectSchema, teamSchema } from '@/models/Schema';
  * director/workspace-lead's cross-team read), then one tab per team. Each tab:
  * latest brief, previous-brief history, Regenerate, and a floating chat pill
  * scoped to that team's lead.
+ * @param props
+ * @param props.params
  */
 export default async function BriefingsPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;

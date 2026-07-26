@@ -1,6 +1,8 @@
-/** Regenerate polling proof: click Regenerate on Founder GTM, expect the
+/**
+ * Regenerate polling proof: click Regenerate on Founder GTM, expect the
  *  Assembling state, then the fresh brief to land AUTOMATICALLY (no manual
- *  refresh) within 4 minutes. */
+ *  refresh) within 4 minutes.
+ */
 import process from 'node:process';
 import { chromium } from '@playwright/test';
 
@@ -39,4 +41,6 @@ async function main(): Promise<void> {
   await browser.close();
   process.exit(assembling && landed ? 0 : 2);
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

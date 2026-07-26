@@ -60,16 +60,19 @@ describe('agentSlugFromPrincipal', () => {
 describe('resolveSkillAgentSlug', () => {
   it('attributes a skill owned by exactly one agent', async () => {
     const skillId = await seedSkillWithOwners(ORG_A, 'draft-email', ['outreach-drafter']);
+
     expect(await resolveSkillAgentSlug(ORG_A, skillId)).toBe('outreach-drafter');
   });
 
   it('returns null when several agents share the skill (no guessing)', async () => {
     const skillId = await seedSkillWithOwners(ORG_A, 'shared-skill', ['agent-x', 'agent-y']);
+
     expect(await resolveSkillAgentSlug(ORG_A, skillId)).toBeNull();
   });
 
   it('never attributes across orgs', async () => {
     const skillId = await seedSkillWithOwners(ORG_A, 'draft-email', ['outreach-drafter']);
+
     // Same skill id queried under org B — the org filter must blank it.
     expect(await resolveSkillAgentSlug(ORG_B, skillId)).toBeNull();
   });
@@ -81,6 +84,7 @@ describe('resolveRunAgentSlug', () => {
       .insert(missionRunSchema)
       .values({ orgId: ORG_A, title: 't', brief: 'b', team: { lead: 'revenue-lead', members: [] } })
       .returning({ id: missionRunSchema.id });
+
     expect(await resolveRunAgentSlug(ORG_A, 'mission', run!.id)).toBe('revenue-lead');
     // Cross-org lookups return null, never another tenant's lead.
     expect(await resolveRunAgentSlug(ORG_B, 'mission', run!.id)).toBeNull();
@@ -95,6 +99,7 @@ describe('resolveRunAgentSlug', () => {
       .insert(actionRunSchema)
       .values({ orgId: ORG_A, actionId: 'hubspot.update', invokedBy: 'usr-1' })
       .returning({ id: actionRunSchema.id });
+
     expect(await resolveRunAgentSlug(ORG_A, 'action', agentRun!.id)).toBe('pipeline-analyst');
     expect(await resolveRunAgentSlug(ORG_A, 'action', userRun!.id)).toBeNull();
   });
@@ -120,6 +125,7 @@ describe('trackReviewDecision / trackReviewFeedback', () => {
     );
 
     const events = await db.select().from(userActivityEventSchema);
+
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       orgId: ORG_A,
@@ -145,6 +151,7 @@ describe('trackReviewDecision / trackReviewFeedback', () => {
     );
 
     const events = await db.select().from(userActivityEventSchema);
+
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       agentSlug: 'revenue-lead',
@@ -162,6 +169,7 @@ describe('trackReviewDecision / trackReviewFeedback', () => {
       { skillId },
     );
     const events = await db.select().from(userActivityEventSchema);
+
     expect(events).toHaveLength(1);
     expect(events[0]!.agentSlug).toBeNull();
   });

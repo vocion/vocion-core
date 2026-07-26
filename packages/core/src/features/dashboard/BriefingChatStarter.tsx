@@ -29,6 +29,7 @@ export type ChatHandoff = {
  * @param props
  * @param props.briefingTitle
  * @param props.briefingContent
+ * @param props.agentSlug
  */
 export const BriefingChatStarter = (props: { briefingTitle: string; briefingContent: string; agentSlug?: string }) => {
   const router = useRouter();

@@ -35,7 +35,11 @@ export function freshenSourceTool(ctx: RuntimeContext) {
           orgId: ctx.orgId,
           sourceId: src.id,
           incremental: true,
-          onProgress: (e) => { if (e.kind === 'fetched') { fetched += 1; } },
+          onProgress: (e) => {
+            if (e.kind === 'fetched') {
+              fetched += 1;
+            }
+          },
         });
         return fetched > 0
           ? `Freshened ${slug}: pulled ${fetched} new/updated item${fetched === 1 ? '' : 's'} since the last sync — search + records now reflect the latest.`

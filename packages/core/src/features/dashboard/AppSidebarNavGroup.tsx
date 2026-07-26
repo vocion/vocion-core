@@ -11,6 +11,10 @@ import { Link } from '@/libs/I18nNavigation';
  * Collapsible variant of `AppSidebarNav` — the group label becomes a
  * toggle (shadcn sidebar Collapsible pattern). Used by the Organization
  * group; reusable for any section that earns sub-navigation.
+ * @param props
+ * @param props.label
+ * @param props.defaultOpen
+ * @param props.items
  */
 export const AppSidebarNavGroup = (props: {
   label: string;

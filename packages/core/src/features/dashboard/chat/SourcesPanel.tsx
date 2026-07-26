@@ -111,7 +111,6 @@ export function SourcesPanel({ documents, open, onClose, focusCitation, citedInd
   useEffect(() => {
     setTab(showTabs ? 'cited' : 'all');
     setSelected(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, focusCitation]);
 
   const visible = tab === 'cited' && showTabs ? cited : documents;

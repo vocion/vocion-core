@@ -151,6 +151,8 @@ export const rewriteDraftRoute = os
  * Stable upsert key from an action + its input, so re-proposing the same owed
  * action updates the pending item instead of stacking a duplicate. Keyed on
  * the action's primary target (recipient for a send, object id for a CRM write).
+ * @param actionId
+ * @param input
  */
 function deriveDedupKey(actionId: string, input: Record<string, unknown>): string | undefined {
   const s = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : undefined);

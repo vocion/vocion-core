@@ -23,7 +23,10 @@ export class AnswerStreamer {
   private buf = '';
   private mode: Mode = 'undecided';
 
-  /** Feed a text delta; get the answer + thinking text ready to emit now. */
+  /**
+   * Feed a text delta; get the answer + thinking text ready to emit now.
+   * @param delta
+   */
   push(delta: string): { answer: string; thinking: string } {
     this.buf += delta;
     return this.drain(false);
