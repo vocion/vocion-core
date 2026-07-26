@@ -13,8 +13,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { client } from '@/libs/Orpc';
 import { Link, useRouter } from '@/libs/I18nNavigation';
+import { client } from '@/libs/Orpc';
 
 /**
  * Bottom-left workspace row + menu — the ChatGPT/Vercel pattern.
@@ -44,7 +44,7 @@ export function WorkspaceMenu({ isAdmin = false, onManage }: { isAdmin?: boolean
     client.projects.list()
       .then((r) => {
         if (!cancelled) {
-          const rows = (r as { projects?: Project[] } | Project[]);
+          const rows = r as { projects?: Project[] } | Project[];
           setProjects(Array.isArray(rows) ? rows : rows.projects ?? []);
         }
       })

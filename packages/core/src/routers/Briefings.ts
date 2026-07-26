@@ -1,7 +1,7 @@
+import { os } from '@orpc/server';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { os } from '@orpc/server';
 import { briefingSchema, projectSchema, teamSchema } from '@/models/Schema';
 import { guardAuth } from './AuthGuards';
 
@@ -43,8 +43,10 @@ export const regenerateRoute = os
     return { ok: true as const, runner };
   });
 
-/** Latest brief id for a scope — the client polls this after Regenerate to
- *  know when the fresh brief has landed. */
+/**
+ * Latest brief id for a scope — the client polls this after Regenerate to
+ *  know when the fresh brief has landed.
+ */
 export const latestRoute = os
   .input(z.object({ teamSlug: z.string().nullable() }))
   .handler(async ({ input }) => {

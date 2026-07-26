@@ -51,6 +51,8 @@ export type ProposeResult = {
  * @param input.proposal.confidence
  * @param input.proposal.rationale
  * @param input.proposal.evidence
+ * @param input.dedupKey
+ * @param input.expiresAt
  */
 export async function proposeAction(input: {
   orgId: string;

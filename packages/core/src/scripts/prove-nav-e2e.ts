@@ -1,5 +1,7 @@
-/** Nav toggle proof: Use view shows daily links only; Configure swaps to
- *  admin sections; choice persists across reload. */
+/**
+ * Nav toggle proof: Use view shows daily links only; Configure swaps to
+ *  admin sections; choice persists across reload.
+ */
 import process from 'node:process';
 import { chromium } from '@playwright/test';
 
@@ -41,4 +43,6 @@ async function main(): Promise<void> {
   await browser.close();
   process.exit(useHasChat && useHidesTeams && cfgHasTeams && cfgHasSources && cfgHidesChat && persisted ? 0 : 2);
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

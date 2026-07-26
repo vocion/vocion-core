@@ -17,8 +17,7 @@ const ORG = process.env.E2E_PROJECT ?? 'proj-revenue-f8429a692aab3703f82a4f15169
 const KEY = 'gmail.send:upsert-probe@example.com';
 
 async function pendingCount(dedupKey: string): Promise<number> {
-  const rows = await db.select({ id: actionRunSchema.id }).from(actionRunSchema)
-    .where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.dedupKey, dedupKey)));
+  const rows = await db.select({ id: actionRunSchema.id }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.dedupKey, dedupKey)));
   return rows.length;
 }
 
@@ -39,8 +38,7 @@ async function main(): Promise<void> {
   await proposeAction({ orgId: ORG, actionId: 'gmail.send', principal, dedupKey: 'gmail.send:upsert-probe-expired@example.com', input: { to: 'upsert-probe-expired@example.com', subject: 'Old', body: 'stale', draft: true }, expiresAt: new Date(Date.now() - 60_000) });
   const { listPendingActionsRoute } = await import('@/routers/Review');
   // Can't call the route (needs auth) — assert via query mirroring its filter.
-  const notExpired = await db.select({ id: actionRunSchema.id }).from(actionRunSchema)
-    .where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.dedupKey, 'gmail.send:upsert-probe-expired@example.com'), sql`(${actionRunSchema.expiresAt} is null or ${actionRunSchema.expiresAt} > now())`));
+  const notExpired = await db.select({ id: actionRunSchema.id }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.dedupKey, 'gmail.send:upsert-probe-expired@example.com'), sql`(${actionRunSchema.expiresAt} is null or ${actionRunSchema.expiresAt} > now())`));
   void listPendingActionsRoute;
 
   console.warn('\n===== ACTION UPSERT PROOF =====');
@@ -59,4 +57,6 @@ async function main(): Promise<void> {
   process.exit(ok ? 0 : 2);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

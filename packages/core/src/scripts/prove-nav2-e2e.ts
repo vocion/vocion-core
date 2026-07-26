@@ -1,6 +1,8 @@
-/** Nav v2 + citations-tab proof: bottom workspace row (no top switcher, no
+/**
+ * Nav v2 + citations-tab proof: bottom workspace row (no top switcher, no
  *  mode toggle), menu carries manage links, nav has only daily items; and the
- *  expanded trace shows Steps/Sources TABS instead of a long Grounded-in. */
+ *  expanded trace shows Steps/Sources TABS instead of a long Grounded-in.
+ */
 import process from 'node:process';
 import { chromium } from '@playwright/test';
 
@@ -65,4 +67,6 @@ async function main(): Promise<void> {
   await browser.close();
   process.exit(noToggle && dailyOnly && hasRow && menuHasManage && hasTabs ? 0 : 2);
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

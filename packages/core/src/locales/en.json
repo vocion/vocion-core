@@ -82,7 +82,7 @@
   },
   "Connectors": {
     "title_bar": "Sources",
-    "title_bar_description": "Connected systems that feed context into skills + retrieval. Authored per-tenant in context/<org>/sources/ (Phase 5 YAML shape coming).",
+    "title_bar_description": "Connected systems that feed context into skills + retrieval. Authored per-tenant in context/[org]/sources/ (Phase 5 YAML shape coming).",
     "add_connector": "Add source",
     "section_active": "Active sources",
     "section_active_description": "Connected systems currently indexing",

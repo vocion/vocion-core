@@ -6,6 +6,7 @@ import {
   adoptionUserDetailRoute,
   adoptionUsersRoute,
 } from './Analytics';
+import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
   addLink,
@@ -66,7 +67,6 @@ import {
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
-import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import {
   approve,
   cancel,

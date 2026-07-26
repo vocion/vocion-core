@@ -58,6 +58,7 @@ function formatTime(ts: number | undefined): string {
  * Turn inline `[n]` citation markers the model emits into real markdown links
  * with a private scheme, so react-markdown's `a` renderer can make them
  * tappable superscripts. Skips `[n](…)` (already a link) and `[n]:` (link defs).
+ * @param text
  */
 function citeLinkify(text: string): string {
   return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
@@ -122,7 +123,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                         <button
                           type="button"
                           onClick={() => onCitationClick?.(n)}
-                          className="mx-0.5 inline-flex items-baseline align-super rounded-sm bg-brand-amber/15 px-1 text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
+                          className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
                           aria-label={`Open source ${n}`}
                         >
                           {n}

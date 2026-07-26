@@ -53,7 +53,10 @@ function nsOf(ev: RawStreamEvent): string {
   return String(ev.metadata?.langgraph_node ?? '');
 }
 
-/** taskId of the enclosing specialist, or undefined for the lead. */
+/**
+ * taskId of the enclosing specialist, or undefined for the lead.
+ * @param ns
+ */
 function taskIdOf(ns: string): string | undefined {
   if (!ns.includes('|')) {
     return undefined;
@@ -63,12 +66,18 @@ function taskIdOf(ns: string): string | undefined {
   return m ? m[1] : undefined;
 }
 
-/** The `tools:<id>` node id for a top-level tool/delegation call. */
+/**
+ * The `tools:<id>` node id for a top-level tool/delegation call.
+ * @param ns
+ */
 function toolNodeId(ns: string): string {
   return ns.match(/^tools:(.+)$/)?.[1] ?? ns;
 }
 
-/** Extract `{ text, thinking }` from an AIMessageChunk's content (string or blocks). */
+/**
+ * Extract `{ text, thinking }` from an AIMessageChunk's content (string or blocks).
+ * @param chunk
+ */
 export function extractChunk(chunk: unknown): { text: string; thinking: string } {
   const c = (chunk as { content?: unknown } | null | undefined)?.content;
   if (typeof c === 'string') {
@@ -105,7 +114,10 @@ export function parseJsonArgs(raw: unknown): Record<string, unknown> {
   }
 }
 
-/** The tool's string output from an on_tool_end ToolMessage. */
+/**
+ * The tool's string output from an on_tool_end ToolMessage.
+ * @param output
+ */
 export function toolOutputContent(output: unknown): string {
   if (typeof output === 'string') {
     return output;
@@ -121,6 +133,8 @@ export function toolOutputContent(output: unknown): string {
  * Parse citations from a `search_knowledge` result. The tool formats hits as
  *   [1] **<title> — <date>** [<sourceType>] <blurb…>
  * one per hit. We pull title + sourceType + a short snippet per line.
+ * @param content
+ * @param actorId
  */
 export function parseCitations(content: string, actorId: string): TraceCitation[] {
   const out: TraceCitation[] = [];
@@ -141,7 +155,10 @@ export function parseCitations(content: string, actorId: string): TraceCitation[
   return out;
 }
 
-/** Compact one-line view of tool args for the call-detail drill (never a dump). */
+/**
+ * Compact one-line view of tool args for the call-detail drill (never a dump).
+ * @param args
+ */
 function argsPreview(args: Record<string, unknown>): string | undefined {
   const keys = Object.keys(args);
   if (keys.length === 0) {
@@ -156,7 +173,10 @@ function argsPreview(args: Record<string, unknown>): string | undefined {
   return s.length > 200 ? `${s.slice(0, 197)}…` : s;
 }
 
-/** lookup_objects returns a JSON array — pull the record names for the drill. */
+/**
+ * lookup_objects returns a JSON array — pull the record names for the drill.
+ * @param content
+ */
 function recordNames(content: string): string | undefined {
   try {
     const arr = JSON.parse(content) as Array<Record<string, unknown>>;
@@ -174,7 +194,10 @@ function recordNames(content: string): string | undefined {
   }
 }
 
-/** Classify a tool name into a trace-node kind. */
+/**
+ * Classify a tool name into a trace-node kind.
+ * @param tool
+ */
 function kindFor(tool: string): TraceNodeKind {
   if (tool === 'task') {
     return 'delegate';
@@ -191,7 +214,12 @@ function kindFor(tool: string): TraceNodeKind {
   return 'tool';
 }
 
-/** Tense-correct human label from (kind, status, subject). */
+/**
+ * Tense-correct human label from (kind, status, subject).
+ * @param kind
+ * @param status
+ * @param subject
+ */
 function labelFor(kind: TraceNodeKind, status: TraceNodeEvent['status'], subject: string): string {
   const running = status === 'start' || status === 'progress';
   switch (kind) {
@@ -210,7 +238,11 @@ function labelFor(kind: TraceNodeKind, status: TraceNodeEvent['status'], subject
   }
 }
 
-/** A friendly one-liner describing a tool's input. */
+/**
+ * A friendly one-liner describing a tool's input.
+ * @param tool
+ * @param args
+ */
 function detailFor(tool: string, args: Record<string, unknown>): string | undefined {
   if (tool === 'search_knowledge' || tool === 'web_search') {
     return typeof args.query === 'string' ? `"${args.query}"` : undefined;
@@ -229,6 +261,8 @@ function detailFor(tool: string, args: Record<string, unknown>): string | undefi
  * generic 'general-purpose', so first mine the brief for a stated role
  * ("You are a GTM ROI analyst …" → "GTM ROI Analyst"); fall back to a
  * humanized subagent_type, then a neutral label.
+ * @param subagentType
+ * @param description
  */
 function specialistName(subagentType: string, description = ''): string {
   // A real named subagent (declared in workspace YAML) wins — show ITS name.
@@ -239,7 +273,7 @@ function specialistName(subagentType: string, description = ''): string {
       .join(' ');
   }
   // Generic subagent: mine a role from the brief ("You are a GTM ROI analyst").
-  const m = description.match(/[Yy]ou are (?:an?|the)\s+([A-Za-z][\w /-]*?(?:analyst|lead|specialist|researcher|writer|manager|strategist|expert|engineer|agent|advisor|assistant))/i);
+  const m = description.match(/You are (?:an?|the)\s+([A-Z][\w /-]*?(?:analyst|lead|specialist|researcher|writer|manager|strategist|expert|engineer|agent|advisor|assistant))/i);
   if (m?.[1]) {
     return m[1]
       .trim()

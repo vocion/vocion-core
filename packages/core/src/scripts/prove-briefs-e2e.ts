@@ -1,5 +1,7 @@
-/** Briefings overhaul proof: tabs render (rollup + teams), Regenerate present,
- *  history list present when >1 brief, floating chat pill present. */
+/**
+ * Briefings overhaul proof: tabs render (rollup + teams), Regenerate present,
+ *  history list present when >1 brief, floating chat pill present.
+ */
 import process from 'node:process';
 import { chromium } from '@playwright/test';
 
@@ -28,4 +30,6 @@ async function main(): Promise<void> {
   await browser.close();
   process.exit(rollupTab > 0 && teamTabs >= 3 && regen > 0 ? 0 : 2);
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

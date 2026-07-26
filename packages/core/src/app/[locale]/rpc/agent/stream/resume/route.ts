@@ -1,3 +1,4 @@
+import { clerkAuth as auth } from '@/libs/Auth';
 /**
  * Resume a dropped agent stream — replay the events the client missed
  * (`?after=<count already received>`) and re-attach LIVE until the turn
@@ -5,7 +6,6 @@
  * to conversation rehydrate, which already works).
  */
 import { attachStream, hasStream } from '@/libs/streams/buffer';
-import { clerkAuth as auth } from '@/libs/Auth';
 
 const KEEPALIVE_INTERVAL_MS = 15_000;
 

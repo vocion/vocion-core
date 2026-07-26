@@ -1,6 +1,8 @@
-/** Generate a team brief (or rollup) for real via the lead agent, then verify
+/**
+ * Generate a team brief (or rollup) for real via the lead agent, then verify
  *  the briefing row landed with the right team stamp.
- *    --team founder-gtm | --rollup */
+ *    --team founder-gtm | --rollup
+ */
 import process from 'node:process';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from '@/libs/DB';
@@ -35,4 +37,6 @@ async function main(): Promise<void> {
   console.warn(`published: ${fresh ? 'YES ✓' : 'NO ✗'} ${row ? `#${row.id} "${row.title}" team=${row.teamSlug ?? 'ROLLUP'} by=${row.agentSlug}` : '(none)'}`);
   process.exit(fresh ? 0 : 2);
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

@@ -20,7 +20,7 @@ const ORG = process.env.E2E_PROJECT ?? 'proj-revenue-f8429a692aab3703f82a4f15169
 const SHOT = '/Users/chrisfitkin/triage-proof.png';
 const PROBE = 'triage-probe';
 
-let seededIds: number[] = [];
+const seededIds: number[] = [];
 
 async function cleanup(): Promise<void> {
   if (seededIds.length > 0) {
@@ -116,4 +116,6 @@ async function main(): Promise<void> {
   process.exit(opened && rewriteChanged && rewriteSignal && skipSignals >= 1 ? 0 : 2);
 }
 
-main().catch(async (e) => { console.error(e); await cleanup().catch(() => {}); process.exit(1); });
+main().catch(async (e) => {
+  console.error(e); await cleanup().catch(() => {}); process.exit(1);
+});

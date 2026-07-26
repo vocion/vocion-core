@@ -82,4 +82,6 @@ async function main(): Promise<void> {
   process.exit(sawTranscript && !sawChipsBeforeTranscript ? 0 : 2);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

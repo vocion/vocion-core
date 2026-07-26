@@ -1,6 +1,8 @@
-/** Resumable-stream proof: start a long turn, hard-RELOAD mid-stream, assert
+/**
+ * Resumable-stream proof: start a long turn, hard-RELOAD mid-stream, assert
  *  the client re-attaches (streaming state resumes) and the turn completes
- *  live — tokens not lost, no re-ask. */
+ *  live — tokens not lost, no re-ask.
+ */
 import process from 'node:process';
 import { chromium } from '@playwright/test';
 
@@ -9,7 +11,11 @@ async function main(): Promise<void> {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 430, height: 932 } });
   const page = await ctx.newPage();
-  page.on('console', (m) => { if (m.text().includes('[resume]')) { console.warn(`  ${m.text()}`); } });
+  page.on('console', (m) => {
+    if (m.text().includes('[resume]')) {
+      console.warn(`  ${m.text()}`);
+    }
+  });
   await page.goto(`${BASE}/en/sign-in`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
   await page.fill('#email', 'chris@metacto.com');
@@ -61,4 +67,6 @@ async function main(): Promise<void> {
   await browser.close();
   process.exit(streamingBefore && reattached && completed && answerLen > 300 ? 0 : 2);
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e); process.exit(1);
+});

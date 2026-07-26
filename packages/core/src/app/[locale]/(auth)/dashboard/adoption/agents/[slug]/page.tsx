@@ -5,7 +5,11 @@ import { Link } from '@/libs/I18nNavigation';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
 
-/** Per-agent adoption drill-down — admin-only, same gating as the overview. */
+/**
+ * Per-agent adoption drill-down — admin-only, same gating as the overview.
+ * @param props
+ * @param props.params
+ */
 export default async function AdoptionAgentPage(props: {
   params: Promise<{ locale: string; slug: string }>;
 }) {

@@ -183,6 +183,7 @@ export async function snooze(
  * @param opts
  * @param opts.reason
  * @param opts.reviewedBy
+ * @param opts.editedInput
  */
 export async function decide(
   item: { kind: ReviewKind; id: number },
@@ -284,6 +285,12 @@ const SIGNAL_TO_DECISION = {
  * to redo the draft. Distinct signals so downstream scoring/alignment + the
  * per-user tone prompt can weight them differently (an edit or rewrite says
  * "close but wrong voice"; a reject says "wrong call"). Fire-and-forget.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.signal
+ * @param opts.userId
+ * @param opts.hint
  */
 export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string }): Promise<void> {
   try {
@@ -311,6 +318,11 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
  * (NOT persisted — the human reviews it, then Send with editedInput) and
  * records a `rewrite` signal. The rewrite instruction is itself a tone signal:
  * the human wanted the agent's wording changed.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.hint
+ * @param opts.userId
  */
 export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: string; userId?: string }): Promise<{ input: Record<string, unknown>; body: string }> {
   const [run] = await db

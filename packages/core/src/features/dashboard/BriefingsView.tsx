@@ -2,10 +2,10 @@
 
 import { Check, Clock, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from '@/libs/I18nNavigation';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
+import { useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { BriefingChatStarter } from './BriefingChatStarter';
 
@@ -106,7 +106,9 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
           <button
             key={grp.teamSlug ?? '__rollup__'}
             type="button"
-            onClick={() => { setActive(i); setOpenHistory(null); setRegen('idle'); }}
+            onClick={() => {
+              setActive(i); setOpenHistory(null); setRegen('idle');
+            }}
             className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${i === active ? 'bg-brand-amber/15 text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground'}`}
           >
             {grp.teamName}
@@ -130,7 +132,14 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
                   </div>
                 </>
               )
-            : <h2 className="text-base font-semibold text-muted-foreground">No {g.teamName} brief yet</h2>}
+            : (
+                <h2 className="text-base font-semibold text-muted-foreground">
+                  No
+                  {g.teamName}
+                  {' '}
+                  brief yet
+                </h2>
+              )}
         </div>
         <Button size="sm" variant="outline" onClick={() => void regenerate()} disabled={regen === 'assembling'}>
           {regen === 'assembling' ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
@@ -139,8 +148,13 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
       </div>
       {regen === 'assembling' && (
         <p className="mt-1 flex items-center gap-1.5 text-xs text-brand-amber-deep">
-          <span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" /><span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" /></span>
-          {g.teamName} lead is assembling the brief — it will appear here automatically (usually 1–2 min).
+          <span className="relative flex size-2">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" />
+            <span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" />
+          </span>
+          {g.teamName}
+          {' '}
+          lead is assembling the brief — it will appear here automatically (usually 1–2 min).
         </p>
       )}
       {regen === 'landed' && (

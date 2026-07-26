@@ -16,8 +16,8 @@
 import type { AgentEvent } from '@/services/agents/types';
 import type { ConversationRun } from '@/services/ConversationService';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { openStream } from '@/libs/streams/buffer';
+import { listAgents, runAgentDeep } from '@/services/AgentService';
 import {
   appendMessage,
 
