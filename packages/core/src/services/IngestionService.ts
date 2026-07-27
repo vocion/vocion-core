@@ -219,6 +219,13 @@ export async function ingestDocument(
         : { status: 'created', documentId: inserted, chunks: 0 };
     }
 
+    // Embed BEFORE opening the transaction — this ordering is load-bearing.
+    // SourceSyncService.runSync drives this function from a bounded
+    // concurrency window (VOCION_INGEST_CONCURRENCY), and that window only
+    // buys anything because the slow part (this OpenAI round-trip) holds no
+    // DB connection. utils/DBConnection.ts caps the local pool at max: 1, so
+    // moving embed() inside the transaction below would silently collapse
+    // ingest back to serial locally and exhaust the pool in production.
     const vectors = doc.embedding
       ? [doc.embedding]
       : await embed(

@@ -24,6 +24,63 @@ import { FEATURES } from '@/libs/Langfuse/features';
 const MODEL = process.env.VOCION_EMBEDDING_MODEL ?? 'text-embedding-3-small';
 const BATCH_SIZE = 100;
 
+/**
+ * Retry budget for a single batch request. Ingest drives embed() from a
+ * bounded concurrency window (`VOCION_INGEST_CONCURRENCY`), so 429s are
+ * expected traffic rather than an anomaly. Without a retry here a
+ * transient rate-limit throws, SourceSyncService catches it per-document
+ * and bumps `result.errors`, and the document is then simply absent from
+ * the corpus — retrieval can't see it and the agent answers around it.
+ * Read from env inside the call so deploys can tune without a rebuild.
+ */
+function retryBudget(): { attempts: number; baseMs: number } {
+  return {
+    attempts: Number(process.env.VOCION_EMBED_MAX_ATTEMPTS ?? 5),
+    baseMs: Number(process.env.VOCION_EMBED_RETRY_BASE_MS ?? 500),
+  };
+}
+
+/**
+ * 429 and 5xx are worth another try; 4xx means the request itself is wrong.
+ * @param err
+ */
+function isRetryable(err: unknown): boolean {
+  const status = (err as { status?: number } | null)?.status;
+  if (typeof status !== 'number') {
+    return false;
+  }
+  return status === 429 || status >= 500;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Run one embedding request, retrying retryable failures with
+ * exponential backoff plus full jitter. Jitter matters under
+ * concurrency: without it, N in-flight requests that all get 429'd
+ * would retry in lockstep and re-trigger the same rate limit.
+ * @param fn - Issues the request; called once per attempt.
+ */
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  const { attempts, baseMs } = retryBudget();
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryable(err) || attempt === attempts) {
+        throw err;
+      }
+      const ceiling = baseMs * 2 ** (attempt - 1);
+      await sleep(Math.random() * ceiling);
+    }
+  }
+  throw lastErr;
+}
+
 let _client: OpenAI | null = null;
 function client(): OpenAI {
   if (!_client) {
@@ -72,10 +129,10 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
         model: MODEL,
         input: { count: batch.length },
       });
-      const res = await client().embeddings.create({
+      const res = await withRetry(() => client().embeddings.create({
         model: MODEL,
         input: batch,
-      });
+      }));
       const usage = res.usage ?? { prompt_tokens: 0, total_tokens: 0 };
       totalTokens += usage.total_tokens;
       generation.end({
