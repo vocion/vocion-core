@@ -11,15 +11,24 @@
  *     the connector's `configSchema`).
  *
  *   - `runSync()` — fetches the row, instantiates a SourceContext,
- *     iterates `connector.sync()`, calls `ingestDocument` per yield,
- *     calls `tombstoneMissing` at the end. Returns aggregated counts.
+ *     iterates `connector.sync()`, ingests each yielded document
+ *     through a bounded concurrency window, drains that window, then
+ *     calls `tombstoneMissing`. Returns aggregated counts.
  *
- * Sync runs are synchronous from the caller's POV (a request hangs
- * for the duration). For long crawls that's not great — the
- * follow-up wires this through Temporal so the UI can kick a sync
- * off, then poll status. Until then: cap pages low.
+ * Ingest runs up to `VOCION_INGEST_CONCURRENCY` (default 8) documents
+ * at a time. Each ingestDocument is dominated by one OpenAI embedding
+ * round-trip, so the serial version spent nearly all of a large sync
+ * idle on the network; the window recovers that. `onProgress` events
+ * therefore interleave and complete out of order — consumers must not
+ * assume one-at-a-time delivery.
+ *
+ * Sync runs are still synchronous from the caller's POV (a request
+ * hangs for the duration), so long crawls belong on the Temporal path
+ * (`services/temporal/activities/sourceSync.ts`) rather than the RPC
+ * route.
  */
 
+import type { IngestDoc } from './IngestionService';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
@@ -174,6 +183,53 @@ export async function runSync(opts: {
   };
   let errorCount = 0;
 
+  // Bounded in-flight window. Almost all of ingestDocument's duration is
+  // one OpenAI embedding round-trip (~150-300ms of idle network wait), so
+  // awaiting per document made an N-document sync N sequential round-trips
+  // — ~17 min for 5,000 docs, with the caller's request hanging throughout.
+  // Keeping a few in flight recovers that idle time near-free.
+  //
+  // Tune down for low OpenAI tiers (tier-1 TPM is tight), up for backfills.
+  const concurrency = Math.max(1, Number(process.env.VOCION_INGEST_CONCURRENCY ?? 8));
+  const inflight = new Set<Promise<void>>();
+
+  /**
+   * Start one ingest and register it in the window. Never rejects — each
+   * document's failure is tallied into `result.errors` so one bad document
+   * can't abort the sync (and can't surface as an unhandled rejection via
+   * the Promise.race below).
+   * @param doc - The document yielded by the connector.
+   */
+  const startIngest = (doc: IngestDoc): void => {
+    const p = ingestDocument(
+      { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
+      doc,
+    )
+      .then((r) => {
+        // Safe to mutate unsynchronized: JS is single-threaded, so `+=`
+        // cannot interleave even with many ingests in flight.
+        if (r.status === 'created') {
+          result.created += 1;
+        } else if (r.status === 'updated') {
+          result.updated += 1;
+        } else {
+          result.unchanged += 1;
+        }
+      })
+      .catch((err) => {
+        result.errors += 1;
+        opts.onProgress?.({
+          kind: 'error',
+          uri: doc.externalId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      })
+      .finally(() => {
+        inflight.delete(p);
+      });
+    inflight.add(p);
+  };
+
   try {
     for await (const doc of connector.sync({
       sourceId: opts.sourceId,
@@ -189,27 +245,18 @@ export async function runSync(opts: {
         opts.onProgress?.(e);
       },
     })) {
-      try {
-        const r = await ingestDocument(
-          { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
-          doc,
-        );
-        if (r.status === 'created') {
-          result.created += 1;
-        } else if (r.status === 'updated') {
-          result.updated += 1;
-        } else {
-          result.unchanged += 1;
-        }
-      } catch (err) {
-        result.errors += 1;
-        opts.onProgress?.({
-          kind: 'error',
-          uri: doc.externalId,
-          message: err instanceof Error ? err.message : String(err),
-        });
+      startIngest(doc);
+      if (inflight.size >= concurrency) {
+        // Wait for a slot to open, not for this specific document.
+        await Promise.race(inflight);
       }
     }
+    // Drain before anything downstream. This is load-bearing for
+    // tombstoneMissing below: it deletes rows where last_seen_at < cutoff,
+    // so a document still mid-ingest would have its existing row deleted
+    // and then re-inserted by the completing ingest — write churn plus a
+    // window where retrieval genuinely cannot see it.
+    await Promise.all(inflight);
     result.errors += errorCount;
 
     // Full sync prunes deletes; an incremental run only sees changed docs, so
