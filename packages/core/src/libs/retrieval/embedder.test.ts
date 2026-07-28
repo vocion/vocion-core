@@ -11,7 +11,7 @@
  * OpenAI is mocked out, since CI has no network access. What these tests
  * exercise is the retry loop inside embed() itself.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createEmbeddings = vi.fn();
 
@@ -74,30 +74,10 @@ function rateLimitedWithRetryAfter(retryAfter: string): Error {
 }
 
 /**
- * Run something and report the waits it asked for, without serving them.
- *
- * Timers fire straight away, so a test can assert on a sixty-second wait in a
- * few milliseconds. Delays of zero are dropped: those are the scheduling hops
- * other machinery makes, not a deliberate wait between retries.
- * @param run - The work to observe.
+ * Waits the code asked for, in the order it asked. Populated by the timer stub
+ * installed in `beforeEach`, which serves every wait immediately.
  */
-async function waitsRequestedBy(run: () => Promise<unknown>): Promise<number[]> {
-  const requested: number[] = [];
-  const realSetTimeout = globalThis.setTimeout;
-  const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
-    callback: () => void,
-    delay?: number,
-  ) => {
-    requested.push(Number(delay ?? 0));
-    return realSetTimeout(callback, 0);
-  }) as typeof globalThis.setTimeout);
-  try {
-    await run();
-  } finally {
-    spy.mockRestore();
-  }
-  return requested.filter(delay => delay > 0);
-}
+const requestedWaits: number[] = [];
 
 /**
  * Build a successful embedding response.
@@ -113,13 +93,32 @@ function successfulResponse(inputCount: number) {
   };
 }
 
+let timerStub: ReturnType<typeof vi.spyOn> | null = null;
+
 beforeEach(() => {
   recordedSteps.length = 0;
+  requestedWaits.length = 0;
   createEmbeddings.mockReset();
-  // Start each test from the defaults; tests below override what they need.
-  vi.unstubAllEnvs();
-  // Remove the retry delay so the suite doesn't spend real time sleeping.
-  vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
+  // Serve every wait immediately, but remember how long was asked for. The
+  // backoff between retries is real time, so without this the suite would sit
+  // through several seconds of it. Recording the request instead of serving it
+  // also lets a test assert on a minute-long wait in a millisecond.
+  const realSetTimeout = globalThis.setTimeout;
+  timerStub = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    callback: () => void,
+    delay?: number,
+  ) => {
+    // Zero-delay calls are other machinery yielding, not a deliberate wait.
+    if (Number(delay ?? 0) > 0) {
+      requestedWaits.push(Number(delay));
+    }
+    return realSetTimeout(callback, 0);
+  }) as typeof globalThis.setTimeout);
+});
+
+afterEach(() => {
+  timerStub?.mockRestore();
+  timerStub = null;
 });
 
 describe('embed() retry', () => {
@@ -152,12 +151,23 @@ describe('embed() retry', () => {
     expect(createEmbeddings).toHaveBeenCalledTimes(1);
   });
 
-  it('stops after the configured number of attempts and reports the last error', async () => {
+  it('gives up after five attempts and reports the last error', async () => {
     createEmbeddings.mockRejectedValue(httpError(429));
-    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', '3');
 
     await expect(embed(['alpha'], EMBED_OPTIONS)).rejects.toThrow('http 429');
-    expect(createEmbeddings).toHaveBeenCalledTimes(3);
+    expect(createEmbeddings).toHaveBeenCalledTimes(5);
+  });
+
+  it('backs off further with each attempt', async () => {
+    // Each wait is random within a ceiling that doubles, so the exact numbers
+    // vary — but the ceilings are 500, 1000, 2000, 4000, and four waits sit
+    // between five attempts.
+    createEmbeddings.mockRejectedValue(httpError(429));
+
+    await expect(embed(['alpha'], EMBED_OPTIONS)).rejects.toThrow('http 429');
+
+    expect(requestedWaits).toHaveLength(4);
+    expect(requestedWaits.every((wait, index) => wait <= 500 * 2 ** index)).toBe(true);
   });
 
   it('retries a dropped connection, which carries no status code', async () => {
@@ -188,7 +198,6 @@ describe('what embed() reports for observability', () => {
     // Timing the whole retry loop as a single step counted our own waiting as
     // OpenAI's response time, so a throttled batch looked like OpenAI had
     // slowed to a crawl. One step per attempt keeps the timings honest.
-    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
     createEmbeddings
       .mockRejectedValueOnce(httpError(429))
       .mockRejectedValueOnce(httpError(429))
@@ -204,7 +213,6 @@ describe('what embed() reports for observability', () => {
   });
 
   it('marks the attempts that failed as failed', async () => {
-    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
     createEmbeddings
       .mockRejectedValueOnce(httpError(503))
       .mockResolvedValueOnce(successfulResponse(1));
@@ -216,13 +224,11 @@ describe('what embed() reports for observability', () => {
 
   it('closes the step even when every attempt fails', async () => {
     // A step left open would sit in the dashboard looking unfinished forever.
-    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
-    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', '2');
     createEmbeddings.mockRejectedValue(httpError(429));
 
     await expect(embed(['alpha'], EMBED_OPTIONS)).rejects.toThrow('http 429');
 
-    expect(recordedSteps).toHaveLength(2);
+    expect(recordedSteps).toHaveLength(5);
     expect(recordedSteps.every(step => step.endedWith !== undefined)).toBe(true);
   });
 
@@ -290,102 +296,38 @@ describe('embed() checking the response is complete', () => {
 
 describe('embed() honouring Retry-After', () => {
   it('waits as long as OpenAI asks instead of guessing', async () => {
-    // Our own backoff is zero here, so a two-second wait can only have come
-    // from the header.
-    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
+    // Two seconds is well outside the first backoff ceiling of 500ms, so this
+    // wait can only have come from the header.
     createEmbeddings
       .mockRejectedValueOnce(rateLimitedWithRetryAfter('2'))
       .mockResolvedValueOnce(successfulResponse(1));
 
-    const waits = await waitsRequestedBy(() => embed(['alpha'], EMBED_OPTIONS));
+    await embed(['alpha'], EMBED_OPTIONS);
 
-    expect(waits).toEqual([2000]);
+    expect(requestedWaits).toEqual([2000]);
   });
 
   it('ignores an absurd Retry-After rather than stalling the sync', async () => {
     // A day-long wait would hold the sync — and the caller's request — open.
-    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
     createEmbeddings
       .mockRejectedValueOnce(rateLimitedWithRetryAfter('86400'))
       .mockResolvedValueOnce(successfulResponse(1));
 
-    const waits = await waitsRequestedBy(() => embed(['alpha'], EMBED_OPTIONS));
+    await embed(['alpha'], EMBED_OPTIONS);
 
-    expect(waits).toEqual([60_000]);
+    expect(requestedWaits).toEqual([60_000]);
   });
 
   it('falls back to its own backoff when Retry-After is an HTTP date', async () => {
     // The header may legally be a date, which is not a number of seconds.
-    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '40');
     createEmbeddings
       .mockRejectedValueOnce(rateLimitedWithRetryAfter('Wed, 21 Oct 2026 07:28:00 GMT'))
       .mockResolvedValueOnce(successfulResponse(1));
 
-    const waits = await waitsRequestedBy(() => embed(['alpha'], EMBED_OPTIONS));
+    await embed(['alpha'], EMBED_OPTIONS);
 
-    expect(waits).toHaveLength(1);
-    expect(waits[0]).toBeLessThanOrEqual(40);
-  });
-});
-
-/**
- * An unusable attempt count must not disable embedding. Reading it with a bare
- * `Number()` yields NaN, which skips the retry loop entirely — so nothing is
- * ever sent, and the error raised carries no message at all.
- */
-describe('embed() with unusable retry settings', () => {
-  it.each(['five', '', '0', '-2'])('ignores an attempt count of %o and still embeds', async (value) => {
-    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', value);
-    createEmbeddings.mockResolvedValue(successfulResponse(1));
-
-    const vectors = await embed(['alpha'], EMBED_OPTIONS);
-
-    expect(vectors).toHaveLength(1);
-    expect(createEmbeddings).toHaveBeenCalledTimes(1);
-  });
-
-  it('still retries when the attempt count is unusable', async () => {
-    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', 'not-a-number');
-    createEmbeddings
-      .mockRejectedValueOnce(httpError(429))
-      .mockResolvedValueOnce(successfulResponse(1));
-
-    const vectors = await embed(['alpha'], EMBED_OPTIONS);
-
-    expect(vectors).toHaveLength(1);
-    expect(createEmbeddings).toHaveBeenCalledTimes(2);
-  });
-
-  it('reports a real error rather than an empty one when it gives up', async () => {
-    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', 'not-a-number');
-    createEmbeddings.mockRejectedValue(httpError(429));
-
-    const failure = await embed(['alpha'], EMBED_OPTIONS).catch((error: unknown) => error);
-
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toBe('http 429');
-  });
-
-  it('ignores an unusable retry delay, which would otherwise remove the backoff', async () => {
-    // `setTimeout(…, NaN)` fires immediately, so an unusable delay silently
-    // turns the backoff off. Inspect the delay actually scheduled: it has to
-    // be a real number for the wait to mean anything.
-    const scheduleDelay = vi.spyOn(globalThis, 'setTimeout');
-    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', 'soon');
-    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', '2');
-    createEmbeddings
-      .mockRejectedValueOnce(httpError(429))
-      .mockResolvedValueOnce(successfulResponse(1));
-
-    const vectors = await embed(['alpha'], EMBED_OPTIONS);
-
-    expect(vectors).toHaveLength(1);
-
-    const scheduledDelays = scheduleDelay.mock.calls.map(call => call[1]);
-
-    expect(scheduledDelays.length).toBeGreaterThan(0);
-    expect(scheduledDelays.every(delay => Number.isFinite(delay))).toBe(true);
-
-    scheduleDelay.mockRestore();
+    expect(requestedWaits).toHaveLength(1);
+    // The first backoff ceiling, not the header.
+    expect(requestedWaits[0]).toBeLessThanOrEqual(500);
   });
 });
