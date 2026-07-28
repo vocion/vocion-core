@@ -252,6 +252,21 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
       for (const item of res.data) {
         out[i + item.index] = item.embedding;
       }
+      // Check every input in this batch actually came back with a vector.
+      //
+      // Results are placed by the index the response reports, so a missing or
+      // repeated index leaves a gap in the array while its `length` still looks
+      // right. Callers check the length against their chunk count and would
+      // pass, then write an undefined vector to the database. Better to fail
+      // the document: the sync counts it as an error and, since we saw it,
+      // leaves the existing copy in place.
+      for (let position = i; position < i + batch.length; position++) {
+        if (!out[position]) {
+          throw new Error(
+            `embedding response was missing a vector for input ${position} of ${texts.length} — refusing to store an incomplete result`,
+          );
+        }
+      }
     }
     trace.update({ output: { vectors: out.length, totalTokens } });
   } finally {
