@@ -33,7 +33,6 @@
 import type { IngestDoc } from './IngestionService';
 import { and, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { logger } from '@/libs/Logger';
 import { getConnector } from '@/libs/sources/registry';
 import { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
 import {
@@ -43,6 +42,24 @@ import {
   markSourceSynced,
 } from './IngestionService';
 import { getCredentialsForSource } from './SourceCredentialService';
+
+/**
+ * Log, loading the logger only when it's needed.
+ *
+ * `libs/Logger` has a top-level await, and this file sits in the import chain
+ * of CLI scripts (`sync:source`, `ingest-docs`) that tsx compiles as CommonJS,
+ * where a top-level await is fatal. Importing it normally breaks those scripts
+ * outright. Same approach as `services/adoption/track.ts`.
+ * @param level - How bad it is.
+ * @param message - What happened, in plain words.
+ * @param properties - Identifiers and context worth keeping.
+ */
+function log(level: 'warn' | 'error', message: string, properties: Record<string, unknown>): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger[level](message, properties))
+    // Nothing useful left to do if logging itself is broken.
+    .catch(() => {});
+}
 
 export type AddSourceInput = {
   orgId: string;
@@ -176,7 +193,7 @@ export async function beginSync(
       throw new SyncAlreadyRunningError(sourceId);
     }
     if (existing.status === 'running') {
-      logger.warn('took over a sync that appears to have been abandoned', {
+      log('warn', 'took over a sync that appears to have been abandoned', {
         sourceId,
         orgId,
         startedMinutesAgo: Math.round((Date.now() - (existing.startedAt?.getTime() ?? 0)) / 60_000),
@@ -195,7 +212,7 @@ export async function beginSync(
         .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
         .limit(1);
       if (nowExists) {
-        logger.warn('another sync claimed this source first', {
+        log('warn', 'another sync claimed this source first', {
           sourceId,
           orgId,
           error: error instanceof Error ? error.message : String(error),
@@ -203,7 +220,7 @@ export async function beginSync(
         throw new SyncAlreadyRunningError(sourceId);
       }
       // Anything else is a real database problem and must not be disguised.
-      logger.error('could not record the start of a sync', {
+      log('error', 'could not record the start of a sync', {
         sourceId,
         orgId,
         error: error instanceof Error ? error.message : String(error),
@@ -323,7 +340,7 @@ export async function runSync(opts: {
     } catch (error) {
       // The listener is broken; the sync is not. Log it so a broken listener
       // is still findable, rather than disappearing.
-      logger.warn('sync progress listener threw', {
+      log('warn', 'sync progress listener threw', {
         sourceId: opts.sourceId,
         orgId: opts.orgId,
         eventKind: event.kind,
@@ -385,7 +402,7 @@ export async function runSync(opts: {
         seenButNotSavedExternalIds.add(doc.externalId);
         // The counter alone loses the reason. Log it — a run full of rate-limit
         // failures and a run full of malformed documents need different fixes.
-        logger.warn('could not save a document during sync', {
+        log('warn', 'could not save a document during sync', {
           sourceId: opts.sourceId,
           orgId: opts.orgId,
           externalId: doc.externalId,
@@ -494,7 +511,7 @@ export async function runSync(opts: {
     // above. Without this, documents would carry on writing to the database
     // after the sync has been marked failed and the request has ended.
     await Promise.allSettled(activeIngests);
-    logger.error('sync failed', {
+    log('error', 'sync failed', {
       sourceId: opts.sourceId,
       orgId: opts.orgId,
       connectorSlug,
@@ -660,7 +677,7 @@ function generateSlug(kind: string, config: Record<string, unknown>): string {
     } catch (error) {
       // Not a parseable URL, so fall back to the timestamped name below. Worth
       // logging: it usually means the config holds something unexpected.
-      logger.warn('could not derive a source name from its config URL', {
+      log('warn', 'could not derive a source name from its config URL', {
         kind,
         seed,
         error: error instanceof Error ? error.message : String(error),
