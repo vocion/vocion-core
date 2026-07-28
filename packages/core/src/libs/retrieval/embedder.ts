@@ -35,51 +35,28 @@ const BATCH_SIZE = 100;
 const MAX_RETRY_AFTER_MS = 60_000;
 
 /**
- * How many times to try a single request, and how long to wait between tries.
+ * How many times to try a single request before giving up.
  *
  * Ingest embeds several documents at once (see MAX_CONCURRENT_INGESTS in
- * SourceSyncService), so hitting OpenAI's rate limit is normal here rather
- * than rare. Without a retry, that document is counted as an error and
- * skipped — meaning it's missing from search, and the agent answers as if it
- * never existed. Retrying is what prevents losing it.
+ * SourceSyncService), so hitting OpenAI's rate limit is normal here rather than
+ * rare. Without a retry, that document is counted as an error and skipped —
+ * meaning it's missing from search, and the agent answers as if it never
+ * existed. Retrying is what prevents losing it.
  *
- * Read on each call rather than at startup, so these can be changed without
- * rebuilding.
+ * Five is enough to ride out a brief rate limit without holding the caller's
+ * request open too long. A sustained one won't be solved by trying harder, and
+ * the document keeps its existing saved copy either way.
  */
-function readRetrySettings(): { maxAttempts: number; baseDelayMs: number } {
-  return {
-    maxAttempts: readNumericSetting('VOCION_EMBED_MAX_ATTEMPTS', { fallback: 5, minimum: 1 }),
-    baseDelayMs: readNumericSetting('VOCION_EMBED_RETRY_BASE_MS', { fallback: 500, minimum: 0 }),
-  };
-}
+const MAX_ATTEMPTS = 5;
 
 /**
- * Read a number from an environment variable, using the default if the value
- * is missing or doesn't make sense.
+ * Starting point for the wait between attempts, in milliseconds.
  *
- * `Number('eigth')` doesn't fail — it gives you NaN, which then breaks things
- * quietly. A NaN attempt count skips the retry loop, so nothing is ever sent.
- * A NaN delay makes `setTimeout` fire straight away, so there's no wait at all
- * between retries. Falling back to the default is better than either.
- * @param name - Environment variable to read.
- * @param bounds - The default, and the lowest value that makes sense.
- * @param bounds.fallback - Used when the variable is missing or unusable.
- * @param bounds.minimum - Anything below this is treated as unusable.
+ * The wait doubles each attempt and is randomised within that, so five attempts
+ * span a few seconds in total. Only used when OpenAI hasn't told us how long to
+ * wait — see requestedRetryDelayMs, which takes precedence.
  */
-function readNumericSetting(
-  name: string,
-  bounds: { fallback: number; minimum: number },
-): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw.trim() === '') {
-    return bounds.fallback;
-  }
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < bounds.minimum) {
-    return bounds.fallback;
-  }
-  return parsed;
-}
+const BASE_RETRY_DELAY_MS = 500;
 
 /**
  * Decide whether a failed request is worth sending again.
@@ -150,14 +127,13 @@ function sleep(milliseconds: number): Promise<void> {
  * record each attempt separately. Called once per attempt.
  */
 async function sendWithRetries<T>(sendRequest: (attempt: number) => Promise<T>): Promise<T> {
-  const { maxAttempts, baseDelayMs } = readRetrySettings();
   let lastError: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       return await sendRequest(attempt);
     } catch (error) {
       lastError = error;
-      const isLastAttempt = attempt === maxAttempts;
+      const isLastAttempt = attempt === MAX_ATTEMPTS;
       if (!isTemporaryFailure(error) || isLastAttempt) {
         // Thrown on to the caller, which logs it with the document it belongs to.
         throw error;
@@ -165,13 +141,13 @@ async function sendWithRetries<T>(sendRequest: (attempt: number) => Promise<T>):
       const requestedDelayMs = requestedRetryDelayMs(error);
       // Failing that, wait somewhere between zero and a ceiling that doubles
       // each attempt.
-      const delayMs = requestedDelayMs ?? Math.random() * (baseDelayMs * 2 ** (attempt - 1));
+      const delayMs = requestedDelayMs ?? Math.random() * (BASE_RETRY_DELAY_MS * 2 ** (attempt - 1));
       // Log every retry. These are swallowed by definition — the request
       // eventually succeeds and nobody hears about it — so without this a
       // sustained rate limit looks like nothing more than a slow sync.
       logger.warn('embedding request failed, retrying', {
         attempt,
-        maxAttempts,
+        maxAttempts: MAX_ATTEMPTS,
         delayMs: Math.round(delayMs),
         waitAskedForByOpenAi: requestedDelayMs !== null,
         error: error instanceof Error ? error.message : String(error),
@@ -179,10 +155,10 @@ async function sendWithRetries<T>(sendRequest: (attempt: number) => Promise<T>):
       await sleep(delayMs);
     }
   }
-  // Unreachable — `maxAttempts` is always at least 1, so the loop above either
-  // returns a result or throws. Kept so a future change to the loop bounds
-  // surfaces as a real error rather than `throw undefined`, which would defeat
-  // every `instanceof Error` check upstream.
+  // Unreachable — MAX_ATTEMPTS is at least 1, so the loop above either returns
+  // a result or throws. Kept so a future change to the loop bounds surfaces as
+  // a real error rather than `throw undefined`, which would defeat every
+  // `instanceof Error` check upstream.
   throw lastError ?? new Error('embedding retry loop ended without a result');
 }
 
