@@ -168,6 +168,58 @@ describe('embed() retry', () => {
   });
 });
 
+describe('embed() checking the response is complete', () => {
+  it('refuses a response that skipped one of the inputs', async () => {
+    // Vectors are placed by the index the response reports, so a missing index
+    // leaves a gap while the array's length still looks correct. Callers check
+    // that length against their chunk count, so the gap would slip past them
+    // and an undefined vector would reach the database.
+    createEmbeddings.mockResolvedValue({
+      data: [
+        { index: 0, embedding: Array.from<number>({ length: EMBEDDING_DIMENSIONS }).fill(0.1) },
+        { index: 2, embedding: Array.from<number>({ length: EMBEDDING_DIMENSIONS }).fill(0.3) },
+      ],
+      usage: { prompt_tokens: 6, total_tokens: 6 },
+    });
+
+    await expect(embed(['alpha', 'beta', 'gamma'], EMBED_OPTIONS))
+      .rejects
+      .toThrow('missing a vector for input 1');
+  });
+
+  it('refuses a response that repeated an index', async () => {
+    createEmbeddings.mockResolvedValue({
+      data: [
+        { index: 0, embedding: Array.from<number>({ length: EMBEDDING_DIMENSIONS }).fill(0.1) },
+        { index: 0, embedding: Array.from<number>({ length: EMBEDDING_DIMENSIONS }).fill(0.2) },
+      ],
+      usage: { prompt_tokens: 6, total_tokens: 6 },
+    });
+
+    await expect(embed(['alpha', 'beta'], EMBED_OPTIONS))
+      .rejects
+      .toThrow('missing a vector for input 1');
+  });
+
+  it('accepts a response whose indexes arrive out of order', async () => {
+    // Order within the response is not promised, only the index is.
+    createEmbeddings.mockResolvedValue({
+      data: [
+        { index: 1, embedding: Array.from<number>({ length: EMBEDDING_DIMENSIONS }).fill(0.2) },
+        { index: 0, embedding: Array.from<number>({ length: EMBEDDING_DIMENSIONS }).fill(0.1) },
+      ],
+      usage: { prompt_tokens: 6, total_tokens: 6 },
+    });
+
+    const vectors = await embed(['alpha', 'beta'], EMBED_OPTIONS);
+
+    expect(vectors).toHaveLength(2);
+    // Each vector sits at the position its index asked for, not where it arrived.
+    expect(vectors[0]?.[0]).toBeCloseTo(0.1);
+    expect(vectors[1]?.[0]).toBeCloseTo(0.2);
+  });
+});
+
 describe('embed() honouring Retry-After', () => {
   it('waits as long as OpenAI asks instead of guessing', async () => {
     // Our own backoff is zero here, so a two-second wait can only have come
