@@ -28,11 +28,25 @@ vi.mock('openai', async (importOriginal) => {
   };
 });
 
+/**
+ * Every step reported to Langfuse, in order, so tests can check what the
+ * observability dashboard would end up showing.
+ */
+const recordedSteps: Array<{ name: string; endedWith?: { level?: string } }> = [];
+
 vi.mock('@/libs/Langfuse', () => ({
   langfuse: { flushAsync: vi.fn(async () => {}) },
   traceFor: () => ({
     update: vi.fn(),
-    generation: () => ({ end: vi.fn() }),
+    generation: ({ name }: { name: string }) => {
+      const step: { name: string; endedWith?: { level?: string } } = { name };
+      recordedSteps.push(step);
+      return {
+        end: (endedWith?: { level?: string }) => {
+          step.endedWith = endedWith ?? {};
+        },
+      };
+    },
   }),
 }));
 
@@ -100,6 +114,7 @@ function successfulResponse(inputCount: number) {
 }
 
 beforeEach(() => {
+  recordedSteps.length = 0;
   createEmbeddings.mockReset();
   // Start each test from the defaults; tests below override what they need.
   vi.unstubAllEnvs();
@@ -165,6 +180,59 @@ describe('embed() retry', () => {
 
     await expect(embed(['alpha'], EMBED_OPTIONS)).rejects.toThrow('cannot read property');
     expect(createEmbeddings).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('what embed() reports for observability', () => {
+  it('records one step per request, not one per batch', async () => {
+    // Timing the whole retry loop as a single step counted our own waiting as
+    // OpenAI's response time, so a throttled batch looked like OpenAI had
+    // slowed to a crawl. One step per attempt keeps the timings honest.
+    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
+    createEmbeddings
+      .mockRejectedValueOnce(httpError(429))
+      .mockRejectedValueOnce(httpError(429))
+      .mockResolvedValueOnce(successfulResponse(1));
+
+    await embed(['alpha'], EMBED_OPTIONS);
+
+    expect(recordedSteps.map(step => step.name)).toEqual([
+      'embed-batch-0',
+      'embed-batch-0-retry-1',
+      'embed-batch-0-retry-2',
+    ]);
+  });
+
+  it('marks the attempts that failed as failed', async () => {
+    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
+    createEmbeddings
+      .mockRejectedValueOnce(httpError(503))
+      .mockResolvedValueOnce(successfulResponse(1));
+
+    await embed(['alpha'], EMBED_OPTIONS);
+
+    expect(recordedSteps.map(step => step.endedWith?.level)).toEqual(['ERROR', undefined]);
+  });
+
+  it('closes the step even when every attempt fails', async () => {
+    // A step left open would sit in the dashboard looking unfinished forever.
+    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
+    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', '2');
+    createEmbeddings.mockRejectedValue(httpError(429));
+
+    await expect(embed(['alpha'], EMBED_OPTIONS)).rejects.toThrow('http 429');
+
+    expect(recordedSteps).toHaveLength(2);
+    expect(recordedSteps.every(step => step.endedWith !== undefined)).toBe(true);
+  });
+
+  it('keeps the original step name when nothing had to be retried', async () => {
+    // Existing dashboard queries match on this name.
+    createEmbeddings.mockResolvedValue(successfulResponse(1));
+
+    await embed(['alpha'], EMBED_OPTIONS);
+
+    expect(recordedSteps.map(step => step.name)).toEqual(['embed-batch-0']);
   });
 });
 

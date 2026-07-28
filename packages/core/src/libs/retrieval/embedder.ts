@@ -146,14 +146,15 @@ function sleep(milliseconds: number): Promise<void> {
  * grows with each attempt and is randomised, because several documents embed at
  * the same time and a rate limit tends to reject all of them at once — a fixed
  * wait would send every retry back together and trip the same limit again.
- * @param sendRequest - Performs the request. Called once per attempt.
+ * @param sendRequest - Performs the request, given the attempt number so it can
+ * record each attempt separately. Called once per attempt.
  */
-async function sendWithRetries<T>(sendRequest: () => Promise<T>): Promise<T> {
+async function sendWithRetries<T>(sendRequest: (attempt: number) => Promise<T>): Promise<T> {
   const { maxAttempts, baseDelayMs } = readRetrySettings();
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await sendRequest();
+      return await sendRequest(attempt);
     } catch (error) {
       lastError = error;
       const isLastAttempt = attempt === maxAttempts;
@@ -234,20 +235,40 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
   try {
     for (let i = 0; i < texts.length; i += BATCH_SIZE) {
       const batch = texts.slice(i, i + BATCH_SIZE);
-      const generation = trace.generation({
-        name: `embed-batch-${i / BATCH_SIZE}`,
-        model: MODEL,
-        input: { count: batch.length },
-      });
-      const res = await sendWithRetries(() => client().embeddings.create({
-        model: MODEL,
-        input: batch,
-      }));
-      const usage = res.usage ?? { prompt_tokens: 0, total_tokens: 0 };
-      totalTokens += usage.total_tokens;
-      generation.end({
-        output: `${batch.length} vectors`,
-        usageDetails: { input: usage.prompt_tokens, total: usage.total_tokens },
+      const batchNumber = i / BATCH_SIZE;
+      // Record each attempt as its own step, rather than wrapping the whole
+      // retry loop in one. Wrapping counted our own waiting as OpenAI's
+      // response time, so a rate-limited batch showed up on
+      // /dashboard/observability as OpenAI having slowed to a minute — sending
+      // you to look at OpenAI when the real problem is being throttled. Per
+      // attempt, the timings are the real request times and the retries are
+      // visible as separate steps instead of hiding inside one slow one.
+      const res = await sendWithRetries(async (attempt) => {
+        const generation = trace.generation({
+          // The first attempt keeps the original name so existing charts and
+          // queries still match; only retries get a suffix.
+          name: attempt === 1 ? `embed-batch-${batchNumber}` : `embed-batch-${batchNumber}-retry-${attempt - 1}`,
+          model: MODEL,
+          input: { count: batch.length },
+        });
+        try {
+          const response = await client().embeddings.create({ model: MODEL, input: batch });
+          const usage = response.usage ?? { prompt_tokens: 0, total_tokens: 0 };
+          totalTokens += usage.total_tokens;
+          generation.end({
+            output: `${batch.length} vectors`,
+            usageDetails: { input: usage.prompt_tokens, total: usage.total_tokens },
+          });
+          return response;
+        } catch (error) {
+          // Close the step as failed. Left open, a failed attempt would either
+          // vanish from the numbers or sit there looking unfinished.
+          generation.end({
+            level: 'ERROR',
+            output: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
       });
       for (const item of res.data) {
         out[i + item.index] = item.embedding;
