@@ -15,11 +15,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createEmbeddings = vi.fn();
 
-vi.mock('openai', () => ({
-  default: class {
-    embeddings = { create: createEmbeddings };
-  },
-}));
+// Replace only the client. The real error classes are kept, because the retry
+// logic identifies a dropped connection by type — a fake would not behave the
+// same way.
+vi.mock('openai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('openai')>();
+  return {
+    ...actual,
+    default: class {
+      embeddings = { create: createEmbeddings };
+    },
+  };
+});
 
 vi.mock('@/libs/Langfuse', () => ({
   langfuse: { flushAsync: vi.fn(async () => {}) },
@@ -29,6 +36,7 @@ vi.mock('@/libs/Langfuse', () => ({
   }),
 }));
 
+const { APIConnectionError, APIError } = await import('openai');
 const { embed } = await import('@/libs/retrieval/embedder');
 
 const EMBED_OPTIONS = { orgId: 'org_embed_test', purpose: 'ingest' as const };
@@ -41,6 +49,40 @@ const EMBEDDING_DIMENSIONS = 1536;
  */
 function httpError(status: number): Error {
   return Object.assign(new Error(`http ${status}`), { status });
+}
+
+/**
+ * Build a rate-limit error carrying the wait OpenAI is asking for.
+ * @param retryAfter - Value for the `Retry-After` header.
+ */
+function rateLimitedWithRetryAfter(retryAfter: string): Error {
+  return new APIError(429, undefined, 'rate limited', new Headers({ 'retry-after': retryAfter }));
+}
+
+/**
+ * Run something and report the waits it asked for, without serving them.
+ *
+ * Timers fire straight away, so a test can assert on a sixty-second wait in a
+ * few milliseconds. Delays of zero are dropped: those are the scheduling hops
+ * other machinery makes, not a deliberate wait between retries.
+ * @param run - The work to observe.
+ */
+async function waitsRequestedBy(run: () => Promise<unknown>): Promise<number[]> {
+  const requested: number[] = [];
+  const realSetTimeout = globalThis.setTimeout;
+  const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    callback: () => void,
+    delay?: number,
+  ) => {
+    requested.push(Number(delay ?? 0));
+    return realSetTimeout(callback, 0);
+  }) as typeof globalThis.setTimeout);
+  try {
+    await run();
+  } finally {
+    spy.mockRestore();
+  }
+  return requested.filter(delay => delay > 0);
 }
 
 /**
@@ -101,6 +143,68 @@ describe('embed() retry', () => {
 
     await expect(embed(['alpha'], EMBED_OPTIONS)).rejects.toThrow('http 429');
     expect(createEmbeddings).toHaveBeenCalledTimes(3);
+  });
+
+  it('retries a dropped connection, which carries no status code', async () => {
+    // Several documents embed at once, so a reset socket is routine. These have
+    // no status, so an earlier version treated them as permanent and gave up.
+    createEmbeddings
+      .mockRejectedValueOnce(new APIConnectionError({ message: 'socket hang up' }))
+      .mockResolvedValueOnce(successfulResponse(1));
+
+    const vectors = await embed(['alpha'], EMBED_OPTIONS);
+
+    expect(vectors).toHaveLength(1);
+    expect(createEmbeddings).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry an ordinary programming mistake', async () => {
+    // The guard above must key off the error's type, not merely the absence of
+    // a status — otherwise a plain bug gets retried and its cause obscured.
+    createEmbeddings.mockRejectedValue(new TypeError('cannot read property of undefined'));
+
+    await expect(embed(['alpha'], EMBED_OPTIONS)).rejects.toThrow('cannot read property');
+    expect(createEmbeddings).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('embed() honouring Retry-After', () => {
+  it('waits as long as OpenAI asks instead of guessing', async () => {
+    // Our own backoff is zero here, so a two-second wait can only have come
+    // from the header.
+    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
+    createEmbeddings
+      .mockRejectedValueOnce(rateLimitedWithRetryAfter('2'))
+      .mockResolvedValueOnce(successfulResponse(1));
+
+    const waits = await waitsRequestedBy(() => embed(['alpha'], EMBED_OPTIONS));
+
+    expect(waits).toEqual([2000]);
+  });
+
+  it('ignores an absurd Retry-After rather than stalling the sync', async () => {
+    // A day-long wait would hold the sync — and the caller's request — open.
+    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
+    createEmbeddings
+      .mockRejectedValueOnce(rateLimitedWithRetryAfter('86400'))
+      .mockResolvedValueOnce(successfulResponse(1));
+
+    const waits = await waitsRequestedBy(() => embed(['alpha'], EMBED_OPTIONS));
+
+    expect(waits).toEqual([60_000]);
+  });
+
+  it('falls back to its own backoff when Retry-After is an HTTP date', async () => {
+    // The header may legally be a date, which is not a number of seconds.
+    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '40');
+    createEmbeddings
+      .mockRejectedValueOnce(rateLimitedWithRetryAfter('Wed, 21 Oct 2026 07:28:00 GMT'))
+      .mockResolvedValueOnce(successfulResponse(1));
+
+    const waits = await waitsRequestedBy(() => embed(['alpha'], EMBED_OPTIONS));
+
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeLessThanOrEqual(40);
   });
 });
 
