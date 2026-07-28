@@ -20,10 +20,26 @@ import process from 'node:process';
 import OpenAI, { APIConnectionError } from 'openai';
 import { langfuse, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
-import { logger } from '@/libs/Logger';
 
 const MODEL = process.env.VOCION_EMBEDDING_MODEL ?? 'text-embedding-3-small';
 const BATCH_SIZE = 100;
+
+/**
+ * Log, loading the logger only when it's needed.
+ *
+ * `libs/Logger` has a top-level await, and this file sits in the import chain
+ * of CLI scripts (`sync:source`, `ingest-docs`) that tsx compiles as CommonJS,
+ * where a top-level await is fatal. Importing it normally breaks those scripts
+ * outright. Same approach as `services/adoption/track.ts`.
+ * @param message - What happened, in plain words.
+ * @param properties - Identifiers and context worth keeping.
+ */
+function logWarning(message: string, properties: Record<string, unknown>): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger.warn(message, properties))
+    // Nothing useful left to do if logging itself is broken.
+    .catch(() => {});
+}
 
 /**
  * Longest we'll honour a `Retry-After` for.
@@ -145,7 +161,7 @@ async function sendWithRetries<T>(sendRequest: (attempt: number) => Promise<T>):
       // Log every retry. These are swallowed by definition — the request
       // eventually succeeds and nobody hears about it — so without this a
       // sustained rate limit looks like nothing more than a slow sync.
-      logger.warn('embedding request failed, retrying', {
+      logWarning('embedding request failed, retrying', {
         attempt,
         maxAttempts: MAX_ATTEMPTS,
         delayMs: Math.round(delayMs),
