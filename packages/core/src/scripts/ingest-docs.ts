@@ -25,7 +25,7 @@ import process from 'node:process';
 import { db } from '@/libs/DB';
 import { listDocs, readDoc } from '@/libs/docs';
 import { organizationSchema } from '@/models/Schema';
-import { ensureSource, ingestDocument, markSourceSynced, tombstoneMissing } from '@/services/IngestionService';
+import { deleteDocumentsGoneFromSource, ensureSource, ingestDocument, markSourceSynced } from '@/services/IngestionService';
 
 const DOCS_SOURCE_SLUG = 'vocion-docs';
 
@@ -62,7 +62,7 @@ async function ingestForOrg(orgId: string): Promise<{ orgId: string; created: nu
     }
   }
   // Prune docs that were removed from disk (`last_seen_at < cutoff`).
-  await tombstoneMissing(src, cutoff);
+  await deleteDocumentsGoneFromSource(src, cutoff);
   await markSourceSynced(src.sourceId);
   return { orgId, created, updated, unchanged, total: entries.length };
 }

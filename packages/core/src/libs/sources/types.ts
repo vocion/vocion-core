@@ -9,7 +9,7 @@
  * Sync is modeled as an async iterator so memory stays bounded for
  * sources that walk millions of files (Drive folders, S3 buckets).
  * The orchestrator (`SourceSyncService.runSync`) loops the iterator
- * and calls `ingestDocument` per yield, then `tombstoneMissing` at
+ * and calls `ingestDocument` per yield, then `deleteDocumentsGoneFromSource` at
  * the end to prune deleted upstream rows.
  */
 
