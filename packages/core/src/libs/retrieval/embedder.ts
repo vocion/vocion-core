@@ -20,65 +20,120 @@ import process from 'node:process';
 import OpenAI from 'openai';
 import { langfuse, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
+import { logger } from '@/libs/Logger';
 
 const MODEL = process.env.VOCION_EMBEDDING_MODEL ?? 'text-embedding-3-small';
 const BATCH_SIZE = 100;
 
 /**
- * Retry budget for a single batch request. Ingest drives embed() from a
- * bounded concurrency window (`VOCION_INGEST_CONCURRENCY`), so 429s are
- * expected traffic rather than an anomaly. Without a retry here a
- * transient rate-limit throws, SourceSyncService catches it per-document
- * and bumps `result.errors`, and the document is then simply absent from
- * the corpus — retrieval can't see it and the agent answers around it.
- * Read from env inside the call so deploys can tune without a rebuild.
+ * How many times to try a single request, and how long to wait between tries.
+ *
+ * Ingest embeds several documents at once (see MAX_CONCURRENT_INGESTS in
+ * SourceSyncService), so hitting OpenAI's rate limit is normal here rather
+ * than rare. Without a retry, that document is counted as an error and
+ * skipped — meaning it's missing from search, and the agent answers as if it
+ * never existed. Retrying is what prevents losing it.
+ *
+ * Read on each call rather than at startup, so these can be changed without
+ * rebuilding.
  */
-function retryBudget(): { attempts: number; baseMs: number } {
+function readRetrySettings(): { maxAttempts: number; baseDelayMs: number } {
   return {
-    attempts: Number(process.env.VOCION_EMBED_MAX_ATTEMPTS ?? 5),
-    baseMs: Number(process.env.VOCION_EMBED_RETRY_BASE_MS ?? 500),
+    maxAttempts: readNumericSetting('VOCION_EMBED_MAX_ATTEMPTS', { fallback: 5, minimum: 1 }),
+    baseDelayMs: readNumericSetting('VOCION_EMBED_RETRY_BASE_MS', { fallback: 500, minimum: 0 }),
   };
 }
 
 /**
- * 429 and 5xx are worth another try; 4xx means the request itself is wrong.
- * @param err
+ * Read a number from an environment variable, using the default if the value
+ * is missing or doesn't make sense.
+ *
+ * `Number('eigth')` doesn't fail — it gives you NaN, which then breaks things
+ * quietly. A NaN attempt count skips the retry loop, so nothing is ever sent.
+ * A NaN delay makes `setTimeout` fire straight away, so there's no wait at all
+ * between retries. Falling back to the default is better than either.
+ * @param name - Environment variable to read.
+ * @param bounds - The default, and the lowest value that makes sense.
+ * @param bounds.fallback - Used when the variable is missing or unusable.
+ * @param bounds.minimum - Anything below this is treated as unusable.
  */
-function isRetryable(err: unknown): boolean {
-  const status = (err as { status?: number } | null)?.status;
+function readNumericSetting(
+  name: string,
+  bounds: { fallback: number; minimum: number },
+): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') {
+    return bounds.fallback;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < bounds.minimum) {
+    return bounds.fallback;
+  }
+  return parsed;
+}
+
+/**
+ * Decide whether a failed request is worth sending again.
+ *
+ * Rate limits (429) and server errors (5xx) are temporary, so another
+ * attempt can succeed. Any other 4xx means the request itself was wrong,
+ * and repeating it would fail the same way every time.
+ * @param error - The error thrown by the OpenAI client.
+ */
+function isTemporaryFailure(error: unknown): boolean {
+  const status = (error as { status?: number } | null)?.status;
   if (typeof status !== 'number') {
     return false;
   }
   return status === 429 || status >= 500;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
 /**
- * Run one embedding request, retrying retryable failures with
- * exponential backoff plus full jitter. Jitter matters under
- * concurrency: without it, N in-flight requests that all get 429'd
- * would retry in lockstep and re-trigger the same rate limit.
- * @param fn - Issues the request; called once per attempt.
+ * Send one embedding request, retrying temporary failures with an
+ * exponentially growing, randomized delay.
+ *
+ * The delay is randomized on purpose. Several documents embed at the same
+ * time, so a rate limit tends to reject all of them at once. Waiting a
+ * fixed amount would send every retry back at the same moment and trip the
+ * same limit again; spreading them over a widening window avoids that.
+ * @param sendRequest - Performs the request. Called once per attempt.
  */
-async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  const { attempts, baseMs } = retryBudget();
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
+async function sendWithRetries<T>(sendRequest: () => Promise<T>): Promise<T> {
+  const { maxAttempts, baseDelayMs } = readRetrySettings();
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      if (!isRetryable(err) || attempt === attempts) {
-        throw err;
+      return await sendRequest();
+    } catch (error) {
+      lastError = error;
+      const isLastAttempt = attempt === maxAttempts;
+      if (!isTemporaryFailure(error) || isLastAttempt) {
+        // Thrown on to the caller, which logs it with the document it belongs to.
+        throw error;
       }
-      const ceiling = baseMs * 2 ** (attempt - 1);
-      await sleep(Math.random() * ceiling);
+      // Wait somewhere between zero and a ceiling that doubles each attempt.
+      const delayCeilingMs = baseDelayMs * 2 ** (attempt - 1);
+      // Log every retry. These are swallowed by definition — the request
+      // eventually succeeds and nobody hears about it — so without this a
+      // sustained rate limit looks like nothing more than a slow sync.
+      logger.warn('embedding request failed, retrying', {
+        attempt,
+        maxAttempts,
+        delayCeilingMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await sleep(Math.random() * delayCeilingMs);
     }
   }
-  throw lastErr;
+  // Unreachable — `maxAttempts` is always at least 1, so the loop above either
+  // returns a result or throws. Kept so a future change to the loop bounds
+  // surfaces as a real error rather than `throw undefined`, which would defeat
+  // every `instanceof Error` check upstream.
+  throw lastError ?? new Error('embedding retry loop ended without a result');
 }
 
 let _client: OpenAI | null = null;
@@ -129,7 +184,7 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
         model: MODEL,
         input: { count: batch.length },
       });
-      const res = await withRetry(() => client().embeddings.create({
+      const res = await sendWithRetries(() => client().embeddings.create({
         model: MODEL,
         input: batch,
       }));
