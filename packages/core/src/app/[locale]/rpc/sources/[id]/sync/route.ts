@@ -10,7 +10,8 @@
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
-import { runSync } from '@/services/SourceSyncService';
+import { logger } from '@/libs/Logger';
+import { runSync, SyncAlreadyRunningError } from '@/services/SourceSyncService';
 
 export async function POST(
   _req: Request,
@@ -29,7 +30,22 @@ export async function POST(
     const result = await runSync({ orgId, sourceId });
     return Response.json({ result });
   } catch (err) {
+    // Someone already has this source syncing — a second browser tab, or a
+    // scheduled run that started first. Not an error on the caller's part, so
+    // say so plainly rather than reporting a server failure.
+    if (err instanceof SyncAlreadyRunningError) {
+      return Response.json(
+        { error: 'This source is already syncing. Wait for it to finish, then try again.' },
+        { status: 409 },
+      );
+    }
     const message = err instanceof Error ? err.message : String(err);
+    logger.error('source sync request failed', {
+      sourceId,
+      orgId,
+      error: message,
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     return Response.json({ error: message }, { status: 500 });
   }
 }

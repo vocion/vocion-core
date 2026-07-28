@@ -1,20 +1,23 @@
 /**
- * embedder retry/backoff. Ingest runs the document loop with a bounded
- * concurrency window (VOCION_INGEST_CONCURRENCY), which makes OpenAI
- * 429s likely rather than theoretical. A transient rate-limit must not
- * drop the document — SourceSyncService catches per-document errors and
- * only bumps a counter, so a dropped embed is silent data loss.
+ * Retry behavior in embed().
  *
- * OpenAI itself is mocked (no network in CI); the behavior under test is
- * embed()'s own retry loop.
+ * Ingest embeds several documents at the same time (see
+ * MAX_CONCURRENT_INGESTS), which makes OpenAI rate-limit responses a
+ * routine occurrence rather than a theoretical one. A temporary rate limit
+ * must not cost us the document: SourceSyncService only counts per-document
+ * failures and carries on, so an embedding that gives up is data quietly
+ * missing from the corpus.
+ *
+ * OpenAI is mocked out, since CI has no network access. What these tests
+ * exercise is the retry loop inside embed() itself.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const create = vi.fn();
+const createEmbeddings = vi.fn();
 
 vi.mock('openai', () => ({
   default: class {
-    embeddings = { create };
+    embeddings = { create: createEmbeddings };
   },
 }));
 
@@ -28,71 +31,137 @@ vi.mock('@/libs/Langfuse', () => ({
 
 const { embed } = await import('@/libs/retrieval/embedder');
 
-const OPTS = { orgId: 'org_embed_test', purpose: 'ingest' as const };
+const EMBED_OPTIONS = { orgId: 'org_embed_test', purpose: 'ingest' as const };
+
+const EMBEDDING_DIMENSIONS = 1536;
 
 /**
- * An OpenAI SDK-shaped HTTP error.
- * @param status
+ * Build an error shaped the way the OpenAI client reports an HTTP failure.
+ * @param status - The HTTP status code to attach to the error.
  */
 function httpError(status: number): Error {
   return Object.assign(new Error(`http ${status}`), { status });
 }
 
 /**
- * One embedding response for `n` inputs.
- * @param n
+ * Build a successful embedding response.
+ * @param inputCount - How many inputs the response should return vectors for.
  */
-function okResponse(n: number) {
+function successfulResponse(inputCount: number) {
   return {
-    data: Array.from({ length: n }, (_, index) => ({
+    data: Array.from({ length: inputCount }, (_, index) => ({
       index,
-      embedding: Array.from<number>({ length: 1536 }).fill(0.1),
+      embedding: Array.from<number>({ length: EMBEDDING_DIMENSIONS }).fill(0.1),
     })),
     usage: { prompt_tokens: 4, total_tokens: 4 },
   };
 }
 
 beforeEach(() => {
-  create.mockReset();
-  // Collapse backoff so the suite doesn't sit in real sleeps.
+  createEmbeddings.mockReset();
+  // Start each test from the defaults; tests below override what they need.
+  vi.unstubAllEnvs();
+  // Remove the retry delay so the suite doesn't spend real time sleeping.
   vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', '0');
 });
 
 describe('embed() retry', () => {
-  it('retries a 429 and still returns the vectors', async () => {
-    create
+  it('retries after a rate limit and still returns the vectors', async () => {
+    createEmbeddings
       .mockRejectedValueOnce(httpError(429))
-      .mockResolvedValueOnce(okResponse(2));
+      .mockResolvedValueOnce(successfulResponse(2));
 
-    const vectors = await embed(['alpha', 'beta'], OPTS);
+    const vectors = await embed(['alpha', 'beta'], EMBED_OPTIONS);
 
     expect(vectors).toHaveLength(2);
-    expect(vectors[0]).toHaveLength(1536);
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(vectors[0]).toHaveLength(EMBEDDING_DIMENSIONS);
+    expect(createEmbeddings).toHaveBeenCalledTimes(2);
   });
 
-  it('retries a 5xx and still returns the vectors', async () => {
-    create
+  it('retries after a server error and still returns the vectors', async () => {
+    createEmbeddings
       .mockRejectedValueOnce(httpError(503))
-      .mockResolvedValueOnce(okResponse(1));
+      .mockResolvedValueOnce(successfulResponse(1));
 
-    const vectors = await embed(['alpha'], OPTS);
+    const vectors = await embed(['alpha'], EMBED_OPTIONS);
 
     expect(vectors).toHaveLength(1);
   });
 
-  it('does not retry a 400 — a malformed request will never succeed', async () => {
-    create.mockRejectedValue(httpError(400));
+  it('does not retry a bad request, which would fail identically every time', async () => {
+    createEmbeddings.mockRejectedValue(httpError(400));
 
-    await expect(embed(['alpha'], OPTS)).rejects.toThrow('http 400');
-    expect(create).toHaveBeenCalledTimes(1);
+    await expect(embed(['alpha'], EMBED_OPTIONS)).rejects.toThrow('http 400');
+    expect(createEmbeddings).toHaveBeenCalledTimes(1);
   });
 
-  it('gives up after the attempt budget and throws the last error', async () => {
-    create.mockRejectedValue(httpError(429));
+  it('stops after the configured number of attempts and reports the last error', async () => {
+    createEmbeddings.mockRejectedValue(httpError(429));
     vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', '3');
 
-    await expect(embed(['alpha'], OPTS)).rejects.toThrow('http 429');
-    expect(create).toHaveBeenCalledTimes(3);
+    await expect(embed(['alpha'], EMBED_OPTIONS)).rejects.toThrow('http 429');
+    expect(createEmbeddings).toHaveBeenCalledTimes(3);
+  });
+});
+
+/**
+ * An unusable attempt count must not disable embedding. Reading it with a bare
+ * `Number()` yields NaN, which skips the retry loop entirely — so nothing is
+ * ever sent, and the error raised carries no message at all.
+ */
+describe('embed() with unusable retry settings', () => {
+  it.each(['five', '', '0', '-2'])('ignores an attempt count of %o and still embeds', async (value) => {
+    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', value);
+    createEmbeddings.mockResolvedValue(successfulResponse(1));
+
+    const vectors = await embed(['alpha'], EMBED_OPTIONS);
+
+    expect(vectors).toHaveLength(1);
+    expect(createEmbeddings).toHaveBeenCalledTimes(1);
+  });
+
+  it('still retries when the attempt count is unusable', async () => {
+    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', 'not-a-number');
+    createEmbeddings
+      .mockRejectedValueOnce(httpError(429))
+      .mockResolvedValueOnce(successfulResponse(1));
+
+    const vectors = await embed(['alpha'], EMBED_OPTIONS);
+
+    expect(vectors).toHaveLength(1);
+    expect(createEmbeddings).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a real error rather than an empty one when it gives up', async () => {
+    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', 'not-a-number');
+    createEmbeddings.mockRejectedValue(httpError(429));
+
+    const failure = await embed(['alpha'], EMBED_OPTIONS).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe('http 429');
+  });
+
+  it('ignores an unusable retry delay, which would otherwise remove the backoff', async () => {
+    // `setTimeout(…, NaN)` fires immediately, so an unusable delay silently
+    // turns the backoff off. Inspect the delay actually scheduled: it has to
+    // be a real number for the wait to mean anything.
+    const scheduleDelay = vi.spyOn(globalThis, 'setTimeout');
+    vi.stubEnv('VOCION_EMBED_RETRY_BASE_MS', 'soon');
+    vi.stubEnv('VOCION_EMBED_MAX_ATTEMPTS', '2');
+    createEmbeddings
+      .mockRejectedValueOnce(httpError(429))
+      .mockResolvedValueOnce(successfulResponse(1));
+
+    const vectors = await embed(['alpha'], EMBED_OPTIONS);
+
+    expect(vectors).toHaveLength(1);
+
+    const scheduledDelays = scheduleDelay.mock.calls.map(call => call[1]);
+
+    expect(scheduledDelays.length).toBeGreaterThan(0);
+    expect(scheduledDelays.every(delay => Number.isFinite(delay))).toBe(true);
+
+    scheduleDelay.mockRestore();
   });
 });
