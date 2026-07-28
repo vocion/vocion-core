@@ -17,13 +17,22 @@
  */
 
 import process from 'node:process';
-import OpenAI from 'openai';
+import OpenAI, { APIConnectionError } from 'openai';
 import { langfuse, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { logger } from '@/libs/Logger';
 
 const MODEL = process.env.VOCION_EMBEDDING_MODEL ?? 'text-embedding-3-small';
 const BATCH_SIZE = 100;
+
+/**
+ * Longest we'll honour a `Retry-After` for.
+ *
+ * A sync holds the caller's request open while it runs, so an unusually large
+ * value would leave someone's browser waiting. Past this we fall back to our
+ * own backoff and let the attempt budget run out instead.
+ */
+const MAX_RETRY_AFTER_MS = 60_000;
 
 /**
  * How many times to try a single request, and how long to wait between tries.
@@ -75,12 +84,21 @@ function readNumericSetting(
 /**
  * Decide whether a failed request is worth sending again.
  *
- * Rate limits (429) and server errors (5xx) are temporary, so another
- * attempt can succeed. Any other 4xx means the request itself was wrong,
- * and repeating it would fail the same way every time.
+ * Rate limits (429) and server errors (5xx) are temporary, so another attempt
+ * can succeed. Any other 4xx means the request itself was wrong, and repeating
+ * it would fail the same way every time.
+ *
+ * Dropped connections and timeouts count too, and matter more here than
+ * anywhere else: with several embeddings in flight at once, a reset socket is
+ * routine. These carry no status code, so they have to be recognised by type —
+ * checking merely for "no status" would also retry ordinary programming
+ * mistakes five times over.
  * @param error - The error thrown by the OpenAI client.
  */
 function isTemporaryFailure(error: unknown): boolean {
+  if (error instanceof APIConnectionError) {
+    return true;
+  }
   const status = (error as { status?: number } | null)?.status;
   if (typeof status !== 'number') {
     return false;
@@ -88,18 +106,46 @@ function isTemporaryFailure(error: unknown): boolean {
   return status === 429 || status >= 500;
 }
 
+/**
+ * The wait OpenAI itself asked for, in milliseconds, or null if it didn't.
+ *
+ * A 429 usually carries a `Retry-After` header saying when the allowance
+ * resets. That beats guessing, so it wins over our own backoff. Capped, so a
+ * strange or hostile value can't park the sync for an hour.
+ * @param error - The error thrown by the OpenAI client.
+ */
+function requestedRetryDelayMs(error: unknown): number | null {
+  const headers = (error as { headers?: { get?: (name: string) => string | null } } | null)?.headers;
+  const rawValue = headers?.get?.('retry-after');
+  if (!rawValue) {
+    return null;
+  }
+  // OpenAI sends a whole number of seconds. An HTTP date is also legal here,
+  // which parses as NaN — fall back to our own backoff in that case.
+  const seconds = Number(rawValue);
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return null;
+  }
+  return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+}
+
 function sleep(milliseconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
 /**
- * Send one embedding request, retrying temporary failures with an
- * exponentially growing, randomized delay.
+ * Send one embedding request, retrying temporary failures.
  *
- * The delay is randomized on purpose. Several documents embed at the same
- * time, so a rate limit tends to reject all of them at once. Waiting a
- * fixed amount would send every retry back at the same moment and trip the
- * same limit again; spreading them over a widening window avoids that.
+ * This is the only place embedding requests are retried. The OpenAI client can
+ * do its own retrying, and is switched off in `client()` for that reason —
+ * otherwise both layers retry the same request without knowing about each
+ * other, turning five attempts into fifteen and multiplying the waits between
+ * them. That makes a rate limit worse rather than better.
+ *
+ * When OpenAI says how long to wait, we wait that long. Otherwise the wait
+ * grows with each attempt and is randomised, because several documents embed at
+ * the same time and a rate limit tends to reject all of them at once — a fixed
+ * wait would send every retry back together and trip the same limit again.
  * @param sendRequest - Performs the request. Called once per attempt.
  */
 async function sendWithRetries<T>(sendRequest: () => Promise<T>): Promise<T> {
@@ -115,18 +161,21 @@ async function sendWithRetries<T>(sendRequest: () => Promise<T>): Promise<T> {
         // Thrown on to the caller, which logs it with the document it belongs to.
         throw error;
       }
-      // Wait somewhere between zero and a ceiling that doubles each attempt.
-      const delayCeilingMs = baseDelayMs * 2 ** (attempt - 1);
+      const requestedDelayMs = requestedRetryDelayMs(error);
+      // Failing that, wait somewhere between zero and a ceiling that doubles
+      // each attempt.
+      const delayMs = requestedDelayMs ?? Math.random() * (baseDelayMs * 2 ** (attempt - 1));
       // Log every retry. These are swallowed by definition — the request
       // eventually succeeds and nobody hears about it — so without this a
       // sustained rate limit looks like nothing more than a slow sync.
       logger.warn('embedding request failed, retrying', {
         attempt,
         maxAttempts,
-        delayCeilingMs,
+        delayMs: Math.round(delayMs),
+        waitAskedForByOpenAi: requestedDelayMs !== null,
         error: error instanceof Error ? error.message : String(error),
       });
-      await sleep(Math.random() * delayCeilingMs);
+      await sleep(delayMs);
     }
   }
   // Unreachable — `maxAttempts` is always at least 1, so the loop above either
@@ -143,7 +192,13 @@ function client(): OpenAI {
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY is not set — embeddings require an OpenAI key. Set it on the running container or in .env.local.');
     }
-    _client = new OpenAI({ apiKey });
+    // maxRetries: 0 — retrying is handled by sendWithRetries above, and this
+    // client would otherwise retry the same request twice more underneath it.
+    // Two layers that can't see each other multiply: five of our attempts
+    // become fifteen requests, each already carrying the client's own waits.
+    // Ours is the layer to keep, because it logs each retry and honours the
+    // `Retry-After` header rather than only backing off blindly.
+    _client = new OpenAI({ apiKey, maxRetries: 0 });
   }
   return _client;
 }
