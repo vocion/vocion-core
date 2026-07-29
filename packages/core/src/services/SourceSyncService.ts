@@ -2,7 +2,7 @@
  * SourceSyncService — drives a connector's `sync()` iterator and
  * pipes each yielded document through IngestionService. Centralized
  * here so connectors stay narrow (just iterate; don't worry about
- * chunking, embedding, dedup, tombstoning).
+ * chunking, embedding, dedup, deleting what's gone).
  *
  * Two entrypoints:
  *
@@ -11,26 +11,55 @@
  *     the connector's `configSchema`).
  *
  *   - `runSync()` — fetches the row, instantiates a SourceContext,
- *     iterates `connector.sync()`, calls `ingestDocument` per yield,
- *     calls `tombstoneMissing` at the end. Returns aggregated counts.
+ *     iterates `connector.sync()`, ingests the documents it yields a
+ *     few at a time, waits for those to finish, then calls
+ *     `deleteDocumentsGoneFromSource`. Returns aggregated counts.
  *
- * Sync runs are synchronous from the caller's POV (a request hangs
- * for the duration). For long crawls that's not great — the
- * follow-up wires this through Temporal so the UI can kick a sync
- * off, then poll status. Until then: cap pages low.
+ * Ingest processes up to `MAX_CONCURRENT_INGESTS` documents at a time.
+ * Almost all of the time spent ingesting one document is spent waiting on a
+ * single OpenAI embedding request, so handling them one at a time left a
+ * large sync idle on the network for nearly its whole duration. Overlapping
+ * a handful of documents reclaims that idle time.
+ *
+ * One consequence worth knowing: `onProgress` events now arrive
+ * interleaved and can finish out of order. Consumers must not assume
+ * documents are delivered one at a time.
+ *
+ * A sync still blocks its caller until it finishes, so a long crawl holds
+ * a request open the whole time. Those belong on the Temporal path
+ * (`services/temporal/activities/sourceSync.ts`) rather than the RPC route.
  */
 
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import type { IngestDoc } from './IngestionService';
+import { and, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
 import { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
 import {
+  deleteDocumentsGoneFromSource,
   ensureSource,
   ingestDocument,
   markSourceSynced,
-  tombstoneMissing,
 } from './IngestionService';
 import { getCredentialsForSource } from './SourceCredentialService';
+
+/**
+ * Log, loading the logger only when it's needed.
+ *
+ * `libs/Logger` has a top-level await, and this file sits in the import chain
+ * of CLI scripts (`sync:source`, `ingest-docs`) that tsx compiles as CommonJS,
+ * where a top-level await is fatal. Importing it normally breaks those scripts
+ * outright. Same approach as `services/adoption/track.ts`.
+ * @param level - How bad it is.
+ * @param message - What happened, in plain words.
+ * @param properties - Identifiers and context worth keeping.
+ */
+function log(level: 'warn' | 'error', message: string, properties: Record<string, unknown>): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger[level](message, properties))
+    // Nothing useful left to do if logging itself is broken.
+    .catch(() => {});
+}
 
 export type AddSourceInput = {
   orgId: string;
@@ -60,6 +89,24 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
   return { id: ref.sourceId, slug };
 }
 
+/**
+ * How many documents `runSync` ingests at the same time.
+ *
+ * Ingesting a document is almost entirely spent waiting on one OpenAI
+ * embedding request, so doing them one at a time meant a 5,000-document sync
+ * made 5,000 requests back to back — about 17 minutes, nearly all of it idle.
+ *
+ * Eight is a middle ground: enough to hide that waiting, not so many that we
+ * run into OpenAI's rate limit or run out of database connections.
+ *
+ * Memory is the other reason not to raise this casually. Every document in
+ * progress holds its full text, its chunks, and one 1,536-number vector per
+ * chunk. A large document can run to a thousand chunks, so peak memory scales
+ * directly with this number — eight big documents at once is on the order of a
+ * hundred megabytes.
+ */
+export const MAX_CONCURRENT_INGESTS = 8;
+
 export type SyncResult = {
   sourceId: number;
   created: number;
@@ -70,11 +117,35 @@ export type SyncResult = {
 };
 
 /**
- * Begin a sync: read the prior watermark, mark the checkpoint `running`.
- * Returns the incremental `since` (only when `incremental`) + the resume `cursor`.
- * @param sourceId
- * @param orgId
- * @param incremental
+ * How long a sync may sit marked as running before we assume its process died.
+ *
+ * Without a limit, a crashed or killed sync would leave the source marked busy
+ * for good and nobody could ever sync it again. Thirty minutes matches the
+ * timeout on the Temporal version of this job, so a run that is genuinely still
+ * working is never mistaken for an abandoned one.
+ */
+const ABANDONED_SYNC_AFTER_MS = 30 * 60 * 1000;
+
+/** Raised when a source is asked to sync while one of its syncs is running. */
+export class SyncAlreadyRunningError extends Error {
+  constructor(sourceId: number) {
+    super(`a sync is already running for source ${sourceId}`);
+    this.name = 'SyncAlreadyRunningError';
+  }
+}
+
+/**
+ * Claim the right to sync this source, and read where the last run got to.
+ *
+ * Only one sync per source may run at a time. Two at once would each pay OpenAI
+ * to embed the same documents, and both would write to the one checkpoint row,
+ * so whichever finished last would overwrite the other's record of what
+ * happened.
+ * @param sourceId - Source to claim.
+ * @param orgId - Owning org.
+ * @param incremental - Whether to return the previous run's watermark, so the
+ * connector can ask the source only for what changed since then.
+ * @throws SyncAlreadyRunningError when another sync currently holds this source.
  */
 export async function beginSync(
   sourceId: number,
@@ -88,13 +159,74 @@ export async function beginSync(
     .limit(1);
   const since = incremental ? (existing?.since ?? null) : null;
   const cursor = existing?.cursor ?? null;
+
   if (existing) {
-    await db
+    // Claim the source with a single conditional UPDATE, rather than checking
+    // the status we just read and then writing.
+    //
+    // That distinction is the whole point. Reading first and deciding in here
+    // leaves a gap: two requests can both read `completed`, both decide the
+    // source is free, and both start syncing. Postgres would serialise the two
+    // writes but neither asks a question, so both simply succeed.
+    //
+    // Putting the test inside the UPDATE moves the decision in under the row
+    // lock. The second request waits for the first to commit, then re-checks
+    // its WHERE against the newly committed row, sees `running`, and matches
+    // nothing. Zero rows back is how it learns it lost. This also means the
+    // rule holds across separate app processes, which no in-memory guard could.
+    const takeoverCutoff = new Date(Date.now() - ABANDONED_SYNC_AFTER_MS);
+    const claimed = await db
       .update(sourceSyncCheckpointSchema)
       .set({ status: 'running', startedAt: new Date(), error: null })
-      .where(eq(sourceSyncCheckpointSchema.id, existing.id));
+      .where(and(
+        eq(sourceSyncCheckpointSchema.id, existing.id),
+        or(
+          ne(sourceSyncCheckpointSchema.status, 'running'),
+          // A run marked running since before the cutoff had its process die;
+          // otherwise the source could never be synced again.
+          lt(sourceSyncCheckpointSchema.startedAt, takeoverCutoff),
+        ),
+      ))
+      .returning({ id: sourceSyncCheckpointSchema.id });
+
+    if (claimed.length === 0) {
+      throw new SyncAlreadyRunningError(sourceId);
+    }
+    if (existing.status === 'running') {
+      log('warn', 'took over a sync that appears to have been abandoned', {
+        sourceId,
+        orgId,
+        startedMinutesAgo: Math.round((Date.now() - (existing.startedAt?.getTime() ?? 0)) / 60_000),
+      });
+    }
   } else {
-    await db.insert(sourceSyncCheckpointSchema).values({ orgId, sourceId, status: 'running' });
+    try {
+      await db.insert(sourceSyncCheckpointSchema).values({ orgId, sourceId, status: 'running' });
+    } catch (error) {
+      // One checkpoint row per source, enforced by a unique index. Landing here
+      // usually means another sync of this source inserted the row in the gap
+      // between our read above and this write.
+      const [nowExists] = await db
+        .select({ id: sourceSyncCheckpointSchema.id })
+        .from(sourceSyncCheckpointSchema)
+        .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+        .limit(1);
+      if (nowExists) {
+        log('warn', 'another sync claimed this source first', {
+          sourceId,
+          orgId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw new SyncAlreadyRunningError(sourceId);
+      }
+      // Anything else is a real database problem and must not be disguised.
+      log('error', 'could not record the start of a sync', {
+        sourceId,
+        orgId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
   return { since, cursor };
 }
@@ -134,7 +266,11 @@ export async function finishSync(
 export async function runSync(opts: {
   orgId: string;
   sourceId: number;
-  /** Incremental sync: fetch only docs newer than the last watermark; skip tombstoning. */
+  /**
+   * Incremental sync: ask the source only for documents changed since the last
+   * run, and never delete anything (an incremental listing is not a full
+   * picture of what the source holds).
+   */
   incremental?: boolean;
   onProgress?: (event: { kind: 'fetched' | 'skipped' | 'error'; uri?: string; message?: string }) => void;
 }): Promise<SyncResult> {
@@ -172,7 +308,117 @@ export async function runSync(opts: {
     tombstoned: 0,
     errors: 0,
   };
-  let errorCount = 0;
+  /** What this run managed to do, as stored on the checkpoint row. */
+  const countsForCheckpoint = () => ({
+    created: result.created,
+    updated: result.updated,
+    unchanged: result.unchanged,
+    tombstoned: result.tombstoned,
+    errors: result.errors,
+  });
+
+  /**
+   * Tell the caller what's happening, without letting it break the sync.
+   *
+   * These are progress notifications, so whoever is listening matters far less
+   * than the work itself — a listener writing to a browser connection that has
+   * since closed should not throw away minutes of syncing. Swallowing is
+   * deliberate: the alternatives are failing a nearly-finished sync, or leaving
+   * a rejected promise nobody handles, which crashes the process.
+   * @param event - What just happened.
+   * @param event.kind
+   * @param event.uri
+   * @param event.message
+   */
+  const reportProgress = (event: {
+    kind: 'fetched' | 'skipped' | 'error';
+    uri?: string;
+    message?: string;
+  }): void => {
+    try {
+      opts.onProgress?.(event);
+    } catch (error) {
+      // The listener is broken; the sync is not. Log it so a broken listener
+      // is still findable, rather than disappearing.
+      log('warn', 'sync progress listener threw', {
+        sourceId: opts.sourceId,
+        orgId: opts.orgId,
+        eventKind: event.kind,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  const activeIngests = new Set<Promise<void>>();
+
+  // Document ids already handled in this run.
+  //
+  // A connector can yield the same document twice — a URL listed twice in the
+  // source config, or a paginated API whose pages overlap by one item. Each
+  // document only needs ingesting once per run, and doing it twice at the same
+  // time actively breaks: `ingestDocument` checks whether the document already
+  // exists before it spends time embedding, so both copies would find nothing,
+  // both would insert, and the second would fail on the unique index.
+  const handledExternalIds = new Set<string>();
+
+  // Documents the source gave us that we then failed to save.
+  //
+  // These must survive the delete step at the end. The source still has them —
+  // we just couldn't turn them into something searchable, usually because
+  // OpenAI rate-limited us. Deleting them would take a document the customer
+  // can plainly see in Drive and make it unfindable in search.
+  const seenButNotSavedExternalIds = new Set<string>();
+
+  // Errors the connector hit while listing or fetching, as opposed to errors
+  // from saving a document. Any of these means we did not get a full picture of
+  // what the source holds, so we must not delete anything on the strength of it.
+  let connectorFailureCount = 0;
+
+  /**
+   * Start ingesting one document, and keep track of it until it finishes.
+   *
+   * A document that fails is counted in `result.errors` and otherwise
+   * ignored, so one bad document never stops the rest of the sync.
+   * @param doc - A document yielded by the connector.
+   */
+  const beginIngesting = (doc: IngestDoc): void => {
+    const ingesting = ingestDocument(
+      { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
+      doc,
+    )
+      .then((outcome) => {
+        // No locking needed around these counters: JavaScript runs one piece
+        // of code at a time, so two documents can never land on `+= 1` at once.
+        if (outcome.status === 'created') {
+          result.created += 1;
+        } else if (outcome.status === 'updated') {
+          result.updated += 1;
+        } else {
+          result.unchanged += 1;
+        }
+      })
+      .catch((error) => {
+        result.errors += 1;
+        seenButNotSavedExternalIds.add(doc.externalId);
+        // The counter alone loses the reason. Log it — a run full of rate-limit
+        // failures and a run full of malformed documents need different fixes.
+        log('warn', 'could not save a document during sync', {
+          sourceId: opts.sourceId,
+          orgId: opts.orgId,
+          externalId: doc.externalId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        reportProgress({
+          kind: 'error',
+          uri: doc.externalId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        activeIngests.delete(ingesting);
+      });
+    activeIngests.add(ingesting);
+  };
 
   try {
     for await (const doc of connector.sync({
@@ -183,54 +429,103 @@ export async function runSync(opts: {
       since,
       cursor,
       onProgress: (e) => {
+        // Errors the connector reports while fetching, counted alongside the
+        // ones ingestion reports. Both end up in the same total.
         if (e.kind === 'error') {
-          errorCount += 1;
+          result.errors += 1;
+          connectorFailureCount += 1;
         }
-        opts.onProgress?.(e);
+        reportProgress(e);
       },
     })) {
-      try {
-        const r = await ingestDocument(
-          { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
-          doc,
-        );
-        if (r.status === 'created') {
-          result.created += 1;
-        } else if (r.status === 'updated') {
-          result.updated += 1;
-        } else {
-          result.unchanged += 1;
-        }
-      } catch (err) {
-        result.errors += 1;
-        opts.onProgress?.({
-          kind: 'error',
+      if (handledExternalIds.has(doc.externalId)) {
+        // Already ingested this document in this run — see handledExternalIds.
+        reportProgress({
+          kind: 'skipped',
           uri: doc.externalId,
-          message: err instanceof Error ? err.message : String(err),
+          message: 'the connector yielded this document more than once',
         });
+        continue;
+      }
+      handledExternalIds.add(doc.externalId);
+      beginIngesting(doc);
+      if (activeIngests.size >= MAX_CONCURRENT_INGESTS) {
+        // Full. Wait for whichever document finishes first, which frees up a
+        // slot for the next one. Not waiting for this document in particular.
+        await Promise.race(activeIngests);
       }
     }
-    result.errors += errorCount;
+    // Wait for the documents that are still being ingested.
+    //
+    // The delete step below removes any document this run didn't see. A
+    // document still being saved hasn't been marked as seen yet, so without
+    // this wait it would get deleted and then written straight back — and in
+    // between, search couldn't find it.
+    //
+    // allSettled, not all: `all` stops waiting the moment one document fails.
+    // We want to wait for all of them either way.
+    await Promise.allSettled(activeIngests);
 
-    // Full sync prunes deletes; an incremental run only sees changed docs, so
-    // tombstoning there would wrongly delete everything it didn't re-fetch.
+    // Delete the documents the source no longer has.
+    //
+    // Only a full run can do this. An incremental run asks the source for
+    // recent changes only, so almost nothing comes back and deleting on that
+    // basis would wipe out the whole source.
+    //
+    // Even on a full run, only delete when we're confident we saw the real
+    // contents of the source. Deleting is not recoverable from the customer's
+    // point of view: the document stays in their Drive but disappears from
+    // search, and nothing tells them. So when anything went wrong while
+    // listing or fetching, leave everything alone. A document that lingers a
+    // few hours too long is a far smaller problem than one that vanishes.
     if (!opts.incremental) {
-      const { deleted } = await tombstoneMissing(
-        { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
-        cutoff,
-      );
-      result.tombstoned = deleted;
+      const listingLookedComplete = handledExternalIds.size > 0 && connectorFailureCount === 0;
+      if (listingLookedComplete) {
+        const { deleted } = await deleteDocumentsGoneFromSource(
+          { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
+          cutoff,
+          seenButNotSavedExternalIds,
+        );
+        result.tombstoned = deleted;
+      } else {
+        reportProgress({
+          kind: 'skipped',
+          message: handledExternalIds.size === 0
+            ? 'the source returned no documents, so nothing was deleted'
+            : `the source reported ${connectorFailureCount} failure(s), so nothing was deleted`,
+        });
+      }
     }
     await markSourceSynced(opts.sourceId);
     await finishSync(opts.sourceId, opts.orgId, {
       status: 'completed',
-      counts: { created: result.created, updated: result.updated, unchanged: result.unchanged, tombstoned: result.tombstoned, errors: result.errors },
+      counts: countsForCheckpoint(),
       watermark: cutoff,
     });
     return result;
   } catch (err) {
+    // Wait here too, for the same reason.
+    //
+    // The connector can fail partway through — an expired token, a 500 from
+    // the upstream API. That jumps straight to this block, skipping the wait
+    // above. Without this, documents would carry on writing to the database
+    // after the sync has been marked failed and the request has ended.
+    await Promise.allSettled(activeIngests);
+    log('error', 'sync failed', {
+      sourceId: opts.sourceId,
+      orgId: opts.orgId,
+      connectorSlug,
+      counts: countsForCheckpoint(),
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    // Record what did get through before the failure. runSync throws from
+    // here, so these counts never reach the caller — the checkpoint row is
+    // the only place you can see that, say, 1,200 documents were ingested
+    // before the connector's token expired.
     await finishSync(opts.sourceId, opts.orgId, {
       status: 'failed',
+      counts: countsForCheckpoint(),
       error: err instanceof Error ? err.message : String(err),
     });
     throw err;
@@ -379,8 +674,14 @@ function generateSlug(kind: string, config: Record<string, unknown>): string {
     try {
       const host = new URL(seed).hostname.replace(/\W+/g, '-');
       return `${kind}-${host}`.slice(0, 60);
-    } catch {
-      /* fall through */
+    } catch (error) {
+      // Not a parseable URL, so fall back to the timestamped name below. Worth
+      // logging: it usually means the config holds something unexpected.
+      log('warn', 'could not derive a source name from its config URL', {
+        kind,
+        seed,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
   return `${kind}-${Date.now()}`;

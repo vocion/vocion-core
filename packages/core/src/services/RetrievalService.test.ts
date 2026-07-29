@@ -47,7 +47,7 @@ const {
   knowledgeDocumentSchema,
   knowledgeSourceSchema,
 } = await import('@/models/Schema');
-const { ensureSource, ingestDocument, tombstoneMissing } = await import(
+const { ensureSource, ingestDocument, deleteDocumentsGoneFromSource } = await import(
   '@/services/IngestionService',
 );
 const { search } = await import('@/services/RetrievalService');
@@ -174,7 +174,7 @@ describe('IngestionService + RetrievalService', () => {
     const cutoff = new Date(Date.now() + 1000);
     // Touch mars so it survives.
     await ingestDocument(src, { externalId: 'mars', content: 'Mars is the fourth planet.' });
-    const { deleted } = await tombstoneMissing(src, cutoff);
+    const { deleted } = await deleteDocumentsGoneFromSource(src, cutoff);
 
     expect(deleted).toBeGreaterThanOrEqual(1);
 
