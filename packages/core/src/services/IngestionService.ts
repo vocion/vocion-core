@@ -219,6 +219,15 @@ export async function ingestDocument(
         : { status: 'created', documentId: inserted, chunks: 0 };
     }
 
+    // Keep this embedding call before the transaction below, not inside it.
+    //
+    // SourceSyncService.runSync ingests several documents at once (see
+    // MAX_CONCURRENT_INGESTS). That only helps because the slow step —
+    // this request to OpenAI — holds no database connection while it waits.
+    // Moving it inside the transaction would hold one for the entire request:
+    // locally the pool allows just a single connection (utils/DBConnection.ts),
+    // so ingest would quietly go back to one document at a time, and in
+    // production the concurrent documents would exhaust the pool instead.
     const vectors = doc.embedding
       ? [doc.embedding]
       : await embed(
@@ -306,31 +315,47 @@ export async function ingestDocument(
 }
 
 /**
- * Tombstone documents that haven't been seen since `cutoff`. Source
- * plugins call this at the end of a sync to prune deletes (a document
- * stays in the DB until the next full sync confirms it's gone).
- * @param src
- * @param cutoff
+ * Delete the documents the source no longer has, at the end of a full sync.
+ *
+ * "No longer has" means the document wasn't seen during this run: every
+ * document we save gets its `lastSeenAt` set to now, so anything still older
+ * than the run's start time was not offered by the source this time.
+ *
+ * This really does delete — the document row goes, and its chunks go with it,
+ * which takes the document out of search entirely. So the caller must only
+ * call this when it is confident the source gave a complete listing.
+ * @param src - Which org and source to prune.
+ * @param syncStartedAt - When the run began; anything last seen before this is
+ * a candidate for deletion.
+ * @param seenButNotSavedExternalIds - Documents the source did offer, that we
+ * then failed to save. Their `lastSeenAt` was never updated, so they look
+ * identical to a deleted document and would be wrongly removed. The source
+ * still has them, so they are kept.
  */
-export async function tombstoneMissing(
+export async function deleteDocumentsGoneFromSource(
   src: SourceRef,
-  cutoff: Date,
+  syncStartedAt: Date,
+  seenButNotSavedExternalIds: ReadonlySet<string> = new Set(),
 ): Promise<{ deleted: number }> {
   const rows = await db
-    .select({ id: knowledgeDocumentSchema.id })
+    .select({
+      id: knowledgeDocumentSchema.id,
+      externalId: knowledgeDocumentSchema.externalId,
+    })
     .from(knowledgeDocumentSchema)
     .where(and(
       eq(knowledgeDocumentSchema.orgId, src.orgId),
       eq(knowledgeDocumentSchema.sourceId, src.sourceId),
-      lt(knowledgeDocumentSchema.lastSeenAt, cutoff),
+      lt(knowledgeDocumentSchema.lastSeenAt, syncStartedAt),
     ));
-  if (rows.length === 0) {
+  const deletable = rows.filter(r => !seenButNotSavedExternalIds.has(r.externalId));
+  if (deletable.length === 0) {
     return { deleted: 0 };
   }
   await db
     .delete(knowledgeDocumentSchema)
-    .where(inArray(knowledgeDocumentSchema.id, rows.map(r => r.id)));
-  return { deleted: rows.length };
+    .where(inArray(knowledgeDocumentSchema.id, deletable.map(r => r.id)));
+  return { deleted: deletable.length };
 }
 
 /**
