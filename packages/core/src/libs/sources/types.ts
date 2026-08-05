@@ -9,7 +9,7 @@
  * Sync is modeled as an async iterator so memory stays bounded for
  * sources that walk millions of files (Drive folders, S3 buckets).
  * The orchestrator (`SourceSyncService.runSync`) loops the iterator
- * and calls `ingestDocument` per yield, then `tombstoneMissing` at
+ * and calls `ingestDocument` per yield, then `deleteDocumentsGoneFromSource` at
  * the end to prune deleted upstream rows.
  */
 
@@ -57,6 +57,15 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
    *  the schema's field metadata.
    */
   configSchema: TConfigSchema;
+  /**
+   * Default cron for a periodic FULL sync (a reconcile pass). Incremental
+   * syncs can never observe upstream deletions — a deleted record simply
+   * stops matching `updated >=` — so connectors whose upstream can delete
+   * records should set this; the full run re-yields everything in scope and
+   * the tombstone pass prunes the rest. Workspaces override (or disable)
+   * per source via the manifest's `reconcileSchedule`.
+   */
+  defaultReconcileCron?: string;
   /**
    * Yield each document the source currently exposes. Order doesn't
    * matter; idempotency is handled by IngestionService's content-hash

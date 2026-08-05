@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSourceScheduleOptions } from './SourceScheduleService';
+import { buildSourceReconcileScheduleOptions, buildSourceScheduleOptions } from './SourceScheduleService';
 
 describe('buildSourceScheduleOptions', () => {
   const spec = { orgId: 'org_daylyte', sourceId: 42, sourceSlug: 'google-ads', cron: '0 6 * * *' };
@@ -24,5 +24,26 @@ describe('buildSourceScheduleOptions', () => {
     const b = buildSourceScheduleOptions({ ...spec, orgId: 'org_b' });
 
     expect(a.scheduleId).not.toBe(b.scheduleId);
+  });
+});
+
+describe('buildSourceReconcileScheduleOptions', () => {
+  const spec = { orgId: 'org_daylyte', sourceId: 42, sourceSlug: 'jira', cron: '0 3 * * *' };
+
+  it('builds a cron Schedule that starts a FULL (non-incremental) sync', () => {
+    const opts = buildSourceReconcileScheduleOptions(spec);
+
+    expect(opts.scheduleId).toBe('source-reconcile-org_daylyte-jira');
+    expect(opts.spec).toEqual({ cronExpressions: ['0 3 * * *'] });
+    expect((opts.action as { args: unknown[] }).args).toEqual([
+      { orgId: 'org_daylyte', sourceId: 42, incremental: false },
+    ]);
+  });
+
+  it('never collides with the incremental schedule for the same source', () => {
+    const incremental = buildSourceScheduleOptions(spec);
+    const reconcile = buildSourceReconcileScheduleOptions(spec);
+
+    expect(reconcile.scheduleId).not.toBe(incremental.scheduleId);
   });
 });
