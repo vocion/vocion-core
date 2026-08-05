@@ -58,6 +58,15 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
    */
   configSchema: TConfigSchema;
   /**
+   * Default cron for a periodic FULL sync (a reconcile pass). Incremental
+   * syncs can never observe upstream deletions — a deleted record simply
+   * stops matching `updated >=` — so connectors whose upstream can delete
+   * records should set this; the full run re-yields everything in scope and
+   * the tombstone pass prunes the rest. Workspaces override (or disable)
+   * per source via the manifest's `reconcileSchedule`.
+   */
+  defaultReconcileCron?: string;
+  /**
    * Yield each document the source currently exposes. Order doesn't
    * matter; idempotency is handled by IngestionService's content-hash
    * dedup. Throw to abort the whole sync (rolls back nothing — partial
