@@ -164,10 +164,20 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     }
   }
 
+  // Sources whose stored row changed on this apply. A changed config means the
+  // sync scope may have changed — a widened project include-list should start
+  // pulling now, and a narrowed one should have its out-of-scope documents
+  // pruned — so these get a one-off full sync in reconcileSchedules. Freshly
+  // created sources are excluded: their credentials arrive via the Sources UI
+  // after apply, so an immediate sync could only fail.
+  const configChangedSourceSlugs = new Set<string>();
   for (const src of loaded.sources) {
     try {
       const outcome = await upsertSource(orgId, src, dryRun);
       bump(counts.sources, outcome);
+      if (outcome === 'updated' && src.enabled) {
+        configChangedSourceSlugs.add(src.slug);
+      }
     } catch (err) {
       errors.push({ resource: 'source', slug: src.slug, message: (err as Error).message });
     }
@@ -197,7 +207,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // Best-effort — a dev box without Temporal still applies cleanly; the
   // schedules materialize on the next apply where Temporal is reachable.
   if (!dryRun) {
-    await reconcileSchedules(orgId, loaded, errors);
+    await reconcileSchedules(orgId, loaded, errors, configChangedSourceSlugs);
   }
 
   // Compiled chat graphs bake in subagents — including the F1 team-lead
@@ -251,6 +261,7 @@ async function reconcileSchedules(
   orgId: string,
   loaded: LoadedWorkspace,
   errors: ApplyResult['errors'],
+  configChangedSourceSlugs: Set<string> = new Set(),
 ): Promise<void> {
   // Schedule-ownership guard. Reconciling Temporal Schedules makes THIS
   // process the scheduler-of-record. Local dev commonly runs against the
@@ -275,7 +286,7 @@ async function reconcileSchedules(
   const { ensureAutomationSchedule, removeAutomationSchedule } = await import('@/services/AutomationService');
   const { ensureWorkflowSchedule, removeWorkflowSchedule } = await import('@/services/WorkflowScheduleService');
   const { ensureMissionSchedule, removeMissionSchedule } = await import('@/services/MissionScheduleService');
-  const { ensureSourceSchedule, removeSourceSchedule } = await import('@/services/SourceScheduleService');
+  const { ensureSourceSchedule, removeSourceSchedule, ensureSourceReconcileSchedule, removeSourceReconcileSchedule, startSourceFullSync } = await import('@/services/SourceScheduleService');
   const { knowledgeSourceSchema: srcSchema } = await import('@/models/Schema');
 
   // Automations are the first-class WHEN. Schedule-whens get a Temporal
@@ -321,16 +332,33 @@ async function reconcileSchedules(
 
   for (const src of loaded.sources) {
     try {
-      if (src.enabled && src.schedule) {
-        const [row] = await db
-          .select({ id: srcSchema.id })
-          .from(srcSchema)
-          .where(and(eq(srcSchema.orgId, orgId), eq(srcSchema.slug, src.slug)));
-        if (row) {
-          await ensureSourceSchedule({ orgId, sourceId: row.id, sourceSlug: src.slug, cron: src.schedule });
-        }
+      const [row] = await db
+        .select({ id: srcSchema.id })
+        .from(srcSchema)
+        .where(and(eq(srcSchema.orgId, orgId), eq(srcSchema.slug, src.slug)));
+
+      if (src.enabled && src.schedule && row) {
+        await ensureSourceSchedule({ orgId, sourceId: row.id, sourceSlug: src.slug, cron: src.schedule });
       } else {
         await removeSourceSchedule(orgId, src.slug);
+      }
+
+      // Second cadence: the full-sync reconcile that prunes upstream deletions.
+      // Manifest `reconcileSchedule` wins; the connector's default applies when
+      // omitted; an explicit `false` disables the pass.
+      const reconcileCron = src.reconcileSchedule === false
+        ? undefined
+        : (src.reconcileSchedule ?? getConnector(src.kind)?.defaultReconcileCron);
+      if (src.enabled && reconcileCron && row) {
+        await ensureSourceReconcileSchedule({ orgId, sourceId: row.id, sourceSlug: src.slug, cron: reconcileCron });
+      } else {
+        await removeSourceReconcileSchedule(orgId, src.slug);
+      }
+
+      // This apply changed the source's stored row — start a one-off full sync
+      // so scope changes take effect now rather than at the next reconcile.
+      if (row && src.enabled && configChangedSourceSlugs.has(src.slug)) {
+        await startSourceFullSync({ orgId, sourceId: row.id, sourceSlug: src.slug });
       }
     } catch (err) {
       errors.push({ resource: 'sourceSchedule', slug: src.slug, message: (err as Error).message });
