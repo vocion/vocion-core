@@ -1,0 +1,47 @@
+packages/core/src/libs/sources/types.ts
+  s_a8b5861456fbe2::t_dc0ca783c01dc0 61-68
+  s_a8b5861456fbe2::t_84c3fa8c797f6f 60
+packages/core/src/libs/sources/registry.ts
+  s_a8b5861456fbe2::t_d089aa9c2e20fa 44
+  s_a8b5861456fbe2::t_73e39a287d61cf 19
+packages/core/src/libs/workspace/applier.ts
+  s_a8b5861456fbe2::t_3f3a1789ea1662 294-300,304-321
+  s_a8b5861456fbe2::t_fb0043906db11a 248
+  s_a8b5861456fbe2::t_89fb0afaa6e3b4 150-156,161-163
+  s_a8b5861456fbe2::t_b0aaa5cd602595 193
+  s_a8b5861456fbe2::t_8bcdda5edb5d18 235
+packages/core/src/libs/temporal/client.ts
+  s_a8b5861456fbe2::t_0c5b24649741a2 85-96
+packages/core/src/libs/sources/jira.test.ts
+  s_a8b5861456fbe2::t_4c1d66af9e7f0f 79-80
+  s_a8b5861456fbe2::t_2b6af4d31feac6 1-78,81-210
+packages/core/src/services/SourceScheduleService.test.ts
+  s_a8b5861456fbe2::t_30669ff6e29c9d 2
+  s_a8b5861456fbe2::t_52953af8b9694c 29-49
+packages/core/src/libs/sources/jira.ts
+  s_a8b5861456fbe2::t_b8a008800f97c3 1-93,99-169,171-279
+  s_a8b5861456fbe2::t_c440f654a84292 170
+  s_a8b5861456fbe2::t_ba2ba6a840bfa3 94-98
+packages/core/src/services/SourceScheduleService.ts
+  s_a8b5861456fbe2::t_e0f3149d26c922 10-20,27,40,42,48,54-55,58-71,86,89,97-153
+  s_a8b5861456fbe2::t_5d163cd1d13e4a 154
+packages/core/src/libs/workspace/schemas.ts
+  s_a8b5861456fbe2::t_a33799ca6ddb7e 436-443
+  s_a8b5861456fbe2::t_3a65cb09b83849 435
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "9d9217dfbf15a9719587969c3b9986f3b4bf06bb",
+  "prompts": {},
+  "sessions": {
+    "s_a8b5861456fbe2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "80ec8993-cd39-41dc-b15b-559f1892c97e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
