@@ -82,6 +82,18 @@ export function sourceScheduleIdFor(orgId: string, sourceSlug: string): string {
   return `source-sync-${orgId}-${sourceSlug}`;
 }
 
+/**
+ * Schedule ID convention for source full-sync reconciles —
+ * `source-reconcile-<orgId>-<sourceSlug>`. A source can carry both an
+ * incremental Schedule and a reconcile Schedule; distinct prefixes keep
+ * them independently creatable/deletable.
+ * @param orgId
+ * @param sourceSlug
+ */
+export function sourceReconcileScheduleIdFor(orgId: string, sourceSlug: string): string {
+  return `source-reconcile-${orgId}-${sourceSlug}`;
+}
+
 export const VOCION_WORKFLOWS_TASK_QUEUE = 'vocion-workflows';
 
 /** Workflow type name registered for scheduled source syncs. */

@@ -433,6 +433,15 @@ export const SourceManifestSchema = z.object({
    */
   schedule: z.string().optional().describe('Cron expression for scheduled sync. Manual-only when omitted.'),
   /**
+   * Cron for a periodic FULL sync that tombstones records deleted upstream
+   * (invisible to incremental syncs). Omitted = the connector's
+   * `defaultReconcileCron` applies; `false` disables the reconcile pass.
+   */
+  reconcileSchedule: z.union([
+    z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'reconcileSchedule must be a 5-field cron'),
+    z.literal(false),
+  ]).optional().describe('Cron for periodic full-sync reconcile. Connector default when omitted; false disables.'),
+  /**
    * Per-connection ACL. Omitted = org-wide. `restricted` limits retrieval
    * (chat + search) to the listed member emails; enforced as an
    * intersection at query time. Scheduled team runs keep access.
