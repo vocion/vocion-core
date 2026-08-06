@@ -103,6 +103,35 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
     }
   };
 
+  const closePanel = () => {
+    setHistoryOpen(false);
+    setVisual('hidden');
+  };
+
+  useEffect(() => {
+    if (visualState === 'hidden') {
+      return;
+    }
+    // Escape is two-step when the history panel is open: first Escape
+    // dismisses just the history panel (same as clicking elsewhere would),
+    // second Escape (now that history is closed) hides the whole widget
+    // back to the trigger button — mirrors how the X button's onClose
+    // already collapses both at once, but doesn't surprise a user who only
+    // meant to back out of the history list.
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      if (historyOpen) {
+        setHistoryOpen(false);
+      } else {
+        closePanel();
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [visualState, historyOpen]);
+
   if (visualState === 'hidden') {
     return (
       <button
@@ -121,7 +150,11 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
     : 'h-[32rem] w-96 max-w-[90vw]';
 
   return (
-    <div className={`fixed right-4 bottom-4 z-50 flex ${panelSizeClass} flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl`}>
+    <div
+      role="dialog"
+      aria-label="Chat"
+      className={`fixed right-4 bottom-4 z-50 flex ${panelSizeClass} flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl`}
+    >
       <div className="relative">
         <ChatBubbleHeader
           agentName={session.agent.name}
@@ -136,10 +169,7 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
           }}
           maximized={visualState === 'maximized'}
           onToggleMaximize={() => setVisual(visualState === 'maximized' ? 'normal' : 'maximized')}
-          onClose={() => {
-            setHistoryOpen(false);
-            setVisual('hidden');
-          }}
+          onClose={closePanel}
         />
         {historyOpen && (
           <ChatBubbleHistoryPanel
