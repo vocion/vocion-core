@@ -26,6 +26,8 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
+  vi.unstubAllGlobals();
 });
 
 describe('useChatSession', () => {
@@ -137,5 +139,60 @@ describe('useChatSession', () => {
     expect(result.current.messages[0]).toMatchObject({ role: 'assistant', content: 'from history' });
 
     await vi.waitFor(() => expect(client.chatWidget.setState).toHaveBeenCalledWith({ agentSlug: 'specialist', conversationId: 8 }));
+  });
+
+  it('does not let an early handoff sendMessage get stomped by the still-in-flight hydration conversation fetch', async () => {
+    // A stash left by another page (e.g. Briefings) — the handoff effect
+    // fires this as soon as an agent slug is resolved. Seeded BEFORE
+    // rendering so it's present the instant the hook mounts.
+    sessionStorage.setItem('vocion_chat_handoff', JSON.stringify({
+      question: 'What about Q3?',
+      contextTitle: 'Q3 Plan',
+      context: 'Some carried-over context.',
+    }));
+
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5 });
+    vi.mocked(client.conversations.get).mockResolvedValue({
+      id: 5,
+      orgId: 'org_1',
+      agentSlug: 'orchestrator',
+      title: 'Prior thread',
+      messageCount: 2,
+      messages: [
+        { id: 1, conversationId: 5, role: 'user', content: 'hi', runsJson: null, createdAt: new Date() },
+        { id: 2, conversationId: 5, role: 'assistant', content: 'hello', runsJson: null, createdAt: new Date() },
+      ],
+    } as never);
+
+    // Minimal valid SSE response so the handoff's sendMessage resolves
+    // instead of throwing — a single `done` event is enough to close out
+    // the stream.
+    const encoder = new TextEncoder();
+    const sseStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"done"}\n\n'));
+        controller.close();
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, body: sseStream }));
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
+
+    await vi.waitFor(() => expect(result.current.hydrated).toBe(true));
+    // The handoff's sendMessage only fires once hydration's own
+    // conversations.get() has landed — wait for its two turns to show up.
+    await vi.waitFor(() => expect(result.current.messages.length).toBeGreaterThanOrEqual(4));
+
+    // The hydrated conversation's original history is still there, in
+    // order, untouched — proving the later-resolving conversations.get()
+    // never got a chance to wholesale-replace `messages` out from under the
+    // handoff turn that started after it.
+    expect(result.current.messages[0]).toMatchObject({ role: 'user', content: 'hi' });
+    expect(result.current.messages[1]).toMatchObject({ role: 'assistant', content: 'hello' });
+    // The handoff-triggered turn is appended AFTER the hydrated history,
+    // not starting over from an empty array.
+    expect(result.current.messages[2]).toMatchObject({ role: 'user' });
+    expect(result.current.messages[2]!.content).toContain('What about Q3?');
+    expect(result.current.messages[3]).toMatchObject({ role: 'assistant' });
   });
 });
