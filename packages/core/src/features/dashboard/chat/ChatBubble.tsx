@@ -46,6 +46,8 @@ function readVisualState(): VisualState {
  * conversation content itself comes from `useChatSession`, which is the
  * same hook the full-page `/dashboard/chat` surface uses, so both stay in
  * sync on "last viewed conversation".
+ * @param root0 - Component props.
+ * @param root0.agents - Agents available to pick from. Empty array renders nothing.
  */
 export function ChatBubble({ agents }: ChatBubbleProps) {
   const [visualState, setVisualState] = useState<VisualState>('hidden');
@@ -53,6 +55,10 @@ export function ChatBubble({ agents }: ChatBubbleProps) {
   const session = useChatSession({ agents: agents.length > 0 ? agents : [NO_AGENTS_PLACEHOLDER] });
 
   useEffect(() => {
+    // One-time read of a client-only value (localStorage) on mount — can't
+    // happen during render because it would mismatch the server-rendered
+    // 'hidden' default. Not a derived-state sync loop.
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
     setVisualState(readVisualState());
   }, []);
 
