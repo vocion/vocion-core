@@ -16,12 +16,22 @@ type ConversationSummary = {
   updatedAt: Date | string;
 };
 
-/** Dropdown listing recent conversations for the active agent — title, relative date, message count. */
+/**
+ * Dropdown listing recent conversations for the active agent — title, relative date, message count.
+ * @param root0 - Component props.
+ * @param root0.agentSlug - Agent whose conversations to list; re-fetches when this changes.
+ * @param root0.activeConversationId - Currently-open conversation, highlighted in the list.
+ * @param root0.onSelect - Called with the conversation id when a row is clicked.
+ */
 export function ChatBubbleHistoryPanel({ agentSlug, activeConversationId, onSelect }: ChatBubbleHistoryPanelProps) {
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    // Resetting to the loading state before the re-fetch below, not a
+    // derived-state sync loop — this is exactly what "re-fetch when
+    // agentSlug changes" requires.
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
     setConversations(null);
     client.conversations.list({ agentSlug }).then((rows) => {
       if (!cancelled) {
