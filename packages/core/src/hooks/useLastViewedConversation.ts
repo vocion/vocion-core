@@ -6,6 +6,8 @@ import { client } from '@/libs/Orpc';
 export type LastViewedConversation = {
   agentSlug: string;
   conversationId: number | null;
+  /** ISO string. Stamped locally by `persist`, or normalized from the server's value on hydration. */
+  updatedAt: string;
 };
 
 const STORAGE_KEY = 'vocion_chat_last_viewed';
@@ -52,8 +54,16 @@ export function useLastViewedConversation() {
           return;
         }
         if (serverState) {
-          writeLocal(serverState);
-          setState(serverState);
+          // `updatedAt` can arrive as a `Date` object or a string depending
+          // on oRPC's serialization — normalize to an ISO string so both
+          // localStorage and hook state stay consistently JSON-serializable
+          // (same defensive pattern as ChatBubbleHistoryPanel's ConversationSummary).
+          const normalized: LastViewedConversation = {
+            ...serverState,
+            updatedAt: new Date(serverState.updatedAt).toISOString(),
+          };
+          writeLocal(normalized);
+          setState(normalized);
         } else {
           setState(readLocal());
         }
@@ -77,9 +87,10 @@ export function useLastViewedConversation() {
     };
   }, []);
 
-  const persist = useCallback((next: LastViewedConversation) => {
-    setState(next);
-    writeLocal(next);
+  const persist = useCallback((next: Pick<LastViewedConversation, 'agentSlug' | 'conversationId'>) => {
+    const stamped: LastViewedConversation = { ...next, updatedAt: new Date().toISOString() };
+    setState(stamped);
+    writeLocal(stamped);
     client.chatWidget.setState(next).catch((error) => {
       // persistence is best-effort — localStorage already has the fallback,
       // so a rejected sync (offline, transient blip) is expected, not a bug.
