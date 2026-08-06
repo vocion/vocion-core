@@ -28,6 +28,12 @@ function toChatMessages(rows: Array<{ role: string; content: string; runsJson?: 
   }));
 }
 
+function isSameLocalDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
 /**
  * Chat session state + streaming logic, shared by the full-page ChatShell
  * and the floating ChatBubble so both surfaces behave identically and stay
@@ -88,6 +94,12 @@ export function useChatSession({ agents, suggestions = [] }: UseChatSessionOptio
     setCurrentSlug(targetSlug);
 
     if (!lastViewed?.conversationId || targetSlug !== lastViewed.agentSlug) {
+      return;
+    }
+    if (!isSameLocalDay(new Date(lastViewed.updatedAt), new Date())) {
+      // Last viewed on a different day — don't auto-resume stale history.
+      // The recent-conversations history panel still lets the user pull up
+      // an older conversation manually if they want it.
       return;
     }
     const targetConversationId = lastViewed.conversationId;
