@@ -6,7 +6,7 @@ import { guardAuth } from './AuthGuards';
 export const getState = os.handler(async () => {
   const { orgId, userId } = await guardAuth();
   const row = await getWidgetState({ orgId, userId });
-  return row ? { agentSlug: row.agentSlug, conversationId: row.conversationId } : null;
+  return row ? { agentSlug: row.agentSlug, conversationId: row.conversationId, updatedAt: row.updatedAt } : null;
 });
 
 export const setState = os
