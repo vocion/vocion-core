@@ -56,7 +56,7 @@ export const WorkspaceDriftBanner = () => {
   };
 
   return (
-    <div className="fixed right-4 bottom-4 z-50 flex w-96 items-start gap-3 rounded-lg border border-amber-500/40 bg-background p-4 shadow-lg">
+    <div className="fixed bottom-4 left-4 z-50 flex w-96 items-start gap-3 rounded-lg border border-amber-500/40 bg-background p-4 shadow-lg">
       <RefreshCw className="mt-0.5 size-4 shrink-0 text-amber-600" />
       <div className="min-w-0 flex-1 text-sm">
         <p className="font-medium">Workspace files changed</p>
