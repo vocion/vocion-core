@@ -155,7 +155,7 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {session.messages.length === 0
-          ? <EmptyState agentName={session.agent.name} suggestions={session.agentSuggestions} onPick={session.handlePickSuggestion} />
+          ? <EmptyState agentName={session.agent.name} suggestions={session.agentSuggestions} onPick={session.handlePickSuggestion} disabled={!session.hydrated} />
           : <MessageList messages={session.messages} agentName={session.agent.name} streaming={session.isStreaming} activity={session.activity} />}
 
         {session.pendingHitl && (
@@ -172,7 +172,7 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
           onChange={session.setComposerValue}
           onSubmit={() => session.sendMessage(session.composerValue)}
           onClearConversation={session.messages.length > 0 ? session.startNewConversation : undefined}
-          disabled={session.isStreaming}
+          disabled={session.isStreaming || !session.hydrated}
           placeholder={session.agent.placeholder}
         />
       </div>
