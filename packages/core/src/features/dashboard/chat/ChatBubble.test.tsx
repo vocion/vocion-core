@@ -100,9 +100,18 @@ describe('ChatBubble', () => {
     await expect.element(page.getByText('resumed')).toBeInTheDocument();
   });
 
-  it('renders nothing when there are no agents', async () => {
+  it('renders nothing when there are no agents, and never mounts the chat session', async () => {
     const { container } = await render(<ChatBubble agents={[]} />);
 
     expect(container.textContent).toBe('');
+    // Regression guard: with agents=[], ChatBubble must bail out to null
+    // BEFORE useChatSession (and its useLastViewedConversation call) ever
+    // mounts — otherwise a brand-new org with zero agents would fire a live
+    // chatWidget.getState() on every page load, and a pending Briefings
+    // handoff stash could even trigger a real conversations.create() write
+    // under a bogus agent slug. container.textContent alone can't catch
+    // that leak since it only checks what got rendered, not what ran.
+    expect(client.chatWidget.getState).not.toHaveBeenCalled();
+    expect(client.conversations.create).not.toHaveBeenCalled();
   });
 });
