@@ -9,6 +9,15 @@ vi.mock('@/libs/Orpc', () => ({
   },
 }));
 
+const mockUsePathname = vi.fn(() => '/dashboard');
+vi.mock('next/navigation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/navigation')>();
+  return {
+    ...actual,
+    usePathname: () => mockUsePathname(),
+  };
+});
+
 const { client } = await import('@/libs/Orpc');
 const { ChatBubble } = await import('./ChatBubble');
 
@@ -21,6 +30,7 @@ const VISUAL_STATE_KEY = 'vocion_chat_bubble_visual_state';
 
 beforeEach(() => {
   localStorage.clear();
+  mockUsePathname.mockReset().mockReturnValue('/dashboard');
   vi.mocked(client.chatWidget.getState).mockReset().mockResolvedValue(null);
   vi.mocked(client.chatWidget.setState).mockReset().mockResolvedValue({ agentSlug: 'orchestrator', conversationId: null });
   vi.mocked(client.conversations.get).mockReset();
@@ -111,6 +121,22 @@ describe('ChatBubble', () => {
     // handoff stash could even trigger a real conversations.create() write
     // under a bogus agent slug. container.textContent alone can't catch
     // that leak since it only checks what got rendered, not what ran.
+    expect(client.chatWidget.getState).not.toHaveBeenCalled();
+    expect(client.conversations.create).not.toHaveBeenCalled();
+  });
+
+  it('renders nothing on the /dashboard/chat route, and never mounts the chat session', async () => {
+    mockUsePathname.mockReturnValue('/dashboard/chat');
+
+    const { container } = await render(<ChatBubble agents={AGENTS} />);
+
+    expect(container.textContent).toBe('');
+    // Same regression guard as the empty-agents case above: on the
+    // full-page chat route, ChatBubble must bail out to null BEFORE
+    // useChatSession ever mounts — otherwise the bubble and ChatShell would
+    // both consume the same one-shot sessionStorage handoff stash, and
+    // whichever won the race would swallow a Briefings hand-off meant for
+    // the visible ChatShell.
     expect(client.chatWidget.getState).not.toHaveBeenCalled();
     expect(client.conversations.create).not.toHaveBeenCalled();
   });
