@@ -1,3 +1,10 @@
+-- Hand-written, not `drizzle-kit generate`-produced: generation is currently
+-- blocked by a pre-existing gap between the migration count (44 .sql files)
+-- and the snapshot history (only 23 meta/*.json snapshots, plus a stale
+-- 0021/0022 snapshot-id collision). Both predate this migration and
+-- reproduce on an unmodified checkout. The PGlite runtime migrator only
+-- reads this file + meta/_journal.json, so it applies cleanly regardless;
+-- fixing the snapshot chain itself is separate, larger repo-debt work.
 CREATE TABLE "chat_widget_state" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"org_id" text NOT NULL,
