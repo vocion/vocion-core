@@ -44,7 +44,7 @@ describe('useChatSession', () => {
   });
 
   it('hydrates the last-viewed agent and replays its persisted messages', async () => {
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'specialist', conversationId: 5 });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'specialist', conversationId: 5, updatedAt: new Date() });
     vi.mocked(client.conversations.get).mockResolvedValue({
       id: 5,
       orgId: 'org_1',
@@ -67,8 +67,25 @@ describe('useChatSession', () => {
     expect(result.current.messages[0]).toMatchObject({ role: 'user', content: 'hi' });
   });
 
+  it('does not auto-resume a conversation last viewed on a previous day', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({
+      agentSlug: 'specialist',
+      conversationId: 5,
+      updatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+    });
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
+
+    await vi.waitFor(() => expect(result.current.hydrated).toBe(true));
+
+    expect(result.current.agent.slug).toBe('specialist');
+    expect(result.current.conversationId).toBeNull();
+    expect(result.current.messages).toEqual([]);
+    expect(client.conversations.get).not.toHaveBeenCalled();
+  });
+
   it('falls back to the first agent when the persisted agentSlug no longer exists', async () => {
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'deleted-agent', conversationId: 99 });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'deleted-agent', conversationId: 99, updatedAt: new Date() });
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
@@ -95,7 +112,7 @@ describe('useChatSession', () => {
   });
 
   it('startNewConversation clears the view and persists a null conversation pointer', async () => {
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5 });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date() });
     vi.mocked(client.conversations.get).mockResolvedValue({
       id: 5,
       orgId: 'org_1',
@@ -151,7 +168,7 @@ describe('useChatSession', () => {
       context: 'Some carried-over context.',
     }));
 
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5 });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date() });
     vi.mocked(client.conversations.get).mockResolvedValue({
       id: 5,
       orgId: 'org_1',
