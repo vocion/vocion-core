@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { page, userEvent } from 'vitest/browser';
 import { render } from 'vitest-browser-react';
+import { page, userEvent } from 'vitest/browser';
 
 vi.mock('@/libs/Orpc', () => ({
   client: {
@@ -92,7 +92,9 @@ describe('ChatBubble', () => {
     await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
 
     await userEvent.click(page.getByRole('button', { name: 'Recent conversations' }));
+
     await expect.element(page.getByText('Prior thread')).toBeInTheDocument();
+
     await userEvent.click(page.getByText('Prior thread'));
 
     await expect.element(page.getByText('resumed')).toBeInTheDocument();
