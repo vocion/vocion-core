@@ -2,6 +2,7 @@
 
 import type { AgentOption } from './types';
 import { MessageCircle } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ChatBubbleHeader } from './ChatBubbleHeader';
 import { ChatBubbleHistoryPanel } from './ChatBubbleHistoryPanel';
@@ -34,13 +35,19 @@ function readVisualState(): VisualState {
 
 /**
  * Floating, Intercom-style chat widget mounted once in the dashboard layout
- * so it persists across every route.
+ * so it persists across every route — except `/dashboard/chat`, the
+ * full-page chat surface, which already renders its own `ChatShell`.
  *
- * Checks `agents.length === 0` and bails out to `null` BEFORE mounting
- * `ChatBubbleInner` — not inside it — so that for a brand-new org with no
- * agents yet, `useChatSession` (and everything it does on mount: a live
+ * Checks `agents.length === 0` and the current route and bails out to
+ * `null` BEFORE mounting `ChatBubbleInner` — not inside it — so that for a
+ * brand-new org with no agents yet, or on the full-page chat route,
+ * `useChatSession` (and everything it does on mount: a live
  * `client.chatWidget.getState()` call, plus a handoff effect that can fire
- * a real `client.conversations.create(...)` write) never runs at all.
+ * a real `client.conversations.create(...)` write) never runs at all. That
+ * matters here specifically: both `ChatShell` and `ChatBubble` read and
+ * consume the same one-shot `sessionStorage['vocion_chat_handoff']` stash,
+ * so if both mounted on `/dashboard/chat`, whichever won the race would
+ * silently steal a Briefings hand-off from the other.
  * React lets you skip a child component's hooks entirely by never
  * rendering it — you just can't skip a hook conditionally inside one
  * component's own body. Putting the early return here, one level up from
@@ -49,7 +56,10 @@ function readVisualState(): VisualState {
  * @param root0.agents - Agents available to pick from. Empty array renders nothing.
  */
 export function ChatBubble({ agents }: ChatBubbleProps) {
-  if (agents.length === 0) {
+  const pathname = usePathname();
+  const onChatPage = pathname === '/dashboard/chat' || pathname.endsWith('/dashboard/chat');
+
+  if (agents.length === 0 || onChatPage) {
     return null;
   }
 
