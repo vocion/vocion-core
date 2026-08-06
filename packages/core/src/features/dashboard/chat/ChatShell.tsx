@@ -20,7 +20,7 @@ import { useChatSession } from './useChatSession';
  */
 
 export type ChatShellProps = {
-  /** Agents available to pick from. Empty array renders the no-agents empty state. */
+  /** Agents available to pick from. The caller guarantees at least one entry. */
   agents: AgentOption[];
   agentDescription?: string;
   /** Suggestion prompts surfaced in the empty state (fallback — per-agent suggestions win). */
