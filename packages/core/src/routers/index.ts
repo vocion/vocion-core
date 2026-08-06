@@ -7,6 +7,7 @@ import {
   adoptionUsersRoute,
 } from './Analytics';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
+import { getState as getChatWidgetState, setState as setChatWidgetState } from './ChatWidget';
 import {
   addLink,
   create as createObject,
@@ -167,6 +168,10 @@ export const router = {
   budgets: {
     get: getBudget,
     upsert: upsertBudget,
+  },
+  chatWidget: {
+    getState: getChatWidgetState,
+    setState: setChatWidgetState,
   },
   review: {
     listSkillRuns: listPendingSkillRuns,
