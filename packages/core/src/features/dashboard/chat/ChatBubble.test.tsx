@@ -76,6 +76,36 @@ describe('ChatBubble', () => {
     await expect.element(page.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
   });
 
+  it('pressing Escape closes the panel and shows the trigger button again', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+
+    await expect.element(page.getByRole('button', { name: 'Open chat' })).toBeInTheDocument();
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).not.toBeInTheDocument();
+  });
+
+  it('pressing Escape while history is open closes history first, then the panel on a second Escape', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+    await userEvent.click(page.getByRole('button', { name: 'Recent conversations' }));
+
+    await expect.element(page.getByRole('button', { name: 'Recent conversations' })).toHaveAttribute('aria-pressed', 'true');
+
+    await userEvent.keyboard('{Escape}');
+
+    // First Escape only dismisses history — the dialog is still open.
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Recent conversations' })).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.keyboard('{Escape}');
+
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).not.toBeInTheDocument();
+  });
+
   it('closing hides the panel and shows the trigger button again', async () => {
     await render(<ChatBubble agents={AGENTS} />);
     await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
