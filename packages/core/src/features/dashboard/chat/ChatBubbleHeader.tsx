@@ -71,7 +71,7 @@ export function ChatBubbleHeader({
               <DropdownMenuContent align="start" className="w-64">
                 {agents.map(a => (
                   <DropdownMenuItem key={a.slug} onClick={() => onSwitchAgent(a.slug)}>
-                    <Bot className="mr-2 size-4 text-muted-foreground" />
+                    <Bot className="mr-2 size-4 text-muted-foreground" aria-hidden="true" />
                     <span className="flex-1 truncate">{a.name}</span>
                     {a.slug === currentSlug && <Check className="ml-2 size-4" />}
                   </DropdownMenuItem>
