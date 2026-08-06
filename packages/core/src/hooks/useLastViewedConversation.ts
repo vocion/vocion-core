@@ -59,7 +59,10 @@ export function useLastViewedConversation() {
         }
       })
       .catch((error) => {
-        console.error('useLastViewedConversation: server getState failed, falling back to localStorage', error);
+        // Offline, private browsing, or a transient blip — this is the
+        // hook's designed steady-state fallback, not an anomaly, so warn
+        // rather than error.
+        console.warn('useLastViewedConversation: server getState failed, falling back to localStorage', error);
         if (mountedRef.current) {
           setState(readLocal());
         }
@@ -78,8 +81,9 @@ export function useLastViewedConversation() {
     setState(next);
     writeLocal(next);
     client.chatWidget.setState(next).catch((error) => {
-      // persistence is best-effort — localStorage already has the fallback
-      console.error('useLastViewedConversation: server setState failed', error);
+      // persistence is best-effort — localStorage already has the fallback,
+      // so a rejected sync (offline, transient blip) is expected, not a bug.
+      console.warn('useLastViewedConversation: server setState failed', error);
     });
   }, []);
 
