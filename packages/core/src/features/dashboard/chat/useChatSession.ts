@@ -451,7 +451,6 @@ export function useChatSession({ agents, suggestions = [] }: UseChatSessionOptio
     messages,
     composerValue,
     setComposerValue,
-    phase,
     isStreaming,
     activity,
     pendingHitl,
