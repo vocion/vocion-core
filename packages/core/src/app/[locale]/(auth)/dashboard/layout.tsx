@@ -5,6 +5,8 @@ import { cookies } from 'next/headers';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
+import { buildAgentOptions } from '@/features/dashboard/chat/agentOptions';
+import { ChatBubble } from '@/features/dashboard/chat/ChatBubble';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
@@ -69,6 +71,8 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
   // If the cookie is not set, default to open
   const defaultOpen = cookieStore.get(AppConfig.sidebarCookieName)?.value !== 'false';
 
+  const agents = orgId ? await buildAgentOptions(orgId) : [];
+
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <AppSidebar isAdmin={has({ role: ORG_ROLE.ADMIN })} />
@@ -79,6 +83,7 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
           {props.children}
         </div>
         <WorkspaceDriftBanner />
+        <ChatBubble agents={agents} />
       </SidebarInset>
     </SidebarProvider>
   );
