@@ -7,7 +7,6 @@ import {
   adoptionUsersRoute,
 } from './Analytics';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
-import { getState as getChatWidgetState, setState as setChatWidgetState } from './ChatWidget';
 import {
   addLink,
   create as createObject,
@@ -20,6 +19,7 @@ import {
   remove as removeObject,
   update as updateObject,
 } from './BusinessObject';
+import { getState as getChatWidgetState, setState as setChatWidgetState } from './ChatWidget';
 import {
   append as appendConvMessage,
   create as createConv,
