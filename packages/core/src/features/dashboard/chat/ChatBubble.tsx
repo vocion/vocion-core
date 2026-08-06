@@ -20,13 +20,6 @@ type VisualState = 'hidden' | 'normal' | 'maximized';
 
 const VISUAL_STATE_KEY = 'vocion_chat_bubble_visual_state';
 
-// useChatSession's contract guarantees the caller passes at least one
-// agent (it indexes agents[0] unconditionally to pick a default). Rules of
-// Hooks require calling it on every render regardless of `agents.length`,
-// so when the real list is empty we hand it this placeholder instead —
-// ChatBubble still returns null before that session data is ever rendered.
-const NO_AGENTS_PLACEHOLDER: AgentOption = { slug: '__none__', name: '', icon: 'bot', placeholder: '' };
-
 function readVisualState(): VisualState {
   try {
     const stored = localStorage.getItem(VISUAL_STATE_KEY);
@@ -41,18 +34,47 @@ function readVisualState(): VisualState {
 
 /**
  * Floating, Intercom-style chat widget mounted once in the dashboard layout
- * so it persists across every route. Visual state (hidden / normal /
- * maximized) is client-chrome only, persisted to localStorage — the
- * conversation content itself comes from `useChatSession`, which is the
- * same hook the full-page `/dashboard/chat` surface uses, so both stay in
- * sync on "last viewed conversation".
+ * so it persists across every route.
+ *
+ * Checks `agents.length === 0` and bails out to `null` BEFORE mounting
+ * `ChatBubbleInner` — not inside it — so that for a brand-new org with no
+ * agents yet, `useChatSession` (and everything it does on mount: a live
+ * `client.chatWidget.getState()` call, plus a handoff effect that can fire
+ * a real `client.conversations.create(...)` write) never runs at all.
+ * React lets you skip a child component's hooks entirely by never
+ * rendering it — you just can't skip a hook conditionally inside one
+ * component's own body. Putting the early return here, one level up from
+ * the hook call, is what makes that guarantee real instead of best-effort.
  * @param root0 - Component props.
  * @param root0.agents - Agents available to pick from. Empty array renders nothing.
  */
 export function ChatBubble({ agents }: ChatBubbleProps) {
+  if (agents.length === 0) {
+    return null;
+  }
+
+  return <ChatBubbleInner agents={agents} />;
+}
+
+type ChatBubbleInnerProps = {
+  /** Guaranteed non-empty by the `ChatBubble` wrapper above. */
+  agents: AgentOption[];
+};
+
+/**
+ * Everything the floating widget actually renders once we know there's at
+ * least one agent to chat with. Visual state (hidden / normal / maximized)
+ * is client-chrome only, persisted to localStorage — the conversation
+ * content itself comes from `useChatSession`, which is the same hook the
+ * full-page `/dashboard/chat` surface uses, so both stay in sync on "last
+ * viewed conversation".
+ * @param root0 - Component props.
+ * @param root0.agents - Agents available to pick from. Never empty — see `ChatBubble`.
+ */
+function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
   const [visualState, setVisualState] = useState<VisualState>('hidden');
   const [historyOpen, setHistoryOpen] = useState(false);
-  const session = useChatSession({ agents: agents.length > 0 ? agents : [NO_AGENTS_PLACEHOLDER] });
+  const session = useChatSession({ agents });
 
   useEffect(() => {
     // One-time read of a client-only value (localStorage) on mount — can't
@@ -70,10 +92,6 @@ export function ChatBubble({ agents }: ChatBubbleProps) {
       /* storage unavailable — state still holds for this session */
     }
   };
-
-  if (agents.length === 0) {
-    return null;
-  }
 
   if (visualState === 'hidden') {
     return (
