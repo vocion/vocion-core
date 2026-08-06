@@ -54,6 +54,13 @@ export function useChatSession({ agents, suggestions = [] }: UseChatSessionOptio
   const [currentSlug, setCurrentSlug] = useState<string | undefined>(undefined);
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [activity, setActivity] = useState<string | null>(null);
+  // True only while the hydration effect's client.conversations.get(...) is
+  // in flight. Kept separate from lastViewedLoading so `hydrated` doesn't
+  // flip true until the persisted conversation's messages have actually
+  // landed — closes a race where an early sendMessage (e.g. the Briefings
+  // handoff) could start from an empty `messages` array and then get
+  // stomped when the hydration fetch resolves afterward with old history.
+  const [conversationLoading, setConversationLoading] = useState(false);
 
   const agent = (currentSlug ? agents.find(a => a.slug === currentSlug) : undefined) ?? agents[0]!;
   const agentEyebrow = agent.eyebrow;
@@ -84,6 +91,12 @@ export function useChatSession({ agents, suggestions = [] }: UseChatSessionOptio
       return;
     }
     const targetConversationId = lastViewed.conversationId;
+    // Same synchronous effect body as setCurrentSlug above, so both land in
+    // the same render — `hydrated` must go false before anything (e.g. the
+    // handoff effect below) can act on the "resolved" agent slug. One-time
+    // hydration guarded by hydratedRef above, not a derived-state sync loop.
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setConversationLoading(true);
     client.conversations.get({ id: targetConversationId })
       .then((conv) => {
         setConversationId(conv.id);
@@ -92,6 +105,9 @@ export function useChatSession({ agents, suggestions = [] }: UseChatSessionOptio
       .catch((error) => {
         // conversation gone (deleted) — stay on a fresh conversation
         console.warn('useChatSession: failed to hydrate last-viewed conversation', error);
+      })
+      .finally(() => {
+        setConversationLoading(false);
       });
   }, [lastViewedLoading, lastViewed, agents]);
 
@@ -352,7 +368,7 @@ export function useChatSession({ agents, suggestions = [] }: UseChatSessionOptio
 
   const handoffSentRef = useRef(false);
   useEffect(() => {
-    if (handoffSentRef.current || !currentSlug) {
+    if (handoffSentRef.current || !currentSlug || conversationLoading) {
       return;
     }
     let raw: string | null = null;
@@ -381,7 +397,7 @@ export function useChatSession({ agents, suggestions = [] }: UseChatSessionOptio
       // malformed stash — ignore, nothing to send
       console.warn('useChatSession: failed to parse handoff stash', error);
     }
-  }, [sendMessage, currentSlug]);
+  }, [sendMessage, currentSlug, conversationLoading]);
 
   const handleApproveHitl = useCallback(() => {
     setPendingHitl(null);
@@ -450,6 +466,6 @@ export function useChatSession({ agents, suggestions = [] }: UseChatSessionOptio
     startNewConversation,
     handleSwitchAgent,
     loadConversation,
-    hydrated: !lastViewedLoading,
+    hydrated: !lastViewedLoading && !conversationLoading,
   };
 }
