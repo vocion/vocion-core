@@ -41,4 +41,32 @@ describe('ChatShell', () => {
 
     await expect.element(page.getByText('Pipeline Analyst', { exact: true }).first()).toBeInTheDocument();
   });
+
+  it('disables the composer and suggestion buttons until hydration settles, then enables them', async () => {
+    // Control exactly when `useLastViewedConversation`'s server round-trip
+    // resolves, so we can assert the disabled state mid-flight instead of
+    // only after everything has already settled. No persisted conversation
+    // here, so once this resolves `hydrated` flips true with no further
+    // `conversations.get` fetch to wait on.
+    let resolveGetState!: (value: unknown) => void;
+    const getStatePromise = new Promise((resolve) => {
+      resolveGetState = resolve;
+    });
+    vi.mocked(client.chatWidget.getState).mockReturnValue(getStatePromise as never);
+
+    await render(<ChatShell agents={AGENTS} suggestions={[{ label: 'Try this', prompt: 'Do the thing' }]} />);
+
+    // Hydration is still in flight — the composer textbox and the
+    // suggestion buttons must stay disabled so a user can't send a message
+    // (or click a suggestion, which sends one directly) that a
+    // later-arriving setMessages(...) from hydration would silently
+    // discard.
+    await expect.element(page.getByPlaceholder('Ask…')).toBeDisabled();
+    await expect.element(page.getByRole('button', { name: 'Try this' })).toBeDisabled();
+
+    resolveGetState(null);
+
+    await expect.element(page.getByPlaceholder('Ask…')).not.toBeDisabled();
+    await expect.element(page.getByRole('button', { name: 'Try this' })).not.toBeDisabled();
+  });
 });

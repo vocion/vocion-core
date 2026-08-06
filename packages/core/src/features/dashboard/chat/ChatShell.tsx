@@ -1,6 +1,7 @@
 'use client';
 
 import type { AgentOption } from './types';
+import { SquarePen } from 'lucide-react';
 import { AgentHeader } from './AgentHeader';
 import { ChatComposer } from './ChatComposer';
 import { EmptyState } from './EmptyState';
@@ -15,9 +16,7 @@ import { useChatSession } from './useChatSession';
  * Thin render wrapper over `useChatSession`, which owns all state and
  * streaming logic (shared with the floating `ChatBubble`). Agent identity
  * is data-in: the server component that mounts ChatShell passes the
- * available agents (DB rows + the virtual `__search__` entry). When the
- * tenant has no agents, render a "no agents yet" empty state pointing at
- * the authoring path.
+ * available agents (DB rows + the virtual `__search__` entry).
  */
 
 export type ChatShellProps = {
@@ -41,11 +40,12 @@ export function ChatShell({ agents, agentDescription, suggestions = [] }: ChatSh
           <button
             type="button"
             onClick={session.startNewConversation}
-            aria-label="New chat"
-            title="New chat"
+            aria-label="New Chat"
+            title="New Chat"
             className="inline-flex size-11 items-center justify-center gap-1.5 rounded-md border border-border text-xs font-medium transition-colors hover:bg-muted sm:size-auto sm:px-3 sm:py-1.5"
           >
-            New Chat
+            <SquarePen className="size-4 sm:hidden" aria-hidden="true" />
+            <span className="hidden sm:inline">New Chat</span>
           </button>
         )}
         agents={agents}
@@ -56,7 +56,7 @@ export function ChatShell({ agents, agentDescription, suggestions = [] }: ChatSh
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col">
           {session.messages.length === 0
-            ? <EmptyState agentName={session.agent.name} suggestions={session.agentSuggestions} onPick={session.handlePickSuggestion} />
+            ? <EmptyState agentName={session.agent.name} suggestions={session.agentSuggestions} onPick={session.handlePickSuggestion} disabled={!session.hydrated} />
             : <MessageList messages={session.messages} agentName={session.agent.name} streaming={session.isStreaming} activity={session.activity} />}
 
           {session.pendingHitl && (
@@ -73,7 +73,7 @@ export function ChatShell({ agents, agentDescription, suggestions = [] }: ChatSh
             onChange={session.setComposerValue}
             onSubmit={() => session.sendMessage(session.composerValue)}
             onClearConversation={session.messages.length > 0 ? session.startNewConversation : undefined}
-            disabled={session.isStreaming}
+            disabled={session.isStreaming || !session.hydrated}
             placeholder={session.agent.placeholder}
           />
         </div>
