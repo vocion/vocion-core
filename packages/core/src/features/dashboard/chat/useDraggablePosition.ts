@@ -1,6 +1,5 @@
 'use client';
 
-import type { RefObject } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type DragPosition = {
@@ -68,6 +67,10 @@ function positionForPointer(session: DragSession, clientX: number, clientY: numb
   return clampToViewport({ right: session.startPosition.right - deltaX, bottom: session.startPosition.bottom - deltaY }, element);
 }
 
+function positionsEqual(a: DragPosition, b: DragPosition): boolean {
+  return a.right === b.right && a.bottom === b.bottom;
+}
+
 /**
  * Lets the chat bubble button and its panel be dragged to any corner of the
  * viewport instead of staying pinned bottom-right. Position is `{ right,
@@ -80,20 +83,55 @@ function positionForPointer(session: DragSession, clientX: number, clientY: numb
  * (the collapsed launcher button) can tell a real click from the click
  * event a browser fires right after a drag's pointerup: check it first
  * thing in the onClick handler and bail out if it returns true.
+ *
+ * Consumers attach the returned `dragRef` callback ref to whichever element
+ * is currently on screen (button or panel) instead of a plain `useRef`, so
+ * this hook notices when that element is swapped for a differently-sized
+ * one (button ↔ panel) or resized in place (normal ↔ maximized) and
+ * re-clamps the persisted position against the new size — otherwise a
+ * position saved against a small button could sit off-screen once the
+ * panel opens.
  * @param storageKey - localStorage key this widget's position is saved under.
- * @param elementRef - ref to whichever element is currently on screen (button or panel), used to clamp against its actual size.
  */
-export function useDraggablePosition(storageKey: string, elementRef: RefObject<HTMLElement | null>) {
+export function useDraggablePosition(storageKey: string) {
   const [position, setPosition] = useState<DragPosition>(DEFAULT_POSITION);
+  const [elementNode, setElementNode] = useState<HTMLElement | null>(null);
   const draggedRef = useRef(false);
   const activeDragAbortRef = useRef<AbortController | null>(null);
 
+  const dragRef = useCallback((node: HTMLElement | null) => {
+    setElementNode(node);
+  }, []);
+
   useEffect(() => {
-    // One-time read of a client-only value on mount — mirrors the visual
-    // state hydration pattern used elsewhere in this widget.
+    // Re-runs on mount (hydrating from localStorage) and again whenever the
+    // drag handle is swapped for a differently-sized element, clamping
+    // against whichever size is current in both cases.
     // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
-    setPosition(readPosition(storageKey));
-  }, [storageKey]);
+    setPosition(clampToViewport(readPosition(storageKey), elementNode));
+  }, [storageKey, elementNode]);
+
+  useEffect(() => {
+    // Catches in-place resizes of the same element (normal ↔ maximized
+    // toggles a className on one persistent div, so its identity never
+    // changes and the effect above never re-fires) — anything the viewport
+    // or the element's own size does that the drag/hydrate paths miss.
+    if (!elementNode) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      setPosition((current) => {
+        const clamped = clampToViewport(current, elementNode);
+        if (positionsEqual(clamped, current)) {
+          return current;
+        }
+        persistPosition(storageKey, clamped);
+        return clamped;
+      });
+    });
+    observer.observe(elementNode);
+    return () => observer.disconnect();
+  }, [elementNode, storageKey]);
 
   useEffect(() => {
     // If the widget unmounts mid-drag (route change while dragging), abort
@@ -126,11 +164,11 @@ export function useDraggablePosition(storageKey: string, elementRef: RefObject<H
       if (!draggedRef.current && hasCrossedDragThreshold(session, moveEvent.clientX, moveEvent.clientY)) {
         draggedRef.current = true;
       }
-      setPosition(positionForPointer(session, moveEvent.clientX, moveEvent.clientY, elementRef.current));
+      setPosition(positionForPointer(session, moveEvent.clientX, moveEvent.clientY, elementNode));
     }, { signal: abortController.signal });
     document.addEventListener('pointerup', () => stopDragSession(draggedRef.current), { signal: abortController.signal });
     document.addEventListener('pointercancel', () => stopDragSession(draggedRef.current), { signal: abortController.signal });
-  }, [position, storageKey, elementRef]);
+  }, [position, storageKey, elementNode]);
 
   const consumeDragClick = useCallback(() => {
     if (!draggedRef.current) {
@@ -140,5 +178,5 @@ export function useDraggablePosition(storageKey: string, elementRef: RefObject<H
     return true;
   }, []);
 
-  return { position, startDrag, consumeDragClick };
+  return { position, startDrag, consumeDragClick, dragRef };
 }

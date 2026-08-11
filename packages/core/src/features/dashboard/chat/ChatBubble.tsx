@@ -3,7 +3,7 @@
 import type { AgentOption } from './types';
 import { MessageCircle } from 'lucide-react';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChatBubbleHeader } from './ChatBubbleHeader';
 import { ChatBubbleHistoryPanel } from './ChatBubbleHistoryPanel';
 import { ChatComposer } from './ChatComposer';
@@ -87,8 +87,7 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
   const [visualState, setVisualState] = useState<VisualState>('hidden');
   const [historyOpen, setHistoryOpen] = useState(false);
   const session = useChatSession({ agents });
-  const dragElementRef = useRef<HTMLElement | null>(null);
-  const { position, startDrag, consumeDragClick } = useDraggablePosition(POSITION_KEY, dragElementRef);
+  const { position, startDrag, consumeDragClick, dragRef } = useDraggablePosition(POSITION_KEY);
 
   useEffect(() => {
     // One-time read of a client-only value (localStorage) on mount — can't
@@ -139,7 +138,7 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
   if (visualState === 'hidden') {
     return (
       <button
-        ref={dragElementRef as React.RefObject<HTMLButtonElement>}
+        ref={dragRef}
         type="button"
         onPointerDown={startDrag}
         onClick={() => {
@@ -149,8 +148,9 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
           setVisual('normal');
         }}
         aria-label="Open chat"
+        title="Drag to move, click to open"
         style={{ right: `${position.right}px`, bottom: `${position.bottom}px`, touchAction: 'none' }}
-        className="fixed z-50 flex size-14 items-center justify-center rounded-full bg-brand-amber text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-brand-amber-deep"
+        className="fixed z-50 flex size-14 cursor-grab items-center justify-center rounded-full bg-brand-amber text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-brand-amber-deep active:cursor-grabbing"
       >
         <MessageCircle className="size-6" aria-hidden="true" />
       </button>
@@ -163,7 +163,7 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
 
   return (
     <div
-      ref={dragElementRef as React.RefObject<HTMLDivElement>}
+      ref={dragRef}
       role="dialog"
       aria-label="Chat"
       style={{ right: `${position.right}px`, bottom: `${position.bottom}px` }}
