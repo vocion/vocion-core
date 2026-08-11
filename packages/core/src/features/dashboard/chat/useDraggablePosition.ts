@@ -21,10 +21,18 @@ function readPosition(storageKey: string): DragPosition {
         return { right: parsed.right, bottom: parsed.bottom };
       }
     }
-  } catch {
-    /* storage unavailable or corrupt — fall back to default corner */
+  } catch (error) {
+    console.error('useDraggablePosition: failed to read persisted position', error);
   }
   return DEFAULT_POSITION;
+}
+
+function persistPosition(storageKey: string, position: DragPosition) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(position));
+  } catch (error) {
+    console.error('useDraggablePosition: failed to persist position', error);
+  }
 }
 
 function clampToViewport(next: DragPosition, element: HTMLElement | null): DragPosition {
@@ -36,6 +44,28 @@ function clampToViewport(next: DragPosition, element: HTMLElement | null): DragP
     right: Math.min(Math.max(next.right, EDGE_MARGIN), maxRight),
     bottom: Math.min(Math.max(next.bottom, EDGE_MARGIN), maxBottom),
   };
+}
+
+type DragSession = {
+  startClientX: number;
+  startClientY: number;
+  startPosition: DragPosition;
+};
+
+function startDragSession(event: React.PointerEvent, position: DragPosition): DragSession {
+  return { startClientX: event.clientX, startClientY: event.clientY, startPosition: position };
+}
+
+function hasCrossedDragThreshold(session: DragSession, clientX: number, clientY: number): boolean {
+  const deltaX = clientX - session.startClientX;
+  const deltaY = clientY - session.startClientY;
+  return Math.hypot(deltaX, deltaY) > DRAG_THRESHOLD_PX;
+}
+
+function positionForPointer(session: DragSession, clientX: number, clientY: number, element: HTMLElement | null): DragPosition {
+  const deltaX = clientX - session.startClientX;
+  const deltaY = clientY - session.startClientY;
+  return clampToViewport({ right: session.startPosition.right - deltaX, bottom: session.startPosition.bottom - deltaY }, element);
 }
 
 /**
@@ -56,6 +86,7 @@ function clampToViewport(next: DragPosition, element: HTMLElement | null): DragP
 export function useDraggablePosition(storageKey: string, elementRef: RefObject<HTMLElement | null>) {
   const [position, setPosition] = useState<DragPosition>(DEFAULT_POSITION);
   const draggedRef = useRef(false);
+  const activeDragAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     // One-time read of a client-only value on mount — mirrors the visual
@@ -64,44 +95,41 @@ export function useDraggablePosition(storageKey: string, elementRef: RefObject<H
     setPosition(readPosition(storageKey));
   }, [storageKey]);
 
+  useEffect(() => {
+    // If the widget unmounts mid-drag (route change while dragging), abort
+    // the in-flight listeners instead of leaving them attached to
+    // `document` forever — see stopDragSession below, which this shares.
+    return () => activeDragAbortRef.current?.abort();
+  }, []);
+
   const startDrag = useCallback((event: React.PointerEvent) => {
     if (event.pointerType === 'mouse' && event.button !== 0) {
       return;
     }
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const startRight = position.right;
-    const startBottom = position.bottom;
-    let dragged = false;
+    const session = startDragSession(event, position);
+    const abortController = new AbortController();
+    activeDragAbortRef.current = abortController;
 
-    function onMove(moveEvent: PointerEvent) {
-      const deltaX = moveEvent.clientX - startX;
-      const deltaY = moveEvent.clientY - startY;
-      if (!dragged && Math.hypot(deltaX, deltaY) > DRAG_THRESHOLD_PX) {
-        dragged = true;
-        draggedRef.current = true;
-      }
-      setPosition(clampToViewport({ right: startRight - deltaX, bottom: startBottom - deltaY }, elementRef.current));
-    }
-
-    function onUp() {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
+    function stopDragSession(dragged: boolean) {
+      abortController.abort();
+      activeDragAbortRef.current = null;
       if (!dragged) {
         return;
       }
       setPosition((current) => {
-        try {
-          localStorage.setItem(storageKey, JSON.stringify(current));
-        } catch {
-          /* storage unavailable — position still holds for this session */
-        }
+        persistPosition(storageKey, current);
         return current;
       });
     }
 
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointermove', (moveEvent) => {
+      if (!draggedRef.current && hasCrossedDragThreshold(session, moveEvent.clientX, moveEvent.clientY)) {
+        draggedRef.current = true;
+      }
+      setPosition(positionForPointer(session, moveEvent.clientX, moveEvent.clientY, elementRef.current));
+    }, { signal: abortController.signal });
+    document.addEventListener('pointerup', () => stopDragSession(draggedRef.current), { signal: abortController.signal });
+    document.addEventListener('pointercancel', () => stopDragSession(draggedRef.current), { signal: abortController.signal });
   }, [position, storageKey, elementRef]);
 
   const consumeDragClick = useCallback(() => {

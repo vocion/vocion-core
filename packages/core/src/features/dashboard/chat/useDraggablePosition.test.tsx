@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
-import { dispatchClick, dispatchPointerDrag } from './dragTestHelpers';
+import { dispatchCancelledPointerDrag, dispatchClick, dispatchPointerDrag } from './dragTestHelpers';
 import { useDraggablePosition } from './useDraggablePosition';
 
 const STORAGE_KEY = 'test_drag_position';
@@ -143,5 +143,28 @@ describe('useDraggablePosition', () => {
       expect(target.style.right).toBe(`${expectedMaxRight}px`);
       expect(target.style.bottom).toBe(`${expectedMaxBottom}px`);
     });
+  });
+
+  it('a pointercancel (browser stealing the gesture) ends the drag and stops tracking further pointer moves', async () => {
+    await render(<DragTarget storageKey={STORAGE_KEY} onClick={vi.fn()} />);
+    const target = page.getByRole('button', { name: 'drag me' }).element() as HTMLElement;
+
+    dispatchCancelledPointerDrag(target, { x: 200, y: 200 }, { x: 150, y: 160 });
+
+    await vi.waitFor(() => {
+      expect(target.style.right).toBe('66px');
+      expect(target.style.bottom).toBe('56px');
+    });
+    await vi.waitFor(() => {
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toEqual({ right: 66, bottom: 56 });
+    });
+
+    // The cancel already tore down the document-level listeners, so a
+    // stray pointermove arriving afterwards (e.g. leftover from whatever
+    // gesture stole the drag) must not move the element any further.
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 0, clientY: 0, pointerId: 1, bubbles: true, cancelable: true, pointerType: 'mouse' }));
+
+    expect(target.style.right).toBe('66px');
+    expect(target.style.bottom).toBe('56px');
   });
 });
