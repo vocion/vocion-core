@@ -3,7 +3,7 @@
 import type { AgentOption } from './types';
 import { MessageCircle } from 'lucide-react';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChatBubbleHeader } from './ChatBubbleHeader';
 import { ChatBubbleHistoryPanel } from './ChatBubbleHistoryPanel';
 import { ChatComposer } from './ChatComposer';
@@ -11,6 +11,7 @@ import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
 import { useChatSession } from './useChatSession';
+import { useDraggablePosition } from './useDraggablePosition';
 
 export type ChatBubbleProps = {
   /** Agents available to pick from — server-loaded, same list the full-page chat uses. Empty array renders nothing. */
@@ -20,6 +21,7 @@ export type ChatBubbleProps = {
 type VisualState = 'hidden' | 'normal' | 'maximized';
 
 const VISUAL_STATE_KEY = 'vocion_chat_bubble_visual_state';
+const POSITION_KEY = 'vocion_chat_bubble_position';
 
 function readVisualState(): VisualState {
   try {
@@ -85,6 +87,8 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
   const [visualState, setVisualState] = useState<VisualState>('hidden');
   const [historyOpen, setHistoryOpen] = useState(false);
   const session = useChatSession({ agents });
+  const dragElementRef = useRef<HTMLElement | null>(null);
+  const { position, startDrag, consumeDragClick } = useDraggablePosition(POSITION_KEY, dragElementRef);
 
   useEffect(() => {
     // One-time read of a client-only value (localStorage) on mount — can't
@@ -135,10 +139,18 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
   if (visualState === 'hidden') {
     return (
       <button
+        ref={dragElementRef as React.RefObject<HTMLButtonElement>}
         type="button"
-        onClick={() => setVisual('normal')}
+        onPointerDown={startDrag}
+        onClick={() => {
+          if (consumeDragClick()) {
+            return;
+          }
+          setVisual('normal');
+        }}
         aria-label="Open chat"
-        className="fixed right-4 bottom-4 z-50 flex size-14 items-center justify-center rounded-full bg-brand-amber text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-brand-amber-deep"
+        style={{ right: `${position.right}px`, bottom: `${position.bottom}px`, touchAction: 'none' }}
+        className="fixed z-50 flex size-14 items-center justify-center rounded-full bg-brand-amber text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-brand-amber-deep"
       >
         <MessageCircle className="size-6" aria-hidden="true" />
       </button>
@@ -151,9 +163,11 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
 
   return (
     <div
+      ref={dragElementRef as React.RefObject<HTMLDivElement>}
       role="dialog"
       aria-label="Chat"
-      className={`fixed right-4 bottom-4 z-50 flex ${panelSizeClass} flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl`}
+      style={{ right: `${position.right}px`, bottom: `${position.bottom}px` }}
+      className={`fixed z-50 flex ${panelSizeClass} flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl`}
     >
       <div className="relative">
         <ChatBubbleHeader
@@ -170,6 +184,7 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
           maximized={visualState === 'maximized'}
           onToggleMaximize={() => setVisual(visualState === 'maximized' ? 'normal' : 'maximized')}
           onClose={closePanel}
+          onDragStart={startDrag}
         />
         {historyOpen && (
           <ChatBubbleHistoryPanel
