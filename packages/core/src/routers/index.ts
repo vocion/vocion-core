@@ -19,6 +19,7 @@ import {
   remove as removeObject,
   update as updateObject,
 } from './BusinessObject';
+import { getState as getChatWidgetState, setState as setChatWidgetState } from './ChatWidget';
 import {
   append as appendConvMessage,
   create as createConv,
@@ -167,6 +168,10 @@ export const router = {
   budgets: {
     get: getBudget,
     upsert: upsertBudget,
+  },
+  chatWidget: {
+    getState: getChatWidgetState,
+    setState: setChatWidgetState,
   },
   review: {
     listSkillRuns: listPendingSkillRuns,

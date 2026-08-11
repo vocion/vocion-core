@@ -19,9 +19,11 @@ export type EmptyStateProps = {
   agentName?: string;
   suggestions?: EmptyStateSuggestion[];
   onPick: (prompt: string) => void;
+  /** Disables the suggestion buttons — e.g. while the session is still hydrating. */
+  disabled?: boolean;
 };
 
-export function EmptyState({ agentName = 'this agent', suggestions = [], onPick }: EmptyStateProps) {
+export function EmptyState({ agentName = 'this agent', suggestions = [], onPick, disabled = false }: EmptyStateProps) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center sm:px-6 sm:py-16">
       <div className="flex size-12 items-center justify-center rounded-2xl bg-brand-amber-tint text-brand-amber-deep shadow-sm sm:size-14">
@@ -45,7 +47,8 @@ export function EmptyState({ agentName = 'this agent', suggestions = [], onPick 
               key={i}
               type="button"
               onClick={() => onPick(s.prompt)}
-              className="group flex min-h-11 w-full items-start justify-between gap-4 px-5 py-4 text-left text-sm transition hover:bg-brand-amber-tint hover:text-brand-amber-deep"
+              disabled={disabled}
+              className="group flex min-h-11 w-full items-start justify-between gap-4 px-5 py-4 text-left text-sm transition hover:bg-brand-amber-tint hover:text-brand-amber-deep disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-inherit"
             >
               <span className="flex-1">{s.label}</span>
               <ArrowRight className="size-4 shrink-0 text-muted-foreground transition group-hover:translate-x-1 group-hover:text-brand-amber-deep" aria-hidden="true" />
