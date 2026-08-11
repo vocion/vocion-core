@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
+import { dispatchClick, dispatchPointerDrag } from './dragTestHelpers';
 
 vi.mock('@/libs/Orpc', () => ({
   client: {
@@ -27,6 +28,7 @@ const AGENTS = [
 ];
 
 const VISUAL_STATE_KEY = 'vocion_chat_bubble_visual_state';
+const POSITION_KEY = 'vocion_chat_bubble_position';
 
 beforeEach(() => {
   localStorage.clear();
@@ -138,6 +140,71 @@ describe('ChatBubble', () => {
     await userEvent.click(page.getByText('Prior thread'));
 
     await expect.element(page.getByText('resumed')).toBeInTheDocument();
+  });
+
+  it('dragging the trigger button moves it and does not open the panel', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    const trigger = page.getByRole('button', { name: 'Open chat' }).element() as HTMLElement;
+
+    dispatchPointerDrag(trigger, { x: 300, y: 300 }, { x: 250, y: 240 });
+    dispatchClick(trigger);
+
+    await vi.waitFor(() => {
+      expect(trigger.style.right).toBe('66px');
+      expect(trigger.style.bottom).toBe('76px');
+    });
+
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).not.toBeInTheDocument();
+  });
+
+  it('a plain click on the trigger with no movement still opens the panel', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    const trigger = page.getByRole('button', { name: 'Open chat' }).element() as HTMLElement;
+
+    dispatchPointerDrag(trigger, { x: 300, y: 300 }, { x: 300, y: 300 });
+    dispatchClick(trigger);
+
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).toBeInTheDocument();
+  });
+
+  it('the panel opens at the position the trigger button was last dragged to', async () => {
+    localStorage.setItem(POSITION_KEY, JSON.stringify({ right: 80, bottom: 120 }));
+    await render(<ChatBubble agents={AGENTS} />);
+
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+
+    const panel = page.getByRole('dialog', { name: 'Chat' }).element() as HTMLElement;
+    await vi.waitFor(() => {
+      expect(panel.style.right).toBe('80px');
+      expect(panel.style.bottom).toBe('120px');
+    });
+  });
+
+  it('dragging the open panel by its header moves it and persists the new position', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+
+    const panel = page.getByRole('dialog', { name: 'Chat' }).element() as HTMLElement;
+    const header = panel.querySelector('header') as HTMLElement;
+    // The panel is wide/tall enough that the viewport clamp — same edge
+    // margin the hook enforces — may bind before the full 50/40px move
+    // does, so compute the expected result the same way the hook does
+    // rather than assuming the raw delta lands unclamped.
+    const maxRight = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
+    const maxBottom = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
+    const expectedRight = Math.min(Math.max(16 + 50, 8), maxRight);
+    const expectedBottom = Math.min(Math.max(16 + 40, 8), maxBottom);
+
+    // Pointer moves 50px left and 40px up: right and bottom both grow.
+    dispatchPointerDrag(header, { x: 400, y: 300 }, { x: 350, y: 260 });
+
+    await vi.waitFor(() => {
+      expect(panel.style.right).toBe(`${expectedRight}px`);
+      expect(panel.style.bottom).toBe(`${expectedBottom}px`);
+    });
+    await vi.waitFor(() => {
+      expect(JSON.parse(localStorage.getItem(POSITION_KEY) ?? '{}')).toEqual({ right: expectedRight, bottom: expectedBottom });
+    });
   });
 
   it('renders nothing when there are no agents, and never mounts the chat session', async () => {

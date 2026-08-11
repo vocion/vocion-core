@@ -22,6 +22,7 @@ describe('ChatBubbleHeader', () => {
         maximized={false}
         onToggleMaximize={vi.fn()}
         onClose={vi.fn()}
+        onDragStart={vi.fn()}
       />,
     );
 
@@ -42,6 +43,7 @@ describe('ChatBubbleHeader', () => {
         maximized={false}
         onToggleMaximize={vi.fn()}
         onClose={vi.fn()}
+        onDragStart={vi.fn()}
       />,
     );
 
@@ -68,6 +70,7 @@ describe('ChatBubbleHeader', () => {
         maximized={false}
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}
+        onDragStart={vi.fn()}
       />,
     );
 
@@ -80,6 +83,54 @@ describe('ChatBubbleHeader', () => {
     expect(onToggleHistory).toHaveBeenCalledOnce();
     expect(onToggleMaximize).toHaveBeenCalledOnce();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('starts a drag when pointerdown lands on the header background', async () => {
+    const onDragStart = vi.fn();
+    const screen = await render(
+      <ChatBubbleHeader
+        agentName="GTM Orchestrator"
+        agents={AGENTS}
+        currentSlug="orchestrator"
+        onSwitchAgent={vi.fn()}
+        historyOpen={false}
+        onToggleHistory={vi.fn()}
+        onNewChat={vi.fn()}
+        maximized={false}
+        onToggleMaximize={vi.fn()}
+        onClose={vi.fn()}
+        onDragStart={onDragStart}
+      />,
+    );
+
+    const header = screen.container.querySelector('header') as HTMLElement;
+    header.dispatchEvent(new PointerEvent('pointerdown', { clientX: 10, clientY: 10, bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
+
+    expect(onDragStart).toHaveBeenCalledOnce();
+  });
+
+  it('does not start a drag when pointerdown lands on an action button', async () => {
+    const onDragStart = vi.fn();
+    await render(
+      <ChatBubbleHeader
+        agentName="GTM Orchestrator"
+        agents={AGENTS}
+        currentSlug="orchestrator"
+        onSwitchAgent={vi.fn()}
+        historyOpen={false}
+        onToggleHistory={vi.fn()}
+        onNewChat={vi.fn()}
+        maximized={false}
+        onToggleMaximize={vi.fn()}
+        onClose={vi.fn()}
+        onDragStart={onDragStart}
+      />,
+    );
+
+    const closeButton = page.getByRole('button', { name: 'Close' }).element() as HTMLElement;
+    closeButton.dispatchEvent(new PointerEvent('pointerdown', { clientX: 10, clientY: 10, bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
+
+    expect(onDragStart).not.toHaveBeenCalled();
   });
 
   it('shows Restore instead of Maximize when already maximized', async () => {
@@ -95,6 +146,7 @@ describe('ChatBubbleHeader', () => {
         maximized
         onToggleMaximize={vi.fn()}
         onClose={vi.fn()}
+        onDragStart={vi.fn()}
       />,
     );
 
