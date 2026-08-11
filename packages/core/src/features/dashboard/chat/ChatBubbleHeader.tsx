@@ -20,6 +20,8 @@ export type ChatBubbleHeaderProps = {
   maximized: boolean;
   onToggleMaximize: () => void;
   onClose: () => void;
+  /** Starts dragging the panel. Called only when the pointerdown didn't land on a button — see `onPointerDown` below. */
+  onDragStart: (event: React.PointerEvent) => void;
 };
 
 /**
@@ -38,6 +40,7 @@ export type ChatBubbleHeaderProps = {
  * @param root0.maximized
  * @param root0.onToggleMaximize
  * @param root0.onClose
+ * @param root0.onDragStart
  */
 export function ChatBubbleHeader({
   agentName,
@@ -50,6 +53,7 @@ export function ChatBubbleHeader({
   maximized,
   onToggleMaximize,
   onClose,
+  onDragStart,
 }: ChatBubbleHeaderProps) {
   const switchable = agents.length > 1;
 
@@ -60,8 +64,22 @@ export function ChatBubbleHeader({
     </span>
   );
 
+  function handlePointerDown(event: React.PointerEvent<HTMLElement>) {
+    // Only start a drag when the pointer came down on the header's own
+    // background — not on the agent switcher or one of the action buttons,
+    // which need pointerdown to behave normally so their clicks still fire.
+    if ((event.target as HTMLElement).closest('button')) {
+      return;
+    }
+    onDragStart(event);
+  }
+
   return (
-    <header className="flex items-center gap-2.5 border-b border-border bg-background px-3 py-2.5">
+    <header
+      onPointerDown={handlePointerDown}
+      style={{ touchAction: 'none' }}
+      className="flex items-center gap-2.5 border-b border-border bg-background px-3 py-2.5"
+    >
       {switchable
         ? (
             <DropdownMenu>
