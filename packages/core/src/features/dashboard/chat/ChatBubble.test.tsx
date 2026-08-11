@@ -173,10 +173,20 @@ describe('ChatBubble', () => {
 
     await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
 
+    // The panel is much wider/taller than the trigger button it swapped in
+    // for, so the persisted { right: 80, bottom: 120 } — valid for the
+    // button — may need re-clamping once the bigger panel is what's
+    // actually on screen. Compute the expected bound the same way the hook
+    // does rather than assuming the raw stored value survives unclamped.
     const panel = page.getByRole('dialog', { name: 'Chat' }).element() as HTMLElement;
+    const maxRight = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
+    const maxBottom = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
+    const expectedRight = Math.min(Math.max(80, 8), maxRight);
+    const expectedBottom = Math.min(Math.max(120, 8), maxBottom);
+
     await vi.waitFor(() => {
-      expect(panel.style.right).toBe('80px');
-      expect(panel.style.bottom).toBe('120px');
+      expect(panel.style.right).toBe(`${expectedRight}px`);
+      expect(panel.style.bottom).toBe(`${expectedBottom}px`);
     });
   });
 
@@ -204,6 +214,19 @@ describe('ChatBubble', () => {
     });
     await vi.waitFor(() => {
       expect(JSON.parse(localStorage.getItem(POSITION_KEY) ?? '{}')).toEqual({ right: expectedRight, bottom: expectedBottom });
+    });
+  });
+
+  it('clamps a stale persisted position instead of rendering the trigger button off-screen', async () => {
+    localStorage.setItem(POSITION_KEY, JSON.stringify({ right: 100000, bottom: 100000 }));
+    await render(<ChatBubble agents={AGENTS} />);
+    const trigger = page.getByRole('button', { name: 'Open chat' }).element() as HTMLElement;
+    const expectedRight = Math.max(8, window.innerWidth - trigger.offsetWidth - 8);
+    const expectedBottom = Math.max(8, window.innerHeight - trigger.offsetHeight - 8);
+
+    await vi.waitFor(() => {
+      expect(trigger.style.right).toBe(`${expectedRight}px`);
+      expect(trigger.style.bottom).toBe(`${expectedBottom}px`);
     });
   });
 

@@ -37,7 +37,8 @@ export function ChatBubbleHistoryPanel({ agentSlug, activeConversationId, onSele
       if (!cancelled) {
         setConversations(rows);
       }
-    }).catch(() => {
+    }).catch((error) => {
+      console.error('ChatBubbleHistoryPanel: failed to load conversation list', error);
       if (!cancelled) {
         setConversations([]);
       }

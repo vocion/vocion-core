@@ -77,13 +77,14 @@ export function ChatBubbleHeader({
   return (
     <header
       onPointerDown={handlePointerDown}
+      title="Drag to move the chat window"
       style={{ touchAction: 'none' }}
-      className="flex items-center gap-2.5 border-b border-border bg-background px-3 py-2.5"
+      className="flex cursor-grab items-center gap-2.5 border-b border-border bg-background px-3 py-2.5 active:cursor-grabbing"
     >
       {switchable
         ? (
             <DropdownMenu>
-              <DropdownMenuTrigger className="min-w-0 flex-1 rounded-md px-1 py-0.5 text-left transition hover:bg-muted/60">
+              <DropdownMenuTrigger className="min-w-0 flex-1 cursor-pointer rounded-md px-1 py-0.5 text-left transition hover:bg-muted/60">
                 {identity}
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-64">
@@ -99,7 +100,7 @@ export function ChatBubbleHeader({
           )
         : <div className="min-w-0 flex-1">{identity}</div>}
 
-      <button type="button" onClick={onNewChat} aria-label="New chat" title="New chat" className="text-muted-foreground transition hover:text-foreground">
+      <button type="button" onClick={onNewChat} aria-label="New chat" title="New chat" className="cursor-pointer text-muted-foreground transition hover:text-foreground">
         <Plus className="size-4" />
       </button>
       <button
@@ -108,7 +109,7 @@ export function ChatBubbleHeader({
         aria-label="Recent conversations"
         title="Recent conversations"
         aria-pressed={historyOpen}
-        className={historyOpen ? 'text-brand-amber-deep' : 'text-muted-foreground transition hover:text-foreground'}
+        className={historyOpen ? 'cursor-pointer text-brand-amber-deep' : 'cursor-pointer text-muted-foreground transition hover:text-foreground'}
       >
         <Clock className="size-4" />
       </button>
@@ -117,11 +118,11 @@ export function ChatBubbleHeader({
         onClick={onToggleMaximize}
         aria-label={maximized ? 'Restore' : 'Maximize'}
         title={maximized ? 'Restore' : 'Maximize'}
-        className="text-muted-foreground transition hover:text-foreground"
+        className="cursor-pointer text-muted-foreground transition hover:text-foreground"
       >
         {maximized ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
       </button>
-      <button type="button" onClick={onClose} aria-label="Close" title="Close" className="text-muted-foreground transition hover:text-foreground">
+      <button type="button" onClick={onClose} aria-label="Close" title="Close" className="cursor-pointer text-muted-foreground transition hover:text-foreground">
         <X className="size-4" />
       </button>
     </header>
