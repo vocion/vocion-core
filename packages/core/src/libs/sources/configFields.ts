@@ -48,24 +48,31 @@ export function buildConfigFromFields(
       }
       continue;
     }
-    if (raw === undefined || raw === '') {
+    if (raw === undefined) {
+      continue;
+    }
+    // Whitespace-only input (a stray space, a bare comma) is not a value —
+    // treat it the same as blank so it can't slip past a required check or
+    // an upstream `.min(1)` schema as a functionally-empty string/array.
+    const trimmed = String(raw).trim();
+    if (trimmed === '') {
       continue;
     }
     if (field.type === 'number') {
-      const n = Number(raw);
+      const n = Number(trimmed);
       if (!Number.isNaN(n)) {
         result[field.key] = n;
       }
       continue;
     }
     if (field.type === 'stringArray') {
-      const arr = String(raw).split(',').map(s => s.trim()).filter(Boolean);
+      const arr = trimmed.split(',').map(s => s.trim()).filter(Boolean);
       if (arr.length > 0) {
         result[field.key] = arr;
       }
       continue;
     }
-    result[field.key] = raw;
+    result[field.key] = trimmed;
   }
   return result;
 }
@@ -81,5 +88,14 @@ export function fieldInputDefault(field: SourceConfigField): string | boolean {
   if (Array.isArray(field.default)) {
     return field.default.join(', ');
   }
-  return field.default === undefined ? '' : String(field.default);
+  if (field.default !== undefined) {
+    return String(field.default);
+  }
+  // A <select> with no declared default still renders showing its first
+  // option — start state there too, or the visible value and the value
+  // that would actually get submitted silently diverge.
+  if (field.type === 'select') {
+    return field.options?.[0] ?? '';
+  }
+  return '';
 }

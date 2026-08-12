@@ -173,6 +173,20 @@ export function SourcesPanel() {
   );
 }
 
+// Capped height with an internal scroll region — a long tile grid or field list scrolls instead of overflowing the viewport.
+function Modal({ children, maxWidthClassName = 'max-w-md' }: {
+  children: React.ReactNode;
+  maxWidthClassName?: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className={`flex max-h-[85vh] w-full ${maxWidthClassName} flex-col rounded-xl border bg-background shadow-xl`}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function ConnectCredentialDialog({ source, onClose, onConnected }: {
   source: Source;
   onClose: () => void;
@@ -214,58 +228,56 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-xl border bg-background shadow-xl">
-        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center gap-2 border-b px-4 py-3">
-            <KeyRound className="size-4 text-muted-foreground" />
-            <h3 className="font-display text-lg">
-              Connect
-              {' '}
-              {source.slug}
-            </h3>
-          </div>
-          <div className="space-y-4 overflow-y-auto p-4">
-            <p className="text-xs text-muted-foreground">{spec.help}</p>
-            {spec.fields.map(field => (
-              <label key={field.key} className="block">
-                <span className="text-sm font-medium text-foreground/80">{field.label}</span>
-                <input
-                  type={field.type === 'text' ? 'text' : 'password'}
-                  required
-                  autoComplete="off"
-                  value={values[field.key] ?? ''}
-                  onChange={e => setValues(v => ({ ...v, [field.key]: e.target.value }))}
-                  placeholder={field.type === 'text' ? undefined : '••••••••••••••••'}
-                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                />
-              </label>
-            ))}
-            <p className="text-[11px] text-muted-foreground">Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.</p>
-            {error
-              ? (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                    {error}
-                  </div>
-                )
-              : null}
-          </div>
-          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-            <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || !allFilled}
-              className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
-            >
-              {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
-              Save credential
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <Modal>
+      <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <KeyRound className="size-4 text-muted-foreground" />
+          <h3 className="font-display text-lg">
+            Connect
+            {' '}
+            {source.slug}
+          </h3>
+        </div>
+        <div className="space-y-4 overflow-y-auto p-4">
+          <p className="text-xs text-muted-foreground">{spec.help}</p>
+          {spec.fields.map(field => (
+            <label key={field.key} className="block">
+              <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+              <input
+                type={field.type === 'text' ? 'text' : 'password'}
+                required
+                autoComplete="off"
+                value={values[field.key] ?? ''}
+                onChange={e => setValues(v => ({ ...v, [field.key]: e.target.value }))}
+                placeholder={field.type === 'text' ? undefined : '••••••••••••••••'}
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+              />
+            </label>
+          ))}
+          <p className="text-[11px] text-muted-foreground">Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.</p>
+          {error
+            ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </div>
+              )
+            : null}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting || !allFilled}
+            className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
+            Save credential
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -386,42 +398,50 @@ function ConnectorPicker({
   onPick: (slug: string) => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border bg-background shadow-xl">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h3 className="font-display text-lg">Pick a source type</h3>
-          <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
-            Cancel
-          </button>
-        </div>
-        <div className="grid gap-2 overflow-y-auto p-4 sm:grid-cols-2">
-          {connectors.map(c => (
-            <button
-              type="button"
-              key={c.slug}
-              onClick={() => onPick(c.slug)}
-              className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
-            >
-              <div className="flex items-center gap-2">
-                <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-                  {c.icon.slice(0, 1)}
-                </span>
-                <span className="font-medium">{c.name}</span>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">{c.description}</p>
-              {c.authKind !== 'none'
-                ? (
-                    <Badge variant="outline" className="mt-2 text-[10px]">
-                      {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
-                    </Badge>
-                  )
-                : null}
-            </button>
-          ))}
-        </div>
+    <Modal maxWidthClassName="max-w-2xl">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <h3 className="font-display text-lg">Pick a source type</h3>
+        <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
+          Cancel
+        </button>
       </div>
-    </div>
+      <div className="grid gap-2 overflow-y-auto p-4 sm:grid-cols-2">
+        {connectors.map(c => (
+          <button
+            type="button"
+            key={c.slug}
+            onClick={() => onPick(c.slug)}
+            className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
+          >
+            <div className="flex items-center gap-2">
+              <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+                {c.icon.slice(0, 1)}
+              </span>
+              <span className="font-medium">{c.name}</span>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">{c.description}</p>
+            {c.authKind !== 'none'
+              ? (
+                  <Badge variant="outline" className="mt-2 text-[10px]">
+                    {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
+                  </Badge>
+                )
+              : null}
+          </button>
+        ))}
+      </div>
+    </Modal>
   );
+}
+
+function htmlInputTypeFor(fieldType: SourceConfigField['type']): 'number' | 'url' | 'text' {
+  if (fieldType === 'number') {
+    return 'number';
+  }
+  if (fieldType === 'url') {
+    return 'url';
+  }
+  return 'text';
 }
 
 function ConfigFieldInput({ field, value, onChange }: {
@@ -455,7 +475,7 @@ function ConfigFieldInput({ field, value, onChange }: {
     <label className="block">
       <span className="text-sm font-medium text-foreground/80">{field.label}</span>
       <input
-        type={field.type === 'number' ? 'number' : field.type === 'url' ? 'url' : 'text'}
+        type={htmlInputTypeFor(field.type)}
         required={field.required}
         value={(value as string) ?? ''}
         onChange={e => onChange(e.target.value)}
@@ -490,16 +510,22 @@ function AddSourceDialog({
   const [error, setError] = useState<string | null>(null);
 
   const setFieldValue = (key: string, value: SourceFormValue) => setValues(v => ({ ...v, [key]: value }));
-  const missingRequired = !isWeb && fields.some(f => f.required && !values[f.key]);
+  // Reuse buildConfigFromFields' own emptiness rules (trims whitespace, collapses a
+  // comma/space-only stringArray to []) so "is this required field actually filled in"
+  // can't disagree with what submitting the form would actually send.
+  const missingRequired = !isWeb && fields.some(f => f.required && buildConfigFromFields([f], values)[f.key] === undefined);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const configJson = isWeb
-        ? (crawl ? { crawl: { startUrl: url, maxDepth: 1, maxPages } } : { urls: [url] })
-        : buildConfigFromFields(fields, values);
+      let configJson: Record<string, unknown>;
+      if (isWeb) {
+        configJson = crawl ? { crawl: { startUrl: url, maxDepth: 1, maxPages } } : { urls: [url] };
+      } else {
+        configJson = buildConfigFromFields(fields, values);
+      }
       const res = await fetch('/rpc/sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -511,102 +537,102 @@ function AddSourceDialog({
         return;
       }
       await onAdded();
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-xl border bg-background shadow-xl">
-        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <h3 className="font-display text-lg">
-              Add
-              {' '}
-              {connector?.name ?? kind}
-              {' '}
-              source
-            </h3>
-          </div>
-          <div className="space-y-4 overflow-y-auto p-4">
-            {isWeb
+    <Modal>
+      <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <h3 className="font-display text-lg">
+            Add
+            {' '}
+            {connector?.name ?? kind}
+            {' '}
+            source
+          </h3>
+        </div>
+        <div className="space-y-4 overflow-y-auto p-4">
+          {isWeb
+            ? (
+                <>
+                  <label className="block">
+                    <span className="text-sm font-medium text-foreground/80">URL</span>
+                    <input
+                      type="url"
+                      required
+                      value={url}
+                      onChange={e => setUrl(e.target.value)}
+                      placeholder="https://example.com/docs"
+                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={crawl} onChange={e => setCrawl(e.target.checked)} />
+                    Crawl linked pages on the same origin
+                  </label>
+                  {crawl
+                    ? (
+                        <label className="block">
+                          <span className="text-sm font-medium text-foreground/80">Max pages</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={200}
+                            value={maxPages}
+                            onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
+                            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          />
+                        </label>
+                      )
+                    : null}
+                </>
+              )
+            : fields.map(field => (
+                <ConfigFieldInput
+                  key={field.key}
+                  field={field}
+                  value={values[field.key]}
+                  onChange={value => setFieldValue(field.key, value)}
+                />
+              ))}
+          {error
+            ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </div>
+              )
+            : null}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting || (isWeb ? !url : missingRequired)}
+            className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
+          >
+            {submitting
               ? (
                   <>
-                    <label className="block">
-                      <span className="text-sm font-medium text-foreground/80">URL</span>
-                      <input
-                        type="url"
-                        required
-                        value={url}
-                        onChange={e => setUrl(e.target.value)}
-                        placeholder="https://example.com/docs"
-                        className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      />
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={crawl} onChange={e => setCrawl(e.target.checked)} />
-                      Crawl linked pages on the same origin
-                    </label>
-                    {crawl
-                      ? (
-                          <label className="block">
-                            <span className="text-sm font-medium text-foreground/80">Max pages</span>
-                            <input
-                              type="number"
-                              min={1}
-                              max={200}
-                              value={maxPages}
-                              onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
-                              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            />
-                          </label>
-                        )
-                      : null}
+                    <Loader2 className="size-3 animate-spin" />
+                    Adding…
                   </>
                 )
-              : fields.map(field => (
-                  <ConfigFieldInput
-                    key={field.key}
-                    field={field}
-                    value={values[field.key]}
-                    onChange={value => setFieldValue(field.key, value)}
-                  />
-                ))}
-            {error
-              ? (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                    {error}
-                  </div>
-                )
-              : null}
-          </div>
-          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || (isWeb ? !url : missingRequired)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
-            >
-              {submitting
-                ? (
-                    <>
-                      <Loader2 className="size-3 animate-spin" />
-                      Adding…
-                    </>
-                  )
-                : 'Add source'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+              : 'Add source'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
