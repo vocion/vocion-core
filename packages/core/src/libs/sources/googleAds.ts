@@ -39,10 +39,6 @@ export const googleAdsConnector: SourceConnector<typeof googleAdsConfigSchema> =
   icon: 'Megaphone',
   authKind: 'oauth',
   configSchema: googleAdsConfigSchema,
-  configFields: [
-    { key: 'customerId', label: 'Customer ID', type: 'text', required: true },
-    { key: 'loginCustomerId', label: 'Manager (MCC) account ID', type: 'text', help: 'Only when the token authenticates through a manager account.' },
-  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = googleAdsConfigSchema.parse(ctx.config);
     const token = ctx.credentials?.token as string | undefined;

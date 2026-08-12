@@ -88,11 +88,6 @@ export const fileImportConnector: SourceConnector<typeof fileImportConfigSchema>
   icon: 'FileJson',
   authKind: 'none',
   configSchema: fileImportConfigSchema,
-  // fieldMapping/csvOptions are advanced — left off the form, schema defaults apply.
-  configFields: [
-    { key: 'path', label: 'File path', type: 'text', required: true, help: 'Relative to WORKSPACE_PATH, or absolute.' },
-    { key: 'format', label: 'Format', type: 'select', options: ['auto', 'jsonl', 'csv', 'json'], default: 'auto' },
-  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = fileImportConfigSchema.parse(ctx.config);
     const filePath = resolvePath(cfg.path);
