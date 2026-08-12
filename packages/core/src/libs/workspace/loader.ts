@@ -1,11 +1,15 @@
 import type { ZodType } from 'zod';
+import type { ComposedEntry, PackRaw, RawEntry } from './compose';
+import type { Origin } from './merge';
 import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PackManifest, PlaybookManifest, SkillManifest, SourceManifest, TeamManifest, TrustManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
+import { composeKind, resolveActivation } from './compose';
 import { assertAgentHierarchy } from './hierarchy';
+import { EXTENDS_CORE } from './merge';
 import {
   AgentManifestSchema,
   AutomationManifestSchema,
@@ -35,11 +39,13 @@ export type LoadedAgent = AgentManifest & {
     model?: string;
   }>;
   sourceFile: string;
+  /** Provenance: base default, workspace resource, or a merge of the two. */
+  origin: Origin;
 };
-export type LoadedSkill = SkillManifest & { resolvedPromptTemplate: string; sourceFile: string };
-export type LoadedObjectType = ObjectTypeManifest & { resolvedClassificationPrompt: string | null; sourceFile: string };
+export type LoadedSkill = SkillManifest & { resolvedPromptTemplate: string; sourceFile: string; origin: Origin };
+export type LoadedObjectType = ObjectTypeManifest & { resolvedClassificationPrompt: string | null; sourceFile: string; origin: Origin };
 export type LoadedWorkflow = WorkflowManifest & { sourceFile: string };
-export type LoadedMission = MissionManifest & { sourceFile: string };
+export type LoadedMission = MissionManifest & { sourceFile: string; origin: Origin };
 export type LoadedAutomation = AutomationManifest & { sourceFile: string };
 
 export type LoadedLearningStep = LearningStepManifest & { sourceFile: string };
@@ -105,21 +111,26 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   const pack = manifest.extends ? loadPack(manifest.extends) : null;
   const files: string[] = [];
 
-  const agents = walkDir(join(abs, 'agents'))
-    .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
-    .map((file) => {
-      files.push(file);
-      const parsed = parseFile(file, AgentManifestSchema, 'agent');
-      const resolvedSystemPrompt = resolvePromptField(file, parsed.systemPromptFile, parsed.systemPrompt, files);
+  // Base-pack compose (ticket 007). With no pack, `activated` is null and every
+  // composable kind reduces to "workspace files only, origin: workspace" — the
+  // byte-for-byte-unchanged path. With a pack, base defaults the workspace
+  // activated are merged in per-slug (see compose.ts).
+  const packRaw = pack ? loadPackRaw(pack) : null;
+  const activated = packRaw ? resolveActivation(packRaw, manifest.use, manifest.disable) : null;
+
+  const agents = composeEntries('agent', join(abs, 'agents'), isYamlFile, packRaw?.agents, activated?.agents, files)
+    .map((entry) => {
+      const parsed = validateOrThrow(AgentManifestSchema, entry.raw, entry.sourceFile, 'agent');
+      const resolvedSystemPrompt = resolvePromptField(entry.sourceFile, parsed.systemPromptFile, parsed.systemPrompt, files);
       // Resolve each subagent's systemPrompt — either inline or from a sibling file.
       const resolvedSubagents = parsed.subagents.map(s => ({
         name: s.name,
         description: s.description,
-        systemPrompt: resolvePromptField(file, s.systemPromptFile, s.systemPrompt, files),
+        systemPrompt: resolvePromptField(entry.sourceFile, s.systemPromptFile, s.systemPrompt, files),
         tools: s.tools,
         model: s.model,
       }));
-      return { ...parsed, resolvedSystemPrompt, resolvedSubagents, sourceFile: file };
+      return { ...parsed, resolvedSystemPrompt, resolvedSubagents, sourceFile: entry.sourceFile, origin: entry.origin };
     });
 
   // v0.2: prefer workspace/<org>/operations/. Fall back to skills/ for
@@ -140,25 +151,20 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     );
   }
   const skillsDir = hasOperationsDir ? operationsDir : legacySkillsDir;
-  const skills = walkDir(skillsDir)
-    .filter(f => (basename(f) === 'skill.yaml' || basename(f) === 'skill.yml'
-      || basename(f) === 'operation.yaml' || basename(f) === 'operation.yml'))
-    .map((file) => {
-      files.push(file);
-      const parsed = parseFile(file, SkillManifestSchema, 'skill');
-      const resolvedPromptTemplate = resolvePromptField(file, parsed.promptFile, parsed.promptTemplate, files);
-      return { ...parsed, resolvedPromptTemplate, sourceFile: file };
+  const skills = composeEntries('skill', skillsDir, isSkillFile, packRaw?.skills, activated?.skills, files)
+    .map((entry) => {
+      const parsed = validateOrThrow(SkillManifestSchema, entry.raw, entry.sourceFile, 'skill');
+      const resolvedPromptTemplate = resolvePromptField(entry.sourceFile, parsed.promptFile, parsed.promptTemplate, files);
+      return { ...parsed, resolvedPromptTemplate, sourceFile: entry.sourceFile, origin: entry.origin };
     });
 
-  const objectTypes = walkDir(join(abs, 'objects'))
-    .filter(f => (basename(f) === 'type.yaml' || basename(f) === 'type.yml'))
-    .map((file) => {
-      files.push(file);
-      const parsed = parseFile(file, ObjectTypeManifestSchema, 'objectType');
+  const objectTypes = composeEntries('object type', join(abs, 'objects'), isObjectFile, packRaw?.objectTypes, activated?.objectTypes, files)
+    .map((entry) => {
+      const parsed = validateOrThrow(ObjectTypeManifestSchema, entry.raw, entry.sourceFile, 'objectType');
       const resolvedClassificationPrompt = parsed.classificationPromptFile || parsed.classificationPrompt
-        ? resolvePromptField(file, parsed.classificationPromptFile, parsed.classificationPrompt, files)
+        ? resolvePromptField(entry.sourceFile, parsed.classificationPromptFile, parsed.classificationPrompt, files)
         : null;
-      return { ...parsed, resolvedClassificationPrompt, sourceFile: file };
+      return { ...parsed, resolvedClassificationPrompt, sourceFile: entry.sourceFile, origin: entry.origin };
     });
 
   const workflows = walkDir(join(abs, 'workflows'))
@@ -169,12 +175,10 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       return { ...parsed, sourceFile: file };
     });
 
-  const missions = walkDir(join(abs, 'missions'))
-    .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
-    .map((file) => {
-      files.push(file);
-      const parsed = parseFile(file, MissionManifestSchema, 'mission');
-      return { ...parsed, sourceFile: file };
+  const missions = composeEntries('mission', join(abs, 'missions'), isYamlFile, packRaw?.missions, activated?.missions, files)
+    .map((entry) => {
+      const parsed = validateOrThrow(MissionManifestSchema, entry.raw, entry.sourceFile, 'mission');
+      return { ...parsed, sourceFile: entry.sourceFile, origin: entry.origin };
     });
 
   const trustPath = ['trust.yaml', 'trust.yml'].map(n => join(abs, n)).find(existsSync) ?? null;
@@ -345,6 +349,119 @@ function loadPack(spec: string): LoadedPack {
     );
   }
   return { manifest, sourcePath: dir };
+}
+
+function isYamlFile(f: string): boolean {
+  return f.endsWith('.yaml') || f.endsWith('.yml');
+}
+
+function isSkillFile(f: string): boolean {
+  const b = basename(f);
+  return b === 'skill.yaml' || b === 'skill.yml' || b === 'operation.yaml' || b === 'operation.yml';
+}
+
+function isObjectFile(f: string): boolean {
+  const b = basename(f);
+  return b === 'type.yaml' || b === 'type.yml';
+}
+
+/**
+ * Read + YAML-parse every matching file in `dir` into unvalidated raw entries.
+ * @param dir
+ * @param matches
+ */
+function readRawEntries(dir: string, matches: (f: string) => boolean): RawEntry[] {
+  return walkDir(dir)
+    .filter(matches)
+    .map((file) => {
+      const raw = (parseYaml(readFileSync(file, 'utf8')) ?? {}) as Record<string, unknown>;
+      const slug = typeof raw.slug === 'string' ? raw.slug : '';
+      return { slug, raw, sourceFile: file };
+    });
+}
+
+/**
+ * Resolve one composable kind (agents / skills / objects / missions) into a
+ * provenance-tagged list of raw entries. With no active pack, this is just the
+ * workspace files (origin: workspace) — and an orphan `extends: core` marker is
+ * a clear error. With a pack, it delegates to {@link composeKind}.
+ * @param kind - resource kind, for error messages
+ * @param workspaceDir - the workspace directory to walk for this kind
+ * @param matches - filename filter for this kind
+ * @param fullBase - the FULL base map for this kind (for collision detection), or undefined when no pack
+ * @param activatedBase - the ACTIVATED base map for this kind, or undefined when no pack
+ * @param files - sha-tracking list; workspace files are appended here
+ */
+function composeEntries(
+  kind: 'agent' | 'skill' | 'object type' | 'mission',
+  workspaceDir: string,
+  matches: (f: string) => boolean,
+  fullBase: Map<string, RawEntry> | undefined,
+  activatedBase: Map<string, RawEntry> | undefined,
+  files: string[],
+): ComposedEntry[] {
+  const wsEntries = readRawEntries(workspaceDir, matches);
+  for (const e of wsEntries) {
+    files.push(e.sourceFile);
+  }
+
+  if (!activatedBase || !fullBase) {
+    for (const e of wsEntries) {
+      if (e.raw.extends === EXTENDS_CORE) {
+        throw new Error(
+          `${kind} "${e.slug}" is marked \`extends: core\` but this workspace pins no base pack — set \`extends:\` in workspace.yaml or drop the marker (${e.sourceFile})`,
+        );
+      }
+    }
+    return wsEntries.map(e => ({ raw: e.raw, sourceFile: e.sourceFile, origin: 'workspace' as const }));
+  }
+
+  return composeKind(kind, wsEntries, activatedBase, new Set(fullBase.keys()));
+}
+
+/**
+ * Read the base pack's resources into raw, self-contained entries (prompt-file
+ * fields inlined against the pack dir so a base default never depends on a path
+ * that only makes sense inside the pack). No validation here — the composed
+ * result is validated by the normal schema in loadWorkspace. Base files are not
+ * tracked in the sha file list; the pinned pack version covers base provenance.
+ * @param pack - the resolved base pack
+ */
+function loadPackRaw(pack: LoadedPack): PackRaw {
+  return {
+    agents: readPackKind(pack.sourcePath, 'agents', isYamlFile, [{ file: 'systemPromptFile', inline: 'systemPrompt' }]),
+    skills: readPackKind(pack.sourcePath, 'operations', isSkillFile, [{ file: 'promptFile', inline: 'promptTemplate' }]),
+    objectTypes: readPackKind(pack.sourcePath, 'objects', isObjectFile, [{ file: 'classificationPromptFile', inline: 'classificationPrompt' }]),
+    missions: readPackKind(pack.sourcePath, 'missions', isYamlFile, []),
+  };
+}
+
+function readPackKind(
+  root: string,
+  dirName: string,
+  matches: (f: string) => boolean,
+  promptFields: Array<{ file: string; inline: string }>,
+): Map<string, RawEntry> {
+  const map = new Map<string, RawEntry>();
+  for (const file of walkDir(join(root, dirName)).filter(matches)) {
+    const raw = (parseYaml(readFileSync(file, 'utf8')) ?? {}) as Record<string, unknown>;
+    for (const { file: fileKey, inline } of promptFields) {
+      const rel = raw[fileKey];
+      if (typeof rel === 'string' && rel) {
+        raw[inline] = readFileSync(resolve(dirname(file), rel), 'utf8').trim();
+        delete raw[fileKey];
+      }
+    }
+    const slug = typeof raw.slug === 'string' ? raw.slug : '';
+    if (!slug) {
+      throw new Error(`base pack ${dirName} file has no slug: ${file}`);
+    }
+    if (map.has(slug)) {
+      throw new Error(`duplicate base ${dirName} slug "${slug}" in the core pack`);
+    }
+    map.set(slug, { slug, raw, sourceFile: file });
+  }
+  return map;
 }
 
 function parseFile<T>(file: string, schema: ZodType<T>, kind: string): T {

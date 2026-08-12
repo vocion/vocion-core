@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -20,6 +20,17 @@ function workspace(manifestBody: string): string {
   dirs.push(dir);
   writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: test_org\nname: test\n${manifestBody}`);
   return dir;
+}
+
+/**
+ * Write an agent file into a workspace's agents/ dir.
+ * @param dir
+ * @param slug
+ * @param body
+ */
+function writeAgent(dir: string, slug: string, body: string): void {
+  mkdirSync(join(dir, 'agents'), { recursive: true });
+  writeFileSync(join(dir, 'agents', `${slug}.yaml`), body);
 }
 
 afterEach(() => {
@@ -61,5 +72,31 @@ describe('loadWorkspace — base pack (extends)', () => {
   it('an empty `extends` pin throws a clear error', () => {
     expect(() => loadWorkspace(workspace('extends: "@1.0.0"\n')))
       .toThrow(/invalid `extends` pin/);
+  });
+});
+
+describe('loadWorkspace — compose against the (empty) core pack', () => {
+  it('a workspace-only agent under `extends: core` loads as origin: workspace', () => {
+    const dir = workspace('extends: core\nuse: all\n');
+    writeAgent(dir, 'my-agent', 'slug: my-agent\nname: Mine\nsystemPrompt: You help.\n');
+    const loaded = loadWorkspace(dir);
+
+    expect(loaded.pack?.manifest.version).toBe('1.0.0');
+    expect(loaded.agents).toHaveLength(1);
+    expect(loaded.agents[0]!.origin).toBe('workspace');
+  });
+
+  it('an `extends: core` marker with no matching base default is a hard error', () => {
+    const dir = workspace('extends: core\n');
+    writeAgent(dir, 'ghost', 'extends: core\nname: Ghost\nslug: ghost\n');
+
+    expect(() => loadWorkspace(dir)).toThrow(/the base pack ships no such agent/);
+  });
+
+  it('an `extends: core` marker with no base pack at all is a hard error', () => {
+    const dir = workspace(''); // no `extends:` in workspace.yaml
+    writeAgent(dir, 'orphan', 'extends: core\nname: Orphan\nslug: orphan\n');
+
+    expect(() => loadWorkspace(dir)).toThrow(/pins no base pack/);
   });
 });
