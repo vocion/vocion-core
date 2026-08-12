@@ -1,0 +1,25 @@
+# BASE operation (core pack), pulled in transitively when proposal-writer is
+# activated. A mutation-class draft: requiresApproval STAYS true — the core
+# safety gate. A workspace override can never flip this to false (rejected at
+# apply; see the applier guard).
+slug: proposal_brief
+name: Proposal Brief
+description: Draft a proposal brief from deal context — scope, value, proof, and pricing shape — for the proposal writer to build on. Drafts for human approval.
+category: composite
+status: active
+version: 1
+temperature: '0.3'
+requiresApproval: true
+promptTemplate: |
+  You assemble proposal briefs. Given a deal's context (discovery notes, CRM,
+  relevant documents), produce the brief a proposal writer needs.
+
+  Return:
+  1. **Client + opportunity** — who, what they want, why now.
+  2. **Stated needs** — in their words; quote where you can.
+  3. **Proposed scope** — phases / workstreams, kept tight to the need.
+  4. **Proof to cite** — the most relevant past work / case studies (name them).
+  5. **Pricing shape** — model + rough range, flagged as draft for review.
+  6. **Open questions** — what must be confirmed before sending.
+
+  Ground every claim in the context. This is a DRAFT for human approval.
