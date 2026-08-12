@@ -1,16 +1,19 @@
 /**
  * POST /rpc/sources/[id]/credentials — store connector credentials in the vault.
  *
- * Body: `{ credentials: { token: string, ... } }` — connector-specific keys
- * (all RevOps connectors read `credentials.token`; googleAds also takes a
- * `developerToken`, ga4/drive/gmail take an OAuth access `token`). The plaintext
- * is AES-GCM encrypted at rest; only ciphertext + dek id hit the DB.
+ * Body: `{ credentials: {...} }` — connector-specific keys, driven by
+ * `CRED_FIELDS[connectorSlug].fields` (most connectors read a single
+ * `token`; google-ads also needs `developerToken`; zoom needs
+ * `accountId`/`clientId`/`clientSecret`; jira needs `email`/`apiToken`).
+ * The plaintext is AES-GCM encrypted at rest; only ciphertext + dek id hit
+ * the DB.
  *
  * Resolves the source slug from the knowledge_source id, ensures a
  * `source_install` exists, and stores the credential against it. Admin-only.
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
+import { validateCredentialSubmission } from '@/libs/sources/credentialFields';
 import { storeCredentialForSource } from '@/services/SourceCredentialService';
 import { getSourceById } from '@/services/SourceSyncService';
 
@@ -39,23 +42,22 @@ export async function POST(
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const creds = body.credentials ?? {};
-  const token = typeof creds.token === 'string' ? creds.token.trim() : '';
-  if (!token) {
-    return Response.json({ error: 'A token is required' }, { status: 400 });
-  }
-
   const source = await getSourceById(orgId, sourceId);
   if (!source) {
     return Response.json({ error: 'Source not found' }, { status: 404 });
   }
   const connectorSlug = (source.config?._connector as string | undefined) ?? source.slug;
 
+  const { trimmed, missingKey } = validateCredentialSubmission(connectorSlug, body.credentials ?? {});
+  if (missingKey) {
+    return Response.json({ error: `"${missingKey}" is required` }, { status: 400 });
+  }
+
   try {
     const { credentialId } = await storeCredentialForSource({
       orgId,
       sourceSlug: connectorSlug,
-      raw: { ...creds, token },
+      raw: { ...body.credentials, ...trimmed },
       displayName: body.displayName,
       userId,
       projectId: orgId,

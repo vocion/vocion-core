@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { CRED_FIELDS } from '@/libs/sources/credentialFields';
+import { CRED_FIELDS, validateCredentialSubmission } from '@/libs/sources/credentialFields';
 import { listConnectors } from '@/libs/sources/registry';
 
 describe('CRED_FIELDS', () => {
@@ -27,5 +27,54 @@ describe('CRED_FIELDS', () => {
     for (const key of Object.keys(CRED_FIELDS)) {
       expect(validSlugs.has(key), `CRED_FIELDS key "${key}" does not match any registered connector slug`).toBe(true);
     }
+  });
+});
+
+describe('validateCredentialSubmission', () => {
+  // Guards the exact bug found reviewing this PR: the credentials route
+  // hardcoded a "token is required" check, which rejects any connector
+  // whose real credential shape has no `token` key at all.
+  it('accepts zoom given its real accountId/clientId/clientSecret keys, no token', () => {
+    const { trimmed, missingKey } = validateCredentialSubmission('zoom', {
+      accountId: 'acc1',
+      clientId: 'cid1',
+      clientSecret: 'secret1',
+    });
+
+    expect(missingKey).toBeNull();
+    expect(trimmed).toEqual({ accountId: 'acc1', clientId: 'cid1', clientSecret: 'secret1' });
+  });
+
+  it('rejects zoom missing one of its required keys, naming which one', () => {
+    const { missingKey } = validateCredentialSubmission('zoom', { accountId: 'acc1', clientId: 'cid1' });
+
+    expect(missingKey).toBe('clientSecret');
+  });
+
+  it('accepts jira given its real email/apiToken keys, no token', () => {
+    const { trimmed, missingKey } = validateCredentialSubmission('jira', {
+      email: 'admin@acme.com',
+      apiToken: 'tok1',
+    });
+
+    expect(missingKey).toBeNull();
+    expect(trimmed).toEqual({ email: 'admin@acme.com', apiToken: 'tok1' });
+  });
+
+  it('trims whitespace and treats a whitespace-only value as missing', () => {
+    const { trimmed, missingKey } = validateCredentialSubmission('hubspot', { token: '  abc123  ' });
+
+    expect(trimmed).toEqual({ token: 'abc123' });
+    expect(missingKey).toBeNull();
+
+    const blank = validateCredentialSubmission('hubspot', { token: '   ' });
+
+    expect(blank.missingKey).toBe('token');
+  });
+
+  it('falls back to requiring a single "token" key for an unregistered connector slug', () => {
+    const { missingKey } = validateCredentialSubmission('made-up-connector', {});
+
+    expect(missingKey).toBe('token');
   });
 });

@@ -147,6 +147,7 @@ export function SourcesPanel() {
       {addingKind
         ? (
             <AddSourceDialog
+              key={addingKind}
               kind={addingKind}
               connector={connectors.find(c => c.slug === addingKind) ?? null}
               onClose={() => setAddingKind(null)}
