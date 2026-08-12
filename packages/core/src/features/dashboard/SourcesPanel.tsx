@@ -1,10 +1,14 @@
 'use client';
 
+import type { SourceConfigField, SourceFormValue } from '@/libs/sources/configFields';
 import { CheckCircle2, Globe, KeyRound, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Link } from '@/libs/I18nNavigation';
+import { buildConfigFromFields, fieldInputDefault } from '@/libs/sources/configFields';
+
+import { CRED_FIELDS } from '@/libs/sources/credentialFields';
 
 type Source = {
   id: number;
@@ -27,6 +31,7 @@ type ConnectorTile = {
   description: string;
   icon: string;
   authKind: 'none' | 'apikey' | 'oauth';
+  configFields: SourceConfigField[];
 };
 
 export function SourcesPanel() {
@@ -168,36 +173,27 @@ export function SourcesPanel() {
   );
 }
 
-/** Connector-specific credential fields. All read `token`; a couple take extras. */
-const CRED_FIELDS: Record<string, { label: string; help: string; extra?: { key: string; label: string } }> = {
-  hubspot: { label: 'Private-app token', help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).' },
-  slack: { label: 'Bot / user token', help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).' },
-  gmail: { label: 'OAuth access token', help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)' },
-  drive: { label: 'OAuth access token', help: 'A Google OAuth access token with drive.readonly.' },
-  ga4: { label: 'OAuth access token', help: 'A Google OAuth access token with analytics.readonly.' },
-  googleAds: { label: 'OAuth access token', help: 'A Google Ads OAuth access token.', extra: { key: 'developerToken', label: 'Developer token' } },
-};
-
 function ConnectCredentialDialog({ source, onClose, onConnected }: {
   source: Source;
   onClose: () => void;
   onConnected: () => Promise<void> | void;
 }) {
   const connectorSlug = ((source.config?._connector as string | undefined) ?? source.slug);
-  const spec = CRED_FIELDS[connectorSlug] ?? { label: 'Token', help: 'Paste the connector access token.' };
-  const [token, setToken] = useState('');
-  const [extra, setExtra] = useState('');
+  const spec = CRED_FIELDS[connectorSlug] ?? { help: 'Paste the connector access token.', fields: [{ key: 'token', label: 'Token', type: 'password' as const }] };
+  const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const allFilled = spec.fields.every(f => (values[f.key] ?? '').trim());
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const credentials: Record<string, string> = { token: token.trim() };
-      if (spec.extra && extra.trim()) {
-        credentials[spec.extra.key] = extra.trim();
+      const credentials: Record<string, string> = {};
+      for (const field of spec.fields) {
+        credentials[field.key] = (values[field.key] ?? '').trim();
       }
       const res = await fetch(`/rpc/sources/${source.id}/credentials`, {
         method: 'POST',
@@ -231,31 +227,20 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
           </div>
           <div className="space-y-4 p-4">
             <p className="text-xs text-muted-foreground">{spec.help}</p>
-            <label className="block">
-              <span className="text-sm font-medium text-foreground/80">{spec.label}</span>
-              <input
-                type="password"
-                required
-                autoComplete="off"
-                value={token}
-                onChange={e => setToken(e.target.value)}
-                placeholder="••••••••••••••••"
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-              />
-            </label>
-            {spec.extra
-              ? (
-                  <label className="block">
-                    <span className="text-sm font-medium text-foreground/80">{spec.extra.label}</span>
-                    <input
-                      type="text"
-                      value={extra}
-                      onChange={e => setExtra(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                    />
-                  </label>
-                )
-              : null}
+            {spec.fields.map(field => (
+              <label key={field.key} className="block">
+                <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+                <input
+                  type={field.type === 'text' ? 'text' : 'password'}
+                  required
+                  autoComplete="off"
+                  value={values[field.key] ?? ''}
+                  onChange={e => setValues(v => ({ ...v, [field.key]: e.target.value }))}
+                  placeholder={field.type === 'text' ? undefined : '••••••••••••••••'}
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                />
+              </label>
+            ))}
             <p className="text-[11px] text-muted-foreground">Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.</p>
             {error
               ? (
@@ -271,7 +256,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
             </button>
             <button
               type="submit"
-              disabled={submitting || !token.trim()}
+              disabled={submitting || !allFilled}
               className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
@@ -439,6 +424,49 @@ function ConnectorPicker({
   );
 }
 
+function ConfigFieldInput({ field, value, onChange }: {
+  field: SourceConfigField;
+  value: SourceFormValue;
+  onChange: (value: SourceFormValue) => void;
+}) {
+  if (field.type === 'boolean') {
+    return (
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={Boolean(value)} onChange={e => onChange(e.target.checked)} />
+        {field.label}
+      </label>
+    );
+  }
+  if (field.type === 'select') {
+    return (
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+        <select
+          value={(value as string) ?? ''}
+          onChange={e => onChange(e.target.value)}
+          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          {(field.options ?? []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+        </select>
+      </label>
+    );
+  }
+  return (
+    <label className="block">
+      <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+      <input
+        type={field.type === 'number' ? 'number' : field.type === 'url' ? 'url' : 'text'}
+        required={field.required}
+        value={(value as string) ?? ''}
+        onChange={e => onChange(e.target.value)}
+        placeholder={field.placeholder}
+        className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+      />
+      {field.help ? <span className="mt-1 block text-[11px] text-muted-foreground">{field.help}</span> : null}
+    </label>
+  );
+}
+
 function AddSourceDialog({
   kind,
   connector,
@@ -450,20 +478,28 @@ function AddSourceDialog({
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
+  const isWeb = kind === 'web';
+  const fields = connector?.configFields ?? [];
   const [url, setUrl] = useState('');
   const [crawl, setCrawl] = useState(true);
   const [maxPages, setMaxPages] = useState(20);
+  const [values, setValues] = useState<Record<string, SourceFormValue>>(
+    () => Object.fromEntries(fields.map(f => [f.key, fieldInputDefault(f)])),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const setFieldValue = (key: string, value: SourceFormValue) => setValues(v => ({ ...v, [key]: value }));
+  const missingRequired = !isWeb && fields.some(f => f.required && !values[f.key]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const configJson = crawl
-        ? { crawl: { startUrl: url, maxDepth: 1, maxPages } }
-        : { urls: [url] };
+      const configJson = isWeb
+        ? (crawl ? { crawl: { startUrl: url, maxDepth: 1, maxPages } } : { urls: [url] })
+        : buildConfigFromFields(fields, values);
       const res = await fetch('/rpc/sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -494,36 +530,49 @@ function AddSourceDialog({
             </h3>
           </div>
           <div className="space-y-4 p-4">
-            <label className="block">
-              <span className="text-sm font-medium text-foreground/80">URL</span>
-              <input
-                type="url"
-                required
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-                placeholder="https://example.com/docs"
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={crawl} onChange={e => setCrawl(e.target.checked)} />
-              Crawl linked pages on the same origin
-            </label>
-            {crawl
+            {isWeb
               ? (
-                  <label className="block">
-                    <span className="text-sm font-medium text-foreground/80">Max pages</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={200}
-                      value={maxPages}
-                      onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    />
-                  </label>
+                  <>
+                    <label className="block">
+                      <span className="text-sm font-medium text-foreground/80">URL</span>
+                      <input
+                        type="url"
+                        required
+                        value={url}
+                        onChange={e => setUrl(e.target.value)}
+                        placeholder="https://example.com/docs"
+                        className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={crawl} onChange={e => setCrawl(e.target.checked)} />
+                      Crawl linked pages on the same origin
+                    </label>
+                    {crawl
+                      ? (
+                          <label className="block">
+                            <span className="text-sm font-medium text-foreground/80">Max pages</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={200}
+                              value={maxPages}
+                              onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
+                              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            />
+                          </label>
+                        )
+                      : null}
+                  </>
                 )
-              : null}
+              : fields.map(field => (
+                  <ConfigFieldInput
+                    key={field.key}
+                    field={field}
+                    value={values[field.key]}
+                    onChange={value => setFieldValue(field.key, value)}
+                  />
+                ))}
             {error
               ? (
                   <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -542,7 +591,7 @@ function AddSourceDialog({
             </button>
             <button
               type="submit"
-              disabled={submitting || !url}
+              disabled={submitting || (isWeb ? !url : missingRequired)}
               className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting

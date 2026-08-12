@@ -38,6 +38,12 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
   icon: 'Globe',
   authKind: 'none',
   configSchema: webConfigSchema,
+  // Bespoke url/crawl UI in AddSourceDialog covers this connector directly —
+  // one flat field standing in for the real (urls | crawl) union, kept mainly
+  // so configFields.test.ts can still assert this connector against a schema.
+  configFields: [
+    { key: 'urls', label: 'URLs', type: 'stringArray', help: 'Comma-separated. Leave blank and use crawl mode instead.' },
+  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = webConfigSchema.parse(ctx.config);
     if (cfg.urls?.length) {

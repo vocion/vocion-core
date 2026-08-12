@@ -101,6 +101,11 @@ export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
   icon: 'Video',
   authKind: 'oauth',
   configSchema: zoomConfigSchema,
+  // apiBaseUrl/authBaseUrl are advanced — left off the form, schema defaults apply.
+  configFields: [
+    { key: 'pastDays', label: 'Days back', type: 'number', default: 30 },
+    { key: 'users', label: 'Restrict to users (emails)', type: 'stringArray', help: 'Leave empty to sync every active user company-wide.' },
+  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = zoomConfigSchema.parse(ctx.config);
     const token = await mintToken(cfg.authBaseUrl, ctx.credentials);

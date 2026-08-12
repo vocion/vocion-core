@@ -47,6 +47,7 @@ export async function GET() {
     description: c.description,
     icon: c.icon,
     authKind: c.authKind,
+    configFields: c.configFields ?? [],
   }));
   return Response.json({ sources: withStatus, connectors });
 }

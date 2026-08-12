@@ -66,6 +66,10 @@ export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
   icon: 'Contact',
   authKind: 'apikey',
   configSchema: hubspotConfigSchema,
+  configFields: [
+    { key: 'objectType', label: 'Object type', type: 'select', options: ['contacts', 'deals', 'companies'], default: 'contacts' },
+    { key: 'baseUrl', label: 'API base URL', type: 'url', default: 'https://api.hubapi.com', help: 'Override only for EU data residency or testing.' },
+  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = hubspotConfigSchema.parse(ctx.config);
     const token = (ctx.credentials?.token ?? ctx.credentials?.accessToken) as string | undefined;
