@@ -20,6 +20,12 @@ export type SourceConfigField = {
   required?: boolean;
   /** Mirrors the schema's `.default()`, shown pre-filled and editable. */
   default?: string | number | boolean | string[];
+  /**
+   * For `type: 'number'` — mirrors the schema's `.min()`/`.positive()`.
+   * Every number field is int-only today, so this doubles as both the HTML
+   * `min` attribute and the floor buildConfigFromFields clamps to.
+   */
+  min?: number;
   /** For `type: 'select'`. */
   options?: string[];
   help?: string;
@@ -61,7 +67,8 @@ export function buildConfigFromFields(
     if (field.type === 'number') {
       const n = Number(trimmed);
       if (!Number.isNaN(n)) {
-        result[field.key] = n;
+        const rounded = Math.round(n);
+        result[field.key] = field.min !== undefined ? Math.max(field.min, rounded) : rounded;
       }
       continue;
     }
