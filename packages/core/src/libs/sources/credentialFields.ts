@@ -72,3 +72,25 @@ export const CRED_FIELDS: Record<string, CredSpec> = {
     ],
   },
 };
+
+/**
+ * Validate a raw credential submission against a connector's real field
+ * list — not a hardcoded `token` key, which would reject zoom's
+ * accountId/clientId/clientSecret and jira's email/apiToken outright even
+ * though they're exactly what those connectors read from `ctx.credentials`.
+ * Unknown connectors (no CRED_FIELDS entry) fall back to requiring `token`.
+ * @param connectorSlug - the real connector slug (e.g. 'zoom', 'google-ads')
+ * @param raw - the request body's `credentials` object, unvalidated
+ */
+export function validateCredentialSubmission(
+  connectorSlug: string,
+  raw: Record<string, unknown>,
+): { trimmed: Record<string, string>; missingKey: string | null } {
+  const requiredKeys = CRED_FIELDS[connectorSlug]?.fields.map(f => f.key) ?? ['token'];
+  const trimmed: Record<string, string> = {};
+  for (const key of requiredKeys) {
+    trimmed[key] = typeof raw[key] === 'string' ? raw[key].trim() : '';
+  }
+  const missingKey = requiredKeys.find(key => !trimmed[key]) ?? null;
+  return { trimmed, missingKey };
+}

@@ -64,6 +64,26 @@ describe('connector configFields', () => {
       expect(() => connector.configSchema.parse(configJson)).not.toThrow();
     });
 
+    // The two tests above use a synthetic sampleValue() for every field — they
+    // never actually exercise a field's own declared `default`. A default that
+    // doesn't match its own field (a `select` default absent from `options`, a
+    // `number` default outside the schema's .min()/.max()) would ship
+    // invisibly: fieldInputDefault() is exactly what the dialog pre-fills the
+    // form with on open. Required fields still get a sample value here — an
+    // unfilled required field is expected to be blank; that's not what this
+    // test is checking.
+    it(`${connector.slug}: fieldInputDefault for every optional field parses against configSchema`, () => {
+      const fields = connector.configFields ?? [];
+      const values: Record<string, SourceFormValue> = {};
+      for (const field of fields) {
+        values[field.key] = field.required ? sampleValue(field) : fieldInputDefault(field);
+      }
+      const configJson = buildConfigFromFields(fields, values);
+      const result = connector.configSchema.safeParse(configJson);
+
+      expect(result.success, !result.success ? result.error.message : undefined).toBe(true);
+    });
+
     // Catches the field-drift class this whole file guards against a step earlier:
     // a stale/renamed configFields.key that configSchema no longer has at all,
     // before it ever gets the chance to fail (or worse, silently pass) a round trip.
