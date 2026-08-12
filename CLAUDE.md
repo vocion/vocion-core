@@ -8,7 +8,7 @@ Vocion is a multi-tenant SaaS application built on Next.js 16. It provides conte
 
 - **Framework:** Next.js 16 (App Router) + React 19 + TypeScript (strict)
 - **Retrieval:** Native first-party — pgvector (HNSW cosine) + Postgres FTS (tsvector + ts_rank), reciprocal rank fusion, optional LLM rerank. No third-party retrieval engine.
-- **Connectors:** First-party `SourceConnector` interface (`libs/sources/`). Sync orchestrated by `SourceSyncService` (Temporal async workflow queued). Built-in: `web`. Demo: `local-files` (see Phase B).
+- **Connectors:** First-party `SourceConnector` interface (`libs/sources/`). Sync orchestrated by `SourceSyncService` (Temporal async workflow queued). 13 registered in `libs/sources/registry.ts`: `web`, `local-files`, `file-import`, `hubspot`, `jira`, `google-ads`, `ga4`, `gmail`, `google-calendar`, `granola`, `slack`, `drive`, `zoom`. Each declares `configFields` (Add-Source dialog inputs) alongside its `configSchema` — keep the two in sync (`configFields.test.ts` checks the round trip).
 - **Styling:** Tailwind CSS 4 + Shadcn UI (Radix primitives)
 - **Auth:** NextAuth (v0.3+) with multi-tenancy via accounts/projects + RBAC
 - **Database:** PostgreSQL (Docker Compose; pgvector/pgvector:pg16) + Drizzle ORM

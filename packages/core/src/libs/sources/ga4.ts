@@ -33,6 +33,10 @@ export const ga4Connector: SourceConnector<typeof ga4ConfigSchema> = {
   description: 'Ingest GA4 report rows (sessions, conversions, bounce rate) by date + landing page.',
   icon: 'BarChart3',
   authKind: 'oauth',
+  // dimensions/metrics/limit are advanced — left off the form, schema defaults apply.
+  configFields: [
+    { key: 'propertyId', label: 'GA4 property ID', type: 'text', required: true },
+  ],
   configSchema: ga4ConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = ga4ConfigSchema.parse(ctx.config);
