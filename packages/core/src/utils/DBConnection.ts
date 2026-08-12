@@ -6,9 +6,10 @@ import * as schema from '@/models/Schema';
 export const createDbConnection = () => {
   const pool = new Pool({
     connectionString: Env.DATABASE_URL,
-    max: Env.DATABASE_URL.includes('localhost') || Env.DATABASE_URL.includes('127.0.0.1')
-      ? 1
-      : undefined,
+    max: Env.DATABASE_POOL_MAX
+      ?? (Env.DATABASE_URL.includes('localhost') || Env.DATABASE_URL.includes('127.0.0.1')
+        ? 1
+        : undefined),
   });
 
   return drizzle({

@@ -5,6 +5,15 @@ export const Env = createEnv({
   server: {
     DATABASE_URL: z.string().min(1),
     /**
+     * Overrides DBConnection.ts's pool size for localhost DATABASE_URLs, which
+     * otherwise default to a single connection — correct for PGlite (a
+     * single-threaded embedded engine) but wrong for a real local Postgres,
+     * where it needlessly serializes every request through one connection.
+     * Set this in any .env.local backed by real Postgres (docker-compose, a
+     * worktree DB, etc).
+     */
+    DATABASE_POOL_MAX: z.coerce.number().int().positive().optional(),
+    /**
      * auth.js secret. Required when VOCION_AUTH_PROVIDER is unset or 'local'.
      * Generate with: `openssl rand -base64 32`
      */
@@ -47,6 +56,7 @@ export const Env = createEnv({
     VOCION_AUTH_PROVIDER: process.env.VOCION_AUTH_PROVIDER,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
     DATABASE_URL: process.env.DATABASE_URL,
+    DATABASE_POOL_MAX: process.env.DATABASE_POOL_MAX,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
     BILLING_PLAN_ENV: process.env.BILLING_PLAN_ENV,
