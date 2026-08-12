@@ -76,8 +76,10 @@ describe('loadWorkspace — base pack (extends)', () => {
 });
 
 describe('loadWorkspace — compose against the (empty) core pack', () => {
-  it('a workspace-only agent under `extends: core` loads as origin: workspace', () => {
-    const dir = workspace('extends: core\nuse: all\n');
+  it('a workspace-only agent under `extends: core` (activating nothing) loads as origin: workspace', () => {
+    // `use` omitted → use: none, so no base agents are pulled; only the
+    // workspace's own agent loads, as origin: workspace.
+    const dir = workspace('extends: core\n');
     writeAgent(dir, 'my-agent', 'slug: my-agent\nname: Mine\nsystemPrompt: You help.\n');
     const loaded = loadWorkspace(dir);
 
