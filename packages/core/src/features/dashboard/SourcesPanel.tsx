@@ -215,8 +215,8 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
-        <form onSubmit={submit}>
+      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-xl border bg-background shadow-xl">
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex items-center gap-2 border-b px-4 py-3">
             <KeyRound className="size-4 text-muted-foreground" />
             <h3 className="font-display text-lg">
@@ -225,7 +225,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
               {source.slug}
             </h3>
           </div>
-          <div className="space-y-4 p-4">
+          <div className="space-y-4 overflow-y-auto p-4">
             <p className="text-xs text-muted-foreground">{spec.help}</p>
             {spec.fields.map(field => (
               <label key={field.key} className="block">
@@ -387,14 +387,14 @@ function ConnectorPicker({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-2xl rounded-xl border bg-background shadow-xl">
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border bg-background shadow-xl">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="font-display text-lg">Pick a source type</h3>
           <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
             Cancel
           </button>
         </div>
-        <div className="grid gap-2 p-4 sm:grid-cols-2">
+        <div className="grid gap-2 overflow-y-auto p-4 sm:grid-cols-2">
           {connectors.map(c => (
             <button
               type="button"
@@ -518,8 +518,8 @@ function AddSourceDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
-        <form onSubmit={submit}>
+      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-xl border bg-background shadow-xl">
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <h3 className="font-display text-lg">
               Add
@@ -529,7 +529,7 @@ function AddSourceDialog({
               source
             </h3>
           </div>
-          <div className="space-y-4 p-4">
+          <div className="space-y-4 overflow-y-auto p-4">
             {isWeb
               ? (
                   <>
