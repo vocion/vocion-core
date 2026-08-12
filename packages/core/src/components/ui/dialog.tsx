@@ -55,17 +55,20 @@ function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn('flex items-center justify-between gap-2 border-b px-4 py-3', className)}
+      className={cn('flex shrink-0 items-center justify-between gap-2 border-b px-4 py-3', className)}
       {...props}
     />
   );
 }
 
+// flex-1 + min-h-0 is what makes this the region that actually scrolls: without
+// it, a flex child sizes to its own content and DialogContent's max-h just gets
+// exceeded — the box overflows past the viewport with nothing to scroll.
 function DialogBody({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="dialog-body"
-      className={cn('overflow-y-auto p-4', className)}
+      className={cn('min-h-0 flex-1 overflow-y-auto p-4', className)}
       {...props}
     />
   );
@@ -75,7 +78,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="dialog-footer"
-      className={cn('flex items-center justify-end gap-2 border-t px-4 py-3', className)}
+      className={cn('flex shrink-0 items-center justify-end gap-2 border-t px-4 py-3', className)}
       {...props}
     />
   );
