@@ -204,13 +204,6 @@ export const jiraConnector: SourceConnector<typeof jiraConfigSchema> = {
   icon: 'SquareKanban',
   authKind: 'apikey',
   configSchema: jiraConfigSchema,
-  // notDoneStatuses is advanced — left off the form, schema default ([]) applies.
-  configFields: [
-    { key: 'baseUrl', label: 'Jira site URL', type: 'url', required: true, placeholder: 'https://acme.atlassian.net' },
-    { key: 'projectKeys', label: 'Project keys', type: 'stringArray', required: true, help: 'Comma-separated, e.g. ENG, OPS' },
-    { key: 'doneWindowDays', label: 'Done-issue window (days)', type: 'number', default: 90 },
-    { key: 'includeDescription', label: 'Include issue description', type: 'boolean', default: true },
-  ],
   defaultReconcileCron: '0 3 * * *',
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = jiraConfigSchema.parse(ctx.config);

@@ -43,10 +43,6 @@ export const localFilesConnector: SourceConnector<typeof localFilesConfigSchema>
   icon: 'FolderOpen',
   authKind: 'none',
   configSchema: localFilesConfigSchema,
-  configFields: [
-    { key: 'directory', label: 'Directory', type: 'text', required: true, help: 'Relative to WORKSPACE_PATH, or absolute.' },
-    { key: 'extensions', label: 'File extensions', type: 'stringArray', default: ['.md', '.txt'], help: 'Comma-separated, e.g. .md, .txt' },
-  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = localFilesConfigSchema.parse(ctx.config);
     const baseDir = path.isAbsolute(cfg.directory)

@@ -2,8 +2,8 @@
  * POST /rpc/sources/[id]/credentials — store connector credentials in the vault.
  *
  * Body: `{ credentials: {...} }` — connector-specific keys, driven by
- * `CRED_FIELDS[connectorSlug].fields` (most connectors read a single
- * `token`; google-ads also needs `developerToken`; zoom needs
+ * `UI_FIELDS[connectorSlug].credentials.fields` (most connectors read a
+ * single `token`; google-ads also needs `developerToken`; zoom needs
  * `accountId`/`clientId`/`clientSecret`; jira needs `email`/`apiToken`).
  * The plaintext is AES-GCM encrypted at rest; only ciphertext + dek id hit
  * the DB.
@@ -13,7 +13,7 @@
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
-import { validateCredentialSubmission } from '@/libs/sources/credentialFields';
+import { validateCredentialSubmission } from '@/libs/sources/uiFields';
 import { storeCredentialForSource } from '@/services/SourceCredentialService';
 import { getSourceById } from '@/services/SourceSyncService';
 

@@ -14,7 +14,6 @@
  */
 
 import type { z } from 'zod';
-import type { SourceConfigField } from './configFields';
 import type { IngestDoc } from '@/services/IngestionService';
 
 export type SourceAuthKind = 'none' | 'apikey' | 'oauth';
@@ -57,14 +56,6 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
    *  adding the source.
    */
   configSchema: TConfigSchema;
-  /**
-   * Form fields the Add-Source dialog renders for this connector, matched
-   * to `configSchema` — keep the two in sync (`configFields.test.ts` checks
-   * every field round-trips through the real schema). Optional only so
-   * throwaway test fixtures don't need to declare it; every real,
-   * UI-reachable connector should set it.
-   */
-  configFields?: SourceConfigField[];
   /**
    * Default cron for a periodic FULL sync (a reconcile pass). Incremental
    * syncs can never observe upstream deletions — a deleted record simply

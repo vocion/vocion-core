@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Link } from '@/libs/I18nNavigation';
 import { buildConfigFromFields, fieldInputDefault } from '@/libs/sources/configFields';
 
-import { CRED_FIELDS } from '@/libs/sources/credentialFields';
+import { UI_FIELDS } from '@/libs/sources/uiFields';
 
 type Source = {
   id: number;
@@ -181,7 +181,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   onConnected: () => Promise<void> | void;
 }) {
   const connectorSlug = ((source.config?._connector as string | undefined) ?? source.slug);
-  const spec = CRED_FIELDS[connectorSlug] ?? { help: 'Paste the connector access token.', fields: [{ key: 'token', label: 'Token', type: 'password' as const }] };
+  const spec = UI_FIELDS[connectorSlug]?.credentials ?? { help: 'Paste the connector access token.', fields: [{ key: 'token', label: 'Token', type: 'password' as const }] };
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
