@@ -505,6 +505,8 @@ function ConfigFieldInput({ field, value, onChange }: {
         value={(value as string) ?? ''}
         onChange={e => onChange(e.target.value)}
         placeholder={field.placeholder}
+        min={field.type === 'number' ? field.min : undefined}
+        step={field.type === 'number' ? 1 : undefined}
         className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
       />
       {field.help ? <span className="mt-1 block text-[11px] text-muted-foreground">{field.help}</span> : null}

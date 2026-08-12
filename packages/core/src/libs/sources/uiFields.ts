@@ -70,7 +70,7 @@ export const UI_FIELDS: Record<string, ConnectorUiFields> = {
     configFields: [
       { key: 'baseUrl', label: 'Jira site URL', type: 'url', required: true, placeholder: 'https://acme.atlassian.net' },
       { key: 'projectKeys', label: 'Project keys', type: 'stringArray', required: true, help: 'Comma-separated, e.g. ENG, OPS' },
-      { key: 'doneWindowDays', label: 'Done-issue window (days)', type: 'number', default: 90 },
+      { key: 'doneWindowDays', label: 'Done-issue window (days)', type: 'number', default: 90, min: 1 },
       { key: 'includeDescription', label: 'Include issue description', type: 'boolean', default: true },
     ],
     credentials: {
@@ -116,8 +116,8 @@ export const UI_FIELDS: Record<string, ConnectorUiFields> = {
   'google-calendar': {
     configFields: [
       { key: 'calendarId', label: 'Calendar ID', type: 'text', default: 'primary' },
-      { key: 'pastDays', label: 'Days back', type: 'number', default: 30 },
-      { key: 'futureDays', label: 'Days ahead', type: 'number', default: 60 },
+      { key: 'pastDays', label: 'Days back', type: 'number', default: 30, min: 1 },
+      { key: 'futureDays', label: 'Days ahead', type: 'number', default: 60, min: 1 },
     ],
     credentials: {
       help: 'A Google OAuth access token with calendar.readonly.',
@@ -126,7 +126,7 @@ export const UI_FIELDS: Record<string, ConnectorUiFields> = {
   },
   'granola': {
     configFields: [
-      { key: 'pastDays', label: 'Days back', type: 'number', default: 60 },
+      { key: 'pastDays', label: 'Days back', type: 'number', default: 60, min: 1 },
     ],
     credentials: {
       help: 'A Granola API token.',
@@ -154,7 +154,7 @@ export const UI_FIELDS: Record<string, ConnectorUiFields> = {
   'zoom': {
     // apiBaseUrl/authBaseUrl are advanced — left off the form, schema defaults apply.
     configFields: [
-      { key: 'pastDays', label: 'Days back', type: 'number', default: 30 },
+      { key: 'pastDays', label: 'Days back', type: 'number', default: 30, min: 1 },
       { key: 'users', label: 'Restrict to users (emails)', type: 'stringArray', help: 'Leave empty to sync every active user company-wide.' },
     ],
     credentials: {
