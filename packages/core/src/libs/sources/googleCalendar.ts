@@ -71,11 +71,6 @@ export const googleCalendarConnector: SourceConnector<typeof calendarConfigSchem
   icon: 'Calendar',
   authKind: 'oauth',
   configSchema: calendarConfigSchema,
-  configFields: [
-    { key: 'calendarId', label: 'Calendar ID', type: 'text', default: 'primary' },
-    { key: 'pastDays', label: 'Days back', type: 'number', default: 30 },
-    { key: 'futureDays', label: 'Days ahead', type: 'number', default: 60 },
-  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = calendarConfigSchema.parse(ctx.config);
     const token = await resolveGoogleAccessToken(ctx.credentials);

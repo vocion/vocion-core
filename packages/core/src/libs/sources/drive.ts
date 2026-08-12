@@ -46,9 +46,6 @@ export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
   icon: 'FileText',
   authKind: 'oauth',
   configSchema: driveConfigSchema,
-  configFields: [
-    { key: 'query', label: 'Drive query', type: 'text', default: 'trashed = false', help: 'Drive API v3 query syntax.' },
-  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = driveConfigSchema.parse(ctx.config);
     // Durable path: refresh-token exchange (see googleAuth); legacy fallback

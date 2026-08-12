@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { buildConfigFromFields, fieldInputDefault } from '@/libs/sources/configFields';
 
 import { listConnectors } from '@/libs/sources/registry';
+import { UI_FIELDS } from '@/libs/sources/uiFields';
 
 /**
  * A schema-valid sample value for a field, used to fill required fields.
@@ -42,24 +43,26 @@ describe('connector configFields', () => {
   const genericConnectors = listConnectors().filter(c => c.slug !== 'web');
 
   for (const connector of genericConnectors) {
+    const fields = UI_FIELDS[connector.slug]?.configFields ?? [];
+
     it(`${connector.slug}: required-only submission parses against configSchema`, () => {
       const values: Record<string, SourceFormValue> = {};
-      for (const field of connector.configFields ?? []) {
+      for (const field of fields) {
         if (field.required) {
           values[field.key] = sampleValue(field);
         }
       }
-      const configJson = buildConfigFromFields(connector.configFields ?? [], values);
+      const configJson = buildConfigFromFields(fields, values);
 
       expect(() => connector.configSchema.parse(configJson)).not.toThrow();
     });
 
     it(`${connector.slug}: fully-filled submission parses against configSchema`, () => {
       const values: Record<string, SourceFormValue> = {};
-      for (const field of connector.configFields ?? []) {
+      for (const field of fields) {
         values[field.key] = sampleValue(field);
       }
-      const configJson = buildConfigFromFields(connector.configFields ?? [], values);
+      const configJson = buildConfigFromFields(fields, values);
 
       expect(() => connector.configSchema.parse(configJson)).not.toThrow();
     });
@@ -73,7 +76,6 @@ describe('connector configFields', () => {
     // unfilled required field is expected to be blank; that's not what this
     // test is checking.
     it(`${connector.slug}: fieldInputDefault for every optional field parses against configSchema`, () => {
-      const fields = connector.configFields ?? [];
       const values: Record<string, SourceFormValue> = {};
       for (const field of fields) {
         values[field.key] = field.required ? sampleValue(field) : fieldInputDefault(field);
@@ -92,7 +94,7 @@ describe('connector configFields', () => {
         return;
       }
       const schemaKeys = new Set(Object.keys(connector.configSchema.shape));
-      for (const field of connector.configFields ?? []) {
+      for (const field of fields) {
         expect(schemaKeys.has(field.key), `"${field.key}" is not a key of ${connector.slug}'s configSchema`).toBe(true);
       }
     });

@@ -84,9 +84,6 @@ export const granolaConnector: SourceConnector<typeof granolaConfigSchema> = {
   icon: 'NotebookPen',
   authKind: 'apikey',
   configSchema: granolaConfigSchema,
-  configFields: [
-    { key: 'pastDays', label: 'Days back', type: 'number', default: 60 },
-  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = granolaConfigSchema.parse(ctx.config);
     const token = ctx.credentials?.token as string | undefined;
