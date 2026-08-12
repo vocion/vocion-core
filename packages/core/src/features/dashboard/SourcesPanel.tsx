@@ -1,7 +1,28 @@
 'use client';
 
 import type { SourceConfigField, SourceFormValue } from '@/libs/sources/configFields';
-import { CheckCircle2, Globe, KeyRound, Loader2, Plus, RefreshCw } from 'lucide-react';
+import {
+  BarChart3,
+  Calendar,
+  CheckCircle2,
+  Contact,
+  FileJson,
+  FileText,
+  FolderOpen,
+  Globe,
+  KeyRound,
+  Loader2,
+  Mail,
+  Megaphone,
+  MessageSquare,
+  NotebookPen,
+  Plus,
+  RefreshCw,
+  SquareKanban,
+  Trash2,
+  Video,
+} from 'lucide-react';
+import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -10,6 +31,33 @@ import { Link } from '@/libs/I18nNavigation';
 import { buildConfigFromFields, fieldInputDefault } from '@/libs/sources/configFields';
 
 import { UI_FIELDS } from '@/libs/sources/uiFields';
+
+// Keyed by each connector's own `icon` (registry.ts) — a Lucide component
+// name, not a letter to slice. Every JSX tag below is written out literally
+// (not picked via a variable) so the icon a connector renders never changes
+// identity across renders — falls back to Globe for a name not listed here
+// yet (a new connector shipped without a matching case).
+function ConnectorIcon({ name, className }: { name: string; className: string }) {
+  switch (name) {
+    case 'BarChart3': return <BarChart3 className={className} />;
+    case 'Calendar': return <Calendar className={className} />;
+    case 'Contact': return <Contact className={className} />;
+    case 'FileJson': return <FileJson className={className} />;
+    case 'FileText': return <FileText className={className} />;
+    case 'FolderOpen': return <FolderOpen className={className} />;
+    case 'Mail': return <Mail className={className} />;
+    case 'Megaphone': return <Megaphone className={className} />;
+    case 'MessageSquare': return <MessageSquare className={className} />;
+    case 'NotebookPen': return <NotebookPen className={className} />;
+    case 'SquareKanban': return <SquareKanban className={className} />;
+    case 'Video': return <Video className={className} />;
+    default: return <Globe className={className} />;
+  }
+}
+
+function connectorSlugFor(source: Pick<Source, 'slug' | 'config'>): string {
+  return (source.config?._connector as string | undefined) ?? source.slug;
+}
 
 type Source = {
   id: number;
@@ -36,6 +84,8 @@ type ConnectorTile = {
 };
 
 export function SourcesPanel() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === 'admin';
   const [sources, setSources] = useState<Source[]>([]);
   const [connectors, setConnectors] = useState<ConnectorTile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +93,7 @@ export function SourcesPanel() {
   const [addingKind, setAddingKind] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [connectingSource, setConnectingSource] = useState<Source | null>(null);
+  const [deletingSource, setDeletingSource] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -132,9 +183,12 @@ export function SourcesPanel() {
                   <SourceRow
                     key={s.id}
                     source={s}
+                    icon={connectors.find(c => c.slug === connectorSlugFor(s))?.icon ?? 'Globe'}
                     syncing={syncingId === s.id}
+                    canDelete={isAdmin}
                     onSync={() => handleSync(s.id)}
                     onConnect={() => setConnectingSource(s)}
+                    onDelete={() => setDeletingSource(s)}
                   />
                 ))}
               </div>
@@ -178,6 +232,18 @@ export function SourcesPanel() {
             />
           )
         : null}
+      {deletingSource
+        ? (
+            <DeleteSourceDialog
+              source={deletingSource}
+              onClose={() => setDeletingSource(null)}
+              onDeleted={async () => {
+                setDeletingSource(null);
+                await refresh();
+              }}
+            />
+          )
+        : null}
     </div>
   );
 }
@@ -187,7 +253,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   onClose: () => void;
   onConnected: () => Promise<void> | void;
 }) {
-  const connectorSlug = ((source.config?._connector as string | undefined) ?? source.slug);
+  const connectorSlug = connectorSlugFor(source);
   const spec = UI_FIELDS[connectorSlug]?.credentials ?? { help: 'Paste the connector access token.', fields: [{ key: 'token', label: 'Token', type: 'password' as const }] };
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -280,11 +346,85 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   );
 }
 
-function SourceRow({ source, syncing, onSync, onConnect }: {
+function DeleteSourceDialog({ source, onClose, onDeleted }: {
   source: Source;
+  onClose: () => void;
+  onDeleted: () => Promise<void> | void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/rpc/sources/${source.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Failed to delete source');
+        return;
+      }
+      await onDeleted();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={open => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            Delete
+            {' '}
+            {source.slug}
+            {' '}
+            ?
+          </DialogTitle>
+        </DialogHeader>
+        <DialogBody className="space-y-3">
+          <p className="text-sm text-foreground/80">
+            This permanently removes the source and every document ingested from it
+            {source.documentCount > 0 ? ` (${source.documentCount.toLocaleString()} document${source.documentCount === 1 ? '' : 's'})` : ''}
+            . This can't be undone.
+          </p>
+          {error
+            ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </div>
+              )
+            : null}
+        </DialogBody>
+        <DialogFooter>
+          <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={confirmDelete}
+            disabled={deleting}
+            className="inline-flex items-center gap-1.5 rounded-full bg-destructive px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-50"
+          >
+            {deleting ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+            Delete source
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SourceRow({ source, icon, syncing, canDelete, onSync, onConnect, onDelete }: {
+  source: Source;
+  icon: string;
   syncing: boolean;
+  canDelete: boolean;
   onSync: () => void;
   onConnect: () => void;
+  onDelete: () => void;
 }) {
   const last = source.lastSyncedAt ? new Date(source.lastSyncedAt) : null;
   const lastLabel = last ? formatRelative(last) : 'never';
@@ -293,7 +433,7 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
     <div className="rounded-xl border bg-card p-4">
       <div className="flex items-start gap-3">
         <span className="inline-flex size-9 flex-shrink-0 items-center justify-center rounded-md bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-          <Globe className="size-4" />
+          <ConnectorIcon name={icon} className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -370,6 +510,19 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
                   </>
                 )}
           </button>
+          {canDelete
+            ? (
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  title="Delete source"
+                  aria-label="Delete source"
+                  className="inline-flex items-center justify-center rounded-full border p-1.5 text-muted-foreground transition-colors hover:border-destructive/30 hover:bg-destructive/5 hover:text-destructive"
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              )
+            : null}
         </div>
       </div>
     </div>
@@ -421,27 +574,7 @@ function ConnectorPicker({
           />
           <div className="grid auto-rows-min gap-2 overflow-y-auto sm:grid-cols-2">
             {filtered.map(c => (
-              <button
-                type="button"
-                key={c.slug}
-                onClick={() => onPick(c.slug)}
-                className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-                    {c.icon.slice(0, 1)}
-                  </span>
-                  <span className="font-medium">{c.name}</span>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">{c.description}</p>
-                {c.authKind !== 'none'
-                  ? (
-                      <Badge variant="outline" className="mt-2 text-[10px]">
-                        {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
-                      </Badge>
-                    )
-                  : null}
-              </button>
+              <ConnectorTileButton key={c.slug} connector={c} onPick={onPick} />
             ))}
             {filtered.length === 0
               ? (
@@ -456,6 +589,34 @@ function ConnectorPicker({
         </DialogBody>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ConnectorTileButton({ connector, onPick }: {
+  connector: ConnectorTile;
+  onPick: (slug: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(connector.slug)}
+      className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
+    >
+      <div className="flex items-center gap-2">
+        <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+          <ConnectorIcon name={connector.icon} className="size-4" />
+        </span>
+        <span className="font-medium">{connector.name}</span>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">{connector.description}</p>
+      {connector.authKind !== 'none'
+        ? (
+            <Badge variant="outline" className="mt-2 text-[10px]">
+              {connector.authKind === 'oauth' ? 'OAuth' : 'API key'}
+            </Badge>
+          )
+        : null}
+    </button>
   );
 }
 
@@ -485,7 +646,10 @@ function ConfigFieldInput({ field, value, onChange }: {
   if (field.type === 'select') {
     return (
       <label className="block">
-        <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+        <span className="text-sm font-medium text-foreground/80">
+          {field.label}
+          {field.required ? <span className="text-destructive"> *</span> : null}
+        </span>
         <select
           value={(value as string) ?? ''}
           onChange={e => onChange(e.target.value)}
@@ -498,7 +662,10 @@ function ConfigFieldInput({ field, value, onChange }: {
   }
   return (
     <label className="block">
-      <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+      <span className="text-sm font-medium text-foreground/80">
+        {field.label}
+        {field.required ? <span className="text-destructive"> *</span> : null}
+      </span>
       <input
         type={htmlInputTypeFor(field.type)}
         required={field.required}
@@ -589,7 +756,10 @@ function AddSourceDialog({
               ? (
                   <>
                     <label className="block">
-                      <span className="text-sm font-medium text-foreground/80">URL</span>
+                      <span className="text-sm font-medium text-foreground/80">
+                        URL
+                        <span className="text-destructive"> *</span>
+                      </span>
                       <input
                         type="url"
                         required

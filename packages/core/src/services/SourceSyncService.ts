@@ -665,6 +665,25 @@ export async function getSourceById(orgId: string, sourceId: number): Promise<
   return { id: row.id, slug: row.slug, kind: row.kind, config: row.configJson ?? {} };
 }
 
+/**
+ * Delete a source and everything ingested from it. `knowledge_document` and
+ * `source_sync_checkpoint` both carry `ON DELETE CASCADE` on `source_id`, so
+ * removing the `knowledge_source` row is enough to clean up its documents
+ * and checkpoint in one statement. Scoped to `orgId` so one org can't delete
+ * another's source by guessing an id. Returns `false` when no matching row
+ * existed (already deleted, wrong org, or a made-up id) so the caller can
+ * tell "nothing to delete" apart from a real failure.
+ * @param orgId
+ * @param sourceId
+ */
+export async function deleteSource(orgId: string, sourceId: number): Promise<boolean> {
+  const deleted = await db
+    .delete(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.id, sourceId)))
+    .returning({ id: knowledgeSourceSchema.id });
+  return deleted.length > 0;
+}
+
 function generateSlug(kind: string, config: Record<string, unknown>): string {
   // Pick a stable, human-readable slug derived from the config when
   // we can — falls back to a kind-prefixed timestamp otherwise.
