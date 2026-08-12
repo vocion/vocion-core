@@ -36,6 +36,9 @@ export const gmailConnector: SourceConnector<typeof gmailConfigSchema> = {
   icon: 'Mail',
   authKind: 'oauth',
   configSchema: gmailConfigSchema,
+  configFields: [
+    { key: 'query', label: 'Gmail search query', type: 'text', default: 'in:inbox', help: 'Any Gmail search syntax, e.g. from:client.com' },
+  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = gmailConfigSchema.parse(ctx.config);
     // Durable path: refresh-token exchange (see googleAuth); legacy fallback

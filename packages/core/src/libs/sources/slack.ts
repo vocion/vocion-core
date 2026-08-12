@@ -31,6 +31,9 @@ export const slackConnector: SourceConnector<typeof slackConfigSchema> = {
   icon: 'MessageSquare',
   authKind: 'oauth',
   configSchema: slackConfigSchema,
+  configFields: [
+    { key: 'channel', label: 'Channel ID', type: 'text', required: true, placeholder: 'C0123ABCD' },
+  ],
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = slackConfigSchema.parse(ctx.config);
     const token = ctx.credentials?.token as string | undefined;
