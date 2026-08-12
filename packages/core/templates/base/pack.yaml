@@ -1,0 +1,12 @@
+# The core "base pack" (ticket 007) — a versioned, reusable layer that ships
+# INSIDE vocion-core and is loaded UNDER a workspace at load time. Distinct from
+# the Meridian sample seed in templates/workspaces/ (a one-shot copy into an
+# empty org); this is a repeatable compose-at-load layer a workspace opts into
+# with `extends: core@<version>` in its workspace.yaml.
+#
+# Authored exactly like a workspace so the loader reuses the same walkDir +
+# schemas. Resources (agents/, operations/, …) land here in ticket-007 step 4;
+# for now the pack is identity-only — proving the second-directory read.
+name: core
+version: 1.0.0
+description: Reusable RevOps base pack — agents + operations promoted from the core-vs-workspace audit.

@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod';
-import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PlaybookManifest, SkillManifest, SourceManifest, TeamManifest, TrustManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
+import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PackManifest, PlaybookManifest, SkillManifest, SourceManifest, TeamManifest, TrustManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
@@ -13,6 +13,7 @@ import {
   LearningStepManifestSchema,
   MissionManifestSchema,
   ObjectTypeManifestSchema,
+  PackManifestSchema,
   PlaybookManifestSchema,
   SkillManifestSchema,
   SourceManifestSchema,
@@ -58,8 +59,22 @@ export type LoadedPlaybook = PlaybookManifest & {
   sourceFile: string;
 };
 
+/**
+ * The base pack a workspace `extends`, resolved and pin-checked. Step-1 is
+ * identity-only (no resources); ticket-007 step 3 composes its resources under
+ * the workspace. `null` on a LoadedWorkspace whenever `extends` is omitted —
+ * which is the byte-for-byte-unchanged path.
+ */
+export type LoadedPack = {
+  manifest: PackManifest;
+  /** Absolute path of the pack directory (packages/core/templates/<name>). */
+  sourcePath: string;
+};
+
 export type LoadedWorkspace = {
   manifest: WorkspaceManifest;
+  /** The resolved base pack when `manifest.extends` is set, else null. */
+  pack: LoadedPack | null;
   agents: LoadedAgent[];
   skills: LoadedSkill[];
   objectTypes: LoadedObjectType[];
@@ -84,6 +99,10 @@ export type LoadedWorkspace = {
 export function loadWorkspace(contextPath: string): LoadedWorkspace {
   const abs = resolve(contextPath.startsWith('/') ? contextPath : fromRepoRoot(contextPath));
   const manifest = loadManifest(abs);
+  // Base-pack layer (ticket 007). Omitting `extends` keeps `pack` null and the
+  // rest of the load byte-for-byte identical to pre-007 behavior. When set, we
+  // resolve + pin-check the pack here; composing its resources is a later step.
+  const pack = manifest.extends ? loadPack(manifest.extends) : null;
   const files: string[] = [];
 
   const agents = walkDir(join(abs, 'agents'))
@@ -238,6 +257,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
 
   return {
     manifest,
+    pack,
     agents,
     skills,
     objectTypes,
@@ -272,6 +292,59 @@ function loadManifest(abs: string): WorkspaceManifest {
     }
   }
   throw new Error(`workspace manifest not found at ${abs}/workspace.yaml`);
+}
+
+/**
+ * Parse a workspace `extends` pin into a pack name + optional version.
+ *   `core@1.4.0` → { name: 'core', version: '1.4.0' }
+ *   `core`       → { name: 'core', version: null }   (track the shipped version)
+ * @param spec - the raw `extends:` value from workspace.yaml
+ */
+function parseExtends(spec: string): { name: string; version: string | null } {
+  const at = spec.indexOf('@');
+  const name = (at === -1 ? spec : spec.slice(0, at)).trim();
+  const version = at === -1 ? null : spec.slice(at + 1).trim();
+  if (!name) {
+    throw new Error(`invalid \`extends\` pin "${spec}" — expected e.g. "core@1.4.0" or "core"`);
+  }
+  return { name, version: version || null };
+}
+
+/**
+ * Locate a base pack shipped inside the runtime. Only `core` exists today,
+ * at packages/core/templates/base/.
+ * @param name - the pack name from the `extends` pin
+ */
+function resolvePackDir(name: string): string {
+  if (name !== 'core') {
+    throw new Error(`unknown base pack "${name}" — only "core" is available`);
+  }
+  return fromRepoRoot('packages/core/templates/base');
+}
+
+/**
+ * Resolve, read, and pin-check the base pack a workspace `extends`. Step-1
+ * (ticket 007) loads identity only — pack.yaml — proving the second-directory
+ * read; composing the pack's resources under the workspace comes later. Throws
+ * with a clear message on an unknown pack, a missing pack.yaml, or a pin that
+ * doesn't match the shipped version.
+ * @param spec - the raw `extends:` value from workspace.yaml
+ */
+function loadPack(spec: string): LoadedPack {
+  const { name, version } = parseExtends(spec);
+  const dir = resolvePackDir(name);
+  const packFile = ['pack.yaml', 'pack.yml'].map(n => join(dir, n)).find(existsSync);
+  if (!packFile) {
+    throw new Error(`base pack "${name}" is missing pack.yaml at ${dir}`);
+  }
+  const manifest = parseFile(packFile, PackManifestSchema, 'pack');
+  if (version !== null && manifest.version !== version) {
+    throw new Error(
+      `workspace pins ${name}@${version} but the shipped pack is ${name}@${manifest.version} `
+      + `— bump the \`extends\` pin or ship the pinned pack version`,
+    );
+  }
+  return { manifest, sourcePath: dir };
 }
 
 function parseFile<T>(file: string, schema: ZodType<T>, kind: string): T {
