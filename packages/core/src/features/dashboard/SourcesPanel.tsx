@@ -50,8 +50,15 @@ export function SourcesPanel() {
     try {
       const res = await fetch('/rpc/sources');
       const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Failed to load sources');
+        return;
+      }
+      setError(null);
       setSources(data.sources ?? []);
       setConnectors(data.connectors ?? []);
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -389,6 +396,12 @@ function ConnectorPicker({
   onClose: () => void;
   onPick: (slug: string) => void;
 }) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? connectors.filter(c => c.name.toLowerCase().includes(q) || c.slug.toLowerCase().includes(q) || c.description.toLowerCase().includes(q))
+    : connectors;
+
   return (
     <Dialog open onOpenChange={open => !open && onClose()}>
       <DialogContent maxWidthClassName="max-w-2xl">
@@ -398,30 +411,48 @@ function ConnectorPicker({
             Cancel
           </button>
         </DialogHeader>
-        <DialogBody className="grid gap-2 sm:grid-cols-2">
-          {connectors.map(c => (
-            <button
-              type="button"
-              key={c.slug}
-              onClick={() => onPick(c.slug)}
-              className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
-            >
-              <div className="flex items-center gap-2">
-                <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-                  {c.icon.slice(0, 1)}
-                </span>
-                <span className="font-medium">{c.name}</span>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">{c.description}</p>
-              {c.authKind !== 'none'
-                ? (
-                    <Badge variant="outline" className="mt-2 text-[10px]">
-                      {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
-                    </Badge>
-                  )
-                : null}
-            </button>
-          ))}
+        <DialogBody className="flex min-h-0 flex-1 flex-col gap-3">
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Filter sources…"
+            className="shrink-0 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
+          <div className="grid auto-rows-min gap-2 overflow-y-auto sm:grid-cols-2">
+            {filtered.map(c => (
+              <button
+                type="button"
+                key={c.slug}
+                onClick={() => onPick(c.slug)}
+                className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+                    {c.icon.slice(0, 1)}
+                  </span>
+                  <span className="font-medium">{c.name}</span>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">{c.description}</p>
+                {c.authKind !== 'none'
+                  ? (
+                      <Badge variant="outline" className="mt-2 text-[10px]">
+                        {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
+                      </Badge>
+                    )
+                  : null}
+              </button>
+            ))}
+            {filtered.length === 0
+              ? (
+                  <p className="col-span-full py-6 text-center text-sm text-muted-foreground">
+                    No sources match "
+                    {query}
+                    "
+                  </p>
+                )
+              : null}
+          </div>
         </DialogBody>
       </DialogContent>
     </Dialog>
