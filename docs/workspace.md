@@ -111,6 +111,55 @@ fewShotExamples:
 
 Open `agents/<agent>.system-prompt.md` in the workspace, edit, save, re-apply. The agent uses the new prompt on the next request.
 
+## Base packs — activate + extend (`extends` / `use` / `disable`)
+
+A **base pack** is a versioned, reusable layer that ships *inside* vocion-core (at `packages/core/templates/base/`) and holds default RevOps agents + the operations they need. A workspace opts into it, activates the pieces it wants, and overrides any of them — all in YAML. Nothing here is required: **omit `extends` and your workspace loads exactly as before, byte-for-byte.**
+
+The three verbs, all in `workspace.yaml` — the *only* place activation happens:
+
+```yaml
+# workspace.yaml
+extends: core@1.0.0          # pin the base pack. OMIT → no base layer at all.
+use:                         # activate AGENTS; their operations + object types
+  agents: [revenue-director, proposal-writer]   # come along transitively — never hand-list skills
+  # …or `use: all` to take every default the pack ships
+  # …or omit `use` entirely (with `extends` set) = activate nothing
+disable:                     # optional: suppress a default even under `use: all`
+  agents: [some_core_default]
+```
+
+- **Activate agents, not skills.** An agent declares `skills:`, so activating it pulls those operations (and the object types they use) in automatically.
+- **`use` omitted while `extends` is set = `use: none`** — explicit opt-in, no surprise agents.
+- **Pin, don't float.** A workspace moves onto a new pack version only by bumping its own `extends` pin; publishing a newer pack never silently reaches a pinned instance. The pinned version folds into `workspace_sha`.
+
+### Override a base default (`extends: core`)
+
+A resource file is **optional** — write one *only* to change an activated default. If the core default is fine, activate it and write no file. To override, drop a same-slug file marked `extends: core`:
+
+```yaml
+# agents/proposal-writer.yaml — patch the core default
+extends: core                 # REQUIRED marker; without it a colliding slug is an error
+slug: proposal-writer         # must match the base slug you're patching
+systemPromptFile: ./proposal-writer.system-prompt.md   # scalar → replaces the base value
+connectorSources: { $append: [slack] }                  # array → extend the base list
+# every field you don't mention is inherited from the base unchanged
+```
+
+Merge vocabulary:
+
+- **Scalars & objects** (`model`, `systemPromptFile`, `searchConfig`) → your value **replaces** the base value.
+- **Arrays** (`skills`, `connectorSources`, `objectTypes`) → default **replace**; opt into extend semantics with `{ $append: [x] }` or `{ $remove: [y] }`.
+
+Guardrails (all caught by `workspace:check`, not just apply):
+
+- A slug that collides with a base default **without** `extends: core` is a hard error — declare intent (override) or rename.
+- `extends: core` on a slug the pack doesn't ship, or one you didn't activate in `use:`, is a hard error.
+- An override **cannot** flip a base mutation's `requiresApproval: true` → `false`. The drafts-only safety model can't be disabled from a workspace.
+
+### Seeing what you inherited
+
+On any drilldown (`/dashboard/agents/<slug>` etc.), the inherited base file appears as a read-only tab tagged **core**; your workspace override sits alongside it, editable. A purely inherited default shows the **core** layer alone.
+
 ## Commands
 
 All run from the vocion-core checkout and take the workspace path as an argument (or read `WORKSPACE_PATH`):
