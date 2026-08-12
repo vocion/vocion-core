@@ -1,0 +1,31 @@
+packages/core/templates/base/pack.yaml
+  s_d612d610c8d4e3::t_4be1f2491ef304 1-12
+packages/core/src/libs/workspace/loader.ts
+  s_d612d610c8d4e3::t_be2a6522f68625 336-337,340
+  s_d612d610c8d4e3::t_5c7014305d3ed6 297-300,302-315,317-330,332-335,338-339,341-349
+  s_d612d610c8d4e3::t_b277030e7ff955 301,316,331
+  s_d612d610c8d4e3::t_cb1562083a2e39 102-105
+  s_d612d610c8d4e3::t_c76c6f44153937 2
+  s_d612d610c8d4e3::t_4068e7458ce903 260
+  s_d612d610c8d4e3::t_2601429f5e22fe 16
+  s_d612d610c8d4e3::t_175f89e20f1e09 62-73,76-77
+packages/core/src/libs/workspace/pack.test.ts
+  s_d612d610c8d4e3::t_b277030e7ff955 14-17,34,40,47
+  s_d612d610c8d4e3::t_acc17377bd559f 1-13,18-33,35-39,41-46,48-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "e72a273b9405808b63bb06ad0f15627757fb6080",
+  "prompts": {},
+  "sessions": {
+    "s_d612d610c8d4e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2dcc9c1a-cf8c-4faa-9af2-0a19bec551cb",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
