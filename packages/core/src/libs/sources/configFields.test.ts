@@ -9,7 +9,8 @@
 
 import type { SourceConfigField, SourceFormValue } from '@/libs/sources/configFields';
 import { describe, expect, it } from 'vitest';
-import { buildConfigFromFields } from '@/libs/sources/configFields';
+import { z } from 'zod';
+import { buildConfigFromFields, fieldInputDefault } from '@/libs/sources/configFields';
 
 import { listConnectors } from '@/libs/sources/registry';
 
@@ -62,5 +63,76 @@ describe('connector configFields', () => {
 
       expect(() => connector.configSchema.parse(configJson)).not.toThrow();
     });
+
+    // Catches the field-drift class this whole file guards against a step earlier:
+    // a stale/renamed configFields.key that configSchema no longer has at all,
+    // before it ever gets the chance to fail (or worse, silently pass) a round trip.
+    it(`${connector.slug}: every configFields key exists on configSchema`, () => {
+      if (!(connector.configSchema instanceof z.ZodObject)) {
+        return;
+      }
+      const schemaKeys = new Set(Object.keys(connector.configSchema.shape));
+      for (const field of connector.configFields ?? []) {
+        expect(schemaKeys.has(field.key), `"${field.key}" is not a key of ${connector.slug}'s configSchema`).toBe(true);
+      }
+    });
   }
+});
+
+describe('buildConfigFromFields edge cases', () => {
+  it('omits a required text field left whitespace-only, instead of sending a blank string', () => {
+    const fields: SourceConfigField[] = [{ key: 'channel', label: 'Channel ID', type: 'text', required: true }];
+
+    expect(buildConfigFromFields(fields, { channel: '   ' })).toEqual({});
+  });
+
+  it('trims a valid text value rather than storing the surrounding whitespace', () => {
+    const fields: SourceConfigField[] = [{ key: 'channel', label: 'Channel ID', type: 'text', required: true }];
+
+    expect(buildConfigFromFields(fields, { channel: '  C0123ABCD  ' })).toEqual({ channel: 'C0123ABCD' });
+  });
+
+  it('omits a required stringArray field that collapses to empty after trimming (e.g. a bare comma)', () => {
+    const fields: SourceConfigField[] = [{ key: 'projectKeys', label: 'Project keys', type: 'stringArray', required: true }];
+
+    expect(buildConfigFromFields(fields, { projectKeys: ' , ' })).toEqual({});
+  });
+
+  it('omits a whitespace-only number field instead of coercing it to 0', () => {
+    const fields: SourceConfigField[] = [{ key: 'pastDays', label: 'Days back', type: 'number' }];
+
+    expect(buildConfigFromFields(fields, { pastDays: '   ' })).toEqual({});
+  });
+
+  it('includes an explicit false for a boolean field — false is a real value, not "unset"', () => {
+    const fields: SourceConfigField[] = [{ key: 'includeDescription', label: 'Include issue description', type: 'boolean' }];
+
+    expect(buildConfigFromFields(fields, { includeDescription: false })).toEqual({ includeDescription: false });
+  });
+
+  it('drops a stray empty item out of a stringArray while keeping the real ones (trailing comma)', () => {
+    const fields: SourceConfigField[] = [{ key: 'users', label: 'Users', type: 'stringArray' }];
+
+    expect(buildConfigFromFields(fields, { users: 'a@x.com, b@x.com, ' })).toEqual({ users: ['a@x.com', 'b@x.com'] });
+  });
+});
+
+describe('fieldInputDefault', () => {
+  it('falls back to the first option for a select field with no declared default', () => {
+    const field: SourceConfigField = { key: 'format', label: 'Format', type: 'select', options: ['auto', 'jsonl', 'csv'] };
+
+    expect(fieldInputDefault(field)).toBe('auto');
+  });
+
+  it('returns an explicit boolean default as a real boolean, not the string "false"', () => {
+    const field: SourceConfigField = { key: 'includeDescription', label: 'Include issue description', type: 'boolean', default: false };
+
+    expect(fieldInputDefault(field)).toBe(false);
+  });
+
+  it('joins an array default into a comma-separated string for the input', () => {
+    const field: SourceConfigField = { key: 'extensions', label: 'File extensions', type: 'stringArray', default: ['.md', '.txt'] };
+
+    expect(fieldInputDefault(field)).toBe('.md, .txt');
+  });
 });
