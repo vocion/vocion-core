@@ -158,6 +158,26 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       return { ...parsed, resolvedPromptTemplate, sourceFile: entry.sourceFile, origin: entry.origin };
     });
 
+  // Safety guard (ticket 007): a workspace override must never quietly disarm a
+  // core mutation's approval gate. If a base operation ships requiresApproval:
+  // true, the merged result cannot be false — the drafts-only model can't be
+  // switched off from a workspace. Caught at load, so `workspace:check` fails
+  // too, not just apply.
+  if (packRaw) {
+    for (const skill of skills) {
+      if (skill.origin !== 'merged') {
+        continue;
+      }
+      const base = packRaw.skills.get(skill.slug);
+      const baseRequiresApproval = base ? base.raw.requiresApproval !== false : true;
+      if (baseRequiresApproval && skill.requiresApproval === false) {
+        throw new Error(
+          `operation "${skill.slug}" overrides the core default to requiresApproval: false, but the base ships it as an approval-gated mutation — a workspace cannot disable the approval gate (${skill.sourceFile})`,
+        );
+      }
+    }
+  }
+
   const objectTypes = composeEntries('object type', join(abs, 'objects'), isObjectFile, packRaw?.objectTypes, activated?.objectTypes, files)
     .map((entry) => {
       const parsed = validateOrThrow(ObjectTypeManifestSchema, entry.raw, entry.sourceFile, 'objectType');
@@ -257,7 +277,12 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   assertUniqueSlugs(evalDatasets, 'eval dataset');
   assertUniqueSlugs(sources, 'source');
 
-  const sha = computeWorkspaceSha(abs, files);
+  // Provenance: fold the pinned base-pack version into the workspace sha so
+  // `workspace_sha` still answers "exactly what ran" — a workspace on
+  // core@1.0.0 and the same workspace on core@1.1.0 are distinguishable even
+  // though not one workspace file changed. No pack → sha is unchanged.
+  const baseSha = computeWorkspaceSha(abs, files);
+  const sha = pack ? `${baseSha}+${pack.manifest.name}@${pack.manifest.version}` : baseSha;
 
   return {
     manifest,
