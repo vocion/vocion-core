@@ -137,6 +137,46 @@ describe('buildConfigFromFields edge cases', () => {
 
     expect(buildConfigFromFields(fields, { users: 'a@x.com, b@x.com, ' })).toEqual({ users: ['a@x.com', 'b@x.com'] });
   });
+
+  // Every number field currently in UI_FIELDS (doneWindowDays, pastDays x3,
+  // futureDays) backs a schema `.int().positive()` — but the field only
+  // declares a `default`, nothing marking its lower bound. A user typing 0,
+  // a negative number, or a decimal sails through buildConfigFromFields
+  // untouched and only fails once addSource() runs the real configSchema
+  // server-side, surfacing a raw ZodError dump instead of a client-side
+  // validation message.
+  it('clamps a number field below its declared min instead of sending an out-of-range value', () => {
+    const fields: SourceConfigField[] = [{ key: 'pastDays', label: 'Days back', type: 'number', min: 1 }];
+
+    expect(buildConfigFromFields(fields, { pastDays: '0' })).toEqual({ pastDays: 1 });
+    expect(buildConfigFromFields(fields, { pastDays: '-5' })).toEqual({ pastDays: 1 });
+  });
+
+  it('rounds a decimal number field to the nearest integer — every declared number field is int-only', () => {
+    const fields: SourceConfigField[] = [{ key: 'pastDays', label: 'Days back', type: 'number', min: 1 }];
+
+    expect(buildConfigFromFields(fields, { pastDays: '3.7' })).toEqual({ pastDays: 4 });
+  });
+});
+
+describe('every declared number field enforces its schema\'s real lower bound', () => {
+  for (const connector of listConnectors()) {
+    const fields = UI_FIELDS[connector.slug]?.configFields ?? [];
+    for (const field of fields.filter(f => f.type === 'number')) {
+      it(`${connector.slug}.${field.key}: typing 0 or a negative number still parses against configSchema`, () => {
+        const values: Record<string, SourceFormValue> = { [field.key]: '-5' };
+        for (const other of fields) {
+          if (other.required && other.key !== field.key) {
+            values[other.key] = sampleValue(other);
+          }
+        }
+        const configJson = buildConfigFromFields(fields, values);
+        const result = connector.configSchema.safeParse(configJson);
+
+        expect(result.success, !result.success ? result.error.message : undefined).toBe(true);
+      });
+    }
+  }
 });
 
 describe('fieldInputDefault', () => {
