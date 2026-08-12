@@ -10,6 +10,20 @@ const FewShotExampleSchema = z.object({
   label: z.string().optional(),
 });
 
+/**
+ * Base-pack activation allowlist (workspace.yaml `use:`). Activation is
+ * AGENT-rooted: naming an agent transitively pulls in the operations it
+ * declares in `skills:` (and, later, the objects those depend on) — you
+ * never hand-list an agent's own skills. `operations` remains for an op
+ * that no activated agent owns. `use: all` takes every default the pack
+ * ships. Omitting `use` while `extends` is set means `use: none` —
+ * explicit opt-in, no surprise agents.
+ */
+const ActivationSelectorSchema = z.object({
+  agents: z.array(SlugSchema).default([]),
+  operations: z.array(z.string()).default([]),
+}).partial();
+
 export const WorkspaceManifestSchema = z.object({
   version: z.literal(1).describe('manifest format version'),
   orgId: z.string().min(1).describe('Clerk organization id'),
@@ -31,6 +45,27 @@ export const WorkspaceManifestSchema = z.object({
     model: z.string().optional(),
     temperature: z.string().optional(),
   }).partial().optional(),
+  /**
+   * Pin a versioned base pack that ships inside vocion-core, e.g.
+   * `core@1.4.0` (or bare `core` to track the pack's current version).
+   * OMIT → no base layer at all: the workspace loads exactly as it does
+   * today, byte-for-byte. A workspace only ever moves onto a new pack
+   * version by changing this pin — publishing a newer pack never reaches
+   * a pinned instance.
+   */
+  extends: z.string().optional().describe('base pack pin, e.g. "core@1.4.0"; omit for no base layer'),
+  /**
+   * Activation allowlist for the pinned pack. `use: all` activates every
+   * default; an {agents,operations} selector activates only what it names
+   * (agents pull their skills transitively). Omitted while `extends` is
+   * set = activate nothing (`use: none`).
+   */
+  use: z.union([z.literal('all'), ActivationSelectorSchema]).optional(),
+  /**
+   * Suppress a core default even under `use: all` — the escape hatch. A
+   * disabled slug is omitted from the merged workspace entirely.
+   */
+  disable: ActivationSelectorSchema.optional(),
 });
 export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
 
@@ -58,6 +93,19 @@ export const TeamManifestSchema = z.object({
   accountableUser: z.string().email().optional(),
 });
 export type TeamManifest = z.infer<typeof TeamManifestSchema>;
+
+/**
+ * `pack.yaml` — the identity of a base pack shipped inside vocion-core at
+ * `packages/core/templates/<name>/`. The version is what a workspace pins
+ * via `extends: core@<version>` and what folds into `workspace_sha`, so a
+ * pinned instance is insulated from later pack publishes.
+ */
+export const PackManifestSchema = z.object({
+  name: z.literal('core').describe('pack identity — only "core" today'),
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, 'pack version must be semver x.y.z'),
+  description: z.string().optional(),
+});
+export type PackManifest = z.infer<typeof PackManifestSchema>;
 
 export const AgentManifestSchema = z.object({
   slug: SlugSchema,
