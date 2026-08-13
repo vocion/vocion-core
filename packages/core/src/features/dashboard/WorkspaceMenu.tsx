@@ -64,7 +64,14 @@ export function WorkspaceMenu({ isAdmin = false, onManage }: { isAdmin?: boolean
   const switchTo = async (id: string) => {
     setSwitching(id);
     try {
+      // Server validates the project belongs to the caller's account.
       await client.projects.setActive({ projectId: id });
+      // Set the cookie client-side — tenancy is re-resolved from
+      // vocion_active_project on every session read, and setActive's oRPC
+      // response can't write cookies. Without this, the reload lands back
+      // on the old workspace.
+      const oneYear = 60 * 60 * 24 * 365;
+      document.cookie = `vocion_active_project=${id}; path=/; max-age=${oneYear}; SameSite=Lax`;
       router.refresh();
       window.location.reload();
     } finally {
