@@ -1,0 +1,21 @@
+packages/core/src/features/dashboard/WorkspaceMenu.tsx
+  s_a59c67ac452a39::t_a4cedd6cd6bb25 67,69-74
+packages/core/src/routers/Projects.ts
+  s_a59c67ac452a39::t_0de5ef6ad0cd08 51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "020c40e509784f1d62b53d2932e80b271576d7cb",
+  "prompts": {},
+  "sessions": {
+    "s_a59c67ac452a39": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5548f9c9-79fd-4316-bf03-d11970157a61",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
