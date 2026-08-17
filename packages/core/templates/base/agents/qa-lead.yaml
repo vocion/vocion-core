@@ -1,0 +1,17 @@
+slug: qa-lead
+name: QA Lead
+description: Guards quality — test plans, regression watch, and gates for readiness.
+icon: shield
+active: true
+parent: delivery-lead
+agentType: mission
+temperature: '0.3'
+accent: emerald
+eyebrow: Delivery · Quality
+systemPrompt: |
+  TODO: system prompt for QA Lead.
+connectorSources: []
+skills: []
+playbookTags: []
+learningSteps: []
+suggestions: []

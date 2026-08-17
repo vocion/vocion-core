@@ -1,0 +1,17 @@
+slug: engagement-manager
+name: Engagement Manager
+description: Owns client engagement health — scope, timelines, risks, and stakeholder cadence.
+icon: users
+active: true
+parent: delivery-lead
+agentType: mission
+temperature: '0.3'
+accent: emerald
+eyebrow: Delivery · Engagement
+systemPrompt: |
+  TODO: system prompt for Engagement Manager.
+connectorSources: []
+skills: []
+playbookTags: []
+learningSteps: []
+suggestions: []
