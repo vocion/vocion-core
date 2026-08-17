@@ -1,12 +1,12 @@
-import { ArrowRight, Bot } from 'lucide-react';
+import type { AgentCard } from '@/features/dashboard/AgentsGrid';
+import { Bot } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import { createElement } from 'react';
 import { EmptyState } from '@/components/ui/empty-state';
+import { AgentsGrid } from '@/features/dashboard/AgentsGrid';
 import { TitleBar } from '@/features/dashboard/TitleBar';
-import { agentAccent as accent } from '@/libs/agentAccents';
-import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { Link } from '@/libs/I18nNavigation';
+import { getCurrentWorkspaceSha } from '@/libs/workspace';
+import { listCorePackAgents } from '@/libs/workspace/reader';
 import { listAgentHierarchy } from '@/services/AgentService';
 
 /**
@@ -15,6 +15,10 @@ import { listAgentHierarchy } from '@/services/AgentService';
  * it. Click a card to open that agent's profile, where its specialists, inline
  * agents, prompt, tools, and skills live. Structure comes from each agent's
  * `parent` field (workspace YAML); a lead has no parent.
+ *
+ * When the workspace extends the core base pack, core agents it hasn't
+ * activated are shown as greyed "not activated" ghost cards so you can see
+ * what core offers vs what's live (ticket 007 follow-up).
  */
 
 function count(n: number, one: string, many: string): string {
@@ -29,7 +33,62 @@ export default async function AgentsPage(props: {
   const { orgId } = await auth();
 
   const hierarchy = orgId ? await listAgentHierarchy(orgId) : [];
-  const specialistTotal = hierarchy.reduce((n, h) => n + h.specialists.length, 0);
+
+  // Activated agents → clickable lead cards (the existing behavior).
+  const activatedCards: AgentCard[] = hierarchy.map(({ primary, specialists }) => ({
+    slug: primary.slug,
+    name: primary.name,
+    description: primary.description ?? null,
+    icon: primary.icon ?? null,
+    accent: primary.accent ?? null,
+    eyebrow: primary.eyebrow ?? null,
+    skillCount: (primary.skillSlugs ?? []).length,
+    specialists: specialists.map(s => ({ slug: s.slug, name: s.name })),
+    activated: true,
+  }));
+
+  // Ghost cards: core base-pack agents this workspace ships-with but hasn't
+  // activated. Only when the applied workspace actually extends core (its sha
+  // carries `+core@<version>`) — a workspace that never opted into the pack
+  // shouldn't advertise core's roster.
+  const activatedSlugs = new Set(hierarchy.flatMap(({ primary, specialists }) => [primary.slug, ...specialists.map(s => s.slug)]));
+  const sha = orgId ? await getCurrentWorkspaceSha(orgId) : null;
+  const packActive = !!sha && /\+core@/.test(sha);
+
+  const ghostCards: AgentCard[] = [];
+  if (packActive) {
+    const inactive = listCorePackAgents().filter(a => !activatedSlugs.has(a.slug));
+    const inactiveSlugs = new Set(inactive.map(a => a.slug));
+    // Group the un-activated core agents into their own lead → specialist
+    // shape. A ghost lead has no parent, or a parent that isn't itself an
+    // un-activated core agent (defensive — mirrors groupAgentHierarchy).
+    const specialistsByParent = new Map<string, { slug: string; name: string }[]>();
+    const leads = inactive.filter((a) => {
+      const isSpecialist = a.parentSlug && inactiveSlugs.has(a.parentSlug) && a.parentSlug !== a.slug;
+      if (isSpecialist) {
+        const list = specialistsByParent.get(a.parentSlug!) ?? [];
+        list.push({ slug: a.slug, name: a.name });
+        specialistsByParent.set(a.parentSlug!, list);
+      }
+      return !isSpecialist;
+    });
+    for (const lead of leads) {
+      ghostCards.push({
+        slug: lead.slug,
+        name: lead.name,
+        description: lead.description,
+        icon: lead.icon,
+        accent: lead.accent,
+        eyebrow: lead.eyebrow,
+        skillCount: lead.skillCount,
+        specialists: specialistsByParent.get(lead.slug) ?? [],
+        activated: false,
+      });
+    }
+  }
+
+  const cards = [...activatedCards, ...ghostCards];
+  const specialistTotal = activatedCards.reduce((n, c) => n + c.specialists.length, 0);
 
   return (
     <>
@@ -38,7 +97,7 @@ export default async function AgentsPage(props: {
         description="Your lead AI agents — the ones you brief directly. Open one to see the specialists it coordinates, its tools, and how it works."
       />
 
-      {hierarchy.length === 0
+      {activatedCards.length === 0 && ghostCards.length === 0
         ? (
             <EmptyState
               icon={Bot}
@@ -50,85 +109,12 @@ export default async function AgentsPage(props: {
         : (
             <>
               <p className="mb-6 text-sm text-muted-foreground">
-                {count(hierarchy.length, 'lead agent', 'lead agents')}
+                {count(activatedCards.length, 'lead agent', 'lead agents')}
                 {specialistTotal > 0 && ` · ${count(specialistTotal, 'specialist', 'specialists')}`}
+                {ghostCards.length > 0 && ` · ${ghostCards.length} from core not activated`}
               </p>
 
-              <div className="grid gap-5 lg:grid-cols-2">
-                {hierarchy.map(({ primary, specialists }) => {
-                  const a = accent(primary.accent);
-                  const skillCount = (primary.skillSlugs ?? []).length;
-                  const meta = [
-                    specialists.length > 0 && count(specialists.length, 'agent', 'agents'),
-                    skillCount > 0 && count(skillCount, 'skill', 'skills'),
-                  ].filter(Boolean) as string[];
-
-                  return (
-                    <Link
-                      key={primary.id}
-                      href={`/dashboard/agents/${primary.slug}`}
-                      className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-5 pt-6 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
-                    >
-                      {/* accent top stripe */}
-                      <span className="absolute inset-x-0 top-0 h-1" style={{ background: a.stripe }} aria-hidden />
-
-                      <div className="flex items-start gap-3">
-                        <div
-                          className="flex size-11 shrink-0 items-center justify-center rounded-xl"
-                          style={{ background: a.tint, color: a.ink }}
-                        >
-                          {createElement(agentIcon(primary.icon, { primary: true }), { 'className': 'size-5', 'aria-hidden': true })}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="font-display text-base leading-tight font-semibold">{primary.name}</h3>
-                            <span
-                              className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
-                              style={{ background: a.tint, color: a.ink }}
-                            >
-                              Lead
-                            </span>
-                          </div>
-                          {primary.eyebrow && (
-                            <div className="mt-0.5 font-mono text-[11px] tracking-wide text-muted-foreground">{primary.eyebrow}</div>
-                          )}
-                        </div>
-                      </div>
-
-                      {primary.description && (
-                        <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-muted-foreground">{primary.description}</p>
-                      )}
-
-                      {specialists.length > 0 && (
-                        <div className="mt-4">
-                          <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
-                            {count(specialists.length, 'agent', 'agents')}
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {specialists.map(s => (
-                              <span
-                                key={s.id}
-                                className="rounded-full px-2 py-0.5 text-xs font-medium"
-                                style={{ background: a.tint, color: a.ink }}
-                              >
-                                {s.name}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="mt-auto flex items-center gap-2 border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
-                        <span>{meta.join(' · ') || 'Standalone agent'}</span>
-                        <span className="ml-auto inline-flex items-center gap-1 font-medium text-foreground/60 transition group-hover:text-primary">
-                          View profile
-                          <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
-                        </span>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
+              <AgentsGrid cards={cards} />
 
               {specialistTotal > 0 && (
                 <p className="mt-6 text-xs text-muted-foreground">

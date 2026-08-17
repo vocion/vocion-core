@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
+import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
 
 /**
@@ -46,6 +47,57 @@ const BASE_PACK_REL = 'packages/core/templates/base';
 
 export function getWorkspacePath(): string | null {
   return process.env.WORKSPACE_PATH ?? null;
+}
+
+/**
+ * A core base-pack agent, read straight from the shipped pack files — the
+ * roster of "what comes with core," independent of any workspace. Used to
+ * surface core agents a workspace hasn't activated (ticket 007 follow-up:
+ * greyed "not activated" cards on the Agents page). The shape mirrors the
+ * display fields the Agents grid reads off an applied agent row.
+ */
+export type CorePackAgent = {
+  slug: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  accent: string | null;
+  eyebrow: string | null;
+  /** Parent lead slug (`parent:` in YAML); null for a lead. */
+  parentSlug: string | null;
+  skillCount: number;
+};
+
+/**
+ * Read the core base pack's agent roster from the runtime's shipped files
+ * (`packages/core/templates/base/agents/*.yaml`). Pure filesystem read, no DB
+ * and no workspace — the pack is fixed at build time. Returns [] if the pack
+ * dir is absent. Callers cross-reference these slugs against the applied
+ * agents to find what a workspace ships-with-core but hasn't activated.
+ */
+export function listCorePackAgents(): CorePackAgent[] {
+  const dir = fromRepoRoot(BASE_PACK_REL, 'agents');
+  if (!existsSync(dir)) {
+    return [];
+  }
+  return readdirSync(dir)
+    .filter(n => n.endsWith('.yaml') || n.endsWith('.yml'))
+    .map((name) => {
+      const raw = (parseYaml(readFileSync(join(dir, name), 'utf8')) ?? {}) as Record<string, unknown>;
+      const slug = typeof raw.slug === 'string' ? raw.slug : name.replace(/\.ya?ml$/, '');
+      const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
+      return {
+        slug,
+        name: str(raw.name) ?? slug,
+        description: str(raw.description),
+        icon: str(raw.icon),
+        accent: str(raw.accent),
+        eyebrow: str(raw.eyebrow),
+        parentSlug: str(raw.parent),
+        skillCount: Array.isArray(raw.skills) ? raw.skills.length : 0,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function slugToDirname(slug: string): string {
