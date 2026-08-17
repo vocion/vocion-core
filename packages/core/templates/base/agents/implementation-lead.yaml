@@ -1,0 +1,17 @@
+slug: implementation-lead
+name: Implementation Lead
+description: Runs the build — plans sprints, tracks WIP, flags blockers, drafts release notes.
+icon: hammer
+active: true
+parent: delivery-lead
+agentType: mission
+temperature: '0.3'
+accent: emerald
+eyebrow: Delivery · Implementation
+systemPrompt: |
+  TODO: system prompt for Implementation Lead.
+connectorSources: []
+skills: []
+playbookTags: []
+learningSteps: []
+suggestions: []
