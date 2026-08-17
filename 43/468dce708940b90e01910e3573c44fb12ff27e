@@ -1,0 +1,35 @@
+packages/core/src/features/dashboard/AgentsGrid.tsx
+  s_a59c67ac452a39::t_09354048e39f75 1-145,148-188,194-197
+  s_a59c67ac452a39::t_fad198b2e725aa 146-147,189-193
+packages/core/templates/base/agents/delivery-lead.yaml
+  s_a59c67ac452a39::t_cc71983f1fbfa9 1-16
+packages/core/templates/base/agents/implementation-lead.yaml
+  s_a59c67ac452a39::t_cc71983f1fbfa9 1-17
+packages/core/templates/base/agents/solutions-architect.yaml
+  s_a59c67ac452a39::t_cc71983f1fbfa9 1-17
+packages/core/src/libs/workspace/reader.ts
+  s_a59c67ac452a39::t_626c152ab7cb1b 4
+  s_a59c67ac452a39::t_cc4d2bc2293ef3 52-102
+packages/core/templates/base/agents/engagement-manager.yaml
+  s_a59c67ac452a39::t_cc71983f1fbfa9 1-17
+packages/core/templates/base/agents/qa-lead.yaml
+  s_a59c67ac452a39::t_cc71983f1fbfa9 1-17
+packages/core/src/app/[locale]/(auth)/dashboard/agents/page.tsx
+  s_a59c67ac452a39::t_f2bb8412729a83 1-2,5,8-9,18-21,36-91,100,112,114,117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "43468dce708940b90e01910e3573c44fb12ff27e",
+  "prompts": {},
+  "sessions": {
+    "s_a59c67ac452a39": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5548f9c9-79fd-4316-bf03-d11970157a61",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
