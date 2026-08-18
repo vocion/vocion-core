@@ -18,9 +18,9 @@ import { z } from 'zod';
 const OBJECT_TYPES = ['contacts', 'deals', 'companies'] as const;
 
 const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
-  contacts: ['firstname', 'lastname', 'email', 'company', 'jobtitle', 'lifecyclestage', 'hs_lastmodifieddate'],
-  deals: ['dealname', 'amount', 'dealstage', 'pipeline', 'closedate', 'hs_lastmodifieddate'],
-  companies: ['name', 'domain', 'industry', 'numberofemployees', 'hs_lastmodifieddate'],
+  contacts: ['firstname', 'lastname', 'email', 'company', 'jobtitle', 'lifecyclestage', 'hubspot_owner_id', 'hs_lastmodifieddate'],
+  deals: ['dealname', 'amount', 'dealstage', 'pipeline', 'closedate', 'hubspot_owner_id', 'hs_lastmodifieddate'],
+  companies: ['name', 'domain', 'industry', 'numberofemployees', 'hubspot_owner_id', 'hs_lastmodifieddate'],
 };
 
 const hubspotConfigSchema = z.object({
@@ -50,12 +50,26 @@ function toDoc(objectType: string, r: HubSpotRecord): IngestDoc {
     .map(([k, v]) => `${k}: ${v}`)
     .join('\n');
   const modified = props.hs_lastmodifieddate ?? r.updatedAt;
+  const email = props.email ?? undefined;
+  const emailDomain = email && email.includes('@') ? email.slice(email.lastIndexOf('@') + 1).toLowerCase() : undefined;
+  // Stamp the fields the discovery-detection matcher (ticket 011) needs into
+  // metadata, so eligibility can be queried without parsing the content blob.
   return {
     externalId: `${objectType}:${r.id}`,
     title: titleFor(objectType, props, r.id),
     content: content || `${objectType} ${r.id}`,
     lastModifiedAt: modified ? new Date(modified) : null,
-    metadata: { objectType, hubspotId: r.id },
+    metadata: {
+      objectType,
+      hubspotId: r.id,
+      ownerId: props.hubspot_owner_id ?? undefined,
+      lifecycleStage: props.lifecyclestage ?? undefined,
+      dealStage: props.dealstage ?? undefined,
+      primaryEmail: email,
+      emailDomain,
+      domain: props.domain ?? undefined,
+      name: props.name ?? undefined,
+    },
   };
 }
 
