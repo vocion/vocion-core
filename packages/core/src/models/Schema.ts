@@ -1882,6 +1882,63 @@ export const userActivityEventSchema = pgTable(
   ],
 );
 
+/**
+ * discovery_candidate — the record of a meeting the discovery-detection sweep
+ * matched to a CRM party the seller owns, plus (once classified) its
+ * is-discovery / proposal-ready scores. Ticket 011.
+ *
+ * This is the feature's provenance ledger and its safety invariant: a row
+ * exists ONLY for meetings that passed the CRM match gate, so the presence of a
+ * row is itself the proof that the content gate (§3 of the plan) was satisfied
+ * before any transcript was read. Ties to ticket 010 (filed context).
+ */
+export const discoveryCandidateSchema = pgTable(
+  'discovery_candidate',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Meeting document's stable externalId, e.g. `zoom:<uuid>` / `gcal:<eventId>`. */
+    meetingExternalId: text('meeting_external_id').notNull(),
+    /** knowledge_document.id of the meeting — the handle the content gate reads through. */
+    meetingDocId: integer('meeting_doc_id'),
+    /** Title + start copied at match time (metadata only — never the transcript body). */
+    meetingTitle: text('meeting_title'),
+    meetingStart: timestamp('meeting_start', { mode: 'date' }),
+    /** Why it matched: 'hubspot-contact' | 'hubspot-company' | 'hubspot-deal' | 'calendly-external'. */
+    matchType: text('match_type').notNull(),
+    /** The matched CRM ref (`deals:123`, `contacts:9`) or the external domain. */
+    matchRef: text('match_ref'),
+    /** Human-readable reason the match fired. */
+    matchReason: text('match_reason'),
+    matchedAt: timestamp('matched_at', { mode: 'date' }).defaultNow().notNull(),
+    /** Lifecycle: 'matched' | 'classified' | 'routed' | 'dropped'. */
+    status: text('status').default('matched').notNull(),
+    /** Two-dimensional classification output (null until Stage 2 runs). */
+    classification: jsonb('classification').$type<{
+      isDiscovery: boolean;
+      isDiscoveryConfidence: number;
+      proposalReady: boolean;
+      proposalReadyConfidence: number;
+      reasoning: string;
+      model?: string;
+    }>(),
+    classifiedAt: timestamp('classified_at', { mode: 'date' }),
+    /** Route the supervised router chose: 'generate' | 'confirm' | 'drop'. */
+    route: text('route'),
+    /** The review-queue action_run this candidate was surfaced as (supervised mode). */
+    reviewActionRunId: integer('review_action_run_id'),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('discovery_candidate_org_meeting_idx').on(table.orgId, table.meetingExternalId),
+    index('discovery_candidate_org_status_idx').on(table.orgId, table.status),
+  ],
+);
+
 // Re-export `sql` so callers can build the GENERATED-ALWAYS-AS-STORED
 // tsvector expression in raw migrations. Not used at query-time.
 export { sql };
