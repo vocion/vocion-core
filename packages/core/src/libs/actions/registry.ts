@@ -5,6 +5,7 @@
  */
 
 import type { Action } from './types';
+import { discoveryReviewProposalAction } from './discovery-review';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
 
@@ -25,3 +26,4 @@ export function listActions(): Action[] {
 // Built-ins.
 registerAction(gmailSendAction);
 registerAction(hubspotUpdateAction);
+registerAction(discoveryReviewProposalAction);
