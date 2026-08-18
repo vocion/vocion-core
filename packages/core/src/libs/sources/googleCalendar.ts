@@ -49,6 +49,20 @@ function eventTime(t?: { dateTime?: string; date?: string }): string {
   return t?.dateTime ?? t?.date ?? '';
 }
 
+/**
+ * Extract a Zoom meeting id from the event's join link / location / description
+ * (e.g. `https://zoom.us/j/89590696148`). Used by discovery-call detection
+ * (ticket 011) to correlate a recording with its calendar event by a SHARED
+ * identifier rather than by time — so attendees are never borrowed across
+ * unrelated back-to-back meetings.
+ * @param ev
+ */
+function zoomMeetingIdOf(ev: CalEvent): string | null {
+  const haystack = [ev.location, ev.hangoutLink, ev.description].filter(Boolean).join(' ');
+  const match = haystack.match(/zoom\.us\/(?:j|my|w|wc\/join)\/(\d{9,})/i);
+  return match?.[1] ?? null;
+}
+
 function renderEvent(ev: CalEvent): string {
   const attendees = (ev.attendees ?? [])
     .map(a => `${a.displayName ?? a.email ?? 'unknown'}${a.responseStatus ? ` (${a.responseStatus})` : ''}`)
@@ -119,6 +133,7 @@ export const googleCalendarConnector: SourceConnector<typeof calendarConfigSchem
             end: eventTime(ev.end),
             organizer: ev.organizer?.email ?? null,
             attendees: (ev.attendees ?? []).map(a => a.email).filter(Boolean),
+            zoomMeetingId: zoomMeetingIdOf(ev),
             recurring: !!ev.recurringEventId,
           },
         };
