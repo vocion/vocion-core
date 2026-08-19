@@ -748,8 +748,8 @@ export const automationSchema = pgTable(
     status: text('status').default('active'),
     /** `{schedule: '<cron UTC>'}` or `{event: '<type>', filter?: {...}}`. */
     whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string; filter?: Record<string, unknown> }>().notNull(),
-    /** `{workflow: '<slug>', input?: {...}}` or `{checkMission: '<slug>'}`. */
-    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; input?: Record<string, unknown> }>().notNull(),
+    /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>'}` | `{job: '<name>', input?}` (built-in server job, e.g. discovery-sweep). */
+    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; input?: Record<string, unknown> }>().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
