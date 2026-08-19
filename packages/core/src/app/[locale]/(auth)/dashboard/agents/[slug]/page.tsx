@@ -1,10 +1,11 @@
-import { ArrowLeft, ArrowUpRight, CornerUpLeft, ScrollText, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, CalendarClock, Compass, CornerUpLeft, GitBranch, ScrollText, TriangleAlert } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { createElement } from 'react';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { RailGroup } from '@/features/dashboard/RailGroup';
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
+import { cronToText } from '@/features/dashboard/TriggerBadge';
 import { agentAccent as accent } from '@/libs/agentAccents';
 import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -12,8 +13,11 @@ import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent, listAgents } from '@/services/AgentService';
+import { automationOwnerAgentSlug, listAutomations } from '@/services/AutomationService';
+import { listMissions } from '@/services/MissionService';
 import { listSkills } from '@/services/SkillService';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
+import { listWorkflows } from '@/services/WorkflowService';
 
 /**
  * Agent profile — one readable page per teammate. A clean hero, then a
@@ -86,6 +90,16 @@ export default async function AgentDetailPage(props: {
   const wiredSkills = skillSlugs.map(s => ({ slug: s, skill: skillBySlug.get(s) ?? null }));
   const sources = agent.connectorSources ?? [];
   const objectTypes = agent.objectTypeSlugs ?? [];
+
+  // What this agent owns: missions it runs, workflows it owns, and the
+  // automations that fire them (directly, or via a mission it owns).
+  const allMissions = await listMissions(orgId);
+  const missionAgentBySlug = new Map(allMissions.map(m => [m.slug, m.agentSlug]));
+  const ownedMissions = allMissions.filter(m => m.agentSlug === slug);
+  const ownedWorkflows = (await listWorkflows(orgId)).filter(w => w.ownerAgentSlug === slug);
+  const ownedAutomations = (await listAutomations(orgId))
+    .filter(x => automationOwnerAgentSlug(x, missionAgentBySlug) === slug);
+  const hasWork = ownedMissions.length + ownedAutomations.length + ownedWorkflows.length > 0;
 
   const sourceFiles = readPrimitiveFiles('agent', slug);
   const dirtyState = getWorkspaceDirtyState();
@@ -268,8 +282,116 @@ export default async function AgentDetailPage(props: {
           </RailGroup>
         </aside>
 
-        {/* Main column — the people this agent works with + its prompt */}
+        {/* Main column — what this agent owns, the people it works with, its prompt */}
         <div className="order-1 flex flex-col gap-8 lg:order-2">
+          {/* Work — the missions this agent runs, the schedules that fire them,
+              and the workflows it owns. Answers "what does this agent do?". */}
+          {hasWork && (
+            <section>
+              <h2 className="mb-1 font-display text-base font-semibold">Work</h2>
+              <p className="mb-4 text-xs text-muted-foreground">
+                What
+                {' '}
+                {agent.name}
+                {' '}
+                owns — the standing goals it runs, the schedules that trigger them, and the procedures it owns.
+              </p>
+              <div className="flex flex-col gap-6">
+                {ownedMissions.length > 0 && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                      <Compass className="size-3.5" />
+                      Missions
+                    </div>
+                    <div className="divide-y divide-border/60 border-y border-border/60">
+                      {ownedMissions.map(m => (
+                        <Link
+                          key={m.slug}
+                          href={`/dashboard/missions/${m.slug}`}
+                          className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-3 transition hover:bg-muted/30"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="truncate text-sm font-medium group-hover:text-primary">{m.name}</span>
+                            {m.goal && <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{m.goal}</p>}
+                          </div>
+                          <ArrowUpRight className="size-4 shrink-0 text-muted-foreground/40 transition group-hover:text-primary" />
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {ownedAutomations.length > 0 && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                      <CalendarClock className="size-3.5" />
+                      Automations
+                    </div>
+                    <div className="divide-y divide-border/60 border-y border-border/60">
+                      {ownedAutomations.map((auto) => {
+                        const target = auto.doConfig.job
+                          ? `job: ${auto.doConfig.job}`
+                          : auto.doConfig.checkMission
+                            ? `checks mission: ${auto.doConfig.checkMission}`
+                            : `runs workflow: ${auto.doConfig.workflow}`;
+                        const cadence = auto.whenConfig.schedule
+                          ? cronToText(auto.whenConfig.schedule)
+                          : `on ${auto.whenConfig.event}`;
+                        const viaMission = !auto.ownerAgentSlug;
+                        return (
+                          <Link
+                            key={auto.slug}
+                            href="/dashboard/automation"
+                            className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-3 transition hover:bg-muted/30"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <span className="truncate text-sm font-medium group-hover:text-primary">
+                                {auto.name}
+                                {viaMission && <span className="ml-1.5 text-[11px] font-normal text-muted-foreground/60">(via mission)</span>}
+                              </span>
+                              <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                                {cadence}
+                                {' · '}
+                                {target}
+                              </p>
+                            </div>
+                            <ArrowUpRight className="size-4 shrink-0 text-muted-foreground/40 transition group-hover:text-primary" />
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {ownedWorkflows.length > 0 && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                      <GitBranch className="size-3.5" />
+                      Workflows
+                    </div>
+                    <div className="divide-y divide-border/60 border-y border-border/60">
+                      {ownedWorkflows.map(w => (
+                        <Link
+                          key={w.slug}
+                          href={`/dashboard/workflows/${w.slug}`}
+                          className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-3 transition hover:bg-muted/30"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="truncate text-sm font-medium group-hover:text-primary">{w.name}</span>
+                            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                              {w.description ?? `${(w.steps as unknown[]).length} steps`}
+                            </p>
+                          </div>
+                          <ArrowUpRight className="size-4 shrink-0 text-muted-foreground/40 transition group-hover:text-primary" />
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           {/* The workspace lead's reports are the teams (Consults rail) —
               the specialist list is for team leads (design §2c). */}
           {!isWorkspaceLead && specialists.length > 0 && (

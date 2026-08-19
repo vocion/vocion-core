@@ -1,5 +1,5 @@
 import type { StepperStep } from '@/components/ui/stepper';
-import { Activity, ArrowLeft, GitBranch, PlayCircle } from 'lucide-react';
+import { Activity, ArrowLeft, Compass, GitBranch, PlayCircle } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
+import { getAgent } from '@/services/AgentService';
 import { getWorkflow } from '@/services/WorkflowService';
 
 export default async function WorkflowDetailPage(props: {
@@ -30,6 +31,7 @@ export default async function WorkflowDetailPage(props: {
     return notFound();
   }
 
+  const owner = workflow.agent ? await getAgent(orgId, workflow.agent) : null;
   const sourceFiles = readPrimitiveFiles('workflow', slug);
   const dirtyState = getWorkspaceDirtyState();
   const activity = await getWorkflowActivity(orgId, slug);
@@ -61,6 +63,18 @@ export default async function WorkflowDetailPage(props: {
                   v
                   {workflow.version}
                 </span>
+                {workflow.agent && (
+                  <Link
+                    href={`/dashboard/agents/${workflow.agent}`}
+                    className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                    title="The agent this workflow belongs to"
+                  >
+                    <Compass className="size-3" />
+                    Owned by
+                    {' '}
+                    {owner?.name ?? workflow.agent}
+                  </Link>
+                )}
               </div>
             </div>
           </div>

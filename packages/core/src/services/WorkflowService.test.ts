@@ -182,6 +182,67 @@ describe('WorkflowService', () => {
     expect(resumed.stepResults.summary?.output).toEqual({ received: 'Call with Jane Doe of Acme' });
   });
 
+  /**
+   * An ask whose `default` resolves doesn't ask. This is what lets discovery
+   * detection hand a transcript it already read to the follow-up workflow
+   * instead of making a human paste in what the system is holding.
+   */
+  it('completes an ask step from its default instead of pausing', async () => {
+    pluginRegistry.register(
+      { id: 'test.summarize2', version: '1.0.0' },
+      [defineSkill({
+        slug: 'summarize2',
+        name: 'Summarize',
+        version: '1.0.0',
+        requiresApproval: false,
+        inputSchema: z.object({ transcript: z.string() }),
+        outputSchema: z.object({ received: z.string() }),
+        async run(_ctx, input) {
+          return { received: input.transcript };
+        },
+      })],
+    );
+
+    await seedWorkflow('ask_prefilled', [
+      { name: 'transcript', type: 'ask', prompt: 'Paste the call transcript', default: '{{input.transcript}}' },
+      { name: 'summary', type: 'skill', skill: 'summarize2', input: { transcript: '{{steps.transcript.output}}' } },
+    ]);
+
+    const run = await startWorkflow({
+      orgId: ORG,
+      slug: 'ask_prefilled',
+      input: { transcript: 'Gated transcript supplied by detection' },
+    });
+
+    expect(run.status).toBe('completed'); // never paused
+    expect(run.pauseReason).toBeNull();
+    expect(run.stepResults.transcript?.status).toBe('completed');
+    expect(run.stepResults.transcript?.output).toBe('Gated transcript supplied by detection');
+    expect(run.stepResults.summary?.output).toEqual({ received: 'Gated transcript supplied by detection' });
+  });
+
+  it('still pauses a defaulted ask step when the default resolves to nothing', async () => {
+    await seedWorkflow('ask_prefill_absent', [
+      { name: 'transcript', type: 'ask', prompt: 'Paste the call transcript', default: '{{input.transcript}}' },
+    ]);
+
+    // Manual start — no transcript in the input, so the human is still asked.
+    const run = await startWorkflow({ orgId: ORG, slug: 'ask_prefill_absent' });
+
+    expect(run.status).toBe('paused');
+    expect(run.pauseReason).toBe('awaiting_input:transcript');
+  });
+
+  it('pauses rather than accepting a whitespace-only default', async () => {
+    await seedWorkflow('ask_prefill_blank', [
+      { name: 'transcript', type: 'ask', prompt: 'Paste the call transcript', default: '{{input.transcript}}' },
+    ]);
+
+    const run = await startWorkflow({ orgId: ORG, slug: 'ask_prefill_blank', input: { transcript: '   ' } });
+
+    expect(run.status).toBe('paused');
+  });
+
   it('fails a run when a step throws', async () => {
     pluginRegistry.register(
       { id: 'test.boom', version: '1.0.0' },

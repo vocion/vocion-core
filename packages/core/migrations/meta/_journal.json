@@ -351,6 +351,27 @@
       "when": 1782002600000,
       "tag": "0049_discovery_candidate",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1782002700000,
+      "tag": "0050_automation_workflow_owner",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1782002800000,
+      "tag": "0051_automation_run",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1782002900000,
+      "tag": "0052_calendar_zoom_id_idx",
+      "breakpoints": true
     }
   ]
 }

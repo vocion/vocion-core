@@ -25,7 +25,7 @@
 
 import type { Principal } from '@/services/authz';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { and, eq, gte } from 'drizzle-orm';
+import { and, eq, gte, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { buildChatModel } from '@/libs/llm';
@@ -102,8 +102,42 @@ export type SweepOptions = {
   allowCalendlyExternal?: boolean;
   /** v1 default: every classification is surfaced for review, nothing auto-runs. */
   supervised?: boolean;
-  /** Injectable clock for deterministic tests. */
+  /**
+   * Injectable clock. Also how a past day is replayed: pass the end of the day
+   * as `now` with `sinceDays: 1` and the window is that day.
+   */
   now?: Date;
+  /**
+   * Rehearsal mode, for the dashboard's test run. Needed because the real sweep
+   * is idempotent by design — the `routed` skip means a second pass over an
+   * already-swept day reports zero, which reads as broken when you are testing.
+   *
+   * A dry run DOES: match, record the match on `discovery_candidate`, read
+   * matched transcripts, and classify. Those are the behaviours under test, and
+   * the candidate row is what the content gate reads through.
+   * A dry run does NOT: enqueue a review-queue item, or mark the candidate
+   * routed. So it costs classifier spend, changes nothing anyone acts on, and
+   * leaves the queue clean (that queue is the calibration data for 020). The
+   * next real sweep still classifies the meeting normally.
+   *
+   * The privacy gate is untouched: only matched meetings are ever read, and a
+   * dry run never widens what matches.
+   */
+  dryRun?: boolean;
+};
+
+/** Per-meeting detail — what a test run needs to explain itself. */
+export type SweepMeetingDetail = {
+  meetingExternalId: string;
+  title: string | null;
+  start: Date | null;
+  matchType: MatchType;
+  matchRef: string | null;
+  matchReason: string;
+  /** Why nothing was classified, when nothing was: already routed, or no transcript yet. */
+  skipped?: 'already-routed' | 'no-transcript';
+  classification?: Classification;
+  route?: Route;
 };
 
 export type SweepResult = {
@@ -112,6 +146,12 @@ export type SweepResult = {
   matched: number;
   classified: number;
   routed: { generate: number; confirm: number; drop: number };
+  /** True when this was a rehearsal — nothing was persisted or enqueued. */
+  dryRun: boolean;
+  /** The window actually swept, so a run states its own scope. */
+  window: { since: string; until: string };
+  /** One entry per matched meeting, in sweep order. */
+  meetings: SweepMeetingDetail[];
 };
 
 /** Raised when the content gate refuses a transcript read. */
@@ -475,10 +515,27 @@ function toDate(v: unknown, fallback: Date | null): Date | null {
  * fails to match — it fails CLOSED (unread) rather than guessing. Attendees
  * already stamped on the Zoom metadata win, so sources that provide them
  * directly still work.
+ *
+ * `since` (and optional `until`) window the RECORDINGS only. The calendar
+ * events are loaded unwindowed on purpose: an event is normally created before
+ * its call, so it is routinely ingested outside the recording's window. Sharing
+ * one window meant such a recording found no event, kept zero attendees, failed
+ * closed, and then aged out of the window forever — a permanently unread call
+ * caused by ingest ordering rather than by the privacy rule. Widening this is
+ * safe: calendar attendees/organizer are metadata, the same class of signal the
+ * matcher already runs on, and the content gate is untouched.
  * @param orgId
  * @param since
+ * @param until - Optional upper bound (exclusive), for replaying one past day.
  */
-export async function loadMeetingDocs(orgId: string, since: Date): Promise<MeetingMeta[]> {
+export async function loadMeetingDocs(orgId: string, since: Date, until?: Date): Promise<MeetingMeta[]> {
+  const windowConds = [
+    eq(knowledgeDocumentSchema.orgId, orgId),
+    gte(knowledgeDocumentSchema.ingestedAt, since),
+  ];
+  if (until) {
+    windowConds.push(lt(knowledgeDocumentSchema.ingestedAt, until));
+  }
   const rows = await db
     .select({
       docId: knowledgeDocumentSchema.id,
@@ -488,39 +545,50 @@ export async function loadMeetingDocs(orgId: string, since: Date): Promise<Meeti
       lastModifiedAt: knowledgeDocumentSchema.lastModifiedAt,
     })
     .from(knowledgeDocumentSchema)
+    .where(and(...windowConds));
+
+  // Calendar events, UNWINDOWED and narrowed in SQL to just those carrying a
+  // Zoom id — see the note above on why sharing the recordings' window made
+  // early-ingested events invisible.
+  const eventRows = await db
+    .select({ metadata: knowledgeDocumentSchema.metadata })
+    .from(knowledgeDocumentSchema)
     .where(and(
       eq(knowledgeDocumentSchema.orgId, orgId),
-      gte(knowledgeDocumentSchema.ingestedAt, since),
+      sql`${knowledgeDocumentSchema.metadata}->>'kind' = 'calendar-event'`,
+      sql`${knowledgeDocumentSchema.metadata}->>'zoomMeetingId' IS NOT NULL`,
     ));
 
   const recordings: { meta: MeetingMeta; zoomMeetingId: string | null }[] = [];
   const eventsByZoomId = new Map<string, CalEvent>();
+  for (const r of eventRows) {
+    const m = (r.metadata ?? {}) as Record<string, unknown>;
+    const zoomId = str(m.zoomMeetingId);
+    if (zoomId) {
+      eventsByZoomId.set(zoomId, {
+        attendees: stringArray(m.attendees).map(a => a.toLowerCase()),
+        organizer: lower(str(m.organizer)) ?? null,
+      });
+    }
+  }
   for (const r of rows) {
     const m = (r.metadata ?? {}) as Record<string, unknown>;
-    const kind = str(m.kind);
-    if (kind === 'zoom-recording') {
-      recordings.push({
-        meta: {
-          docId: r.docId,
-          externalId: r.externalId,
-          sourceSlug: 'zoom',
-          title: r.title,
-          host: lower(str(m.host)) ?? null,
-          start: toDate(m.start, r.lastModifiedAt),
-          attendees: stringArray(m.attendees).map(a => a.toLowerCase()),
-          hasTranscript: m.hasTranscript === true,
-        },
-        zoomMeetingId: str(m.meetingId) ?? null,
-      });
-    } else if (kind === 'calendar-event') {
-      const zoomId = str(m.zoomMeetingId);
-      if (zoomId) {
-        eventsByZoomId.set(zoomId, {
-          attendees: stringArray(m.attendees).map(a => a.toLowerCase()),
-          organizer: lower(str(m.organizer)) ?? null,
-        });
-      }
+    if (str(m.kind) !== 'zoom-recording') {
+      continue;
     }
+    recordings.push({
+      meta: {
+        docId: r.docId,
+        externalId: r.externalId,
+        sourceSlug: 'zoom',
+        title: r.title,
+        host: lower(str(m.host)) ?? null,
+        start: toDate(m.start, r.lastModifiedAt),
+        attendees: stringArray(m.attendees).map(a => a.toLowerCase()),
+        hasTranscript: m.hasTranscript === true,
+      },
+      zoomMeetingId: str(m.meetingId) ?? null,
+    });
   }
 
   // Enrich attendee-less recordings from the calendar event with the SAME Zoom
@@ -630,40 +698,71 @@ async function enqueueReview(
 export async function runSweep(orgId: string, opts: SweepOptions): Promise<SweepResult> {
   const now = opts.now ?? new Date();
   const supervised = opts.supervised ?? true;
+  const dryRun = opts.dryRun ?? false;
 
   // Stage 0.
   const hubspotDocs = await loadHubspotDocs(orgId);
   const eligible = filterEligible(hubspotDocs, opts.eligible);
 
-  // Stage 1 — metadata only.
+  // Stage 1 — metadata only. `now` is the window's upper bound, so replaying a
+  // past day is `now = end of that day` with `sinceDays = 1`.
   const since = new Date(now.getTime() - opts.sinceDays * 86_400_000);
-  const meetings = await loadMeetingDocs(orgId, since);
+  const meetings = await loadMeetingDocs(orgId, since, now);
   const matches = meetings
     .map(m => matchMeeting(m, eligible, { sellerDomain: opts.sellerDomain, allowCalendlyExternal: opts.allowCalendlyExternal }))
     .filter((x): x is Match => x !== null);
 
   const routed = { generate: 0, confirm: 0, drop: 0 };
+  const details: SweepMeetingDetail[] = [];
   let classified = 0;
 
   for (const match of matches) {
+    const detail: SweepMeetingDetail = {
+      meetingExternalId: match.meeting.externalId,
+      title: match.meeting.title,
+      start: match.meeting.start,
+      matchType: match.matchType,
+      matchRef: match.matchRef,
+      matchReason: match.matchReason,
+    };
+    details.push(detail);
+
+    // The match IS recorded on a dry run, and deliberately so: the candidate
+    // row is the provenance record that this meeting matched on metadata, which
+    // is true whether or not we go on to classify — and it is the row the
+    // content gate reads through. Suppressing it would either make a dry run
+    // classify nothing (useless) or require a bypass on the gate (unsafe). So
+    // dryRun suppresses the two writes that carry consequences: the review-queue
+    // item and the routed/classification update. Nothing downstream sees it.
     const candidate = await upsertCandidate(orgId, match);
+
     // Already classified on a previous sweep → don't re-read the transcript,
-    // re-spend on the LLM, or re-post a duplicate to the review queue.
-    if (candidate.status === 'routed') {
+    // re-spend on the LLM, or re-post a duplicate to the review queue. A dry
+    // run deliberately ignores this: rehearsing an already-swept day is the
+    // main reason to dry-run at all.
+    if (!dryRun && candidate.status === 'routed') {
+      detail.skipped = 'already-routed';
       continue;
     }
     if (!match.meeting.hasTranscript) {
-      continue; // matched but nothing to classify yet — revisited next sweep
+      detail.skipped = 'no-transcript'; // matched but nothing to classify yet
+      continue;
     }
 
     // Stage 2 — the ONLY transcript read, behind the gate.
     const transcript = await readMatchedTranscript(orgId, match.meeting.externalId);
     const classification = await classifyTranscript(transcript, { title: match.meeting.title });
     classified += 1;
+    detail.classification = classification;
 
     // Stage 3.
     const route = routeClassification(classification, opts);
     routed[route] += 1;
+    detail.route = route;
+
+    if (dryRun) {
+      continue; // rehearsal ends here: nothing enqueued, nothing persisted
+    }
 
     const reviewRunId = supervised
       ? await enqueueReview(orgId, candidate.id, match, classification, route)
@@ -687,5 +786,8 @@ export async function runSweep(orgId: string, opts: SweepOptions): Promise<Sweep
     matched: matches.length,
     classified,
     routed,
+    dryRun,
+    window: { since: since.toISOString(), until: now.toISOString() },
+    meetings: details,
   };
 }
