@@ -632,6 +632,7 @@ async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, dryRun: b
     trigger: workflow.trigger as unknown as Record<string, unknown>,
     steps: workflow.steps as unknown as Array<Record<string, unknown>>,
     inputSchema: workflow.inputSchema ?? null,
+    ownerAgentSlug: workflow.agent ?? null,
   };
 
   if (!existing) {
@@ -701,6 +702,7 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, dry
     status: automation.status,
     whenConfig: automation.when as { schedule?: string; event?: string; filter?: Record<string, unknown> },
     doConfig: automation.do as { workflow?: string; checkMission?: string; job?: string; input?: Record<string, unknown> },
+    ownerAgentSlug: automation.agent ?? null,
   };
 
   if (!existing) {
@@ -713,6 +715,7 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, dry
     existing.name === payload.name
     && (existing.description ?? null) === payload.description
     && existing.status === payload.status
+    && (existing.ownerAgentSlug ?? null) === payload.ownerAgentSlug
     && canonical(existing.whenConfig) === canonical(payload.whenConfig)
     && canonical(existing.doConfig) === canonical(payload.doConfig)
   ) {
@@ -906,6 +909,7 @@ function isWorkflowEqual(a: typeof workflowSchema.$inferSelect, b: Record<string
     trigger: a.trigger,
     steps: a.steps,
     inputSchema: a.inputSchema,
+    ownerAgentSlug: a.ownerAgentSlug ?? null,
   }) === canonical({
     name: b.name,
     description: b.description,
@@ -914,6 +918,7 @@ function isWorkflowEqual(a: typeof workflowSchema.$inferSelect, b: Record<string
     trigger: b.trigger,
     steps: b.steps,
     inputSchema: b.inputSchema,
+    ownerAgentSlug: b.ownerAgentSlug ?? null,
   });
 }
 
