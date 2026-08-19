@@ -482,6 +482,173 @@ describe('runSweep', () => {
 
     expect(candidates[0]).toMatchObject({ meetingExternalId: 'zoom:notranscript', matchType: 'calendly-external', status: 'matched' });
   });
+
+  /**
+   * The regression that motivated windowing recordings only. A calendar event is
+   * normally created BEFORE its call, so it is routinely ingested outside the
+   * recording's window. Sharing one window meant the recording found no event,
+   * kept zero attendees, failed closed, and then aged out permanently — an
+   * unread prospect call caused by ingest ordering, not by the privacy rule.
+   */
+  it('joins a calendar event ingested long before the window it correlates into', async () => {
+    classifierReturns({
+      is_discovery: true,
+      is_discovery_confidence: 0.9,
+      proposal_ready: false,
+      proposal_ready_confidence: 0.4,
+      reasoning: 'discovery',
+    });
+
+    const hubspot = await seedSource('hubspot');
+    await seedDoc(hubspot, {
+      externalId: 'contacts:9',
+      metadata: { objectType: 'contacts', hubspotId: '9', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', primaryEmail: 'buyer@acme.com' },
+    });
+
+    const cal = await seedSource('google-calendar');
+    // Invite synced 30 days before the sweep window opens.
+    await seedDoc(cal, {
+      externalId: 'gcal:primary:old-evt',
+      metadata: { kind: 'calendar-event', organizer: 'chris@metacto.com', attendees: ['chris@metacto.com', 'buyer@acme.com'], zoomMeetingId: '77777777777' },
+      ingestedAt: new Date(NOW.getTime() - 30 * 86_400_000),
+    });
+
+    const zoom = await seedSource('zoom');
+    const doc = await seedDoc(zoom, {
+      externalId: 'zoom:late',
+      title: 'Recorded call, invite synced weeks earlier',
+      metadata: { kind: 'zoom-recording', meetingId: '77777777777', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true },
+      ingestedAt: new Date(NOW.getTime() - 3_600_000),
+    });
+    await seedChunk(doc, 'transcript body');
+
+    // A 3-day window — the same one production runs. The event is well outside it.
+    const result = await svc.runSweep(ORG, { ...sweepOpts, sinceDays: 3 });
+
+    expect(result.matched).toBe(1);
+    expect(result.classified).toBe(1);
+  });
+
+  it('windows recordings by ingest time, so a replayed day excludes later ingests', async () => {
+    const zoom = await seedSource('zoom');
+    await seedDoc(zoom, {
+      externalId: 'zoom:inside',
+      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', hasTranscript: false, attendees: ['chris@metacto.com', 'ceo@brandnew.io'] },
+      ingestedAt: new Date('2026-08-12T09:00:00.000Z'),
+    });
+    await seedDoc(zoom, {
+      externalId: 'zoom:after',
+      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', hasTranscript: false, attendees: ['chris@metacto.com', 'ceo@brandnew.io'] },
+      ingestedAt: new Date('2026-08-16T09:00:00.000Z'),
+    });
+
+    // Replay just 2026-08-12: window is that day, upper bound included.
+    const result = await svc.runSweep(ORG, {
+      ...sweepOpts,
+      sinceDays: 1,
+      now: new Date('2026-08-13T00:00:00.000Z'),
+    });
+
+    expect(result.meetingsScanned).toBe(1);
+    expect(result.window).toEqual({ since: '2026-08-12T00:00:00.000Z', until: '2026-08-13T00:00:00.000Z' });
+  });
+
+  it('dry run classifies and reports but enqueues nothing and routes nothing', async () => {
+    classifierReturns({
+      is_discovery: true,
+      is_discovery_confidence: 0.92,
+      proposal_ready: true,
+      proposal_ready_confidence: 0.85,
+      reasoning: 'clear discovery',
+    });
+
+    const hubspot = await seedSource('hubspot');
+    await seedDoc(hubspot, {
+      externalId: 'contacts:9',
+      metadata: { objectType: 'contacts', hubspotId: '9', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', primaryEmail: 'buyer@acme.com' },
+    });
+
+    const zoom = await seedSource('zoom');
+    const doc = await seedDoc(zoom, {
+      externalId: 'zoom:dry',
+      title: 'Acme discovery',
+      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
+    });
+    await seedChunk(doc, 'transcript body');
+
+    const result = await svc.runSweep(ORG, { ...sweepOpts, dryRun: true });
+
+    // It did the work and can explain itself.
+    expect(result.dryRun).toBe(true);
+    expect(result.classified).toBe(1);
+    expect(result.routed.generate).toBe(1);
+    expect(result.meetings[0]).toMatchObject({ meetingExternalId: 'zoom:dry', route: 'generate' });
+    expect(result.meetings[0]?.classification?.isDiscovery).toBe(true);
+
+    // But nothing consequential was written: no review item, and the candidate
+    // is still un-routed so the next real sweep still handles it.
+    const actions = await db.select().from(actionRunSchema);
+
+    expect(actions).toHaveLength(0);
+
+    const candidates = await db.select().from(discoveryCandidateSchema);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ meetingExternalId: 'zoom:dry', status: 'matched', route: null });
+  });
+
+  it('dry run re-classifies an already-routed candidate (rehearsing a swept day is the point)', async () => {
+    classifierReturns({
+      is_discovery: true,
+      is_discovery_confidence: 0.92,
+      proposal_ready: true,
+      proposal_ready_confidence: 0.85,
+      reasoning: 'clear',
+    });
+
+    const hubspot = await seedSource('hubspot');
+    await seedDoc(hubspot, {
+      externalId: 'contacts:9',
+      metadata: { objectType: 'contacts', hubspotId: '9', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', primaryEmail: 'buyer@acme.com' },
+    });
+
+    const zoom = await seedSource('zoom');
+    const doc = await seedDoc(zoom, {
+      externalId: 'zoom:again',
+      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
+    });
+    await seedChunk(doc, 'transcript');
+
+    await svc.runSweep(ORG, sweepOpts); // real sweep → routed
+    const dry = await svc.runSweep(ORG, { ...sweepOpts, dryRun: true });
+
+    expect(dry.classified).toBe(1); // NOT skipped as already-routed
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+
+    // Still exactly one review item — the dry run added none.
+    const actions = await db.select().from(actionRunSchema);
+
+    expect(actions).toHaveLength(1);
+  });
+
+  it('reports why a matched meeting was not classified', async () => {
+    const zoom = await seedSource('zoom');
+    await seedDoc(zoom, {
+      externalId: 'zoom:pending',
+      title: 'Acme intro',
+      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: false, attendees: ['chris@metacto.com', 'ceo@brandnew.io'] },
+    });
+
+    const result = await svc.runSweep(ORG, sweepOpts);
+
+    expect(result.meetings).toHaveLength(1);
+    expect(result.meetings[0]).toMatchObject({
+      meetingExternalId: 'zoom:pending',
+      matchType: 'calendly-external',
+      skipped: 'no-transcript',
+    });
+    expect(result.meetings[0]?.matchReason).toBeTruthy();
+  });
 });
 
 // ── the automation job wiring (scheduled path) ───────────────────────────────
@@ -502,5 +669,31 @@ describe('runDiscoverySweepJob', () => {
 
   it('rejects input missing the required sellerDomain', async () => {
     await expect(runDiscoverySweepJob(ORG, { eligible: {} })).rejects.toThrow();
+  });
+
+  it('replays a named day as a one-day window, overriding sinceDays', async () => {
+    const result = await runDiscoverySweepJob(ORG, {
+      sellerDomain: 'metacto.com',
+      sinceDays: 30, // must lose to `day`
+      day: '2026-08-12',
+    }) as { window: { since: string; until: string } };
+
+    expect(result.window).toEqual({
+      since: '2026-08-12T00:00:00.000Z',
+      until: '2026-08-13T00:00:00.000Z',
+    });
+  });
+
+  it('rejects a malformed day', async () => {
+    await expect(runDiscoverySweepJob(ORG, { sellerDomain: 'metacto.com', day: '12/08/2026' })).rejects.toThrow();
+  });
+
+  it('passes dryRun through to the sweep', async () => {
+    const result = await runDiscoverySweepJob(ORG, {
+      sellerDomain: 'metacto.com',
+      dryRun: true,
+    }) as { dryRun: boolean };
+
+    expect(result.dryRun).toBe(true);
   });
 });
