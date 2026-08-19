@@ -256,6 +256,7 @@ type UpsertOutcome = 'created' | 'updated' | 'unchanged';
  * @param orgId
  * @param loaded
  * @param errors
+ * @param configChangedSourceSlugs
  */
 async function reconcileSchedules(
   orgId: string,
@@ -699,7 +700,7 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, dry
     description: automation.description ?? null,
     status: automation.status,
     whenConfig: automation.when as { schedule?: string; event?: string; filter?: Record<string, unknown> },
-    doConfig: automation.do as { workflow?: string; checkMission?: string; input?: Record<string, unknown> },
+    doConfig: automation.do as { workflow?: string; checkMission?: string; job?: string; input?: Record<string, unknown> },
   };
 
   if (!existing) {
