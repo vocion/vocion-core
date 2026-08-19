@@ -1,0 +1,128 @@
+packages/core/migrations/0051_automation_run.sql
+  s_00fbe15568a68f::t_8f0f232521bc5c 1-24
+packages/core/src/services/AutomationService.test.ts
+  s_00fbe15568a68f::t_11706b9d47d34b 59
+  s_00fbe15568a68f::t_0d7e373d0e7f5a 6,20,23
+  s_00fbe15568a68f::t_741a7c8d3e35d3 86-134
+  s_00fbe15568a68f::t_060ae2a5683e87 72
+  s_00fbe15568a68f::t_866905b6cea433 40,48
+packages/core/src/models/Schema.ts
+  s_20eded64b00e55::t_5fa432d69251e1 831-832
+  s_00fbe15568a68f::t_4215717201b768 763-799
+  s_20eded64b00e55::t_171e4a6d54d609 753-754
+  s_00fbe15568a68f::t_cb56fcabab475d 2
+packages/core/src/libs/workspace/ownership.ts
+  s_20eded64b00e55::t_44f107a659aaed 1-46
+packages/core/src/services/AutomationService.ts
+  s_20eded64b00e55::t_ae76d68f1c7d09 33-35
+  s_00fbe15568a68f::t_9146199f3563c6 188-190
+  s_00fbe15568a68f::t_28e881a8731d3d 14,22
+  s_00fbe15568a68f::t_aeb4c45c7f93f9 59-65,69,71,76-77,87-119,132-138,144-145,155,176-187,191-192
+  s_00fbe15568a68f::t_fa0d0738a4f003 121-131
+  s_20eded64b00e55::t_5202bef0c8a200 28-32,36-50
+  s_00fbe15568a68f::t_39cb17327893bf 193
+packages/core/src/app/api/v1/automations/[slug]/run/route.ts
+  s_00fbe15568a68f::t_52a8ce34f039c7 1-79
+packages/core/src/app/[locale]/(auth)/dashboard/workflows/[slug]/page.tsx
+  s_20eded64b00e55::t_8feb96eaf8b826 34
+  s_20eded64b00e55::t_a53e69c75adf3d 2,16
+  s_20eded64b00e55::t_425679a5edb002 66-77
+packages/core/src/libs/actions/discovery-review.ts
+  s_00fbe15568a68f::t_12877fbcd94799 9-12,18-20,37-50,58-74,79-81
+  s_00fbe15568a68f::t_fc22f78fd5a435 51-57
+packages/core/src/services/DiscoveryDetectionService.test.ts
+  s_00fbe15568a68f::t_e0393c55478e5c 673-698
+  s_00fbe15568a68f::t_788bece309ef1d 485-651
+packages/core/src/libs/workspace/loader.ts
+  s_20eded64b00e55::t_3555045956898f 280
+  s_20eded64b00e55::t_dc7fcb394e6973 13
+packages/core/migrations/meta/_journal.json
+  s_00fbe15568a68f::t_78a979cfbd021c 361-367
+  s_20eded64b00e55::t_abd6436ddaf29f 354-360
+  s_00fbe15568a68f::t_447d786b466adc 368-374
+packages/core/src/libs/workspace/ownership.test.ts
+  s_20eded64b00e55::t_7cd78397178e03 6-60
+  s_20eded64b00e55::t_dc7fcb394e6973 64,83
+  s_20eded64b00e55::t_3a81d41ae1405c 1-5
+  s_20eded64b00e55::t_59c2b393668716 61-63,65-82,84-91
+packages/core/src/services/ActionService.ts
+  s_00fbe15568a68f::t_21f44cff8f1247 137-150
+packages/core/migrations/0050_automation_workflow_owner.sql
+  s_20eded64b00e55::t_04a5f87344ca10 1-6
+packages/core/src/app/[locale]/(auth)/dashboard/workflows/page.tsx
+  s_20eded64b00e55::t_c22611b4d74a91 21-22
+  s_20eded64b00e55::t_e78d34c66498f9 1,9
+  s_20eded64b00e55::t_cf598342652c60 75-80
+packages/core/src/app/[locale]/(auth)/dashboard/agents/[slug]/page.tsx
+  s_20eded64b00e55::t_aad2ae0a3e6156 285,287-394
+  s_20eded64b00e55::t_f3a433a6ba0c2d 1,8,16-17,20
+  s_20eded64b00e55::t_28cacfbfe1bbc7 94-103
+packages/core/src/features/dashboard/AutomationTestRun.tsx
+  s_00fbe15568a68f::t_aa3d5f998dc3f1 1-264
+packages/core/src/libs/actions/discovery-review.test.ts
+  s_00fbe15568a68f::t_96b9b58d2f3abc 109,119,121,126-129
+  s_00fbe15568a68f::t_c9d9932197cf9b 1-108,110-118,120,122-125,130-161
+packages/core/src/scripts/discovery-sweep.ts
+  s_00fbe15568a68f::t_d7d8a5757348c8 9-12,20-21,25-28
+  s_00fbe15568a68f::t_03462d78eb2ad9 51-63,65
+packages/core/src/services/WorkflowService.ts
+  s_20eded64b00e55::t_dca521856a21b0 574
+  s_00fbe15568a68f::t_adc3977bca9b8a 307-323
+packages/core/src/services/WorkflowService.test.ts
+  s_00fbe15568a68f::t_f1910235c11f80 185-245
+packages/core/src/libs/workspace/schemas.ts
+  s_00fbe15568a68f::t_5f5fb69ce66967 288-295
+  s_20eded64b00e55::t_df6728cb1e4da1 372-378
+  s_20eded64b00e55::t_331f44a4e1e78e 407-408
+packages/core/src/app/[locale]/(auth)/dashboard/automation/page.tsx
+  s_00fbe15568a68f::t_99ee50e907463e 23-29
+  s_20eded64b00e55::t_6d68ad082ee65a 46-49,54
+  s_00fbe15568a68f::t_64f0895aad4fb8 2,6,14
+  s_20eded64b00e55::t_712d3db0120653 147
+  s_00fbe15568a68f::t_a5248580359d97 55
+  s_20eded64b00e55::t_c6ebdca0fad867 13,15
+  s_00fbe15568a68f::t_a0b7705afb0b05 83,85-136,138-146,148-151,154-156
+  s_00fbe15568a68f::t_28dcf6e8e490e0 185-229,235-298,303-312
+  s_00fbe15568a68f::t_fa0d0738a4f003 230-234,299-302
+packages/core/src/services/jobs/discoverySweep.ts
+  s_00fbe15568a68f::t_247f038e466d6c 25-34,39-43,47,52-53
+packages/core/src/services/DiscoveryDetectionService.ts
+  s_00fbe15568a68f::t_561cf825616d56 701,707-708,710,716,720-729,738,740-742,744,748-749,756,761-765,789-791
+  s_00fbe15568a68f::t_6e8a0c0d72f529 730-736,743
+  s_00fbe15568a68f::t_590e027a6362a9 111-113,115-124
+  s_00fbe15568a68f::t_35e413066620cc 28
+  s_00fbe15568a68f::t_47ed8d443cee9f 518-526,529,531
+  s_00fbe15568a68f::t_14d5b5fee4af6c 105-108,110,114,125-140,149-154
+  s_00fbe15568a68f::t_dcb251e90dbb36 532-538,548-555,558-559,564,566-570,574-592
+packages/core/migrations/0052_calendar_zoom_id_idx.sql
+  s_00fbe15568a68f::t_6c2e2d7d729e20 1-10
+packages/core/src/libs/workspace/applier.ts
+  s_20eded64b00e55::t_f2d6bbbb317006 705
+  s_20eded64b00e55::t_4312fde35b6fe4 912,921
+  s_20eded64b00e55::t_24460b8d6150ab 718
+  s_20eded64b00e55::t_40331da96429d4 635
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "ec7036632eaafa2364cd3fa1265d9a9ee460c41a",
+  "prompts": {},
+  "sessions": {
+    "s_00fbe15568a68f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1b72da86-d778-44bf-bf29-c41c21f66a73",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    },
+    "s_20eded64b00e55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d1013436-0c77-4abc-b678-91f85b3a2d1f",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
