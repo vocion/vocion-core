@@ -18,6 +18,7 @@ const {
   actionRunSchema,
 } = await import('@/models/Schema');
 const svc = await import('@/services/DiscoveryDetectionService');
+const { runDiscoverySweepJob } = await import('@/services/jobs/discoverySweep');
 
 const ORG = 'org_disc';
 const NOW = new Date('2026-08-17T18:00:00.000Z');
@@ -480,5 +481,26 @@ describe('runSweep', () => {
     const candidates = await db.select().from(discoveryCandidateSchema);
 
     expect(candidates[0]).toMatchObject({ meetingExternalId: 'zoom:notranscript', matchType: 'calendly-external', status: 'matched' });
+  });
+});
+
+// ── the automation job wiring (scheduled path) ───────────────────────────────
+
+describe('runDiscoverySweepJob', () => {
+  it('parses automation do.input and runs the sweep', async () => {
+    const result = await runDiscoverySweepJob(ORG, {
+      sellerDomain: 'metacto.com',
+      eligible: { lifecycleStages: ['lead'] },
+      sinceDays: 3,
+      discoveryThreshold: 0.6,
+      readyThreshold: 0.75,
+      supervised: true,
+    }) as { matched: number; classified: number };
+
+    expect(result).toMatchObject({ matched: 0, classified: 0 });
+  });
+
+  it('rejects input missing the required sellerDomain', async () => {
+    await expect(runDiscoverySweepJob(ORG, { eligible: {} })).rejects.toThrow();
   });
 });
