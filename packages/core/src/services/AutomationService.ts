@@ -44,7 +44,7 @@ export async function fireAutomation(
   orgId: string,
   slug: string,
   opts: { input?: Record<string, unknown>; invokedBy?: string } = {},
-): Promise<{ kind: 'workflow' | 'mission_check'; runId: number }> {
+): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; result?: unknown }> {
   const automation = await getAutomation(orgId, slug);
   if (!automation) {
     throw new Error(`automation "${slug}" not found for org ${orgId}`);
@@ -65,6 +65,14 @@ export async function fireAutomation(
       invokedBy,
     });
     return { kind: 'workflow', runId: run.id };
+  }
+
+  if (doCfg.job) {
+    // Built-in deterministic job (e.g. discovery-sweep) — runs synchronously in
+    // the worker with full DB access. Not an agent, not a workflow.
+    const { runBuiltInJob } = await import('@/services/jobs/registry');
+    const result = await runBuiltInJob(doCfg.job, orgId, { ...(doCfg.input ?? {}), ...(opts.input ?? {}) });
+    return { kind: 'job', runId: 0, result };
   }
 
   const { getMission, scheduledCheckBrief, startMission } = await import('@/services/MissionService');

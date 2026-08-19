@@ -372,9 +372,14 @@ export const AutomationManifestSchema = z.object({
   do: z.object({
     workflow: z.string().optional(),
     checkMission: z.string().optional(),
-    /** Fixed input passed to workflow runs. */
+    /** Built-in server job, e.g. `discovery-sweep` (deterministic, not an agent). */
+    job: z.string().optional(),
+    /** Fixed input passed to the workflow run / job. */
     input: z.record(z.string(), z.unknown()).optional(),
-  }).refine(d => !!d.workflow !== !!d.checkMission, { message: 'do must have exactly one of workflow | checkMission' }),
+  }).refine(
+    d => [d.workflow, d.checkMission, d.job].filter(Boolean).length === 1,
+    { message: 'do must have exactly one of workflow | checkMission | job' },
+  ),
 });
 export type AutomationManifest = z.infer<typeof AutomationManifestSchema>;
 
