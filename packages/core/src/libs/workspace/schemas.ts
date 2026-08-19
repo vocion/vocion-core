@@ -285,6 +285,14 @@ const AskStepSchema = z.object({
   name: SlugSchema,
   type: z.literal('ask'),
   prompt: z.string().describe('what to ask the human — shown in the review queue'),
+  /**
+   * Optional interpolable template (e.g. `{{input.transcript}}`). When it
+   * resolves to a non-empty string the step completes with that value and the
+   * run never pauses — an ask that already has its answer doesn't ask. Lets one
+   * workflow serve both an automated caller that supplies the data and a human
+   * starting it by hand, without forking the definition.
+   */
+  default: z.string().optional(),
   /** Optional — persist this step's output into named variable (defaults to step name). */
   outputAs: z.string().optional(),
 });
@@ -361,6 +369,13 @@ export const AutomationManifestSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   status: z.enum(['active', 'disabled']).default('active'),
+  /**
+   * Owning agent slug. For `checkMission` the owner is implied by the
+   * mission's own `agent`, so this is optional; for `job`/`workflow`
+   * automations, which carry no mission, set it so the schedule rolls up to a
+   * visible agent instead of running ownerless. Validated to exist.
+   */
+  agent: SlugSchema.optional(),
   when: z.object({
     /** 5-field cron, UTC. */
     schedule: z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'schedule must be a 5-field cron').optional(),
@@ -389,6 +404,8 @@ export const WorkflowManifestSchema = z.object({
   description: z.string().optional(),
   status: z.enum(['active', 'disabled', 'draft']).default('active'),
   version: z.number().int().positive().default(1),
+  /** Owning agent slug — the agent this procedure belongs to. Validated to exist. */
+  agent: SlugSchema.optional(),
   trigger: WorkflowTriggerSchema,
   steps: z.array(WorkflowStepSchema).min(1),
   /** Optional input JSON Schema for manual triggers. */

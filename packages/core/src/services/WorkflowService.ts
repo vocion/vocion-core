@@ -304,6 +304,23 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
         const [paused] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
         return summarize(paused!);
       } else if (step.type === 'ask') {
+        // An ask whose `default` already resolves doesn't ask: an automated
+        // caller that supplied the data (e.g. discovery detection handing over
+        // a transcript it is already authorized to read) shouldn't make a human
+        // paste in what the system is holding. Falls through to the pause when
+        // the template resolves to nothing, so a manual start still works.
+        const prefill = step.default === undefined ? undefined : interpolateValue(step.default, scope);
+        if (typeof prefill === 'string' && prefill.trim().length > 0) {
+          stepResults[name] = {
+            status: 'completed',
+            output: prefill,
+            startedAt: stepResults[name]!.startedAt,
+            finishedAt: new Date().toISOString(),
+          };
+          scope.steps[step.outputAs ?? name] = { output: prefill };
+          cursor += 1;
+          continue;
+        }
         // Human input as a step: pause the run in Review until a human
         // supplies text via resumeWorkflow(runId, orgId, { input }). Reuses
         // the `awaiting_approval` StepStatus; the `kind: 'ask'` discriminator
@@ -554,6 +571,7 @@ export async function getWorkflow(orgId: string, slug: string): Promise<Workflow
     description: row.description ?? undefined,
     status: (row.status ?? 'active') as WorkflowManifest['status'],
     version: row.version ?? 1,
+    agent: row.ownerAgentSlug ?? undefined,
     trigger: row.trigger as WorkflowManifest['trigger'],
     steps: row.steps as unknown as WorkflowManifest['steps'],
     inputSchema: row.inputSchema ?? undefined,
