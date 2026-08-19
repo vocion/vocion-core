@@ -134,15 +134,20 @@ export async function proposeAction(input: {
     .returning({ id: actionRunSchema.id });
 
   if (gated) {
-    // Never-auto guard (safety invariant): an outbound send to a real
-    // person — gmail.send, or any external action carrying the send_email
-    // grant — ALWAYS requires an explicit human approve, no matter what
-    // trust rules exist. A misconfigured or over-eager threshold must never
-    // be able to fire an email on its own. This is deliberately not
-    // configurable here; revisit only once UC5 trust reporting exists and a
-    // human opts in explicitly. Fails safe — it can only keep the item in
-    // the review queue, never release it.
-    if (action.id === 'gmail.send' || action.grant === 'send_email') {
+    // Never-auto guard (safety invariant): these ALWAYS require an explicit
+    // human approve, no matter what trust rules exist.
+    //   - an outbound send to a real person (gmail.send, or any external action
+    //     carrying the send_email grant) — a misconfigured or over-eager
+    //     threshold must never be able to fire an email on its own;
+    //   - discovery.review_proposal — approving it starts the follow-up
+    //     workflow, which drafts an email in the seller's voice. Supervised v1
+    //     means a human confirms every detected discovery call, and that is the
+    //     calibration data 020 is built on; auto-approving would both skip the
+    //     human and poison the feedback signal.
+    // Deliberately not configurable; revisit only once UC5 trust reporting
+    // exists and a human opts in explicitly. Fails safe — it can only keep the
+    // item in the review queue, never release it.
+    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal') {
       return { runId: run!.id, status: 'pending' };
     }
     // Trust ladder: an ENABLED rule whose threshold this proposal's

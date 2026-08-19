@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
-import { bigint, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, boolean, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -750,11 +750,50 @@ export const automationSchema = pgTable(
     whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string; filter?: Record<string, unknown> }>().notNull(),
     /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>'}` | `{job: '<name>', input?}` (built-in server job, e.g. discovery-sweep). */
     doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; input?: Record<string, unknown> }>().notNull(),
+    /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
+    ownerAgentSlug: text('owner_agent_slug'),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
     uniqueIndex('automation_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
+
+/**
+ * One row per automation dispatch — the evidence a schedule actually fired.
+ * Workflow and mission dispatches already leave a run row of their own; a
+ * `job` left nothing at all, so this is the only trace an hourly sweep ran
+ * (and the only place its result is kept).
+ */
+export const automationRunSchema = pgTable(
+  'automation_run',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** The automation's slug — not an FK, so a run survives the automation being removed. */
+    slug: text('slug').notNull(),
+    /** Which do-type dispatched: 'workflow' | 'mission_check' | 'job'. */
+    kind: text('kind').notNull(),
+    /** 'running' | 'ok' | 'error'. */
+    status: text('status').default('running').notNull(),
+    /** `automation:<slug>` for a schedule fire, `user:<id>` for a dashboard test run. */
+    invokedBy: text('invoked_by'),
+    /** True when the caller asked for a no-writes rehearsal (test runs). */
+    dryRun: boolean('dry_run').default(false).notNull(),
+    /** The merged input the do actually received — what to reproduce a run from. */
+    input: jsonb('input').$type<Record<string, unknown>>(),
+    /** The do's return value (e.g. the sweep's counts). Null while running or on error. */
+    result: jsonb('result'),
+    error: text('error'),
+    /** workflow_run / mission_run id for those kinds; null for jobs (they have no run row). */
+    targetRunId: integer('target_run_id'),
+    startedAt: timestamp('started_at', { mode: 'date' }).defaultNow().notNull(),
+    finishedAt: timestamp('finished_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('automation_run_org_slug_started_idx').on(table.orgId, table.slug, table.startedAt),
   ],
 );
 
@@ -789,6 +828,8 @@ export const workflowSchema = pgTable(
     steps: jsonb('steps').$type<Array<Record<string, unknown>>>().notNull(),
     /** Default input schema for manual triggers — JSON Schema. */
     inputSchema: jsonb('input_schema').$type<Record<string, unknown>>(),
+    /** Owning agent slug — the agent this procedure belongs to. Nullable for legacy/unowned workflows. */
+    ownerAgentSlug: text('owner_agent_slug'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
