@@ -79,12 +79,17 @@ export type CompiledAgentGraph = {
 };
 
 async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAgentGraph> {
+  // Org-scoped, not slug-only: slugs repeat across projects (two workspaces on
+  // one box, plus orphaned rows from older deploys), and an unscoped pick is
+  // arbitrary — one org's chat silently compiling ANOTHER org's prompt/config.
+  // Bit us in prod: the revenue-lead graph compiled a stale duplicate row, so
+  // freshly granted tools never reached the model.
   const [row] = await db
     .select()
     .from(agentSchema)
-    .where(eq(agentSchema.slug, agentSlug));
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agentSlug)));
   if (!row) {
-    throw new Error(`agent ${agentSlug} not found`);
+    throw new Error(`agent ${agentSlug} not found in org ${orgId}`);
   }
 
   // Build a no-op runtime context; the SSE route swaps in a real
@@ -328,7 +333,7 @@ export async function buildInitialFiles(
   const [row] = await db
     .select()
     .from(agentSchema)
-    .where(eq(agentSchema.slug, agentSlug));
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agentSlug)));
   if (!row) {
     return {};
   }
