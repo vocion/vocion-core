@@ -9,6 +9,7 @@ import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
+import { readWorkspacePages } from '@/libs/workspace/pages';
 import { projectSchema } from '@/models/Schema';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
@@ -72,7 +73,10 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
-      <AppSidebar isAdmin={has({ role: ORG_ROLE.ADMIN })} />
+      <AppSidebar
+        isAdmin={has({ role: ORG_ROLE.ADMIN })}
+        workspacePages={readWorkspacePages().pages.filter(p => !p.nav.hidden).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
+      />
       <SidebarInset>
         <ShellBarActionsProvider>
           <AppSidebarHeader />
