@@ -7,9 +7,11 @@ import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
+import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { readWorkspacePages } from '@/libs/workspace/pages';
+import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
@@ -85,6 +87,12 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
             {props.children}
           </div>
         </ShellBarActionsProvider>
+        {(() => {
+          const tour = readWorkspaceTour();
+          return tour
+            ? <WorkspaceTour steps={tour.steps} title={tour.title} autoStart={tour.autoStart} />
+            : null;
+        })()}
         <WorkspaceDriftBanner />
       </SidebarInset>
     </SidebarProvider>
