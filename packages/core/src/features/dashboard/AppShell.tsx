@@ -10,6 +10,7 @@ import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner'
 import { isSurfaceId } from '@/features/navigation/surfaces';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
+import { readWorkspacePages } from '@/libs/workspace/pages';
 import { projectSchema } from '@/models/Schema';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
@@ -69,7 +70,11 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
-      <AppSidebar isAdmin={has({ role: ORG_ROLE.ADMIN })} enabledSurfaces={enabledSurfaces} />
+      <AppSidebar
+        isAdmin={has({ role: ORG_ROLE.ADMIN })}
+        enabledSurfaces={enabledSurfaces}
+        workspacePages={readWorkspacePages().pages.filter(p => !p.nav.hidden).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
+      />
       <SidebarInset>
         <ShellBarActionsProvider>
           <AppSidebarHeader />
