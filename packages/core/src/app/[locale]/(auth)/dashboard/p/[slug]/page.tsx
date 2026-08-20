@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
+import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
@@ -22,6 +23,7 @@ import {
   resolveField,
 } from '@/libs/workspace/pages';
 import {
+  agentSchema,
   businessObjectSchema,
   businessObjectTypeSchema,
   knowledgeDocumentSchema,
@@ -29,6 +31,7 @@ import {
   skillRunSchema,
   skillSchema,
 } from '@/models/Schema';
+import { listSkillRuns } from '@/services/SkillService';
 
 /**
  * Workspace page renderer — `/dashboard/p/<slug>`.
@@ -98,9 +101,30 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
           title: String((r.input as Record<string, unknown> | null)?.title ?? `run ${r.id}`),
           status: r.status,
           createdAt: r.createdAt ?? null,
-          meta: { ...parsed, confidence: r.confidence, input: r.input },
+          meta: { ...parsed, confidence: r.confidence, rating: r.rating, feedbackNote: r.feedbackNote, input: r.input },
         };
       });
+  }
+
+  if (src.kind === 'agents') {
+    const agents = await db.query.agentSchema.findMany({
+      where: eq(agentSchema.orgId, orgId),
+    });
+    return agents
+      .filter(a => src.active === undefined || (String(a.active) === 'true') === src.active)
+      .map(a => ({
+        id: a.slug,
+        title: a.name,
+        status: String(a.active) === 'true' ? 'active' : 'inactive',
+        createdAt: a.createdAt ?? null,
+        meta: {
+          slug: a.slug,
+          description: a.description,
+          role: a.role,
+          team: a.team,
+          model: a.model,
+        },
+      }));
   }
 
   // documents
@@ -125,6 +149,34 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
 }
 
 type PillStatus = React.ComponentProps<typeof StatusPill>['status'];
+
+async function loadPendingRuns(orgId: string, skillSlugs?: string[]) {
+  const runs = await listSkillRuns({ orgId, status: 'pending', limit: 50 });
+  let allowed: Set<number> | null = null;
+  if (skillSlugs?.length) {
+    const skills = await db.query.skillSchema.findMany({
+      where: and(inArray(skillSchema.slug, skillSlugs), eq(skillSchema.orgId, orgId)),
+    });
+    allowed = new Set(skills.map(s => s.id));
+  }
+  return runs
+    .filter(r => !allowed || allowed.has(r.skillId))
+    .map(r => ({
+      id: r.id,
+      skillId: r.skillId,
+      status: r.status,
+      input: r.input as Record<string, unknown> | null,
+      output: r.output ? r.output.slice(0, 4000) : null,
+      truncated: !!(r.output && r.output.length > 4000),
+      workspaceSha: r.workspaceSha,
+      langfuseTraceId: r.langfuseTraceId,
+      confidence: ((r.confidence === 'confident' || r.confidence === 'uncertain' || r.confidence === 'speculative') ? r.confidence : null) as 'confident' | 'uncertain' | 'speculative' | null,
+      createdBy: r.createdBy,
+      createdAt: r.createdAt ?? new Date(),
+      reviewedBy: r.reviewedBy,
+      reviewedAt: r.reviewedAt,
+    }));
+}
 
 function toneToStatus(tone: string): PillStatus {
   switch (tone) {
@@ -179,7 +231,7 @@ function Widgets({ manifest, position, rows, stats }: {
     return null;
   }
   return (
-    <div className="my-6 space-y-6">
+    <div id={`wsx-widgets-${position}`} className="my-6 space-y-6">
       {widgets.map((w, i) => {
         const Comp = wsxComponents[w.component];
         if (!Comp) {
@@ -244,6 +296,13 @@ export default async function WorkspacePage(props: {
     }
   }
 
+  // Queue pages embed the core Review queue (the actual HITL mechanism),
+  // scoped to the page's skills — same items, same approve/decline services.
+  let pendingRuns: Awaited<ReturnType<typeof loadPendingRuns>> = [];
+  if (manifest.archetype === 'queue' && manifest.source?.kind === 'skillRuns') {
+    pendingRuns = await loadPendingRuns(orgId, manifest.source.skills);
+  }
+
   const stats: Record<string, string> = {};
   for (const s of manifest.stats ?? []) {
     stats[s.label] = computeStat(rows, s);
@@ -278,7 +337,7 @@ export default async function WorkspacePage(props: {
       )}
 
       {Object.keys(stats).length > 0 && (
-        <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
+        <div id="wsx-stats" className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
           {Object.entries(stats).map(([label, value]) => (
             <div key={label} className="bg-background p-4">
               <div className="font-mono text-2xl font-semibold tabular-nums">{value}</div>
@@ -290,8 +349,8 @@ export default async function WorkspacePage(props: {
 
       <Widgets manifest={manifest} position="above" rows={rows} stats={stats} />
 
-      {manifest.archetype !== 'markdown' && groups.map(g => (
-        <section key={g.label ?? '__all'} className="mb-8">
+      {manifest.archetype !== 'markdown' && groups.map((g, gi) => (
+        <section key={g.label ?? '__all'} id={gi === 0 ? 'wsx-table' : undefined} className="mb-8">
           {g.label && (
             <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">
               {g.label}
@@ -339,13 +398,17 @@ export default async function WorkspacePage(props: {
       ))}
 
       {manifest.archetype === 'queue' && (
-        <p className="mt-2 text-sm text-muted-foreground">
-          Decisions happen in
-          {' '}
-          <Link href="/dashboard/review" className="underline">Review</Link>
-          {' '}
-          — this page is the workspace-shaped view of the same queue.
-        </p>
+        <section id="wsx-review" className="mt-8">
+          <h2 className="mb-2 text-sm font-semibold">Waiting on a person</h2>
+          <p className="mb-3 text-sm text-muted-foreground">
+            The same items as
+            {' '}
+            <Link href="/dashboard/review" className="underline">Review</Link>
+            {' '}
+            — the core approval queue, scoped to this page's skills. Approve or decline here or there; it is one queue.
+          </p>
+          <ReviewQueue initialSkillRuns={pendingRuns} initialWorkflowRuns={[]} />
+        </section>
       )}
 
       <Widgets manifest={manifest} position="below" rows={rows} stats={stats} />
