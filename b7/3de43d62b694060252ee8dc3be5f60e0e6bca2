@@ -1,0 +1,25 @@
+packages/core/src/services/agents/harness.ts
+  s_5866b7be26c809::t_d4335830f9ce04 336
+  s_5866b7be26c809::t_d0812db7ed046f 82-86,90,92
+packages/core/src/services/AgentConfigService.ts
+  s_5866b7be26c809::t_ae996d54111aaa 1
+  s_5866b7be26c809::t_f847b3854404dc 13
+packages/core/src/services/agents/harness.test.ts
+  s_5866b7be26c809::t_7a80de73d1f0eb 161-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b73de43d62b694060252ee8dc3be5f60e0e6bca2",
+  "prompts": {},
+  "sessions": {
+    "s_5866b7be26c809": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c3c22cca-7bb0-4e14-865a-f89ff38cca81",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
