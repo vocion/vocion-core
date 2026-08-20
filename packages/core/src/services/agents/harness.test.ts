@@ -158,3 +158,23 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
     expect(graphOptions(1).systemPrompt).not.toContain('no lead yet');
   });
 });
+
+describe('buildGraph org scoping', () => {
+  it('compiles the requested ORG\'s agent, never a same-slug row from another org', async () => {
+    // The prod incident: two projects (plus orphaned rows from older deploys)
+    // can hold the same agent slug. An unscoped slug lookup picked an
+    // arbitrary row, so one org's chat compiled another org's prompt/config —
+    // and freshly granted tools never reached the model.
+    await db.insert(projectSchema).values({ id: 'proj_other', accountId: 'acct-chat', slug: 'other', name: 'Other' });
+    await db.insert(agentSchema).values([
+      { orgId: ORG, slug: 'shared-lead', name: 'Ours', systemPrompt: 'You are the CURRENT org agent.', harnessConfig: { grantTools: ['classify_call'] } },
+      { orgId: 'proj_other', slug: 'shared-lead', name: 'Theirs', systemPrompt: 'You are the OTHER org agent.', harnessConfig: {} },
+    ]);
+
+    const compiled = await getCompiledAgent(ORG, 'shared-lead');
+
+    expect(compiled.agentRow.orgId).toBe(ORG);
+    expect(compiled.agentRow.harnessConfig).toEqual({ grantTools: ['classify_call'] });
+    expect(graphOptions(mockCreate.mock.calls.length - 1).systemPrompt).toContain('CURRENT org agent');
+  });
+});
