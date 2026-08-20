@@ -1,0 +1,34 @@
+packages/core/src/services/agents/tools/discovery.ts
+  s_4fd54c8e599791::t_3493ac8cd6fb2e 196,200
+  s_4fd54c8e599791::t_58789185ff9f12 36
+  s_4fd54c8e599791::t_51ac8e74cdb5c6 120
+  s_4fd54c8e599791::t_9b321562c2eacf 233-237,239
+  s_4fd54c8e599791::t_1d0c931f492167 78,87-96,98-99,101,105-106
+packages/core/src/services/DiscoveryDetectionService.ts
+  s_4fd54c8e599791::t_af51b6406a30c4 793-794,800-805
+  s_4fd54c8e599791::t_fba3dad4b991ea 975,978
+  s_4fd54c8e599791::t_cf2b5f5e2b1740 744-745
+  s_4fd54c8e599791::t_0f8fda9af98880 1054,1057
+  s_4fd54c8e599791::t_873661d1da89de 806-807
+packages/core/src/services/agents/tools/discovery.test.ts
+  s_4fd54c8e599791::t_0701a094841488 242,244-245
+  s_4fd54c8e599791::t_60dcb3e8e3f668 229,231
+  s_4fd54c8e599791::t_da2f43b30e44b7 166
+  s_4fd54c8e599791::t_3013f7c5f76c74 152-157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "f729a8f2f2903a1bc6e2d9ba7d00ae2e5fd98d41",
+  "prompts": {},
+  "sessions": {
+    "s_4fd54c8e599791": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ddc29490-14e2-4c4d-aa58-23b9c4aab22d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
