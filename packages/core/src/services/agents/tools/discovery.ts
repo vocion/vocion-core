@@ -36,7 +36,7 @@ export const DISCOVERY_TOOL_NAMES = [
   'get_hubspot_contacts',
   'match_meetings',
   'classify_call',
-  'list_discovery_candidates',
+  'get_discovery_ledger',
   'reconcile_discovery_window',
 ] as const;
 
@@ -161,7 +161,7 @@ export function classifyCallTool(ctx: RuntimeContext) {
   );
 }
 
-export function listDiscoveryCandidatesTool(ctx: RuntimeContext) {
+export function getDiscoveryLedgerTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
       const conds = [eq(discoveryCandidateSchema.orgId, ctx.orgId)];
@@ -196,8 +196,8 @@ export function listDiscoveryCandidatesTool(ctx: RuntimeContext) {
       return JSON.stringify({ count: rows.length, candidates: rows }, null, 2);
     },
     {
-      name: 'list_discovery_candidates',
-      description: 'Query the discovery ledger: past assessments with scores, route, skipped reason, and the review-queue status of each surfaced call. Returns the count first, then the rows. Use to see what has already been assessed before re-classifying, and to check what awaits human review. This reads the LEDGER, not HubSpot — use get_hubspot_contacts for the CRM records in scope.',
+      name: 'get_discovery_ledger',
+      description: 'Read the discovery ledger (the /dashboard/discovery page): past assessments with scores, route, skipped reason, and the review-queue status of each surfaced call. Returns the count first, then the rows. Use to see what has already been assessed before re-classifying, and to check what awaits human review. This reads the LEDGER, not HubSpot — use get_hubspot_contacts for the CRM records in scope.',
       schema: z.object({
         since_days: z.number().positive().max(90).optional().describe('Only candidates matched in the trailing N days'),
         status: z.enum(['matched', 'classified', 'routed', 'dropped']).optional(),
@@ -230,16 +230,20 @@ export function reconcileDiscoveryWindowTool(ctx: RuntimeContext) {
  */
 export function discoveryTools(ctx: RuntimeContext) {
   const grants = new Set(ctx.harnessConfig.grantTools ?? []);
-  // Renamed 2026-08-20: get_eligible_parties → get_hubspot_contacts. Honor the
-  // old grant name so a not-yet-reapplied workspace keeps its tool.
+  // Renamed 2026-08-20: get_eligible_parties → get_hubspot_contacts and
+  // list_discovery_candidates → get_discovery_ledger. Honor the old grant
+  // names so a not-yet-reapplied workspace keeps its tools.
   if (grants.has('get_eligible_parties')) {
     grants.add('get_hubspot_contacts');
+  }
+  if (grants.has('list_discovery_candidates')) {
+    grants.add('get_discovery_ledger');
   }
   const all = [
     getHubspotContactsTool(ctx),
     matchMeetingsTool(ctx),
     classifyCallTool(ctx),
-    listDiscoveryCandidatesTool(ctx),
+    getDiscoveryLedgerTool(ctx),
     reconcileDiscoveryWindowTool(ctx),
   ];
   return all.filter(t => grants.has(t.name));
