@@ -1,10 +1,11 @@
 /**
  * POST /rpc/sources/[id]/credentials — store connector credentials in the vault.
  *
- * Body: `{ credentials: { token: string, ... } }` — connector-specific keys
- * (all RevOps connectors read `credentials.token`; googleAds also takes a
- * `developerToken`, ga4/drive/gmail take an OAuth access `token`). The plaintext
- * is AES-GCM encrypted at rest; only ciphertext + dek id hit the DB.
+ * Body: `{ credentials: { ... } }` — connector-specific keys. Most connectors
+ * read a single `token`; googleAds adds a `developerToken`; zoom takes a full
+ * Server-to-Server OAuth set ({ accountId, clientId, clientSecret }) and no
+ * token at all. At least one non-empty value is required. The plaintext is
+ * AES-GCM encrypted at rest; only ciphertext + dek id hit the DB.
  *
  * Resolves the source slug from the knowledge_source id, ensures a
  * `source_install` exists, and stores the credential against it. Admin-only.
@@ -39,10 +40,14 @@ export async function POST(
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const creds = body.credentials ?? {};
-  const token = typeof creds.token === 'string' ? creds.token.trim() : '';
-  if (!token) {
-    return Response.json({ error: 'A token is required' }, { status: 400 });
+  const raw: Record<string, string> = {};
+  for (const [key, value] of Object.entries(body.credentials ?? {})) {
+    if (typeof value === 'string' && value.trim() !== '') {
+      raw[key] = value.trim();
+    }
+  }
+  if (Object.keys(raw).length === 0) {
+    return Response.json({ error: 'At least one credential value is required' }, { status: 400 });
   }
 
   const source = await getSourceById(orgId, sourceId);
@@ -55,7 +60,7 @@ export async function POST(
     const { credentialId } = await storeCredentialForSource({
       orgId,
       sourceSlug: connectorSlug,
-      raw: { ...creds, token },
+      raw,
       displayName: body.displayName,
       userId,
       projectId: orgId,
