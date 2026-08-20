@@ -63,8 +63,8 @@ export type EligibleParty = {
 /** Meeting metadata — everything the matcher may see. Never the transcript. */
 export type MeetingMeta = {
   docId: number;
-  externalId: string; // 'zoom:<uuid>' | 'gcal:<eventId>'
-  sourceSlug: string; // 'zoom' | 'google-calendar'
+  externalId: string; // 'zoom:<uuid>' | 'granola:<noteId>' | 'gcal:<eventId>'
+  sourceSlug: string; // 'zoom' | 'granola' | 'google-calendar'
   title: string | null;
   host: string | null; // lowercased
   start: Date | null;
@@ -494,8 +494,12 @@ function toDate(v: unknown, fallback: Date | null): Date | null {
 }
 
 /**
- * Load the meetings to consider — Zoom recordings, since they carry the
- * transcript we ultimately classify. Zoom stamps only the host, so attendees
+ * Load the meetings to consider — Zoom recordings AND Granola notes, since
+ * both carry the transcript we ultimately classify. Granola matters because it
+ * captures calls held on the prospect's platform (Teams, Meet, anything the
+ * seller joined), which Zoom cloud recordings never see; its notes stamp
+ * attendee emails and the note owner directly, so they enter the matcher
+ * as-is. Zoom stamps only the host, so attendees
  * (the matcher's main signal) are borrowed from the calendar event that shares
  * the recording's Zoom meeting id — a SHARED IDENTIFIER, never time proximity,
  * so a recording can never inherit a neighbouring meeting's attendees. When no
@@ -548,6 +552,7 @@ export async function loadMeetingDocs(orgId: string, since: Date, until?: Date):
     ));
 
   const recordings: { meta: MeetingMeta; zoomMeetingId: string | null }[] = [];
+  const notes: MeetingMeta[] = [];
   const eventsByZoomId = new Map<string, CalEvent>();
   for (const r of eventRows) {
     const m = (r.metadata ?? {}) as Record<string, unknown>;
@@ -561,7 +566,23 @@ export async function loadMeetingDocs(orgId: string, since: Date, until?: Date):
   }
   for (const r of rows) {
     const m = (r.metadata ?? {}) as Record<string, unknown>;
-    if (str(m.kind) !== 'zoom-recording') {
+    const kind = str(m.kind);
+    if (kind === 'granola-note') {
+      // The note owner is the seller-side recorder — the host, for the
+      // seller-hosted external fallback.
+      notes.push({
+        docId: r.docId,
+        externalId: r.externalId,
+        sourceSlug: 'granola',
+        title: r.title,
+        host: lower(str(m.owner)) ?? null,
+        start: toDate(m.when, r.lastModifiedAt),
+        attendees: stringArray(m.attendees).map(a => a.toLowerCase()),
+        hasTranscript: m.hasTranscript === true,
+      });
+      continue;
+    }
+    if (kind !== 'zoom-recording') {
       continue;
     }
     recordings.push({
@@ -593,7 +614,55 @@ export async function loadMeetingDocs(orgId: string, since: Date, until?: Date):
       }
     }
   }
-  return recordings.map(r => r.meta);
+  return [...recordings.map(r => r.meta), ...notes];
+}
+
+// ── Double-capture dedup (pure) ──────────────────────────────────────────────
+
+/** A capture suppressed because another capture of the same call also matched. */
+export type DroppedCapture = {
+  meetingExternalId: string;
+  title: string | null;
+  keptExternalId: string;
+  reason: string;
+};
+
+const DOUBLE_CAPTURE_WINDOW_MS = 20 * 60_000;
+
+/**
+ * A call the seller holds on Zoom while also running Granola is captured twice
+ * (recording + note); assessing both would double the model spend and put two
+ * review cards for one call in front of the human. Dedup runs on MATCHES only,
+ * keyed on the matched party (`matchRef`, a shared identifier) plus a tight
+ * start window — never on raw meetings, so it can only ever pick between two
+ * captures that would BOTH be assessed, and can never suppress a meeting whose
+ * other capture failed to match. The Zoom recording wins: its transcript is
+ * diarized with names, Granola's is Me/Them.
+ * @param matches
+ */
+export function dedupeDoubleCaptures(matches: Match[]): { matches: Match[]; dropped: DroppedCapture[] } {
+  const zooms = matches.filter(m => m.meeting.sourceSlug === 'zoom');
+  const dropped: DroppedCapture[] = [];
+  const kept = matches.filter((m) => {
+    if (m.meeting.sourceSlug !== 'granola' || !m.matchRef || !m.meeting.start) {
+      return true;
+    }
+    const twin = zooms.find(z =>
+      z.matchRef === m.matchRef
+      && z.meeting.start
+      && Math.abs(z.meeting.start.getTime() - m.meeting.start!.getTime()) <= DOUBLE_CAPTURE_WINDOW_MS);
+    if (!twin) {
+      return true;
+    }
+    dropped.push({
+      meetingExternalId: m.meeting.externalId,
+      title: m.meeting.title,
+      keptExternalId: twin.meeting.externalId,
+      reason: `same matched party (${m.matchRef}) within 20 min of ${twin.meeting.externalId} — Zoom capture kept`,
+    });
+    return false;
+  });
+  return { matches: kept, dropped };
 }
 
 // ── Persistence ──────────────────────────────────────────────────────────────
@@ -673,6 +742,7 @@ export async function matchWindow(orgId: string, opts: DiscoveryWindowOptions): 
   eligibleParties: number;
   meetingsScanned: number;
   candidates: MatchedCandidateSummary[];
+  doubleCapturesDropped: DroppedCapture[];
 }> {
   const now = opts.now ?? new Date();
   const since = new Date(now.getTime() - opts.sinceDays * 86_400_000);
@@ -680,9 +750,9 @@ export async function matchWindow(orgId: string, opts: DiscoveryWindowOptions): 
   const hubspotDocs = await loadHubspotDocs(orgId);
   const eligible = filterEligible(hubspotDocs, opts.eligible);
   const meetings = await loadMeetingDocs(orgId, since, now);
-  const matches = meetings
+  const { matches, dropped } = dedupeDoubleCaptures(meetings
     .map(m => matchMeeting(m, eligible, { sellerDomain: opts.sellerDomain, allowCalendlyExternal: opts.allowCalendlyExternal }))
-    .filter((x): x is Match => x !== null);
+    .filter((x): x is Match => x !== null));
 
   const candidates: MatchedCandidateSummary[] = [];
   for (const match of matches) {
@@ -719,6 +789,7 @@ export async function matchWindow(orgId: string, opts: DiscoveryWindowOptions): 
     eligibleParties: eligible.length,
     meetingsScanned: meetings.length,
     candidates,
+    doubleCapturesDropped: dropped,
   };
 }
 
@@ -909,9 +980,11 @@ export async function reconcileWindow(orgId: string, opts: DiscoveryWindowOption
   const hubspotDocs = await loadHubspotDocs(orgId);
   const eligible = filterEligible(hubspotDocs, opts.eligible);
   const meetings = await loadMeetingDocs(orgId, since, now);
-  const matches = meetings
+  // Same dedup as matchWindow, or every suppressed Granola twin would be
+  // reported as an eternal 'unvisited' gap.
+  const { matches } = dedupeDoubleCaptures(meetings
     .map(m => matchMeeting(m, eligible, { sellerDomain: opts.sellerDomain, allowCalendlyExternal: opts.allowCalendlyExternal }))
-    .filter((x): x is Match => x !== null);
+    .filter((x): x is Match => x !== null));
 
   const externalIds = matches.map(m => m.meeting.externalId);
   const rows = externalIds.length === 0

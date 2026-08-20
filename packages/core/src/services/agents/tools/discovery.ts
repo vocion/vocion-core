@@ -106,7 +106,7 @@ export function matchMeetingsTool(ctx: RuntimeContext) {
     },
     {
       name: 'match_meetings',
-      description: 'Match the window\'s meetings against the eligible CRM parties (metadata only — titles, hosts, attendees; NEVER transcript content) and record every match on the discovery ledger. Returns each match with its candidateId, whether a transcript exists, and its assessment status. Run this before classify_call.',
+      description: 'Match the window\'s meetings — Zoom cloud recordings AND Granola notes, which capture calls held on Teams, Meet, or any other platform — against the eligible CRM parties (metadata only — titles, hosts, attendees; NEVER transcript content) and record every match on the discovery ledger. A call captured by both is assessed once (the Zoom recording wins; the dropped twin is reported in doubleCapturesDropped). Returns each match with its candidateId, whether a transcript exists, and its assessment status. Run this before classify_call.',
       schema: z.object(windowArgs),
     },
   );
