@@ -14,6 +14,14 @@ import { client } from '@/libs/Orpc';
  * anywhere. No popups. gmail.send never auto-sends.
  */
 
+type ReviewCard = {
+  title: string;
+  system?: string;
+  fields: Array<{ label: string; value: string; href?: string }>;
+  summary?: string;
+  nextAction?: string;
+};
+
 type ActionRun = {
   id: number;
   actionId: string;
@@ -22,6 +30,8 @@ type ActionRun = {
   invokedBy: string | null;
   createdAt: string | Date;
   proposal: { confidence?: number; rationale?: string } | null;
+  /** Structured presentation, when the action defines one (server-built). */
+  card?: ReviewCard;
 };
 
 function tone(c?: number): string {
@@ -46,6 +56,10 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' 
  */
 function describeAction(p: ActionRun): { title: string; system: string; isEmail: boolean } {
   const input = p.input;
+  // An action that presents itself wins — one definition, consistent cards.
+  if (p.card) {
+    return { title: p.card.title, system: p.card.system ?? p.actionId.split('.')[0] ?? 'system', isEmail: false };
+  }
   if (p.actionId === 'gmail.send') {
     const draft = input.draft === true;
     return { title: `${draft ? 'Draft email' : 'SEND email'} → ${str(input.to) || 'recipient'}`, system: 'Gmail', isEmail: true };
@@ -256,7 +270,37 @@ export function ReviewFocus() {
               </div>
             </div>
           </div>
-          {current.proposal?.rationale && <p className="mt-3 text-sm break-words text-foreground/85">{current.proposal.rationale}</p>}
+          {/* Structured card: labeled rows (deep-linked), the work summary, and what approving does. */}
+          {current.card
+            ? (
+                <div className="mt-3 space-y-2">
+                  <dl className="space-y-1">
+                    {current.card.fields.map(f => (
+                      <div key={f.label} className="flex gap-2 text-sm">
+                        <dt className="w-24 shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{f.label}</dt>
+                        <dd className="min-w-0 break-words">
+                          {f.href
+                            ? <a href={f.href} target="_blank" rel="noreferrer" className="text-brand-amber-deep underline decoration-brand-amber/40 underline-offset-2 hover:decoration-brand-amber">{f.value}</a>
+                            : f.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {(current.card.summary ?? current.proposal?.rationale) && (
+                    <div className="flex gap-2 text-sm">
+                      <span className="w-24 shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Summary</span>
+                      <p className="min-w-0 break-words text-foreground/85">{current.card.summary ?? current.proposal?.rationale}</p>
+                    </div>
+                  )}
+                  {current.card.nextAction && (
+                    <div className="flex gap-2 text-sm">
+                      <span className="w-24 shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Next</span>
+                      <p className="min-w-0 font-medium break-words">{current.card.nextAction}</p>
+                    </div>
+                  )}
+                </div>
+              )
+            : current.proposal?.rationale && <p className="mt-3 text-sm break-words text-foreground/85">{current.proposal.rationale}</p>}
 
           {/* The concrete changes — every field editable; your version is what runs. */}
           <div className="mt-4 space-y-2">
@@ -287,7 +331,8 @@ export function ReviewFocus() {
               disabled={busy || steering}
               onKeyDown={(ev) => {
                 if (ev.key === 'Enter') {
-                  ev.preventDefault(); void onSteer();
+                  ev.preventDefault();
+                  void onSteer();
                 }
               }}
             />
@@ -321,7 +366,6 @@ export function ReviewFocus() {
               {desc.isEmail ? (current.input.draft === true ? 'Approve → draft' : 'Approve & send') : 'Approve'}
             </Button>
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">Edit anything above — your version is exactly what runs. Nothing executes without you.</p>
         </div>
       </div>
 

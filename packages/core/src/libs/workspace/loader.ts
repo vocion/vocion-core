@@ -10,7 +10,7 @@ import { fromRepoRoot } from '@/libs/repo-root';
 import { composeKind, resolveActivation } from './compose';
 import { assertAgentHierarchy } from './hierarchy';
 import { EXTENDS_CORE } from './merge';
-import { assertOwnership } from './ownership';
+import { assertDoTargets, assertOwnership } from './ownership';
 import {
   AgentManifestSchema,
   AutomationManifestSchema,
@@ -278,6 +278,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   assertUniqueSlugs(evalDatasets, 'eval dataset');
   assertUniqueSlugs(sources, 'source');
   assertOwnership(agents, automations, workflows);
+  assertDoTargets(automations, missions, workflows);
 
   // Provenance: fold the pinned base-pack version into the workspace sha so
   // `workspace_sha` still answers "exactly what ran" — a workspace on

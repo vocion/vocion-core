@@ -12,8 +12,19 @@ vi.mock('@/services/WorkflowService', () => ({
 }));
 vi.mock('@/services/MissionService', () => ({
   getMission: vi.fn(async () => ({ id: 1, name: 'No Lead Goes Cold', goal: 'goal', successCriteria: [] })),
-  scheduledCheckBrief: vi.fn(() => 'check brief'),
+  scheduledCheckBrief: vi.fn((_template: unknown, prompt?: string) => prompt ? `check brief + ${prompt}` : 'check brief'),
   startMission: vi.fn(async () => ({ id: 305, status: 'completed' })),
+}));
+// The built-in registry is empty since discovery detection went agent-driven;
+// a stub job keeps the `do: job` dispatch seam covered.
+vi.mock('@/services/jobs/registry', () => ({
+  isBuiltInJob: vi.fn((name: string) => name === 'stub-job'),
+  runBuiltInJob: vi.fn(async (name: string, _orgId: string, input: Record<string, unknown>) => {
+    if (name !== 'stub-job') {
+      throw new Error(`unknown automation job: ${name}`);
+    }
+    return { echoed: input };
+  }),
 }));
 
 const { db } = await import('@/libs/DB');
@@ -89,7 +100,7 @@ describe('fireAutomation', () => {
    * scanned nothing, ran clean, or threw were indistinguishable afterwards.
    */
   it('records a run row carrying the merged input and the job result', async () => {
-    await seedAutomation('sweeper', { schedule: '0 * * * *' }, { job: 'discovery-sweep', input: { sellerDomain: 'metacto.com' } });
+    await seedAutomation('sweeper', { schedule: '0 * * * *' }, { job: 'stub-job', input: { sellerDomain: 'metacto.com' } });
 
     const res = await fireAutomation(ORG, 'sweeper', { input: { dryRun: true }, invokedBy: 'dashboard:test-run', dryRun: true });
 
@@ -106,8 +117,25 @@ describe('fireAutomation', () => {
       error: null,
     });
     expect(row?.input).toMatchObject({ sellerDomain: 'metacto.com', dryRun: true });
-    expect(row?.result).toMatchObject({ dryRun: true, meetingsScanned: 0 });
+    expect(row?.result).toMatchObject({ echoed: { sellerDomain: 'metacto.com', dryRun: true } });
     expect(row?.finishedAt).toBeInstanceOf(Date);
+  });
+
+  it('carries do.prompt into the scheduled-check brief; the mission stays the standing context', async () => {
+    await seedAutomation(
+      'discovery-sweep',
+      { schedule: '0 * * * *' },
+      { checkMission: 'discovery-to-proposal', prompt: 'Run a detection pass over the last 3 days.' },
+    );
+
+    const res = await fireAutomation(ORG, 'discovery-sweep');
+
+    expect(res.kind).toBe('mission_check');
+    expect(vi.mocked(startMission)).toHaveBeenCalledWith(expect.objectContaining({
+      missionSlug: 'discovery-to-proposal',
+      mode: 'check',
+      brief: 'check brief + Run a detection pass over the last 3 days.',
+    }));
   });
 
   it('records the failure and still rethrows when the do throws', async () => {
@@ -123,7 +151,7 @@ describe('fireAutomation', () => {
   });
 
   it('lists runs newest first', async () => {
-    await seedAutomation('sweeper', { schedule: '0 * * * *' }, { job: 'discovery-sweep', input: { sellerDomain: 'metacto.com' } });
+    await seedAutomation('sweeper', { schedule: '0 * * * *' }, { job: 'stub-job', input: { sellerDomain: 'metacto.com' } });
 
     const first = await fireAutomation(ORG, 'sweeper');
     const second = await fireAutomation(ORG, 'sweeper');

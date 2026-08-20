@@ -998,6 +998,8 @@ export async function runAgentDeep(opts: {
   allowedSourceSlugs?: string[];
   /** Set for mission runs — lets mission-scoped tools (update_mission_notes) resolve their mission. */
   missionSlug?: string;
+  /** Set for mission runs — the mission_run driving this turn, for audit stamps (`assessed_by`). */
+  missionRunId?: number;
   /** Persisted conversation id — keys the AgentCore Memory session on the runtime provider (Phase 5, opt-in). */
   conversationId?: number;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -1071,7 +1073,7 @@ export async function runAgentDeep(opts: {
   }
 
   const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug);
-  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug);
+  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId);
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
   // Full (untruncated) tool outputs — the sanitizer needs the whole thing to

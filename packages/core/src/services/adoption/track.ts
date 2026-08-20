@@ -60,10 +60,12 @@ export async function track<T extends AdoptionEventType>(
   opts: TrackOpts<T> = {},
 ): Promise<void> {
   try {
-    if (!isHumanActor(actor.userId) || !actor.orgId) {
+    const spec = ADOPTION_EVENTS[eventType] as { system?: boolean; meta?: { safeParse: (v: unknown) => { success: boolean; error?: unknown } } };
+    // Adoption measures humans; `system: true` events are audit records and
+    // may be written by agent/schedule actors too.
+    if ((!isHumanActor(actor.userId) && !spec.system) || !actor.orgId) {
       return;
     }
-    const spec = ADOPTION_EVENTS[eventType] as { meta?: { safeParse: (v: unknown) => { success: boolean; error?: unknown } } };
     if (spec.meta && opts.meta !== undefined) {
       const parsed = spec.meta.safeParse(opts.meta);
       if (!parsed.success) {

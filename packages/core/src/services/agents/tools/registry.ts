@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
+import { discoveryTools } from './discovery';
 import { fetchUrlTool } from './fetchUrl';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
@@ -68,6 +69,8 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     getBriefingTool(ctx),
     refreshBriefingTool(ctx),
     freshenSourceTool(ctx),
+    // Granted-only (harness.grantTools) — empty for agents without the grant.
+    ...discoveryTools(ctx),
   ] as StructuredToolInterface[];
 }
 

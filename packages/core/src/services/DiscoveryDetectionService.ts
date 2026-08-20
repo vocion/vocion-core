@@ -21,20 +21,29 @@
  * (knowledge_chunk.content). It refuses unless a discovery_candidate row exists,
  * and a candidate row is created only for a matched meeting — so an unmatched
  * call can never reach the classifier.
+ *
+ * Detection is agent-driven (the RevOps Lead orchestrates via tools —
+ * `services/agents/tools/discovery.ts`); the deterministic `discovery-sweep`
+ * job is gone. The stages compose into three service entry points:
+ *   matchWindow     — stages 0–1, records every match on the ledger
+ *   classifyCall    — stage 2+3 for ONE candidate: gated read, one fixed model
+ *                     call, audit write. Read/classify/persist are one function,
+ *                     so the transcript never enters agent-steered context and
+ *                     an unlogged assessment is not a reachable state.
+ *   reconcileWindow — recompute matches vs the ledger; the coverage check that
+ *                     replaces the loop's visit-every-meeting guarantee.
  */
 
-import type { Principal } from '@/services/authz';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { and, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { buildChatModel } from '@/libs/llm';
+import { buildChatModel, resolvedModelId } from '@/libs/llm';
 import {
   discoveryCandidateSchema,
   knowledgeChunkSchema,
   knowledgeDocumentSchema,
 } from '@/models/Schema';
-import { proposeAction } from '@/services/ActionService';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -88,77 +97,56 @@ export type EligibleFilter = {
   dealStages?: string[];
 };
 
-export type SweepOptions = {
+/** The metadata window the matcher (and the reconciler) operate over. */
+export type DiscoveryWindowOptions = {
   eligible: EligibleFilter;
   /** The seller's own email domain, e.g. 'metacto.com' — anything else is external. */
   sellerDomain: string;
   sinceDays: number;
-  discoveryThreshold: number;
-  readyThreshold: number;
   /**
    * Allow the Calendly-external fallback (seller-hosted call with an external
    * guest, no CRM record required — decision #1). Default true.
    */
   allowCalendlyExternal?: boolean;
-  /** v1 default: every classification is surfaced for review, nothing auto-runs. */
-  supervised?: boolean;
   /**
    * Injectable clock. Also how a past day is replayed: pass the end of the day
    * as `now` with `sinceDays: 1` and the window is that day.
    */
   now?: Date;
-  /**
-   * Rehearsal mode, for the dashboard's test run. Needed because the real sweep
-   * is idempotent by design — the `routed` skip means a second pass over an
-   * already-swept day reports zero, which reads as broken when you are testing.
-   *
-   * A dry run DOES: match, record the match on `discovery_candidate`, read
-   * matched transcripts, and classify. Those are the behaviours under test, and
-   * the candidate row is what the content gate reads through.
-   * A dry run does NOT: enqueue a review-queue item, or mark the candidate
-   * routed. So it costs classifier spend, changes nothing anyone acts on, and
-   * leaves the queue clean (that queue is the calibration data for 020). The
-   * next real sweep still classifies the meeting normally.
-   *
-   * The privacy gate is untouched: only matched meetings are ever read, and a
-   * dry run never widens what matches.
-   */
-  dryRun?: boolean;
 };
 
-/** Per-meeting detail — what a test run needs to explain itself. */
-export type SweepMeetingDetail = {
-  meetingExternalId: string;
-  title: string | null;
-  start: Date | null;
-  matchType: MatchType;
-  matchRef: string | null;
-  matchReason: string;
-  /** Why nothing was classified, when nothing was: already routed, or no transcript yet. */
-  skipped?: 'already-routed' | 'no-transcript';
-  classification?: Classification;
-  route?: Route;
-};
+/** Route thresholds — defaults used when the caller passes none. Recorded per row either way. */
+export const DEFAULT_DISCOVERY_THRESHOLD = 0.6;
+export const DEFAULT_READY_THRESHOLD = 0.75;
 
-export type SweepResult = {
-  eligibleParties: number;
-  meetingsScanned: number;
-  matched: number;
-  classified: number;
-  routed: { generate: number; confirm: number; drop: number };
-  /** True when this was a rehearsal — nothing was persisted or enqueued. */
-  dryRun: boolean;
-  /** The window actually swept, so a run states its own scope. */
-  window: { since: string; until: string };
-  /** One entry per matched meeting, in sweep order. */
-  meetings: SweepMeetingDetail[];
-};
+/**
+ * The classifier prompt's version stamp. Bump on ANY change to
+ * `CLASSIFIER_SYSTEM` or the output schema — scores are only comparable
+ * within one version, and calibration (020) reports per version.
+ */
+export const DISCOVERY_CLASSIFIER_PROMPT_VERSION = 'discovery-v1';
+
+/** Model id + prompt version — the `classifier_version` audit stamp. */
+export function discoveryClassifierVersion(): string {
+  return `${resolvedModelId('classifier')}#${DISCOVERY_CLASSIFIER_PROMPT_VERSION}`;
+}
 
 /** Raised when the content gate refuses a transcript read. */
 export class ContentGateError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ContentGateError';
+  }
+}
+
+/**
+ * Typed refusal from `classifyCall` — the tool surfaces `code` verbatim so an
+ * agent (and a test) can tell "no such candidate" from "nothing to read yet".
+ */
+export class ClassifyCallError extends Error {
+  constructor(public readonly code: 'no_candidate' | 'no_transcript', message: string) {
+    super(message);
+    this.name = 'ClassifyCallError';
   }
 }
 
@@ -453,7 +441,7 @@ export async function classifyTranscript(transcript: string, meta: { title?: str
     proposalReady: parsed.proposal_ready,
     proposalReadyConfidence: parsed.proposal_ready_confidence,
     reasoning: parsed.reasoning,
-    model: 'classifier',
+    model: resolvedModelId('classifier'),
   };
 }
 
@@ -608,14 +596,14 @@ export async function loadMeetingDocs(orgId: string, since: Date, until?: Date):
   return recordings.map(r => r.meta);
 }
 
-// ── Persistence + review enqueue ─────────────────────────────────────────────
+// ── Persistence ──────────────────────────────────────────────────────────────
 
-type CandidateRow = { id: number; status: string };
+type CandidateRow = { id: number; status: string; skippedReason: string | null; route: string | null };
 
 /**
  * Insert the candidate for a match, or return the existing row (with its
- * status, so the sweep can skip work already done). Atomic via ON CONFLICT so
- * two concurrent sweeps can't double-insert.
+ * status, so callers can skip work already done). Atomic via ON CONFLICT so
+ * two concurrent matchers can't double-insert.
  * @param orgId
  * @param match
  */
@@ -638,7 +626,12 @@ async function upsertCandidate(orgId: string, match: Match): Promise<CandidateRo
     });
 
   const [row] = await db
-    .select({ id: discoveryCandidateSchema.id, status: discoveryCandidateSchema.status })
+    .select({
+      id: discoveryCandidateSchema.id,
+      status: discoveryCandidateSchema.status,
+      skippedReason: discoveryCandidateSchema.skippedReason,
+      route: discoveryCandidateSchema.route,
+    })
     .from(discoveryCandidateSchema)
     .where(and(
       eq(discoveryCandidateSchema.orgId, orgId),
@@ -648,146 +641,331 @@ async function upsertCandidate(orgId: string, match: Match): Promise<CandidateRo
   return row!;
 }
 
-const DISCOVERY_PRINCIPAL = (orgId: string): Principal => ({
-  kind: 'agent',
-  id: 'agent:discovery-detector',
-  scope: { orgId },
-  grants: ['review_proposal'],
-  autonomy: 1,
-});
+// ── The matcher (agent tool body) ────────────────────────────────────────────
 
-async function enqueueReview(
-  orgId: string,
-  candidateId: number,
-  match: Match,
-  c: Classification,
-  route: Route,
-): Promise<number | null> {
-  const res = await proposeAction({
-    orgId,
-    actionId: 'discovery.review_proposal',
-    principal: DISCOVERY_PRINCIPAL(orgId),
-    invokedBy: 'agent:discovery-detector',
-    input: {
-      candidateId,
-      meetingExternalId: match.meeting.externalId,
-      company: match.matchRef ?? match.meeting.title ?? null,
-      route,
-      isDiscovery: c.isDiscovery,
-      proposalReady: c.proposalReady,
-    },
-    proposal: {
-      confidence: c.isDiscoveryConfidence,
-      rationale: c.reasoning,
-      evidence: [match.meeting.externalId, match.matchRef].filter((x): x is string => !!x),
-    },
-    dedupKey: `discovery.review_proposal:${match.meeting.externalId}`,
-  });
-  return res.runId ?? null;
-}
-
-// ── Stage orchestrator ───────────────────────────────────────────────────────
+export type MatchedCandidateSummary = {
+  candidateId: number;
+  meetingExternalId: string;
+  title: string | null;
+  start: Date | null;
+  matchType: MatchType;
+  matchRef: string | null;
+  matchReason: string;
+  hasTranscript: boolean;
+  /** Ledger status: 'matched' | 'classified' | 'routed' | 'dropped'. */
+  status: string;
+  route: string | null;
+  skippedReason: string | null;
+};
 
 /**
- * Run the full funnel for an org. Reads only the meetings that survive the CRM
- * match, classifies each behind the content gate, and (supervised mode) surfaces
- * every result to the review queue for feedback — nothing auto-runs in v1.
+ * Match the window's meetings against the eligible set and RECORD every match
+ * on the ledger — metadata only, no transcript is read here. Every matched but
+ * not-yet-assessed row carries a `skipped_reason` ('no-transcript' or
+ * 'not-reached'), which is the coverage record: `classifyCall` clears it, so a
+ * window where the agent stopped early is visibly different from one where
+ * nothing was classifiable.
  * @param orgId
  * @param opts
  */
-export async function runSweep(orgId: string, opts: SweepOptions): Promise<SweepResult> {
+export async function matchWindow(orgId: string, opts: DiscoveryWindowOptions): Promise<{
+  window: { since: string; until: string };
+  eligibleParties: number;
+  meetingsScanned: number;
+  candidates: MatchedCandidateSummary[];
+}> {
   const now = opts.now ?? new Date();
-  const supervised = opts.supervised ?? true;
-  const dryRun = opts.dryRun ?? false;
+  const since = new Date(now.getTime() - opts.sinceDays * 86_400_000);
 
-  // Stage 0.
   const hubspotDocs = await loadHubspotDocs(orgId);
   const eligible = filterEligible(hubspotDocs, opts.eligible);
-
-  // Stage 1 — metadata only. `now` is the window's upper bound, so replaying a
-  // past day is `now = end of that day` with `sinceDays = 1`.
-  const since = new Date(now.getTime() - opts.sinceDays * 86_400_000);
   const meetings = await loadMeetingDocs(orgId, since, now);
   const matches = meetings
     .map(m => matchMeeting(m, eligible, { sellerDomain: opts.sellerDomain, allowCalendlyExternal: opts.allowCalendlyExternal }))
     .filter((x): x is Match => x !== null);
 
-  const routed = { generate: 0, confirm: 0, drop: 0 };
-  const details: SweepMeetingDetail[] = [];
-  let classified = 0;
-
+  const candidates: MatchedCandidateSummary[] = [];
   for (const match of matches) {
-    const detail: SweepMeetingDetail = {
+    const row = await upsertCandidate(orgId, match);
+    let skippedReason = row.skippedReason;
+    // Stamp coverage on rows not yet assessed. A transcript can arrive after
+    // the first match, so re-stamp on every pass until classification.
+    if (row.status === 'matched') {
+      skippedReason = match.meeting.hasTranscript ? 'not-reached' : 'no-transcript';
+      if (skippedReason !== row.skippedReason) {
+        await db
+          .update(discoveryCandidateSchema)
+          .set({ skippedReason })
+          .where(eq(discoveryCandidateSchema.id, row.id));
+      }
+    }
+    candidates.push({
+      candidateId: row.id,
       meetingExternalId: match.meeting.externalId,
       title: match.meeting.title,
       start: match.meeting.start,
       matchType: match.matchType,
       matchRef: match.matchRef,
       matchReason: match.matchReason,
-    };
-    details.push(detail);
-
-    // The match IS recorded on a dry run, and deliberately so: the candidate
-    // row is the provenance record that this meeting matched on metadata, which
-    // is true whether or not we go on to classify — and it is the row the
-    // content gate reads through. Suppressing it would either make a dry run
-    // classify nothing (useless) or require a bypass on the gate (unsafe). So
-    // dryRun suppresses the two writes that carry consequences: the review-queue
-    // item and the routed/classification update. Nothing downstream sees it.
-    const candidate = await upsertCandidate(orgId, match);
-
-    // Already classified on a previous sweep → don't re-read the transcript,
-    // re-spend on the LLM, or re-post a duplicate to the review queue. A dry
-    // run deliberately ignores this: rehearsing an already-swept day is the
-    // main reason to dry-run at all.
-    if (!dryRun && candidate.status === 'routed') {
-      detail.skipped = 'already-routed';
-      continue;
-    }
-    if (!match.meeting.hasTranscript) {
-      detail.skipped = 'no-transcript'; // matched but nothing to classify yet
-      continue;
-    }
-
-    // Stage 2 — the ONLY transcript read, behind the gate.
-    const transcript = await readMatchedTranscript(orgId, match.meeting.externalId);
-    const classification = await classifyTranscript(transcript, { title: match.meeting.title });
-    classified += 1;
-    detail.classification = classification;
-
-    // Stage 3.
-    const route = routeClassification(classification, opts);
-    routed[route] += 1;
-    detail.route = route;
-
-    if (dryRun) {
-      continue; // rehearsal ends here: nothing enqueued, nothing persisted
-    }
-
-    const reviewRunId = supervised
-      ? await enqueueReview(orgId, candidate.id, match, classification, route)
-      : null;
-
-    await db
-      .update(discoveryCandidateSchema)
-      .set({
-        status: 'routed',
-        classification,
-        classifiedAt: now,
-        route,
-        reviewActionRunId: reviewRunId,
-      })
-      .where(eq(discoveryCandidateSchema.id, candidate.id));
+      hasTranscript: match.meeting.hasTranscript,
+      status: row.status,
+      route: row.route,
+      skippedReason,
+    });
   }
 
   return {
+    window: { since: since.toISOString(), until: now.toISOString() },
     eligibleParties: eligible.length,
     meetingsScanned: meetings.length,
-    matched: matches.length,
-    classified,
-    routed,
-    dryRun,
+    candidates,
+  };
+}
+
+// ── classifyCall — read, classify, persist: ONE function ─────────────────────
+
+export type ClassifyCallResult = {
+  candidateId: number;
+  meetingExternalId: string;
+  meetingTitle: string | null;
+  isDiscovery: boolean;
+  isDiscoveryConfidence: number;
+  proposalReady: boolean;
+  proposalReadyConfidence: number;
+  reasoning: string;
+  route: Route;
+  thresholds: { discovery: number; ready: number };
+  transcriptHash: string | null;
+  classifierVersion: string;
+};
+
+/**
+ * Assess one matched call. Reads the transcript through the content gate,
+ * makes ONE fixed model call, and writes the verdict plus its full provenance
+ * to the ledger row — reading and recording are the same function, so an
+ * assessment that "forgot" to log is not a reachable state. Returns only the
+ * structured scores; the transcript body never leaves this function.
+ *
+ * Atomicity: the audit write is the single side effect after the model call.
+ * If it fails the caller gets the error and the call is safely retryable
+ * (a re-run re-reads and re-scores) — never silently assessed-but-unlogged.
+ * @param orgId
+ * @param candidateId
+ * @param opts
+ * @param opts.discoveryThreshold
+ * @param opts.readyThreshold
+ * @param opts.assessedBy
+ * @param opts.assessedBy.agentSlug
+ * @param opts.assessedBy.missionRunId
+ * @param opts.assessedBy.userId
+ * @param opts.now
+ */
+export async function classifyCall(
+  orgId: string,
+  candidateId: number,
+  opts: {
+    discoveryThreshold?: number;
+    readyThreshold?: number;
+    /** Who ordered the assessment — stamps `assessed_by` and the activity event. */
+    assessedBy: { agentSlug?: string; missionRunId?: number; userId?: string };
+    now?: Date;
+  },
+): Promise<ClassifyCallResult> {
+  const thresholds = {
+    discovery: opts.discoveryThreshold ?? DEFAULT_DISCOVERY_THRESHOLD,
+    ready: opts.readyThreshold ?? DEFAULT_READY_THRESHOLD,
+  };
+
+  const [candidate] = await db
+    .select()
+    .from(discoveryCandidateSchema)
+    .where(and(
+      eq(discoveryCandidateSchema.orgId, orgId),
+      eq(discoveryCandidateSchema.id, candidateId),
+    ))
+    .limit(1);
+  if (!candidate) {
+    throw new ClassifyCallError(
+      'no_candidate',
+      `no discovery_candidate ${candidateId} in this org — only meetings recorded by match_meetings can be assessed`,
+    );
+  }
+
+  // The ONLY transcript read, behind the gate (which re-checks the row).
+  const transcript = await readMatchedTranscript(orgId, candidate.meetingExternalId);
+  if (transcript.trim().length === 0) {
+    await db
+      .update(discoveryCandidateSchema)
+      .set({ skippedReason: 'no-transcript' })
+      .where(eq(discoveryCandidateSchema.id, candidate.id));
+    throw new ClassifyCallError(
+      'no_transcript',
+      `meeting ${candidate.meetingExternalId} has no transcript content yet — recorded as skipped_reason='no-transcript'`,
+    );
+  }
+
+  // Which exact transcript version is being scored.
+  const [doc] = candidate.meetingDocId == null
+    ? []
+    : await db
+        .select({ contentHash: knowledgeDocumentSchema.contentHash })
+        .from(knowledgeDocumentSchema)
+        .where(and(
+          eq(knowledgeDocumentSchema.orgId, orgId),
+          eq(knowledgeDocumentSchema.id, candidate.meetingDocId),
+        ))
+        .limit(1);
+
+  // The fixed call — one prompt, one schema, versioned. Never agent-steered.
+  const classification = await classifyTranscript(transcript, { title: candidate.meetingTitle });
+  const route = routeClassification(classification, {
+    discoveryThreshold: thresholds.discovery,
+    readyThreshold: thresholds.ready,
+  });
+
+  const { getCurrentWorkspaceSha } = await import('@/libs/workspace');
+  const workspaceSha = await getCurrentWorkspaceSha(orgId).catch(() => null);
+  const classifierVersion = discoveryClassifierVersion();
+  const now = opts.now ?? new Date();
+
+  await db
+    .update(discoveryCandidateSchema)
+    .set({
+      status: 'classified',
+      classification,
+      classifiedAt: now,
+      route,
+      transcriptHash: doc?.contentHash ?? null,
+      thresholds,
+      classifierVersion,
+      workspaceSha,
+      assessedBy: opts.assessedBy,
+      skippedReason: null,
+    })
+    .where(eq(discoveryCandidateSchema.id, candidate.id));
+
+  // One event per assessment — the drill-down pointer to the ledger row.
+  // Metadata stays enum-and-boolean; the reasoning lives on the row only.
+  const { track } = await import('@/services/adoption/track');
+  await track(
+    {
+      orgId,
+      userId: opts.assessedBy.userId
+        ?? (opts.assessedBy.agentSlug ? `agent:${opts.assessedBy.agentSlug}` : 'system'),
+    },
+    'discovery.classified',
+    {
+      agentSlug: opts.assessedBy.agentSlug ?? null,
+      resource: ['discovery_candidate', candidate.id],
+      meta: { route, isDiscovery: classification.isDiscovery, proposalReady: classification.proposalReady },
+    },
+  );
+
+  return {
+    candidateId: candidate.id,
+    meetingExternalId: candidate.meetingExternalId,
+    meetingTitle: candidate.meetingTitle,
+    isDiscovery: classification.isDiscovery,
+    isDiscoveryConfidence: classification.isDiscoveryConfidence,
+    proposalReady: classification.proposalReady,
+    proposalReadyConfidence: classification.proposalReadyConfidence,
+    reasoning: classification.reasoning,
+    route,
+    thresholds,
+    transcriptHash: doc?.contentHash ?? null,
+    classifierVersion,
+  };
+}
+
+// ── Reconciliation — the coverage guarantee the deterministic loop gave ──────
+
+export type DiscoveryGap = {
+  meetingExternalId: string;
+  title: string | null;
+  kind: 'unvisited' | 'not-reached' | 'no-transcript' | 'unassessed';
+  detail: string;
+};
+
+export type DiscoveryReconciliation = {
+  window: { since: string; until: string };
+  meetingsScanned: number;
+  matchedNow: number;
+  assessed: number;
+  gaps: DiscoveryGap[];
+};
+
+/**
+ * Recompute the window's matches (metadata only, no LLM, no writes) and diff
+ * them against the ledger. A deterministic loop visited every meeting; an
+ * agent may stop early or mis-scope a window — this is the check that makes
+ * that visible instead of silent.
+ * @param orgId
+ * @param opts
+ */
+export async function reconcileWindow(orgId: string, opts: DiscoveryWindowOptions): Promise<DiscoveryReconciliation> {
+  const now = opts.now ?? new Date();
+  const since = new Date(now.getTime() - opts.sinceDays * 86_400_000);
+
+  const hubspotDocs = await loadHubspotDocs(orgId);
+  const eligible = filterEligible(hubspotDocs, opts.eligible);
+  const meetings = await loadMeetingDocs(orgId, since, now);
+  const matches = meetings
+    .map(m => matchMeeting(m, eligible, { sellerDomain: opts.sellerDomain, allowCalendlyExternal: opts.allowCalendlyExternal }))
+    .filter((x): x is Match => x !== null);
+
+  const externalIds = matches.map(m => m.meeting.externalId);
+  const rows = externalIds.length === 0
+    ? []
+    : await db
+        .select({
+          meetingExternalId: discoveryCandidateSchema.meetingExternalId,
+          status: discoveryCandidateSchema.status,
+          skippedReason: discoveryCandidateSchema.skippedReason,
+        })
+        .from(discoveryCandidateSchema)
+        .where(and(
+          eq(discoveryCandidateSchema.orgId, orgId),
+          inArray(discoveryCandidateSchema.meetingExternalId, externalIds),
+        ));
+  const byExternalId = new Map(rows.map(r => [r.meetingExternalId, r]));
+
+  let assessed = 0;
+  const gaps: DiscoveryGap[] = [];
+  for (const match of matches) {
+    const row = byExternalId.get(match.meeting.externalId);
+    if (!row) {
+      gaps.push({
+        meetingExternalId: match.meeting.externalId,
+        title: match.meeting.title,
+        kind: 'unvisited',
+        detail: 'matches on metadata but has no ledger row — match_meetings has not covered this window',
+      });
+      continue;
+    }
+    if (row.status === 'matched') {
+      const kind = row.skippedReason === 'no-transcript'
+        ? 'no-transcript' as const
+        : row.skippedReason === 'not-reached'
+          ? 'not-reached' as const
+          : 'unassessed' as const;
+      gaps.push({
+        meetingExternalId: match.meeting.externalId,
+        title: match.meeting.title,
+        kind,
+        detail: kind === 'no-transcript'
+          ? 'matched, but no transcript has arrived yet'
+          : 'matched and classifiable, but never assessed',
+      });
+      continue;
+    }
+    assessed += 1;
+  }
+
+  return {
     window: { since: since.toISOString(), until: now.toISOString() },
-    meetings: details,
+    meetingsScanned: meetings.length,
+    matchedNow: matches.length,
+    assessed,
+    gaps,
   };
 }

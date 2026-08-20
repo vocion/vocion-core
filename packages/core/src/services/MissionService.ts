@@ -147,13 +147,23 @@ export async function startMission(opts: {
 /**
  * The standing brief a scheduled check carries — built from the mission
  * charter so the lead knows this is a periodic check, not a fresh project.
+ *
+ * `executionPrompt` (authored on the automation as `do.prompt`) replaces the
+ * generic "review current state, do what's needed" instruction with the
+ * automation's marching orders for this cadence. The mission stays attached
+ * as standing context either way: charter, responsibilities, working notes,
+ * and the notes-update contract all still travel on the brief.
  * @param template
  * @param template.name
  * @param template.goal
  * @param template.successCriteria
  * @param template.workingNotes
+ * @param executionPrompt
  */
-export function scheduledCheckBrief(template: { name: string; goal: string; successCriteria?: string[] | null; workingNotes?: string | null }): string {
+export function scheduledCheckBrief(
+  template: { name: string; goal: string; successCriteria?: string[] | null; workingNotes?: string | null },
+  executionPrompt?: string,
+): string {
   return [
     `Scheduled check of your standing mission "${template.name}".`,
     `Charter: ${template.goal}`,
@@ -163,7 +173,9 @@ export function scheduledCheckBrief(template: { name: string; goal: string; succ
     template.workingNotes
       ? `WORKING NOTES from your previous checks (your memory — trust it):\n${template.workingNotes}`
       : 'WORKING NOTES: none yet — this is your first tracked check.',
-    `This is a periodic check, not a fresh project. Review the current state against your working notes, do ONLY what is needed right now (use your skills, propose actions for anything touching external systems), and finish with a short report. If nothing needs doing, say so in one paragraph and stop.`,
+    executionPrompt
+      ? `YOUR ORDERS FOR THIS CHECK:\n${executionPrompt}`
+      : `This is a periodic check, not a fresh project. Review the current state against your working notes, do ONLY what is needed right now (use your skills, propose actions for anything touching external systems), and finish with a short report. If nothing needs doing, say so in one paragraph and stop.`,
     `BEFORE you finish: call update_mission_notes with your REWRITTEN working notes — carry forward every still-open thread (and say how many consecutive checks it has been open, escalating language as it ages), every commitment with its due date, and DROP anything resolved. Keep it under ~40 lines.`,
   ].filter(Boolean).join('\n\n');
 }
