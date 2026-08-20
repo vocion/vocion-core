@@ -712,6 +712,37 @@ async function upsertCandidate(orgId: string, match: Match): Promise<CandidateRo
 
 // ── The matcher (agent tool body) ────────────────────────────────────────────
 
+/**
+ * A meeting the matcher structurally CANNOT match: it carries no attendee
+ * metadata (Zoom stamps only the host; attendees come from a calendar event
+ * sharing the recording's meeting id, and none was ingested). It fails closed
+ * by design — the transcript stays unread — but the failure must be VISIBLE:
+ * a real discovery call in this state looks identical to full coverage
+ * ("0 gaps") because both match and reconcile compute from the same metadata.
+ * Everything here is metadata the matcher already sees, never content.
+ */
+export type UnmatchableMeeting = {
+  meetingExternalId: string;
+  title: string | null;
+  start: Date | null;
+  host: string | null;
+  hasTranscript: boolean;
+  reason: string;
+};
+
+function unmatchableOf(meetings: MeetingMeta[]): UnmatchableMeeting[] {
+  return meetings
+    .filter(m => m.attendees.length === 0)
+    .map(m => ({
+      meetingExternalId: m.externalId,
+      title: m.title,
+      start: m.start,
+      host: m.host,
+      hasTranscript: m.hasTranscript,
+      reason: 'no attendee metadata — no calendar event shares this recording\'s meeting id, so it fails closed and can never match. Fix the calendar linkage (or capture via Granola); a CRM record alone will not match it.',
+    }));
+}
+
 export type MatchedCandidateSummary = {
   candidateId: number;
   meetingExternalId: string;
@@ -743,6 +774,8 @@ export async function matchWindow(orgId: string, opts: DiscoveryWindowOptions): 
   meetingsScanned: number;
   meetingsBySource: Record<string, number>;
   matchedCount: number;
+  unmatchableCount: number;
+  unmatchable: UnmatchableMeeting[];
   candidates: MatchedCandidateSummary[];
   doubleCapturesDropped: DroppedCapture[];
 }> {
@@ -786,12 +819,15 @@ export async function matchWindow(orgId: string, opts: DiscoveryWindowOptions): 
     });
   }
 
+  const unmatchable = unmatchableOf(meetings);
   return {
     window: { since: since.toISOString(), until: now.toISOString() },
     eligibleParties: eligible.length,
     meetingsScanned: meetings.length,
     meetingsBySource: countBySource(meetings),
     matchedCount: candidates.length,
+    unmatchableCount: unmatchable.length,
+    unmatchable,
     candidates,
     doubleCapturesDropped: dropped,
   };
@@ -977,6 +1013,13 @@ export type DiscoveryReconciliation = {
   assessed: number;
   gapCount: number;
   gaps: DiscoveryGap[];
+  /**
+   * Meetings scanned but structurally unmatchable (zero attendee metadata).
+   * Reported here because "0 gaps" only covers MATCHED meetings — a real
+   * discovery call in this state would otherwise be invisible to coverage.
+   */
+  unmatchableCount: number;
+  unmatchable: UnmatchableMeeting[];
 };
 
 /**
@@ -1048,6 +1091,7 @@ export async function reconcileWindow(orgId: string, opts: DiscoveryWindowOption
     assessed += 1;
   }
 
+  const unmatchable = unmatchableOf(meetings);
   return {
     window: { since: since.toISOString(), until: now.toISOString() },
     meetingsScanned: meetings.length,
@@ -1056,5 +1100,7 @@ export async function reconcileWindow(orgId: string, opts: DiscoveryWindowOption
     assessed,
     gapCount: gaps.length,
     gaps,
+    unmatchableCount: unmatchable.length,
+    unmatchable,
   };
 }
