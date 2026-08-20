@@ -194,6 +194,8 @@ export type RuntimeContext = {
   allowedSourceSlugs?: string[];
   /** The mission this run belongs to (check/brief runs) — for mission-scoped tools. */
   missionSlug?: string;
+  /** The mission_run driving this turn — audit trails (`assessed_by`) point back to it. */
+  missionRunId?: number;
   /** Object type slugs this agent can read. */
   objectTypeSlugs: string[];
   /** Per-agent retrieval tuning. */
@@ -211,6 +213,8 @@ export type RuntimeContext = {
     interrupts?: string[];
     maxTokens?: number;
     excludeTools?: string[];
+    /** Granted-only tools this agent receives (gated tools are absent unless named here). */
+    grantTools?: string[];
     model?: string;
     /** Run the zero-card backstop pass after turns that emit no recommend_action (see workspace schema doc). */
     recommendActionBackstop?: boolean;

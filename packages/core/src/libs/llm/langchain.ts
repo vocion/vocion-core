@@ -74,6 +74,14 @@ function resolveModel(role: ModelRole, provider: LangChainProvider): string {
 }
 
 /**
+ * The model id `buildChatModel(role)` would construct — for audit stamps (e.g. `classifier_version`).
+ * @param role
+ */
+export function resolvedModelId(role: ModelRole): string {
+  return resolveModel(role, resolveProvider(role));
+}
+
+/**
  * Extended-thinking opt-in (Anthropic only).
  *
  * When `VOCION_THINKING_BUDGET` is set to a positive integer (tokens,

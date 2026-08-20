@@ -1,4 +1,5 @@
 import type { Classification } from '@/services/DiscoveryDetectionService';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -7,6 +8,7 @@ vi.mock('@/libs/DB');
 const invokeMock = vi.fn();
 vi.mock('@/libs/llm', () => ({
   buildChatModel: () => ({ invoke: invokeMock }),
+  resolvedModelId: (role: string) => `mock-${role}`,
 }));
 
 const { db } = await import('@/libs/DB');
@@ -16,9 +18,9 @@ const {
   knowledgeChunkSchema,
   discoveryCandidateSchema,
   actionRunSchema,
+  userActivityEventSchema,
 } = await import('@/models/Schema');
 const svc = await import('@/services/DiscoveryDetectionService');
-const { runDiscoverySweepJob } = await import('@/services/jobs/discoverySweep');
 
 const ORG = 'org_disc';
 const NOW = new Date('2026-08-17T18:00:00.000Z');
@@ -67,6 +69,7 @@ async function seedChunk(documentId: number, content: string): Promise<void> {
 }
 
 beforeEach(async () => {
+  await db.delete(userActivityEventSchema);
   await db.delete(actionRunSchema);
   await db.delete(discoveryCandidateSchema);
   await db.delete(knowledgeChunkSchema);
@@ -76,6 +79,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(userActivityEventSchema);
   await db.delete(actionRunSchema);
   await db.delete(discoveryCandidateSchema);
   await db.delete(knowledgeChunkSchema);
@@ -307,43 +311,34 @@ describe('classifyTranscript', () => {
   });
 });
 
-// ── Stage orchestrator · the privacy proof end to end ────────────────────────
+// ── matchWindow · the ledger recorder (metadata only) ────────────────────────
 
-describe('runSweep', () => {
-  const sweepOpts = {
-    eligible: { ownerIds: ['chris'], lifecycleStages: ['marketingqualifiedlead'] },
-    sellerDomain: 'metacto.com',
-    sinceDays: 30,
-    discoveryThreshold: 0.6,
-    readyThreshold: 0.7,
-    now: NOW,
-  };
+const windowOpts = {
+  eligible: { ownerIds: ['chris'], lifecycleStages: ['marketingqualifiedlead'] },
+  sellerDomain: 'metacto.com',
+  sinceDays: 30,
+  now: NOW,
+};
 
-  it('reads and classifies only the matched call, and never touches the internal one', async () => {
-    classifierReturns({
-      is_discovery: true,
-      is_discovery_confidence: 0.92,
-      proposal_ready: true,
-      proposal_ready_confidence: 0.85,
-      reasoning: 'clear discovery + ready',
-    });
+async function seedProspectContact() {
+  const hubspot = await seedSource('hubspot');
+  await seedDoc(hubspot, {
+    externalId: 'contacts:9',
+    title: 'Acme buyer',
+    metadata: { objectType: 'contacts', hubspotId: '9', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', primaryEmail: 'buyer@acme.com' },
+  });
+}
 
-    const hubspot = await seedSource('hubspot');
-    await seedDoc(hubspot, {
-      externalId: 'contacts:9',
-      title: 'Acme buyer',
-      metadata: { objectType: 'contacts', hubspotId: '9', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', primaryEmail: 'buyer@acme.com' },
-    });
-
+describe('matchWindow', () => {
+  it('records only the matched call and never creates a row for the internal one', async () => {
+    await seedProspectContact();
     const zoom = await seedSource('zoom');
-    // A — a real prospect discovery call.
     const docA = await seedDoc(zoom, {
       externalId: 'zoom:prospect',
       title: 'Acme <> Metacto discovery',
       metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
     });
     await seedChunk(docA, 'We have 40 stores and need help with proposals.');
-    // B — an internal meeting whose transcript must never be read.
     const docB = await seedDoc(zoom, {
       externalId: 'zoom:internal',
       title: 'Metacto standup',
@@ -351,120 +346,25 @@ describe('runSweep', () => {
     });
     await seedChunk(docB, 'CONFIDENTIAL internal roadmap discussion.');
 
-    const result = await svc.runSweep(ORG, sweepOpts);
+    const result = await svc.matchWindow(ORG, windowOpts);
 
-    // Only the prospect call was matched, classified, and routed.
-    expect(result.matched).toBe(1);
-    expect(result.classified).toBe(1);
-    expect(result.routed.generate).toBe(1);
-
-    // The classifier ran exactly once — never on the internal call.
-    expect(invokeMock).toHaveBeenCalledTimes(1);
-
-    // The internal call has no candidate row and its transcript is ungated → refused.
-    await expect(svc.readMatchedTranscript(ORG, 'zoom:internal')).rejects.toBeInstanceOf(svc.ContentGateError);
-
-    // The matched call is recorded and surfaced to the review queue (supervised).
-    const candidates = await db.select().from(discoveryCandidateSchema);
-
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({ meetingExternalId: 'zoom:prospect', status: 'routed', route: 'generate' });
-
-    const actions = await db.select().from(actionRunSchema);
-
-    expect(actions).toHaveLength(1);
-    expect(actions[0]).toMatchObject({ actionId: 'discovery.review_proposal', status: 'pending' });
-
-    void docB;
-  });
-
-  it('borrows attendees from the calendar event that shares the Zoom meeting id', async () => {
-    classifierReturns({
-      is_discovery: true,
-      is_discovery_confidence: 0.9,
-      proposal_ready: false,
-      proposal_ready_confidence: 0.4,
-      reasoning: 'discovery, one more call needed',
+    expect(result.meetingsScanned).toBe(2);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      meetingExternalId: 'zoom:prospect',
+      status: 'matched',
+      hasTranscript: true,
+      skippedReason: 'not-reached',
     });
 
-    const hubspot = await seedSource('hubspot');
-    await seedDoc(hubspot, {
-      externalId: 'contacts:9',
-      metadata: { objectType: 'contacts', hubspotId: '9', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', primaryEmail: 'buyer@acme.com' },
-    });
-
-    const cal = await seedSource('google-calendar');
-    await seedDoc(cal, {
-      externalId: 'gcal:primary:evt1',
-      metadata: { kind: 'calendar-event', start: NOW.toISOString(), organizer: 'chris@metacto.com', attendees: ['chris@metacto.com', 'buyer@acme.com'], zoomMeetingId: '89590696148' },
-    });
-
-    const zoom = await seedSource('zoom');
-    // Zoom recording carrying the same meeting id, host only, NO attendees stamped.
-    const doc = await seedDoc(zoom, {
-      externalId: 'zoom:corr',
-      title: 'Recorded call',
-      metadata: { kind: 'zoom-recording', meetingId: '89590696148', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true },
-    });
-    await seedChunk(doc, 'transcript body');
-
-    const result = await svc.runSweep(ORG, sweepOpts);
-
-    expect(result.matched).toBe(1);
-    expect(result.classified).toBe(1);
-    expect(result.routed.confirm).toBe(1);
-  });
-
-  it('fails closed: a recording with no calendar event of the same id is never matched or read', async () => {
-    const zoom = await seedSource('zoom');
-    const doc = await seedDoc(zoom, {
-      externalId: 'zoom:orphan',
-      title: 'Recorded call, no calendar match',
-      metadata: { kind: 'zoom-recording', meetingId: '99999999999', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true },
-    });
-    await seedChunk(doc, 'CONFIDENTIAL — must never be read');
-
-    const result = await svc.runSweep(ORG, sweepOpts);
-
-    expect(result.matched).toBe(0);
-    expect(result.classified).toBe(0);
+    // No model call, ever — matching is metadata only.
     expect(invokeMock).not.toHaveBeenCalled();
-    await expect(svc.readMatchedTranscript(ORG, 'zoom:orphan')).rejects.toBeInstanceOf(svc.ContentGateError);
+
+    // The internal call has no candidate row, so its transcript stays ungated.
+    await expect(svc.readMatchedTranscript(ORG, 'zoom:internal')).rejects.toBeInstanceOf(svc.ContentGateError);
   });
 
-  it('does not re-classify or re-enqueue a candidate already routed on a prior sweep', async () => {
-    classifierReturns({
-      is_discovery: true,
-      is_discovery_confidence: 0.92,
-      proposal_ready: true,
-      proposal_ready_confidence: 0.85,
-      reasoning: 'clear',
-    });
-
-    const hubspot = await seedSource('hubspot');
-    await seedDoc(hubspot, {
-      externalId: 'contacts:9',
-      metadata: { objectType: 'contacts', hubspotId: '9', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', primaryEmail: 'buyer@acme.com' },
-    });
-
-    const zoom = await seedSource('zoom');
-    const doc = await seedDoc(zoom, {
-      externalId: 'zoom:once',
-      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
-    });
-    await seedChunk(doc, 'transcript');
-
-    await svc.runSweep(ORG, sweepOpts);
-    await svc.runSweep(ORG, sweepOpts); // second sweep — a no-op for this candidate
-
-    expect(invokeMock).toHaveBeenCalledTimes(1); // classified once, not twice
-
-    const actions = await db.select().from(actionRunSchema);
-
-    expect(actions).toHaveLength(1); // one review item, not a duplicate
-  });
-
-  it('records a match but does not classify a call whose transcript has not landed yet', async () => {
+  it('stamps no-transcript on a matched call whose transcript has not landed', async () => {
     const zoom = await seedSource('zoom');
     await seedDoc(zoom, {
       externalId: 'zoom:notranscript',
@@ -472,228 +372,346 @@ describe('runSweep', () => {
       metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: false, attendees: ['chris@metacto.com', 'ceo@brandnew.io'] },
     });
 
-    const result = await svc.runSweep(ORG, sweepOpts);
+    const result = await svc.matchWindow(ORG, windowOpts);
 
-    expect(result.matched).toBe(1); // calendly-external
-    expect(result.classified).toBe(0);
-    expect(invokeMock).not.toHaveBeenCalled();
-
-    const candidates = await db.select().from(discoveryCandidateSchema);
-
-    expect(candidates[0]).toMatchObject({ meetingExternalId: 'zoom:notranscript', matchType: 'calendly-external', status: 'matched' });
+    expect(result.candidates[0]).toMatchObject({
+      meetingExternalId: 'zoom:notranscript',
+      matchType: 'calendly-external',
+      skippedReason: 'no-transcript',
+    });
   });
 
-  /**
-   * The regression that motivated windowing recordings only. A calendar event is
-   * normally created BEFORE its call, so it is routinely ingested outside the
-   * recording's window. Sharing one window meant the recording found no event,
-   * kept zero attendees, failed closed, and then aged out permanently — an
-   * unread prospect call caused by ingest ordering, not by the privacy rule.
-   */
-  it('joins a calendar event ingested long before the window it correlates into', async () => {
-    classifierReturns({
-      is_discovery: true,
-      is_discovery_confidence: 0.9,
-      proposal_ready: false,
-      proposal_ready_confidence: 0.4,
-      reasoning: 'discovery',
+  it('is idempotent: a second pass re-reports the same candidate, no duplicate rows', async () => {
+    await seedProspectContact();
+    const zoom = await seedSource('zoom');
+    const doc = await seedDoc(zoom, {
+      externalId: 'zoom:once',
+      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
     });
+    await seedChunk(doc, 'transcript');
 
-    const hubspot = await seedSource('hubspot');
-    await seedDoc(hubspot, {
-      externalId: 'contacts:9',
-      metadata: { objectType: 'contacts', hubspotId: '9', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', primaryEmail: 'buyer@acme.com' },
+    const first = await svc.matchWindow(ORG, windowOpts);
+    const second = await svc.matchWindow(ORG, windowOpts);
+
+    expect(second.candidates[0]!.candidateId).toBe(first.candidates[0]!.candidateId);
+
+    const rows = await db.select().from(discoveryCandidateSchema);
+
+    expect(rows).toHaveLength(1);
+  });
+
+  it('fails closed: a recording with no calendar event of the same id is never matched', async () => {
+    const zoom = await seedSource('zoom');
+    const doc = await seedDoc(zoom, {
+      externalId: 'zoom:orphan',
+      metadata: { kind: 'zoom-recording', meetingId: '99999999999', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true },
     });
+    await seedChunk(doc, 'CONFIDENTIAL — must never be read');
 
+    const result = await svc.matchWindow(ORG, windowOpts);
+
+    expect(result.candidates).toHaveLength(0);
+    await expect(svc.readMatchedTranscript(ORG, 'zoom:orphan')).rejects.toBeInstanceOf(svc.ContentGateError);
+  });
+
+  it('borrows attendees from the calendar event sharing the Zoom meeting id, even one ingested long before the window', async () => {
+    await seedProspectContact();
     const cal = await seedSource('google-calendar');
-    // Invite synced 30 days before the sweep window opens.
     await seedDoc(cal, {
       externalId: 'gcal:primary:old-evt',
       metadata: { kind: 'calendar-event', organizer: 'chris@metacto.com', attendees: ['chris@metacto.com', 'buyer@acme.com'], zoomMeetingId: '77777777777' },
       ingestedAt: new Date(NOW.getTime() - 30 * 86_400_000),
     });
-
     const zoom = await seedSource('zoom');
     const doc = await seedDoc(zoom, {
       externalId: 'zoom:late',
-      title: 'Recorded call, invite synced weeks earlier',
       metadata: { kind: 'zoom-recording', meetingId: '77777777777', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true },
       ingestedAt: new Date(NOW.getTime() - 3_600_000),
     });
     await seedChunk(doc, 'transcript body');
 
-    // A 3-day window — the same one production runs. The event is well outside it.
-    const result = await svc.runSweep(ORG, { ...sweepOpts, sinceDays: 3 });
+    const result = await svc.matchWindow(ORG, { ...windowOpts, sinceDays: 3 });
 
-    expect(result.matched).toBe(1);
-    expect(result.classified).toBe(1);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]!.meetingExternalId).toBe('zoom:late');
+  });
+});
+
+// ── classifyCall · read + classify + persist, one function ──────────────────
+
+const GOOD_VERDICT = {
+  is_discovery: true,
+  is_discovery_confidence: 0.92,
+  proposal_ready: true,
+  proposal_ready_confidence: 0.85,
+  reasoning: 'clear discovery, scoped problem, buying intent',
+};
+
+async function seedMatchedProspect(externalId = 'zoom:prospect', transcript = 'We have 40 stores and need help with proposals.') {
+  await seedProspectContact();
+  const zoom = await seedSource('zoom');
+  const doc = await seedDoc(zoom, {
+    externalId,
+    title: 'Acme <> Metacto discovery',
+    metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
+  });
+  await seedChunk(doc, transcript);
+  const { candidates } = await svc.matchWindow(ORG, windowOpts);
+  return { candidateId: candidates[0]!.candidateId, docId: doc };
+}
+
+describe('classifyCall', () => {
+  const assessedBy = { agentSlug: 'revenue-lead', missionRunId: 42, userId: 'automation:discovery-sweep' };
+
+  it('persists the verdict with full provenance and returns only structured scores', async () => {
+    classifierReturns(GOOD_VERDICT);
+    const { candidateId } = await seedMatchedProspect();
+
+    const result = await svc.classifyCall(ORG, candidateId, { assessedBy });
+
+    expect(result).toMatchObject({
+      candidateId,
+      isDiscovery: true,
+      route: 'generate',
+      thresholds: { discovery: 0.6, ready: 0.75 },
+      transcriptHash: 'zoom:prospect', // seedDoc sets contentHash = externalId
+    });
+    expect(result.classifierVersion).toMatch(/#discovery-v1$/);
+
+    // The transcript body never appears in what the tool would hand the agent.
+    expect(JSON.stringify(result)).not.toContain('40 stores');
+
+    const [row] = await db.select().from(discoveryCandidateSchema);
+
+    expect(row).toMatchObject({
+      status: 'classified',
+      route: 'generate',
+      transcriptHash: 'zoom:prospect',
+      thresholds: { discovery: 0.6, ready: 0.75 },
+      assessedBy: { agentSlug: 'revenue-lead', missionRunId: 42, userId: 'automation:discovery-sweep' },
+      skippedReason: null,
+    });
+    expect(row!.classification?.reasoning).toContain('clear discovery');
   });
 
-  it('windows recordings by ingest time, so a replayed day excludes later ingests', async () => {
-    const zoom = await seedSource('zoom');
-    await seedDoc(zoom, {
-      externalId: 'zoom:inside',
-      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', hasTranscript: false, attendees: ['chris@metacto.com', 'ceo@brandnew.io'] },
-      ingestedAt: new Date('2026-08-12T09:00:00.000Z'),
-    });
-    await seedDoc(zoom, {
-      externalId: 'zoom:after',
-      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', hasTranscript: false, attendees: ['chris@metacto.com', 'ceo@brandnew.io'] },
-      ingestedAt: new Date('2026-08-16T09:00:00.000Z'),
-    });
+  it('emits exactly one discovery.classified activity event deep-linking the ledger row', async () => {
+    classifierReturns(GOOD_VERDICT);
+    const { candidateId } = await seedMatchedProspect();
 
-    // Replay just 2026-08-12: window is that day, upper bound included.
-    const result = await svc.runSweep(ORG, {
-      ...sweepOpts,
-      sinceDays: 1,
-      now: new Date('2026-08-13T00:00:00.000Z'),
-    });
+    await svc.classifyCall(ORG, candidateId, { assessedBy });
 
-    expect(result.meetingsScanned).toBe(1);
-    expect(result.window).toEqual({ since: '2026-08-12T00:00:00.000Z', until: '2026-08-13T00:00:00.000Z' });
+    const events = await db.select().from(userActivityEventSchema);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      eventType: 'discovery.classified',
+      agentSlug: 'revenue-lead',
+      resourceType: 'discovery_candidate',
+      resourceId: String(candidateId),
+      metadata: { route: 'generate', isDiscovery: true, proposalReady: true },
+    });
   });
 
-  it('dry run classifies and reports but enqueues nothing and routes nothing', async () => {
-    classifierReturns({
-      is_discovery: true,
-      is_discovery_confidence: 0.92,
-      proposal_ready: true,
-      proposal_ready_confidence: 0.85,
-      reasoning: 'clear discovery',
+  it('refuses with a typed error when no candidate row exists — in the body, not a prompt', async () => {
+    await expect(svc.classifyCall(ORG, 999_999, { assessedBy })).rejects.toMatchObject({
+      name: 'ClassifyCallError',
+      code: 'no_candidate',
     });
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
 
-    const hubspot = await seedSource('hubspot');
-    await seedDoc(hubspot, {
-      externalId: 'contacts:9',
-      metadata: { objectType: 'contacts', hubspotId: '9', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', primaryEmail: 'buyer@acme.com' },
+  it('is cross-tenant safe: org B cannot assess org A candidates', async () => {
+    classifierReturns(GOOD_VERDICT);
+    const { candidateId } = await seedMatchedProspect();
+
+    await expect(svc.classifyCall('org_other', candidateId, { assessedBy })).rejects.toMatchObject({
+      code: 'no_candidate',
     });
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
 
+  it('refuses (typed) and stamps skipped_reason when the transcript has no content yet', async () => {
+    await seedProspectContact();
     const zoom = await seedSource('zoom');
-    const doc = await seedDoc(zoom, {
-      externalId: 'zoom:dry',
-      title: 'Acme discovery',
+    await seedDoc(zoom, {
+      externalId: 'zoom:empty',
       metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
     });
-    await seedChunk(doc, 'transcript body');
+    const { candidates } = await svc.matchWindow(ORG, windowOpts);
 
-    const result = await svc.runSweep(ORG, { ...sweepOpts, dryRun: true });
+    await expect(svc.classifyCall(ORG, candidates[0]!.candidateId, { assessedBy })).rejects.toMatchObject({
+      code: 'no_transcript',
+    });
 
-    // It did the work and can explain itself.
-    expect(result.dryRun).toBe(true);
-    expect(result.classified).toBe(1);
-    expect(result.routed.generate).toBe(1);
-    expect(result.meetings[0]).toMatchObject({ meetingExternalId: 'zoom:dry', route: 'generate' });
-    expect(result.meetings[0]?.classification?.isDiscovery).toBe(true);
+    const [row] = await db.select().from(discoveryCandidateSchema);
 
-    // But nothing consequential was written: no review item, and the candidate
-    // is still un-routed so the next real sweep still handles it.
-    const actions = await db.select().from(actionRunSchema);
-
-    expect(actions).toHaveLength(0);
-
-    const candidates = await db.select().from(discoveryCandidateSchema);
-
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({ meetingExternalId: 'zoom:dry', status: 'matched', route: null });
+    expect(row!.skippedReason).toBe('no-transcript');
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 
-  it('dry run re-classifies an already-routed candidate (rehearsing a swept day is the point)', async () => {
+  it('re-assessing a changed transcript records the new hash — re-classification is distinguishable from a duplicate', async () => {
+    classifierReturns(GOOD_VERDICT);
+    const { candidateId, docId } = await seedMatchedProspect();
+
+    const first = await svc.classifyCall(ORG, candidateId, { assessedBy });
+
+    // The transcript is re-synced with new content: contentHash changes.
+    await db.update(knowledgeDocumentSchema)
+      .set({ contentHash: 'v2-hash' })
+      .where(eq(knowledgeDocumentSchema.id, docId));
+
+    const second = await svc.classifyCall(ORG, candidateId, { assessedBy });
+
+    expect(first.transcriptHash).toBe('zoom:prospect');
+    expect(second.transcriptHash).toBe('v2-hash');
+  });
+
+  it('keeps history: an old row keeps the thresholds it was decided under', async () => {
+    classifierReturns(GOOD_VERDICT);
+    const { candidateId } = await seedMatchedProspect('zoom:prospect');
+
+    await svc.classifyCall(ORG, candidateId, { assessedBy, discoveryThreshold: 0.6, readyThreshold: 0.75 });
+
+    // A different call assessed later under stricter thresholds.
+    const zoom2 = await seedSource('zoom-b');
+    const doc2 = await seedDoc(zoom2, {
+      externalId: 'zoom:prospect2',
+      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
+    });
+    await seedChunk(doc2, 'another call');
+    const { candidates } = await svc.matchWindow(ORG, windowOpts);
+    const second = candidates.find(c => c.meetingExternalId === 'zoom:prospect2')!;
+    await svc.classifyCall(ORG, second.candidateId, { assessedBy, discoveryThreshold: 0.8, readyThreshold: 0.9 });
+
+    const rows = await db.select().from(discoveryCandidateSchema);
+    const oldRow = rows.find(r => r.meetingExternalId === 'zoom:prospect')!;
+    const newRow = rows.find(r => r.meetingExternalId === 'zoom:prospect2')!;
+
+    expect(oldRow.thresholds).toEqual({ discovery: 0.6, ready: 0.75 });
+    expect(newRow.thresholds).toEqual({ discovery: 0.8, ready: 0.9 });
+    // Stricter thresholds route the same scores differently — derivable per row.
+    expect(oldRow.route).toBe('generate');
+    expect(newRow.route).toBe('confirm');
+  });
+
+  it('records a dropped call as a row with scores and reasoning, not an absence', async () => {
     classifierReturns({
-      is_discovery: true,
-      is_discovery_confidence: 0.92,
-      proposal_ready: true,
-      proposal_ready_confidence: 0.85,
-      reasoning: 'clear',
+      is_discovery: false,
+      is_discovery_confidence: 0.9,
+      proposal_ready: false,
+      proposal_ready_confidence: 0.1,
+      reasoning: 'status call with an existing client',
     });
+    const { candidateId } = await seedMatchedProspect();
 
-    const hubspot = await seedSource('hubspot');
-    await seedDoc(hubspot, {
-      externalId: 'contacts:9',
-      metadata: { objectType: 'contacts', hubspotId: '9', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', primaryEmail: 'buyer@acme.com' },
-    });
+    const result = await svc.classifyCall(ORG, candidateId, { assessedBy });
 
+    expect(result.route).toBe('drop');
+
+    const [row] = await db.select().from(discoveryCandidateSchema);
+
+    expect(row).toMatchObject({ status: 'classified', route: 'drop' });
+    expect(row!.classification?.reasoning).toContain('status call');
+  });
+});
+
+// ── reconcileWindow · the coverage check ─────────────────────────────────────
+
+describe('reconcileWindow', () => {
+  it('surfaces a seeded gap (matched, classifiable, never assessed) and clears once assessed', async () => {
+    classifierReturns(GOOD_VERDICT);
+    const { candidateId } = await seedMatchedProspect();
+
+    const before = await svc.reconcileWindow(ORG, windowOpts);
+
+    expect(before.matchedNow).toBe(1);
+    expect(before.assessed).toBe(0);
+    expect(before.gaps).toHaveLength(1);
+    expect(before.gaps[0]).toMatchObject({ meetingExternalId: 'zoom:prospect', kind: 'not-reached' });
+
+    await svc.classifyCall(ORG, candidateId, { assessedBy: { agentSlug: 'revenue-lead' } });
+
+    const after = await svc.reconcileWindow(ORG, windowOpts);
+
+    expect(after.assessed).toBe(1);
+    expect(after.gaps).toHaveLength(0);
+  });
+
+  it('reports a matched meeting with no ledger row as unvisited (mis-scoped window)', async () => {
+    await seedProspectContact();
     const zoom = await seedSource('zoom');
     const doc = await seedDoc(zoom, {
-      externalId: 'zoom:again',
+      externalId: 'zoom:missed',
       metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
     });
     await seedChunk(doc, 'transcript');
 
-    await svc.runSweep(ORG, sweepOpts); // real sweep → routed
-    const dry = await svc.runSweep(ORG, { ...sweepOpts, dryRun: true });
+    // matchWindow never ran — the agent mis-scoped its window.
+    const result = await svc.reconcileWindow(ORG, windowOpts);
 
-    expect(dry.classified).toBe(1); // NOT skipped as already-routed
-    expect(invokeMock).toHaveBeenCalledTimes(2);
-
-    // Still exactly one review item — the dry run added none.
-    const actions = await db.select().from(actionRunSchema);
-
-    expect(actions).toHaveLength(1);
-  });
-
-  it('reports why a matched meeting was not classified', async () => {
-    const zoom = await seedSource('zoom');
-    await seedDoc(zoom, {
-      externalId: 'zoom:pending',
-      title: 'Acme intro',
-      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: false, attendees: ['chris@metacto.com', 'ceo@brandnew.io'] },
-    });
-
-    const result = await svc.runSweep(ORG, sweepOpts);
-
-    expect(result.meetings).toHaveLength(1);
-    expect(result.meetings[0]).toMatchObject({
-      meetingExternalId: 'zoom:pending',
-      matchType: 'calendly-external',
-      skipped: 'no-transcript',
-    });
-    expect(result.meetings[0]?.matchReason).toBeTruthy();
+    expect(result.gaps).toHaveLength(1);
+    expect(result.gaps[0]).toMatchObject({ meetingExternalId: 'zoom:missed', kind: 'unvisited' });
+    expect(invokeMock).not.toHaveBeenCalled(); // reconciliation never spends on the model
   });
 });
 
-// ── the automation job wiring (scheduled path) ───────────────────────────────
+// ── proposing the review item (agent path) — canonical dedup + back-link ─────
 
-describe('runDiscoverySweepJob', () => {
-  it('parses automation do.input and runs the sweep', async () => {
-    const result = await runDiscoverySweepJob(ORG, {
-      sellerDomain: 'metacto.com',
-      eligible: { lifecycleStages: ['lead'] },
-      sinceDays: 3,
-      discoveryThreshold: 0.6,
-      readyThreshold: 0.75,
-      supervised: true,
-    }) as { matched: number; classified: number };
+describe('discovery.review_proposal via proposeAction (agent path)', () => {
+  const agentPrincipal = {
+    kind: 'agent' as const,
+    id: 'agent:revenue-lead',
+    scope: { orgId: ORG },
+    grants: ['*'],
+    autonomy: 2 as const,
+  };
 
-    expect(result).toMatchObject({ matched: 0, classified: 0 });
-  });
-
-  it('rejects input missing the required sellerDomain', async () => {
-    await expect(runDiscoverySweepJob(ORG, { eligible: {} })).rejects.toThrow();
-  });
-
-  it('replays a named day as a one-day window, overriding sinceDays', async () => {
-    const result = await runDiscoverySweepJob(ORG, {
-      sellerDomain: 'metacto.com',
-      sinceDays: 30, // must lose to `day`
-      day: '2026-08-12',
-    }) as { window: { since: string; until: string } };
-
-    expect(result.window).toEqual({
-      since: '2026-08-12T00:00:00.000Z',
-      until: '2026-08-13T00:00:00.000Z',
+  async function propose(candidateId: number) {
+    const { proposeAction } = await import('@/services/ActionService');
+    return proposeAction({
+      orgId: ORG,
+      actionId: 'discovery.review_proposal',
+      principal: agentPrincipal,
+      invokedBy: 'agent:revenue-lead',
+      input: {
+        candidateId,
+        meetingExternalId: 'zoom:prospect',
+        company: 'contacts:9',
+        route: 'generate',
+        isDiscovery: true,
+        proposalReady: true,
+      },
+      proposal: { confidence: 0.92, rationale: 'clear discovery' },
     });
+  }
+
+  it('re-proposing the same meeting updates the pending item — no duplicate queue items', async () => {
+    classifierReturns(GOOD_VERDICT);
+    const { candidateId } = await seedMatchedProspect();
+    await svc.classifyCall(ORG, candidateId, { assessedBy: { agentSlug: 'revenue-lead' } });
+
+    const first = await propose(candidateId);
+    const second = await propose(candidateId);
+
+    expect(first.status).toBe('pending');
+    expect(second.runId).toBe(first.runId);
+
+    const actions = await db.select().from(actionRunSchema);
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({ actionId: 'discovery.review_proposal', status: 'pending' });
+    expect(actions[0]!.dedupKey).toBe('discovery.review_proposal:zoom:prospect');
   });
 
-  it('rejects a malformed day', async () => {
-    await expect(runDiscoverySweepJob(ORG, { sellerDomain: 'metacto.com', day: '12/08/2026' })).rejects.toThrow();
-  });
+  it('back-links the queue item onto the ledger row (status routed, reviewActionRunId set)', async () => {
+    classifierReturns(GOOD_VERDICT);
+    const { candidateId } = await seedMatchedProspect();
+    await svc.classifyCall(ORG, candidateId, { assessedBy: { agentSlug: 'revenue-lead' } });
 
-  it('passes dryRun through to the sweep', async () => {
-    const result = await runDiscoverySweepJob(ORG, {
-      sellerDomain: 'metacto.com',
-      dryRun: true,
-    }) as { dryRun: boolean };
+    const res = await propose(candidateId);
 
-    expect(result.dryRun).toBe(true);
+    const [row] = await db.select().from(discoveryCandidateSchema);
+
+    expect(row).toMatchObject({ status: 'routed', reviewActionRunId: res.runId });
   });
 });

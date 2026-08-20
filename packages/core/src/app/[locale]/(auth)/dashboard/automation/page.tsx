@@ -21,8 +21,8 @@ import { isEntityStatus } from '@/types/Status';
  * Each automation binds a trigger to a piece of work:
  *   when: a schedule (cron) or an event
  *   do:   run a workflow (deterministic procedure), check a mission (the team's
- *         judgment pass on a standing goal), or run a built-in job
- *         (deterministic server code, e.g. the discovery sweep)
+ *         judgment pass on a standing goal, optionally with an authored
+ *         execution prompt), or run a built-in job (deterministic server code)
  *
  * The card states what the automation does (its authored description), the
  * parameters it runs with, and its last outcome — a schedule you can't inspect
@@ -130,9 +130,9 @@ export default async function AutomationPage(props: {
                           )}
                         </div>
 
-                        {/* The operating parameters. For the discovery sweep these
-                            ARE the behaviour (thresholds, seller domain, window),
-                            so "what is it doing" is unanswerable without them. */}
+                        {/* The operating parameters — for a job/workflow these ARE
+                            the behaviour, so "what is it doing" is unanswerable
+                            without them. */}
                         <Params input={a.doConfig.input} />
                       </div>
 
@@ -153,7 +153,7 @@ export default async function AutomationPage(props: {
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-start gap-3 border-t border-border pt-3">
-                      <AutomationTestRun slug={a.slug} supportsDay={a.doConfig.job === 'discovery-sweep'} />
+                      <AutomationTestRun slug={a.slug} supportsDay={false} />
                     </div>
                   </div>
                 );
@@ -187,9 +187,8 @@ type DoConfig = { workflow?: string; checkMission?: string; job?: string; input?
 
 /**
  * What the automation runs. Three do-types, not two: a `job` is a built-in
- * deterministic server task (the discovery sweep), and it has no page of its
- * own to link to — rendering it as a workflow produced an empty label and a
- * dead link.
+ * deterministic server task, and it has no page of its own to link to —
+ * rendering it as a workflow produced an empty label and a dead link.
  * @param props
  * @param props.doConfig
  */

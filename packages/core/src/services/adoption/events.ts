@@ -22,6 +22,13 @@ export const feedbackRating = z.enum(['up', 'down']);
 type EventSpec = {
   /** True when the event is agent-attributable — callers should pass `agentSlug`. */
   agent?: boolean;
+  /**
+   * True when the event may be written by a NON-human actor (an agent turn, a
+   * scheduled mission check). Adoption still measures humans; a system event
+   * exists for auditability, and the read side keeps ignoring it for
+   * per-user metrics because its userId never matches a member.
+   */
+  system?: boolean;
   /** Metadata envelope schema. Counts and enums only — never message content. */
   meta?: z.ZodType;
 };
@@ -64,6 +71,21 @@ export const ADOPTION_EVENTS = {
     }),
   },
   'learning.added': { agent: true },
+  /**
+   * One assessed call = one event, whoever ordered it (scheduled mission
+   * check or a chat turn). The drill-down pointer to the ledger:
+   * `resource: ['discovery_candidate', id]`. Metadata is enum-and-boolean
+   * only — the scores and reasoning live on the ledger row, never here.
+   */
+  'discovery.classified': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      route: z.enum(['generate', 'confirm', 'drop']),
+      isDiscovery: z.boolean(),
+      proposalReady: z.boolean(),
+    }),
+  },
 } as const satisfies Record<string, EventSpec>;
 
 export type AdoptionEventType = keyof typeof ADOPTION_EVENTS;

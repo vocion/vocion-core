@@ -203,6 +203,13 @@ export const AgentManifestSchema = z.object({
     interrupts: z.array(z.string()).default([]),
     maxTokens: z.number().int().positive().optional(),
     excludeTools: z.array(z.string()).default([]),
+    /**
+     * Granted-only tools this agent receives. Some built-ins (the discovery
+     * lane: classify_call, match_meetings, …) exist only for agents that name
+     * them here — the inverse of excludeTools, for tools too powerful to be
+     * default-on.
+     */
+    grantTools: z.array(z.string()).default([]),
     model: z.string().optional(),
     /**
      * Structural guarantee for A2UI action cards: when true and a turn ends
@@ -387,13 +394,23 @@ export const AutomationManifestSchema = z.object({
   do: z.object({
     workflow: z.string().optional(),
     checkMission: z.string().optional(),
-    /** Built-in server job, e.g. `discovery-sweep` (deterministic, not an agent). */
+    /** Built-in server job (deterministic, not an agent). */
     job: z.string().optional(),
+    /**
+     * Execution prompt for `checkMission` fires — WHAT to do on this cadence.
+     * The mission stays the standing context (charter, working notes); the
+     * automation carries the marching orders. Falls back to the generic
+     * scheduled-check brief when omitted.
+     */
+    prompt: z.string().optional(),
     /** Fixed input passed to the workflow run / job. */
     input: z.record(z.string(), z.unknown()).optional(),
   }).refine(
     d => [d.workflow, d.checkMission, d.job].filter(Boolean).length === 1,
     { message: 'do must have exactly one of workflow | checkMission | job' },
+  ).refine(
+    d => !d.prompt || !!d.checkMission,
+    { message: 'do.prompt requires do.checkMission — only mission checks carry an execution prompt' },
   ),
 });
 export type AutomationManifest = z.infer<typeof AutomationManifestSchema>;

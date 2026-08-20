@@ -29,6 +29,8 @@ const hubspotConfigSchema = z.object({
   properties: z.array(z.string()).optional(),
   /** Override for testing / EU data residency. */
   baseUrl: z.string().url().default('https://api.hubapi.com'),
+  /** HubSpot portal (account) id — enables record deep links on review cards. */
+  portalId: z.union([z.string(), z.number()]).optional(),
 });
 
 type HubSpotRecord = {
@@ -69,6 +71,7 @@ function toDoc(objectType: string, r: HubSpotRecord): IngestDoc {
       emailDomain,
       domain: props.domain ?? undefined,
       name: props.name ?? undefined,
+      company: props.company ?? undefined,
     },
   };
 }

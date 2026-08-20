@@ -568,6 +568,8 @@ export const agentSchema = pgTable(
       maxTokens?: number;
       /** Built-in tool names to withhold from this agent (e.g. propose_action for agents with no CRM writes). */
       excludeTools?: string[];
+      /** Granted-only tool names to hand this agent (e.g. classify_call). Gated tools are absent unless named here. */
+      grantTools?: string[];
       /** agentcore provider only: Bedrock model id for the managed harness (defaults to the harness service default). */
       model?: string;
     }>().default({}).notNull(),
@@ -748,8 +750,8 @@ export const automationSchema = pgTable(
     status: text('status').default('active'),
     /** `{schedule: '<cron UTC>'}` or `{event: '<type>', filter?: {...}}`. */
     whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string; filter?: Record<string, unknown> }>().notNull(),
-    /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>'}` | `{job: '<name>', input?}` (built-in server job, e.g. discovery-sweep). */
-    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; input?: Record<string, unknown> }>().notNull(),
+    /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>', prompt?}` (prompt = the authored execution orders for each check) | `{job: '<name>', input?}` (built-in server job). */
+    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> }>().notNull(),
     /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
     ownerAgentSlug: text('owner_agent_slug'),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
@@ -1968,6 +1970,18 @@ export const discoveryCandidateSchema = pgTable(
     route: text('route'),
     /** The review-queue action_run this candidate was surfaced as (supervised mode). */
     reviewActionRunId: integer('review_action_run_id'),
+    /** knowledge_document.contentHash at read time — which exact transcript version was scored. */
+    transcriptHash: text('transcript_hash'),
+    /** The thresholds the route was decided under. Without them the route cannot be re-derived. */
+    thresholds: jsonb('thresholds').$type<{ discovery: number; ready: number }>(),
+    /** Model id + fixed prompt version, e.g. `claude-haiku-4-5-20251001#discovery-v1`. */
+    classifierVersion: text('classifier_version'),
+    /** Workspace sha in force at assessment — same stamp skill/mission runs carry. */
+    workspaceSha: text('workspace_sha'),
+    /** Who ordered the assessment: agent slug + the mission_run/user turn behind it. */
+    assessedBy: jsonb('assessed_by').$type<{ agentSlug?: string; missionRunId?: number; userId?: string }>(),
+    /** Matched-but-not-assessed coverage record: 'no-transcript' | 'out-of-window' | 'not-reached'. */
+    skippedReason: text('skipped_reason'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
