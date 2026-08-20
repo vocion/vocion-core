@@ -284,12 +284,14 @@ export function bindRequestEmit(
   userId?: string,
   allowedSourceSlugs?: string[],
   missionSlug?: string,
+  missionRunId?: number,
 ): void {
   const internal = compiled as unknown as { __ctx: RuntimeContext };
   internal.__ctx.emit = emit;
   internal.__ctx.userId = userId;
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
   internal.__ctx.missionSlug = missionSlug;
+  internal.__ctx.missionRunId = missionRunId;
   // Fresh citation numbering per turn (the graph/ctx is reused across requests).
   internal.__ctx.citationSeq = { current: 0 };
 }

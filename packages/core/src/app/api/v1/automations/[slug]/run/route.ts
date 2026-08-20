@@ -15,8 +15,7 @@ import { authApi, jsonError } from '../../../_shared';
  *   - `input` merges over the authored `do.input` (e.g. `{ day: '2026-08-12' }`
  *     to replay one day). Whatever the job's own input schema accepts.
  *   - `dryRun` is recorded on the run row AND passed into the input, so a job
- *     that understands rehearsals (discovery-sweep does) suppresses its
- *     consequential writes.
+ *     that understands rehearsals suppresses its consequential writes.
  *
  * Runs synchronously and returns the result, so the caller can show what
  * happened rather than telling the operator to go look somewhere else.
