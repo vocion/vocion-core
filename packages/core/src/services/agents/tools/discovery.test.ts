@@ -149,6 +149,12 @@ describe('grants', () => {
 
     expect(names).toEqual(['list_discovery_candidates']);
   });
+
+  it('honors the legacy get_eligible_parties grant for the renamed get_hubspot_contacts', () => {
+    const names = discoveryTools(ctxFor(ORG, ['get_eligible_parties'])).map(t => t.name);
+
+    expect(names).toEqual(['get_hubspot_contacts']);
+  });
 });
 
 describe('no tool anywhere returns transcript body', () => {
@@ -157,7 +163,7 @@ describe('no tool anywhere returns transcript body', () => {
     const tools = toolsByName(ORG);
 
     const outputs: string[] = [];
-    outputs.push(await tools.get('get_eligible_parties')!.invoke({ lifecycle_stages: ['marketingqualifiedlead'] }) as string);
+    outputs.push(await tools.get('get_hubspot_contacts')!.invoke({ lifecycle_stages: ['marketingqualifiedlead'] }) as string);
     outputs.push(await tools.get('match_meetings')!.invoke(matchArgs) as string);
 
     const matched = JSON.parse(outputs[1]!) as { candidates: Array<{ candidateId: number }> };
@@ -220,9 +226,9 @@ describe('cross-tenant', () => {
 
     const tools = toolsByName('org_other');
 
-    const parties = JSON.parse(await tools.get('get_eligible_parties')!.invoke({}) as string) as { count: number };
+    const parties = JSON.parse(await tools.get('get_hubspot_contacts')!.invoke({}) as string) as { total: number };
 
-    expect(parties.count).toBe(0);
+    expect(parties.total).toBe(0);
 
     const matches = JSON.parse(await tools.get('match_meetings')!.invoke(matchArgs) as string) as { meetingsScanned: number; candidates: unknown[] };
 
@@ -233,9 +239,10 @@ describe('cross-tenant', () => {
 
     expect(classify.error).toBe('no_candidate');
 
-    const ledger = JSON.parse(await tools.get('list_discovery_candidates')!.invoke({}) as string) as unknown[];
+    const ledger = JSON.parse(await tools.get('list_discovery_candidates')!.invoke({}) as string) as { count: number; candidates: unknown[] };
 
-    expect(ledger).toHaveLength(0);
+    expect(ledger.count).toBe(0);
+    expect(ledger.candidates).toHaveLength(0);
 
     const recon = JSON.parse(await tools.get('reconcile_discovery_window')!.invoke(matchArgs) as string) as { matchedNow: number };
 

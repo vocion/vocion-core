@@ -741,6 +741,8 @@ export async function matchWindow(orgId: string, opts: DiscoveryWindowOptions): 
   window: { since: string; until: string };
   eligibleParties: number;
   meetingsScanned: number;
+  meetingsBySource: Record<string, number>;
+  matchedCount: number;
   candidates: MatchedCandidateSummary[];
   doubleCapturesDropped: DroppedCapture[];
 }> {
@@ -788,9 +790,19 @@ export async function matchWindow(orgId: string, opts: DiscoveryWindowOptions): 
     window: { since: since.toISOString(), until: now.toISOString() },
     eligibleParties: eligible.length,
     meetingsScanned: meetings.length,
+    meetingsBySource: countBySource(meetings),
+    matchedCount: candidates.length,
     candidates,
     doubleCapturesDropped: dropped,
   };
+}
+
+function countBySource(meetings: MeetingMeta[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const m of meetings) {
+    counts[m.sourceSlug] = (counts[m.sourceSlug] ?? 0) + 1;
+  }
+  return counts;
 }
 
 // ── classifyCall — read, classify, persist: ONE function ─────────────────────
@@ -960,8 +972,10 @@ export type DiscoveryGap = {
 export type DiscoveryReconciliation = {
   window: { since: string; until: string };
   meetingsScanned: number;
+  meetingsBySource: Record<string, number>;
   matchedNow: number;
   assessed: number;
+  gapCount: number;
   gaps: DiscoveryGap[];
 };
 
@@ -1037,8 +1051,10 @@ export async function reconcileWindow(orgId: string, opts: DiscoveryWindowOption
   return {
     window: { since: since.toISOString(), until: now.toISOString() },
     meetingsScanned: meetings.length,
+    meetingsBySource: countBySource(meetings),
     matchedNow: matches.length,
     assessed,
+    gapCount: gaps.length,
     gaps,
   };
 }
