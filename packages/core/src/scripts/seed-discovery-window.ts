@@ -151,6 +151,40 @@ async function main() {
   });
   await setTranscript(prospectDoc, transcript);
 
+  // The Brayden case: a Zoom recording with NO attendee metadata (no calendar
+  // event shares its meeting id) whose title names a CRM contact. Matches via
+  // name-in-title; without that lane it is unmatchable.
+  await upsertDoc({
+    sourceId: hubspot,
+    externalId: 'contacts:9002',
+    title: 'Riley Nakamura',
+    metadata: {
+      objectType: 'contacts',
+      hubspotId: '9002',
+      lifecycleStage: 'lead',
+      name: 'Riley Nakamura',
+    },
+    contentHash: 'seed-contact-9002',
+  });
+  const titleOnlyDoc = await upsertDoc({
+    sourceId: zoom,
+    externalId: 'zoom:seed-title-only-1',
+    title: 'Riley Nakamura: 📱 Metacto <> 30 min intro',
+    metadata: {
+      kind: 'zoom-recording',
+      meetingId: '99990001111',
+      host: 'chris@metacto.com',
+      start: new Date().toISOString(),
+      hasTranscript: true,
+      shareUrl: 'https://zoom.us/rec/share/seed-title-only-1',
+    },
+    contentHash: 'seed-title-only-v1',
+  });
+  await setTranscript(titleOnlyDoc, `Chris: Thanks for grabbing time. What are you building?
+Riley: We have aggressive goals — we need to take this to production in weeks, not months, and execution is where we struggle.
+Chris: That is exactly the kind of engagement we run. I will send over an NDA and we can start with an audit.
+Riley: Sounds good, send it over.`);
+
   // The internal call — must never match, never be read.
   const internalDoc = await upsertDoc({
     sourceId: zoom,

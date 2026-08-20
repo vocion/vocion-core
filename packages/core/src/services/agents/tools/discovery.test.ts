@@ -156,6 +156,26 @@ describe('grants', () => {
   });
 });
 
+describe('get_hubspot_contacts query lookup', () => {
+  it('finds one record by name and answers "not in HubSpot" with total 0', async () => {
+    await seedProspectWorld('transcript');
+    const tools = toolsByName(ORG);
+
+    const byName = JSON.parse(await tools.get('get_hubspot_contacts')!.invoke({ query: 'acme' }) as string) as { total: number; parties: { ref: string }[] };
+
+    expect(byName.total).toBe(1);
+    expect(byName.parties[0]!.ref).toBe('contacts:9');
+
+    const byId = JSON.parse(await tools.get('get_hubspot_contacts')!.invoke({ query: 'contacts:9' }) as string) as { total: number };
+
+    expect(byId.total).toBe(1);
+
+    const missing = JSON.parse(await tools.get('get_hubspot_contacts')!.invoke({ query: 'nobody-by-this-name' }) as string) as { total: number };
+
+    expect(missing.total).toBe(0);
+  });
+});
+
 describe('no tool anywhere returns transcript body', () => {
   it('greps every tool output for a seeded canary phrase', async () => {
     await seedProspectWorld(`We run 40 stores. ${CANARY}. We need proposal help.`);

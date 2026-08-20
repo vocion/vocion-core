@@ -79,11 +79,19 @@ export function getHubspotContactsTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
       const docs = await loadHubspotDocs(ctx.orgId);
-      const parties = filterEligible(docs, {
+      let parties = filterEligible(docs, {
         ownerIds: args.owner_ids,
         lifecycleStages: args.lifecycle_stages,
         dealStages: args.deal_stages,
       });
+      const q = args.query?.trim().toLowerCase();
+      if (q) {
+        parties = parties.filter(p =>
+          (p.label ?? '').toLowerCase().includes(q)
+          || p.emails.some(e => e.includes(q))
+          || p.domains.some(d => d.includes(q))
+          || p.ref.toLowerCase().includes(q));
+      }
       const byType = { contacts: 0, deals: 0, companies: 0 };
       for (const p of parties) {
         if (p.type === 'hubspot-contact') {
@@ -97,14 +105,18 @@ export function getHubspotContactsTool(ctx: RuntimeContext) {
       return JSON.stringify({
         total: parties.length,
         ...byType,
+        ...(q ? { query: q } : {}),
         parties: parties.slice(0, 200).map(p => ({ ref: p.ref, type: p.type, label: p.label ?? null, domains: p.domains })),
         ...(parties.length > 200 ? { note: `listing truncated to 200 of ${parties.length} parties (counts above are complete)` } : {}),
       }, null, 2);
     },
     {
       name: 'get_hubspot_contacts',
-      description: 'Look up the HubSpot records in scope — contacts, deals, and companies, with no filter = ALL of them. Returns the counts first (total + per type), then the records. This is the allow-list a meeting must match before its transcript can ever be read; call it first and report how many records were found.',
-      schema: z.object(eligibleArgs),
+      description: 'Look up the HubSpot records in scope — contacts, deals, and companies, with no filter = ALL of them. Returns the counts first (total + per type), then the records. Pass `query` (a name, email, domain, or HubSpot id) to check a SPECIFIC record — always do this before claiming someone is or is not in HubSpot; total=0 for the query means no record. This is the allow-list a meeting must match before its transcript can ever be read; call it first and report how many records were found.',
+      schema: z.object({
+        ...eligibleArgs,
+        query: z.string().optional().describe('Case-insensitive lookup over name, email, domain, and HubSpot id — use to answer "is X in HubSpot?"'),
+      }),
     },
   );
 }
@@ -117,7 +129,7 @@ export function matchMeetingsTool(ctx: RuntimeContext) {
     },
     {
       name: 'match_meetings',
-      description: 'Match the window\'s meetings — Zoom cloud recordings AND Granola notes, which capture calls held on Teams, Meet, or any other platform — against the eligible CRM parties (metadata only — titles, hosts, attendees; NEVER transcript content) and record every match on the discovery ledger. Returns the counts first: HubSpot parties in scope (eligibleParties), meetings scanned total and per source (meetingsBySource, e.g. zoom vs granola), and matches (matchedCount) — report these numbers. A call captured by both is assessed once (the Zoom recording wins; the dropped twin is reported in doubleCapturesDropped). Meetings with NO attendee metadata cannot match anything and are reported in `unmatchable` — surface those to the human, they are potential missed discovery calls (a CRM record alone will not fix them; the calendar linkage or a Granola capture will). Each match carries its candidateId, whether a transcript exists, and its assessment status. Run this before classify_call.',
+      description: 'Match the window\'s meetings — Zoom cloud recordings AND Granola notes, which capture calls held on Teams, Meet, or any other platform — against the eligible CRM parties (metadata only — titles, hosts, attendees; NEVER transcript content) and record every match on the discovery ledger. Returns the counts first: HubSpot parties in scope (eligibleParties), meetings scanned total and per source (meetingsBySource, e.g. zoom vs granola), and matches (matchedCount) — report these numbers. A call captured by both is assessed once (the Zoom recording wins; the dropped twin is reported in doubleCapturesDropped). A meeting with NO attendee metadata can still match when its title names a HubSpot contact by full name; the rest are reported in `unmatchable` — surface those to the human, they are potential missed discovery calls, and adding/completing the HubSpot contact (full name as it appears in the title) then re-running this tool will match them. Each match carries its candidateId, whether a transcript exists, and its assessment status. Run this before classify_call.',
       schema: z.object(windowArgs),
     },
   );
@@ -215,7 +227,7 @@ export function reconcileDiscoveryWindowTool(ctx: RuntimeContext) {
     },
     {
       name: 'reconcile_discovery_window',
-      description: 'Coverage check: recompute the window\'s matches (metadata only, no model spend, no writes) and diff them against the ledger. Returns every gap — matched meetings never recorded, or recorded but never assessed, with why — PLUS `unmatchable`: meetings scanned but carrying no attendee metadata, which can never match and are therefore invisible to the gap diff. Report both; 0 gaps with unmatchable meetings present is NOT full coverage. Run this at the end of a detection pass.',
+      description: 'Coverage check: recompute the window\'s matches (metadata only, no model spend, no writes) and diff them against the ledger. Returns every gap — matched meetings never recorded, or recorded but never assessed, with why — PLUS `unmatchable`: meetings scanned but carrying no attendee metadata AND no HubSpot contact named in the title, which cannot match and are therefore invisible to the gap diff. Report both; 0 gaps with unmatchable meetings present is NOT full coverage. Run this at the end of a detection pass.',
       schema: z.object(windowArgs),
     },
   );

@@ -266,6 +266,34 @@ export function filterEligible(docs: HubspotDoc[], filter: EligibleFilter): Elig
 // ── Stage 1 · meeting matcher (pure, metadata only) ──────────────────────────
 
 /**
+ * A contact label usable for name-in-title matching: a full name (2+ words,
+ * each with 2+ word characters). Single tokens ("Chris") would match far too
+ * many titles, so they never title-match.
+ * @param label
+ */
+function titleMatchableName(label: string | undefined): string | null {
+  const name = label?.trim();
+  if (!name) {
+    return null;
+  }
+  const words = name.split(/\s+/);
+  if (words.length < 2 || words.some(w => w.replace(/[^\p{L}\p{N}]/gu, '').length < 2)) {
+    return null;
+  }
+  return name;
+}
+
+/**
+ * Whole-word, case-insensitive "does the title name this person".
+ * @param title
+ * @param name
+ */
+function titleNames(title: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(title);
+}
+
+/**
  * Match a single meeting to the eligible set using metadata alone. Returns null
  * when the meeting involves nobody the seller is selling to — those calls are
  * never read. Decision #1: a seller-hosted call with an external (non-seller)
@@ -309,6 +337,30 @@ export function matchMeeting(
         matchRef: party.ref,
         matchReason: `attendee domain ${hit} matches ${party.type} ${party.ref}`,
       };
+    }
+  }
+
+  // Name-in-title match — the rescue for meetings with NO attendee metadata.
+  // Zoom stamps only the host; with no calendar event sharing the meeting id
+  // the recording carries zero emails and every rule above is blind to it,
+  // even when the title literally names the prospect ("Brayden Cruz: intro")
+  // and that person is in the CRM. Gated on empty attendees so a call whose
+  // participants ARE known (e.g. an internal debrief titled with a prospect's
+  // name) keeps the strict email/domain rules. Contacts only, full names only.
+  if (attendees.length === 0 && meeting.title) {
+    for (const party of eligible) {
+      if (party.type !== 'hubspot-contact') {
+        continue;
+      }
+      const name = titleMatchableName(party.label);
+      if (name && titleNames(meeting.title, name)) {
+        return {
+          meeting,
+          matchType: party.type,
+          matchRef: party.ref,
+          matchReason: `meeting title names contact ${name} (${party.ref}); no attendee metadata on the recording`,
+        };
+      }
     }
   }
 
@@ -730,16 +782,16 @@ export type UnmatchableMeeting = {
   reason: string;
 };
 
-function unmatchableOf(meetings: MeetingMeta[]): UnmatchableMeeting[] {
+function unmatchableOf(meetings: MeetingMeta[], matchedExternalIds: Set<string>): UnmatchableMeeting[] {
   return meetings
-    .filter(m => m.attendees.length === 0)
+    .filter(m => m.attendees.length === 0 && !matchedExternalIds.has(m.externalId))
     .map(m => ({
       meetingExternalId: m.externalId,
       title: m.title,
       start: m.start,
       host: m.host,
       hasTranscript: m.hasTranscript,
-      reason: 'no attendee metadata — no calendar event shares this recording\'s meeting id, so it fails closed and can never match. Fix the calendar linkage (or capture via Granola); a CRM record alone will not match it.',
+      reason: 'no attendee metadata — no calendar event shares this recording\'s meeting id, so it fails closed. It becomes matchable if a HubSpot contact\'s full name appears in the meeting title (add/complete the contact, then re-run match_meetings), or fix the calendar linkage / capture via Granola.',
     }));
 }
 
@@ -819,7 +871,7 @@ export async function matchWindow(orgId: string, opts: DiscoveryWindowOptions): 
     });
   }
 
-  const unmatchable = unmatchableOf(meetings);
+  const unmatchable = unmatchableOf(meetings, new Set(matches.map(m => m.meeting.externalId)));
   return {
     window: { since: since.toISOString(), until: now.toISOString() },
     eligibleParties: eligible.length,
@@ -1091,7 +1143,7 @@ export async function reconcileWindow(orgId: string, opts: DiscoveryWindowOption
     assessed += 1;
   }
 
-  const unmatchable = unmatchableOf(meetings);
+  const unmatchable = unmatchableOf(meetings, new Set(matches.map(m => m.meeting.externalId)));
   return {
     window: { since: since.toISOString(), until: now.toISOString() },
     meetingsScanned: meetings.length,
