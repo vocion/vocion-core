@@ -33,7 +33,7 @@ import {
 
 /** Tool names that exist only for agents granted them via `harness.grantTools`. */
 export const DISCOVERY_TOOL_NAMES = [
-  'get_eligible_parties',
+  'get_hubspot_contacts',
   'match_meetings',
   'classify_call',
   'list_discovery_candidates',
@@ -75,7 +75,7 @@ function windowOptions(args: WindowArgs) {
   };
 }
 
-export function getEligiblePartiesTool(ctx: RuntimeContext) {
+export function getHubspotContactsTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
       const docs = await loadHubspotDocs(ctx.orgId);
@@ -84,15 +84,26 @@ export function getEligiblePartiesTool(ctx: RuntimeContext) {
         lifecycleStages: args.lifecycle_stages,
         dealStages: args.deal_stages,
       });
+      const byType = { contacts: 0, deals: 0, companies: 0 };
+      for (const p of parties) {
+        if (p.type === 'hubspot-contact') {
+          byType.contacts += 1;
+        } else if (p.type === 'hubspot-deal') {
+          byType.deals += 1;
+        } else {
+          byType.companies += 1;
+        }
+      }
       return JSON.stringify({
-        count: parties.length,
+        total: parties.length,
+        ...byType,
         parties: parties.slice(0, 200).map(p => ({ ref: p.ref, type: p.type, label: p.label ?? null, domains: p.domains })),
-        ...(parties.length > 200 ? { note: 'truncated to 200 parties' } : {}),
+        ...(parties.length > 200 ? { note: `listing truncated to 200 of ${parties.length} parties (counts above are complete)` } : {}),
       }, null, 2);
     },
     {
-      name: 'get_eligible_parties',
-      description: 'List the CRM parties the seller owns and is actively working — the allow-list a meeting must match before its transcript can ever be read. Use to sanity-check scope before matching.',
+      name: 'get_hubspot_contacts',
+      description: 'Look up the HubSpot records in scope — contacts, deals, and companies, with no filter = ALL of them. Returns the counts first (total + per type), then the records. This is the allow-list a meeting must match before its transcript can ever be read; call it first and report how many records were found.',
       schema: z.object(eligibleArgs),
     },
   );
@@ -106,7 +117,7 @@ export function matchMeetingsTool(ctx: RuntimeContext) {
     },
     {
       name: 'match_meetings',
-      description: 'Match the window\'s meetings — Zoom cloud recordings AND Granola notes, which capture calls held on Teams, Meet, or any other platform — against the eligible CRM parties (metadata only — titles, hosts, attendees; NEVER transcript content) and record every match on the discovery ledger. A call captured by both is assessed once (the Zoom recording wins; the dropped twin is reported in doubleCapturesDropped). Returns each match with its candidateId, whether a transcript exists, and its assessment status. Run this before classify_call.',
+      description: 'Match the window\'s meetings — Zoom cloud recordings AND Granola notes, which capture calls held on Teams, Meet, or any other platform — against the eligible CRM parties (metadata only — titles, hosts, attendees; NEVER transcript content) and record every match on the discovery ledger. Returns the counts first: HubSpot parties in scope (eligibleParties), meetings scanned total and per source (meetingsBySource, e.g. zoom vs granola), and matches (matchedCount) — report these numbers. A call captured by both is assessed once (the Zoom recording wins; the dropped twin is reported in doubleCapturesDropped). Each match carries its candidateId, whether a transcript exists, and its assessment status. Run this before classify_call.',
       schema: z.object(windowArgs),
     },
   );
@@ -182,11 +193,11 @@ export function listDiscoveryCandidatesTool(ctx: RuntimeContext) {
         .where(and(...conds))
         .orderBy(desc(discoveryCandidateSchema.matchedAt))
         .limit(args.limit ?? 50);
-      return JSON.stringify(rows, null, 2);
+      return JSON.stringify({ count: rows.length, candidates: rows }, null, 2);
     },
     {
       name: 'list_discovery_candidates',
-      description: 'Query the discovery ledger: past assessments with scores, route, skipped reason, and the review-queue status of each surfaced call. Use to see what has already been assessed before re-classifying, and to check what awaits human review.',
+      description: 'Query the discovery ledger: past assessments with scores, route, skipped reason, and the review-queue status of each surfaced call. Returns the count first, then the rows. Use to see what has already been assessed before re-classifying, and to check what awaits human review. This reads the LEDGER, not HubSpot — use get_hubspot_contacts for the CRM records in scope.',
       schema: z.object({
         since_days: z.number().positive().max(90).optional().describe('Only candidates matched in the trailing N days'),
         status: z.enum(['matched', 'classified', 'routed', 'dropped']).optional(),
@@ -219,8 +230,13 @@ export function reconcileDiscoveryWindowTool(ctx: RuntimeContext) {
  */
 export function discoveryTools(ctx: RuntimeContext) {
   const grants = new Set(ctx.harnessConfig.grantTools ?? []);
+  // Renamed 2026-08-20: get_eligible_parties → get_hubspot_contacts. Honor the
+  // old grant name so a not-yet-reapplied workspace keeps its tool.
+  if (grants.has('get_eligible_parties')) {
+    grants.add('get_hubspot_contacts');
+  }
   const all = [
-    getEligiblePartiesTool(ctx),
+    getHubspotContactsTool(ctx),
     matchMeetingsTool(ctx),
     classifyCallTool(ctx),
     listDiscoveryCandidatesTool(ctx),
