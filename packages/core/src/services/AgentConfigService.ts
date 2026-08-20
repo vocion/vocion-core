@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema, businessObjectSchema, businessObjectTypeSchema, skillSchema } from '@/models/Schema';
 
@@ -10,7 +10,7 @@ import { agentSchema, businessObjectSchema, businessObjectTypeSchema, skillSchem
  */
 export async function getAgentConfig(orgId: string, slug: string) {
   const agent = await db.query.agentSchema.findFirst({
-    where: eq(agentSchema.slug, slug),
+    where: and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, slug)),
   });
 
   if (!agent) {
