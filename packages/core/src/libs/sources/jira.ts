@@ -29,6 +29,7 @@
 
 import type { SourceConnector, SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
+import { Buffer } from 'node:buffer';
 import { z } from 'zod';
 
 const jiraConfigSchema = z.object({
@@ -73,7 +74,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/** Quote a value for JQL, escaping backslashes and double quotes. */
+/**
+ * Quote a value for JQL, escaping backslashes and double quotes.
+ * @param value
+ */
 function jqlQuote(value: string): string {
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', String.raw`\"`)}"`;
 }
@@ -107,6 +111,11 @@ export function adfToText(node: AdfNode | null | undefined): string {
  * window, plus any `notDoneStatuses` regardless of age (they're done-category
  * but semantically still open).
  * @param opts - Project scope + window config and the incremental watermark.
+ * @param opts.projectKeys
+ * @param opts.since
+ * @param opts.doneWindowDays
+ * @param opts.notDoneStatuses
+ * @param opts.now
  */
 export function buildJql(opts: {
   projectKeys: string[];
@@ -131,6 +140,8 @@ export function buildJql(opts: {
  * Fetch with Jira-appropriate failure handling: exact `Retry-After` on 429
  * (retrying early extends the penalty), and an actionable error on 401/403 —
  * the admin must reconnect, no amount of retrying helps.
+ * @param url
+ * @param init
  */
 async function jiraFetch(url: string, init: RequestInit): Promise<Response> {
   for (let attempt = 0; ; attempt += 1) {

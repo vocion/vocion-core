@@ -12,6 +12,7 @@
 
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listConnectors } from '@/libs/sources/registry';
+import { UI_FIELDS } from '@/libs/sources/uiFields';
 import { credentialStatusForOrg } from '@/services/SourceCredentialService';
 import { addSource, documentCountsForOrg, listSources } from '@/services/SourceSyncService';
 
@@ -47,6 +48,7 @@ export async function GET() {
     description: c.description,
     icon: c.icon,
     authKind: c.authKind,
+    configFields: UI_FIELDS[c.slug]?.configFields ?? [],
   }));
   return Response.json({ sources: withStatus, connectors });
 }

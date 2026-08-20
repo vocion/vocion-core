@@ -1,10 +1,63 @@
 'use client';
 
-import { CheckCircle2, Globe, KeyRound, Loader2, Plus, RefreshCw } from 'lucide-react';
+import type { SourceConfigField, SourceFormValue } from '@/libs/sources/configFields';
+import {
+  BarChart3,
+  Calendar,
+  CheckCircle2,
+  Contact,
+  FileJson,
+  FileText,
+  FolderOpen,
+  Globe,
+  KeyRound,
+  Loader2,
+  Mail,
+  Megaphone,
+  MessageSquare,
+  NotebookPen,
+  Plus,
+  RefreshCw,
+  SquareKanban,
+  Trash2,
+  Video,
+} from 'lucide-react';
+import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Link } from '@/libs/I18nNavigation';
+import { buildConfigFromFields, fieldInputDefault } from '@/libs/sources/configFields';
+
+import { UI_FIELDS } from '@/libs/sources/uiFields';
+
+// Keyed by each connector's own `icon` (registry.ts) — a Lucide component
+// name, not a letter to slice. Every JSX tag below is written out literally
+// (not picked via a variable) so the icon a connector renders never changes
+// identity across renders — falls back to Globe for a name not listed here
+// yet (a new connector shipped without a matching case).
+function ConnectorIcon({ name, className }: { name: string; className: string }) {
+  switch (name) {
+    case 'BarChart3': return <BarChart3 className={className} />;
+    case 'Calendar': return <Calendar className={className} />;
+    case 'Contact': return <Contact className={className} />;
+    case 'FileJson': return <FileJson className={className} />;
+    case 'FileText': return <FileText className={className} />;
+    case 'FolderOpen': return <FolderOpen className={className} />;
+    case 'Mail': return <Mail className={className} />;
+    case 'Megaphone': return <Megaphone className={className} />;
+    case 'MessageSquare': return <MessageSquare className={className} />;
+    case 'NotebookPen': return <NotebookPen className={className} />;
+    case 'SquareKanban': return <SquareKanban className={className} />;
+    case 'Video': return <Video className={className} />;
+    default: return <Globe className={className} />;
+  }
+}
+
+function connectorSlugFor(source: Pick<Source, 'slug' | 'config'>): string {
+  return (source.config?._connector as string | undefined) ?? source.slug;
+}
 
 type Source = {
   id: number;
@@ -27,9 +80,12 @@ type ConnectorTile = {
   description: string;
   icon: string;
   authKind: 'none' | 'apikey' | 'oauth';
+  configFields: SourceConfigField[];
 };
 
 export function SourcesPanel() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === 'admin';
   const [sources, setSources] = useState<Source[]>([]);
   const [connectors, setConnectors] = useState<ConnectorTile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +93,7 @@ export function SourcesPanel() {
   const [addingKind, setAddingKind] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [connectingSource, setConnectingSource] = useState<Source | null>(null);
+  const [deletingSource, setDeletingSource] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -44,8 +101,15 @@ export function SourcesPanel() {
     try {
       const res = await fetch('/rpc/sources');
       const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Failed to load sources');
+        return;
+      }
+      setError(null);
       setSources(data.sources ?? []);
       setConnectors(data.connectors ?? []);
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -119,9 +183,12 @@ export function SourcesPanel() {
                   <SourceRow
                     key={s.id}
                     source={s}
+                    icon={connectors.find(c => c.slug === connectorSlugFor(s))?.icon ?? 'Globe'}
                     syncing={syncingId === s.id}
+                    canDelete={isAdmin}
                     onSync={() => handleSync(s.id)}
                     onConnect={() => setConnectingSource(s)}
+                    onDelete={() => setDeletingSource(s)}
                   />
                 ))}
               </div>
@@ -142,6 +209,7 @@ export function SourcesPanel() {
       {addingKind
         ? (
             <AddSourceDialog
+              key={addingKind}
               kind={addingKind}
               connector={connectors.find(c => c.slug === addingKind) ?? null}
               onClose={() => setAddingKind(null)}
@@ -164,40 +232,43 @@ export function SourcesPanel() {
             />
           )
         : null}
+      {deletingSource
+        ? (
+            <DeleteSourceDialog
+              source={deletingSource}
+              onClose={() => setDeletingSource(null)}
+              onDeleted={async () => {
+                setDeletingSource(null);
+                await refresh();
+              }}
+            />
+          )
+        : null}
     </div>
   );
 }
-
-/** Connector-specific credential fields. All read `token`; a couple take extras. */
-const CRED_FIELDS: Record<string, { label: string; help: string; extra?: { key: string; label: string } }> = {
-  hubspot: { label: 'Private-app token', help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).' },
-  slack: { label: 'Bot / user token', help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).' },
-  gmail: { label: 'OAuth access token', help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)' },
-  drive: { label: 'OAuth access token', help: 'A Google OAuth access token with drive.readonly.' },
-  ga4: { label: 'OAuth access token', help: 'A Google OAuth access token with analytics.readonly.' },
-  googleAds: { label: 'OAuth access token', help: 'A Google Ads OAuth access token.', extra: { key: 'developerToken', label: 'Developer token' } },
-};
 
 function ConnectCredentialDialog({ source, onClose, onConnected }: {
   source: Source;
   onClose: () => void;
   onConnected: () => Promise<void> | void;
 }) {
-  const connectorSlug = ((source.config?._connector as string | undefined) ?? source.slug);
-  const spec = CRED_FIELDS[connectorSlug] ?? { label: 'Token', help: 'Paste the connector access token.' };
-  const [token, setToken] = useState('');
-  const [extra, setExtra] = useState('');
+  const connectorSlug = connectorSlugFor(source);
+  const spec = UI_FIELDS[connectorSlug]?.credentials ?? { help: 'Paste the connector access token.', fields: [{ key: 'token', label: 'Token', type: 'password' as const }] };
+  const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const allFilled = spec.fields.every(f => (values[f.key] ?? '').trim());
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const credentials: Record<string, string> = { token: token.trim() };
-      if (spec.extra && extra.trim()) {
-        credentials[spec.extra.key] = extra.trim();
+      const credentials: Record<string, string> = {};
+      for (const field of spec.fields) {
+        credentials[field.key] = (values[field.key] ?? '').trim();
       }
       const res = await fetch(`/rpc/sources/${source.id}/credentials`, {
         method: 'POST',
@@ -218,44 +289,35 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
-        <form onSubmit={submit}>
-          <div className="flex items-center gap-2 border-b px-4 py-3">
-            <KeyRound className="size-4 text-muted-foreground" />
-            <h3 className="font-display text-lg">
-              Connect
-              {' '}
-              {source.slug}
-            </h3>
-          </div>
-          <div className="space-y-4 p-4">
+    <Dialog open onOpenChange={open => !open && onClose()}>
+      <DialogContent>
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <KeyRound className="size-4 text-muted-foreground" />
+              <DialogTitle>
+                Connect
+                {' '}
+                {source.slug}
+              </DialogTitle>
+            </div>
+          </DialogHeader>
+          <DialogBody className="space-y-4">
             <p className="text-xs text-muted-foreground">{spec.help}</p>
-            <label className="block">
-              <span className="text-sm font-medium text-foreground/80">{spec.label}</span>
-              <input
-                type="password"
-                required
-                autoComplete="off"
-                value={token}
-                onChange={e => setToken(e.target.value)}
-                placeholder="••••••••••••••••"
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-              />
-            </label>
-            {spec.extra
-              ? (
-                  <label className="block">
-                    <span className="text-sm font-medium text-foreground/80">{spec.extra.label}</span>
-                    <input
-                      type="text"
-                      value={extra}
-                      onChange={e => setExtra(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                    />
-                  </label>
-                )
-              : null}
+            {spec.fields.map(field => (
+              <label key={field.key} className="block">
+                <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+                <input
+                  type={field.type === 'text' ? 'text' : 'password'}
+                  required
+                  autoComplete="off"
+                  value={values[field.key] ?? ''}
+                  onChange={e => setValues(v => ({ ...v, [field.key]: e.target.value }))}
+                  placeholder={field.type === 'text' ? undefined : '••••••••••••••••'}
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                />
+              </label>
+            ))}
             <p className="text-[11px] text-muted-foreground">Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.</p>
             {error
               ? (
@@ -264,31 +326,105 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
                   </div>
                 )
               : null}
-          </div>
-          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          </DialogBody>
+          <DialogFooter>
             <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
               Cancel
             </button>
             <button
               type="submit"
-              disabled={submitting || !token.trim()}
+              disabled={submitting || !allFilled}
               className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
               Save credential
             </button>
-          </div>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function SourceRow({ source, syncing, onSync, onConnect }: {
+function DeleteSourceDialog({ source, onClose, onDeleted }: {
   source: Source;
+  onClose: () => void;
+  onDeleted: () => Promise<void> | void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/rpc/sources/${source.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Failed to delete source');
+        return;
+      }
+      await onDeleted();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={open => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            Delete
+            {' '}
+            {source.slug}
+            {' '}
+            ?
+          </DialogTitle>
+        </DialogHeader>
+        <DialogBody className="space-y-3">
+          <p className="text-sm text-foreground/80">
+            This permanently removes the source and every document ingested from it
+            {source.documentCount > 0 ? ` (${source.documentCount.toLocaleString()} document${source.documentCount === 1 ? '' : 's'})` : ''}
+            . This can't be undone.
+          </p>
+          {error
+            ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </div>
+              )
+            : null}
+        </DialogBody>
+        <DialogFooter>
+          <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={confirmDelete}
+            disabled={deleting}
+            className="inline-flex items-center gap-1.5 rounded-full bg-destructive px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-50"
+          >
+            {deleting ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+            Delete source
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SourceRow({ source, icon, syncing, canDelete, onSync, onConnect, onDelete }: {
+  source: Source;
+  icon: string;
   syncing: boolean;
+  canDelete: boolean;
   onSync: () => void;
   onConnect: () => void;
+  onDelete: () => void;
 }) {
   const last = source.lastSyncedAt ? new Date(source.lastSyncedAt) : null;
   const lastLabel = last ? formatRelative(last) : 'never';
@@ -297,7 +433,7 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
     <div className="rounded-xl border bg-card p-4">
       <div className="flex items-start gap-3">
         <span className="inline-flex size-9 flex-shrink-0 items-center justify-center rounded-md bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-          <Globe className="size-4" />
+          <ConnectorIcon name={icon} className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -374,6 +510,19 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
                   </>
                 )}
           </button>
+          {canDelete
+            ? (
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  title="Delete source"
+                  aria-label="Delete source"
+                  className="inline-flex items-center justify-center rounded-full border p-1.5 text-muted-foreground transition-colors hover:border-destructive/30 hover:bg-destructive/5 hover:text-destructive"
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              )
+            : null}
         </div>
       </div>
     </div>
@@ -400,42 +549,135 @@ function ConnectorPicker({
   onClose: () => void;
   onPick: (slug: string) => void;
 }) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? connectors.filter(c => c.name.toLowerCase().includes(q) || c.slug.toLowerCase().includes(q) || c.description.toLowerCase().includes(q))
+    : connectors;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-2xl rounded-xl border bg-background shadow-xl">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h3 className="font-display text-lg">Pick a source type</h3>
+    <Dialog open onOpenChange={open => !open && onClose()}>
+      <DialogContent maxWidthClassName="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Pick a source type</DialogTitle>
           <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
             Cancel
           </button>
-        </div>
-        <div className="grid gap-2 p-4 sm:grid-cols-2">
-          {connectors.map(c => (
-            <button
-              type="button"
-              key={c.slug}
-              onClick={() => onPick(c.slug)}
-              className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
-            >
-              <div className="flex items-center gap-2">
-                <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-                  {c.icon.slice(0, 1)}
-                </span>
-                <span className="font-medium">{c.name}</span>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">{c.description}</p>
-              {c.authKind !== 'none'
-                ? (
-                    <Badge variant="outline" className="mt-2 text-[10px]">
-                      {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
-                    </Badge>
-                  )
-                : null}
-            </button>
-          ))}
-        </div>
+        </DialogHeader>
+        <DialogBody className="flex min-h-0 flex-1 flex-col gap-3">
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Filter sources…"
+            className="shrink-0 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
+          <div className="grid auto-rows-min gap-2 overflow-y-auto sm:grid-cols-2">
+            {filtered.map(c => (
+              <ConnectorTileButton key={c.slug} connector={c} onPick={onPick} />
+            ))}
+            {filtered.length === 0
+              ? (
+                  <p className="col-span-full py-6 text-center text-sm text-muted-foreground">
+                    No sources match "
+                    {query}
+                    "
+                  </p>
+                )
+              : null}
+          </div>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ConnectorTileButton({ connector, onPick }: {
+  connector: ConnectorTile;
+  onPick: (slug: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(connector.slug)}
+      className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
+    >
+      <div className="flex items-center gap-2">
+        <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+          <ConnectorIcon name={connector.icon} className="size-4" />
+        </span>
+        <span className="font-medium">{connector.name}</span>
       </div>
-    </div>
+      <p className="mt-2 text-xs text-muted-foreground">{connector.description}</p>
+      {connector.authKind !== 'none'
+        ? (
+            <Badge variant="outline" className="mt-2 text-[10px]">
+              {connector.authKind === 'oauth' ? 'OAuth' : 'API key'}
+            </Badge>
+          )
+        : null}
+    </button>
+  );
+}
+
+function htmlInputTypeFor(fieldType: SourceConfigField['type']): 'number' | 'url' | 'text' {
+  if (fieldType === 'number') {
+    return 'number';
+  }
+  if (fieldType === 'url') {
+    return 'url';
+  }
+  return 'text';
+}
+
+function ConfigFieldInput({ field, value, onChange }: {
+  field: SourceConfigField;
+  value: SourceFormValue;
+  onChange: (value: SourceFormValue) => void;
+}) {
+  if (field.type === 'boolean') {
+    return (
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={Boolean(value)} onChange={e => onChange(e.target.checked)} />
+        {field.label}
+      </label>
+    );
+  }
+  if (field.type === 'select') {
+    return (
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">
+          {field.label}
+          {field.required ? <span className="text-destructive"> *</span> : null}
+        </span>
+        <select
+          value={(value as string) ?? ''}
+          onChange={e => onChange(e.target.value)}
+          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          {(field.options ?? []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+        </select>
+      </label>
+    );
+  }
+  return (
+    <label className="block">
+      <span className="text-sm font-medium text-foreground/80">
+        {field.label}
+        {field.required ? <span className="text-destructive"> *</span> : null}
+      </span>
+      <input
+        type={htmlInputTypeFor(field.type)}
+        required={field.required}
+        value={(value as string) ?? ''}
+        onChange={e => onChange(e.target.value)}
+        placeholder={field.placeholder}
+        min={field.type === 'number' ? field.min : undefined}
+        step={field.type === 'number' ? 1 : undefined}
+        className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+      />
+      {field.help ? <span className="mt-1 block text-[11px] text-muted-foreground">{field.help}</span> : null}
+    </label>
   );
 }
 
@@ -450,20 +692,34 @@ function AddSourceDialog({
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
+  const isWeb = kind === 'web';
+  const fields = connector?.configFields ?? [];
   const [url, setUrl] = useState('');
   const [crawl, setCrawl] = useState(true);
   const [maxPages, setMaxPages] = useState(20);
+  const [values, setValues] = useState<Record<string, SourceFormValue>>(
+    () => Object.fromEntries(fields.map(f => [f.key, fieldInputDefault(f)])),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const setFieldValue = (key: string, value: SourceFormValue) => setValues(v => ({ ...v, [key]: value }));
+  // Reuse buildConfigFromFields' own emptiness rules (trims whitespace, collapses a
+  // comma/space-only stringArray to []) so "is this required field actually filled in"
+  // can't disagree with what submitting the form would actually send.
+  const missingRequired = !isWeb && fields.some(f => f.required && buildConfigFromFields([f], values)[f.key] === undefined);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const configJson = crawl
-        ? { crawl: { startUrl: url, maxDepth: 1, maxPages } }
-        : { urls: [url] };
+      let configJson: Record<string, unknown>;
+      if (isWeb) {
+        configJson = crawl ? { crawl: { startUrl: url, maxDepth: 1, maxPages } } : { urls: [url] };
+      } else {
+        configJson = buildConfigFromFields(fields, values);
+      }
       const res = await fetch('/rpc/sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -475,55 +731,73 @@ function AddSourceDialog({
         return;
       }
       await onAdded();
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
-        <form onSubmit={submit}>
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <h3 className="font-display text-lg">
+    <Dialog open onOpenChange={open => !open && onClose()}>
+      <DialogContent>
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader>
+            <DialogTitle>
               Add
               {' '}
               {connector?.name ?? kind}
               {' '}
               source
-            </h3>
-          </div>
-          <div className="space-y-4 p-4">
-            <label className="block">
-              <span className="text-sm font-medium text-foreground/80">URL</span>
-              <input
-                type="url"
-                required
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-                placeholder="https://example.com/docs"
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={crawl} onChange={e => setCrawl(e.target.checked)} />
-              Crawl linked pages on the same origin
-            </label>
-            {crawl
+            </DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-4">
+            {isWeb
               ? (
-                  <label className="block">
-                    <span className="text-sm font-medium text-foreground/80">Max pages</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={200}
-                      value={maxPages}
-                      onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    />
-                  </label>
+                  <>
+                    <label className="block">
+                      <span className="text-sm font-medium text-foreground/80">
+                        URL
+                        <span className="text-destructive"> *</span>
+                      </span>
+                      <input
+                        type="url"
+                        required
+                        value={url}
+                        onChange={e => setUrl(e.target.value)}
+                        placeholder="https://example.com/docs"
+                        className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={crawl} onChange={e => setCrawl(e.target.checked)} />
+                      Crawl linked pages on the same origin
+                    </label>
+                    {crawl
+                      ? (
+                          <label className="block">
+                            <span className="text-sm font-medium text-foreground/80">Max pages</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={200}
+                              value={maxPages}
+                              onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
+                              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            />
+                          </label>
+                        )
+                      : null}
+                  </>
                 )
-              : null}
+              : fields.map(field => (
+                  <ConfigFieldInput
+                    key={field.key}
+                    field={field}
+                    value={values[field.key]}
+                    onChange={value => setFieldValue(field.key, value)}
+                  />
+                ))}
             {error
               ? (
                   <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -531,8 +805,8 @@ function AddSourceDialog({
                   </div>
                 )
               : null}
-          </div>
-          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          </DialogBody>
+          <DialogFooter>
             <button
               type="button"
               onClick={onClose}
@@ -542,7 +816,7 @@ function AddSourceDialog({
             </button>
             <button
               type="submit"
-              disabled={submitting || !url}
+              disabled={submitting || (isWeb ? !url : missingRequired)}
               className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting
@@ -554,10 +828,10 @@ function AddSourceDialog({
                   )
                 : 'Add source'}
             </button>
-          </div>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
