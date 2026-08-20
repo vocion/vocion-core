@@ -126,13 +126,14 @@ export async function fireAutomation(
  * @param doCfg.workflow
  * @param doCfg.checkMission
  * @param doCfg.job
+ * @param doCfg.prompt
  * @param input
  * @param invokedBy
  */
 async function dispatchDo(
   orgId: string,
   slug: string,
-  doCfg: { workflow?: string; checkMission?: string; job?: string },
+  doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string },
   input: Record<string, unknown>,
   invokedBy: string,
 ): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; result?: unknown }> {
@@ -149,8 +150,8 @@ async function dispatchDo(
   }
 
   if (doCfg.job) {
-    // Built-in deterministic job (e.g. discovery-sweep) — runs synchronously in
-    // the worker with full DB access. Not an agent, not a workflow.
+    // Built-in deterministic job — runs synchronously in the worker with full
+    // DB access. Not an agent, not a workflow.
     const { runBuiltInJob } = await import('@/services/jobs/registry');
     const result = await runBuiltInJob(doCfg.job, orgId, input);
     return { kind: 'job', runId: 0, result };
@@ -165,7 +166,9 @@ async function dispatchDo(
   const run = await startMission({
     orgId,
     missionSlug,
-    brief: scheduledCheckBrief(template),
+    // The automation's authored execution prompt rides the brief; the mission
+    // charter + working notes stay attached as standing context.
+    brief: scheduledCheckBrief(template, doCfg.prompt),
     title: `Check: ${template.name}`,
     mode: 'check',
     invokedBy,

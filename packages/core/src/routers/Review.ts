@@ -56,7 +56,8 @@ export const listPendingActionsRoute = os.handler(async () => {
   const { db } = await import('@/libs/DB');
   const { actionRunSchema } = await import('@/models/Schema');
   const { and, desc, eq, gt, isNull, or } = await import('drizzle-orm');
-  return db
+  const { getAction } = await import('@/libs/actions/registry');
+  const rows = await db
     .select()
     .from(actionRunSchema)
     .where(and(
@@ -67,6 +68,17 @@ export const listPendingActionsRoute = os.handler(async () => {
     ))
     .orderBy(desc(actionRunSchema.createdAt))
     .limit(50);
+  // Structured cards: an action that defines one presents itself consistently
+  // everywhere the queue renders. Best-effort — a presenter error falls back
+  // to the generic card, never blocks the queue.
+  return Promise.all(rows.map(async (row) => {
+    const presenter = getAction(row.actionId)?.reviewCard;
+    if (!presenter) {
+      return row;
+    }
+    const card = await presenter({ orgId }, row.input).catch(() => undefined);
+    return card ? { ...row, card } : row;
+  }));
 });
 
 /** Recently auto-executed proposals (trust-ladder audit surface). */

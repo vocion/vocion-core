@@ -76,17 +76,21 @@ export async function proposeAction(input: {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${input.actionId}`);
   }
   const parsed = action.inputSchema.parse(input.input);
+  // Canonical dedup: when the proposer passes no key, the action derives one
+  // from the parsed input — so an agent proposing the same call twice collapses
+  // into the deterministic job's old behaviour instead of stacking queue items.
+  const dedupKey = input.dedupKey ?? action.dedupKeyFor?.(parsed);
 
   // Upsert-by-key: a re-surfaced owed action updates its existing PENDING row
   // rather than stacking duplicates in the queue. Only PENDING rows dedupe —
   // a decided (done/rejected) action can be proposed fresh later.
-  if (input.dedupKey) {
+  if (dedupKey) {
     const [existing] = await db
       .select({ id: actionRunSchema.id })
       .from(actionRunSchema)
       .where(and(
         eq(actionRunSchema.orgId, input.orgId),
-        eq(actionRunSchema.dedupKey, input.dedupKey),
+        eq(actionRunSchema.dedupKey, dedupKey),
         eq(actionRunSchema.status, 'pending'),
       ))
       .limit(1);
@@ -128,10 +132,18 @@ export async function proposeAction(input: {
       invokedBy: input.invokedBy ?? input.principal.id,
       sourceSlug: action.sourceSlug ?? null,
       proposal: input.proposal ?? null,
-      dedupKey: input.dedupKey ?? null,
+      dedupKey: dedupKey ?? null,
       expiresAt: input.expiresAt ?? null,
     })
     .returning({ id: actionRunSchema.id });
+
+  // Back-link the fresh run onto the domain record it reviews. Runs before the
+  // gate resolves so the link exists whether the run stays pending or executes.
+  await action.onProposed?.(
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id },
+    parsed,
+    run!.id,
+  );
 
   if (gated) {
     // Never-auto guard (safety invariant): these ALWAYS require an explicit

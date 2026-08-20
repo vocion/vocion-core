@@ -35,6 +35,7 @@ type ZoomRecordingList = {
     start_time?: string;
     duration?: number;
     host_email?: string;
+    share_url?: string;
     recording_files?: Array<{
       id?: string;
       file_type?: string;
@@ -176,6 +177,8 @@ export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
                 start: mtg.start_time ?? null,
                 durationMin: mtg.duration ?? null,
                 hasTranscript: !!transcript,
+                // Deep link for review surfaces (the discovery card's "Meeting").
+                shareUrl: mtg.share_url ?? null,
               },
             };
           }

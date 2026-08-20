@@ -41,7 +41,7 @@
     "workspace:apply": "dotenv -c -- tsx src/scripts/apply-workspace.ts",
     "workspace:check": "dotenv -c -- tsx src/scripts/apply-workspace.ts --dry-run",
     "workspace:export": "dotenv -c -- tsx src/scripts/export-workspace.ts",
-    "discovery:sweep": "dotenv -c -- tsx src/scripts/discovery-sweep.ts",
+    "discovery:seed": "dotenv -c -- tsx src/scripts/seed-discovery-window.ts",
     "mcp:serve": "dotenv -c -- tsx src/interfaces/mcp/bin.ts",
     "worker:serve": "dotenv -c -- tsx src/scripts/worker-serve.ts",
     "temporal:worker": "dotenv -c -- tsx src/scripts/temporal-worker.ts",

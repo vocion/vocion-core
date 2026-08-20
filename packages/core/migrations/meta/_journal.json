@@ -372,6 +372,13 @@
       "when": 1782002900000,
       "tag": "0052_calendar_zoom_id_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1782089300000,
+      "tag": "0053_discovery_audit_trail",
+      "breakpoints": true
     }
   ]
 }
