@@ -195,6 +195,53 @@ function recordNames(content: string): string | undefined {
 }
 
 /**
+ * Generic count summary for any JSON tool result — the "records found" line the
+ * trace shows for every tool, not just the few with bespoke parsers. Reads the
+ * result's own shape: top-level numbers ("total 16344"), array lengths
+ * ("candidates 5"), and flat numeric maps ("meetingsBySource: zoom 318,
+ * granola 5"). Payloads are authored count-first, so insertion order already
+ * ranks what matters.
+ * @param content
+ */
+export function summarizeCounts(content: string): { result?: string; resultDetail?: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return {};
+  }
+  if (Array.isArray(parsed)) {
+    return { result: `${parsed.length} record${parsed.length === 1 ? '' : 's'}` };
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    return {};
+  }
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof v === 'number') {
+      parts.push(`${k} ${Number.isInteger(v) ? v.toLocaleString('en-US') : v}`);
+    } else if (Array.isArray(v)) {
+      parts.push(`${k} ${v.length}`);
+    } else if (v && typeof v === 'object') {
+      const entries = Object.entries(v as Record<string, unknown>).filter((e): e is [string, number] => typeof e[1] === 'number');
+      if (entries.length > 0 && entries.length === Object.keys(v).length) {
+        parts.push(`${k}: ${entries.map(([ik, iv]) => `${ik} ${iv.toLocaleString('en-US')}`).join(', ')}`);
+      }
+    }
+    if (parts.length >= 8) {
+      break;
+    }
+  }
+  if (parts.length === 0) {
+    return {};
+  }
+  return {
+    result: parts.slice(0, 3).join(' · '),
+    resultDetail: parts.length > 3 ? parts.join(' · ') : undefined,
+  };
+}
+
+/**
  * Classify a tool name into a trace-node kind.
  * @param tool
  */
@@ -479,6 +526,10 @@ export class TraceEmitter {
           const count = (content.match(/"title"|"contact"/g) ?? []).length;
           result = count ? `${count} record${count === 1 ? '' : 's'}` : undefined;
           resultDetail = recordNames(content);
+        } else {
+          // Every other tool: surface the result's own counts, so "how many
+          // records did this find" is answered in the trace, not hidden.
+          ({ result, resultDetail } = summarizeCounts(content));
         }
 
         const subject = this.nodeSubjects.get(id) ?? tool;
