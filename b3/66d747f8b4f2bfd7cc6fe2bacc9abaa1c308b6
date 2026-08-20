@@ -1,0 +1,26 @@
+packages/core/src/app/[locale]/rpc/sources/[id]/credentials/route.ts
+  s_4fd54c8e599791::t_df9aeebbae4083 43-50
+  s_4fd54c8e599791::t_52324b9908c828 4-8
+  s_4fd54c8e599791::t_1835f4e016f939 63
+packages/core/src/features/dashboard/SourcesPanel.tsx
+  s_4fd54c8e599791::t_cc53148adad515 269
+  s_4fd54c8e599791::t_12ca5da0773ba7 171-181
+  s_4fd54c8e599791::t_5005b8925e68db 190-191,194,201-206
+  s_4fd54c8e599791::t_61f3030c4539a2 240-253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b366d747f8b4f2bfd7cc6fe2bacc9abaa1c308b6",
+  "prompts": {},
+  "sessions": {
+    "s_4fd54c8e599791": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ddc29490-14e2-4c4d-aa58-23b9c4aab22d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
