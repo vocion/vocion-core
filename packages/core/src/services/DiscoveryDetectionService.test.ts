@@ -435,6 +435,79 @@ describe('matchWindow', () => {
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]!.meetingExternalId).toBe('zoom:late');
   });
+
+  it('matches a Granola note — a call held off Zoom (Teams/Meet) still becomes a candidate', async () => {
+    await seedProspectContact();
+    const granola = await seedSource('granola');
+    const doc = await seedDoc(granola, {
+      externalId: 'granola:teams-call',
+      title: 'Acme <> Metacto (Teams)',
+      metadata: { kind: 'granola-note', owner: 'chris@metacto.com', when: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
+    });
+    await seedChunk(doc, 'Summary + transcript of the Teams call.');
+
+    const result = await svc.matchWindow(ORG, windowOpts);
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      meetingExternalId: 'granola:teams-call',
+      status: 'matched',
+      hasTranscript: true,
+    });
+  });
+
+  it('dedupes a double capture: the Granola twin of a matched Zoom recording is dropped and reported', async () => {
+    await seedProspectContact();
+    const zoom = await seedSource('zoom');
+    const zoomDoc = await seedDoc(zoom, {
+      externalId: 'zoom:call',
+      title: 'Acme discovery',
+      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
+    });
+    await seedChunk(zoomDoc, 'zoom transcript');
+    const granola = await seedSource('granola');
+    await seedDoc(granola, {
+      externalId: 'granola:same-call',
+      title: 'Acme discovery',
+      // Granola stamps the scheduled start; the recording started 5 min later.
+      metadata: { kind: 'granola-note', owner: 'chris@metacto.com', when: new Date(NOW.getTime() - 5 * 60_000).toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
+    });
+
+    const result = await svc.matchWindow(ORG, windowOpts);
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]!.meetingExternalId).toBe('zoom:call');
+    expect(result.doubleCapturesDropped).toHaveLength(1);
+    expect(result.doubleCapturesDropped[0]).toMatchObject({
+      meetingExternalId: 'granola:same-call',
+      keptExternalId: 'zoom:call',
+    });
+    // The dropped twin never got a ledger row, so its content stays gated.
+    await expect(svc.readMatchedTranscript(ORG, 'granola:same-call')).rejects.toBeInstanceOf(svc.ContentGateError);
+  });
+
+  it('keeps a Granola note whose Zoom twin failed to match — dedup never suppresses coverage', async () => {
+    await seedProspectContact();
+    const zoom = await seedSource('zoom');
+    // Same call, but the recording has no attendees (no calendar event) so it
+    // fails closed and never matches.
+    await seedDoc(zoom, {
+      externalId: 'zoom:orphan-twin',
+      metadata: { kind: 'zoom-recording', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true },
+    });
+    const granola = await seedSource('granola');
+    const doc = await seedDoc(granola, {
+      externalId: 'granola:survives',
+      metadata: { kind: 'granola-note', owner: 'chris@metacto.com', when: NOW.toISOString(), hasTranscript: true, attendees: ['chris@metacto.com', 'buyer@acme.com'] },
+    });
+    await seedChunk(doc, 'granola transcript');
+
+    const result = await svc.matchWindow(ORG, windowOpts);
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]!.meetingExternalId).toBe('granola:survives');
+    expect(result.doubleCapturesDropped).toHaveLength(0);
+  });
 });
 
 // ── classifyCall · read + classify + persist, one function ──────────────────
