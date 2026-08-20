@@ -1,0 +1,23 @@
+packages/core/src/services/agents/traceEmitter.test.ts
+  s_4fd54c8e599791::t_b17db5f523048a 93-128
+packages/core/src/services/agents/traceEmitter.ts
+  s_4fd54c8e599791::t_4046f55787c983 529-532
+  s_4fd54c8e599791::t_572bdef82baa9e 198-243
+  s_4fd54c8e599791::t_0068da4698b787 197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "73865297b287d7e7945509691198f8a53dba51f7",
+  "prompts": {},
+  "sessions": {
+    "s_4fd54c8e599791": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ddc29490-14e2-4c4d-aa58-23b9c4aab22d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
