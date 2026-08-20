@@ -168,14 +168,17 @@ export function SourcesPanel() {
   );
 }
 
-/** Connector-specific credential fields. All read `token`; a couple take extras. */
-const CRED_FIELDS: Record<string, { label: string; help: string; extra?: { key: string; label: string } }> = {
-  hubspot: { label: 'Private-app token', help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).' },
-  slack: { label: 'Bot / user token', help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).' },
-  gmail: { label: 'OAuth access token', help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)' },
-  drive: { label: 'OAuth access token', help: 'A Google OAuth access token with drive.readonly.' },
-  ga4: { label: 'OAuth access token', help: 'A Google OAuth access token with analytics.readonly.' },
-  googleAds: { label: 'OAuth access token', help: 'A Google Ads OAuth access token.', extra: { key: 'developerToken', label: 'Developer token' } },
+/** Connector-specific credential fields. Most read a single `token`; some take a full key set. */
+type CredField = { key: string; label: string; optional?: boolean };
+const TOKEN_FIELD: CredField = { key: 'token', label: 'Token' };
+const CRED_FIELDS: Record<string, { help: string; fields: CredField[] }> = {
+  hubspot: { help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).', fields: [{ key: 'token', label: 'Private-app token' }] },
+  slack: { help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).', fields: [{ key: 'token', label: 'Bot / user token' }] },
+  gmail: { help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)', fields: [{ key: 'token', label: 'OAuth access token' }] },
+  drive: { help: 'A Google OAuth access token with drive.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
+  ga4: { help: 'A Google OAuth access token with analytics.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
+  googleAds: { help: 'A Google Ads OAuth access token.', fields: [{ key: 'token', label: 'OAuth access token' }, { key: 'developerToken', label: 'Developer token', optional: true }] },
+  zoom: { help: 'Zoom App Marketplace → Develop → Build App → Server-to-Server OAuth. Needs scopes user:read:admin + cloud_recording:read:admin. All three values are on the app\'s Credentials page.', fields: [{ key: 'accountId', label: 'Account ID' }, { key: 'clientId', label: 'Client ID' }, { key: 'clientSecret', label: 'Client secret' }] },
 };
 
 function ConnectCredentialDialog({ source, onClose, onConnected }: {
@@ -184,20 +187,23 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   onConnected: () => Promise<void> | void;
 }) {
   const connectorSlug = ((source.config?._connector as string | undefined) ?? source.slug);
-  const spec = CRED_FIELDS[connectorSlug] ?? { label: 'Token', help: 'Paste the connector access token.' };
-  const [token, setToken] = useState('');
-  const [extra, setExtra] = useState('');
+  const spec = CRED_FIELDS[connectorSlug] ?? { help: 'Paste the connector access token.', fields: [TOKEN_FIELD] };
+  const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const complete = spec.fields.every(f => f.optional || (values[f.key] ?? '').trim() !== '');
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const credentials: Record<string, string> = { token: token.trim() };
-      if (spec.extra && extra.trim()) {
-        credentials[spec.extra.key] = extra.trim();
+      const credentials: Record<string, string> = {};
+      for (const f of spec.fields) {
+        const v = (values[f.key] ?? '').trim();
+        if (v) {
+          credentials[f.key] = v;
+        }
       }
       const res = await fetch(`/rpc/sources/${source.id}/credentials`, {
         method: 'POST',
@@ -231,31 +237,20 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
           </div>
           <div className="space-y-4 p-4">
             <p className="text-xs text-muted-foreground">{spec.help}</p>
-            <label className="block">
-              <span className="text-sm font-medium text-foreground/80">{spec.label}</span>
-              <input
-                type="password"
-                required
-                autoComplete="off"
-                value={token}
-                onChange={e => setToken(e.target.value)}
-                placeholder="••••••••••••••••"
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-              />
-            </label>
-            {spec.extra
-              ? (
-                  <label className="block">
-                    <span className="text-sm font-medium text-foreground/80">{spec.extra.label}</span>
-                    <input
-                      type="text"
-                      value={extra}
-                      onChange={e => setExtra(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                    />
-                  </label>
-                )
-              : null}
+            {spec.fields.map(field => (
+              <label key={field.key} className="block">
+                <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+                <input
+                  type="password"
+                  required={!field.optional}
+                  autoComplete="off"
+                  value={values[field.key] ?? ''}
+                  onChange={e => setValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                  placeholder="••••••••••••••••"
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                />
+              </label>
+            ))}
             <p className="text-[11px] text-muted-foreground">Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.</p>
             {error
               ? (
@@ -271,7 +266,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
             </button>
             <button
               type="submit"
-              disabled={submitting || !token.trim()}
+              disabled={submitting || !complete}
               className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
