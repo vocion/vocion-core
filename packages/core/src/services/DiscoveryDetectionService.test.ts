@@ -222,6 +222,64 @@ describe('matchMeeting', () => {
 
     expect(m).toBeNull();
   });
+
+  // The Brayden Cruz case: Zoom stamped no attendees, no calendar event shares
+  // the meeting id, but the title names a CRM contact — that IS a match.
+  it('matches a zero-attendee meeting whose title names an eligible contact by full name', () => {
+    const named = [{ ref: 'contacts:242324541361', type: 'hubspot-contact' as const, emails: [], domains: [], label: 'Brayden Cruz' }];
+    const m = svc.matchMeeting(
+      { ...base, title: 'Brayden Cruz: 📱 MetaCTO <> 30 min intro', attendees: [] },
+      named,
+      { sellerDomain: 'metacto.com' },
+    );
+
+    expect(m).toMatchObject({ matchType: 'hubspot-contact', matchRef: 'contacts:242324541361' });
+    expect(m?.matchReason).toContain('Brayden Cruz');
+  });
+
+  it('never title-matches when attendees are known — an internal debrief naming a prospect stays unread', () => {
+    const named = [{ ref: 'contacts:5', type: 'hubspot-contact' as const, emails: [], domains: [], label: 'Brayden Cruz' }];
+    const m = svc.matchMeeting(
+      { ...base, title: 'Brayden Cruz debrief', attendees: ['chris@metacto.com', 'andrew@metacto.com'] },
+      named,
+      { sellerDomain: 'metacto.com' },
+    );
+
+    expect(m).toBeNull();
+  });
+
+  it('never title-matches a single-token label ("Chris" must not match every title)', () => {
+    const named = [{ ref: 'contacts:6', type: 'hubspot-contact' as const, emails: [], domains: [], label: 'Chris' }];
+    const m = svc.matchMeeting(
+      { ...base, title: 'Chris weekly planning', attendees: [] },
+      named,
+      { sellerDomain: 'metacto.com' },
+    );
+
+    expect(m).toBeNull();
+  });
+
+  it('title match respects word boundaries ("Ann Lee" must not match "Joann Leets")', () => {
+    const named = [{ ref: 'contacts:7', type: 'hubspot-contact' as const, emails: [], domains: [], label: 'Ann Lee' }];
+    const m = svc.matchMeeting(
+      { ...base, title: 'Joann Leets sync', attendees: [] },
+      named,
+      { sellerDomain: 'metacto.com' },
+    );
+
+    expect(m).toBeNull();
+  });
+
+  it('never title-matches a company label — contacts only', () => {
+    const named = [{ ref: 'companies:8', type: 'hubspot-company' as const, emails: [], domains: [], label: 'Acme Retail' }];
+    const m = svc.matchMeeting(
+      { ...base, title: 'Acme Retail planning', attendees: [] },
+      named,
+      { sellerDomain: 'metacto.com' },
+    );
+
+    expect(m).toBeNull();
+  });
 });
 
 // ── Stage 3 · routeClassification (pure) ─────────────────────────────────────
@@ -424,6 +482,36 @@ describe('matchWindow', () => {
     expect(recon.gapCount).toBe(0);
     expect(recon.unmatchableCount).toBe(1);
     expect(recon.unmatchable[0]!.meetingExternalId).toBe('zoom:orphan');
+  });
+
+  it('rescues a zero-attendee recording whose title names a CRM contact — matched, gated, and NOT unmatchable', async () => {
+    const hubspot = await seedSource('hubspot');
+    await seedDoc(hubspot, {
+      externalId: 'contacts:242324541361',
+      title: 'Brayden Cruz',
+      metadata: { objectType: 'contacts', hubspotId: '242324541361', ownerId: 'chris', lifecycleStage: 'marketingqualifiedlead', name: 'Brayden Cruz' },
+    });
+    const zoom = await seedSource('zoom');
+    const doc = await seedDoc(zoom, {
+      externalId: 'zoom:brayden',
+      title: 'Brayden Cruz: 📱 MetaCTO <> 30 min intro',
+      metadata: { kind: 'zoom-recording', meetingId: '88888888888', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true },
+    });
+    await seedChunk(doc, 'Brayden: we need to ship to production fast.');
+
+    const result = await svc.matchWindow(ORG, windowOpts);
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      meetingExternalId: 'zoom:brayden',
+      matchType: 'hubspot-contact',
+      matchRef: 'contacts:242324541361',
+      status: 'matched',
+    });
+    expect(result.unmatchableCount).toBe(0);
+
+    // The match opens the content gate like any other match.
+    await expect(svc.readMatchedTranscript(ORG, 'zoom:brayden')).resolves.toContain('production');
   });
 
   it('borrows attendees from the calendar event sharing the Zoom meeting id, even one ingested long before the window', async () => {
