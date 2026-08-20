@@ -400,10 +400,11 @@ describe('matchWindow', () => {
     expect(rows).toHaveLength(1);
   });
 
-  it('fails closed: a recording with no calendar event of the same id is never matched', async () => {
+  it('fails closed: a recording with no calendar event of the same id is never matched — but is REPORTED as unmatchable', async () => {
     const zoom = await seedSource('zoom');
     const doc = await seedDoc(zoom, {
       externalId: 'zoom:orphan',
+      title: 'MetaCTO <> 30 min intro',
       metadata: { kind: 'zoom-recording', meetingId: '99999999999', host: 'chris@metacto.com', start: NOW.toISOString(), hasTranscript: true },
     });
     await seedChunk(doc, 'CONFIDENTIAL — must never be read');
@@ -412,6 +413,17 @@ describe('matchWindow', () => {
 
     expect(result.candidates).toHaveLength(0);
     await expect(svc.readMatchedTranscript(ORG, 'zoom:orphan')).rejects.toBeInstanceOf(svc.ContentGateError);
+
+    // Fail-closed is visible, not silent: the meeting is named as unmatchable
+    // in both the match result and the coverage check.
+    expect(result.unmatchableCount).toBe(1);
+    expect(result.unmatchable[0]).toMatchObject({ meetingExternalId: 'zoom:orphan', title: 'MetaCTO <> 30 min intro', hasTranscript: true });
+
+    const recon = await svc.reconcileWindow(ORG, windowOpts);
+
+    expect(recon.gapCount).toBe(0);
+    expect(recon.unmatchableCount).toBe(1);
+    expect(recon.unmatchable[0]!.meetingExternalId).toBe('zoom:orphan');
   });
 
   it('borrows attendees from the calendar event sharing the Zoom meeting id, even one ingested long before the window', async () => {

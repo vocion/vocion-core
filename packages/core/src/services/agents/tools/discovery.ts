@@ -117,7 +117,7 @@ export function matchMeetingsTool(ctx: RuntimeContext) {
     },
     {
       name: 'match_meetings',
-      description: 'Match the window\'s meetings — Zoom cloud recordings AND Granola notes, which capture calls held on Teams, Meet, or any other platform — against the eligible CRM parties (metadata only — titles, hosts, attendees; NEVER transcript content) and record every match on the discovery ledger. Returns the counts first: HubSpot parties in scope (eligibleParties), meetings scanned total and per source (meetingsBySource, e.g. zoom vs granola), and matches (matchedCount) — report these numbers. A call captured by both is assessed once (the Zoom recording wins; the dropped twin is reported in doubleCapturesDropped). Each match carries its candidateId, whether a transcript exists, and its assessment status. Run this before classify_call.',
+      description: 'Match the window\'s meetings — Zoom cloud recordings AND Granola notes, which capture calls held on Teams, Meet, or any other platform — against the eligible CRM parties (metadata only — titles, hosts, attendees; NEVER transcript content) and record every match on the discovery ledger. Returns the counts first: HubSpot parties in scope (eligibleParties), meetings scanned total and per source (meetingsBySource, e.g. zoom vs granola), and matches (matchedCount) — report these numbers. A call captured by both is assessed once (the Zoom recording wins; the dropped twin is reported in doubleCapturesDropped). Meetings with NO attendee metadata cannot match anything and are reported in `unmatchable` — surface those to the human, they are potential missed discovery calls (a CRM record alone will not fix them; the calendar linkage or a Granola capture will). Each match carries its candidateId, whether a transcript exists, and its assessment status. Run this before classify_call.',
       schema: z.object(windowArgs),
     },
   );
@@ -215,7 +215,7 @@ export function reconcileDiscoveryWindowTool(ctx: RuntimeContext) {
     },
     {
       name: 'reconcile_discovery_window',
-      description: 'Coverage check: recompute the window\'s matches (metadata only, no model spend, no writes) and diff them against the ledger. Returns every gap — matched meetings never recorded, or recorded but never assessed, with why. Run this at the end of a detection pass and act on the gaps.',
+      description: 'Coverage check: recompute the window\'s matches (metadata only, no model spend, no writes) and diff them against the ledger. Returns every gap — matched meetings never recorded, or recorded but never assessed, with why — PLUS `unmatchable`: meetings scanned but carrying no attendee metadata, which can never match and are therefore invisible to the gap diff. Report both; 0 gaps with unmatchable meetings present is NOT full coverage. Run this at the end of a detection pass.',
       schema: z.object(windowArgs),
     },
   );
