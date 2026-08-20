@@ -74,10 +74,14 @@ export function WorkspaceTour({ steps, title, autoStart }: {
     setRect(null);
   }, []);
 
-  // Resume / auto-start / ?tour=1
+  // Resume / auto-start / ?tour=1 (consumed once, then stripped from the
+  // URL so a reload or End doesn't restart the tour).
   useEffect(() => {
     if (searchParams.get('tour') === '1') {
       begin(0);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('tour');
+      window.history.replaceState(null, '', url.toString());
       return;
     }
     if (readStorage(ACTIVE_KEY) === '1') {
