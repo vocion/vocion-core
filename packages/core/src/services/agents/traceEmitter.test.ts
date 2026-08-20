@@ -90,6 +90,42 @@ describe('traceEmitter — lead work', () => {
 
     expect(em.handle({ event: 'on_tool_start', name: 'write_todos', metadata: { checkpoint_ns: 'tools:t' }, data: {} })).toHaveLength(0);
   });
+
+  it('surfaces the counts of any JSON tool result (generic, no bespoke parser)', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    em.handle({ event: 'on_tool_start', name: 'match_meetings', metadata: { checkpoint_ns: 'tools:m1' }, data: { input: { input: '{"seller_domain":"metacto.com"}' } } });
+    const payload = JSON.stringify({
+      window: { since: 'x', until: 'y' },
+      eligibleParties: 16344,
+      meetingsScanned: 323,
+      meetingsBySource: { zoom: 318, granola: 5 },
+      matchedCount: 5,
+      candidates: [1, 2, 3, 4, 5],
+      doubleCapturesDropped: [],
+    });
+    const end = em.handle({ event: 'on_tool_end', name: 'match_meetings', metadata: { checkpoint_ns: 'tools:m1' }, data: { output: { content: payload } } });
+
+    expect(end[0]?.result).toBe('eligibleParties 16,344 · meetingsScanned 323 · meetingsBySource: zoom 318, granola 5');
+    expect(end[0]?.resultDetail).toContain('matchedCount 5');
+    expect(end[0]?.resultDetail).toContain('candidates 5');
+    expect(end[0]?.resultDetail).toContain('doubleCapturesDropped 0');
+  });
+
+  it('summarizes a bare-array result as a record count', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    em.handle({ event: 'on_tool_start', name: 'some_tool', metadata: { checkpoint_ns: 'tools:a1' }, data: { input: { input: '{}' } } });
+    const end = em.handle({ event: 'on_tool_end', name: 'some_tool', metadata: { checkpoint_ns: 'tools:a1' }, data: { output: { content: '[{"a":1},{"a":2},{"a":3}]' } } });
+
+    expect(end[0]?.result).toBe('3 records');
+  });
+
+  it('leaves non-JSON tool output without a result line', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    em.handle({ event: 'on_tool_start', name: 'some_tool', metadata: { checkpoint_ns: 'tools:p1' }, data: { input: { input: '{}' } } });
+    const end = em.handle({ event: 'on_tool_end', name: 'some_tool', metadata: { checkpoint_ns: 'tools:p1' }, data: { output: { content: 'plain prose output' } } });
+
+    expect(end[0]?.result).toBeUndefined();
+  });
 });
 
 describe('traceEmitter — delegation + nested specialist work', () => {
