@@ -145,15 +145,14 @@ describe('grants', () => {
   });
 
   it('grants are per-tool, not all-or-nothing', () => {
-    const names = discoveryTools(ctxFor(ORG, ['list_discovery_candidates'])).map(t => t.name);
+    const names = discoveryTools(ctxFor(ORG, ['get_discovery_ledger'])).map(t => t.name);
 
-    expect(names).toEqual(['list_discovery_candidates']);
+    expect(names).toEqual(['get_discovery_ledger']);
   });
 
-  it('honors the legacy get_eligible_parties grant for the renamed get_hubspot_contacts', () => {
-    const names = discoveryTools(ctxFor(ORG, ['get_eligible_parties'])).map(t => t.name);
-
-    expect(names).toEqual(['get_hubspot_contacts']);
+  it('honors the legacy grant names for the renamed tools', () => {
+    expect(discoveryTools(ctxFor(ORG, ['get_eligible_parties'])).map(t => t.name)).toEqual(['get_hubspot_contacts']);
+    expect(discoveryTools(ctxFor(ORG, ['list_discovery_candidates'])).map(t => t.name)).toEqual(['get_discovery_ledger']);
   });
 });
 
@@ -171,7 +170,7 @@ describe('no tool anywhere returns transcript body', () => {
     expect(matched.candidates).toHaveLength(1);
 
     outputs.push(await tools.get('classify_call')!.invoke({ candidate_id: matched.candidates[0]!.candidateId }) as string);
-    outputs.push(await tools.get('list_discovery_candidates')!.invoke({}) as string);
+    outputs.push(await tools.get('get_discovery_ledger')!.invoke({}) as string);
     outputs.push(await tools.get('reconcile_discovery_window')!.invoke(matchArgs) as string);
 
     for (const out of outputs) {
@@ -239,7 +238,7 @@ describe('cross-tenant', () => {
 
     expect(classify.error).toBe('no_candidate');
 
-    const ledger = JSON.parse(await tools.get('list_discovery_candidates')!.invoke({}) as string) as { count: number; candidates: unknown[] };
+    const ledger = JSON.parse(await tools.get('get_discovery_ledger')!.invoke({}) as string) as { count: number; candidates: unknown[] };
 
     expect(ledger.count).toBe(0);
     expect(ledger.candidates).toHaveLength(0);
