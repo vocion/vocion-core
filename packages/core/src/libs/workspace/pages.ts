@@ -78,6 +78,7 @@ const ListSourceSchema = z.discriminatedUnion('kind', [
     limit: z.number().int().positive().max(500).default(100),
   }),
   z.object({ kind: z.literal('documents'), source: SlugSchema, limit: z.number().int().positive().max(500).default(100) }),
+  z.object({ kind: z.literal('agents'), active: z.boolean().optional() }),
 ]);
 
 export const PageManifestSchema = z.object({
