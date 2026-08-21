@@ -1,12 +1,43 @@
 import type { NextConfig } from 'next';
+import { cpSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import withBundleAnalyzer from '@next/bundle-analyzer';
 import { withSentryConfig } from '@sentry/nextjs';
 import createNextIntlPlugin from 'next-intl/plugin';
 import './src/libs/Env';
 
+// Workspace component registry (workspace pages, docs/workspace-pages.md):
+// if the running workspace ships pages/components/registry.tsx, alias
+// `@wsx/registry` at it so tenant React widgets compile into the app;
+// otherwise fall back to the empty in-repo stub.
+//
+// Turbopack only compiles files under the project root and refuses both
+// absolute alias paths and symlinks that escape the root, so the tenant
+// components are SNAPSHOTTED into the gitignored src/wsx-ext/ at config
+// load. Restart dev after editing a workspace registry.
+const wsxCandidate = process.env.WORKSPACE_PATH
+  ? join(process.env.WORKSPACE_PATH, 'pages/components')
+  : null;
+const wsxDir = join(__dirname, 'src/wsx-ext');
+rmSync(wsxDir, { recursive: true, force: true });
+// Alias values must be project-relative specifiers.
+let wsxRegistry = './src/libs/workspace/ext-stub/registry.tsx';
+if (wsxCandidate && existsSync(join(wsxCandidate, 'registry.tsx'))) {
+  cpSync(wsxCandidate, wsxDir, { recursive: true, dereference: true });
+  wsxRegistry = './src/wsx-ext/registry.tsx';
+}
+
 // Define the base Next.js configuration
 const baseConfig: NextConfig = {
+  turbopack: {
+    resolveAlias: {
+      '@wsx/registry': wsxRegistry,
+    },
+  },
+  webpack: (config) => {
+    config.resolve.alias['@wsx/registry'] = join(__dirname, wsxRegistry);
+    return config;
+  },
   // Standalone output for Docker — produces .next/standalone/ with only
   // the runtime deps the server needs (cuts image size ~1.5GB → ~250MB).
   // Required by the production Dockerfile in this same directory.

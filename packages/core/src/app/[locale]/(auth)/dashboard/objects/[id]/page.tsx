@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { ObjectAgentActivity } from '@/features/dashboard/ObjectAgentActivity';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 
 const roleLabels: Record<string, string> = {
@@ -285,6 +286,15 @@ export default async function ObjectDetailPage(props: {
           </div>
         </div>
       </div>
+
+      <ObjectAgentActivity
+        orgId={orgId}
+        externalRef={String(
+          (obj.metadata as Record<string, unknown> | null)?.external_id
+          ?? (obj.metadata as Record<string, unknown> | null)?.externalId
+          ?? '',
+        ) || null}
+      />
     </>
   );
 }

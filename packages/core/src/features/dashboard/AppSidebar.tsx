@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Network,
   Newspaper,
+  PanelsTopLeft,
   Plug,
   Radar,
   ScrollText,
@@ -53,9 +54,18 @@ import { VocionLogo } from '@/templates/VocionLogo';
 const NAV_VIEW_KEY = 'vocion:nav:view';
 type NavView = 'work' | 'manage';
 
-export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<typeof Sidebar> & {
+/** Workspace-defined pages (libs/workspace/pages.ts), grouped for the nav. */
+export type WorkspaceNavPage = {
+  title: string;
+  url: string;
+  section: string;
+};
+
+export const AppSidebar = ({ isAdmin = false, workspacePages = [], ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
+  /** Tenant pages from the workspace's pages/ dir — rendered as their own WORK sections. */
+  workspacePages?: WorkspaceNavPage[];
 }) => {
   const t = useTranslations('DashboardLayout');
   const [view, setView] = useState<NavView>('work');
@@ -65,6 +75,7 @@ export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<t
     try {
       const stored = localStorage.getItem(NAV_VIEW_KEY);
       if (stored === 'manage') {
+        // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- pre-existing SSR-safe restore; hydration must render the default first
         setView('manage');
       }
     } catch { /* private mode */ }
@@ -103,6 +114,15 @@ export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<t
                     { title: t('search'), url: '/dashboard/search', icon: BookOpen },
                   ]}
                 />
+                {[...new Set(workspacePages.map(p => p.section))].map(section => (
+                  <AppSidebarNav
+                    key={section}
+                    label={section}
+                    items={workspacePages
+                      .filter(p => p.section === section)
+                      .map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft }))}
+                  />
+                ))}
                 {/* Bottom cluster: which workspace you're in + the door to
                     its configuration. Both are context, not daily nav. */}
                 <div className="mt-auto px-2 pb-1">
