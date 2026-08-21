@@ -126,9 +126,16 @@ export function WorkspaceTour({ steps, title, autoStart }: {
     const find = () => {
       const el = document.querySelector(step.selector!);
       if (el) {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const vh = window.innerHeight;
+        const raw = el.getBoundingClientRect();
+        // Elements taller than the viewport (long tables) would swallow the
+        // screen: pin them to the top and cap the spotlight's height.
+        const tall = raw.height > vh * 0.7;
+        el.scrollIntoView({ block: tall ? 'start' : 'center', behavior: 'smooth' });
         const r = el.getBoundingClientRect();
-        setRect({ top: r.top - 8, left: r.left - 8, width: r.width + 16, height: r.height + 16 });
+        const top = Math.max(8, r.top - 8);
+        const height = Math.min(r.height + 16, vh * 0.55, vh - top - 8);
+        setRect({ top, left: Math.max(8, r.left - 8), width: Math.min(r.width + 16, window.innerWidth - 16), height: Math.max(40, height) });
       } else if (++tries > 25) {
         clearInterval(pollRef.current!);
       }
@@ -158,8 +165,8 @@ export function WorkspaceTour({ steps, title, autoStart }: {
         setIdx(i => i - 1);
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
   }, [active, idx, steps.length, end]);
 
   if (!active) {
@@ -177,15 +184,24 @@ export function WorkspaceTour({ steps, title, autoStart }: {
   }
 
   const centered = !rect;
+  // Estimated popover box for clamping (real size varies little).
+  const POP_W = 380;
+  const POP_H = 230;
+  const vw = typeof window === 'undefined' ? 1280 : window.innerWidth;
+  const vh = typeof window === 'undefined' ? 800 : window.innerHeight;
+  const clamp = (top: number, left: number): React.CSSProperties => ({
+    top: Math.min(Math.max(12, top), Math.max(12, vh - POP_H - 12)),
+    left: Math.min(Math.max(12, left), Math.max(12, vw - POP_W - 12)),
+  });
   const popStyle: React.CSSProperties = centered
     ? { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }
     : step.placement === 'top'
-      ? { top: Math.max(12, rect.top - 12), left: rect.left, transform: 'translateY(-100%)' }
+      ? clamp(rect.top - POP_H - 12, rect.left)
       : step.placement === 'left'
-        ? { top: rect.top, left: Math.max(12, rect.left - 12), transform: 'translateX(-100%)' }
+        ? clamp(rect.top, rect.left - POP_W - 12)
         : step.placement === 'right'
-          ? { top: rect.top, left: rect.left + rect.width + 12 }
-          : { top: rect.top + rect.height + 12, left: rect.left }; // bottom (default)
+          ? clamp(rect.top, rect.left + rect.width + 12)
+          : clamp(rect.top + rect.height + 12, rect.left); // bottom (default)
 
   return (
     <div
@@ -201,15 +217,26 @@ export function WorkspaceTour({ steps, title, autoStart }: {
         ? (
             <div
               className="absolute rounded-lg transition-all duration-300"
-              style={{ ...rect, boxShadow: '0 0 0 99999px rgba(15, 25, 30, 0.62)' }}
+              style={{ ...rect, boxShadow: '0 0 0 99999px rgba(15, 25, 30, 0.35)' }}
             />
           )
-        : <div className="absolute inset-0 bg-[rgba(15,25,30,0.62)]" />}
+        : <div className="absolute inset-0 bg-[rgba(15,25,30,0.35)]" />}
       {/* click shield: keeps the walkthrough on rails; Esc / End tour always exits */}
       {!step.interactive && <div className="absolute inset-0" aria-hidden="true" />}
 
+      {/* Escape hatch pinned to the viewport — reachable no matter where the
+          popover lands or how tall the spotlight is. */}
+      <button
+        type="button"
+        onClick={end}
+        className="absolute right-4 top-4 z-20 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-lg hover:bg-muted"
+        style={{ pointerEvents: 'auto' }}
+      >
+        ✕ End tour (Esc)
+      </button>
+
       <div
-        className="absolute z-10 w-[380px] max-w-[calc(100vw-24px)] rounded-xl border border-border bg-background p-4 shadow-2xl"
+        className="absolute z-10 max-h-[calc(100vh-24px)] w-[380px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-xl border border-border bg-background p-4 shadow-2xl"
         style={{ ...popStyle, pointerEvents: 'auto' }}
       >
         <div className="mb-1 font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
