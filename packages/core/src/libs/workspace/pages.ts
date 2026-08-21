@@ -104,6 +104,19 @@ export const PageManifestSchema = z.object({
   /** Row click-through, e.g. `/dashboard/objects/{id}`. `{id}` interpolates. */
   rowLink: z.string().optional(),
 
+  // ---- review embed (any archetype) ----
+  /**
+   * Embed the core review queue on this page, scoped to these skills (and
+   * optionally paused workflow runs). Same skill_run/workflow_run items,
+   * same approve/decline services as /dashboard/review — one queue. The
+   * `queue` archetype gets this implicitly from its source when omitted.
+   */
+  review: z.object({
+    skills: z.array(z.string()).optional(),
+    workflows: z.boolean().default(false),
+    heading: z.string().default('Waiting on a person'),
+  }).optional(),
+
   // ---- markdown config ----
   /** Relative md file; defaults to `<slug>.md` next to the yaml. */
   contentFile: z.string().optional(),
