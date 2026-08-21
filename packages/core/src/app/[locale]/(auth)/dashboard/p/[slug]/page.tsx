@@ -32,6 +32,7 @@ import {
   skillSchema,
 } from '@/models/Schema';
 import { listSkillRuns } from '@/services/SkillService';
+import { listWorkflowRuns } from '@/services/WorkflowService';
 
 /**
  * Workspace page renderer — `/dashboard/p/<slug>`.
@@ -296,11 +297,20 @@ export default async function WorkspacePage(props: {
     }
   }
 
-  // Queue pages embed the core Review queue (the actual HITL mechanism),
-  // scoped to the page's skills — same items, same approve/decline services.
+  // Review embed (the actual HITL mechanism): explicit `review:` block on any
+  // archetype, or implicit on `queue` from its source skills. Same items,
+  // same approve/decline services as /dashboard/review — one queue.
+  const reviewCfg = manifest.review
+    ?? (manifest.archetype === 'queue' && manifest.source?.kind === 'skillRuns'
+      ? { skills: manifest.source.skills, workflows: false, heading: 'Waiting on a person' }
+      : null);
   let pendingRuns: Awaited<ReturnType<typeof loadPendingRuns>> = [];
-  if (manifest.archetype === 'queue' && manifest.source?.kind === 'skillRuns') {
-    pendingRuns = await loadPendingRuns(orgId, manifest.source.skills);
+  let pausedWorkflowRuns: Awaited<ReturnType<typeof listWorkflowRuns>> = [];
+  if (reviewCfg) {
+    pendingRuns = await loadPendingRuns(orgId, reviewCfg.skills);
+    if (reviewCfg.workflows) {
+      pausedWorkflowRuns = await listWorkflowRuns(orgId, { status: 'paused', limit: 50 });
+    }
   }
 
   const stats: Record<string, string> = {};
@@ -397,17 +407,17 @@ export default async function WorkspacePage(props: {
         </section>
       ))}
 
-      {manifest.archetype === 'queue' && (
+      {reviewCfg && (
         <section id="wsx-review" className="mt-8">
-          <h2 className="mb-2 text-sm font-semibold">Waiting on a person</h2>
+          <h2 className="mb-2 text-sm font-semibold">{reviewCfg.heading ?? 'Waiting on a person'}</h2>
           <p className="mb-3 text-sm text-muted-foreground">
             The same items as
             {' '}
             <Link href="/dashboard/review" className="underline">Review</Link>
             {' '}
-            — the core approval queue, scoped to this page's skills. Approve or decline here or there; it is one queue.
+            — the core approval queue, scoped to this page. Approve or decline here or there; it is one queue.
           </p>
-          <ReviewQueue initialSkillRuns={pendingRuns} initialWorkflowRuns={[]} />
+          <ReviewQueue initialSkillRuns={pendingRuns} initialWorkflowRuns={pausedWorkflowRuns as never} />
         </section>
       )}
 
