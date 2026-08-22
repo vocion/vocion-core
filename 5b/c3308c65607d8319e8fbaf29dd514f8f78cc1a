@@ -1,0 +1,111 @@
+packages/core/src/services/agents/tools/searchKnowledge.ts
+  s_1c78565c1efc89::t_22fd25c95bbf29 29-33,35-39
+packages/core/src/services/agents/tools/freshenSource.ts
+  s_1c78565c1efc89::t_073fcf220d9787 23-28,34-37
+  s_1c78565c1efc89::t_a7f834a930aca6 14
+  s_1c78565c1efc89::t_c98c2c091f4c98 29-30,32-33,38-39,42-61,63-70
+  s_1c78565c1efc89::t_56a30df37a0aeb 74-75
+packages/core/src/services/IngestionService.ts
+  s_1c78565c1efc89::t_fbfab6509586a5 215
+  s_1c78565c1efc89::t_a7a63ace07705b 64
+  s_1c78565c1efc89::t_fe01152138d52d 151-169
+  s_1c78565c1efc89::t_117ed3cae003c9 190-192,202-211,213-214,216-218,221-229
+packages/core/src/services/CrmRecordsService.ts
+  s_1c78565c1efc89::t_f36baf0db87cbc 140,146-149
+  s_1c78565c1efc89::t_1e542f3e289ab4 199-202
+  s_1c78565c1efc89::t_f73622d8b670a5 299-303,312-316,330
+  s_1c78565c1efc89::t_86ef3f89434b95 431-449
+  s_1c78565c1efc89::t_c72fbdef20074f 463
+  s_1c78565c1efc89::t_13ba6e39b812f2 318,321-322,324-328,334,338-340,345-347,459
+  s_1c78565c1efc89::t_674e4d1c471585 1-27,29-34,36-51,62-93,100-101,108-117,139,144-145,150-153,176-180,188-198,203-229,231-246,248,257,259-260,262-263,265-266,275-276,289-298,304-311,317,320,323,329,331-333,335-337,341-344,348,360-389,391-411,413-414,424,426-430,450-458,460,462,464-466
+  s_1c78565c1efc89::t_685b723059259b 58-61
+  s_1c78565c1efc89::t_884ac3ad6632eb 28,35,52-57,94-99
+  s_1c78565c1efc89::t_c83e3d850235ba 154-164,167-168,170-175
+  s_1c78565c1efc89::t_12de424249932c 230,461
+  s_1c78565c1efc89::t_4e1a0f7bfba889 126-138,141-143
+  s_1c78565c1efc89::t_1b8d409893241b 102-107
+  s_1c78565c1efc89::t_3dbfac13a430ff 165-166,169
+  s_1c78565c1efc89::t_6c412095445b63 261,264,268-274
+  s_1c78565c1efc89::t_21de1d9b2191ca 390
+  s_1c78565c1efc89::t_ca5e21fbe74b2c 412,415-423,425
+  s_1c78565c1efc89::t_921f229cb33506 247
+  s_1c78565c1efc89::t_c460fa2ac5d6ef 181-187
+  s_1c78565c1efc89::t_f2d560e6a49339 319
+  s_1c78565c1efc89::t_5153a7e9a0b93f 349-359
+  s_1c78565c1efc89::t_0f1028d523563a 277-288
+  s_1c78565c1efc89::t_912a518738e4de 118-125
+  s_1c78565c1efc89::t_f9e74aa0e976b9 249-256,258,267
+packages/core/src/services/temporal/activities/sourceSync.test.ts
+  s_1c78565c1efc89::t_1c3c30828799f5 18,27
+packages/core/migrations/0055_crm_created_at_idx.sql
+  s_1c78565c1efc89::t_463a7077373af6 1-12
+packages/core/migrations/meta/_journal.json
+  s_1c78565c1efc89::t_865cfc36d3c171 382-388
+  s_1c78565c1efc89::t_b0b826a2e18c28 389-395
+packages/core/src/services/agents/tools/registry.ts
+  s_1c78565c1efc89::t_bf80d27566813b 73-74
+  s_1c78565c1efc89::t_2851a4c323035c 22
+packages/core/src/services/agents/tools/crm.ts
+  s_1c78565c1efc89::t_d2fff675211430 37-38,52-53,67-68
+  s_1c78565c1efc89::t_cc202152545891 51,66,123,156,158-160
+  s_1c78565c1efc89::t_2cbcd9c9f07b0c 142,172
+  s_1c78565c1efc89::t_7c48bde33c7c70 1-21,23-36,39-42,92-100,115-122,124-138,140-141,143-152,154-155,157,161-168,170-171,173-196
+  s_1c78565c1efc89::t_25b383028e841b 43-50,54-65,69-73,80
+  s_1c78565c1efc89::t_f36baf0db87cbc 22,74-79
+  s_1c78565c1efc89::t_acbdd29cfd2793 139,153,169
+  s_1c78565c1efc89::t_81d1345ced5871 101-114
+  s_1c78565c1efc89::t_3dcd5f9cc39a23 81-91
+packages/core/src/services/agents/tools/discovery.ts
+  s_1c78565c1efc89::t_b8c66a503fd35a 196-197,201-203
+packages/core/src/libs/sources/hubspot.ts
+  s_1c78565c1efc89::t_67dcac70d42082 21-23
+  s_1c78565c1efc89::t_77574242cd99e7 48-96,158
+  s_1c78565c1efc89::t_fa9e30750fca11 108-113,130-138,152-157
+  s_1c78565c1efc89::t_5ae1fa5827d772 148-151
+  s_1c78565c1efc89::t_8393df0c94c028 98,139-143,204-206,212
+  s_1c78565c1efc89::t_fbd158d78a57fc 159
+packages/core/src/services/agents/tools/crm.test.ts
+  s_1c78565c1efc89::t_46f977045e47c1 15
+  s_1c78565c1efc89::t_da15af5f2342ae 59-61
+  s_1c78565c1efc89::t_368c4dab143d76 1-14,16-58,62-118,125-224,227-245,247-259,261-314,465-496
+  s_1c78565c1efc89::t_fc47acd20a08b2 119-124,226,246,260
+  s_1c78565c1efc89::t_5ae1fa5827d772 225
+  s_1c78565c1efc89::t_e6b350211360bb 398-464
+  s_1c78565c1efc89::t_ed196a636be613 315-397
+packages/core/src/services/DiscoveryDetectionService.ts
+  s_1c78565c1efc89::t_4baeb8e006dd22 527-529,534-535,544-547
+  s_1c78565c1efc89::t_1450d9a5fd1054 530-533
+  s_1c78565c1efc89::t_2e1369cb031933 548-552
+packages/core/src/services/agents/tools/discovery.test.ts
+  s_1c78565c1efc89::t_4e110d5fad4316 153,157-158,160-162
+  s_1c78565c1efc89::t_1a340eb1e0fa0e 174,188
+packages/core/src/services/SourceSyncService.ts
+  s_1c78565c1efc89::t_37a610968a2e32 402-407
+  s_1c78565c1efc89::t_eeb5e7bf4a4760 115-116,310,319
+packages/core/src/services/IngestionService.metadata.test.ts
+  s_1c78565c1efc89::t_3d92584e7aa99c 1-10,12-38,40-63,65-111
+  s_1c78565c1efc89::t_e2d67a2d7cf6e3 39
+  s_1c78565c1efc89::t_76c70b4753ecf0 11
+  s_1c78565c1efc89::t_3dbfac13a430ff 64
+packages/core/src/scripts/sync-source.ts
+  s_1c78565c1efc89::t_136ba8c7f693e7 11-13,80
+packages/core/migrations/0054_crm_records_idx.sql
+  s_1c78565c1efc89::t_5b8b80064b5b21 1-5,7-13,15-16,18-19,21
+  s_1c78565c1efc89::t_254f4d6ce9ea46 6,14,17,20,22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "5bc3308c65607d8319e8fbaf29dd514f8f78cc1a",
+  "prompts": {},
+  "sessions": {
+    "s_1c78565c1efc89": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8696fac3-5096-417f-9bd5-5b383e84d1d6",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
