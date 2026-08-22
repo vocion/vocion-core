@@ -150,29 +150,16 @@ describe('grants', () => {
     expect(names).toEqual(['get_discovery_ledger']);
   });
 
-  it('honors the legacy grant names for the renamed tools', () => {
-    expect(discoveryTools(ctxFor(ORG, ['get_eligible_parties'])).map(t => t.name)).toEqual(['get_hubspot_contacts']);
+  it('honors the legacy grant name for the renamed ledger tool', () => {
     expect(discoveryTools(ctxFor(ORG, ['list_discovery_candidates'])).map(t => t.name)).toEqual(['get_discovery_ledger']);
   });
-});
 
-describe('get_hubspot_contacts query lookup', () => {
-  it('finds one record by name and answers "not in HubSpot" with total 0', async () => {
-    await seedProspectWorld('transcript');
-    const tools = toolsByName(ORG);
+  it('no longer carries the CRM reads — they are source-gated, not granted', () => {
+    const names = discoveryTools(ctxFor(ORG)).map(t => t.name);
 
-    const byName = JSON.parse(await tools.get('get_hubspot_contacts')!.invoke({ query: 'acme' }) as string) as { total: number; parties: { ref: string }[] };
-
-    expect(byName.total).toBe(1);
-    expect(byName.parties[0]!.ref).toBe('contacts:9');
-
-    const byId = JSON.parse(await tools.get('get_hubspot_contacts')!.invoke({ query: 'contacts:9' }) as string) as { total: number };
-
-    expect(byId.total).toBe(1);
-
-    const missing = JSON.parse(await tools.get('get_hubspot_contacts')!.invoke({ query: 'nobody-by-this-name' }) as string) as { total: number };
-
-    expect(missing.total).toBe(0);
+    expect(names).not.toContain('get_hubspot_contacts');
+    expect(names).not.toContain('get_hubspot_deals');
+    expect(names).not.toContain('get_hubspot_companies');
   });
 });
 
@@ -182,10 +169,9 @@ describe('no tool anywhere returns transcript body', () => {
     const tools = toolsByName(ORG);
 
     const outputs: string[] = [];
-    outputs.push(await tools.get('get_hubspot_contacts')!.invoke({ lifecycle_stages: ['marketingqualifiedlead'] }) as string);
     outputs.push(await tools.get('match_meetings')!.invoke(matchArgs) as string);
 
-    const matched = JSON.parse(outputs[1]!) as { candidates: Array<{ candidateId: number }> };
+    const matched = JSON.parse(outputs[0]!) as { candidates: Array<{ candidateId: number }> };
 
     expect(matched.candidates).toHaveLength(1);
 
@@ -199,7 +185,7 @@ describe('no tool anywhere returns transcript body', () => {
     }
 
     // And the classification is real: scores came back, route derived.
-    const verdict = JSON.parse(outputs[2]!) as Record<string, unknown>;
+    const verdict = JSON.parse(outputs[1]!) as Record<string, unknown>;
 
     expect(verdict).toMatchObject({ isDiscovery: true, route: 'confirm' });
   });
@@ -244,10 +230,6 @@ describe('cross-tenant', () => {
     const candidateId = matched.candidates[0]!.candidateId;
 
     const tools = toolsByName('org_other');
-
-    const parties = JSON.parse(await tools.get('get_hubspot_contacts')!.invoke({}) as string) as { total: number };
-
-    expect(parties.total).toBe(0);
 
     const matches = JSON.parse(await tools.get('match_meetings')!.invoke(matchArgs) as string) as { meetingsScanned: number; candidates: unknown[] };
 

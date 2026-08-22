@@ -61,7 +61,7 @@ export type IngestDoc = {
 };
 
 export type IngestResult
-  = | { status: 'unchanged'; documentId: number }
+  = | { status: 'unchanged'; documentId: number; metadataRefreshed?: boolean }
     | { status: 'created'; documentId: number; chunks: number }
     | { status: 'updated'; documentId: number; chunks: number };
 
@@ -148,6 +148,25 @@ export async function markSourceSynced(sourceId: number): Promise<void> {
  * @param src
  * @param doc
  */
+/**
+ * Stringify with object keys sorted, at every depth.
+ *
+ * Needed because Postgres `jsonb` does not preserve key insertion order — it
+ * stores keys sorted. A plain JSON.stringify comparison against a
+ * freshly-built object therefore reports a difference on every sync even when
+ * nothing changed, which would mean a pointless UPDATE per document forever
+ * and a metadata-refresh count that is always the whole table.
+ * @param value
+ */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v) => {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+      return v;
+    }
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  });
+}
+
 export async function ingestDocument(
   src: SourceRef,
   doc: IngestDoc,
@@ -168,6 +187,9 @@ export async function ingestDocument(
       .select({
         id: knowledgeDocumentSchema.id,
         contentHash: knowledgeDocumentSchema.contentHash,
+        metadata: knowledgeDocumentSchema.metadata,
+        title: knowledgeDocumentSchema.title,
+        uri: knowledgeDocumentSchema.uri,
       })
       .from(knowledgeDocumentSchema)
       .where(and(
@@ -177,14 +199,34 @@ export async function ingestDocument(
       ))
       .limit(1);
 
-    // Unchanged: bump last_seen_at, no re-embed.
+    // Unchanged CONTENT: bump last_seen_at, no re-embed.
+    //
+    // Metadata is refreshed here anyway, because the content hash governs
+    // EMBEDDING, not metadata. Metadata is a projection of the source record,
+    // and a connector that widens what it stamps (new filterable fields, say)
+    // produces identical content with richer metadata — which this branch used
+    // to discard, so the new fields silently never landed on existing rows and
+    // no re-sync could fix it. Refreshing costs one UPDATE and no model spend,
+    // which also makes a metadata backfill a fast pass instead of a full
+    // re-embed of every document.
     if (existing[0] && existing[0].contentHash === hash) {
+      const prior = existing[0];
+      const nextMetadata = doc.metadata ?? {};
+      const metadataChanged = canonicalJson(prior.metadata ?? {}) !== canonicalJson(nextMetadata);
+      const titleChanged = (prior.title ?? null) !== (doc.title ?? null);
+      const uriChanged = (prior.uri ?? null) !== (doc.uri ?? null);
+      const refreshed = metadataChanged || titleChanged || uriChanged;
       await db
         .update(knowledgeDocumentSchema)
-        .set({ lastSeenAt: new Date() })
-        .where(eq(knowledgeDocumentSchema.id, existing[0].id));
-      trace.update({ output: { status: 'unchanged', documentId: existing[0].id } });
-      return { status: 'unchanged', documentId: existing[0].id };
+        .set({
+          lastSeenAt: new Date(),
+          ...(metadataChanged ? { metadata: nextMetadata } : {}),
+          ...(titleChanged ? { title: doc.title ?? null } : {}),
+          ...(uriChanged ? { uri: doc.uri ?? null } : {}),
+        })
+        .where(eq(knowledgeDocumentSchema.id, prior.id));
+      trace.update({ output: { status: 'unchanged', documentId: prior.id, metadataRefreshed: refreshed } });
+      return { status: 'unchanged', documentId: prior.id, metadataRefreshed: refreshed };
     }
 
     // Pre-computed-embedding fast path: when the caller ships a vector,

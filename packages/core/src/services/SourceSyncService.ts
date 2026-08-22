@@ -112,6 +112,8 @@ export type SyncResult = {
   created: number;
   updated: number;
   unchanged: number;
+  /** Subset of `unchanged`: content identical, metadata rewritten. */
+  metadataRefreshed: number;
   tombstoned: number;
   errors: number;
 };
@@ -305,6 +307,7 @@ export async function runSync(opts: {
     created: 0,
     updated: 0,
     unchanged: 0,
+    metadataRefreshed: 0,
     tombstoned: 0,
     errors: 0,
   };
@@ -313,6 +316,7 @@ export async function runSync(opts: {
     created: result.created,
     updated: result.updated,
     unchanged: result.unchanged,
+    metadataRefreshed: result.metadataRefreshed,
     tombstoned: result.tombstoned,
     errors: result.errors,
   });
@@ -395,6 +399,12 @@ export async function runSync(opts: {
           result.updated += 1;
         } else {
           result.unchanged += 1;
+          // Content identical but metadata rewritten — the shape a connector
+          // field-widening backfill takes. Counted separately so such a run
+          // is visible rather than reading as "nothing happened".
+          if (outcome.metadataRefreshed) {
+            result.metadataRefreshed += 1;
+          }
         }
       })
       .catch((error) => {

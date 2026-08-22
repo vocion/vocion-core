@@ -1,0 +1,12 @@
+-- Created-date index for the CRM tools' "added this week / this month"
+-- questions (`services/CrmRecordsService.ts`).
+--
+-- HubSpot stamps `createdate` as ISO 8601 UTC, which sorts lexicographically
+-- in the same order it sorts chronologically, so the tool compares it as TEXT.
+-- That is deliberate: a ::timestamptz cast would discard the whole query on one
+-- malformed value, and would not match this index. Indexing the same plain text
+-- expression the query uses is what makes the range scan apply.
+--
+-- Partial on the CRM mirror, so it stays proportional to synced CRM records
+-- rather than to every document in the table. Hand-written; idempotent.
+CREATE INDEX IF NOT EXISTS "knowledge_document_crm_created_at_idx" ON "knowledge_document" ("org_id", (("metadata"->>'objectType')), (("metadata"->>'createdAt'))) WHERE "metadata"->>'hubspotId' IS NOT NULL;

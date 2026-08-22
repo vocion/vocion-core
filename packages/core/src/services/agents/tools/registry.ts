@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
+import { crmTools } from './crm';
 import { discoveryTools } from './discovery';
 import { fetchUrlTool } from './fetchUrl';
 import { freshenSourceTool } from './freshenSource';
@@ -69,6 +70,8 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     getBriefingTool(ctx),
     refreshBriefingTool(ctx),
     freshenSourceTool(ctx),
+    // Source-gated — empty unless a HubSpot source is in the agent's scope.
+    ...crmTools(ctx),
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
   ] as StructuredToolInterface[];

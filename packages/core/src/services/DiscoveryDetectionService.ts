@@ -524,6 +524,15 @@ export function routeClassification(
 
 // ── DB loaders ───────────────────────────────────────────────────────────────
 
+/**
+ * Load the org's CRM records for the matcher's allow-list.
+ *
+ * Scoped in SQL to documents carrying a stamped `hubspotId`, which is exactly
+ * the set the old JS-side filter produced — but as a predicate the partial
+ * index in `0054_crm_records_idx.sql` can serve, instead of reading every
+ * knowledge_document in the org into memory and filtering afterwards.
+ * @param orgId
+ */
 export async function loadHubspotDocs(orgId: string): Promise<HubspotDoc[]> {
   const rows = await db
     .select({
@@ -532,10 +541,15 @@ export async function loadHubspotDocs(orgId: string): Promise<HubspotDoc[]> {
       metadata: knowledgeDocumentSchema.metadata,
     })
     .from(knowledgeDocumentSchema)
-    .where(eq(knowledgeDocumentSchema.orgId, orgId));
-  return rows
-    .filter(r => typeof (r.metadata as Record<string, unknown>)?.hubspotId === 'string')
-    .map(r => ({ docId: r.docId, externalId: r.externalId, metadata: r.metadata as Record<string, unknown> }));
+    .where(and(
+      eq(knowledgeDocumentSchema.orgId, orgId),
+      sql`${knowledgeDocumentSchema.metadata} ->> 'hubspotId' IS NOT NULL`,
+    ));
+  return rows.map(r => ({
+    docId: r.docId,
+    externalId: r.externalId,
+    metadata: (r.metadata ?? {}) as Record<string, unknown>,
+  }));
 }
 
 type CalEvent = { attendees: string[]; organizer: string | null };
