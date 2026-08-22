@@ -25,15 +25,12 @@ import {
   classifyCall,
   ClassifyCallError,
   ContentGateError,
-  filterEligible,
-  loadHubspotDocs,
   matchWindow,
   reconcileWindow,
 } from '@/services/DiscoveryDetectionService';
 
 /** Tool names that exist only for agents granted them via `harness.grantTools`. */
 export const DISCOVERY_TOOL_NAMES = [
-  'get_hubspot_contacts',
   'match_meetings',
   'classify_call',
   'get_discovery_ledger',
@@ -73,52 +70,6 @@ function windowOptions(args: WindowArgs) {
       dealStages: args.deal_stages,
     },
   };
-}
-
-export function getHubspotContactsTool(ctx: RuntimeContext) {
-  return tool(
-    async (args) => {
-      const docs = await loadHubspotDocs(ctx.orgId);
-      let parties = filterEligible(docs, {
-        ownerIds: args.owner_ids,
-        lifecycleStages: args.lifecycle_stages,
-        dealStages: args.deal_stages,
-      });
-      const q = args.query?.trim().toLowerCase();
-      if (q) {
-        parties = parties.filter(p =>
-          (p.label ?? '').toLowerCase().includes(q)
-          || p.emails.some(e => e.includes(q))
-          || p.domains.some(d => d.includes(q))
-          || p.ref.toLowerCase().includes(q));
-      }
-      const byType = { contacts: 0, deals: 0, companies: 0 };
-      for (const p of parties) {
-        if (p.type === 'hubspot-contact') {
-          byType.contacts += 1;
-        } else if (p.type === 'hubspot-deal') {
-          byType.deals += 1;
-        } else {
-          byType.companies += 1;
-        }
-      }
-      return JSON.stringify({
-        total: parties.length,
-        ...byType,
-        ...(q ? { query: q } : {}),
-        parties: parties.slice(0, 200).map(p => ({ ref: p.ref, type: p.type, label: p.label ?? null, domains: p.domains })),
-        ...(parties.length > 200 ? { note: `listing truncated to 200 of ${parties.length} parties (counts above are complete)` } : {}),
-      }, null, 2);
-    },
-    {
-      name: 'get_hubspot_contacts',
-      description: 'Look up the HubSpot records in scope — contacts, deals, and companies, with no filter = ALL of them. Returns the counts first (total + per type), then the records. Pass `query` (a name, email, domain, or HubSpot id) to check a SPECIFIC record — always do this before claiming someone is or is not in HubSpot; total=0 for the query means no record. This is the allow-list a meeting must match before its transcript can ever be read; call it first and report how many records were found.',
-      schema: z.object({
-        ...eligibleArgs,
-        query: z.string().optional().describe('Case-insensitive lookup over name, email, domain, and HubSpot id — use to answer "is X in HubSpot?"'),
-      }),
-    },
-  );
 }
 
 export function matchMeetingsTool(ctx: RuntimeContext) {
@@ -242,17 +193,15 @@ export function reconcileDiscoveryWindowTool(ctx: RuntimeContext) {
  */
 export function discoveryTools(ctx: RuntimeContext) {
   const grants = new Set(ctx.harnessConfig.grantTools ?? []);
-  // Renamed 2026-08-20: get_eligible_parties → get_hubspot_contacts and
-  // list_discovery_candidates → get_discovery_ledger. Honor the old grant
-  // names so a not-yet-reapplied workspace keeps its tools.
-  if (grants.has('get_eligible_parties')) {
-    grants.add('get_hubspot_contacts');
-  }
+  // Renamed 2026-08-20: list_discovery_candidates → get_discovery_ledger.
+  // Honor the old grant name so a not-yet-reapplied workspace keeps its tools.
   if (grants.has('list_discovery_candidates')) {
     grants.add('get_discovery_ledger');
   }
+  // The CRM reads moved to `./crm.ts` and are no longer granted — they are
+  // gated on having a HubSpot source in scope. A workspace still granting
+  // the old names simply grants nothing here; the tools arrive anyway.
   const all = [
-    getHubspotContactsTool(ctx),
     matchMeetingsTool(ctx),
     classifyCallTool(ctx),
     getDiscoveryLedgerTool(ctx),

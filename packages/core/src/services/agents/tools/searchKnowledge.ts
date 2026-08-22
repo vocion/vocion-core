@@ -26,11 +26,17 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
       const { query, source_types, metadata_filters } = args;
       const sourceFilter = source_types as string[] | undefined;
 
-      // Discovery-call slugging: bias toward the `zoom` source when the
-      // query mentions calls / meetings / transcripts.
+      // Discovery-call slugging: bias toward the meeting sources when the
+      // query is about what was SAID on a call. This narrows rather than
+      // restricts to one source — pinning it to `zoom` alone silently dropped
+      // Granola notes (calls held on Teams/Meet) and excluded HubSpot from any
+      // query containing the word "discovery" or "intro".
       let sourceSlugs = sourceFilter;
-      if (!sourceSlugs && /\b(?:call|calls|meeting|meetings|zoom|transcript|recording|discovery|intro)\b/i.test(query)) {
-        sourceSlugs = ['zoom'];
+      if (!sourceSlugs && /\b(?:call|calls|meeting|meetings|zoom|transcript|recording)\b/i.test(query)) {
+        sourceSlugs = ctx.connectorSources.filter(s => /^(?:zoom|granola|google-calendar)$/.test(s));
+        if (sourceSlugs.length === 0) {
+          sourceSlugs = undefined;
+        }
       }
 
       let hits;
