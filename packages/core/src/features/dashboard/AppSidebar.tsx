@@ -16,7 +16,6 @@ import {
   Network,
   Newspaper,
   Plug,
-  Radar,
   ScrollText,
   ShieldCheck,
   Sparkles,
@@ -98,7 +97,6 @@ export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<t
                     { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
                     { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
                     { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
-                    { title: 'Discovery', url: '/dashboard/discovery', icon: Radar },
                     { title: 'Activity', url: '/dashboard/activity', icon: Activity },
                     { title: t('search'), url: '/dashboard/search', icon: BookOpen },
                   ]}

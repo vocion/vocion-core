@@ -379,6 +379,20 @@
       "when": 1782089300000,
       "tag": "0053_discovery_audit_trail",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1782175700000,
+      "tag": "0054_crm_records_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1782262100000,
+      "tag": "0055_crm_created_at_idx",
+      "breakpoints": true
     }
   ]
 }

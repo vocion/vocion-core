@@ -8,7 +8,9 @@
  *   npm run sync:source -- --project metacto --source hubspot-contacts
  *
  * Incremental by default (uses the last checkpoint); --full re-fetches
- * everything (still content-hash deduped, so unchanged docs are no-ops).
+ * everything (still content-hash deduped, so unchanged docs skip re-embedding —
+ * but their metadata IS refreshed, which is how a connector field-widening
+ * backfill lands without paying to re-embed).
  */
 import process from 'node:process';
 import { and, eq, or } from 'drizzle-orm';
@@ -75,7 +77,7 @@ async function main() {
       },
     });
     clearInterval(timer);
-    console.log(`✓ ${args.source}: created=${result.created} updated=${result.updated} unchanged=${result.unchanged} tombstoned=${result.tombstoned} errors=${result.errors} (${Math.round((Date.now() - started) / 1000)}s)`);
+    console.log(`✓ ${args.source}: created=${result.created} updated=${result.updated} unchanged=${result.unchanged} metadata-refreshed=${result.metadataRefreshed} tombstoned=${result.tombstoned} errors=${result.errors} (${Math.round((Date.now() - started) / 1000)}s)`);
     process.exit(result.errors > 0 ? 1 : 0);
   } catch (err) {
     clearInterval(timer);
