@@ -23,7 +23,7 @@ related_version: vocion-v0.6.0 # the tag this post documents → renders as a pi
 - Open with the problem the release solves (1 short paragraph), not a feature list.
 - `## What's new` — bullets, user-facing.
 - A small table for options/providers when relevant.
-- `## Where to find it` — link the app surface + docs (`/docs/docs/concepts/<x>`, `/docs/docs/guides/<x>`).
+- `## Where to find it` — link the app surface + docs (`/docs/features/<x>`, `/docs/guides/<x>` — the site strips the on-disk `docs/` prefix, so NEVER write `/docs/docs/...`; that 404s).
 - `## Get it` — how to pull the version / what keys to set.
 
 ## Rules

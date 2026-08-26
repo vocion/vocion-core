@@ -29,5 +29,5 @@ Use `concepts/skills.md` and `concepts/tools.md` as the reference templates.
 ## Linking conventions
 
 - In-docs links are relative (`../guides/x.md`).
-- App-side links to docs use the dashboard docs viewer path: `/dashboard/docs/docs/concepts/<x>`.
-- Marketing-side links use `/docs/docs/concepts/<x>`.
+- App-side links to docs use the dashboard docs viewer path: `/dashboard/docs/docs/features/<x>` (the core viewer keeps the on-disk `docs/` prefix in the slug).
+- Marketing-side links use `/docs/features/<x>` — vocion-www STRIPS the on-disk `docs/` prefix (`src/libs/docs.ts`), so `/docs/docs/...` 404s there. The two sites differ; don't copy one convention to the other.
