@@ -24,6 +24,7 @@ import { discoveryTools } from './discovery';
 import { fetchUrlTool } from './fetchUrl';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
+import { gmailTools } from './gmailThread';
 import { requestHumanReviewTool } from './hitl';
 import {
   addLearningTool,
@@ -42,6 +43,7 @@ import { runOperationTool } from './runOperation';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { webSearchTool } from './webSearch';
+import { zoomTools } from './zoomTranscript';
 
 export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
   return [
@@ -72,6 +74,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     freshenSourceTool(ctx),
     // Source-gated — empty unless a HubSpot source is in the agent's scope.
     ...crmTools(ctx),
+    // Source-gated read-through caches (zoom / gmail sources in scope).
+    ...zoomTools(ctx),
+    ...gmailTools(ctx),
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
   ] as StructuredToolInterface[];
