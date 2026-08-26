@@ -12,6 +12,11 @@ export type McpConfig = {
   autoApply: boolean;
   serverName: string;
   serverVersion: string;
+  /**
+   * Default agent for the bridged domain tools (`tools/agent-tools.ts`).
+   * Unset → the org's workspace lead (`project.leadAgentSlug`).
+   */
+  agentSlug?: string;
 };
 
 export function readConfig(): McpConfig {
@@ -29,5 +34,6 @@ export function readConfig(): McpConfig {
     autoApply: process.env.WORKSPACE_AUTO_APPLY !== 'false',
     serverName: 'vocion',
     serverVersion: '0.1.0',
+    agentSlug: process.env.VOCION_MCP_AGENT_SLUG || undefined,
   };
 }
