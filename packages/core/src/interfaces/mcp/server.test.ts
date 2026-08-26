@@ -47,7 +47,7 @@ async function setupClientServer(contextDir: string) {
     serverName: 'vocion-test',
     serverVersion: '0.0.0',
   };
-  const server = buildServer(config);
+  const server = await buildServer(config);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   await Promise.all([

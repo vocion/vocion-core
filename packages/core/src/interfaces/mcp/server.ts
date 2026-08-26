@@ -1,6 +1,7 @@
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { McpConfig } from './config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { agentTools } from './tools/agent-tools';
 import { capabilityTools } from './tools/capability-tools';
 import { dataTools } from './tools/data-tools';
 import { missionTools } from './tools/mission-tools';
@@ -22,9 +23,19 @@ import { workspaceTools } from './tools/workspace-tools';
  *
  * Writes auto-commit + auto-apply by default; override per-call with
  * `autoApply: false` / `autoCommit: false`.
+ *
+ * Async because the agent-tools bridge resolves the default agent row at
+ * build time (per-process on stdio; per-request over HTTP, matching the
+ * stateless transport). `identity` names who the bridged domain tools run
+ * as (`ctx.userId`): `'mcp'` on stdio, `token:<id>` over HTTP.
  * @param config
+ * @param identity
+ * @param identity.userId
  */
-export function buildServer(config: McpConfig): McpServer {
+export async function buildServer(
+  config: McpConfig,
+  identity?: { userId: string },
+): Promise<McpServer> {
   const server = new McpServer(
     { name: config.serverName, version: config.serverVersion },
     { capabilities: { tools: {} } },
@@ -41,6 +52,7 @@ export function buildServer(config: McpConfig): McpServer {
     ...pluginTools(config),
     ...workflowTools(config),
     ...playbookTools(config),
+    ...(await agentTools(config, identity)),
   ];
 
   for (const tool of tools) {
@@ -78,7 +90,8 @@ export function buildServer(config: McpConfig): McpServer {
  * @param config
  */
 export async function startServer(transport: Transport, config: McpConfig): Promise<McpServer> {
-  const server = buildServer(config);
+  // stdio is the developer plane — the domain tools run as the generic 'mcp' user.
+  const server = await buildServer(config, { userId: 'mcp' });
   await server.connect(transport);
   return server;
 }
