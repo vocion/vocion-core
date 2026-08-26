@@ -4,6 +4,32 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-08-26 — Agent domain tools over MCP + token CLI + cache-aware pulls (v2.16)
+
+The MCP surface and the agent tool surface stop being two catalogs.
+
+- **feat(mcp) — the domain-tool registry bridged over MCP.** `interfaces/mcp/tools/agent-tools.ts`
+  is the registry's fourth consumer: ctx rebuilt from a real agent row exactly as the BYOA
+  endpoint does, so source/grant/exclude gates apply identically. Default agent =
+  `VOCION_MCP_AGENT_SLUG` → `project.leadAgentSlug`; per-call `agent_slug` override, re-gated at
+  call time. `buildServer` is async and carries caller identity (`token:<id>` over HTTP — bearer
+  identity no longer discarded — `'mcp'` on stdio). Capability-tool name collisions skipped;
+  emit-only tools excluded; buffered events returned alongside output. The autonomy gate is
+  untouched: `propose_action` keeps its hardcoded agent principal, so external writes land
+  PENDING regardless of the caller's token — pinned by test. 7 E2E tests over InMemoryTransport.
+- **feat(sources) — get_zoom_transcript + get_gmail_thread, read-through caches.** Answer from
+  the synced mirror when present and fresh (zoom transcripts immutable — hit iff hasTranscript;
+  gmail threads TTL'd, default 15 min), else fetch live via new exported connector helpers and
+  upsert through `ingestDocument` (zoom docs byte-identical to sync via extracted
+  `recordingToDoc` — re-syncs are hash-unchanged no-ops). Provenance in every response
+  (`source: cache|live`, `upserted`). Gmail message metadata gains `threadId`. 21 tests.
+- **feat(tokens) — manage-tokens CLI.** `tokens:issue/list/revoke`, closing the roadmap's
+  "issuance is a manual DB path" gap. Plaintext printed once; org by id-or-slug.
+- Verified E2E on the metacto deployment: 65 tools over prod HTTP, real CRM reads, a 39k-char
+  transcript through the cache path; 572 unit tests green.
+
+---
+
 ## 2026-07-03 (night) — Memory, trust, ask steps, briefings (v1.60)
 
 The "Trust & the Daily Loop" sprint — every open feature task closed.
