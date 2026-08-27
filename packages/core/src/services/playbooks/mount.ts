@@ -21,9 +21,9 @@
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import process from 'node:process';
 import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { fromRepoRoot } from '@/libs/repo-root';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { playbookSchema } from '@/models/Schema';
 
@@ -118,6 +118,13 @@ function filterByTags<T extends { tags: string[] }>(rows: T[], agentTags: string
  * we read the path from the `WORKSPACE_PATH` env; when it is unset no
  * workspace is configured and the playbook mounts without SKILL.md.
  *
+ * `fromRepoRoot` rather than `join(cwd, ...)`: it resolves, so an ABSOLUTE
+ * `WORKSPACE_PATH` is honored as given instead of being pasted onto cwd.
+ * Prod sets `/workspace/metacto-revenue` against a `/app` workdir, so the
+ * old join produced `/app/workspace/...`, no file was found, and every
+ * playbook silently mounted without its body. A skill that does not mount
+ * fails invisibly: the agent simply never sees it.
+ *
  * This is a v0.2 simplification — a future phase will write the file
  * path onto the `playbook` row at apply time so we don't have to
  * recompute it.
@@ -129,7 +136,7 @@ function locateSkillMdFromContext(_orgId: string, slug: string): string | null {
   if (!contextPath) {
     return null;
   }
-  const candidate = join(process.cwd(), contextPath, 'playbooks', slug, 'SKILL.md');
+  const candidate = fromRepoRoot(contextPath, 'playbooks', slug, 'SKILL.md');
   try {
     readFileSync(candidate, 'utf8');
     return candidate;

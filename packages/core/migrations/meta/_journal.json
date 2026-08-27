@@ -407,6 +407,13 @@
       "when": 1782434900000,
       "tag": "0057_lead_brief_queued_lane",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1782521300000,
+      "tag": "0058_lead_brief_generation",
+      "breakpoints": true
     }
   ]
 }

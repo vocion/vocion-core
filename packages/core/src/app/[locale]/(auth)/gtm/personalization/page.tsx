@@ -1,5 +1,5 @@
 import type { BriefRow } from '@/features/personalization/PersonalizationQueue';
-import { desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq, ne } from 'drizzle-orm';
 import { Sparkles } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -10,13 +10,19 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { leadBriefSchema } from '@/models/Schema';
+import { QUEUED_STATUS } from '@/services/PersonalizationQueueService';
 import { ORG_ROLE } from '@/types/Auth';
 
 /**
- * Personalization — the queue of MQLs the sweep has picked up. A lead lands
- * here when it arrives; research, drafting and review arrive in later slices.
- * Nothing here has been sent, and a lead leaves the queue only when a human
- * moves it.
+ * Personalization — researched leads waiting on a decision. The hourly sweep
+ * queues each new MQL, researches it, and writes a brief; a lead reaches this
+ * page only once it carries one, or once briefing has failed three times and
+ * the error is what there is to read.
+ *
+ * Unbriefed rows are filtered out HERE rather than hidden by the lane picker,
+ * so no filter, search or "All" tab can surface a lead with nothing behind it.
+ *
+ * Nothing here has been sent, and drafting is a later slice.
  *
  * Optional surface at `/gtm/personalization`. Linked only where
  * `workspace.yaml` lists `surfaces: [personalization]` (see
@@ -34,12 +40,28 @@ export default async function PersonalizationPage(props: {
     return null;
   }
 
+  // A lead with no brief is not on this screen, and a lead part-way through
+  // its retries is not either: both sit in `queued` until a brief exists or
+  // the tries run out, and the failure path moves the row out of that lane.
   const rows = await db
     .select()
     .from(leadBriefSchema)
-    .where(eq(leadBriefSchema.orgId, orgId))
+    .where(and(
+      eq(leadBriefSchema.orgId, orgId),
+      ne(leadBriefSchema.status, QUEUED_STATUS),
+    ))
     .orderBy(desc(leadBriefSchema.briefedAt))
     .limit(500);
+
+  // The count behind the empty state: leads recorded but not yet briefed.
+  const [waiting] = await db
+    .select({ n: count() })
+    .from(leadBriefSchema)
+    .where(and(
+      eq(leadBriefSchema.orgId, orgId),
+      eq(leadBriefSchema.status, QUEUED_STATUS),
+    ));
+  const waitingCount = waiting?.n ?? 0;
 
   // Dates cross the server/client boundary as ISO strings.
   const briefs: BriefRow[] = rows.map(r => ({
@@ -55,9 +77,12 @@ export default async function PersonalizationPage(props: {
     engagementOpened: r.engagementOpened,
     status: r.status,
     confidence: r.confidence,
+    sections: r.sections,
     claims: r.claims,
     missing: r.missing,
-    draftSequence: r.draftSequence,
+    briefError: r.briefError,
+    briefAttempts: r.briefAttempts,
+    regenerateNote: r.regenerateNote,
     arrivedAt: r.arrivedAt?.toISOString() ?? null,
     briefedAt: r.briefedAt?.toISOString() ?? null,
   }));
@@ -69,7 +94,7 @@ export default async function PersonalizationPage(props: {
     <>
       <TitleBar
         title="Personalization"
-        description="The queue of MQLs the sweep has picked up. Nothing sends without you."
+        description="Researched leads waiting on your decision. Each one arrives with a brief: what is known, what is inferred, what could not be reached, and the one question worth asking. Nothing here has been sent."
       />
 
       {canReset && (
@@ -82,8 +107,10 @@ export default async function PersonalizationPage(props: {
         ? (
             <EmptyState
               icon={Sparkles}
-              title="No leads queued yet"
-              description="The MQL sweep records every lead it picks up here. Ask the RevOps Lead to run a pass in chat, or wait for the next scheduled sweep."
+              title="No briefs yet"
+              description={waitingCount > 0
+                ? `${waitingCount} ${waitingCount === 1 ? 'lead is' : 'leads are'} recorded and waiting to be researched. A lead appears here once its brief is written, so this fills in as the hourly sweep works through them.`
+                : 'The hourly sweep queues each new MQL, researches it, and posts the brief here. Ask the RevOps Lead to run a pass in chat, or wait for the next sweep.'}
             />
           )
         : <PersonalizationQueue briefs={briefs} />}

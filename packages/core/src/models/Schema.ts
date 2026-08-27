@@ -2051,6 +2051,24 @@ export const leadBriefSchema = pgTable(
     }>>().default([]).notNull(),
     /** What research could NOT retrieve. Shown to the reviewer, never inferred around. */
     missing: jsonb('missing').$type<string[]>().default([]).notNull(),
+    /**
+     * The brief itself, as written prose the page renders in order. `claims`
+     * carries the same research structurally; this is what a reviewer reads.
+     * Empty means no brief has been written, which is what keeps a lead off
+     * the review screen.
+     */
+    sections: jsonb('sections').$type<Array<{
+      heading: string;
+      body: string;
+    }>>().default([]).notNull(),
+    /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
+    regenerateNote: text('regenerate_note'),
+    /** Briefing tries so far. Three, then the lead surfaces with its error. */
+    briefAttempts: integer('brief_attempts').default(0).notNull(),
+    /** Why the last try produced no brief. Rendered where the brief would be. */
+    briefError: text('brief_error'),
+    /** When the last try was handed out — what spaces the retries an hour apart. */
+    lastAttemptAt: timestamp('last_attempt_at', { mode: 'date' }),
     /** The drafted sequence awaiting review. Empty until the drafting slice runs. */
     draftSequence: jsonb('draft_sequence').$type<Array<{
       step: number;
