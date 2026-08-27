@@ -34,7 +34,8 @@ export function hasHubspotSource(ctx: RuntimeContext): boolean {
 const pageArgs = {
   query: z.string().optional().describe('Case-insensitive substring over name, email, domain, company, and HubSpot id. Use to answer "is X in the CRM?" — total=0 means no record.'),
   owner_ids: z.array(z.string()).optional().describe('HubSpot owner ids the records must belong to (omit = any owner)'),
-  created_after: z.string().optional().describe('Only records created at or after this ISO date, e.g. "2026-08-14" — use for "added this week/month". Errors on an unparseable date rather than guessing.'),
+  created_within_days: z.number().positive().max(365).optional().describe('Trailing window in days, resolved on the SERVER clock. Use this for "added this week", "the last 7 days", "this month" — it does NOT require you to know today\'s date, and getting that wrong silently narrows the result set instead of erroring.'),
+  created_after: z.string().optional().describe('Only records created at or after this ISO date, e.g. "2026-08-14". Use ONLY when the caller named an explicit date; for a trailing window use created_within_days. Errors on an unparseable date rather than guessing.'),
   created_before: z.string().optional().describe('Only records created strictly before this ISO date'),
   limit: z.number().int().positive().max(200).optional().describe('Records per page (default 50, max 200). Does NOT limit `total`.'),
   offset: z.number().int().min(0).optional().describe('Records to skip — pass the previous offset + returned to get the next page'),
@@ -49,6 +50,7 @@ type ToolArgs = {
   pipelines?: string[];
   industries?: string[];
   status?: 'open' | 'closed';
+  created_within_days?: number;
   created_after?: string;
   created_before?: string;
   limit?: number;
@@ -64,6 +66,7 @@ function toOptions(args: ToolArgs): CrmQueryOptions {
     pipelines: args.pipelines,
     industries: args.industries,
     dealStatus: args.status,
+    createdWithinDays: args.created_within_days,
     createdAfter: args.created_after,
     createdBefore: args.created_before,
     limit: args.limit,
@@ -122,6 +125,7 @@ async function run(ctx: RuntimeContext, objectType: CrmObjectType, args: ToolArg
     facets: result.facets,
     ...(result.facetAmounts ? { facet_amounts: result.facetAmounts } : {}),
     unavailable_fields: result.unavailableFields,
+    ...(result.createdAfter ? { created_after_applied: result.createdAfter } : {}),
     as_of: result.asOf ? result.asOf.toISOString() : null,
     sources_read: result.sources,
     ...(result.hasMore
@@ -139,7 +143,7 @@ export function getHubspotContactsTool(ctx: RuntimeContext) {
     async args => run(ctx, 'contacts', args as ToolArgs),
     {
       name: 'get_hubspot_contacts',
-      description: `Count and list HubSpot CONTACTS (people) from the CRM. Use this for any "how many contacts/leads/MQLs" question and for looking a person up — never search_knowledge, which returns at most 15 relevance hits and cannot count. Filter with lifecycle_stages; \`facets.lifecycleStage\` returns every stage present with its count, so read it to learn the exact stage strings (e.g. "lead", "salesqualifiedlead") instead of guessing. Use created_after for "added this week/month". For deals use get_hubspot_deals; for companies use get_hubspot_companies. ${FRESHNESS} ${HONESTY}`,
+      description: `Count and list HubSpot CONTACTS (people) from the CRM. Use this for any "how many contacts/leads/MQLs" question and for looking a person up — never search_knowledge, which returns at most 15 relevance hits and cannot count. Filter with lifecycle_stages; \`facets.lifecycleStage\` returns every stage present with its count, so read it to learn the exact stage strings (e.g. "lead", "salesqualifiedlead") instead of guessing. Use created_within_days for "added this week/month" — it resolves the window on the server, so you never have to know today's date. For deals use get_hubspot_deals; for companies use get_hubspot_companies. ${FRESHNESS} ${HONESTY}`,
       schema: z.object({
         lifecycle_stages: z.array(z.string()).optional().describe('Contact lifecycle stages, e.g. ["lead"] or ["salesqualifiedlead"]. Omit for ALL contacts. Case-insensitive.'),
         ...pageArgs,
@@ -153,7 +157,7 @@ export function getHubspotDealsTool(ctx: RuntimeContext) {
     async args => run(ctx, 'deals', args as ToolArgs),
     {
       name: 'get_hubspot_deals',
-      description: `Count and list HubSpot DEALS (the revenue pipeline) from the CRM. Use for "how many deals", pipeline breakdowns, and deal value. Filter with deal_stages / pipelines; \`facets.dealStage\` and \`facets.pipeline\` return every value present with its count, so read them rather than guessing stage names. \`total_amount\` is the summed value across ALL matches and \`facet_amounts\` is that sum broken down per stage and per pipeline — so value-by-stage is ONE call. NEVER page through deals adding amounts up yourself; the sums are already computed over every match, and a page only ever holds part of them. For "open pipeline" pass status:"open". Use created_after for "opened this month". For people use get_hubspot_contacts; for accounts use get_hubspot_companies. ${FRESHNESS} ${HONESTY}`,
+      description: `Count and list HubSpot DEALS (the revenue pipeline) from the CRM. Use for "how many deals", pipeline breakdowns, and deal value. Filter with deal_stages / pipelines; \`facets.dealStage\` and \`facets.pipeline\` return every value present with its count, so read them rather than guessing stage names. \`total_amount\` is the summed value across ALL matches and \`facet_amounts\` is that sum broken down per stage and per pipeline — so value-by-stage is ONE call. NEVER page through deals adding amounts up yourself; the sums are already computed over every match, and a page only ever holds part of them. For "open pipeline" pass status:"open". Use created_within_days for "opened this month" — it resolves the window on the server. For people use get_hubspot_contacts; for accounts use get_hubspot_companies. ${FRESHNESS} ${HONESTY}`,
       schema: z.object({
         status: z.enum(['open', 'closed']).optional().describe('"open" excludes won AND lost deals. ALWAYS pass this for "open pipeline" questions — it is resolved from the pipeline definitions, so it is correct for custom pipelines whose stage names give no hint. Omit for all deals.'),
         deal_stages: z.array(z.string()).optional().describe('Deal stage LABELS to include (read them from facets.dealStageLabel). Omit for all stages.'),

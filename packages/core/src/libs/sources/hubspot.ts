@@ -18,7 +18,25 @@ import { z } from 'zod';
 const OBJECT_TYPES = ['contacts', 'deals', 'companies'] as const;
 
 const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
-  contacts: ['firstname', 'lastname', 'email', 'company', 'jobtitle', 'lifecyclestage', 'hubspot_owner_id', 'hs_lastmodifieddate', 'createdate'],
+  // Contacts carry how the person arrived and how warm they are; without those
+  // a lead row can only say who someone is, never why they are worth working.
+  contacts: [
+    'firstname',
+    'lastname',
+    'email',
+    'company',
+    'jobtitle',
+    'lifecyclestage',
+    'hubspot_owner_id',
+    'hs_lastmodifieddate',
+    'createdate',
+    'hs_analytics_source',
+    'hs_analytics_source_data_1',
+    'hs_latest_source',
+    'hs_email_delivered',
+    'hs_email_open',
+    'hs_email_click',
+  ],
   deals: ['dealname', 'amount', 'dealstage', 'pipeline', 'closedate', 'hubspot_owner_id', 'hs_lastmodifieddate', 'createdate'],
   companies: ['name', 'domain', 'industry', 'numberofemployees', 'hubspot_owner_id', 'hs_lastmodifieddate', 'createdate'],
 };
@@ -136,6 +154,14 @@ function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageI
       industry: props.industry ?? undefined,
       employees: numeric(props.numberofemployees),
       createdAt: props.createdate ?? undefined,
+      // How the contact arrived, and prior email engagement. Keys are
+      // alphanumeric because `CrmRecordsService.meta()` inlines them.
+      originalSource: props.hs_analytics_source ?? undefined,
+      originalSourceDetail: props.hs_analytics_source_data_1 ?? undefined,
+      latestSource: props.hs_latest_source ?? undefined,
+      emailDelivered: numeric(props.hs_email_delivered),
+      emailOpened: numeric(props.hs_email_open),
+      emailClicked: numeric(props.hs_email_click),
       // Resolved from the pipeline definitions, so "open pipeline" is a real
       // predicate rather than a guess at which stage names look open.
       dealStageLabel: stage?.label,

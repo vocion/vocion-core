@@ -60,6 +60,7 @@ type Response = {
   unknown_filters?: Array<{ field: string; requested: string[]; not_found: string[] }>;
   available_values?: Record<string, Record<string, number>>;
   unavailable_fields: string[];
+  created_after_applied?: string;
   as_of: string | null;
   sources_read: string[];
   records: Array<Record<string, unknown>>;
@@ -450,6 +451,61 @@ describe('created-date window', () => {
 
     expect((await call(tool, { created_after: '2026-08-20' })).total).toBe(1);
     expect((await call(tool, { created_after: '2026-08-21' })).total).toBe(0);
+  });
+
+  it('resolves created_within_days on the server, so the caller never needs today\'s date', async () => {
+    const [src] = await db.insert(knowledgeSourceSchema).values({
+      orgId: ORG,
+      slug: 'hubspot',
+      kind: 'plugin',
+      configJson: { _connector: 'hubspot' },
+    }).returning({ id: knowledgeSourceSchema.id });
+    const day = 86_400_000;
+    for (const [i, ageDays] of [2, 20].entries()) {
+      await db.insert(knowledgeDocumentSchema).values({
+        orgId: ORG,
+        sourceId: src!.id,
+        externalId: `contacts:rel-${i}`,
+        title: `Relative ${i}`,
+        metadata: { objectType: 'contacts', hubspotId: `r${i}`, createdAt: new Date(Date.now() - ageDays * day).toISOString() },
+        contentHash: `contacts:rel-${i}`,
+        ingestedAt: NOW,
+      });
+    }
+    const tool = toolsByName(ORG).get('get_hubspot_contacts');
+
+    const week = await call(tool, { created_within_days: 7 });
+    const month = await call(tool, { created_within_days: 30 });
+
+    expect(week.total).toBe(1);
+    expect(month.total).toBe(2);
+    // The bound is reported back, so a run states the window it really used.
+    expect(week.created_after_applied).toBeTruthy();
+  });
+
+  it('lets created_within_days win over a created_after the caller also passed', async () => {
+    const [src] = await db.insert(knowledgeSourceSchema).values({
+      orgId: ORG,
+      slug: 'hubspot',
+      kind: 'plugin',
+      configJson: { _connector: 'hubspot' },
+    }).returning({ id: knowledgeSourceSchema.id });
+    await db.insert(knowledgeDocumentSchema).values({
+      orgId: ORG,
+      sourceId: src!.id,
+      externalId: 'contacts:recent',
+      title: 'Recent',
+      metadata: { objectType: 'contacts', hubspotId: 'rr', createdAt: new Date(Date.now() - 86_400_000).toISOString() },
+      contentHash: 'contacts:recent',
+      ingestedAt: NOW,
+    });
+    const tool = toolsByName(ORG).get('get_hubspot_contacts');
+
+    // A caller that got today's date wrong by years still gets the right window.
+    const res = await call(tool, { created_within_days: 7, created_after: '2020-01-01' });
+
+    expect(res.total).toBe(1);
+    expect(res.created_after_applied?.slice(0, 4)).not.toBe('2020');
   });
 
   it('rejects an unparseable date as data instead of throwing the turn away', async () => {

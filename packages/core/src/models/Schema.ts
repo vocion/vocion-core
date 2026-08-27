@@ -2023,15 +2023,19 @@ export const leadBriefSchema = pgTable(
     companyName: text('company_name'),
     /** Why the sweep picked it up: 'new' (fresh MQL) | 'stale' (aged, unworked). */
     triggerType: text('trigger_type').notNull(),
-    /** How the lead arrived — 'ebook' | 'ad' | 'webinar' | … from `utm_content`. */
+    /** How the lead arrived — HubSpot's original source, e.g. 'PAID_SOCIAL'. */
     entranceSource: text('entrance_source'),
-    /** The raw campaign tag, rendered as `utm=<value>`. */
+    /** The source detail behind it: the ad network, the keyword, the campaign. */
     utmCampaign: text('utm_campaign'),
     /** Prior engagement from the CRM mirror — what makes a lead warm, not our sends. */
     engagementSent: integer('engagement_sent').default(0).notNull(),
     engagementOpened: integer('engagement_opened').default(0).notNull(),
-    /** Queue lane: 'ready_for_review' | 'handed_off' | 'held' | 'sent'. */
-    status: text('status').default('ready_for_review').notNull(),
+    /**
+     * Queue lane: 'queued' | 'ready_for_review' | 'handed_off' | 'held' | 'sent'.
+     * Defaults to 'queued' because a row is recorded before any research runs,
+     * and a lead with no brief has nothing to review.
+     */
+    status: text('status').default('queued').notNull(),
     /**
      * Agent's self-assessment, 0..1. The confident/uncertain/speculative
      * label is DERIVED from this in one place (`features/personalization/
@@ -2065,6 +2069,8 @@ export const leadBriefSchema = pgTable(
     briefedBy: jsonb('briefed_by').$type<{ agentSlug?: string; missionRunId?: number; userId?: string }>(),
     /** Picked-up-but-not-briefed coverage record: 'no-contact-data' | 'out-of-window' | 'not-reached'. */
     skippedReason: text('skipped_reason'),
+    /** When the lead arrived — the CRM create date, copied at queue time. */
+    arrivedAt: timestamp('arrived_at', { mode: 'date' }),
     briefedAt: timestamp('briefed_at', { mode: 'date' }),
     decidedAt: timestamp('decided_at', { mode: 'date' }),
     decidedBy: text('decided_by'),
