@@ -14,7 +14,7 @@ import { confidenceLevel } from './confidence';
  *
  * Scaffold status: the queue reads real `lead_brief` rows and every lane,
  * filter and sort is live. The lane-moving actions (hand off / hold / send)
- * are rendered DISABLED until ticket 038 lands the review action, because a
+ * are rendered DISABLED until the review action ships, because a
  * button that looks like it moves a lead and doesn't is worse than no button.
  */
 
@@ -303,7 +303,7 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
                           {' '}
                           selected
                         </span>
-                        {/* Disabled until 038 lands `personalization.review_brief`.
+                        {/* Disabled until `personalization.review_brief` ships.
                             The aria-label distinguishes the ACTION from the
                             same-named lane tab above it. */}
                         {['Hand off', 'Hold', 'Send'].map(action => (
@@ -312,7 +312,7 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
                             type="button"
                             disabled
                             aria-label={`${action} ${selected.size} selected`}
-                            title="Lane actions land with ticket 038 (personalization.review_brief)"
+                            title="Lane actions arrive with the review action (personalization.review_brief)"
                             className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground opacity-50"
                           >
                             {action}
