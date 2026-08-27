@@ -160,7 +160,7 @@ export function getDiscoveryLedgerTool(ctx: RuntimeContext) {
     },
     {
       name: 'get_discovery_ledger',
-      description: 'Read the discovery ledger (the /dashboard/discovery page): past assessments with scores, route, skipped reason, and the review-queue status of each surfaced call. Returns the count first, then the rows. Use to see what has already been assessed before re-classifying, and to check what awaits human review. This reads the LEDGER, not HubSpot — use get_hubspot_contacts for the CRM records in scope.',
+      description: 'Read the discovery ledger (the /gtm/discovery page): past assessments with scores, route, skipped reason, and the review-queue status of each surfaced call. Returns the count first, then the rows. Use to see what has already been assessed before re-classifying, and to check what awaits human review. This reads the LEDGER, not HubSpot — use get_hubspot_contacts for the CRM records in scope.',
       schema: z.object({
         since_days: z.number().positive().max(90).optional().describe('Only candidates matched in the trailing N days'),
         status: z.enum(['matched', 'classified', 'routed', 'dropped']).optional(),

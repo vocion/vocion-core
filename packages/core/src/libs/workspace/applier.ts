@@ -591,27 +591,44 @@ async function applyWorkspaceLeadConfig(
 ): Promise<void> {
   const lead = loaded.manifest.lead ?? null;
   const accountableUserId = await resolveAccountableUser(loaded.manifest.accountableUser, 'workspace', 'workspace.yaml', errors);
+  // Ids are validated against the core registry at load, so anything reaching
+  // here names a real route. Replaced wholesale: dropping a surface from the
+  // YAML turns it off, same declarative rule as `lead:`.
+  const enabledSurfaces = loaded.manifest.surfaces;
 
   const [project] = await db
-    .select({ id: projectSchema.id, leadAgentSlug: projectSchema.leadAgentSlug, accountableUserId: projectSchema.accountableUserId })
+    .select({
+      id: projectSchema.id,
+      leadAgentSlug: projectSchema.leadAgentSlug,
+      accountableUserId: projectSchema.accountableUserId,
+      enabledSurfaces: projectSchema.enabledSurfaces,
+    })
     .from(projectSchema)
     .where(eq(projectSchema.id, orgId))
     .limit(1);
 
   if (!project) {
-    if (lead !== null || loaded.manifest.accountableUser !== undefined) {
-      console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser NOT applied. Pass --project <id|slug> so they land on a real project.`);
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0) {
+      console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
   }
 
-  if ((project.leadAgentSlug ?? null) === lead && (project.accountableUserId ?? null) === accountableUserId) {
+  const surfacesUnchanged
+    = project.enabledSurfaces.length === enabledSurfaces.length
+      && project.enabledSurfaces.every((s, i) => s === enabledSurfaces[i]);
+
+  if (
+    (project.leadAgentSlug ?? null) === lead
+    && (project.accountableUserId ?? null) === accountableUserId
+    && surfacesUnchanged
+  ) {
     return;
   }
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces })
       .where(eq(projectSchema.id, project.id));
   }
 }

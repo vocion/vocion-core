@@ -1,12 +1,17 @@
 import type { NextRequest } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 import { NextResponse } from 'next/server';
+import { SURFACE_PATH_SEGMENTS } from './features/navigation/surfaces';
 import { auth } from './libs/Auth';
 import { routing } from './libs/I18nRouting';
 
 const handleI18nRouting = createMiddleware(routing);
 
-const PROTECTED_PATH = /^\/(?:[^/]+\/)?(?:dashboard|onboarding|rpc)(?:$|\/|\?)/;
+// Optional-surface segments (`gtm`, …) come from the registry rather than
+// being typed out here, so registering a surface under a new segment protects
+// it instead of shipping it readable until someone updates this regex.
+const PROTECTED_SEGMENTS = ['dashboard', 'onboarding', 'rpc', ...SURFACE_PATH_SEGMENTS];
+const PROTECTED_PATH = new RegExp(`^/(?:[^/]+/)?(?:${PROTECTED_SEGMENTS.join('|')})(?:$|/|\\?)`);
 const AUTH_PATH = /^\/(?:[^/]+\/)?(?:sign-in|sign-up|setup|invite)(?:$|\/|\?)/;
 
 // Resolve the PUBLIC origin for redirects. Behind a reverse proxy (Caddy) the

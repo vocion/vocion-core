@@ -167,6 +167,13 @@ export const projectSchema = pgTable(
      * resolved to a user id at apply.
      */
     accountableUserId: text('accountable_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
+    /**
+     * Optional dashboard surfaces this workspace switched on, by registry id
+     * (`features/navigation/surfaces.ts`). Authored as top-level `surfaces:`
+     * in workspace.yaml and replaced wholesale at apply. Empty = the default
+     * sidebar only.
+     */
+    enabledSurfaces: jsonb('enabled_surfaces').$type<string[]>().default([]).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1991,6 +1998,86 @@ export const discoveryCandidateSchema = pgTable(
   table => [
     uniqueIndex('discovery_candidate_org_meeting_idx').on(table.orgId, table.meetingExternalId),
     index('discovery_candidate_org_status_idx').on(table.orgId, table.status),
+  ],
+);
+
+/**
+ * lead_brief — the personalization ledger. One row per MQL the agent picked
+ * up, carrying the researched brief, the drafted sequence, and the audit
+ * trail behind both. Mirrors `discovery_candidate`: the row IS the record of
+ * the pass, so a brief that was never logged is unreachable.
+ *
+ * Dropped and held leads are rows here too. An absence means the sweep never
+ * saw the lead, which is what `reconcile_mql_window` checks for.
+ */
+export const leadBriefSchema = pgTable(
+  'lead_brief',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** CRM mirror ref, e.g. `contacts:9412`. The join key back to HubSpot. */
+    contactRef: text('contact_ref').notNull(),
+    /** Contact identity copied at brief time so the queue renders without a CRM read. */
+    contactName: text('contact_name').notNull(),
+    contactTitle: text('contact_title'),
+    companyName: text('company_name'),
+    /** Why the sweep picked it up: 'new' (fresh MQL) | 'stale' (aged, unworked). */
+    triggerType: text('trigger_type').notNull(),
+    /** How the lead arrived — 'ebook' | 'ad' | 'webinar' | … from `utm_content`. */
+    entranceSource: text('entrance_source'),
+    /** The raw campaign tag, rendered as `utm=<value>`. */
+    utmCampaign: text('utm_campaign'),
+    /** Prior engagement from the CRM mirror — what makes a lead warm, not our sends. */
+    engagementSent: integer('engagement_sent').default(0).notNull(),
+    engagementOpened: integer('engagement_opened').default(0).notNull(),
+    /** Queue lane: 'ready_for_review' | 'handed_off' | 'held' | 'sent'. */
+    status: text('status').default('ready_for_review').notNull(),
+    /**
+     * Agent's self-assessment, 0..1. The confident/uncertain/speculative
+     * label is DERIVED from this in one place (`features/personalization/
+     * confidence.ts`) so the ladder can move without a backfill.
+     */
+    confidence: real('confidence'),
+    /** The researched claims. Each carries where it came from and when. */
+    claims: jsonb('claims').$type<Array<{
+      text: string;
+      kind: string;
+      source: string;
+      date?: string;
+    }>>().default([]).notNull(),
+    /** What research could NOT retrieve. Shown to the reviewer, never inferred around. */
+    missing: jsonb('missing').$type<string[]>().default([]).notNull(),
+    /** The drafted sequence awaiting review. Empty until the drafting slice runs. */
+    draftSequence: jsonb('draft_sequence').$type<Array<{
+      step: number;
+      subject: string;
+      body: string;
+    }>>().default([]).notNull(),
+    /** The review-queue action_run this brief was surfaced as. */
+    reviewActionRunId: integer('review_action_run_id'),
+    /** Thresholds in force — without them the confidence call cannot be re-derived. */
+    thresholds: jsonb('thresholds').$type<Record<string, number>>(),
+    /** Model id + prompt version, e.g. `claude-sonnet-4-6#personalization-v1`. */
+    briefVersion: text('brief_version'),
+    /** Workspace sha at brief time — the same stamp skill/mission runs carry. */
+    workspaceSha: text('workspace_sha'),
+    /** Who ordered the pass: agent slug + the mission_run/user turn behind it. */
+    briefedBy: jsonb('briefed_by').$type<{ agentSlug?: string; missionRunId?: number; userId?: string }>(),
+    /** Picked-up-but-not-briefed coverage record: 'no-contact-data' | 'out-of-window' | 'not-reached'. */
+    skippedReason: text('skipped_reason'),
+    briefedAt: timestamp('briefed_at', { mode: 'date' }),
+    decidedAt: timestamp('decided_at', { mode: 'date' }),
+    decidedBy: text('decided_by'),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    // One brief per lead — this is what makes a re-fire of the sweep a no-op.
+    uniqueIndex('lead_brief_org_contact_idx').on(table.orgId, table.contactRef),
+    index('lead_brief_org_status_idx').on(table.orgId, table.status),
   ],
 );
 

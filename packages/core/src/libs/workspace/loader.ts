@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { isSurfaceId, SURFACE_IDS } from '@/features/navigation/surfaces';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { composeKind, resolveActivation } from './compose';
 import { assertAgentHierarchy } from './hierarchy';
@@ -263,6 +264,17 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       }
       return { ...parsed, slug, sourceFile: file };
     });
+
+  // Surfaces name a core-registered route, never a URL — so an unknown id is
+  // caught here at `workspace:check` instead of rendering a dead sidebar link.
+  const unknownSurfaces = manifest.surfaces.filter(id => !isSurfaceId(id));
+  if (unknownSurfaces.length > 0) {
+    throw new WorkspaceValidationError(
+      join(abs, 'workspace.yaml'),
+      'workspace manifest',
+      unknownSurfaces.map(id => `unknown surface "${id}" — this core registers: ${SURFACE_IDS.join(', ')}`),
+    );
+  }
 
   assertUniqueSlugs(agents, 'agent');
   assertAgentHierarchy(agents);

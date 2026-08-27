@@ -204,7 +204,7 @@ Riley: Sounds good, send it over.`);
   console.log('\nSeeded. Now either:');
   console.log('  - chat with the RevOps Lead: "Run a discovery detection pass" (seller domain metacto.com), or');
   console.log('  - fire the automation: curl -X POST localhost:3000/api/v1/automations/discovery-sweep/run (with auth)');
-  console.log('Then check /dashboard/review for the queue item and /dashboard/discovery for the ledger row.');
+  console.log('Then check /dashboard/review for the queue item and /gtm/discovery for the ledger row.');
 
   await pool.end();
 }

@@ -393,6 +393,13 @@
       "when": 1782262100000,
       "tag": "0055_crm_created_at_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1782348500000,
+      "tag": "0056_lead_brief_and_surfaces",
+      "breakpoints": true
     }
   ]
 }
