@@ -1,0 +1,99 @@
+packages/core/src/features/personalization/PersonalizationQueue.test.tsx
+  s_6e8d8fbe7ffff5::t_ab27a49913de14 20-21,90
+  s_6e8d8fbe7ffff5::t_a3ee534b645434 29,41-51,53-54,56,59-62,77,84,87-88,94-109,113,127-135,139
+  s_6e8d8fbe7ffff5::t_3674b5f2b2088e 140
+packages/core/src/services/agents/tools/registry.ts
+  s_6e8d8fbe7ffff5::t_c57b037b299616 39
+  s_6e8d8fbe7ffff5::t_ebd2a68c636213 83
+packages/core/src/services/agents/tools/crm.ts
+  s_6e8d8fbe7ffff5::t_c045a0389bab25 37-38
+  s_6e8d8fbe7ffff5::t_250407057167f3 53,69,128
+  s_6e8d8fbe7ffff5::t_99f7784dbb734b 146,160
+packages/core/src/features/personalization/PersonalizationQueue.tsx
+  s_6e8d8fbe7ffff5::t_82cf284c51536e 219,221
+  s_6e8d8fbe7ffff5::t_20c4b72a65af01 87-96
+  s_6e8d8fbe7ffff5::t_6b6f23403d84bd 37
+  s_6e8d8fbe7ffff5::t_b02541d525b568 247-255
+  s_6e8d8fbe7ffff5::t_b44aa7c04de892 75-86
+  s_6e8d8fbe7ffff5::t_a61f8d5610701d 41-45,47,55,62,64-68,70
+  s_6e8d8fbe7ffff5::t_f13424d863ffa7 108-110,114,119-120
+  s_6e8d8fbe7ffff5::t_829826f2eb1479 115-118
+packages/core/src/services/agents/tools/personalization.ts
+  s_6e8d8fbe7ffff5::t_8016b12b2c1498 116
+  s_6e8d8fbe7ffff5::t_5ba9d6dde50f1c 36
+  s_6e8d8fbe7ffff5::t_8e5a185fd92ca6 1-35,37-86,88-114,117-137
+  s_6e8d8fbe7ffff5::t_e65cb9887620c7 115
+  s_6e8d8fbe7ffff5::t_a33faca27585c1 87
+packages/core/src/features/personalization/QueueResetControl.tsx
+  s_6e8d8fbe7ffff5::t_68e57497444905 1-18,21-124
+  s_6e8d8fbe7ffff5::t_285b01b2604e6e 19-20
+packages/core/src/services/agents/tools/personalization.test.ts
+  s_6e8d8fbe7ffff5::t_f255f84a50b480 33-39,41-42,144-145,148-149,382,386-387
+  s_6e8d8fbe7ffff5::t_5e27fadfb57704 1-15,17-29,45-128,130-143,146-147,150-196,198-222,224-340,342-371,393-396,398-403
+  s_6e8d8fbe7ffff5::t_7e3d8009459695 397
+  s_6e8d8fbe7ffff5::t_3247dfd53df4bb 30-32,43
+  s_6e8d8fbe7ffff5::t_d3836fa206e643 16
+  s_6e8d8fbe7ffff5::t_5c4b1e055011be 40,44,129,197
+  s_6e8d8fbe7ffff5::t_30e9827590a88e 341
+  s_6e8d8fbe7ffff5::t_a4d50bfce95831 372-381,383-385,388-392
+  s_6e8d8fbe7ffff5::t_ebd6063be2a468 223
+packages/core/src/libs/Env.ts
+  s_6e8d8fbe7ffff5::t_85f41da0061d6a 64
+  s_6e8d8fbe7ffff5::t_936b9a032c47f6 30-35
+packages/core/src/libs/sources/hubspot.ts
+  s_6e8d8fbe7ffff5::t_201ff0057ee8bd 157-164
+  s_6e8d8fbe7ffff5::t_fb69082a837cd5 21-39
+packages/core/src/app/api/v1/personalization/queue/route.ts
+  s_6e8d8fbe7ffff5::t_a4207bc49df310 1-48
+packages/core/src/services/agents/tools/crm.test.ts
+  s_6e8d8fbe7ffff5::t_bd0a6e96955fba 63
+  s_6e8d8fbe7ffff5::t_63a14f8e500190 456-510
+packages/core/src/services/PersonalizationQueueService.ts
+  s_6e8d8fbe7ffff5::t_1b6fb2f7a2b8f0 92
+  s_6e8d8fbe7ffff5::t_255fc02ea80e29 320-321,331
+  s_6e8d8fbe7ffff5::t_f751f4e9d60c54 41-42
+  s_6e8d8fbe7ffff5::t_43a5739548da64 182
+  s_6e8d8fbe7ffff5::t_d736739930dbca 333-337,341
+  s_6e8d8fbe7ffff5::t_dc4e9d9fcbe93e 358
+  s_6e8d8fbe7ffff5::t_285b01b2604e6e 142-145,155-164,260-261,310-314
+  s_6e8d8fbe7ffff5::t_edcb0d49880b76 1-40,43-91,93-141,165-181,183-259,262-292,294-309,315-319,322-330,332,338-340,342-357,359-362,366-388,390-414
+  s_6e8d8fbe7ffff5::t_3d5286bd6c1b8d 363-365
+  s_6e8d8fbe7ffff5::t_1f4a0d7e86b269 389
+  s_6e8d8fbe7ffff5::t_c4406daefdf35e 146-154
+  s_6e8d8fbe7ffff5::t_631c4008a9b065 293
+packages/core/src/models/Schema.ts
+  s_6e8d8fbe7ffff5::t_1d56ccd12069fa 2072-2073
+  s_6e8d8fbe7ffff5::t_d7e2161efc8a4f 2026,2028
+  s_6e8d8fbe7ffff5::t_49283028dcda9d 2033-2038
+packages/core/src/services/CrmRecordsService.ts
+  s_6e8d8fbe7ffff5::t_0f7f39aaf6022f 34
+  s_6e8d8fbe7ffff5::t_40ebaabda68c5a 58-66
+  s_6e8d8fbe7ffff5::t_3c0eecf65a2e88 248,490
+  s_6e8d8fbe7ffff5::t_48cb2e3916f8b1 264-270
+  s_6e8d8fbe7ffff5::t_eb97590d9e1913 307-311
+  s_6e8d8fbe7ffff5::t_74581b59abdb42 73-78
+  s_6e8d8fbe7ffff5::t_dc2934a5234c8c 123-124
+packages/core/src/app/[locale]/(auth)/gtm/personalization/page.tsx
+  s_6e8d8fbe7ffff5::t_79720120cbdd1f 8,11,13,16-19,32,61,65-67,72,75-80,85-86
+packages/core/migrations/meta/_journal.json
+  s_6e8d8fbe7ffff5::t_d45796261e493f 403-409
+packages/core/migrations/0057_lead_brief_queued_lane.sql
+  s_6e8d8fbe7ffff5::t_2f9535fcf4e4ae 1-2,4-9,12-14
+  s_6e8d8fbe7ffff5::t_7a80c46dbdf454 3,10-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "68f27b2b8aa275fc10baa90419c7c9edd5926540",
+  "prompts": {},
+  "sessions": {
+    "s_6e8d8fbe7ffff5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dde6d880-c2f1-42fa-9883-c9078a57305e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
