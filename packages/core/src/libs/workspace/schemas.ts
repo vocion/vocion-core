@@ -46,6 +46,13 @@ export const WorkspaceManifestSchema = z.object({
     temperature: z.string().optional(),
   }).partial().optional(),
   /**
+   * Optional dashboard surfaces to switch on, by registry id (see
+   * `features/navigation/surfaces.ts`). The route, page, label, icon and
+   * sidebar section all live in core; this list only says which ones this
+   * workspace gets. Unknown ids fail at load. Omit for none.
+   */
+  surfaces: z.array(z.string()).default([]),
+  /**
    * Pin a versioned base pack that ships inside vocion-core, e.g.
    * `core@1.4.0` (or bare `core` to track the pack's current version).
    * OMIT → no base layer at all: the workspace loads exactly as it does

@@ -1,5 +1,6 @@
 'use client';
 
+import type { SurfaceId } from '@/features/navigation/surfaces';
 import {
   Activity,
   ArrowLeft,
@@ -31,6 +32,7 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } fr
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { AppSidebarNavGroup } from '@/features/dashboard/AppSidebarNavGroup';
 import { WorkspaceMenu } from '@/features/dashboard/WorkspaceMenu';
+import { SurfaceNav } from '@/features/navigation/SurfaceNav';
 import { VocionLogo } from '@/templates/VocionLogo';
 
 /**
@@ -52,9 +54,11 @@ import { VocionLogo } from '@/templates/VocionLogo';
 const NAV_VIEW_KEY = 'vocion:nav:view';
 type NavView = 'work' | 'manage';
 
-export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<typeof Sidebar> & {
+export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
+  /** Optional surfaces the workspace switched on — see `features/navigation/surfaces.ts`. */
+  enabledSurfaces?: SurfaceId[];
 }) => {
   const t = useTranslations('DashboardLayout');
   const [view, setView] = useState<NavView>('work');
@@ -101,6 +105,9 @@ export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<t
                     { title: t('search'), url: '/dashboard/search', icon: BookOpen },
                   ]}
                 />
+                {/* Workspace-enabled surfaces (workspace.yaml `surfaces:`).
+                    Renders nothing when none are on. */}
+                <SurfaceNav enabled={enabledSurfaces} />
                 {/* Bottom cluster: which workspace you're in + the door to
                     its configuration. Both are context, not daily nav. */}
                 <div className="mt-auto px-2 pb-1">
