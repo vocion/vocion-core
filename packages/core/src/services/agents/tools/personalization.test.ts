@@ -401,3 +401,427 @@ describe('reconcile_mql_window', () => {
     expect(out.error).toBe('bad_argument');
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* Brief generation                                                    */
+/* ------------------------------------------------------------------ */
+
+type ClaimOut = {
+  lead: {
+    contactRef: string;
+    contactName: string;
+    attempt: number;
+    attemptsRemaining: number;
+    regenerateNote: string | null;
+  } | null;
+  surfaced: string[];
+  waiting: number;
+};
+
+type SaveOut = {
+  saved?: boolean;
+  error?: string;
+  status?: string;
+  sectionCount?: number;
+  claimCount?: number;
+  missingCount?: number;
+  confidence?: number | null;
+  briefVersion?: string | null;
+  identity?: { contactName: string; companyName: string | null; entranceSource: string | null; engagementSent: number };
+};
+
+type FailureOut = {
+  recorded: boolean;
+  reason?: string;
+  attemptsUsed?: number;
+  attemptsRemaining?: number;
+  surfacesNext?: boolean;
+};
+
+const SECTIONS = [
+  { heading: 'Prospect', body: 'Person 1, Ops Lead at Acme.' },
+  { heading: 'Recommended Angle', body: 'Ask how estimates get re-keyed.' },
+];
+
+const CLAIMS = [
+  { text: 'Acme runs 40 crews.', kind: 'Fact', source: 'https://acme.com/about', date: '2026-08-20' },
+];
+
+const MISSING = ['Sequence state, replies, calls and meetings are not reachable by this workflow.'];
+
+function saveArgs(contactRef: string, over: Record<string, unknown> = {}) {
+  return {
+    contact_ref: contactRef,
+    sections: SECTIONS,
+    claims: CLAIMS,
+    missing: MISSING,
+    confidence: 0.72,
+    skill_version: 1,
+    ...over,
+  };
+}
+
+/**
+ * Queue every seeded MQL, which is where a brief always starts from.
+ * @param orgId
+ */
+async function seedQueue(orgId = ORG) {
+  await seedMirror(orgId);
+  await call(toolsByName(orgId).get('queue_lead'), {
+    contact_refs: ['contacts:1', 'contacts:2', 'contacts:3'],
+  });
+}
+
+/**
+ * Move a lead's last attempt back so the retry floor stops blocking it.
+ * @param contactRef
+ */
+async function ageLastAttempt(contactRef: string) {
+  await db
+    .update(leadBriefSchema)
+    .set({ lastAttemptAt: new Date(Date.now() - 3 * 3_600_000) })
+    .where(eq(leadBriefSchema.contactRef, contactRef));
+}
+
+describe('next_lead_to_brief', () => {
+  it('hands out one lead at a time and counts the try in the same breath', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+
+    const first = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+
+    expect(first.lead).not.toBeNull();
+    expect(first.lead!.attempt).toBe(1);
+    expect(first.lead!.attemptsRemaining).toBe(2);
+    expect(first.waiting).toBe(2);
+
+    // The count is on the row, not in the agent's head: it moved without the
+    // agent reporting anything back.
+    const [row] = await db
+      .select()
+      .from(leadBriefSchema)
+      .where(eq(leadBriefSchema.contactRef, first.lead!.contactRef));
+
+    expect(row!.briefAttempts).toBe(1);
+    expect(row!.lastAttemptAt).not.toBeNull();
+  });
+
+  it('does not hand the same lead out twice inside one run', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+
+    const seen = new Set<string>();
+    for (let i = 0; i < 3; i++) {
+      const out = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+      seen.add(out.lead!.contactRef);
+    }
+    const exhausted = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+
+    expect(seen.size).toBe(3);
+    // Every lead has spent exactly one try, and none is eligible again yet.
+    expect(exhausted.lead).toBeNull();
+    expect(exhausted.waiting).toBe(3);
+  });
+
+  it('gives a lead three tries and no more', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    await db.delete(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:2'));
+    await db.delete(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:3'));
+
+    const attempts: number[] = [];
+    for (let run = 0; run < 4; run++) {
+      const out = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+      if (out.lead) {
+        attempts.push(out.lead.attempt);
+      }
+      await ageLastAttempt('contacts:1');
+    }
+
+    expect(attempts).toStrictEqual([1, 2, 3]);
+  });
+
+  it('keeps a lead mid-retry off the review screen, then surfaces it with its error', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    await db.delete(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:2'));
+    await db.delete(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:3'));
+
+    for (let run = 0; run < 3; run++) {
+      await call<ClaimOut>(tools.get('next_lead_to_brief'));
+      await call<FailureOut>(tools.get('record_brief_failure'), {
+        contact_ref: 'contacts:1',
+        error: 'web_search returned "unconfigured" on every query.',
+      });
+
+      // Two tries spent is still not a reason to interrupt anyone.
+      const [mid] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:1'));
+
+      expect(mid!.status).toBe('queued');
+
+      await ageLastAttempt('contacts:1');
+    }
+
+    const final = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+
+    expect(final.surfaced).toStrictEqual(['contacts:1']);
+    expect(final.lead).toBeNull();
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:1'));
+
+    expect(row!.status).toBe('ready_for_review');
+    expect(row!.briefAttempts).toBe(3);
+    expect(row!.skippedReason).toBe('brief-failed');
+    expect(row!.briefError).toContain('unconfigured');
+    // The retries are over: it is out of the queued lane and never claimed again.
+    expect(row!.sections).toStrictEqual([]);
+  });
+
+  it('says so plainly when a run that lost the lead reported no error', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    await db.delete(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:2'));
+    await db.delete(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:3'));
+
+    for (let run = 0; run < 3; run++) {
+      await call<ClaimOut>(tools.get('next_lead_to_brief'));
+      await ageLastAttempt('contacts:1');
+    }
+    await call<ClaimOut>(tools.get('next_lead_to_brief'));
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:1'));
+
+    expect(row!.status).toBe('ready_for_review');
+    expect(row!.briefError).toContain('without reporting an error');
+  });
+
+  it('never hands out a lead that already carries a brief', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+    await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(claimed.lead!.contactRef));
+
+    await ageLastAttempt(claimed.lead!.contactRef);
+    const refs: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const out = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+      if (out.lead) {
+        refs.push(out.lead.contactRef);
+      }
+    }
+
+    expect(refs).not.toContain(claimed.lead!.contactRef);
+  });
+
+  it('is empty when nothing needs a brief, which is the normal run', async () => {
+    const out = await call<ClaimOut>(toolsByName(ORG).get('next_lead_to_brief'));
+
+    expect(out).toMatchObject({ lead: null, waiting: 0, surfaced: [] });
+  });
+
+  it('never reaches another org queue', async () => {
+    await seedQueue(ORG);
+
+    const out = await call<ClaimOut>(toolsByName(OTHER).get('next_lead_to_brief'));
+
+    expect(out.lead).toBeNull();
+    expect(out.waiting).toBe(0);
+  });
+});
+
+describe('save_lead_brief', () => {
+  it('writes the brief and moves the lead to review', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+
+    const out = await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(claimed.lead!.contactRef));
+
+    expect(out).toMatchObject({
+      saved: true,
+      status: 'ready_for_review',
+      sectionCount: 2,
+      claimCount: 1,
+      missingCount: 1,
+      confidence: 0.72,
+    });
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, claimed.lead!.contactRef));
+
+    expect(row!.sections).toStrictEqual(SECTIONS);
+    expect(row!.claims).toStrictEqual(CLAIMS);
+    expect(row!.missing).toStrictEqual(MISSING);
+    expect(row!.briefedAt).not.toBeNull();
+  });
+
+  it('stamps the row with the skill version behind it', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+
+    const out = await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(claimed.lead!.contactRef, { skill_version: 3 }));
+
+    expect(out.briefVersion).toContain('write-lead-brief-v3');
+    // No longer the queue-only stamp: a research pass is behind this row.
+    expect(out.briefVersion).not.toContain('queue-only');
+  });
+
+  it('cannot change who the lead is, however the brief describes them', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+    const ref = claimed.lead!.contactRef;
+
+    const out = await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(ref, {
+      // Identity is not in the schema, so these are simply not writable.
+      contact_name: 'Someone Else',
+      company_name: 'A Different Company',
+      entrance_source: 'ORGANIC_SEARCH',
+      engagement_sent: 99,
+    }));
+
+    expect(out.identity).toMatchObject({
+      contactName: claimed.lead!.contactName,
+      companyName: 'Acme',
+      entranceSource: 'PAID_SEARCH',
+      engagementSent: 3,
+    });
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+
+    expect(row!.contactName).toBe(claimed.lead!.contactName);
+    expect(row!.companyName).toBe('Acme');
+    expect(row!.entranceSource).toBe('PAID_SEARCH');
+    expect(row!.engagementSent).toBe(3);
+  });
+
+  it('clears a stored error when a later try succeeds', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+    const ref = claimed.lead!.contactRef;
+    await call<FailureOut>(tools.get('record_brief_failure'), { contact_ref: ref, error: 'fetch_url timed out' });
+
+    await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(ref));
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+
+    expect(row!.briefError).toBeNull();
+    expect(row!.skippedReason).toBeNull();
+  });
+
+  it('refuses a ref that is not on the queue rather than writing nothing quietly', async () => {
+    await seedQueue();
+
+    const out = await call<SaveOut>(toolsByName(ORG).get('save_lead_brief'), saveArgs('contacts:9999'));
+
+    expect(out.error).toBe('not_on_queue');
+    expect(out.saved).toBeUndefined();
+  });
+
+  it('never writes into another org queue', async () => {
+    await seedQueue(ORG);
+
+    const out = await call<SaveOut>(toolsByName(OTHER).get('save_lead_brief'), saveArgs('contacts:1'));
+
+    expect(out.error).toBe('not_on_queue');
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:1'));
+
+    expect(row!.status).toBe('queued');
+  });
+});
+
+describe('record_brief_failure', () => {
+  it('stores the text without spending a try', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+
+    const out = await call<FailureOut>(tools.get('record_brief_failure'), {
+      contact_ref: claimed.lead!.contactRef,
+      error: 'crawl_site returned 403 for acme.com',
+    });
+
+    expect(out).toMatchObject({ recorded: true, attemptsUsed: 1, attemptsRemaining: 2, surfacesNext: false });
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, claimed.lead!.contactRef));
+
+    expect(row!.briefAttempts).toBe(1);
+    expect(row!.briefError).toContain('403');
+  });
+
+  it('will not overwrite a written brief with an error', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+    const ref = claimed.lead!.contactRef;
+    await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(ref));
+
+    const out = await call<FailureOut>(tools.get('record_brief_failure'), { contact_ref: ref, error: 'too late' });
+
+    expect(out).toMatchObject({ recorded: false, reason: 'not_on_queue' });
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+
+    expect(row!.briefError).toBeNull();
+    expect(row!.sections).toStrictEqual(SECTIONS);
+  });
+});
+
+describe('regeneration', () => {
+  it('clears the brief, keeps the note, resets the tries and puts the lead back in line', async () => {
+    const { regenerateBrief } = await import('@/services/PersonalizationQueueService');
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+    const ref = claimed.lead!.contactRef;
+    await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(ref));
+
+    const [before] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+    const result = await regenerateBrief(ORG, { id: before!.id, note: 'The angle is generic. Find something specific.' });
+
+    expect(result.regenerated).toBe(true);
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+
+    expect(row!.sections).toStrictEqual([]);
+    expect(row!.claims).toStrictEqual([]);
+    expect(row!.confidence).toBeNull();
+    expect(row!.status).toBe('queued');
+    expect(row!.briefAttempts).toBe(0);
+    expect(row!.regenerateNote).toContain('Find something specific');
+    // Identity survives a rewrite, the same as it survives a re-run.
+    expect(row!.contactName).toBe(claimed.lead!.contactName);
+    expect(row!.companyName).toBe('Acme');
+  });
+
+  it('hands the reviewer instruction to the next pass', async () => {
+    const { regenerateBrief } = await import('@/services/PersonalizationQueueService');
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    await db.delete(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:2'));
+    await db.delete(leadBriefSchema).where(eq(leadBriefSchema.contactRef, 'contacts:3'));
+    const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+    await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(claimed.lead!.contactRef));
+
+    const [row] = await db.select().from(leadBriefSchema);
+    await regenerateBrief(ORG, { id: row!.id, note: 'Lead with the re-keying angle.' });
+
+    const next = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+
+    expect(next.lead!.contactRef).toBe(claimed.lead!.contactRef);
+    expect(next.lead!.attempt).toBe(1);
+    expect(next.lead!.regenerateNote).toBe('Lead with the re-keying angle.');
+  });
+
+  it('refuses an id from another org queue', async () => {
+    const { regenerateBrief } = await import('@/services/PersonalizationQueueService');
+    await seedQueue(ORG);
+    const [row] = await db.select().from(leadBriefSchema);
+
+    const result = await regenerateBrief(OTHER, { id: row!.id, note: 'not yours' });
+
+    expect(result).toMatchObject({ regenerated: false, reason: 'not_found' });
+  });
+});

@@ -1,10 +1,10 @@
 import type { McpConfig } from '../config';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
+import { fromRepoRoot } from '@/libs/repo-root';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { playbookSchema } from '@/models/Schema';
 
@@ -75,7 +75,9 @@ function playbookGetTool(config: McpConfig): ToolModule {
       if (!contextPath) {
         throw new Error('WORKSPACE_PATH is not set — playbook files unavailable');
       }
-      const folder = join(process.cwd(), contextPath, 'playbooks', slug);
+      // resolve, not join: an absolute WORKSPACE_PATH (prod) must be
+      // honored as given rather than pasted onto cwd.
+      const folder = fromRepoRoot(contextPath, 'playbooks', slug);
       const target = resource ? join(folder, resource) : join(folder, 'SKILL.md');
       const content = readFileSync(target, 'utf8');
       return {
