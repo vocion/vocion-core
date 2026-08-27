@@ -34,11 +34,17 @@ export type BriefRow = {
   claims: Array<{ text: string; kind: string; source: string; date?: string }>;
   missing: string[];
   draftSequence: Array<{ step: number; subject: string; body: string }>;
+  arrivedAt: string | null;
   briefedAt: string | null;
 };
 
-/** Lane order is the review order: what needs you, then what you did with it. */
+/**
+ * Lane order is the review order: picked up, then what needs you, then what
+ * you did with it. `queued` is where the sweep puts a lead before any
+ * research runs, so it holds leads with nothing to review yet.
+ */
 const LANES = [
+  { key: 'queued', label: 'Queued' },
   { key: 'ready_for_review', label: 'Ready for review' },
   { key: 'handed_off', label: 'Hand off' },
   { key: 'held', label: 'Held' },
@@ -46,19 +52,47 @@ const LANES = [
 ] as const;
 
 const PILL: Record<string, { status: 'pending' | 'approved' | 'paused' | 'completed'; label: string }> = {
+  queued: { status: 'paused', label: 'Queued' },
   ready_for_review: { status: 'pending', label: 'Ready for review' },
   handed_off: { status: 'approved', label: 'Handed off' },
   held: { status: 'paused', label: 'Held' },
   sent: { status: 'completed', label: 'Sent' },
 };
 
-type SortKey = 'confidence' | 'briefed' | 'name';
+type SortKey = 'arrived' | 'confidence' | 'name';
 
+/**
+ * Arrival order is the default and the first option. Confidence sorts nothing
+ * while every row is unscored: `(a ?? 0) - (b ?? 0)` is zero for every pair,
+ * so the control would silently do nothing on a queue of phase-1 rows.
+ */
 const SORTS: { key: SortKey; label: string }[] = [
+  { key: 'arrived', label: 'Arrived' },
   { key: 'confidence', label: 'Confidence' },
-  { key: 'briefed', label: 'Briefed' },
   { key: 'name', label: 'Name' },
 ];
+
+/** Fixed locale + UTC so the server render and the client render agree. */
+const ARRIVED_FORMAT = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+
+function arrivedLabel(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : ARRIVED_FORMAT.format(d);
+}
+
+/**
+ * The entrance path is a CRM enum (`PAID_SOCIAL`, `ORGANIC_SEARCH`). Shown
+ * raw it reads as a database value rather than how someone found us.
+ * @param value
+ */
+function entranceLabel(value: string): string {
+  const words = value.replaceAll('_', ' ').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 const BriefListRow = (props: {
   row: BriefRow;
@@ -71,14 +105,19 @@ const BriefListRow = (props: {
   const level = confidenceLevel(row.confidence);
   const pill = PILL[row.status] ?? { status: 'pending' as const, label: row.status };
 
-  // The one-line "why this lead": who they are, how they arrived, how warm.
+  // The one-line "why this lead": who they are, when and how they arrived,
+  // how warm. Anything the CRM does not carry is left out rather than shown
+  // as a blank or a zero pretending to be a reading.
   const meta = [
     row.contactTitle,
     row.companyName,
-    row.entranceSource,
-    row.utmCampaign ? `utm=${row.utmCampaign}` : null,
-    `${row.engagementSent} sent`,
-    `${row.engagementOpened} opened`,
+    row.arrivedAt ? `arrived ${arrivedLabel(row.arrivedAt)}` : null,
+    row.entranceSource ? entranceLabel(row.entranceSource) : null,
+    // "via", not "utm=": what the CRM carries is the source detail (the ad
+    // network, the keyword), which is only sometimes a campaign tag.
+    row.utmCampaign ? `via ${row.utmCampaign}` : null,
+    row.engagementSent > 0 ? `${row.engagementSent} sent` : null,
+    row.engagementOpened > 0 ? `${row.engagementOpened} opened` : null,
   ].filter(Boolean).join(' · ');
 
   return (
@@ -177,9 +216,9 @@ const BriefListRow = (props: {
 };
 
 export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
-  const [lane, setLane] = useState<string>('ready_for_review');
+  const [lane, setLane] = useState<string>('queued');
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<SortKey>('confidence');
+  const [sort, setSort] = useState<SortKey>('arrived');
   const [descending, setDescending] = useState(true);
   const [selected, setSelected] = useState(() => new Set<number>());
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -205,8 +244,15 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
       if (sort === 'name') {
         return a.contactName.localeCompare(b.contactName) * -direction;
       }
-      if (sort === 'briefed') {
-        return ((a.briefedAt ?? '') < (b.briefedAt ?? '') ? -1 : 1) * direction;
+      if (sort === 'arrived') {
+        // Falls back to briefed time so a row with no CRM create date still
+        // orders, rather than collapsing to the top in an arbitrary spot.
+        const at = a.arrivedAt ?? a.briefedAt ?? '';
+        const bt = b.arrivedAt ?? b.briefedAt ?? '';
+        if (at === bt) {
+          return 0;
+        }
+        return (at < bt ? -1 : 1) * direction;
       }
       return ((a.confidence ?? 0) - (b.confidence ?? 0)) * direction;
     });

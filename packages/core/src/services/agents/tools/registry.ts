@@ -36,6 +36,7 @@ import {
 } from './learnings';
 import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
+import { personalizationTools } from './personalization';
 import { proposeActionTool } from './proposeAction';
 import { recommendActionTool } from './recommendAction';
 import { runCodeTool } from './runCode';
@@ -79,6 +80,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     ...gmailTools(ctx),
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
+    ...personalizationTools(ctx),
   ] as StructuredToolInterface[];
 }
 

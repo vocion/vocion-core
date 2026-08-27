@@ -31,7 +31,7 @@ const FACET_KEYS: Record<CrmObjectType, string[]> = {
 
 /** Metadata keys projected onto a returned row, per object type. */
 const ROW_KEYS: Record<CrmObjectType, string[]> = {
-  contacts: ['primaryEmail', 'company', 'jobTitle', 'lifecycleStage', 'ownerId', 'createdAt'],
+  contacts: ['primaryEmail', 'company', 'jobTitle', 'lifecycleStage', 'ownerId', 'createdAt', 'originalSource', 'originalSourceDetail', 'emailDelivered', 'emailOpened'],
   deals: ['amount', 'dealStageLabel', 'pipelineLabel', 'dealClosed', 'closeDate', 'ownerId', 'createdAt'],
   companies: ['domain', 'industry', 'employees', 'ownerId', 'createdAt'],
 };
@@ -55,12 +55,27 @@ export type CrmFilter = {
    * no hint of closed-ness.
    */
   dealStatus?: 'open' | 'closed';
+  /**
+   * Trailing window in days, resolved against the SERVER clock. Wins over
+   * `createdAfter` when both are passed.
+   *
+   * It exists because `createdAfter` requires the caller to know today's date,
+   * and a model asked for "the last 7 days" has been observed getting it wrong
+   * by a week — which silently narrows the result set rather than erroring.
+   */
+  createdWithinDays?: number;
   /** ISO date (or datetime); records created at or after it. */
   createdAfter?: string;
   /** ISO date (or datetime); records created strictly before it. */
   createdBefore?: string;
   /** Case-insensitive substring over title, email, domain, company, HubSpot id. */
   query?: string;
+  /**
+   * Exact mirror refs (`contacts:9412`). Narrows to a known set, so a caller
+   * holding refs re-reads the records through this one SQL path instead of
+   * opening a second one over `knowledge_document`.
+   */
+  refs?: string[];
 };
 
 export type CrmQueryOptions = CrmFilter & {
@@ -105,6 +120,8 @@ export type CrmQueryResult = {
    * the number must not be reported until the value is corrected.
    */
   unknownFilterValues: Record<string, { requested: string[]; notFound: string[] }>;
+  /** The created-after bound actually applied, after resolving `createdWithinDays`. */
+  createdAfter: string | null;
   /** Newest `last_synced_at` across the sources read. Null = never synced. */
   asOf: Date | null;
   /** Source slugs actually read. Empty = no hubspot source connected/permitted. */
@@ -228,6 +245,7 @@ export async function queryCrmRecords(
     facets: {},
     unavailableFields: [],
     unknownFilterValues: {},
+    createdAfter: null,
     asOf: null,
     sources: [],
     records: [],
@@ -242,6 +260,13 @@ export async function queryCrmRecords(
     sql`${meta('objectType')} = ${objectType}`,
     sql`${meta('hubspotId')} IS NOT NULL`,
   ];
+
+  if (opts.refs) {
+    // An empty ref list means "none of them", not "all of them".
+    conds.push(opts.refs.length === 0
+      ? sql`false`
+      : inArray(knowledgeDocumentSchema.externalId, opts.refs));
+  }
 
   if (opts.ownerIds?.length) {
     conds.push(sql`${meta('ownerId')} IN (${sql.join(opts.ownerIds.map(o => sql`${o}`), sql`, `)})`);
@@ -279,8 +304,11 @@ export async function queryCrmRecords(
   // order it sorts chronologically, so a string compare is both correct and
   // safe — a `::timestamptz` cast would throw the whole query away on a single
   // malformed value, and it would defeat the expression index besides.
-  if (opts.createdAfter) {
-    conds.push(sql`${meta('createdAt')} >= ${isoBound(opts.createdAfter, 'createdAfter')}`);
+  const createdAfter = opts.createdWithinDays
+    ? new Date(Date.now() - opts.createdWithinDays * 86_400_000).toISOString()
+    : opts.createdAfter;
+  if (createdAfter) {
+    conds.push(sql`${meta('createdAt')} >= ${isoBound(createdAfter, 'createdAfter')}`);
   }
   if (opts.createdBefore) {
     conds.push(sql`${meta('createdAt')} < ${isoBound(opts.createdBefore, 'createdBefore')}`);
@@ -459,6 +487,7 @@ export async function queryCrmRecords(
     ...(Object.keys(facetAmounts).length > 0 ? { facetAmounts } : {}),
     unavailableFields,
     unknownFilterValues,
+    createdAfter: createdAfter ?? null,
     asOf,
     sources: relevant.map(s => s.slug),
     records,
