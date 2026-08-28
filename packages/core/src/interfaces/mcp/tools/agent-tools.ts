@@ -10,7 +10,7 @@
  *
  * Tools run AS AN AGENT: the ctx is rebuilt from a real `agent` row exactly
  * the way `toolEndpoint.ts` does (connectorSources, objectTypeSlugs,
- * searchConfig, operationSlugs, harnessConfig from the row). The default
+ * searchConfig, harnessConfig from the row). The default
  * agent is `config.agentSlug` (env `VOCION_MCP_AGENT_SLUG`) or the org's
  * workspace lead; every bridged tool also accepts an optional `agent_slug`
  * to run as another agent, re-resolved and re-gated at call time.
@@ -95,7 +95,6 @@ function ctxFor(orgId: string, row: AgentRow, userId: string, events: AgentEvent
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    operationSlugs: row.skillSlugs ?? [],
     harnessConfig: row.harnessConfig ?? {},
     emit: e => events.push(e),
   };

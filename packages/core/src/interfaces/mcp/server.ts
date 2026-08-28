@@ -7,7 +7,6 @@ import { dataTools } from './tools/data-tools';
 import { missionTools } from './tools/mission-tools';
 import { playbookTools } from './tools/playbook-tools';
 import { pluginTools } from './tools/plugin-tools';
-import { runtimeTools, skillRunDetailTool } from './tools/runtime-tools';
 import { teamsTools } from './tools/teams-tools';
 import { workflowTools } from './tools/workflow-tools';
 import { workspaceTools } from './tools/workspace-tools';
@@ -17,7 +16,6 @@ import { workspaceTools } from './tools/workspace-tools';
  *
  * Exposes ~15 tools grouped as:
  *   - context_* : list/get/write/delete/apply/diff/version_history
- *   - runtime_* : run_skill/list_runs/get_run/approve_draft/reject_draft
  *   - objects_* / object_types_* / search_* : read data + hybrid retrieval
  *   - teams_* : the F1 org chart (workspace lead + teams with provenance)
  *
@@ -43,8 +41,6 @@ export async function buildServer(
 
   const tools = [
     ...workspaceTools(config),
-    ...runtimeTools(config),
-    skillRunDetailTool(config),
     ...dataTools(config),
     ...capabilityTools(config),
     ...missionTools(config),

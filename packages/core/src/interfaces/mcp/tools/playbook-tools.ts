@@ -1,12 +1,9 @@
 import type { McpConfig } from '../config';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { fromRepoRoot } from '@/libs/repo-root';
-import { getWorkspacePath } from '@/libs/workspace/reader';
 import { playbookSchema } from '@/models/Schema';
+import { readByOrigin } from '@/services/playbooks/mount';
 
 /**
  * Playbook MCP tools — let an external MCP client (Claude Code, etc.)
@@ -30,25 +27,27 @@ function playbookListTool(config: McpConfig): ToolModule {
   return {
     name: 'playbook_list',
     title: 'List playbooks',
-    description: 'Return the catalog of playbooks for this org (slug, name, description, tags, version, license).',
+    description: 'Return the catalog of skills and playbooks for this org (slug, name, description, kind, origin, version, license).',
     inputSchema: {
-      tag: z.string().optional().describe('filter to playbooks with this tag'),
+      kind: z.enum(['skill', 'playbook']).optional().describe('filter to one kind'),
     },
     handler: async (input) => {
-      const { tag } = input as { tag?: string };
+      const { kind } = input as { kind?: 'skill' | 'playbook' };
       const rows = await db
         .select({
           slug: playbookSchema.slug,
           name: playbookSchema.name,
           description: playbookSchema.description,
-          tags: playbookSchema.tags,
+          kind: playbookSchema.kind,
+          origin: playbookSchema.origin,
+          attachedPlaybooks: playbookSchema.attachedPlaybooks,
           version: playbookSchema.version,
           license: playbookSchema.license,
           sourceFiles: playbookSchema.sourceFiles,
         })
         .from(playbookSchema)
         .where(eq(playbookSchema.orgId, config.orgId));
-      return tag ? rows.filter(r => (r.tags ?? []).includes(tag)) : rows;
+      return kind ? rows.filter(r => r.kind === kind) : rows;
     },
   };
 }
@@ -71,20 +70,16 @@ function playbookGetTool(config: McpConfig): ToolModule {
       if (!row) {
         throw new Error(`playbook ${slug} not found`);
       }
-      const contextPath = getWorkspacePath();
-      if (!contextPath) {
-        throw new Error('WORKSPACE_PATH is not set — playbook files unavailable');
+      const content = readByOrigin(row, resource ?? 'SKILL.md');
+      if (content === null) {
+        throw new Error(`file ${resource ?? 'SKILL.md'} for ${row.kind} ${slug} not found on disk`);
       }
-      // resolve, not join: an absolute WORKSPACE_PATH (prod) must be
-      // honored as given rather than pasted onto cwd.
-      const folder = fromRepoRoot(contextPath, 'playbooks', slug);
-      const target = resource ? join(folder, resource) : join(folder, 'SKILL.md');
-      const content = readFileSync(target, 'utf8');
       return {
         slug: row.slug,
         name: row.name,
         description: row.description,
-        tags: row.tags,
+        kind: row.kind,
+        origin: row.origin,
         version: row.version,
         license: row.license,
         sourceFiles: row.sourceFiles,

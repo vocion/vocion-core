@@ -48,7 +48,6 @@ function ctxFor(orgId: string, grants: string[] = [...DISCOVERY_TOOL_NAMES]): Ru
     connectorSources: [],
     objectTypeSlugs: [],
     searchConfig: {},
-    operationSlugs: [],
     harnessConfig: { grantTools: grants },
     emit: () => {},
     citationSeq: { current: 0 },

@@ -1,30 +1,11 @@
 'use client';
 
-import type { ConfidenceLevel } from '@/types/Status';
-import { CheckCircle, Clock, GitBranch, RotateCw, Sparkles, ThumbsDown, ThumbsUp, XCircle } from 'lucide-react';
+import { CheckCircle, GitBranch, RotateCw, XCircle } from 'lucide-react';
 import { useState, useTransition } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { StatusPill } from '@/components/ui/status-pill';
 import { client } from '@/libs/Orpc';
-
-type SkillRunRow = {
-  id: number;
-  skillId: number;
-  status: string | null;
-  input: Record<string, unknown> | null;
-  output: string | null;
-  truncated: boolean;
-  workspaceSha: string | null;
-  langfuseTraceId: string | null;
-  /** Agent's self-assessed confidence for this run (N.2). */
-  confidence: ConfidenceLevel | null;
-  createdBy: string | null;
-  createdAt: Date | string;
-  reviewedBy: string | null;
-  reviewedAt: Date | string | null;
-};
 
 type WorkflowRunRow = {
   id: number;
@@ -40,24 +21,21 @@ type WorkflowRunRow = {
 };
 
 type Props = {
-  initialSkillRuns: SkillRunRow[];
   initialWorkflowRuns: WorkflowRunRow[];
 };
 
 /**
- * Review Queue — combined list of pending skill runs and paused workflow runs
- * that need human attention. Uses oRPC mutations to approve / reject / resume /
- * cancel; refetches from server after each mutation via router.refresh().
+ * Review Queue — paused workflow runs that need human attention. Uses
+ * oRPC mutations to resume / cancel; refetches from server after each
+ * mutation.
  *
- * Intentionally server-data-driven: the server component hydrates the initial
- * list; this component only handles actions + refresh. No client-side polling
- * — the list refreshes on every mutation.
+ * Intentionally server-data-driven: the server component hydrates the
+ * initial list; this component only handles actions + refresh. No
+ * client-side polling — the list refreshes on every mutation.
  * @param root0
- * @param root0.initialSkillRuns
  * @param root0.initialWorkflowRuns
  */
-export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
-  const [skillRuns, setSkillRuns] = useState(initialSkillRuns);
+export function ReviewQueue({ initialWorkflowRuns }: Props) {
   const [workflowRuns, setWorkflowRuns] = useState(initialWorkflowRuns);
   const [pending, startTransition] = useTransition();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -69,13 +47,7 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
     startTransition(async () => {
       try {
         await fn();
-        // Refresh both lists from server. Normalize skill runs (truncate output)
-        // to match the server-page shape.
-        const [sr, wr] = await Promise.all([
-          client.review.listSkillRuns({ status: 'pending', limit: 50 }),
-          client.review.listWorkflowRuns({ status: 'paused', limit: 50 }),
-        ]);
-        setSkillRuns(sr.map(normalizeSkillRun));
+        const wr = await client.review.listWorkflowRuns({ status: 'paused', limit: 50 });
         setWorkflowRuns(wr as WorkflowRunRow[]);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -84,31 +56,6 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
     });
   };
 
-  function normalizeSkillRun(r: { id: number; skillId: number; status: string | null; input: unknown; output: string | null; workspaceSha: string | null; langfuseTraceId: string | null; confidence?: string | null; createdBy: string | null; createdAt: Date | string; reviewedBy: string | null; reviewedAt: Date | string | null }): SkillRunRow {
-    const MAX = 4000;
-    return {
-      id: r.id,
-      skillId: r.skillId,
-      status: r.status,
-      input: r.input as Record<string, unknown> | null,
-      output: r.output ? r.output.slice(0, MAX) : null,
-      truncated: !!(r.output && r.output.length > MAX),
-      workspaceSha: r.workspaceSha,
-      langfuseTraceId: r.langfuseTraceId,
-      confidence: (r.confidence === 'confident' || r.confidence === 'uncertain' || r.confidence === 'speculative') ? r.confidence : null,
-      createdBy: r.createdBy,
-      createdAt: r.createdAt,
-      reviewedBy: r.reviewedBy,
-      reviewedAt: r.reviewedAt,
-    };
-  }
-
-  const approveSkill = (id: number, feedback?: { rating?: 'up' | 'down' | null; note?: string }) => runAction(async () => {
-    await client.review.approveSkillRun({ id, rating: feedback?.rating, note: feedback?.note });
-  });
-  const rejectSkill = (id: number, note?: string) => runAction(async () => {
-    await client.review.rejectSkillRun({ id, reason: note });
-  });
   const resumeWorkflow = (id: number, input?: string) => runAction(async () => {
     await client.review.resumeWorkflow(input !== undefined ? { id, input } : { id });
   });
@@ -116,7 +63,7 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
     await client.review.cancelWorkflow({ id });
   });
 
-  const totalPending = skillRuns.length + workflowRuns.length;
+  const totalPending = workflowRuns.length;
 
   if (totalPending === 0) {
     return (
@@ -159,149 +106,6 @@ export function ReviewQueue({ initialSkillRuns, initialWorkflowRuns }: Props) {
         </div>
       )}
 
-      {skillRuns.length > 0 && (
-        <div>
-          <div className="mb-3 flex items-center gap-2">
-            <Sparkles className="size-4" />
-            <h2 className="text-lg font-semibold">Pending skill drafts</h2>
-            <Badge variant="secondary">{skillRuns.length}</Badge>
-          </div>
-          <div className="space-y-2">
-            {skillRuns.map(run => (
-              <SkillRunCard
-                key={`sk-${run.id}`}
-                run={run}
-                isOpen={openId === `sk-${run.id}`}
-                onToggle={() => setOpenId(openId === `sk-${run.id}` ? null : `sk-${run.id}`)}
-                onApprove={fb => approveSkill(run.id, fb)}
-                onReject={note => rejectSkill(run.id, note)}
-                busy={pending}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SkillRunCard({
-  run,
-  isOpen,
-  onToggle,
-  onApprove,
-  onReject,
-  busy,
-}: {
-  run: SkillRunRow;
-  isOpen: boolean;
-  onToggle: () => void;
-  onApprove: (feedback: { rating?: 'up' | 'down' | null; note?: string }) => void;
-  onReject: (note?: string) => void;
-  busy: boolean;
-}) {
-  const created = typeof run.createdAt === 'string' ? new Date(run.createdAt) : run.createdAt;
-  const [rating, setRating] = useState<'up' | 'down' | null>(null);
-  const [note, setNote] = useState('');
-  return (
-    <div className="rounded-md border border-border bg-background">
-      <button type="button" className="flex w-full items-center gap-3 p-3 text-left hover:bg-muted/50" onClick={onToggle}>
-        <Clock className="size-4 text-muted-foreground" />
-        <div className="flex-1">
-          <div className="text-sm font-medium">
-            Skill run #
-            {run.id}
-            {' '}
-            <span className="font-normal text-muted-foreground">
-              (skill id:
-              {run.skillId}
-              )
-            </span>
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {created.toLocaleString()}
-            {run.createdBy && (
-              <>
-                {' '}
-                · by
-                {run.createdBy}
-              </>
-            )}
-            {run.workspaceSha && (
-              <>
-                {' '}
-                · ctx
-                <code>{run.workspaceSha.slice(0, 12)}</code>
-              </>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {run.confidence && <ConfidenceIndicator level={run.confidence} />}
-          <StatusPill status="pending" />
-        </div>
-      </button>
-
-      {isOpen && (
-        <div className="space-y-3 border-t border-border p-3">
-          <RunDetail label="Input" value={run.input} />
-          <RunDetail label="Output" value={run.output} truncated={run.truncated} />
-          {run.langfuseTraceId && (
-            <div className="text-xs text-muted-foreground">
-              Langfuse trace:
-              {' '}
-              <code>{run.langfuseTraceId}</code>
-              {' · '}
-              <a
-                href={`${process.env.NEXT_PUBLIC_LANGFUSE_BASE_URL ?? 'http://localhost:3200'}/project/${process.env.NEXT_PUBLIC_LANGFUSE_PROJECT_ID ?? 'demo'}/traces/${run.langfuseTraceId}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary hover:underline"
-              >
-                Open in Langfuse ↗
-              </a>
-            </div>
-          )}
-          <div className="rounded-md border border-border bg-muted/30 p-3">
-            <div className="mb-2 text-xs font-medium text-muted-foreground">Rating (optional)</div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setRating(rating === 'up' ? null : 'up')}
-                className={`inline-flex size-8 items-center justify-center rounded-md border transition ${rating === 'up' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
-                aria-label="Thumb up"
-              >
-                <ThumbsUp className="size-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setRating(rating === 'down' ? null : 'down')}
-                className={`inline-flex size-8 items-center justify-center rounded-md border transition ${rating === 'down' ? 'border-destructive bg-destructive/10 text-destructive' : 'border-border text-muted-foreground hover:text-foreground'}`}
-                aria-label="Thumb down"
-              >
-                <ThumbsDown className="size-4" />
-              </button>
-              <input
-                type="text"
-                value={note}
-                onChange={e => setNote(e.target.value)}
-                placeholder="Optional note — what was good/off?"
-                className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary/50"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2 pt-1">
-            <Button size="sm" onClick={() => onApprove({ rating, note: note.trim() || undefined })} disabled={busy}>
-              <CheckCircle className="mr-1 size-4" />
-              Approve
-            </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => onReject(note.trim() || undefined)}>
-              <XCircle className="mr-1 size-4" />
-              Reject
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -409,7 +213,7 @@ function RunDetail({ label, value, truncated }: { label: string; value: unknown;
     <div>
       <div className="mb-1 text-xs font-medium text-muted-foreground">
         {label}
-        {truncated && <span className="ml-2 italic">(truncated — open the skill run for full text)</span>}
+        {truncated && <span className="ml-2 italic">(truncated)</span>}
       </div>
       <pre className="max-h-64 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-xs whitespace-pre-wrap">{content}</pre>
     </div>

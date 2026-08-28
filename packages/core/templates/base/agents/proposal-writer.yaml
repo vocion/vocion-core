@@ -15,7 +15,7 @@ temperature: '0.3'
 accent: violet
 eyebrow: Deal Desk · Lead
 skills:
-  - proposal_brief
+  - proposal-brief
 suggestions:
   - label: Draft a proposal brief
     prompt: For the most advanced open deal, draft a proposal brief — scope, the proof to cite, pricing shape, and the open questions to confirm before sending.

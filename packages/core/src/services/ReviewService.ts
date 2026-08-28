@@ -1,23 +1,23 @@
 /**
  * ReviewService — ONE review queue across the planes.
  *
- * Gated work shows up in three places today (skill runs, paused workflow runs,
- * missions awaiting review) and the MCP autonomy gate vs the UI review queue
- * didn't share a view. This unifies them: `listPending` returns a single
- * normalized queue, and `decide` dispatches approve/reject to the right
- * underlying service — so a gated mutation is reviewed the same way regardless
- * of which plane produced it (firsthq/docs/platform-plan.md §4).
+ * Gated work shows up in three places (paused workflow runs, missions
+ * awaiting review, pending actions) and the MCP autonomy gate vs the UI
+ * review queue didn't share a view. This unifies them: `listPending`
+ * returns a single normalized queue, and `decide` dispatches
+ * approve/reject to the right underlying service — so a gated mutation
+ * is reviewed the same way regardless of which plane produced it
+ * (firsthq/docs/platform-plan.md §4).
  */
 
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { actionRunSchema, missionRunSchema, reviewAssignmentSchema, skillRunSchema, workflowRunSchema } from '@/models/Schema';
+import { actionRunSchema, missionRunSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { cancelMission, resumeMission } from '@/services/MissionService';
-import { approveSkillRun, rejectSkillRun } from '@/services/SkillService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
 
-export type ReviewKind = 'skill' | 'workflow' | 'mission' | 'action';
+export type ReviewKind = 'workflow' | 'mission' | 'action';
 
 export type ReviewItem = {
   kind: ReviewKind;
@@ -41,7 +41,6 @@ export type ListOptions = {
 
 /** The status that means "needs human review" for each kind. */
 const PENDING_STATUS: Record<ReviewKind, string> = {
-  skill: 'pending',
   workflow: 'paused',
   mission: 'awaiting_review',
   action: 'pending',
@@ -56,12 +55,7 @@ const PENDING_STATUS: Record<ReviewKind, string> = {
  * @param opts
  */
 export async function listPending(orgId: string, opts: ListOptions = {}): Promise<ReviewItem[]> {
-  const [skills, workflows, missions, actions] = await Promise.all([
-    db
-      .select({ id: skillRunSchema.id, status: skillRunSchema.status })
-      .from(skillRunSchema)
-      .where(and(eq(skillRunSchema.orgId, orgId), eq(skillRunSchema.status, PENDING_STATUS.skill)))
-      .orderBy(desc(skillRunSchema.id)),
+  const [workflows, missions, actions] = await Promise.all([
     db
       .select({ id: workflowRunSchema.id, status: workflowRunSchema.status })
       .from(workflowRunSchema)
@@ -80,7 +74,6 @@ export async function listPending(orgId: string, opts: ListOptions = {}): Promis
   ]);
 
   const base: ReviewItem[] = [
-    ...skills.map(r => ({ kind: 'skill' as const, id: r.id, orgId, title: `Skill run #${r.id}`, status: r.status ?? 'pending' })),
     ...workflows.map(r => ({ kind: 'workflow' as const, id: r.id, orgId, title: `Workflow run #${r.id}`, status: r.status })),
     ...missions.map(r => ({ kind: 'mission' as const, id: r.id, orgId, title: r.title, status: r.status })),
     ...actions.map(r => ({ kind: 'action' as const, id: r.id, orgId, title: `Action · ${r.actionId}`, status: r.status })),
@@ -193,13 +186,6 @@ export async function decide(
 ): Promise<void> {
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
   switch (item.kind) {
-    case 'skill':
-      // `transitionStatus` in SkillService records the adoption event for
-      // this kind — every skill-decision entry path funnels through it.
-      action === 'approve'
-        ? await approveSkillRun({ orgId, runId: item.id, reviewedBy })
-        : await rejectSkillRun({ orgId, runId: item.id, reviewedBy, feedback: opts?.reason ? { note: opts.reason, rating: 'down' } : undefined });
-      return;
     case 'workflow':
       action === 'approve'
         ? await resumeWorkflow(item.id, orgId)

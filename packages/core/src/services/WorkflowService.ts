@@ -3,12 +3,11 @@ import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { workflowRunSchema, workflowSchema } from '@/models/Schema';
-import { executeSkill } from './SkillService';
 
 /**
  * Workflow execution. v1 scope:
  *   - Sequential step execution (no parallel)
- *   - Step types: `skill`, `approve`, `ask`, `action`, `sync`
+ *   - Step types: `approve`, `ask`, `action`, `sync`
  *   - `action` steps are stubs — they record intent but perform no side effects
  *     (v2 wires concrete actions: gmail.send_email, hubspot.update_deal, etc.)
  *   - No durable scheduler — if the process dies mid-run, the run is stuck at
@@ -217,24 +216,7 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
     await persistState(runId, { stepResults, currentStep: cursor });
 
     try {
-      if (step.type === 'skill') {
-        const skillInput = interpolateRecord(step.input as Record<string, unknown>, scope);
-        const result = await executeSkill({
-          orgId: run.orgId,
-          skillSlug: step.skill,
-          input: skillInput,
-          userId: `workflow:${workflow.slug}:${runId}`,
-        });
-        const output = tryParseJson(result.output);
-        stepResults[name] = {
-          status: 'completed',
-          output,
-          startedAt: stepResults[name]!.startedAt,
-          finishedAt: new Date().toISOString(),
-          skillRunId: result.runId,
-        };
-        scope.steps[step.outputAs ?? name] = { output };
-      } else if (step.type === 'sync') {
+      if (step.type === 'sync') {
         // Freshness gate: incrementally sync the named sources so downstream
         // agent steps read live data (last-hours mail, current CRM state),
         // not index-freshness. Per-source failures are recorded, not fatal —
@@ -497,14 +479,6 @@ function resolvePath(scope: Record<string, unknown>, path: string): unknown {
     current = (current as Record<string, unknown>)[seg];
   }
   return current;
-}
-
-function tryParseJson(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
 }
 
 function summarize(row: typeof workflowRunSchema.$inferSelect): WorkflowRunSummary {

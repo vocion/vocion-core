@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
   try {
     const out = await apiDecideReview(req.headers.get('authorization'), {
-      kind: body.kind as 'skill' | 'workflow' | 'mission',
+      kind: body.kind as 'workflow' | 'mission' | 'action',
       id: Number(body.id),
       action: body.action as 'approve' | 'reject',
       reason: typeof body.reason === 'string' ? body.reason : undefined,

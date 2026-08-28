@@ -86,8 +86,7 @@ export type TraceCitation = {
 
 /**
  * What a trace node represents. `reason` = model chain-of-thought;
- * `tool` = a generic tool call; `skill` = a `run_operation` skill
- * invocation (first-class, carries confidence); `search` = retrieval
+ * `tool` = a generic tool call; `skill` = a skill read; `search` = retrieval
  * (produces citations); `delegate` = a `task` dispatch to a specialist
  * (children hang under it via parentId); `draft` = a proposed action.
  */
@@ -196,12 +195,22 @@ export type RuntimeContext = {
   missionSlug?: string;
   /** The mission_run driving this turn — audit trails (`assessed_by`) point back to it. */
   missionRunId?: number;
+  /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
+  conversationId?: number;
+  /** Which harness runs the loop — stamped on tool_call rows. */
+  provider?: 'local' | 'agentcore' | 'runtime';
+  /** Langfuse trace id of the current turn — links tool_call rows to cost/latency. */
+  traceId?: string;
+  /**
+   * Per-request map of delegation taskId → specialist agent name, populated
+   * as `task` calls start. The tool-call record uses it to attribute a
+   * nested call to the specialist that made it rather than the lead.
+   */
+  delegations?: Map<string, string>;
   /** Object type slugs this agent can read. */
   objectTypeSlugs: string[];
   /** Per-agent retrieval tuning. */
   searchConfig: SearchConfig;
-  /** Operation slugs this agent can invoke via the `run_operation` tool. */
-  operationSlugs: string[];
   /**
    * Per-agent harness knobs (`agent.harness_config`, authored as the
    * `harness:` block in workspace YAML). `interrupts` lists operation

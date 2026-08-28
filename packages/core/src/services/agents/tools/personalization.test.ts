@@ -51,7 +51,6 @@ function ctxFor(orgId: string, grants: string[] = [...PERSONALIZATION_TOOL_NAMES
     connectorSources: ['hubspot'],
     objectTypeSlugs: [],
     searchConfig: {},
-    operationSlugs: [],
     harnessConfig: { grantTools: grants },
     emit: () => {},
     citationSeq: { current: 0 },

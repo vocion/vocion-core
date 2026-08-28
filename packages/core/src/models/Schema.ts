@@ -375,119 +375,51 @@ export const objectDocumentLinkRelations = relations(objectDocumentLinkSchema, (
 }));
 
 /* ------------------------------------------------------------------ */
-/* Skills — configurable LLM-powered capabilities                     */
+/* Tool calls — the activity record, one row per tool invocation      */
 /* ------------------------------------------------------------------ */
 
-/** Skill definitions: prompt template, input/output schema, versioning */
-export const skillSchema = pgTable(
-  'skill',
+/**
+ * One row per domain-tool invocation, written at the tool registry so
+ * all three harness providers (local, agentcore, runtime) are covered.
+ * This is the record of what agents actually do; it replaces the
+ * operation-scoped skill_run history. Cost and model latency live on
+ * the linked Langfuse trace, not here; durationMs is the tool's own
+ * wall time.
+ */
+export const toolCallSchema = pgTable(
+  'tool_call',
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
-    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
     projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
-    slug: text('slug').notNull(),
-    name: text('name').notNull(),
-    description: text('description'),
-    /** The system/user prompt template. Supports {{variable}} interpolation. */
-    promptTemplate: text('prompt_template').notNull(),
-    /**
-     * Optional path to a postprocess script (e.g. `postprocess.js`)
-     * stored in the skill's context folder. When set, the runtime imports
-     * it after the prompt runs and calls `default(output, input, ctx)` to
-     * transform the output before it lands in the review queue.
-     */
-    scriptFile: text('script_file'),
-    /** JSON Schema describing expected input variables */
-    inputSchema: jsonb('input_schema').$type<Record<string, unknown>>(),
-    /** LLM model to use (e.g. gpt-4o, claude-sonnet-4-20250514) */
-    model: text('model').default('gpt-4o'),
-    /** Temperature for generation */
-    temperature: text('temperature').default('0.3'),
-    /** Whether output requires human approval before acting */
-    requiresApproval: text('requires_approval').default('true'),
-    /** Skill category: query, mutation, composite */
-    category: text('category').default('query'),
-    /** Status: active, disabled, draft */
-    status: text('status').default('active'),
-    /**
-     * Kind of operation (v0.2). `operation` (default) is a typed
-     * Zod-validated single LLM call or plugin invocation — what this
-     * table has always represented. `playbook-ref` will be used in a
-     * later phase if a playbook needs a DB-row mirror; today the
-     * playbook table is the canonical store and this column is
-     * future-proofing.
-     */
-    kind: text('kind').default('operation').notNull(),
-    version: integer('version').default(1),
-    updatedAt: timestamp('updated_at', { mode: 'date' })
-      .defaultNow()
-      .$onUpdate(() => new Date())
-      .notNull(),
+    /** The agent that made the call — the delegated specialist when nested, never the lead on its behalf. */
+    agentSlug: text('agent_slug').notNull(),
+    /** The dispatching lead when the call was made by a delegated specialist. */
+    leadAgentSlug: text('lead_agent_slug'),
+    tool: text('tool').notNull(),
+    input: jsonb('input').$type<Record<string, unknown>>().default({}),
+    /** Tool output, truncated for storage. */
+    output: text('output'),
+    /** Error message when the invocation threw; null on success. */
+    error: text('error'),
+    durationMs: integer('duration_ms'),
+    conversationId: integer('conversation_id'),
+    missionRunId: integer('mission_run_id'),
+    /** Which harness executed the loop: local | agentcore | runtime. */
+    provider: text('provider'),
+    /** Langfuse trace of the turn — cost and latency are read there. */
+    langfuseTraceId: text('langfuse_trace_id'),
+    /** Context version SHA active when this call executed. */
+    workspaceSha: text('workspace_sha'),
+    createdBy: text('created_by'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
-    uniqueIndex('skill_org_slug_idx').on(table.orgId, table.slug),
+    index('tool_call_org_created_idx').on(table.orgId, table.createdAt),
+    index('tool_call_org_agent_idx').on(table.orgId, table.agentSlug),
+    index('tool_call_org_tool_idx').on(table.orgId, table.tool),
   ],
 );
-
-/**
- * v0.2 — canonical TS alias. The underlying Postgres table stays `skill`
- *  (renaming risks data loss) but new code should reference this name.
- */
-export const operationSchema = skillSchema;
-
-/** Skill execution runs with Langfuse trace IDs */
-export const skillRunSchema = pgTable('skill_run', {
-  id: serial('id').primaryKey(),
-  orgId: text('org_id').notNull(),
-  /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
-  projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
-  skillId: integer('skill_id').notNull().references(() => skillSchema.id, { onDelete: 'cascade' }),
-  /** Input variables provided to the prompt */
-  input: jsonb('input').$type<Record<string, unknown>>().default({}),
-  /** LLM-generated output */
-  output: text('output'),
-  /** Approval status: pending, approved, rejected, auto */
-  status: text('status').default('pending'),
-  /** Langfuse trace ID for observability */
-  langfuseTraceId: text('langfuse_trace_id'),
-  /** Context version SHA active when this run executed — links to workspace_version.sha */
-  workspaceSha: text('workspace_sha'),
-  /** Who ran it */
-  createdBy: text('created_by'),
-  /** Who approved/rejected it */
-  reviewedBy: text('reviewed_by'),
-  reviewedAt: timestamp('reviewed_at', { mode: 'date' }),
-  /**
-   * Agent's self-assessment of output confidence — drives the
-   * <ConfidenceIndicator /> in the UI. Nullable when the runtime
-   * doesn't expose a signal. One of: 'confident' | 'uncertain' |
-   * 'speculative'. See `types/Status.ts`.
-   */
-  confidence: text('confidence'),
-  /** Optional thumb up/down captured alongside approve/reject or later. */
-  rating: text('rating'),
-  /** Free-form note from the reviewer explaining the rating. */
-  feedbackNote: text('feedback_note'),
-  feedbackBy: text('feedback_by'),
-  feedbackAt: timestamp('feedback_at', { mode: 'date' }),
-  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-});
-
-export const skillRelations = relations(skillSchema, ({ many }) => ({
-  runs: many(skillRunSchema),
-}));
-
-export const skillRunRelations = relations(skillRunSchema, ({ one }) => ({
-  skill: one(skillSchema, {
-    fields: [skillRunSchema.skillId],
-    references: [skillSchema.id],
-  }),
-}));
-
-/** v0.2 canonical alias — see {@link operationSchema}. */
-export const operationRunSchema = skillRunSchema;
 
 /* ------------------------------------------------------------------ */
 /* Playbooks — markdown + YAML procedural guides for agents           */
@@ -509,8 +441,12 @@ export const playbookSchema = pgTable(
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description').notNull(),
-    /** Per-agent mount filter. Empty array = all agents see it. */
-    tags: jsonb('tags').$type<string[]>().default([]).notNull(),
+    /** 'skill' (the deepagents unit) or 'playbook' (attached context). */
+    kind: text('kind').default('playbook').notNull(),
+    /** 'core' (base pack), 'workspace' (workspace-only), or 'override' (workspace replacing the base). */
+    origin: text('origin').default('workspace').notNull(),
+    /** Playbook slugs a skill attaches — they mount wherever the skill does. */
+    attachedPlaybooks: jsonb('attached_playbooks').$type<string[]>().default([]).notNull(),
     /** Full frontmatter snapshot (for catalog UI). */
     frontmatter: jsonb('frontmatter').$type<Record<string, unknown>>().default({}).notNull(),
     /** SHA-256 of the SKILL.md body (not the frontmatter). Used to detect file changes on re-apply. */
@@ -551,8 +487,10 @@ export const agentSchema = pgTable(
     /** LLM model (e.g. claude-sonnet-4-20250514, gpt-4o) */
     model: text('model').default('gpt-4o'),
     temperature: text('temperature').default('0.3'),
-    /** Skill slugs this agent can invoke */
+    /** Skill slugs this agent mounts (SKILL.md units). */
     skillSlugs: jsonb('skill_slugs').$type<string[]>().default([]),
+    /** Playbook slugs attached to this agent by name — always-present context. */
+    playbookSlugs: jsonb('playbook_slugs').$type<string[]>().default([]),
     /** Source slugs this agent can search (e.g. ["zoom","hubspot","gmail"]). Maps to knowledge_source.slug. */
     connectorSources: jsonb('connector_sources').$type<string[]>().default([]),
     /** Business object type slugs this agent can read/create */
@@ -611,12 +549,6 @@ export const agentSchema = pgTable(
       tools?: string[];
       model?: string;
     }>>().default([]).notNull(),
-    /**
-     * Playbook-tag filter (v0.2). Empty array = mount every playbook
-     * in this org. Non-empty = mount only playbooks whose `tags` field
-     * intersects this set. Used by services/playbooks/mount.ts.
-     */
-    playbookTags: jsonb('playbook_tags').$type<string[]>().default([]).notNull(),
     /**
      * Learning-step ownership (v0.2). Names of the per-step rule
      * buckets this agent reads from + can write to. Each entry must

@@ -10,11 +10,10 @@
  * `createDeepAgent` graph wiring:
  *   - LangChain `BaseChatModel` from the role registry, honoring the
  *     agent's `harness_config` knobs (e.g. `maxTokens`).
- *   - Tool factories from `./tools/*` plus run_operation. Operations
- *     listed in `harness_config.interrupts` pause for human approval
- *     through the hitl_gate flow before executing (tools/runOperation.ts).
- *   - Subagents from the `agent.subagents` JSONB column.
- *   - Playbook mount via deepagents `createSkillsMiddleware`.
+ *   - Tool factories from `./tools/*` (the single registry).
+ *   - Subagents from registered child agents + the `agent.subagents`
+ *     JSONB column.
+ *   - Skill + playbook mount via deepagents `createSkillsMiddleware`.
  *
  * The harness DEPLOYS AS PART OF CORE — in-process with the Next.js
  * app, same compose/EC2 topology; there is no separate runtime service
@@ -36,7 +35,7 @@ import { db } from '@/libs/DB';
 import { buildChatModel } from '@/libs/llm';
 import { agentSchema, playbookSchema, projectSchema, teamSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
-import { mountPlaybooks } from '@/services/playbooks/mount';
+import { mountSkills } from '@/services/playbooks/mount';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
@@ -109,7 +108,6 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    operationSlugs: row.skillSlugs ?? [],
     harnessConfig,
     emit: noopEmit,
     citationSeq: { current: 0 },
@@ -135,15 +133,21 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     .select()
     .from(agentSchema)
     .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, row.slug)));
+  // Specialists get the SAME domain tool surface as the lead. Explicit
+  // because deepagents defaults a custom subagent's tools to [] (only its
+  // auto-injected general-purpose inherits) — which silently left every
+  // registered specialist with filesystem tools only.
+  const subagentTools = tools as SubAgent['tools'];
   const subagents: SubAgent[] = children.map(c => ({
     name: c.slug,
     description: c.description ?? c.name,
     systemPrompt: c.systemPrompt ?? '',
+    tools: subagentTools,
   }));
   const registered = new Set(subagents.map(s => s.name));
   for (const s of row.subagents ?? []) {
     if (!registered.has(s.name)) {
-      subagents.push({ name: s.name, description: s.description, systemPrompt: s.systemPrompt });
+      subagents.push({ name: s.name, description: s.description, systemPrompt: s.systemPrompt, tools: subagentTools });
     }
   }
 
@@ -178,6 +182,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
         name: lead.slug,
         description: `${lead.name} — lead of the ${team.name} team. Consult for: ${team.description ?? lead.description ?? `the ${team.name} team's status and work`}.`,
         systemPrompt: lead.systemPrompt ?? `You are ${lead.name}, lead of the ${team.name} team.`,
+        tools: subagentTools,
       });
     }
     const leadless = teams.filter(t => t.leadAgentSlug === null).map(t => t.name);
@@ -215,6 +220,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
       name: 'general-purpose',
       description: 'General-purpose worker for research and multi-step tasks the lead delegates.',
       systemPrompt: 'You do delegated research and multi-step work, then return a concise, SYNTHESIZED result to the lead. NEVER paste raw tool output, record field-dumps (key: value lists), internal ids, /dashboard/... deep-links, or profile URLs — name people and the human reason in plain language. Return only what the lead needs to answer, tightly.',
+      tools: subagentTools,
     });
   }
 
@@ -224,17 +230,19 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
   });
 
-  // Only mount deepagents' SkillsMiddleware when the org actually HAS
-  // playbooks. The middleware requires initialized state fields and fails in
-  // the webpack production bundle ("Middleware SkillsMiddleware has required
-  // state fields that must be initialized") — dev/Turbopack tolerated it, so
-  // this broke PROD chat only. With zero playbooks the middleware buys
-  // nothing; playbook bodies still mount via initialFiles for the file tools.
+  // Only mount deepagents' SkillsMiddleware when THIS AGENT actually
+  // mounts something. The middleware requires initialized state fields and
+  // fails in the webpack production bundle ("Middleware SkillsMiddleware
+  // has required state fields that must be initialized") — dev/Turbopack
+  // tolerated it, so this broke PROD chat only. With nothing mounted the
+  // middleware buys nothing; bodies still mount via initialFiles for the
+  // file tools.
   const [playbookCount] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(playbookSchema)
     .where(eq(playbookSchema.orgId, orgId));
-  const hasPlaybooks = Number(playbookCount?.n ?? 0) > 0;
+  const hasAnyFolders = Number(playbookCount?.n ?? 0) > 0;
+  const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
 
   const graph = createDeepAgent({
     model,
@@ -249,7 +257,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     systemPrompt,
     backend: new StateBackend(),
     // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).
-    ...(hasPlaybooks ? { skills: ['/playbooks/'] } : {}),
+    ...(hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
 
   // Attach the mutable RuntimeContext for the request adapter to update.
@@ -290,6 +298,7 @@ export function bindRequestEmit(
   allowedSourceSlugs?: string[],
   missionSlug?: string,
   missionRunId?: number,
+  conversationId?: number,
 ): void {
   const internal = compiled as unknown as { __ctx: RuntimeContext };
   internal.__ctx.emit = emit;
@@ -297,6 +306,12 @@ export function bindRequestEmit(
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
   internal.__ctx.missionSlug = missionSlug;
   internal.__ctx.missionRunId = missionRunId;
+  internal.__ctx.conversationId = conversationId;
+  internal.__ctx.provider = 'local';
+  internal.__ctx.traceId = undefined;
+  // Fresh delegation map per turn — the tool-call record attributes a
+  // specialist's calls through it (taskId → specialist name).
+  internal.__ctx.delegations = new Map();
   // Fresh citation numbering per turn (the graph/ctx is reused across requests).
   internal.__ctx.citationSeq = { current: 0 };
 }
@@ -337,13 +352,14 @@ export async function buildInitialFiles(
   if (!row) {
     return {};
   }
-  const playbooks = await mountPlaybooks({
+  const mounted = await mountSkills({
     orgId,
-    agentTags: row.playbookTags ?? null,
+    skillSlugs: row.skillSlugs ?? [],
+    playbookSlugs: row.playbookSlugs ?? [],
   });
   const learnings = await bundleStepMarkdown(orgId, row.learningSteps ?? []);
   return Object.fromEntries(
-    Object.entries({ ...playbooks, ...learnings }).map(([path, body]) => [path, toFileData(body)]),
+    Object.entries({ ...mounted, ...learnings }).map(([path, body]) => [path, toFileData(body)]),
   );
 }
 

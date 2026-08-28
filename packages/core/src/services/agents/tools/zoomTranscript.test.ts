@@ -40,7 +40,6 @@ function ctxFor(sources: string[] = ['zoom']): RuntimeContext {
     connectorSources: sources,
     objectTypeSlugs: [],
     searchConfig: {},
-    operationSlugs: [],
     harnessConfig: {},
     emit: () => {},
     citationSeq: { current: 0 },

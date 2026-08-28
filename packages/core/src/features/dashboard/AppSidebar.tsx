@@ -17,7 +17,6 @@ import {
   Network,
   Newspaper,
   Plug,
-  ScrollText,
   ShieldCheck,
   Sparkles,
   TestTube,
@@ -139,13 +138,12 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], ...props }: 
                   ]}
                 />
 
-                {/* What the team knows. */}
+                {/* What the team knows. Playbooks folded into Skills. */}
                 <AppSidebarNav
                   label="Knowledge"
                   items={[
                     { title: t('sources'), url: '/dashboard/sources', icon: Plug },
                     { title: t('objects'), url: '/dashboard/objects', icon: Database },
-                    { title: t('playbooks'), url: '/dashboard/playbooks', icon: ScrollText },
                     { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
                   ]}
                 />
@@ -160,11 +158,10 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], ...props }: 
                   ]}
                 />
 
-                {/* See what happened. */}
+                {/* See what happened. Logs folded into Activity. */}
                 <AppSidebarNav
                   label={t('observability_section_label')}
                   items={[
-                    { title: t('logs'), url: '/dashboard/logs', icon: Activity },
                     { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
                   ]}
                 />

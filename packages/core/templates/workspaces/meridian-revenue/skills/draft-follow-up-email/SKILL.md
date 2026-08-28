@@ -1,3 +1,11 @@
+---
+slug: draft-follow-up-email
+name: Draft follow-up email
+description: >-
+  Drafts a follow-up email for a quiet deal or lead. The draft always waits in the review queue for human approval; nothing sends on its own.
+version: 1
+---
+
 Draft a follow-up email for this Meridian Outdoor Supply conversation.
 
 Deal / lead context: {{context}}

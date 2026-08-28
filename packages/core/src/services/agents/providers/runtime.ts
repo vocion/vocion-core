@@ -80,7 +80,6 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     missionSlug: opts.missionSlug,
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     searchConfig: (row.searchConfig as never) ?? {},
-    operationSlugs: row.skillSlugs ?? [],
     harnessConfig: row.harnessConfig ?? {},
     emit: () => {},
   });
@@ -91,6 +90,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     userId: opts.userId,
     allowedSourceSlugs: opts.allowedSourceSlugs,
     missionSlug: opts.missionSlug,
+    conversationId: opts.conversationId,
   });
 
   const files = await buildInitialFiles(opts.orgId, opts.agentSlug);
@@ -156,6 +156,38 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     }
     if (event.type === 'tool_end') {
       toolCalls.push({ tool: event.tool, input: event.input, output: event.output });
+      // Skill reads happen inside the artifact (file tools never cross the
+      // transport), so capability usage is recorded here from the event
+      // stream. Domain-tool rows are written by the tool endpoint instead.
+      if (event.tool === 'read_file') {
+        const path = typeof event.input?.file_path === 'string'
+          ? event.input.file_path
+          : (typeof event.input?.path === 'string' ? event.input.path : '');
+        const m = path.match(/^\/(?:skills|playbooks)\/([^/]+)\//);
+        if (m) {
+          const { persistToolCall } = await import('../toolCallRecord');
+          void persistToolCall({
+            ctx: {
+              orgId: opts.orgId,
+              userId: opts.userId,
+              agentSlug: opts.agentSlug,
+              conversationId: opts.conversationId,
+              provider: 'runtime',
+              connectorSources: [],
+              objectTypeSlugs: [],
+              searchConfig: {},
+              harnessConfig: {},
+              emit: () => {},
+              citationSeq: { current: 0 },
+            },
+            tool: 'skill_read',
+            input: { slug: m[1], path },
+            output: '',
+            durationMs: 0,
+            ns: '',
+          });
+        }
+      }
     }
     if (event.type === 'done') {
       response = event.response;

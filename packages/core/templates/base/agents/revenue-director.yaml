@@ -15,7 +15,7 @@ temperature: '0.3'
 accent: emerald
 eyebrow: Revenue · Workspace Lead
 skills:
-  - pipeline_health
+  - pipeline-health
 suggestions:
   - label: How's the quarter?
     prompt: How is the quarter going across the revenue org — pipeline, pitches, and pipeline movement? Attribute each part to the team it came from.

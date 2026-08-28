@@ -5,8 +5,7 @@
 # with `extends: core@<version>` in its workspace.yaml.
 #
 # Authored exactly like a workspace so the loader reuses the same walkDir +
-# schemas. Resources (agents/, operations/, …) land here in ticket-007 step 4;
-# for now the pack is identity-only — proving the second-directory read.
+# schemas. Ships agents/ (YAML), skills/ and playbooks/ (SKILL.md folders).
 name: core
-version: 1.0.0
-description: Reusable RevOps base pack — agents + operations promoted from the core-vs-workspace audit.
+version: 2.0.0
+description: Reusable RevOps base pack. Agents, skills (SKILL.md units), and playbooks promoted from the core-vs-workspace audit; operations were converted to skills in 2.0.0.

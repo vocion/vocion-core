@@ -26,6 +26,8 @@ export type TenantClaim = {
   allowedSourceSlugs?: string[];
   /** Mission scope for mission-run tools. */
   missionSlug?: string;
+  /** Persisted conversation this invocation belongs to — stamped on tool_call rows. */
+  conversationId?: number;
   /** Unix ms expiry. Claims are per-invocation and short-lived. */
   exp: number;
 };

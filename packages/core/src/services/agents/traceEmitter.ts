@@ -55,9 +55,10 @@ function nsOf(ev: RawStreamEvent): string {
 
 /**
  * taskId of the enclosing specialist, or undefined for the lead.
+ * Exported so the tool-call record derives the same attribution.
  * @param ns
  */
-function taskIdOf(ns: string): string | undefined {
+export function taskIdOf(ns: string): string | undefined {
   if (!ns.includes('|')) {
     return undefined;
   }
@@ -70,7 +71,7 @@ function taskIdOf(ns: string): string | undefined {
  * The `tools:<id>` node id for a top-level tool/delegation call.
  * @param ns
  */
-function toolNodeId(ns: string): string {
+export function toolNodeId(ns: string): string {
   return ns.match(/^tools:(.+)$/)?.[1] ?? ns;
 }
 
@@ -249,9 +250,6 @@ function kindFor(tool: string): TraceNodeKind {
   if (tool === 'task') {
     return 'delegate';
   }
-  if (tool === 'run_operation') {
-    return 'skill';
-  }
   if (tool === 'search_knowledge' || tool === 'web_search' || tool === 'search') {
     return 'search';
   }
@@ -296,9 +294,6 @@ function detailFor(tool: string, args: Record<string, unknown>): string | undefi
   }
   if (tool === 'lookup_objects') {
     return typeof args.type_slug === 'string' ? `${args.type_slug} records` : undefined;
-  }
-  if (tool === 'run_operation') {
-    return typeof args.operation === 'string' ? String(args.operation) : (typeof args.slug === 'string' ? String(args.slug) : undefined);
   }
   return undefined;
 }

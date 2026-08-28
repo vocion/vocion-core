@@ -183,8 +183,7 @@ function readWorkspaceLayer(kind: PrimitiveKind, slug: string, contextPath: stri
   }
 
   // Everything else lives in a directory with multiple files.
-  // Skills were renamed to operations/ in v0.2 workspaces — try both.
-  const dirsToTry = kind === 'skill' ? [kindDir(kind), 'operations'] : [kindDir(kind)];
+  const dirsToTry = [kindDir(kind)];
   const foundDirName = dirsToTry.find(d => existsSync(join(base, d, dirName)));
   if (!foundDirName) {
     return null;
@@ -235,8 +234,8 @@ function readCoreLayer(kind: PrimitiveKind, slug: string): PrimitiveFile[] {
       ? [toFile(join(packRoot, 'missions'), `missions/${name}`, name)]
       : [];
   }
-  // Skills live under operations/ in the base pack; objects under objects/.
-  const containerDir = kind === 'skill' ? 'operations' : kind === 'object' ? 'objects' : null;
+  // Skills are SKILL.md folders under skills/ in the base pack; objects under objects/.
+  const containerDir = kind === 'skill' ? 'skills' : kind === 'object' ? 'objects' : null;
   if (!containerDir) {
     return [];
   }

@@ -15,7 +15,7 @@ import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent, listAgents } from '@/services/AgentService';
 import { automationOwnerAgentSlug, listAutomations } from '@/services/AutomationService';
 import { listMissions } from '@/services/MissionService';
-import { listSkills } from '@/services/SkillService';
+import { listSkillFolders } from '@/services/playbooks/catalog';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
 import { listWorkflows } from '@/services/WorkflowService';
 
@@ -35,24 +35,15 @@ function titleCase(slug: string): string {
   return slug.split(/[-_\s]+/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
 }
 
-type SkillRow = Awaited<ReturnType<typeof listSkills>>[number];
+type SkillRow = Awaited<ReturnType<typeof listSkillFolders>>[number];
 
 /**
  * Per-category presentation for a skill: a short label + whether it is an
  * approval-gated write.
  * @param category
+ * @param props
+ * @param props.params
  */
-function skillCategory(category: string | null): { label: string; gated: boolean } {
-  switch (category) {
-    case 'mutation':
-      return { label: 'Drafts · needs approval', gated: true };
-    case 'composite':
-      return { label: 'Workflow', gated: false };
-    default:
-      return { label: 'Reads', gated: false };
-  }
-}
-
 export default async function AgentDetailPage(props: {
   params: Promise<{ locale: string; slug: string }>;
 }) {
@@ -84,7 +75,7 @@ export default async function AgentDetailPage(props: {
   const teams = isWorkspaceLead ? await listTeams(orgId) : [];
   const roleLabel = isWorkspaceLead ? 'Workspace Lead' : isLead ? 'Lead' : 'Specialist';
 
-  const allSkills = await listSkills(orgId);
+  const allSkills = await listSkillFolders(orgId);
   const skillBySlug = new Map<string, SkillRow>(allSkills.map(s => [s.slug, s]));
   const skillSlugs = agent.skillSlugs ?? [];
   const wiredSkills = skillSlugs.map(s => ({ slug: s, skill: skillBySlug.get(s) ?? null }));
@@ -216,28 +207,25 @@ export default async function AgentDetailPage(props: {
               ? <p className="text-xs text-muted-foreground">None wired.</p>
               : (
                   <ul className="flex flex-col gap-3">
-                    {wiredSkills.map(({ slug: skillSlug, skill }) => {
-                      const cat = skillCategory(skill?.category ?? null);
-                      return (
-                        <li key={skillSlug}>
-                          <Link href={`/dashboard/skills/${skillSlug}`} className="group block">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className="size-1.5 shrink-0 rounded-full"
-                                style={{ background: cat.gated ? 'var(--brand-amber)' : 'var(--brand-teal)' }}
-                                aria-hidden
-                              />
-                              <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground group-hover:text-primary">
-                                {skill?.name ?? skillSlug}
-                              </span>
-                            </div>
-                            <div className={`mt-0.5 ml-3.5 text-[11px] ${cat.gated ? 'text-[var(--brand-amber-deep)]' : 'text-muted-foreground'}`}>
-                              {cat.label}
-                            </div>
-                          </Link>
-                        </li>
-                      );
-                    })}
+                    {wiredSkills.map(({ slug: skillSlug, skill }) => (
+                      <li key={skillSlug}>
+                        <Link href={`/dashboard/skills/${skillSlug}`} className="group block">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="size-1.5 shrink-0 rounded-full"
+                              style={{ background: 'var(--brand-teal)' }}
+                              aria-hidden
+                            />
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground group-hover:text-primary">
+                              {skill?.name ?? skillSlug}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 ml-3.5 text-[11px] text-muted-foreground">
+                            {skill?.origin === 'core' ? 'Base skill' : skill?.origin === 'override' ? 'Override' : 'Workspace skill'}
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
                   </ul>
                 )}
           </RailGroup>

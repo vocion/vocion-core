@@ -71,7 +71,7 @@ export type DecideInput = {
   reason?: string;
 };
 
-const REVIEW_KINDS: ReviewKind[] = ['skill', 'workflow', 'mission'];
+const REVIEW_KINDS: ReviewKind[] = ['workflow', 'mission', 'action'];
 
 /**
  * Approve or reject a queued item over the API. Deciding a review is the

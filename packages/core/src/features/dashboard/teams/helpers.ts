@@ -98,30 +98,3 @@ export function hasOwnerAnywhere(
 ): boolean {
   return workspace.accountable !== null || teams.some(t => t.accountable !== null);
 }
-
-/** Slim skill shape the approval boundary needs. */
-export type BoundarySkill = { slug: string; category: string | null; requiresApproval: string | null };
-
-/**
- * Derive the team's plain-language approval boundary from its members'
- * wired skills: reads run freely; mutations (or anything flagged
- * requiresApproval) are drafted for approval. Design §2b's "what runs
- * free / what waits" rail group.
- * @param memberSkillSlugs - Each member's `skillSlugs` list.
- * @param skills - The org's skills (slug, category, requiresApproval).
- */
-export function approvalBoundary(
-  memberSkillSlugs: Array<string[] | null | undefined>,
-  skills: BoundarySkill[],
-): { total: number; gated: number } {
-  const bySlug = new Map(skills.map(s => [s.slug, s]));
-  const wired = new Set(memberSkillSlugs.flatMap(list => list ?? []));
-  let gated = 0;
-  for (const slug of wired) {
-    const skill = bySlug.get(slug);
-    if (skill && (skill.category === 'mutation' || skill.requiresApproval === 'true')) {
-      gated += 1;
-    }
-  }
-  return { total: wired.size, gated };
-}

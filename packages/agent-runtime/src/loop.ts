@@ -30,7 +30,7 @@ function definitionHash(req: InvocationRequest): string {
       agent: req.agent,
       catalog: req.tools.catalog,
       endpoint: req.tools.endpoint,
-      hasPlaybooks: Object.keys(req.files ?? {}).some(p => p.startsWith('/playbooks/')),
+      hasPlaybooks: Object.keys(req.files ?? {}).some(p => p.startsWith('/playbooks/') || p.startsWith('/skills/')),
     }))
     .digest('hex');
 }
@@ -68,10 +68,13 @@ async function getGraph(req: InvocationRequest): Promise<{ graph: ReturnType<typ
   const excludeTools = new Set(req.agent.excludeTools ?? []);
   const kept = tools.filter(t => !excludeTools.has(t.name));
 
+  // Explicit tools: deepagents defaults a custom subagent's tools to [],
+  // which would leave specialists without the transport tool surface.
   const subagents = (req.agent.subagents ?? []).map((s): SubAgent => ({
     name: s.name,
     description: s.description,
     systemPrompt: s.systemPrompt,
+    tools: kept as SubAgent['tools'],
   }));
 
   const model = await buildChatModel({
@@ -80,7 +83,7 @@ async function getGraph(req: InvocationRequest): Promise<{ graph: ReturnType<typ
     maxTokens: req.agent.maxTokens,
   });
 
-  const hasPlaybooks = Object.keys(req.files ?? {}).some(p => p.startsWith('/playbooks/'));
+  const hasPlaybooks = Object.keys(req.files ?? {}).some(p => p.startsWith('/playbooks/') || p.startsWith('/skills/'));
 
   const graph = createDeepAgent({
     model,
@@ -88,7 +91,7 @@ async function getGraph(req: InvocationRequest): Promise<{ graph: ReturnType<typ
     subagents,
     systemPrompt: req.agent.systemPrompt || undefined,
     backend: new StateBackend(),
-    ...(hasPlaybooks ? { skills: ['/playbooks/'] } : {}),
+    ...(hasPlaybooks ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
 
   const entry = { graph, emitRef };

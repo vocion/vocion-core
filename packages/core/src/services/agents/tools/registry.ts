@@ -16,6 +16,7 @@
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { z } from 'zod';
+import { withToolCallRecord } from '../toolCallRecord';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
@@ -40,7 +41,6 @@ import { personalizationTools } from './personalization';
 import { proposeActionTool } from './proposeAction';
 import { recommendActionTool } from './recommendAction';
 import { runCodeTool } from './runCode';
-import { runOperationTool } from './runOperation';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { webSearchTool } from './webSearch';
@@ -56,7 +56,6 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     runCodeTool(ctx),
     createArtifactTool(ctx),
     lookupObjectsTool(ctx),
-    runOperationTool(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),
     checkLearningDedupTool(ctx),
@@ -81,7 +80,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
     ...personalizationTools(ctx),
-  ] as StructuredToolInterface[];
+    // Every invocation writes one tool_call row — the activity record,
+    // covering all three harness providers at this single seam.
+  ].map(t => withToolCallRecord(t as StructuredToolInterface, ctx));
 }
 
 export type ToolCatalogEntry = {
