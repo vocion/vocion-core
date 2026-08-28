@@ -19,6 +19,7 @@ import { hubspotConnector } from './hubspot';
 import { jiraConnector } from './jira';
 import { localFilesConnector } from './localFiles';
 import { slackConnector } from './slack';
+import { strapiConnector } from './strapi';
 import { webConnector } from './web';
 import { zoomConnector } from './zoom';
 
@@ -41,6 +42,7 @@ registerConnector(webConnector);
 registerConnector(localFilesConnector);
 registerConnector(fileImportConnector);
 registerConnector(hubspotConnector);
+registerConnector(strapiConnector);
 registerConnector(jiraConnector);
 registerConnector(googleAdsConnector);
 registerConnector(ga4Connector);
