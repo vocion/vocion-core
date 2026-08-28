@@ -584,6 +584,56 @@ describe('runSync concurrent ingestion', () => {
     expect(failures).toHaveLength(26);
   });
 
+  it('advances the incremental watermark on a clean run', async () => {
+    registerFixtureConnector('fixture-clean-watermark', 3);
+    const sourceId = await createSource('fixture-clean-watermark');
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    expect(checkpoint?.since).toBeInstanceOf(Date);
+  });
+
+  it('holds the watermark when part of the source could not be read', async () => {
+    // The watermark asserts "everything up to here has been seen". A run that
+    // lost a slice and carried on has not earned that: anything changed in this
+    // window inside the lost slice would fall behind a new watermark and never
+    // be requested again, since the next incremental run only asks for newer.
+    registerFixtureConnector('fixture-watermark-hold', 3);
+    const sourceId = await createSource('fixture-watermark-hold');
+
+    await runSync({ orgId: ORG_ID, sourceId });
+    const [afterCleanRun] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+    const establishedWatermark = afterCleanRun?.since;
+
+    expect(establishedWatermark).toBeInstanceOf(Date);
+
+    // Second run over the same source, this time losing a slice.
+    // Re-register the same slug, now losing a slice, so the source is unchanged.
+    registerReportingFixtureConnector('fixture-watermark-hold', 3, 1);
+    await runSync({ orgId: ORG_ID, sourceId, incremental: true });
+
+    const [afterFailedSlice] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    // Completed, but the watermark stayed exactly where the clean run left it.
+    expect(afterFailedSlice?.status).toBe('completed');
+    expect(afterFailedSlice?.failures).toHaveLength(1);
+    expect(afterFailedSlice?.since?.getTime()).toBe(establishedWatermark?.getTime());
+  });
+
   it('leaves failures empty on a clean run', async () => {
     registerFixtureConnector('fixture-no-failures', 3);
     const sourceId = await createSource('fixture-no-failures');
