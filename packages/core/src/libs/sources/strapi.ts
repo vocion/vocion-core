@@ -1,0 +1,333 @@
+/**
+ * Strapi connector — ingest entries from one or more Strapi headless CMS
+ * collections as retrievable documents. Built for the Veerio event-ingestion
+ * work (VEERIO-235), where partner organisations publish their event listings
+ * from their own Strapi instance rather than a purpose-built feed.
+ *
+ * Auth: a Strapi API token in `ctx.credentials.token`, sent as a Bearer header.
+ * Read-only tokens are enough — this connector never writes upstream.
+ *
+ * Multiple collections, one source: `ensureSource` keys a knowledge_source row
+ * on (orgId, connector slug), so an org gets exactly one `strapi` row and a
+ * second Strapi source would resolve back to the first. Collections therefore
+ * live in this connector's own config rather than in separate sources. They
+ * share one instance, one API token and one vault entry, and `externalId` is
+ * namespaced `<collection>:<id>` so entries from different collections cannot
+ * collide.
+ *
+ * One failing collection does not sink the rest. A collection that throws is
+ * reported through `ctx.onProgress({ kind: 'error' })` and the sync moves on to
+ * the next one. That is a deliberate departure from the "throw aborts the whole
+ * sync" contract in `types.ts`: a partner instance where one collection is
+ * misconfigured should still deliver the collections that work. The reported
+ * error is what SourceSyncService counts, logs and persists for the UI — and it
+ * also suppresses tombstoning for the whole run, which is the behaviour we
+ * want, since a collection we could not read is not a collection whose
+ * documents we can safely call deleted.
+ *
+ * Incremental: when `ctx.since` is set, only entries with `updatedAt > since`
+ * are fetched (`filters[updatedAt][$gt]`). Results are always sorted by
+ * `updatedAt` ascending so page boundaries stay stable while a sync walks them.
+ *
+ * Response shapes: Strapi v4 nests fields under `{ id, attributes: { ... } }`
+ * while Strapi v5 returns them flattened alongside a `documentId`. Both are
+ * normalized here into one flat record, so a source works against either
+ * version without the user telling us which one they run.
+ *
+ * Chunking, embedding and dedup are handled downstream by IngestionService.
+ */
+
+import type { SourceConnector, SourceContext } from './types';
+import type { IngestDoc } from '@/services/IngestionService';
+import { z } from 'zod';
+
+const DEFAULT_PAGE_SIZE = 100;
+
+/** Fields Strapi manages itself — surfaced as document metadata, not body text. */
+const HOUSEKEEPING_FIELDS = new Set([
+  'id',
+  'documentId',
+  'createdAt',
+  'updatedAt',
+  'publishedAt',
+  'locale',
+  'createdBy',
+  'updatedBy',
+]);
+
+/** Field names checked, in order, when picking a human title for an entry. */
+const TITLE_FIELD_CANDIDATES = ['title', 'name', 'heading', 'label', 'slug'];
+
+const strapiConfigSchema = z.object({
+  /** Root of the Strapi instance, e.g. `https://cms.partner.org`. */
+  baseUrl: z.string().url(),
+  /** Plural API ids of the collections to sync, e.g. `["events", "venues"]`. */
+  collections: z.array(z.string().min(1)).min(1),
+  /**
+   * Relations and media to expand. Strapi returns relations as bare ids unless
+   * asked to populate them; `*` pulls every first-level relation.
+   */
+  populate: z.string().default('*'),
+  /** Entries requested per page. Strapi caps this at 100 by default. */
+  pageSize: z.number().int().positive().max(100).default(DEFAULT_PAGE_SIZE),
+});
+
+type StrapiConfig = z.infer<typeof strapiConfigSchema>;
+
+/** One entry as Strapi sends it — v4 nested or v5 flat. */
+type StrapiEntry = {
+  id?: number | string;
+  documentId?: string;
+  attributes?: Record<string, unknown>;
+  [field: string]: unknown;
+};
+
+type StrapiPage = {
+  data?: StrapiEntry[];
+  meta?: { pagination?: { page?: number; pageCount?: number; total?: number } };
+};
+
+/** A single block in Strapi's rich-text ("blocks") field format. */
+type RichTextBlock = { children?: { text?: string }[] };
+
+/** Where a resumed run should pick back up. */
+type ResumePosition = { collectionIndex: number; page: number };
+
+/**
+ * Collapse a v4 (`{ id, attributes }`) or v5 (flat) entry into one flat record
+ * of field name to value, with the identifiers kept alongside.
+ * @param entry - One raw entry object straight from the Strapi response.
+ */
+function normalizeEntry(entry: StrapiEntry): { id: string; fields: Record<string, unknown> } {
+  const nestedAttributes = entry.attributes;
+  const fields: Record<string, unknown> = nestedAttributes
+    ? { ...nestedAttributes }
+    : { ...entry };
+
+  // `documentId` is the stable identifier in v5; v4 only has the numeric `id`.
+  const identifier = entry.documentId ?? entry.id;
+  return { id: identifier == null ? '' : String(identifier), fields };
+}
+
+/**
+ * Render one Strapi field value as plain text. Scalars pass through, rich-text
+ * blocks are flattened to their text runs, and relations or media objects are
+ * reduced to whatever human-readable label they carry.
+ * @param value - A single field value — scalar, array, rich-text block, relation or media object.
+ */
+function renderFieldValue(value: unknown): string {
+  if (value == null || value === '') {
+    return '';
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const renderedItems = value.map(renderFieldValue).filter(text => text !== '');
+    return renderedItems.join(', ');
+  }
+  const objectValue = value as Record<string, unknown>;
+
+  // Rich-text blocks arrive as `{ children: [{ text }] }` and are handled by the
+  // array branch above; a lone block still needs flattening here.
+  const blockChildren = (objectValue as RichTextBlock).children;
+  if (Array.isArray(blockChildren)) {
+    return blockChildren.map(child => child?.text ?? '').join('');
+  }
+
+  // Relations and media: keep the label a reader would recognise, drop the rest.
+  for (const candidate of TITLE_FIELD_CANDIDATES) {
+    const label = objectValue[candidate];
+    if (typeof label === 'string' && label !== '') {
+      return label;
+    }
+  }
+  return '';
+}
+
+/**
+ * Pick the most human-readable title available on an entry.
+ * @param collection - Plural API id of the collection, used for the fallback title.
+ * @param fields - The entry's flattened field map.
+ * @param id - The entry's identifier, used for the fallback title.
+ */
+function titleFor(collection: string, fields: Record<string, unknown>, id: string): string {
+  for (const candidate of TITLE_FIELD_CANDIDATES) {
+    const value = fields[candidate];
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value.trim();
+    }
+  }
+  return `${collection} ${id}`;
+}
+
+/**
+ * Serialize the entry's content fields as `field: value` lines.
+ * @param fields - The entry's flattened field map.
+ */
+function contentFor(fields: Record<string, unknown>): string {
+  const lines: string[] = [];
+  for (const [fieldName, value] of Object.entries(fields)) {
+    if (HOUSEKEEPING_FIELDS.has(fieldName)) {
+      continue;
+    }
+    const rendered = renderFieldValue(value);
+    if (rendered !== '') {
+      lines.push(`${fieldName}: ${rendered}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function trimTrailingSlash(url: string): string {
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+/**
+ * Build one entry's IngestDoc.
+ * @param config - The parsed connector config for this source.
+ * @param collection - Plural API id of the collection the entry came from.
+ * @param entry - One raw entry object straight from the Strapi response.
+ */
+function toDoc(config: StrapiConfig, collection: string, entry: StrapiEntry): IngestDoc {
+  const { id, fields } = normalizeEntry(entry);
+  const updatedAt = fields.updatedAt;
+  const content = contentFor(fields);
+  return {
+    externalId: `${collection}:${id}`,
+    title: titleFor(collection, fields, id),
+    content: content || `${collection} ${id}`,
+    uri: `${trimTrailingSlash(config.baseUrl)}/api/${collection}/${id}`,
+    lastModifiedAt: typeof updatedAt === 'string' ? new Date(updatedAt) : null,
+    metadata: {
+      collection,
+      strapiId: id,
+      ...(typeof fields.locale === 'string' ? { locale: fields.locale } : {}),
+    },
+  };
+}
+
+/**
+ * Build the query string for one page of a collection request.
+ * @param config - The parsed connector config for this source.
+ * @param page - 1-based page number to request.
+ * @param since - Incremental watermark — when set, only entries updated after it are fetched.
+ */
+function buildPageQuery(config: StrapiConfig, page: number, since?: Date | null): string {
+  const params = new URLSearchParams();
+  params.set('pagination[page]', String(page));
+  params.set('pagination[pageSize]', String(config.pageSize));
+  params.set('sort[0]', 'updatedAt:asc');
+  if (config.populate !== '') {
+    params.set('populate', config.populate);
+  }
+  if (since) {
+    params.set('filters[updatedAt][$gt]', since.toISOString());
+  }
+  return params.toString();
+}
+
+/**
+ * Decode the `<collectionIndex>:<page>` resume position a prior run left behind.
+ * Anything unparseable, out of range, or below the first page starts from the
+ * beginning rather than silently skipping collections.
+ * @param cursor - The opaque cursor string from the prior run's checkpoint.
+ * @param collectionCount - How many collections this source is configured with.
+ */
+function parseCursor(cursor: string | null | undefined, collectionCount: number): ResumePosition {
+  const start: ResumePosition = { collectionIndex: 0, page: 1 };
+  if (!cursor) {
+    return start;
+  }
+  const [rawIndex, rawPage] = cursor.split(':');
+  const collectionIndex = Number.parseInt(rawIndex ?? '', 10);
+  const page = Number.parseInt(rawPage ?? '', 10);
+  if (Number.isNaN(collectionIndex) || collectionIndex < 0 || collectionIndex >= collectionCount) {
+    return start;
+  }
+  if (Number.isNaN(page) || page < 1) {
+    return { collectionIndex, page: 1 };
+  }
+  return { collectionIndex, page };
+}
+
+/**
+ * Walk one collection page by page, yielding a document per entry.
+ *
+ * Throws on the first failed request. The caller decides whether that ends the
+ * whole sync or just this collection.
+ * @param config - The parsed connector config for this source.
+ * @param collection - Plural API id of the collection to walk.
+ * @param headers - Request headers carrying the bearer token.
+ * @param since - Incremental watermark, or null for a full walk.
+ * @param startPage - 1-based page to begin at.
+ * @param onProgress - Progress callback from the SourceContext, when the caller supplied one.
+ * @yields One IngestDoc per entry in the collection.
+ */
+async function* syncOneCollection(
+  config: StrapiConfig,
+  collection: string,
+  headers: Record<string, string>,
+  since: Date | null | undefined,
+  startPage: number,
+  onProgress: SourceContext['onProgress'],
+): AsyncIterable<IngestDoc> {
+  const collectionUrl = `${trimTrailingSlash(config.baseUrl)}/api/${collection}`;
+  let page = startPage;
+  let pageCount = startPage;
+
+  do {
+    const query = buildPageQuery(config, page, since);
+    const response = await fetch(`${collectionUrl}?${query}`, { headers });
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      throw new Error(`Strapi ${collection} fetch failed: ${response.status} ${errorBody}`);
+    }
+    const body = (await response.json()) as StrapiPage;
+    for (const entry of body.data ?? []) {
+      const doc = toDoc(config, collection, entry);
+      onProgress?.({ kind: 'fetched', uri: doc.uri });
+      yield doc;
+    }
+    // A missing pageCount means the instance returned an unpaginated payload;
+    // treat what we got as the only page rather than looping forever.
+    pageCount = body.meta?.pagination?.pageCount ?? page;
+    page += 1;
+  } while (page <= pageCount);
+}
+
+export const strapiConnector: SourceConnector<typeof strapiConfigSchema> = {
+  slug: 'strapi',
+  name: 'Strapi',
+  description: 'Ingest entries from one or more Strapi CMS collections — incremental by updatedAt.',
+  icon: 'Database',
+  authKind: 'apikey',
+  configSchema: strapiConfigSchema,
+  async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
+    const config = strapiConfigSchema.parse(ctx.config);
+    const token = (ctx.credentials?.token ?? ctx.credentials?.apiToken) as string | undefined;
+    if (!token) {
+      throw new Error('Strapi connector requires an API token in credentials.token');
+    }
+    const headers = { authorization: `Bearer ${token}` };
+    const resume = parseCursor(ctx.cursor, config.collections.length);
+
+    for (let index = resume.collectionIndex; index < config.collections.length; index++) {
+      const collection = config.collections[index]!;
+      // Only the collection we resumed into starts mid-way; the rest start at 1.
+      const startPage = index === resume.collectionIndex ? resume.page : 1;
+      try {
+        yield* syncOneCollection(config, collection, headers, ctx.since, startPage, ctx.onProgress);
+      } catch (error) {
+        // One bad collection must not cost us the others. Reporting rather than
+        // throwing also tells SourceSyncService to skip tombstoning this run,
+        // since documents we failed to read are not documents we know are gone.
+        ctx.onProgress?.({
+          kind: 'error',
+          uri: `${trimTrailingSlash(config.baseUrl)}/api/${collection}`,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  },
+};
