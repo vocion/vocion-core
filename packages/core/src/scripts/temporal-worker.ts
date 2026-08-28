@@ -29,6 +29,17 @@ async function main(): Promise<void> {
 
   console.log(`[temporal:worker] connecting to ${address} (namespace=${namespace})…`);
 
+  // First-line observability for the class of bug where a merged compose
+  // env points this worker at the wrong database (nine silent days of
+  // failed automations in prod, 2026-08). Host + database only, never
+  // credentials.
+  try {
+    const dbUrl = new URL(process.env.DATABASE_URL ?? '');
+    console.log(`[temporal:worker] database: ${dbUrl.hostname}:${dbUrl.port || '5432'}${dbUrl.pathname}`);
+  } catch {
+    console.warn('[temporal:worker] DATABASE_URL is unset or unparseable — every activity that touches the DB will fail.');
+  }
+
   const connection = await NativeConnection.connect({ address });
 
   const worker = await Worker.create({
