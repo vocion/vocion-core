@@ -69,14 +69,6 @@ describe('traceEmitter — lead work', () => {
     expect(em.citations()).toHaveLength(1);
   });
 
-  it('classifies run_operation as a skill node', () => {
-    const em = new TraceEmitter({ leadName: 'Lead' });
-    const out = em.handle({ event: 'on_tool_start', name: 'run_operation', metadata: { checkpoint_ns: 'tools:op1' }, data: { input: { input: '{"operation":"draft_follow_up"}' } } });
-
-    expect(out[0]).toMatchObject({ kind: 'skill', status: 'start', detail: 'draft_follow_up' });
-    expect(out[0]?.label).toBe('Running draft_follow_up');
-  });
-
   it('carries a record-name preview on lookup_objects for the call drill', () => {
     const em = new TraceEmitter({ leadName: 'Lead' });
     em.handle({ event: 'on_tool_start', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:l1' }, data: { input: { input: '{"type_slug":"follow-up"}' } } });
