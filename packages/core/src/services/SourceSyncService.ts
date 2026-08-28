@@ -108,11 +108,23 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
 export const MAX_CONCURRENT_INGESTS = 8;
 
 /**
- * One thing that went wrong during a sync without ending it — a collection the
- * connector could not read, a document that would not save. Stored on the
+ * Which layer reported a failure.
+ *
+ * The distinction matters for what we keep when a run produces more failures
+ * than we store. `connector` means a whole slice of the source never arrived —
+ * a Strapi collection that would not load, a Drive folder that 403'd. `document`
+ * means one item failed to save, usually a rate-limited embedding call. A
+ * thousand document failures are one story told a thousand times; a single
+ * connector failure is the one nobody can reconstruct afterwards.
+ */
+export type FailureScope = 'connector' | 'document';
+
+/**
+ * One thing that went wrong during a sync without ending it. Stored on the
  * checkpoint so the source detail page can name what was skipped.
  */
 export type RecordedFailure = {
+  scope: FailureScope;
   /** What failed, when the reporter knew: a document externalId or a collection URL. */
   uri?: string;
   message: string;
@@ -121,11 +133,14 @@ export type RecordedFailure = {
 };
 
 /**
- * How many failures one run records. A source erroring on every one of 50,000
- * documents would otherwise write a 50,000-entry JSON blob; the count in
- * `counts.errors` still reflects the true total either way.
+ * How many failures of each scope one run records.
+ *
+ * Two separate caps rather than one shared budget, so a source failing to embed
+ * hundreds of documents cannot crowd out the record of the collection that
+ * never loaded at all. `counts.errors` still reports the true total of both.
  */
-const RECORDED_FAILURE_LIMIT = 50;
+const RECORDED_CONNECTOR_FAILURE_LIMIT = 25;
+const RECORDED_DOCUMENT_FAILURE_LIMIT = 25;
 
 export type SyncResult = {
   sourceId: number;
@@ -364,25 +379,36 @@ export async function runSync(opts: {
    * @param event.message
    */
   // What went wrong without stopping the run, persisted to the checkpoint at
-  // the end so the source detail page can name it. Capped; see
-  // RECORDED_FAILURE_LIMIT.
-  const recordedFailures: RecordedFailure[] = [];
+  // the end so the source detail page can name it. Kept in two buckets so the
+  // caps apply per scope — see FailureScope.
+  const connectorFailures: RecordedFailure[] = [];
+  const documentFailures: RecordedFailure[] = [];
+
+  /** Connector failures first: they are the ones a reader cannot reconstruct. */
+  const failuresForCheckpoint = (): RecordedFailure[] => [...connectorFailures, ...documentFailures];
 
   const reportProgress = (event: {
     kind: 'fetched' | 'skipped' | 'error';
     uri?: string;
     message?: string;
-  }): void => {
+  }, scope: FailureScope = 'document'): void => {
     // Every error the run survives funnels through here — the connector's own
     // (a collection it could not read) and ingestion's (a document that would
     // not save). Recording in this one place keeps the checkpoint's failure
     // list in step with `counts.errors` no matter which side reported it.
-    if (event.kind === 'error' && recordedFailures.length < RECORDED_FAILURE_LIMIT) {
-      recordedFailures.push({
-        uri: event.uri,
-        message: event.message ?? 'no message reported',
-        at: new Date().toISOString(),
-      });
+    if (event.kind === 'error') {
+      const bucket = scope === 'connector' ? connectorFailures : documentFailures;
+      const limit = scope === 'connector'
+        ? RECORDED_CONNECTOR_FAILURE_LIMIT
+        : RECORDED_DOCUMENT_FAILURE_LIMIT;
+      if (bucket.length < limit) {
+        bucket.push({
+          scope,
+          uri: event.uri,
+          message: event.message ?? 'no message reported',
+          at: new Date().toISOString(),
+        });
+      }
     }
     try {
       opts.onProgress?.(event);
@@ -489,6 +515,8 @@ export async function runSync(opts: {
         if (e.kind === 'error') {
           result.errors += 1;
           connectorFailureCount += 1;
+          reportProgress(e, 'connector');
+          return;
         }
         reportProgress(e);
       },
@@ -556,7 +584,7 @@ export async function runSync(opts: {
       status: 'completed',
       counts: countsForCheckpoint(),
       watermark: cutoff,
-      failures: recordedFailures,
+      failures: failuresForCheckpoint(),
     });
     return result;
   } catch (err) {
@@ -583,7 +611,7 @@ export async function runSync(opts: {
       status: 'failed',
       counts: countsForCheckpoint(),
       error: err instanceof Error ? err.message : String(err),
-      failures: recordedFailures,
+      failures: failuresForCheckpoint(),
     });
     throw err;
   }

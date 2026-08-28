@@ -546,10 +546,42 @@ describe('runSync concurrent ingestion', () => {
     expect(checkpoint?.error).toBeNull();
     expect(checkpoint?.failures).toHaveLength(1);
     expect(checkpoint?.failures?.[0]).toMatchObject({
+      scope: 'connector',
       uri: 'https://cms.partner.test/api/venues',
       message: 'Strapi venues fetch failed: 500',
     });
     expect(typeof checkpoint?.failures?.[0]?.at).toBe('string');
+  });
+
+  it('keeps the connector failure when documents fail in bulk', async () => {
+    // The failure a reader most needs — a whole slice of the source missing —
+    // must not be pushed out of the stored sample by a flood of per-document
+    // errors, which are the same story told many times over.
+    registerReportingFixtureConnector('fixture-crowded-failures', 35, 0);
+    const sourceId = await createSource('fixture-crowded-failures');
+    schedulingLog.shouldFail = new Set(
+      Array.from({ length: 30 }, (_unused, index) => `doc-${index + 1}`),
+    );
+
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    // One reported by the connector, thirty by ingestion.
+    expect(result.errors).toBe(31);
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    const failures = checkpoint?.failures ?? [];
+    const connectorFailures = failures.filter(failure => failure.scope === 'connector');
+
+    expect(connectorFailures).toHaveLength(1);
+    // Connector failures are listed first, and documents are capped at 25 —
+    // so the stored sample is 26 of the 31 that actually happened.
+    expect(failures[0]?.scope).toBe('connector');
+    expect(failures).toHaveLength(26);
   });
 
   it('leaves failures empty on a clean run', async () => {
