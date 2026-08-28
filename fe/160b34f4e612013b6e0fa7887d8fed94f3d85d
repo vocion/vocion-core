@@ -1,0 +1,22 @@
+packages/core/src/scripts/temporal-worker.ts
+  s_1959de457b6f4d::t_ad3582fbe8633b 32-42
+docker-compose.yml
+  s_1959de457b6f4d::t_9834dffc3b8122 36-44,48,70,94
+  s_1959de457b6f4d::t_dea964e9cae822 91-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fe160b34f4e612013b6e0fa7887d8fed94f3d85d",
+  "prompts": {},
+  "sessions": {
+    "s_1959de457b6f4d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a0b1482d-29fa-44d9-bb6c-955a7a8a117e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
