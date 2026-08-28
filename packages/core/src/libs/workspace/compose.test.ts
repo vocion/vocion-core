@@ -24,9 +24,16 @@ function pack(): PackRaw {
       entry('director', { skills: ['proposal-brief'], objectTypes: ['proposal'] }),
       entry('writer', { skills: [] }),
     ),
-    skills: asMap(entry('proposal-brief'), entry('pipeline-brief')),
     objectTypes: asMap(entry('proposal')),
     missions: asMap(entry('m1')),
+    skills: new Map([
+      ['proposal-brief', { slug: 'proposal-brief', playbooks: ['house-style'] }],
+      ['pipeline-brief', { slug: 'pipeline-brief', playbooks: [] }],
+    ]),
+    playbooks: new Map([
+      ['house-style', { slug: 'house-style', playbooks: [] }],
+      ['etiquette', { slug: 'etiquette', playbooks: [] }],
+    ]),
   };
 }
 
@@ -35,25 +42,28 @@ describe('resolveActivation', () => {
     const a = resolveActivation(pack(), 'all');
 
     expect([...a.agents.keys()]).toEqual(['director', 'writer']);
-    expect([...a.skills.keys()]).toEqual(['proposal-brief', 'pipeline-brief']);
+    expect([...a.skills]).toEqual(['proposal-brief', 'pipeline-brief']);
+    expect([...a.playbooks]).toEqual(['house-style', 'etiquette']);
     expect([...a.objectTypes.keys()]).toEqual(['proposal']);
     expect([...a.missions.keys()]).toEqual(['m1']);
   });
 
-  it('naming an agent pulls its skills + object types transitively (and nothing else)', () => {
+  it('naming an agent pulls its skills + object types + the skills\' playbooks transitively (and nothing else)', () => {
     const a = resolveActivation(pack(), { agents: ['director'] });
 
     expect([...a.agents.keys()]).toEqual(['director']);
-    expect([...a.skills.keys()]).toEqual(['proposal-brief']); // pipeline-brief NOT pulled
+    expect([...a.skills]).toEqual(['proposal-brief']); // pipeline-brief NOT pulled
+    expect([...a.playbooks]).toEqual(['house-style']); // travels with the skill; etiquette NOT pulled
     expect([...a.objectTypes.keys()]).toEqual(['proposal']);
     expect([...a.missions.keys()]).toEqual([]); // missions only under `use: all`
   });
 
-  it('a standalone operation activates without an agent', () => {
-    const a = resolveActivation(pack(), { operations: ['pipeline-brief'] });
+  it('a standalone skill or playbook activates without an agent', () => {
+    const a = resolveActivation(pack(), { skills: ['pipeline-brief'], playbooks: ['etiquette'] });
 
     expect([...a.agents.keys()]).toEqual([]);
-    expect([...a.skills.keys()]).toEqual(['pipeline-brief']);
+    expect([...a.skills]).toEqual(['pipeline-brief']);
+    expect([...a.playbooks]).toEqual(['etiquette']);
   });
 
   it('omitting `use` (null) activates nothing', () => {
@@ -61,13 +71,14 @@ describe('resolveActivation', () => {
 
     expect(a.agents.size).toBe(0);
     expect(a.skills.size).toBe(0);
+    expect(a.playbooks.size).toBe(0);
   });
 
   it('`disable` subtracts even under `use: all`', () => {
-    const a = resolveActivation(pack(), 'all', { agents: ['writer'], operations: ['pipeline-brief'] });
+    const a = resolveActivation(pack(), 'all', { agents: ['writer'], skills: ['pipeline-brief'] });
 
     expect([...a.agents.keys()]).toEqual(['director']);
-    expect([...a.skills.keys()]).toEqual(['proposal-brief']);
+    expect([...a.skills]).toEqual(['proposal-brief']);
   });
 
   it('naming an agent the pack does not ship throws', () => {

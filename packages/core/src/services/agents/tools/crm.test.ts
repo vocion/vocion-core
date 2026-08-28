@@ -33,7 +33,6 @@ function ctxFor(orgId: string, sources: string[] = ['hubspot'], allowed?: string
     ...(allowed ? { allowedSourceSlugs: allowed } : {}),
     objectTypeSlugs: [],
     searchConfig: {},
-    operationSlugs: [],
     harnessConfig: {},
     emit: () => {},
     citationSeq: { current: 0 },

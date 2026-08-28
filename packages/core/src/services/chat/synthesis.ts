@@ -5,7 +5,7 @@ import { db } from '@/libs/DB';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModel } from '@/libs/llm';
-import { agentSchema, knowledgeDocumentSchema, knowledgeSourceSchema, missionSchema, skillSchema } from '@/models/Schema';
+import { agentSchema, knowledgeDocumentSchema, knowledgeSourceSchema, missionSchema, playbookSchema } from '@/models/Schema';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
 
 /**
@@ -220,7 +220,7 @@ export function buildTrackerDigest(records: TrackerRecordLike[], now: Date = new
 export type SynthesisInput = {
   agentName: string;
   missions: Array<{ name: string; goal: string; successCriteria: string[]; schedule: string | null }>;
-  skills: Array<{ name: string; description: string | null; category: string | null }>;
+  skills: Array<{ name: string; description: string | null }>;
   digest: TrackerDigest;
   /**
    * SUPPLEMENT signal only — how much raw source material (email/CRM/docs)
@@ -263,7 +263,7 @@ export function buildSynthesisPrompt(input: SynthesisInput): { system: string; u
     : '- (none declared)';
 
   const skills = input.skills.length > 0
-    ? input.skills.map(s => `- ${s.name}${s.category ? ` (${s.category})` : ''}: ${s.description ?? ''}`).join('\n')
+    ? input.skills.map(s => `- ${s.name}: ${s.description ?? ''}`).join('\n')
     : '- (none declared)';
 
   const sources = input.recentSourceActivity.length > 0
@@ -410,12 +410,11 @@ async function gatherDeclaredContext(orgId: string, agentSlug: string): Promise<
       .where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.agentSlug, agentSlug))),
     (agent.skillSlugs ?? []).length > 0
       ? db.select({
-          name: skillSchema.name,
-          description: skillSchema.description,
-          category: skillSchema.category,
+          name: playbookSchema.name,
+          description: playbookSchema.description,
         })
-          .from(skillSchema)
-          .where(and(eq(skillSchema.orgId, orgId), inArray(skillSchema.slug, agent.skillSlugs ?? [])))
+          .from(playbookSchema)
+          .where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.kind, 'skill'), inArray(playbookSchema.slug, agent.skillSlugs ?? [])))
       : Promise.resolve([]),
     Promise.all((agent.objectTypeSlugs ?? []).map(async typeSlug => ({
       typeSlug,

@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'missing claim' }, { status: 401 });
   }
 
-  let body: { tool?: string; input?: Record<string, unknown> };
+  let body: { tool?: string; input?: Record<string, unknown>; ns?: string };
   try {
     body = await request.json();
   } catch {
@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
     token,
     tool: body.tool,
     input: body.input ?? {},
+    ns: typeof body.ns === 'string' ? body.ns : undefined,
   });
 
   if (!result.ok) {

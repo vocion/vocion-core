@@ -28,9 +28,9 @@ afterEach(() => {
 
 describe('provenance — pack pin in workspace_sha', () => {
   it('folds the resolved pack version into the sha when a pack is active', () => {
-    const ws = loadWorkspace(makeWorkspace('extends: core@1.0.0\nuse:\n  agents: [revenue-director]\n'));
+    const ws = loadWorkspace(makeWorkspace('extends: core@2.0.0\nuse:\n  agents: [revenue-director]\n'));
 
-    expect(ws.sha).toContain('+core@1.0.0');
+    expect(ws.sha).toContain('+core@2.0.0');
   });
 
   it('leaves the sha untouched with no base pack', () => {
@@ -40,22 +40,45 @@ describe('provenance — pack pin in workspace_sha', () => {
   });
 });
 
-describe('safety guard — a workspace cannot disarm a core approval gate', () => {
-  it('rejects an override that flips a base mutation to requiresApproval: false', () => {
-    expect(() => loadWorkspace(makeWorkspace(
-      'extends: core@1.0.0\nuse:\n  agents: [proposal-writer]\n',
-      { 'operations/proposal-brief/skill.yaml': 'extends: core\nslug: proposal_brief\nrequiresApproval: false\n' },
-    ))).toThrow(/cannot disable the approval gate/);
+describe('folder override — a workspace skill replaces the base outright', () => {
+  it('mounts the activated base skill as origin core with no workspace copy', () => {
+    const ws = loadWorkspace(makeWorkspace('extends: core@2.0.0\nuse:\n  agents: [revenue-director]\n'));
+    const skill = ws.skills.find(s => s.slug === 'pipeline-health');
+
+    expect(skill?.origin).toBe('core');
+    expect(skill?.body).toContain('open pipeline');
   });
 
-  it('allows an override that keeps the gate (and changes other fields)', () => {
+  it('a same-slug workspace folder replaces the base whole-file (origin override)', () => {
     const ws = loadWorkspace(makeWorkspace(
-      'extends: core@1.0.0\nuse:\n  agents: [proposal-writer]\n',
-      { 'operations/proposal-brief/skill.yaml': 'extends: core\nslug: proposal_brief\ntemperature: "0.5"\n' },
+      'extends: core@2.0.0\nuse:\n  agents: [revenue-director]\n',
+      { 'skills/pipeline-health/SKILL.md': '---\nslug: pipeline-health\nname: Pipeline Health\ndescription: workspace version\nversion: 2\n---\n\nWorkspace body wins outright.\n' },
     ));
-    const brief = ws.skills.find(s => s.slug === 'proposal_brief');
+    const skill = ws.skills.find(s => s.slug === 'pipeline-health');
 
-    expect(brief?.origin).toBe('merged');
-    expect(brief?.requiresApproval).toBe(true);
+    expect(skill?.origin).toBe('override');
+    expect(skill?.body).toBe('Workspace body wins outright.');
+  });
+
+  it('a same-slug folder without activation is a hard error, not a silent win', () => {
+    expect(() => loadWorkspace(makeWorkspace(
+      'extends: core@2.0.0\n',
+      { 'skills/pipeline-health/SKILL.md': '---\nslug: pipeline-health\nname: Pipeline Health\ndescription: shadow\n---\n\nbody\n' },
+    ))).toThrow(/collides with a base default the workspace has not activated/);
+  });
+
+  it('an activated base skill pulls its attached playbooks transitively', () => {
+    const ws = loadWorkspace(makeWorkspace('extends: core@2.0.0\nuse:\n  skills: [draft-warm-touch]\n'));
+
+    expect(ws.skills.map(s => s.slug)).toContain('draft-warm-touch');
+    expect(ws.playbooks.map(p => p.slug)).toContain('warming-etiquette');
+    expect(ws.playbooks.find(p => p.slug === 'warming-etiquette')?.origin).toBe('core');
+  });
+
+  it('a reference that resolves to nothing fails the load', () => {
+    expect(() => loadWorkspace(makeWorkspace(
+      'extends: core@2.0.0\n',
+      { 'agents/loner.yaml': 'slug: loner\nname: Loner\nsystemPrompt: hi\nskills: [ghost-skill]\n' },
+    ))).toThrow(/names skill "ghost-skill", which resolves to nothing/);
   });
 });

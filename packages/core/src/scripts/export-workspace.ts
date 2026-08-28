@@ -5,7 +5,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { stringify as stringifyYaml } from 'yaml';
 import { db } from '@/libs/DB';
 import { projectLeadToManifestKeys, teamRowToManifest } from '@/libs/workspace/team-export';
-import { agentSchema, businessObjectTypeSchema, projectSchema, skillSchema, teamSchema, userSchema } from '@/models/Schema';
+import { agentSchema, businessObjectTypeSchema, projectSchema, teamSchema, userSchema } from '@/models/Schema';
 import 'dotenv/config';
 
 /**
@@ -25,7 +25,6 @@ async function main(): Promise<void> {
   mkdirSync(outDir, { recursive: true });
 
   const agents = await db.select().from(agentSchema).where(eq(agentSchema.orgId, orgId));
-  const skills = await db.select().from(skillSchema).where(eq(skillSchema.orgId, orgId));
   const objectTypes = await db.select().from(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.orgId, orgId));
   const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId));
   const [project] = await db.select().from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
@@ -54,7 +53,7 @@ async function main(): Promise<void> {
       emailByUserId,
     ),
     defaults: {
-      model: mode(skills.map(s => s.model ?? 'gpt-4o')),
+      model: mode(agents.map(a => a.model ?? 'gpt-4o')),
       temperature: '0.3',
     },
   }));
@@ -102,7 +101,7 @@ async function main(): Promise<void> {
       eyebrow: a.eyebrow ?? undefined,
       suggestions: (a.suggestions ?? []).length > 0 ? a.suggestions : undefined,
       subagents: (a.subagents ?? []).length > 0 ? a.subagents : undefined,
-      playbookTags: (a.playbookTags ?? []).length > 0 ? a.playbookTags : undefined,
+      playbooks: (a.playbookSlugs ?? []).length > 0 ? a.playbookSlugs : undefined,
       learningSteps: (a.learningSteps ?? []).length > 0 ? a.learningSteps : undefined,
       // Harness block — carries the execution-layer choice (BYOA
       // `provider: runtime`, agentcore, interrupts, excludeTools…).
@@ -120,33 +119,8 @@ async function main(): Promise<void> {
     writeFile(join(agentsDir, `${a.slug}.yaml`), stringifyYaml(manifest, { lineWidth: 0 }));
   }
 
-  // skills/<slug>/skill.yaml + skills/<slug>/prompt.md
-  // v0.2 renamed skills/ → operations/; the loader prefers operations/
-  // when both exist, so exporting to skills/ gets silently ignored in a
-  // scaffolded workspace (scaffold creates operations/).
-  const skillsDir = join(outDir, 'operations');
-  mkdirSync(skillsDir, { recursive: true });
-  for (const s of skills) {
-    const skillDir = join(skillsDir, s.slug.replace(/_/g, '-'));
-    mkdirSync(skillDir, { recursive: true });
-
-    writeFile(join(skillDir, 'prompt.md'), s.promptTemplate);
-
-    const manifest = stripNulls({
-      slug: s.slug,
-      name: s.name,
-      description: s.description,
-      category: (s.category ?? 'query') as 'query' | 'mutation' | 'composite',
-      status: (s.status ?? 'active') as 'active' | 'disabled' | 'draft',
-      version: s.version ?? 1,
-      model: s.model,
-      temperature: s.temperature,
-      requiresApproval: s.requiresApproval !== 'false',
-      promptFile: 'prompt.md',
-      inputSchema: s.inputSchema ?? undefined,
-    });
-    writeFile(join(skillDir, 'skill.yaml'), stringifyYaml(manifest, { lineWidth: 0 }));
-  }
+  // Skills and playbooks are file-authored (skills/<slug>/SKILL.md,
+  // playbooks/<slug>/SKILL.md) — nothing to export from the DB.
 
   // objects/<slug>/type.yaml + objects/<slug>/classification-prompt.md
   const objectsDir = join(outDir, 'objects');
@@ -177,7 +151,6 @@ async function main(): Promise<void> {
   console.log(`\n✓ exported to ${outDir}`);
   console.log(`  agents: ${agents.length}`);
   console.log(`  teams: ${teams.length}`);
-  console.log(`  skills: ${skills.length}`);
   console.log(`  objectTypes: ${objectTypes.length}`);
   process.exit(0);
 }

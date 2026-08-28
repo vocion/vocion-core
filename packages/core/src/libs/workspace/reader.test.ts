@@ -72,12 +72,12 @@ describe('readPrimitiveFiles — layered provenance', () => {
     expect(res!.files[0]!.layer).toBe('workspace');
   });
 
-  it('a base operation is surfaced as a core layer for its skill drilldown', () => {
+  it('a base skill is surfaced as a core layer for its drilldown', () => {
     workspaceAt();
-    const res = readPrimitiveFiles('skill', 'proposal_brief');
+    const res = readPrimitiveFiles('skill', 'proposal-brief');
 
     expect(res).not.toBeNull();
     expect(res!.files.every(f => f.layer === 'core')).toBe(true);
-    expect(res!.files.some(f => f.content.includes('requiresApproval: true'))).toBe(true);
+    expect(res!.files.some(f => f.content.includes('DRAFT for human approval'))).toBe(true);
   });
 });

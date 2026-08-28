@@ -17,7 +17,7 @@ vi.mock('@/libs/temporal/client', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { agentSchema, projectSchema, skillSchema, teamSchema, tenantAccountSchema, userSchema, workspaceVersionSchema } = await import('@/models/Schema');
+const { agentSchema, playbookSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { SAMPLE_USERS, SampleSeedBlockedError, seedSampleWorkspace } = await import('@/services/SampleWorkspaceService');
 const { getWorkspaceLead, listTeams } = await import('@/services/TeamService');
 
@@ -28,7 +28,7 @@ const DEGRADED_FIXTURE = 'packages/core/templates/workspaces/fixtures/meridian-d
 const EMPTY_FIXTURE = 'packages/core/templates/workspaces/fixtures/meridian-empty';
 
 async function cleanDb() {
-  for (const table of [workspaceVersionSchema, teamSchema, agentSchema, skillSchema, projectSchema, tenantAccountSchema, userSchema]) {
+  for (const table of [workspaceVersionSchema, teamSchema, agentSchema, playbookSchema, projectSchema, tenantAccountSchema, userSchema]) {
     await db.delete(table);
   }
 }

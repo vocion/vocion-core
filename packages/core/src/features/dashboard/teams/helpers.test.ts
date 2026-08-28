@@ -15,7 +15,6 @@ import { createTranslator } from 'next-intl';
 import { describe, expect, it } from 'vitest';
 import en from '@/locales/en.json';
 import {
-  approvalBoundary,
   consultCoverage,
   hasOwnerAnywhere,
   initials,
@@ -131,26 +130,5 @@ describe('no-owner-anywhere warning (acceptance #12)', () => {
   it('fires when neither the workspace nor any team names an owner', () => {
     expect(hasOwnerAnywhere({ accountable: null }, [{ accountable: null }, { accountable: null }])).toBe(false);
     expect(t('no_owner_banner')).toContain('Set a workspace owner');
-  });
-});
-
-describe('approval boundary derivation (design §2b "what runs free / what waits")', () => {
-  const skills = [
-    { slug: 'read-pipeline', category: 'query', requiresApproval: null },
-    { slug: 'send-email', category: 'mutation', requiresApproval: null },
-    { slug: 'run-play', category: 'composite', requiresApproval: 'true' },
-  ];
-
-  it('counts wired skills once across members and flags the gated ones', () => {
-    const boundary = approvalBoundary(
-      [['read-pipeline', 'send-email'], ['send-email', 'run-play'], null],
-      skills,
-    );
-
-    expect(boundary).toEqual({ total: 3, gated: 2 });
-  });
-
-  it('reports an empty boundary for a team with nothing wired', () => {
-    expect(approvalBoundary([null, []], skills)).toEqual({ total: 0, gated: 0 });
   });
 });

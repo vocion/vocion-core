@@ -78,7 +78,6 @@ describe('MCP server (end-to-end)', () => {
 
         expect(names).toContain('workspace_list');
         expect(names).toContain('workspace_write_skill');
-        expect(names).toContain('runtime_run_skill');
         expect(names).toContain('search_query');
         expect(names).toContain('teams_list');
       } finally {
@@ -121,12 +120,9 @@ describe('MCP server (end-to-end)', () => {
               slug: 'hello_world',
               name: 'Hello World',
               description: 'test skill',
-              category: 'query',
-              status: 'active',
               version: 1,
-              requiresApproval: false,
             },
-            prompt_md: 'Say hello to {{name}}.',
+            prompt_md: 'Say hello and be brief.',
             autoCommit: true,
           },
         });
@@ -154,12 +150,12 @@ describe('MCP server (end-to-end)', () => {
         expect(list.skills).toHaveLength(1);
         expect(list.skills[0]!.slug).toBe('hello_world');
 
-        // Get returns full prompt
-        const got = parseToolResult<{ slug: string; resolvedPromptTemplate: string }>(
+        // Get returns the full body
+        const got = parseToolResult<{ slug: string; body: string }>(
           await client.callTool({ name: 'workspace_get', arguments: { kind: 'skill', slug: 'hello_world' } }) as ToolResult,
         );
 
-        expect(got.resolvedPromptTemplate).toBe('Say hello to {{name}}.');
+        expect(got.body).toBe('Say hello and be brief.');
 
         // Diff is clean (no pending)
         const diff = parseToolResult<{ counts: { skills: { created: number; updated: number; unchanged: number } } }>(
@@ -187,12 +183,9 @@ describe('MCP server (end-to-end)', () => {
                 slug: 'hello_world',
                 name: 'Hello World (v2)',
                 description: 'now improved',
-                category: 'query',
-                status: 'active',
                 version: 2,
-                requiresApproval: false,
               },
-              prompt_md: 'Say hello to {{name}}.',
+              prompt_md: 'Say hello and be brief.',
             },
           }) as ToolResult,
         );
@@ -231,10 +224,8 @@ describe('MCP server (end-to-end)', () => {
             manifest: {
               slug: 'Bad-Slug-Caps',
               name: 'bad',
-              category: 'query',
-              status: 'active',
+              description: 'bad slug',
               version: 1,
-              requiresApproval: false,
             },
             prompt_md: 'x',
           },

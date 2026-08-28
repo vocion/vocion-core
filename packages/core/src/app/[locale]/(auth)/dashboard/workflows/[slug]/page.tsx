@@ -89,9 +89,6 @@ export default async function WorkflowDetailPage(props: {
         <Stepper
           steps={workflow.steps.map((step, i): StepperStep => {
             const key = `${step.name}-${i}`;
-            if (step.type === 'skill' && 'skill' in step) {
-              return { key, type: 'skill', title: step.name, subtitle: `skill: ${step.skill}` };
-            }
             if (step.type === 'action' && 'action' in step) {
               return { key, type: 'action', title: step.name, subtitle: `action: ${step.action}` };
             }

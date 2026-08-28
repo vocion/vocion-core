@@ -1,8 +1,8 @@
-import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
+import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, skillSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -67,9 +67,10 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     }
   }
 
+  // Skills are SKILL.md folders — same catalog table as playbooks, kind-tagged.
   for (const skill of loaded.skills) {
     try {
-      const outcome = await upsertSkill(orgId, skill, defaults, dryRun);
+      const outcome = await upsertPlaybook(orgId, skill, dryRun);
       bump(counts.skills, outcome);
     } catch (err) {
       errors.push({ resource: 'skill', slug: skill.slug, message: (err as Error).message });
@@ -116,6 +117,25 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
       bump(counts.workflows, outcome);
     } catch (err) {
       errors.push({ resource: 'workflow', slug: workflow.slug, message: (err as Error).message });
+    }
+  }
+
+  // A workflow the workspace no longer ships is retired, not left active:
+  // an unauthored definition must not keep starting runs. Run history stays.
+  if (!dryRun) {
+    try {
+      const { ne, notInArray } = await import('drizzle-orm');
+      const authored = loaded.workflows.map(w => w.slug);
+      await db
+        .update(workflowSchema)
+        .set({ status: 'retired' })
+        .where(and(
+          eq(workflowSchema.orgId, orgId),
+          ne(workflowSchema.status, 'retired'),
+          authored.length > 0 ? notInArray(workflowSchema.slug, authored) : undefined,
+        ));
+    } catch (err) {
+      errors.push({ resource: 'workflow', slug: '(retire sweep)', message: (err as Error).message });
     }
   }
 
@@ -405,45 +425,6 @@ async function upsertObjectType(orgId: string, ot: LoadedObjectType, dryRun: boo
   return 'updated';
 }
 
-async function upsertSkill(orgId: string, skill: LoadedSkill, defaults: { model?: string; temperature?: string }, dryRun: boolean): Promise<UpsertOutcome> {
-  const [existing] = await db
-    .select()
-    .from(skillSchema)
-    .where(and(eq(skillSchema.orgId, orgId), eq(skillSchema.slug, skill.slug)));
-
-  const payload = {
-    orgId,
-    slug: skill.slug,
-    name: skill.name,
-    description: skill.description ?? null,
-    promptTemplate: skill.resolvedPromptTemplate,
-    scriptFile: skill.scriptFile ?? null,
-    inputSchema: skill.inputSchema ?? null,
-    model: skill.model ?? defaults.model ?? 'gpt-4o',
-    temperature: String(skill.temperature ?? defaults.temperature ?? '0.3'),
-    requiresApproval: String(skill.requiresApproval),
-    category: skill.category,
-    status: skill.status,
-    version: skill.version,
-  };
-
-  if (!existing) {
-    if (!dryRun) {
-      await db.insert(skillSchema).values(payload);
-    }
-    return 'created';
-  }
-
-  if (isSkillEqual(existing, payload)) {
-    return 'unchanged';
-  }
-
-  if (!dryRun) {
-    await db.update(skillSchema).set(payload).where(eq(skillSchema.id, existing.id));
-  }
-  return 'updated';
-}
-
 async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?: string; temperature?: string }, dryRun: boolean, teams: LoadedTeam[] = []): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
@@ -467,7 +448,7 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     harnessConfig: agent.harness,
     fewShotExamples: agent.fewShotExamples,
     subagents: agent.resolvedSubagents,
-    playbookTags: agent.playbookTags,
+    playbookSlugs: agent.playbooks,
     learningSteps: agent.learningSteps,
     suggestions: agent.suggestions,
     accent: agent.accent ?? null,
@@ -755,12 +736,14 @@ async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, dryRun: boolean
     slug: pb.slug,
     name: pb.name,
     description: pb.description,
-    tags: pb.tags,
+    kind: pb.kind,
+    origin: pb.origin,
+    attachedPlaybooks: pb.playbooks,
     frontmatter: {
       slug: pb.slug,
       name: pb.name,
       description: pb.description,
-      tags: pb.tags,
+      playbooks: pb.playbooks,
       version: pb.version,
       resources: pb.resources,
       license: pb.license,
@@ -783,7 +766,9 @@ async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, dryRun: boolean
     && existing.name === payload.name
     && existing.description === payload.description
     && existing.version === payload.version
-    && canonical(existing.tags) === canonical(payload.tags)
+    && existing.kind === payload.kind
+    && existing.origin === payload.origin
+    && canonical(existing.attachedPlaybooks) === canonical(payload.attachedPlaybooks)
     && canonical(existing.sourceFiles) === canonical(payload.sourceFiles)
   ) {
     return 'unchanged';
@@ -968,34 +953,6 @@ function isObjectTypeEqual(a: typeof businessObjectTypeSchema.$inferSelect, b: R
   });
 }
 
-function isSkillEqual(a: typeof skillSchema.$inferSelect, b: Record<string, unknown>): boolean {
-  return canonical({
-    name: a.name,
-    description: a.description,
-    promptTemplate: a.promptTemplate,
-    scriptFile: a.scriptFile,
-    inputSchema: a.inputSchema,
-    model: a.model,
-    temperature: a.temperature,
-    requiresApproval: a.requiresApproval,
-    category: a.category,
-    status: a.status,
-    version: a.version,
-  }) === canonical({
-    name: b.name,
-    description: b.description,
-    promptTemplate: b.promptTemplate,
-    scriptFile: b.scriptFile,
-    inputSchema: b.inputSchema,
-    model: b.model,
-    temperature: b.temperature,
-    requiresApproval: b.requiresApproval,
-    category: b.category,
-    status: b.status,
-    version: b.version,
-  });
-}
-
 function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unknown>): boolean {
   const fields = [
     'name',
@@ -1012,7 +969,7 @@ function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unkn
     'harnessConfig',
     'fewShotExamples',
     'subagents',
-    'playbookTags',
+    'playbookSlugs',
     'learningSteps',
     'suggestions',
     'accent',

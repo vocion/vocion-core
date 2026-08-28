@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { loadWorkspace } from './loader';
 
 // Ticket 007 · step 1 — base-pack resolution + pin check. The pack itself
-// (packages/core/templates/base/pack.yaml) ships at core@1.0.0 and is
+// (packages/core/templates/base/pack.yaml) ships at core@2.0.0 and is
 // identity-only for now; these tests prove the second-directory read and the
 // load-bearing guarantee: omitting `extends` changes nothing.
 
@@ -50,18 +50,18 @@ describe('loadWorkspace — base pack (extends)', () => {
     const loaded = loadWorkspace(workspace('extends: core\n'));
 
     expect(loaded.pack?.manifest.name).toBe('core');
-    expect(loaded.pack?.manifest.version).toBe('1.0.0');
+    expect(loaded.pack?.manifest.version).toBe('2.0.0');
   });
 
   it('a matching version pin resolves', () => {
-    const loaded = loadWorkspace(workspace('extends: core@1.0.0\n'));
+    const loaded = loadWorkspace(workspace('extends: core@2.0.0\n'));
 
-    expect(loaded.pack?.manifest.version).toBe('1.0.0');
+    expect(loaded.pack?.manifest.version).toBe('2.0.0');
   });
 
   it('a pin that does not match the shipped version throws', () => {
     expect(() => loadWorkspace(workspace('extends: core@9.9.9\n')))
-      .toThrow(/pins core@9\.9\.9 but the shipped pack is core@1\.0\.0/);
+      .toThrow(/pins core@9\.9\.9 but the shipped pack is core@2\.0\.0/);
   });
 
   it('an unknown pack name throws', () => {
@@ -83,7 +83,7 @@ describe('loadWorkspace — compose against the (empty) core pack', () => {
     writeAgent(dir, 'my-agent', 'slug: my-agent\nname: Mine\nsystemPrompt: You help.\n');
     const loaded = loadWorkspace(dir);
 
-    expect(loaded.pack?.manifest.version).toBe('1.0.0');
+    expect(loaded.pack?.manifest.version).toBe('2.0.0');
     expect(loaded.agents).toHaveLength(1);
     expect(loaded.agents[0]!.origin).toBe('workspace');
   });

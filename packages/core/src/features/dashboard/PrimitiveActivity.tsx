@@ -28,7 +28,7 @@ export function PrimitiveActivity(props: Props) {
           Recent activity
         </div>
         <Link
-          href={`/dashboard/logs?kind=${props.kind}`}
+          href={`/dashboard/activity${props.kind === 'workflow' ? '?kind=workflow' : '?kind=tool'}`}
           className="text-[11px] text-muted-foreground hover:text-foreground"
         >
           View all →

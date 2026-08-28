@@ -9,13 +9,13 @@ import {
   deleteResource,
   loadWorkspace,
   ObjectTypeManifestSchema,
-  SkillManifestSchema,
+  PlaybookManifestSchema,
   WorkspaceValidationError,
   writeAgent,
   writeObjectType,
   writeSkill,
 } from '@/libs/workspace';
-import { agentSchema, businessObjectTypeSchema, skillSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, businessObjectTypeSchema, playbookSchema, workspaceVersionSchema } from '@/models/Schema';
 
 /**
  * Context-as-code tools for the MCP server.
@@ -59,7 +59,7 @@ function listTool(config: McpConfig): ToolModule {
         sha: loaded.sha,
         orgId: loaded.manifest.orgId,
         agents: loaded.agents.map(a => ({ slug: a.slug, name: a.name, description: a.description, skills: a.skills, objectTypes: a.objectTypes })),
-        skills: loaded.skills.map(s => ({ slug: s.slug, name: s.name, description: s.description, status: s.status, category: s.category, version: s.version })),
+        skills: loaded.skills.map(s => ({ slug: s.slug, name: s.name, description: s.description, origin: s.origin, playbooks: s.playbooks, version: s.version })),
         objectTypes: loaded.objectTypes.map(o => ({ slug: o.slug, label: o.label, description: o.description })),
       };
     },
@@ -105,10 +105,10 @@ function writeSkillTool(config: McpConfig): ToolModule {
   return {
     name: 'workspace_write_skill',
     title: 'Create or update a skill',
-    description: 'Write a skill manifest + prompt to workspace/<org>/skills/. Writes to disk + auto-applies to DB. Git is external — pass autoCommit=true to opt in. Returns files written, new context SHA, and the apply diff.',
+    description: 'Write a skill SKILL.md (frontmatter + body) to workspace/<org>/skills/. Writes to disk + auto-applies to DB. Git is external — pass autoCommit=true to opt in. Returns files written, new context SHA, and the apply diff.',
     inputSchema: {
-      manifest: toolShape(SkillManifestSchema, ['promptFile']),
-      prompt_md: z.string().describe('the prompt template — supports {{variables}}'),
+      manifest: toolShape(PlaybookManifestSchema, []),
+      prompt_md: z.string().describe('the SKILL.md markdown body (procedure, examples, output contract)'),
       autoApply: z.boolean().default(true).describe('apply to DB after writing (default true)'),
       autoCommit: z.boolean().default(false).describe('git commit after writing (default false; git is external responsibility)'),
       commitMessage: z.string().optional().describe('override default commit message'),
@@ -216,7 +216,7 @@ async function deleteFromDb(orgId: string, kind: 'agent' | 'skill' | 'objectType
     return rows.length;
   }
   if (kind === 'skill') {
-    const rows = await db.delete(skillSchema).where(and(eq(skillSchema.orgId, orgId), eq(skillSchema.slug, slug))).returning();
+    const rows = await db.delete(playbookSchema).where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.slug, slug))).returning();
     return rows.length;
   }
   const rows = await db.delete(businessObjectTypeSchema).where(and(eq(businessObjectTypeSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, slug))).returning();

@@ -6,17 +6,18 @@
  *
  * `external: true` is deliberate: an agent proposing it (autonomy 1) is gated
  * into the review queue rather than auto-executing — the v1 supervised
- * behaviour we want. Approving it now starts the `discovery_followup` workflow,
- * which is real downstream work, so the action is ALSO on ActionService's
- * never-auto list: no trust rule can release it without a human. That guard
- * moved from a comment to code the moment `execute` stopped being a marker.
+ * behaviour we want. Approving it now starts a `discovery-followup` mission
+ * check (the retired discovery_followup workflow's replacement), which is
+ * real downstream work, so the action is ALSO on ActionService's never-auto
+ * list: no trust rule can release it without a human. That guard moved from
+ * a comment to code the moment `execute` stopped being a marker.
  */
 
 import type { Action } from './types';
 import { z } from 'zod';
 
-/** The workflow the approved candidate is handed to. */
-const FOLLOWUP_WORKFLOW = 'discovery_followup';
+/** The mission the approved candidate is handed to. */
+const FOLLOWUP_MISSION = 'discovery-followup';
 
 const discoveryReviewInput = z.object({
   candidateId: z.number(),
@@ -141,9 +142,9 @@ export const discoveryReviewProposalAction: Action<typeof discoveryReviewInput> 
       ? ` (discovery ${Math.round(classification.isDiscoveryConfidence * 100)}%, proposal-ready ${Math.round(classification.proposalReadyConfidence * 100)}%)`
       : '';
     const nextAction = route === 'generate'
-      ? `Generate the proposal${scores}. Approving starts the discovery follow-up: call summary, then a draft email for your review.`
+      ? `Generate the proposal${scores}. Approving starts the discovery follow-up mission: call summary, then a draft email proposed for your review.`
       : route === 'confirm'
-        ? `Confirm first${scores}: a discovery call, but not clearly proposal-ready. Approving starts the follow-up; reject if it should wait for another conversation.`
+        ? `Confirm first${scores}: a discovery call, but not clearly proposal-ready. Approving starts the follow-up mission; reject if it should wait for another conversation.`
         : `Drop${scores}: the classifier says this is not a discovery call. Approving records your confirmation for calibration; nothing else runs.`;
 
     return {
@@ -161,34 +162,30 @@ export const discoveryReviewProposalAction: Action<typeof discoveryReviewInput> 
       return { confirmed: true, candidateId: input.candidateId, route: input.route, handoff: 'dropped' };
     }
 
-    // Fetch the transcript through the content gate, not around it: the gate
-    // re-checks that a candidate row exists for this meeting, so an approval
-    // can't smuggle a read of an unmatched call. Passing it to the workflow is
-    // what lets the follow-up skip asking a human to paste what we already hold.
-    const { readMatchedTranscript } = await import('@/services/DiscoveryDetectionService');
-    const { startWorkflow } = await import('@/services/WorkflowService');
+    // Hand the approved candidate to the discovery-followup mission: one
+    // RevOps Lead turn that reads the transcript through the gate
+    // (read_discovery_transcript releases only approved candidates — this
+    // approval is what unlocks it), follows the discovery-summary and
+    // draft-followup-email skills, and proposes gmail.send for review.
+    // A mission failure is left to throw: ActionService records the
+    // action_run as `failed` with the message, which is the honest outcome.
+    const { getMission, startMission } = await import('@/services/MissionService');
+    const template = await getMission(ctx.orgId, FOLLOWUP_MISSION);
+    if (!template) {
+      throw new Error(`mission "${FOLLOWUP_MISSION}" not found — run workspace:apply`);
+    }
 
-    // A gate refusal or missing transcript is left to throw: ActionService
-    // records the action_run as `failed` with the message, which is the honest
-    // outcome. Catching it here would mark the run `done` and read as a
-    // successful hand-off in every list view. The human's decision is still
-    // captured (the row keeps its input and reviewer), so the calibration
-    // signal for 020 survives either way.
-    const transcript = await readMatchedTranscript(ctx.orgId, input.meetingExternalId);
-
-    const run = await startWorkflow({
+    const run = await startMission({
       orgId: ctx.orgId,
-      slug: FOLLOWUP_WORKFLOW,
-      input: {
-        transcript,
-        meeting_external_id: input.meetingExternalId,
-        prospect_company: input.company ?? null,
-      },
-      triggerContext: {
-        source: 'discovery.review_proposal',
-        candidateId: input.candidateId,
-        route: input.route,
-      },
+      missionSlug: FOLLOWUP_MISSION,
+      brief: [
+        `A human just approved discovery candidate ${input.candidateId} (meeting ${input.meetingExternalId}${input.company ? `, company ${input.company}` : ''}, route ${input.route}).`,
+        `Read its transcript with read_discovery_transcript (candidate_id ${input.candidateId}).`,
+        'Then follow the discovery-summary skill (/skills/discovery-summary/SKILL.md) to produce the structured summary, and the draft-followup-email skill (/skills/draft-followup-email/SKILL.md) with the founder-voice playbook to draft the follow-up email.',
+        'Finish by proposing the draft via propose_action with action gmail.send so it lands in Review. Never send it yourself.',
+      ].join(' '),
+      title: `Discovery follow-up: ${input.company ?? input.meetingExternalId}`,
+      mode: 'check',
       invokedBy: ctx.invokedBy ?? 'action:discovery.review_proposal',
     });
 
@@ -196,9 +193,9 @@ export const discoveryReviewProposalAction: Action<typeof discoveryReviewInput> 
       confirmed: true,
       candidateId: input.candidateId,
       route: input.route,
-      handoff: FOLLOWUP_WORKFLOW,
-      workflowRunId: run.id,
-      workflowStatus: run.status,
+      handoff: FOLLOWUP_MISSION,
+      missionRunId: run.id,
+      missionStatus: run.status,
     };
   },
 };

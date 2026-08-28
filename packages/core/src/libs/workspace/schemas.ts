@@ -12,16 +12,18 @@ const FewShotExampleSchema = z.object({
 
 /**
  * Base-pack activation allowlist (workspace.yaml `use:`). Activation is
- * AGENT-rooted: naming an agent transitively pulls in the operations it
- * declares in `skills:` (and, later, the objects those depend on) — you
- * never hand-list an agent's own skills. `operations` remains for an op
- * that no activated agent owns. `use: all` takes every default the pack
- * ships. Omitting `use` while `extends` is set means `use: none` —
- * explicit opt-in, no surprise agents.
+ * AGENT-rooted: naming an agent transitively pulls in the skills it
+ * declares in `skills:` and the playbooks those skills attach — you
+ * never hand-list an agent's own skills. `skills` remains for a skill
+ * no activated agent mounts; `playbooks` for standalone context. `use:
+ * all` takes every default the pack ships. Omitting `use` while
+ * `extends` is set means `use: none` — explicit opt-in, no surprise
+ * agents.
  */
 const ActivationSelectorSchema = z.object({
   agents: z.array(SlugSchema).default([]),
-  operations: z.array(z.string()).default([]),
+  skills: z.array(z.string()).default([]),
+  playbooks: z.array(z.string()).default([]),
 }).partial();
 
 export const WorkspaceManifestSchema = z.object({
@@ -175,8 +177,12 @@ export const AgentManifestSchema = z.object({
     s => !!(s.systemPrompt || s.systemPromptFile),
     { message: 'subagent must have either systemPrompt or systemPromptFile' },
   )).default([]),
-  /** Playbook-tag filter — see `playbook.tags`. */
-  playbookTags: z.array(z.string()).default([]),
+  /**
+   * Playbooks attached to this agent by name — context that should
+   * always be present for it, independent of any skill. A named slug
+   * must resolve to a playbook the workspace or its base pack ships.
+   */
+  playbooks: z.array(z.string()).default([]),
   /** Names of `learning_step` rows this agent owns. (Wired in Phase 5.) */
   learningSteps: z.array(z.string()).default([]),
   /** Empty-state suggestions shown in the chat UI. */
@@ -234,26 +240,6 @@ export const AgentManifestSchema = z.object({
 );
 export type AgentManifest = z.infer<typeof AgentManifestSchema>;
 
-export const SkillManifestSchema = z.object({
-  slug: SlugSchema,
-  name: z.string(),
-  description: z.string().optional(),
-  category: z.enum(['query', 'mutation', 'composite']).default('query'),
-  status: z.enum(['active', 'disabled', 'draft']).default('active'),
-  version: z.number().int().positive().default(1),
-  model: z.string().optional(),
-  temperature: z.union([z.string(), z.number()]).optional(),
-  requiresApproval: z.boolean().default(true),
-  promptFile: z.string().optional().describe('path to markdown prompt template, relative to skill file'),
-  promptTemplate: z.string().optional(),
-  scriptFile: z.string().optional().describe('path to .js/.ts postprocess module, relative to skill file. default export: (output, input, ctx) => output'),
-  inputSchema: z.record(z.string(), z.unknown()).optional(),
-}).refine(
-  v => !!(v.promptFile || v.promptTemplate),
-  { message: 'skill must have either promptFile or inline promptTemplate' },
-);
-export type SkillManifest = z.infer<typeof SkillManifestSchema>;
-
 /* ----------------------------------------------------------------
  * Workflow manifest
  * ---------------------------------------------------------------- */
@@ -271,15 +257,6 @@ const InterpolatableStringSchema = z.string().describe(
  *   - `ask`     — HITL input; pause until a human supplies text
  *   - `action`  — connector-backed action (v1 = registered stubs only)
  */
-const SkillStepSchema = z.object({
-  name: SlugSchema,
-  type: z.literal('skill').default('skill'),
-  skill: z.string().describe('skill slug to invoke'),
-  input: z.record(z.string(), z.unknown()).default({}),
-  /** Optional — persist this step's output into named variable (defaults to step name). */
-  outputAs: z.string().optional(),
-});
-
 const ApproveStepSchema = z.object({
   name: SlugSchema,
   type: z.literal('approve'),
@@ -330,7 +307,7 @@ const SyncStepSchema = z.object({
   sources: z.array(z.string()).min(1),
 });
 
-const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, ApproveStepSchema, AskStepSchema, ActionStepSchema, SyncStepSchema]);
+const WorkflowStepSchema = z.discriminatedUnion('type', [ApproveStepSchema, AskStepSchema, ActionStepSchema, SyncStepSchema]);
 
 const ManualTriggerSchema = z.object({
   type: z.literal('manual').default('manual'),
@@ -538,8 +515,13 @@ export type LearningStepManifest = z.infer<typeof LearningStepManifestSchema>;
 export const PlaybookManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().describe('Human-readable name for catalog UI.'),
-  description: z.string().describe('One-line summary the agent reads to decide when to activate this playbook.'),
-  tags: z.array(z.string()).default([]).describe('Per-agent filter — an agent\'s `playbookTags` field selects which playbooks mount into its virtual FS. Empty agent list = all playbooks mount.'),
+  description: z.string().describe('One-line summary the agent reads to decide when to activate this skill or playbook.'),
+  /**
+   * Playbook slugs this skill attaches (skill folders only). A playbook
+   * named here travels wherever the skill is switched on. Each slug must
+   * resolve to a playbook the workspace or its base pack ships.
+   */
+  playbooks: z.array(z.string()).default([]),
   version: z.number().int().positive().default(1),
   /**
    * Sibling resource files (e.g. `REFERENCE.html`, `COMPONENTS.md`,

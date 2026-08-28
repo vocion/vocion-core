@@ -20,7 +20,7 @@ vi.mock('@/libs/Langfuse', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { agentSchema, businessObjectSchema, businessObjectTypeSchema, missionSchema, skillSchema } = await import('@/models/Schema');
+const { agentSchema, businessObjectSchema, businessObjectTypeSchema, missionSchema, playbookSchema } = await import('@/models/Schema');
 const {
   buildSynthesisPrompt,
   buildTrackerDigest,
@@ -127,7 +127,7 @@ describe('prompt-injection hygiene — tracker text is data, not instructions', 
     const { system, user } = buildSynthesisPrompt({
       agentName: 'Founder GTM Lead',
       missions: [{ name: 'Referral Warming', goal: 'Steady warm touches produce introductions.', successCriteria: ['Intros are logged'], schedule: '0 14 * * 2' }],
-      skills: [{ name: 'Draft Warm Touch', description: 'Draft one warm touch.', category: 'mutation' }],
+      skills: [{ name: 'Draft Warm Touch', description: 'Draft one warm touch.' }],
       digest: buildTrackerDigest([followUp('Jim Lott', { due: '2026-07-19', priority: 'high' })], NOW),
       recentSourceActivity: [{ sourceSlug: 'gmail', docsLast7Days: 12 }],
       today: '2026-07-20',
@@ -135,7 +135,7 @@ describe('prompt-injection hygiene — tracker text is data, not instructions', 
 
     expect(user).toContain('Referral Warming');
     expect(user).toContain('Steady warm touches produce introductions.');
-    expect(user).toContain('Draft Warm Touch (mutation)');
+    expect(user).toContain('Draft Warm Touch');
     expect(user).toContain('Jim Lott');
 
     // Grounding priority: missions/tracker are PRIORITY, sources SUPPLEMENT.
@@ -183,7 +183,7 @@ describe('synthesizeAgentChips (PGlite + mocked model)', () => {
       slug: 'founder-gtm-lead',
       name: 'Founder GTM Lead',
       systemPrompt: 'You are the founder GTM lead.',
-      skillSlugs: ['scan_owed_followups', 'draft_follow_up'],
+      skillSlugs: ['scan-owed-followups', 'draft-follow-up'],
       objectTypeSlugs: ['follow-up'],
     });
     await db.insert(missionSchema).values({
@@ -195,13 +195,13 @@ describe('synthesizeAgentChips (PGlite + mocked model)', () => {
       successCriteria: ['Rows past the SLA are surfaced first'],
       status: 'active',
     });
-    await db.insert(skillSchema).values({
+    await db.insert(playbookSchema).values({
       orgId: ORG,
-      slug: 'scan_owed_followups',
+      slug: 'scan-owed-followups',
       name: 'Scan Owed Follow-Ups',
       description: 'Rank what is owed right now.',
-      promptTemplate: 'n/a',
-      category: 'query',
+      kind: 'skill',
+      contentSha: 'sha-scan',
     });
     const [type] = await db.insert(businessObjectTypeSchema).values({
       orgId: ORG,

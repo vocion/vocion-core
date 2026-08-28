@@ -30,8 +30,8 @@ export type RawEntry = { slug: string; raw: Record<string, unknown>; sourceFile:
 /** A composed resource: raw object + where it came from + which file "owns" it. */
 export type ComposedEntry = { raw: Record<string, unknown>; sourceFile: string; origin: Origin };
 
-/** The four resource kinds the base pack can ship + a workspace can override. */
-export type ComposableKind = 'agent' | 'skill' | 'object type' | 'mission';
+/** The YAML resource kinds the base pack can ship + a workspace can override. */
+export type ComposableKind = 'agent' | 'object type' | 'mission';
 
 /**
  * Compose one kind's base + workspace entries into a single provenance-tagged
@@ -101,45 +101,61 @@ function stripExtends(raw: Record<string, unknown>): Record<string, unknown> {
 /**
  * A workspace's `use:` selector, already schema-parsed.
  * `'all'` activates the whole pack; the object form names agents (their skills
- * + object types follow transitively) and any standalone operations; `null`
- * (`extends` set, `use` omitted) activates nothing.
+ * + object types + the skills' attached playbooks follow transitively), any
+ * standalone skills, and any standalone playbooks; `null` (`extends` set,
+ * `use` omitted) activates nothing.
  */
-export type ActivationSelector = 'all' | { agents?: string[]; operations?: string[] } | null | undefined;
+export type ActivationSelector = 'all' | { agents?: string[]; skills?: string[]; playbooks?: string[] } | null | undefined;
+
+/**
+ * A base-pack SKILL.md folder, reduced to what activation needs: its slug
+ * and the playbook slugs its frontmatter attaches.
+ */
+export type FolderEntry = { slug: string; playbooks: string[] };
 
 /** The raw base pack, one map per kind (keyed by slug), plus the full slug sets. */
 export type PackRaw = {
   agents: Map<string, RawEntry>;
-  skills: Map<string, RawEntry>;
   objectTypes: Map<string, RawEntry>;
   missions: Map<string, RawEntry>;
+  /** SKILL.md skill folders the pack ships. */
+  skills: Map<string, FolderEntry>;
+  /** SKILL.md playbook folders the pack ships. */
+  playbooks: Map<string, FolderEntry>;
 };
 
 export type ActivatedPack = {
   agents: Map<string, RawEntry>;
-  skills: Map<string, RawEntry>;
   objectTypes: Map<string, RawEntry>;
   missions: Map<string, RawEntry>;
+  /** Activated base skill slugs. */
+  skills: Set<string>;
+  /** Activated base playbook slugs. */
+  playbooks: Set<string>;
 };
 
 /**
  * Resolve which base resources a workspace activates. Agent-rooted: naming an
- * agent pulls in the operations it declares in `skills:` and the object types
- * in `objectTypes:` transitively. `use: all` takes the whole pack; `disable`
- * subtracts named agents/operations even under `all`. Missions activate only
- * under `use: all` (the selector has no per-mission key).
+ * agent pulls in the skills it declares in `skills:`, the object types in
+ * `objectTypes:`, the playbooks in `playbooks:`, and each activated skill's
+ * attached playbooks transitively. `use: all` takes the whole pack; `disable`
+ * subtracts named agents/skills/playbooks even under `all`. Missions activate
+ * only under `use: all` (the selector has no per-mission key).
  * @param pack - the full raw base pack
  * @param use - the workspace `use:` selector
  * @param disable - the workspace `disable:` selector
  * @param disable.agents
- * @param disable.operations
+ * @param disable.skills
+ * @param disable.playbooks
  */
 export function resolveActivation(
   pack: PackRaw,
   use: ActivationSelector,
-  disable?: { agents?: string[]; operations?: string[] },
+  disable?: { agents?: string[]; skills?: string[]; playbooks?: string[] },
 ): ActivatedPack {
   const agentSlugs = new Set<string>();
-  const opSlugs = new Set<string>();
+  const skillSlugs = new Set<string>();
+  const playbookSlugs = new Set<string>();
   const objSlugs = new Set<string>();
   const missionSlugs = new Set<string>();
 
@@ -148,7 +164,10 @@ export function resolveActivation(
       agentSlugs.add(s);
     }
     for (const s of pack.skills.keys()) {
-      opSlugs.add(s);
+      skillSlugs.add(s);
+    }
+    for (const s of pack.playbooks.keys()) {
+      playbookSlugs.add(s);
     }
     for (const s of pack.objectTypes.keys()) {
       objSlugs.add(s);
@@ -164,32 +183,57 @@ export function resolveActivation(
       agentSlugs.add(slug);
       const agent = pack.agents.get(slug)!;
       for (const dep of asStringArray(agent.raw.skills)) {
-        opSlugs.add(dep);
+        skillSlugs.add(dep);
       }
       for (const dep of asStringArray(agent.raw.objectTypes)) {
         objSlugs.add(dep);
       }
+      for (const dep of asStringArray(agent.raw.playbooks)) {
+        playbookSlugs.add(dep);
+      }
     }
-    for (const slug of use.operations ?? []) {
-      opSlugs.add(slug);
+    for (const slug of use.skills ?? []) {
+      if (!pack.skills.has(slug)) {
+        throw new Error(`workspace.yaml \`use.skills\` names "${slug}", which the base pack does not ship`);
+      }
+      skillSlugs.add(slug);
+    }
+    for (const slug of use.playbooks ?? []) {
+      if (!pack.playbooks.has(slug)) {
+        throw new Error(`workspace.yaml \`use.playbooks\` names "${slug}", which the base pack does not ship`);
+      }
+      playbookSlugs.add(slug);
     }
   }
   // use == null/undefined → activate nothing (use: none).
 
+  // An activated base skill carries its attached playbooks with it.
+  for (const slug of skillSlugs) {
+    for (const pb of pack.skills.get(slug)?.playbooks ?? []) {
+      if (pack.playbooks.has(pb)) {
+        playbookSlugs.add(pb);
+      }
+    }
+  }
+
   for (const slug of disable?.agents ?? []) {
     agentSlugs.delete(slug);
   }
-  for (const slug of disable?.operations ?? []) {
-    opSlugs.delete(slug);
+  for (const slug of disable?.skills ?? []) {
+    skillSlugs.delete(slug);
+  }
+  for (const slug of disable?.playbooks ?? []) {
+    playbookSlugs.delete(slug);
   }
 
   return {
     agents: filterMap(pack.agents, agentSlugs),
-    // Only pull ops/objects the pack actually ships; a dep that's workspace-only
-    // simply isn't in the base map (the workspace provides it).
-    skills: filterMap(pack.skills, opSlugs),
     objectTypes: filterMap(pack.objectTypes, objSlugs),
     missions: filterMap(pack.missions, missionSlugs),
+    // Only slugs the pack actually ships; a dep that's workspace-only
+    // simply isn't in the base map (the workspace provides it).
+    skills: new Set([...skillSlugs].filter(s => pack.skills.has(s))),
+    playbooks: new Set([...playbookSlugs].filter(s => pack.playbooks.has(s))),
   };
 }
 

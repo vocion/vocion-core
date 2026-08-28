@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   }
   try {
     const out = await apiSnoozeReview(req.headers.get('authorization'), {
-      kind: body.kind as 'skill' | 'workflow' | 'mission',
+      kind: body.kind as 'workflow' | 'mission' | 'action',
       id: Number(body.id),
       until: String(body.until),
     });

@@ -53,7 +53,6 @@ describe('mcp over http (multi-tenant bearer)', () => {
 
     expect(names.length).toBeGreaterThan(8);
     expect(names).toContain('search_query');
-    expect(names).toContain('runtime_list_runs');
 
     await client.close();
   });

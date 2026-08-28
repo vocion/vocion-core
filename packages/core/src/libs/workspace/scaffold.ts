@@ -18,7 +18,7 @@ export const WORKSPACE_NAME_RE = /^[a-z][a-z0-9-]*$/;
  */
 export const PRIMITIVE_DIRS = [
   'agents',
-  'operations',
+  'skills',
   'playbooks',
   'workflows',
   'missions',
@@ -44,7 +44,7 @@ export function readmeMd(name: string, applyPath: string): string {
   return `# ${name} workspace
 
 Git-backed, version-controlled context for the \`${name}\` tenant: agent
-definitions, operations (typed LLM calls), playbooks, workflows, missions,
+definitions, skills (SKILL.md units), playbooks, workflows, missions,
 object types, sources, automations, and learnings. Authored as YAML +
 markdown, applied to the running platform's database — editing files here
 changes nothing until re-applied.
@@ -55,7 +55,7 @@ changes nothing until re-applied.
 ${name}/
 ├── workspace.yaml   # manifest: orgId placeholder, name, model defaults
 ├── agents/          # <agent>.yaml (+ <agent>.system-prompt.md)
-├── operations/      # <slug>/skill.yaml + prompt.md
+├── skills/          # <slug>/SKILL.md (frontmatter + procedure)
 ├── playbooks/       # <slug>/SKILL.md (+ sibling resources)
 ├── workflows/       # <slug>.yaml — sequential steps with approve gates
 ├── missions/        # <slug>.yaml — recurring team objectives

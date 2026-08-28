@@ -6,7 +6,7 @@ import { notFound } from 'next/navigation';
 import { createElement } from 'react';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { RailGroup } from '@/features/dashboard/RailGroup';
-import { approvalBoundary, ownerProvenance } from '@/features/dashboard/teams/helpers';
+import { ownerProvenance } from '@/features/dashboard/teams/helpers';
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
 import { agentAccent } from '@/libs/agentAccents';
 import { agentIcon } from '@/libs/agentIcons';
@@ -15,7 +15,6 @@ import { Link } from '@/libs/I18nNavigation';
 import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { listAgents } from '@/services/AgentService';
-import { listSkills } from '@/services/SkillService';
 import { getTeam } from '@/services/TeamService';
 
 /**
@@ -42,15 +41,12 @@ export default async function TeamDetailPage(props: {
     return notFound();
   }
 
-  const [agents, skills] = await Promise.all([
-    listAgents(orgId),
-    listSkills(orgId),
-  ]);
+  const agents = await listAgents(orgId);
   const memberSlugs = new Set(team.members.map(m => m.slug));
-  const boundary = approvalBoundary(
-    agents.filter(a => memberSlugs.has(a.slug)).map(a => a.skillSlugs),
-    skills.map(s => ({ slug: s.slug, category: s.category, requiresApproval: s.requiresApproval })),
-  );
+  // Approval lives with actions now, not skill definitions: the boundary
+  // line reads "researches freely; outward actions wait for approval".
+  const wired = new Set(agents.filter(a => memberSlugs.has(a.slug)).flatMap(a => a.skillSlugs ?? []));
+  const boundary = { total: wired.size, gated: 0 };
 
   const sourceFiles = readPrimitiveFiles('team', slug);
   const dirtyState = getWorkspaceDirtyState();

@@ -60,7 +60,6 @@ function kindFor(name: string): { kind: Kind; icon: LucideIcon } {
     case 'create_artifact': return { kind: 'draft', icon: PencilLine };
     case 'propose_action':
     case 'request_human_review': return { kind: 'proposal', icon: ShieldCheck };
-    case 'run_operation': return { kind: 'skill', icon: Wrench };
     default:
       return /draft/i.test(name)
         ? { kind: 'draft', icon: PencilLine }
@@ -103,8 +102,6 @@ export function describeToolCall(name: string, input: Record<string, unknown>, l
       return { label: live ? 'Creating artifact…' : 'Created artifact', detail: String(input.kind ?? '') || undefined };
     case 'request_human_review':
       return { label: live ? 'Requesting approval…' : 'Requested approval' };
-    case 'run_operation':
-      return { label: `${live ? 'Running' : 'Ran'} skill: ${String(input.operation ?? input.slug ?? '')}` };
     case 'web_search':
       return { label: live ? 'Searching the web…' : 'Searched the web', detail: String(input.query ?? '').slice(0, 90) || undefined };
     default:

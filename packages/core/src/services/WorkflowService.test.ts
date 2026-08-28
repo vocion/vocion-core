@@ -1,9 +1,7 @@
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db } from '@/libs/DB';
-import { defineSkill, pluginRegistry } from '@/libs/plugins';
-import { skillRunSchema, skillSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
+import { workflowRunSchema, workflowSchema } from '@/models/Schema';
 import {
   cancelWorkflow,
   getWorkflowRun,
@@ -13,23 +11,6 @@ import {
 } from './WorkflowService';
 
 vi.mock('@/libs/DB');
-
-vi.mock('@/libs/retrieval/legacyDocument', () => ({
-  searchLegacyShape: vi.fn(async () => ({ top_documents: [] })),
-}));
-
-vi.mock('openai', () => ({
-  default: class {
-    chat = {
-      completions: {
-        create: vi.fn(async () => ({
-          choices: [{ message: { content: 'unused' } }],
-          usage: { prompt_tokens: 0, completion_tokens: 0 },
-        })),
-      },
-    };
-  },
-}));
 
 vi.mock('@/libs/Langfuse', () => {
   const fakeTrace = () => ({
@@ -62,68 +43,27 @@ async function seedWorkflow(slug: string, steps: unknown): Promise<number> {
 }
 
 describe('WorkflowService', () => {
-  beforeEach(() => {
-    pluginRegistry.clear();
-  });
-
   afterEach(async () => {
     await db.delete(workflowRunSchema).where(eq(workflowRunSchema.orgId, ORG));
     await db.delete(workflowSchema).where(eq(workflowSchema.orgId, ORG));
-    await db.delete(skillRunSchema).where(eq(skillRunSchema.orgId, ORG));
-    await db.delete(skillSchema).where(eq(skillSchema.orgId, ORG));
-    pluginRegistry.clear();
   });
 
-  it('runs a happy-path workflow with skill + action steps', async () => {
-    pluginRegistry.register(
-      { id: 'test.wf', version: '1.0.0' },
-      [defineSkill({
-        slug: 'shout',
-        name: 'Shout',
-        version: '1.0.0',
-        requiresApproval: false,
-        inputSchema: z.object({ msg: z.string() }),
-        outputSchema: z.object({ shouted: z.string() }),
-        async run(_ctx, input) {
-          return { shouted: input.msg.toUpperCase() };
-        },
-      })],
-    );
-
+  it('runs a happy-path workflow with action steps and interpolated input', async () => {
     await seedWorkflow('shout_and_log', [
-      { name: 'shout_step', type: 'skill', skill: 'shout', input: { msg: '{{input.text}}' } },
-      { name: 'log_it', type: 'action', action: 'log', input: { text: '{{steps.shout_step.output.shouted}}' } },
+      { name: 'log_it', type: 'action', action: 'log', input: { text: '{{input.text}}' } },
     ]);
 
     const run = await startWorkflow({ orgId: ORG, slug: 'shout_and_log', input: { text: 'hello world' } });
 
     expect(run.status).toBe('completed');
-    expect(run.stepResults.shout_step?.status).toBe('completed');
-    expect(run.stepResults.shout_step?.output).toEqual({ shouted: 'HELLO WORLD' });
     expect(run.stepResults.log_it?.status).toBe('completed');
-    expect((run.stepResults.log_it?.output as { input: { text: string } }).input.text).toBe('HELLO WORLD');
   });
 
   it('pauses at an approve step and resumes on approval', async () => {
-    pluginRegistry.register(
-      { id: 'test.approve', version: '1.0.0' },
-      [defineSkill({
-        slug: 'draft',
-        name: 'Draft',
-        version: '1.0.0',
-        requiresApproval: false,
-        inputSchema: z.object({}),
-        outputSchema: z.object({ body: z.string() }),
-        async run() {
-          return { body: 'draft body' };
-        },
-      })],
-    );
-
     await seedWorkflow('draft_then_approve', [
-      { name: 'drafting', type: 'skill', skill: 'draft', input: {} },
+      { name: 'drafting', type: 'action', action: 'log', input: { body: 'draft body' } },
       { name: 'check', type: 'approve', prompt: 'look good?' },
-      { name: 'final', type: 'action', action: 'send', input: { body: '{{steps.drafting.output.body}}' } },
+      { name: 'final', type: 'action', action: 'send', input: { body: 'draft body' } },
     ]);
 
     const first = await startWorkflow({ orgId: ORG, slug: 'draft_then_approve' });
@@ -138,37 +78,21 @@ describe('WorkflowService', () => {
 
     expect(resumed.status).toBe('completed');
     expect(resumed.stepResults.final?.status).toBe('completed');
-    expect((resumed.stepResults.final?.output as { input: { body: string } }).input.body).toBe('draft body');
   });
 
   it('pauses at an ask step and resumes with human input flowing downstream', async () => {
-    pluginRegistry.register(
-      { id: 'test.ask', version: '1.0.0' },
-      [defineSkill({
-        slug: 'summarize',
-        name: 'Summarize',
-        version: '1.0.0',
-        requiresApproval: false,
-        inputSchema: z.object({ transcript: z.string() }),
-        outputSchema: z.object({ received: z.string() }),
-        async run(_ctx, input) {
-          return { received: input.transcript };
-        },
-      })],
-    );
-
-    await seedWorkflow('ask_then_skill', [
+    await seedWorkflow('ask_then_send', [
       { name: 'transcript', type: 'ask', prompt: 'Paste the call transcript' },
-      { name: 'summary', type: 'skill', skill: 'summarize', input: { transcript: '{{steps.transcript.output}}' } },
+      { name: 'send_it', type: 'action', action: 'log', input: { text: '{{steps.transcript.output}}' } },
     ]);
 
-    const first = await startWorkflow({ orgId: ORG, slug: 'ask_then_skill' });
+    const first = await startWorkflow({ orgId: ORG, slug: 'ask_then_send' });
 
     expect(first.status).toBe('paused');
     expect(first.pauseReason).toBe('awaiting_input:transcript');
     expect(first.stepResults.transcript?.status).toBe('awaiting_approval');
     expect(first.stepResults.transcript?.output).toEqual({ prompt: 'Paste the call transcript', kind: 'ask' });
-    expect(first.stepResults.summary).toBeUndefined();
+    expect(first.stepResults.send_it).toBeUndefined();
 
     // an ask step resumes only WITH data
     await expect(resumeWorkflow(first.id, ORG)).rejects.toThrow(/awaiting input/);
@@ -178,34 +102,16 @@ describe('WorkflowService', () => {
     expect(resumed.status).toBe('completed');
     expect(resumed.stepResults.transcript?.status).toBe('completed');
     expect(resumed.stepResults.transcript?.output).toBe('Call with Jane Doe of Acme');
-    expect(resumed.stepResults.summary?.status).toBe('completed');
-    expect(resumed.stepResults.summary?.output).toEqual({ received: 'Call with Jane Doe of Acme' });
+    expect(resumed.stepResults.send_it?.status).toBe('completed');
   });
 
   /**
-   * An ask whose `default` resolves doesn't ask. This is what lets discovery
-   * detection hand a transcript it already read to the follow-up workflow
-   * instead of making a human paste in what the system is holding.
+   * An ask whose `default` resolves doesn't ask — one workflow serves both an
+   * automated caller that supplies the data and a human starting it by hand.
    */
   it('completes an ask step from its default instead of pausing', async () => {
-    pluginRegistry.register(
-      { id: 'test.summarize2', version: '1.0.0' },
-      [defineSkill({
-        slug: 'summarize2',
-        name: 'Summarize',
-        version: '1.0.0',
-        requiresApproval: false,
-        inputSchema: z.object({ transcript: z.string() }),
-        outputSchema: z.object({ received: z.string() }),
-        async run(_ctx, input) {
-          return { received: input.transcript };
-        },
-      })],
-    );
-
     await seedWorkflow('ask_prefilled', [
       { name: 'transcript', type: 'ask', prompt: 'Paste the call transcript', default: '{{input.transcript}}' },
-      { name: 'summary', type: 'skill', skill: 'summarize2', input: { transcript: '{{steps.transcript.output}}' } },
     ]);
 
     const run = await startWorkflow({
@@ -218,7 +124,6 @@ describe('WorkflowService', () => {
     expect(run.pauseReason).toBeNull();
     expect(run.stepResults.transcript?.status).toBe('completed');
     expect(run.stepResults.transcript?.output).toBe('Gated transcript supplied by detection');
-    expect(run.stepResults.summary?.output).toEqual({ received: 'Gated transcript supplied by detection' });
   });
 
   it('still pauses a defaulted ask step when the default resolves to nothing', async () => {
@@ -244,31 +149,18 @@ describe('WorkflowService', () => {
   });
 
   it('fails a run when a step throws', async () => {
-    pluginRegistry.register(
-      { id: 'test.boom', version: '1.0.0' },
-      [defineSkill({
-        slug: 'boom',
-        name: 'Boom',
-        version: '1.0.0',
-        requiresApproval: false,
-        inputSchema: z.object({}),
-        outputSchema: z.object({}),
-        async run() {
-          throw new Error('kaboom');
-        },
-      })],
-    );
-
     await seedWorkflow('explodes', [
       { name: 'first_ok', type: 'action', action: 'log', input: {} },
-      { name: 'goes_bad', type: 'skill', skill: 'boom', input: {} },
+      // A sync step naming an unknown source degrades per-source, so use a
+      // step shape the engine cannot execute at all: an unknown type from a
+      // hand-edited DB row.
+      { name: 'goes_bad', type: 'agent', agent: 'missing-agent', prompt: 'will throw' },
       { name: 'never_reached', type: 'action', action: 'log', input: {} },
     ]);
 
     const run = await startWorkflow({ orgId: ORG, slug: 'explodes' });
 
     expect(run.status).toBe('failed');
-    expect(run.error).toMatch(/kaboom/);
     expect(run.stepResults.first_ok?.status).toBe('completed');
     expect(run.stepResults.goes_bad?.status).toBe('failed');
     expect(run.stepResults.never_reached).toBeUndefined();
@@ -300,22 +192,8 @@ describe('WorkflowService', () => {
   });
 
   it('cancel sets status and records reason', async () => {
-    pluginRegistry.register(
-      { id: 'test.cancel', version: '1.0.0' },
-      [defineSkill({
-        slug: 'noop',
-        name: 'noop',
-        version: '1.0.0',
-        requiresApproval: false,
-        inputSchema: z.object({}),
-        outputSchema: z.object({}),
-        async run() {
-          return {};
-        },
-      })],
-    );
     await seedWorkflow('needs_approve', [
-      { name: 's', type: 'skill', skill: 'noop', input: {} },
+      { name: 's', type: 'action', action: 'log', input: {} },
       { name: 'gate', type: 'approve', prompt: 'wait' },
     ]);
 
@@ -330,23 +208,9 @@ describe('WorkflowService', () => {
   });
 
   it('lists runs filtered by status', async () => {
-    pluginRegistry.register(
-      { id: 'test.list', version: '1.0.0' },
-      [defineSkill({
-        slug: 'done_skill',
-        name: 'done',
-        version: '1.0.0',
-        requiresApproval: false,
-        inputSchema: z.object({}),
-        outputSchema: z.object({}),
-        async run() {
-          return {};
-        },
-      })],
-    );
-    await seedWorkflow('will_complete', [{ name: 's', type: 'skill', skill: 'done_skill', input: {} }]);
+    await seedWorkflow('will_complete', [{ name: 's', type: 'action', action: 'log', input: {} }]);
     await seedWorkflow('will_pause', [
-      { name: 's', type: 'skill', skill: 'done_skill', input: {} },
+      { name: 's', type: 'action', action: 'log', input: {} },
       { name: 'g', type: 'approve', prompt: 'hold' },
     ]);
 
@@ -358,42 +222,6 @@ describe('WorkflowService', () => {
 
     expect(completed.length).toBe(1);
     expect(paused.length).toBe(1);
-  });
-
-  it('interpolates nested input through objects and arrays', async () => {
-    pluginRegistry.register(
-      { id: 'test.interp', version: '1.0.0' },
-      [defineSkill({
-        slug: 'echo',
-        name: 'echo',
-        version: '1.0.0',
-        requiresApproval: false,
-        inputSchema: z.object({}).passthrough(),
-        outputSchema: z.object({}).passthrough(),
-        async run(_ctx, input) {
-          return input as Record<string, unknown>;
-        },
-      })],
-    );
-    await seedWorkflow('interp_nested', [
-      {
-        name: 'echoed',
-        type: 'skill',
-        skill: 'echo',
-        input: {
-          nested: { greeting: 'hi {{input.name}}', items: ['{{input.id}}', 'static'] },
-          plain: '{{input.name}}',
-        },
-      },
-    ]);
-
-    const run = await startWorkflow({ orgId: ORG, slug: 'interp_nested', input: { name: 'world', id: 42 } });
-    const output = run.stepResults.echoed?.output as { nested: { greeting: string; items: unknown[] }; plain: string };
-
-    // whole-string {{input.id}} preserves number type; template string becomes interpolated text
-    expect(output.nested.greeting).toBe('hi world');
-    expect(output.nested.items).toEqual([42, 'static']);
-    expect(output.plain).toBe('world');
   });
 
   it('getWorkflowRun returns null for missing id', async () => {

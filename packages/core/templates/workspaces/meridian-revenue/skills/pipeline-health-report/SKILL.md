@@ -1,3 +1,11 @@
+---
+slug: pipeline-health-report
+name: Pipeline health report
+description: >-
+  Read-only summary of pipeline health: stage aging, stale deals, and weighted-vs-raw coverage. Runs freely; changes nothing.
+version: 1
+---
+
 Summarize the current pipeline health for Meridian Outdoor Supply.
 
 Context (sample data): 38 open deals, $4.1M raw / $2.4M weighted, quarter

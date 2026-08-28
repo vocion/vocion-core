@@ -30,6 +30,12 @@ export async function executeToolCall(opts: {
   token: string;
   tool: string;
   input: Record<string, unknown>;
+  /**
+   * checkpoint_ns of the invocation inside the artifact's loop —
+   * attribution metadata for the tool_call record, never a tenancy
+   * input. Optional: older artifacts don't send it.
+   */
+  ns?: string;
 }): Promise<ToolCallOutcome> {
   const verified = verifyClaim(opts.token);
   if (!verified.ok) {
@@ -58,8 +64,9 @@ export async function executeToolCall(opts: {
     missionSlug: claim.missionSlug,
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    operationSlugs: row.skillSlugs ?? [],
     harnessConfig: row.harnessConfig ?? {},
+    conversationId: claim.conversationId,
+    provider: 'runtime',
     emit: e => events.push(e),
   };
 
@@ -70,7 +77,12 @@ export async function executeToolCall(opts: {
   }
 
   try {
-    const raw = await toolObj.invoke(opts.input as never);
+    // The ns rides in as config metadata so the tool-call record can
+    // attribute a delegated specialist's call, mirroring the local loop.
+    const raw = await toolObj.invoke(
+      opts.input as never,
+      opts.ns ? ({ metadata: { checkpoint_ns: opts.ns } } as never) : undefined,
+    );
     const output = typeof raw === 'string' ? raw : JSON.stringify(raw);
     return { ok: true, output, events };
   } catch (err) {

@@ -133,7 +133,7 @@ const evalCases: EvalCase[] = [
 
 async function runAgent(message: string): Promise<{ response: string; toolCalls: any[] }> {
   // Import dynamically to avoid module resolution issues
-  const { runAgent: runAgentFn } = await import('../services/AgentService');
+  const { runAgentDeep: runAgentFn } = await import('../services/AgentService');
 
   const result = await runAgentFn({
     orgId: 'org_3B7f6cPKTKnJOExO55asDaUVAay',

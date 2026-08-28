@@ -115,7 +115,6 @@ describe('agent-tools bridge — tool surface', () => {
       expect(names.filter(n => n === 'run_code')).toHaveLength(1);
       // The base MCP surface is intact alongside the bridge.
       expect(names).toContain('search_query');
-      expect(names).toContain('runtime_list_runs');
     } finally {
       await server.close();
     }
