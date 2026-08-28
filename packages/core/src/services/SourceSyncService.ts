@@ -275,7 +275,7 @@ export async function beginSync(
  * @param args
  * @param args.status
  * @param args.counts
- * @param args.watermark
+ * @param args.watermark - New incremental watermark. Omit to leave the stored one unchanged.
  * @param args.cursor
  * @param args.error
  * @param args.failures
@@ -301,7 +301,15 @@ export async function finishSync(
       cursor: args.cursor ?? null,
       error: args.error ?? null,
       failures: args.failures ?? [],
-      ...(args.status === 'completed' ? { since: args.watermark ?? null } : {}),
+      // An omitted watermark leaves the stored one untouched. That matters for
+      // a run that completed without reading the whole source: it must neither
+      // advance the watermark (skipping what it missed) nor clear it (throwing
+      // away a good incremental position). Note a full, non-incremental run
+      // reads `since` as null by design, so "keep what is stored" cannot be
+      // expressed by passing the value back in.
+      ...(args.status === 'completed' && args.watermark !== undefined
+        ? { since: args.watermark }
+        : {}),
     })
     .where(and(
       eq(sourceSyncCheckpointSchema.orgId, orgId),
@@ -580,10 +588,29 @@ export async function runSync(opts: {
       }
     }
     await markSourceSynced(opts.sourceId);
+    // Only move the incremental watermark when the whole source was read.
+    //
+    // The watermark is one marker for the source, and advancing it asserts
+    // "everything up to here has been seen". A connector that lost a slice and
+    // carried on has not earned that claim: anything changed in this window
+    // inside the failed slice would fall behind the new watermark and never be
+    // requested again, because the next incremental run only asks for what is
+    // newer. Holding the old watermark costs a re-walk; advancing it loses
+    // those documents until a full reconcile.
+    //
+    // Same condition that guards deletion above, for the same reason: a slice
+    // we could not read is a slice we know nothing about.
+    const wholeSourceWasRead = connectorFailureCount === 0;
+    if (!wholeSourceWasRead) {
+      reportProgress({
+        kind: 'skipped',
+        message: `the source reported ${connectorFailureCount} failure(s), so the incremental watermark was left where it was`,
+      });
+    }
     await finishSync(opts.sourceId, opts.orgId, {
       status: 'completed',
       counts: countsForCheckpoint(),
-      watermark: cutoff,
+      watermark: wholeSourceWasRead ? cutoff : undefined,
       failures: failuresForCheckpoint(),
     });
     return result;
