@@ -51,6 +51,21 @@ function redactConfig(value: unknown): unknown {
  * @param props
  * @param props.params
  */
+/**
+ * Label the skipped list, saying so when the stored failures are only part of
+ * what went wrong. Failures are capped per run, so a sync with hundreds of
+ * errors stores a sample — a reader who sees "12" with no context would badly
+ * misjudge how much of the source is missing.
+ * @param recordedCount - How many failures the checkpoint actually stored.
+ * @param totalErrors - The run's true error count, from `counts.errors`.
+ */
+function describeSkipped(recordedCount: number, totalErrors: number | undefined): string {
+  if (typeof totalErrors === 'number' && totalErrors > recordedCount) {
+    return `Skipped (showing ${recordedCount} of ${totalErrors}): `;
+  }
+  return `Skipped (${recordedCount}): `;
+}
+
 export default async function SourceDetailPage(props: {
   params: Promise<{ locale: string; slug: string }>;
 }) {
@@ -209,9 +224,7 @@ export default async function SourceDetailPage(props: {
                     {(checkpoint.failures?.length ?? 0) > 0 && (
                       <div>
                         <dt className="text-muted-foreground">
-                          Skipped (
-                          {checkpoint.failures.length}
-                          {'): '}
+                          {describeSkipped(checkpoint.failures.length, checkpoint.counts?.errors)}
                         </dt>
                         <dd className="mt-1">
                           {/* What the run carried on past, rather than what ended it — a
@@ -220,6 +233,9 @@ export default async function SourceDetailPage(props: {
                           <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs text-destructive">
                             {checkpoint.failures.map(failure => (
                               <li key={`${failure.at}-${failure.uri ?? failure.message}`}>
+                                <span className="text-muted-foreground">
+                                  {failure.scope === 'connector' ? '[source] ' : '[document] '}
+                                </span>
                                 {failure.uri ? `${failure.uri} — ` : ''}
                                 {failure.message}
                               </li>

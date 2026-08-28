@@ -1639,11 +1639,14 @@ export const sourceSyncCheckpointSchema = pgTable(
      * run; this holds everything the run survived, so the UI can say what was
      * skipped instead of only showing a lower document count.
      *
-     * Capped when written (see RECORDED_FAILURE_LIMIT in SourceSyncService) so
-     * a source failing on every document cannot grow this row without bound.
+     * `scope` says which layer reported it: `connector` for a whole slice of the
+     * source that never arrived, `document` for one item that would not save.
+     * Capped per scope when written (see SourceSyncService) so a run failing on
+     * hundreds of documents cannot crowd out the record of a collection that
+     * never loaded, nor grow this row without bound.
      */
     failures: jsonb('failures')
-      .$type<{ uri?: string; message: string; at: string }[]>()
+      .$type<{ scope: 'connector' | 'document'; uri?: string; message: string; at: string }[]>()
       .default([])
       .notNull(),
   },
