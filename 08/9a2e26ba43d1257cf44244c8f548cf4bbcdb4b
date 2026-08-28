@@ -1,0 +1,307 @@
+packages/agent-runtime/src/loop.ts
+  s_1959de457b6f4d::t_d305b012eada10 71-72,77
+  s_1959de457b6f4d::t_7b126eff4118f7 33,86,94
+packages/core/templates/base/skills/draft-follow-up/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-24
+packages/core/src/app/[locale]/(auth)/dashboard/logs/page.tsx
+  s_1959de457b6f4d::t_d4916bdb9f8037 1-8
+packages/core/src/scripts/run-evals.ts
+  s_1959de457b6f4d::t_55f16554a9fddf 136
+packages/core/templates/base/skills/map-referral-paths/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-32
+packages/core/src/app/api/v1/reviews/snooze/route.ts
+  s_1959de457b6f4d::t_97f6438b5f0fcf 22
+packages/core/migrations/meta/_journal.json
+  s_1959de457b6f4d::t_f222b6c457160a 431-437
+  s_1959de457b6f4d::t_832932f5f87dfb 417-423
+  s_1959de457b6f4d::t_e0c2a11d8bf266 424-430
+packages/core/templates/base/skills/draft-warm-touch/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-27
+packages/core/src/services/ActivityService.ts
+  s_1959de457b6f4d::t_b426f4a10c7484 143-149
+  s_1959de457b6f4d::t_d4b26e7f7db130 219,224-240,253-255,257,275
+  s_1959de457b6f4d::t_56ee979b588ba8 11
+  s_1959de457b6f4d::t_6c9f63094f0de1 69,71-76
+  s_1959de457b6f4d::t_4773c7aaa8d3ab 185-196,198-199,201
+  s_1959de457b6f4d::t_4fd8eae68162bf 140-142
+  s_1959de457b6f4d::t_d83a2f420ed622 220-223
+  s_1959de457b6f4d::t_72e9e1ec7f9b21 241-252,256,258-274
+  s_1959de457b6f4d::t_c977f75e7c6c90 19,24
+  s_1959de457b6f4d::t_92bdc2a5ffffb2 82
+  s_1959de457b6f4d::t_d2fb9f4400adc8 51-54
+  s_1959de457b6f4d::t_9230400bfddd7a 197,200
+packages/core/src/libs/workspace/compose.ts
+  s_1959de457b6f4d::t_222f7f77f60340 33-34
+  s_1959de457b6f4d::t_6c17dbd64c4fb7 104-106,108-114,121-124,131-134,139-143,148-149,154,157-158,167-170,186,191-199,201-205,210-218,222-226,233-236
+packages/core/templates/base/skills/proposal-brief/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-23
+packages/core/src/services/adoption/attribution.test.ts
+  s_1959de457b6f4d::t_96da80dd3ada7e 72-74,78,80,91,93,122
+packages/core/templates/base/skills/discovery-summary/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-30
+packages/core/src/app/api/internal/agent-tools/route.ts
+  s_1959de457b6f4d::t_4ceeb539408e59 20,34
+packages/core/src/services/temporal/activities/index.ts
+  s_1959de457b6f4d::t_2f624adbf467ca 5-6,8,26
+docs/workspace.md
+  s_1959de457b6f4d::t_d83a2f420ed622 128-132,135,149-152
+  s_1959de457b6f4d::t_1a0136a6135a44 3,30,40-41,43,55,59-68,70-74,76-92,122,139,156,161-165,168-172,197,200-202,205,212,216,220
+packages/agent-runtime/src/tools.ts
+  s_1959de457b6f4d::t_fb2c73920e10f5 27,30-33,41
+packages/core/src/services/playbooks/mount.test.ts
+  s_1959de457b6f4d::t_43c6d22fbbf8ce 2,4-6,9-11,15,23,27,30-31,33-37,43-65,78-88,91,93,96-97,99,101,104,107-115,117,120,123-124,126
+packages/core/migrations/0060_skills_playbooks_compose.sql
+  s_1959de457b6f4d::t_e5b977517a2861 1-17
+packages/core/src/libs/actions/discovery-review.test.ts
+  s_1959de457b6f4d::t_219a12272a6c6d 3,11-15,45-47,56,66,71,73-74,78-84,87,100,107-108,120,125,153
+  s_1959de457b6f4d::t_4f24d2cf199392 77
+packages/core/src/services/chat/synthesis.test.ts
+  s_1959de457b6f4d::t_80d904a893a70b 186
+  s_1959de457b6f4d::t_46554b55e2a510 23,130
+  s_1959de457b6f4d::t_8becb3b444d24c 138,198,200,203-204
+packages/core/src/services/writeApi.ts
+  s_1959de457b6f4d::t_108eda9807fcb2 74
+packages/core/src/services/AgentService.ts
+  s_1959de457b6f4d::t_c48ac33953b976 319-327,331-336,338-347
+  s_1959de457b6f4d::t_431ccb5b6febfd 247-249
+  s_1959de457b6f4d::t_3e838b3ce8a3d8 4
+  s_1959de457b6f4d::t_c5b151cbaacd00 8-9
+  s_1959de457b6f4d::t_7014cb69ca6234 337
+  s_1959de457b6f4d::t_5d57998cf4be37 217-218
+  s_1959de457b6f4d::t_2fc7758d908bc0 348
+packages/core/src/libs/workspace/proving-vertical.test.ts
+  s_1959de457b6f4d::t_91144b968ae3e9 8-9,35,44-45,48-49,51,53-54,58,61-62,67,76
+  s_1959de457b6f4d::t_26475f8ce3a4d2 52
+packages/core/src/routers/Review.ts
+  s_1959de457b6f4d::t_06a931d524ab4d 15-18,190
+packages/core/src/services/playbooks/mount.ts
+  s_1959de457b6f4d::t_4768af1d1d1850 2-4,6-12,14-20,22,26,32,34,36-39,42-43,45-47,50-55,59,61-79,82-87,90,95-101,103-108,113-114,117-118,121-142,144
+  s_1959de457b6f4d::t_34665a7f78663b 115-116,120
+packages/core/src/routers/Playbooks.ts
+  s_1959de457b6f4d::t_0872b608ec7c9e 24-26
+packages/core/src/scripts/backfill-adoption-events.ts
+  s_1959de457b6f4d::t_6c7e19f1c7451e 98-100
+  s_1959de457b6f4d::t_e795f36b2efa89 22
+packages/core/src/app/[locale]/(auth)/dashboard/workspace/page.tsx
+  s_1959de457b6f4d::t_638c4212a60313 9,37
+packages/core/src/libs/workspace/scaffold.ts
+  s_1959de457b6f4d::t_d2949d0ed890cb 21,47,58
+docs/internal/adr/0003-skill-playbook-operation.md
+  s_1959de457b6f4d::t_e9ca8e68e34153 1-99
+packages/core/templates/base/skills/scan-owed-followups/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-34
+packages/core/src/interfaces/mcp/tools/playbook-tools.ts
+  s_1959de457b6f4d::t_0af4ab51cc7096 6,73-75
+  s_1959de457b6f4d::t_2b1d977278b27e 30,32,35,41-43,50,81-82
+packages/core/src/app/[locale]/(auth)/dashboard/review/page.tsx
+  s_1959de457b6f4d::t_2e03edd8c0bed9 11-12,33,43,47-48,51
+packages/core/src/services/SampleWorkspaceService.test.ts
+  s_1959de457b6f4d::t_46554b55e2a510 20,31
+packages/core/src/app/api/v1/reviews/assign/route.ts
+  s_1959de457b6f4d::t_97f6438b5f0fcf 22
+packages/core/src/features/dashboard/PrimitiveActivity.tsx
+  s_1959de457b6f4d::t_dc306b1675789a 31
+packages/core/src/app/[locale]/(auth)/dashboard/agents/[slug]/page.tsx
+  s_1959de457b6f4d::t_d83a2f420ed622 44-45
+  s_1959de457b6f4d::t_fd686473ae5467 18,38,78,210-228
+packages/core/src/services/adoption/attribution.ts
+  s_1959de457b6f4d::t_072737d8226da8 14
+  s_1959de457b6f4d::t_04631227b99569 4,19,89,92,122
+packages/core/templates/base/skills/win-loss-signal/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-23
+packages/core/src/libs/workspace/reader.ts
+  s_1959de457b6f4d::t_415014b16e6738 186,237-238
+packages/core/src/services/agents/harness.ts
+  s_1959de457b6f4d::t_a09098022ad871 13-16
+  s_1959de457b6f4d::t_3498952654042d 233-239,244-245
+  s_1959de457b6f4d::t_f3cf5c80712a58 136-140,145,150,185,223
+  s_1959de457b6f4d::t_b58911d0b9860c 38
+  s_1959de457b6f4d::t_4e6d6515f54dfa 301,309-314
+  s_1959de457b6f4d::t_96f1537765ca3d 260
+  s_1959de457b6f4d::t_490fda10708eae 355,357-358,362
+packages/core/src/app/[locale]/(auth)/dashboard/teams/[slug]/page.tsx
+  s_1959de457b6f4d::t_d51adee787fcf5 9,44,46-49
+packages/core/src/services/agents/tools/registry.ts
+  s_1959de457b6f4d::t_c2cc350c69c8fc 83-85
+  s_1959de457b6f4d::t_87c45b88b0a228 19
+packages/core/templates/base/agents/proposal-writer.yaml
+  s_1959de457b6f4d::t_ca6a9d48866f4c 18
+packages/core/src/features/dashboard/AppSidebar.tsx
+  s_1959de457b6f4d::t_8f07a9cd652c37 141
+  s_1959de457b6f4d::t_c108af5a5900f1 161
+packages/core/src/services/ReviewService.ts
+  s_1959de457b6f4d::t_e50ca53222fc58 4-10,15,20,58
+packages/core/src/services/agents/toolCallRecord.ts
+  s_1959de457b6f4d::t_18a41293124792 1-45,50-58,63-120,124-167
+  s_1959de457b6f4d::t_d83a2f420ed622 46-49,59-62
+  s_1959de457b6f4d::t_b111d06859bf3c 121-123
+packages/core/src/services/agents/providers/runtime.ts
+  s_1959de457b6f4d::t_5aa1b9269b50eb 159-165,167-190
+  s_1959de457b6f4d::t_01698f2171349b 166
+  s_1959de457b6f4d::t_e74032ea7b2a9d 93
+packages/core/templates/base/skills/extract-event-debrief/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-32
+packages/core/templates/base/skills/lead-triage/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-23
+packages/core/src/services/agents/tools/runs.ts
+  s_1959de457b6f4d::t_4ef2fa6ef7cc8e 2,5-7,15,20-54,58,72-73,84,90
+packages/core/src/app/api/v1/runs/route.ts
+  s_1959de457b6f4d::t_b6d3d2ab13eb16 4,10-13,32-51,53
+packages/core/src/services/agents/providers/agentcore.ts
+  s_1959de457b6f4d::t_a47f791a1c0145 46,105-106,109,151
+  s_1959de457b6f4d::t_6affb89704a75c 15,28,44
+  s_1959de457b6f4d::t_ba91d4492dee23 47
+  s_1959de457b6f4d::t_5133e6ad579b1c 256,261-262
+packages/core/src/libs/actions/discovery-review.ts
+  s_1959de457b6f4d::t_806b36e9dc8f46 145,147
+  s_1959de457b6f4d::t_33a877f22e7a36 165-176,178,180-188,196-198
+  s_1959de457b6f4d::t_5d2337848a82b2 9-13,19-20
+packages/core/src/libs/workspace/provenance.test.ts
+  s_1959de457b6f4d::t_cca87bf09b9958 33
+  s_1959de457b6f4d::t_f11a99a1c637a8 31,43-49,52,54-55,57-61,63-82
+packages/core/src/libs/workspace/loader.ts
+  s_1959de457b6f4d::t_7e8725c0db3729 100-101
+  s_1959de457b6f4d::t_9e6d15552ec4a2 406
+  s_1959de457b6f4d::t_e5e1d05d84c464 583-587,589,592
+  s_1959de457b6f4d::t_36e1dd3573305d 445-446,450-537,657
+  s_1959de457b6f4d::t_1cb3be6fa80f4c 259
+  s_1959de457b6f4d::t_cff1de751232e9 2,4
+  s_1959de457b6f4d::t_a7e9144c650a72 57-59,65-69,71,73-80
+  s_1959de457b6f4d::t_e7ffb60f474ff5 614-615,622-656
+  s_1959de457b6f4d::t_c576b72ed1213e 152-158,161
+  s_1959de457b6f4d::t_7bcb3866ded0b6 202
+  s_1959de457b6f4d::t_8f6b3b79878aec 538,658
+packages/core/src/app/[locale]/(auth)/dashboard/skills/page.tsx
+  s_1959de457b6f4d::t_59caa8cef07151 32-37,40-69,154,165
+  s_1959de457b6f4d::t_11b308febd9e1e 104-116,119-121
+  s_1959de457b6f4d::t_712f3d35a0c7db 1-2,4,9,11-12,14-31,70,74-99,101-103,117-118,126-134,137,141-142,146-153,155-164,167-168
+packages/core/src/libs/workspace/writer.ts
+  s_1959de457b6f4d::t_98036b66cbcdc8 1,8,24-25,27-28,58-60,62-65
+packages/core/migrations/0061_drop_operations_layer.sql
+  s_1959de457b6f4d::t_4845e817ec1588 1-10
+packages/core/src/services/WorkflowService.ts
+  s_1959de457b6f4d::t_3923022221a1d6 10,219
+packages/core/src/libs/workspace/schemas.ts
+  s_1959de457b6f4d::t_a2d0116ec272ac 180-185
+  s_1959de457b6f4d::t_98a58d645f2a18 15-21,25-26
+  s_1959de457b6f4d::t_67d9832efdb769 518-524
+  s_1959de457b6f4d::t_3923022221a1d6 310
+packages/core/src/models/Schema.ts
+  s_1959de457b6f4d::t_5580306330da14 490,492-493
+  s_1959de457b6f4d::t_74106e657915c1 444-449
+  s_1959de457b6f4d::t_cbf0e0bd8cd832 378,381-390,395-414,418-420
+packages/core/src/services/temporal/workflows/vocionWorkflow.ts
+  s_1959de457b6f4d::t_2f624adbf467ca 41,68
+packages/core/src/app/api/v1/reviews/decide/route.ts
+  s_1959de457b6f4d::t_97f6438b5f0fcf 24
+packages/core/src/app/[locale]/(auth)/dashboard/observability/page.tsx
+  s_1959de457b6f4d::t_24d943c11662e6 55,108-109
+packages/core/src/app/api/v1/runs/[id]/feedback/route.ts
+  s_1959de457b6f4d::t_e3786db16fdafa 2,8,37,46
+packages/core/src/services/agents/claims.ts
+  s_1959de457b6f4d::t_4a7423e8ef017a 29-30
+packages/core/src/app/[locale]/(auth)/dashboard/workflows/[slug]/runs/[runId]/page.tsx
+  s_1959de457b6f4d::t_d86d2b4f540145 143-145
+packages/core/src/interfaces/mcp/server.test.ts
+  s_1959de457b6f4d::t_b1afc0345ba299 125,153-154,158,188,227
+packages/core/templates/base/pack.yaml
+  s_1959de457b6f4d::t_d10622e281be89 8,10-11
+packages/core/src/features/dashboard/ReviewQueue.tsx
+  s_1959de457b6f4d::t_e08f9b80348c75 3,28-30,32-34,38,50,66,216
+packages/core/src/services/agents/traceEmitter.ts
+  s_1959de457b6f4d::t_d7bc82b41c3175 58,61
+  s_1959de457b6f4d::t_5fbcda326c697f 74
+packages/core/src/services/playbooks/catalog.ts
+  s_1959de457b6f4d::t_d83a2f420ed622 10-13
+  s_1959de457b6f4d::t_1794dcc36bca83 1-9,14-26
+packages/core/templates/base/playbooks/warming-etiquette/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-37
+packages/core/templates/base/agents/revenue-director.yaml
+  s_1959de457b6f4d::t_ca6a9d48866f4c 18
+docs/object-model.md
+  s_1959de457b6f4d::t_18be864193a1a6 1-50
+packages/core/src/libs/workspace/index.ts
+  s_1959de457b6f4d::t_669a6944187c69 4
+packages/core/src/scripts/export-workspace.ts
+  s_1959de457b6f4d::t_130bb21d31d5b6 104
+  s_1959de457b6f4d::t_bcff039b7a9a50 8,56,122-123
+packages/core/src/app/[locale]/(auth)/dashboard/playbooks/page.tsx
+  s_1959de457b6f4d::t_e9aed8493e5747 1,4-5,7-8
+packages/core/src/services/ObservabilityService.ts
+  s_1959de457b6f4d::t_24d943c11662e6 8,12,15,17-18,25
+packages/core/templates/workspaces/meridian-revenue/skills/pipeline-health-report/SKILL.md
+  s_1959de457b6f4d::t_4dce78d3af81a0 1-19
+packages/core/src/services/agents/tools/discovery.ts
+  s_1959de457b6f4d::t_d27a70d53ccdbb 38
+  s_1959de457b6f4d::t_8162697e017612 188-245
+  s_1959de457b6f4d::t_d555834a7d6295 268
+packages/core/src/libs/workspace/applier.ts
+  s_1959de457b6f4d::t_2d6d333835e0b8 739-741,746,769-771
+  s_1959de457b6f4d::t_f9d1e1865a39a9 70,73
+  s_1959de457b6f4d::t_e1b3f4569bb1fd 451
+  s_1959de457b6f4d::t_6f74c4626e893a 972
+  s_1959de457b6f4d::t_9bb9e5d09ca2ee 123-141
+  s_1959de457b6f4d::t_3cef36bfb8ab7b 1,5
+packages/core/src/app/[locale]/rpc/admin/route.ts
+  s_1959de457b6f4d::t_191a3afd8afdf2 48,50
+packages/core/src/services/chat/synthesis.ts
+  s_1959de457b6f4d::t_0e723a8863a22a 8,413-414,416-417
+  s_1959de457b6f4d::t_81047aafa01da9 223,266
+packages/core/src/services/WorkflowService.test.ts
+  s_1959de457b6f4d::t_922a6968a6afc6 2,4,51,53,64,66,84,86,89,95,105,109-110,154-157,196,211,213
+packages/core/templates/workspaces/meridian-revenue/skills/draft-follow-up-email/SKILL.md
+  s_1959de457b6f4d::t_4dce78d3af81a0 1-16
+packages/core/migrations/0059_tool_call.sql
+  s_1959de457b6f4d::t_74e3e7a219e9d7 1-38
+packages/core/src/libs/workspace/pack.test.ts
+  s_1959de457b6f4d::t_d2949d0ed890cb 8,53,57,59,64,86
+packages/core/src/interfaces/mcp/tools/workspace-tools.ts
+  s_1959de457b6f4d::t_9068c22f1962c8 18,219
+  s_1959de457b6f4d::t_335567276f8c4b 12,108,110-111
+  s_1959de457b6f4d::t_f2780702ab6bba 62
+packages/core/src/libs/activity.ts
+  s_1959de457b6f4d::t_ba3c35cb3104d8 3
+packages/core/templates/base/skills/pipeline-health/SKILL.md
+  s_1959de457b6f4d::t_50a62e33682642 1-29
+packages/core/src/libs/workspace/compose.test.ts
+  s_1959de457b6f4d::t_3b01c32b3badbf 29-36,45-46,51,55-56,61-62,65-66,74,78,81
+packages/core/src/interfaces/mcp/tools/agent-tools.ts
+  s_1959de457b6f4d::t_9c0c2bafe38bc9 13
+packages/core/src/app/[locale]/(auth)/dashboard/skills/[slug]/page.tsx
+  s_1959de457b6f4d::t_e3a2659e71ffd0 1-2,6,9,11-13,15-16,19-22,24-25,30,32-38,42-46,53,62-68,86,89,91-95,100,103-118,120-124,126-136,138-149,151-152,154-161,163-166,168-195,200-208
+  s_1959de457b6f4d::t_26475f8ce3a4d2 23,162
+  s_1959de457b6f4d::t_314f4f1921f902 41,47-52,54-60
+packages/core/src/services/agents/toolEndpoint.ts
+  s_1959de457b6f4d::t_b2b95364a2c74d 68-69
+  s_1959de457b6f4d::t_758b487f1c76c1 80-85
+  s_1959de457b6f4d::t_c8685e46314cc3 33-38
+packages/core/src/services/agents/toolCallRecord.test.ts
+  s_1959de457b6f4d::t_11a6f082498b9f 1-57,59-61,63-82,84-85,87-103,105-120,122-158
+  s_1959de457b6f4d::t_d83a2f420ed622 58,62,83,86,104,121
+packages/core/src/services/agents/types.ts
+  s_1959de457b6f4d::t_68952aaf8dad21 198-209
+  s_1959de457b6f4d::t_a09098022ad871 89
+packages/core/src/libs/workspace/writer.test.ts
+  s_1959de457b6f4d::t_097c181c9a51ae 26,29-30,36-37,126,151
+  s_1959de457b6f4d::t_8b69ba0d1c4d34 52
+packages/core/src/app/[locale]/(auth)/dashboard/activity/page.tsx
+  s_1959de457b6f4d::t_18c67991cfa021 2,8,15-18,26,67,70,80-83,88,92-102,107,152-192,198
+packages/core/src/libs/workspace/reader.test.ts
+  s_1959de457b6f4d::t_415014b16e6738 75,77,81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "089a2e26ba43d1257cf44244c8f548cf4bbcdb4b",
+  "prompts": {},
+  "sessions": {
+    "s_1959de457b6f4d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a0b1482d-29fa-44d9-bb6c-955a7a8a117e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
