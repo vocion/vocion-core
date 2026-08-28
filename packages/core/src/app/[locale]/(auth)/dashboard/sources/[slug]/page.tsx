@@ -206,6 +206,28 @@ export default async function SourceDetailPage(props: {
                         <dd className="inline">{checkpoint.error}</dd>
                       </div>
                     )}
+                    {(checkpoint.failures?.length ?? 0) > 0 && (
+                      <div>
+                        <dt className="text-muted-foreground">
+                          Skipped (
+                          {checkpoint.failures.length}
+                          {'): '}
+                        </dt>
+                        <dd className="mt-1">
+                          {/* What the run carried on past, rather than what ended it — a
+                              collection that would not load, a document that would not
+                              save. Without this the only trace is a lower document count. */}
+                          <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs text-destructive">
+                            {checkpoint.failures.map(failure => (
+                              <li key={`${failure.at}-${failure.uri ?? failure.message}`}>
+                                {failure.uri ? `${failure.uri} — ` : ''}
+                                {failure.message}
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
                   </>
                 )
               : (
