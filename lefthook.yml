@@ -7,6 +7,11 @@ commit-msg:
 # Validate content before committing
 pre-commit:
   commands:
+    # Blocks the PolinRider-style config payload injection (see scripts/check-config-integrity.mjs)
+    integrity:
+      glob: '*'
+      run: npm run check:integrity
+      priority: 0
     lint:
       glob: '*'
       run: npx --no -- eslint --fix --no-warn-ignored {staged_files}
