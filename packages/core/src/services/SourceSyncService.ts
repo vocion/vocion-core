@@ -107,6 +107,26 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
  */
 export const MAX_CONCURRENT_INGESTS = 8;
 
+/**
+ * One thing that went wrong during a sync without ending it — a collection the
+ * connector could not read, a document that would not save. Stored on the
+ * checkpoint so the source detail page can name what was skipped.
+ */
+export type RecordedFailure = {
+  /** What failed, when the reporter knew: a document externalId or a collection URL. */
+  uri?: string;
+  message: string;
+  /** ISO timestamp, so the UI can order failures without a separate column. */
+  at: string;
+};
+
+/**
+ * How many failures one run records. A source erroring on every one of 50,000
+ * documents would otherwise write a 50,000-entry JSON blob; the count in
+ * `counts.errors` still reflects the true total either way.
+ */
+const RECORDED_FAILURE_LIMIT = 50;
+
 export type SyncResult = {
   sourceId: number;
   created: number;
@@ -243,11 +263,19 @@ export async function beginSync(
  * @param args.watermark
  * @param args.cursor
  * @param args.error
+ * @param args.failures
  */
 export async function finishSync(
   sourceId: number,
   orgId: string,
-  args: { status: 'completed' | 'failed'; counts?: Record<string, number>; watermark?: Date; cursor?: string | null; error?: string },
+  args: {
+    status: 'completed' | 'failed';
+    counts?: Record<string, number>;
+    watermark?: Date;
+    cursor?: string | null;
+    error?: string;
+    failures?: RecordedFailure[];
+  },
 ): Promise<void> {
   await db
     .update(sourceSyncCheckpointSchema)
@@ -257,6 +285,7 @@ export async function finishSync(
       counts: args.counts ?? {},
       cursor: args.cursor ?? null,
       error: args.error ?? null,
+      failures: args.failures ?? [],
       ...(args.status === 'completed' ? { since: args.watermark ?? null } : {}),
     })
     .where(and(
@@ -334,11 +363,27 @@ export async function runSync(opts: {
    * @param event.uri
    * @param event.message
    */
+  // What went wrong without stopping the run, persisted to the checkpoint at
+  // the end so the source detail page can name it. Capped; see
+  // RECORDED_FAILURE_LIMIT.
+  const recordedFailures: RecordedFailure[] = [];
+
   const reportProgress = (event: {
     kind: 'fetched' | 'skipped' | 'error';
     uri?: string;
     message?: string;
   }): void => {
+    // Every error the run survives funnels through here — the connector's own
+    // (a collection it could not read) and ingestion's (a document that would
+    // not save). Recording in this one place keeps the checkpoint's failure
+    // list in step with `counts.errors` no matter which side reported it.
+    if (event.kind === 'error' && recordedFailures.length < RECORDED_FAILURE_LIMIT) {
+      recordedFailures.push({
+        uri: event.uri,
+        message: event.message ?? 'no message reported',
+        at: new Date().toISOString(),
+      });
+    }
     try {
       opts.onProgress?.(event);
     } catch (error) {
@@ -511,6 +556,7 @@ export async function runSync(opts: {
       status: 'completed',
       counts: countsForCheckpoint(),
       watermark: cutoff,
+      failures: recordedFailures,
     });
     return result;
   } catch (err) {
@@ -537,6 +583,7 @@ export async function runSync(opts: {
       status: 'failed',
       counts: countsForCheckpoint(),
       error: err instanceof Error ? err.message : String(err),
+      failures: recordedFailures,
     });
     throw err;
   }

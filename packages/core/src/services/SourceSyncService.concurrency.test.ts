@@ -170,6 +170,43 @@ function registerFixtureConnector(slug: string, documentCount: number, throwAfte
 }
 
 /**
+ * Register a connector that reports a non-fatal failure partway through and
+ * keeps yielding — the shape the Strapi connector uses when one collection
+ * fails and its siblings still have documents to give.
+ * @param slug - Connector slug to register under.
+ * @param documentCount - How many documents to yield in total.
+ * @param reportErrorAfter - Index at which to report the failure.
+ */
+function registerReportingFixtureConnector(slug: string, documentCount: number, reportErrorAfter: number) {
+  registerConnector({
+    slug,
+    name: 'Reporting fixture',
+    description: 'test',
+    icon: 'File',
+    authKind: 'none',
+    configSchema: z.object({}).passthrough(),
+    async* sync(ctx) {
+      for (let index = 0; index < documentCount; index++) {
+        if (index === reportErrorAfter) {
+          ctx.onProgress?.({
+            kind: 'error',
+            uri: 'https://cms.partner.test/api/venues',
+            message: 'Strapi venues fetch failed: 500',
+          });
+          continue;
+        }
+        yield {
+          externalId: `doc-${index}`,
+          uri: `https://example.test/doc-${index}`,
+          title: `Doc ${index}`,
+          content: `body ${index}`,
+        };
+      }
+    },
+  });
+}
+
+/**
  * Create a knowledge source row pointing at the given connector.
  * @param connectorSlug - Slug of the connector the source should use.
  */
@@ -483,5 +520,50 @@ describe('runSync concurrent ingestion', () => {
 
     expect(checkpoint?.status).toBe('failed');
     expect(checkpoint?.counts).toMatchObject({ created: 12, errors: 0 });
+  });
+
+  it('records a survivable failure on the checkpoint and still completes', async () => {
+    // A connector that loses one collection but delivers the rest must leave a
+    // trace of what was skipped — a lower document count alone tells nobody
+    // which collection went missing.
+    registerReportingFixtureConnector('fixture-reported-failure', 5, 2);
+    const sourceId = await createSource('fixture-reported-failure');
+
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(result.created).toBe(4);
+    expect(result.errors).toBe(1);
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    // The run finished, so status is completed and `error` — the fatal one —
+    // stays empty. The survivable failure lives in `failures`.
+    expect(checkpoint?.status).toBe('completed');
+    expect(checkpoint?.error).toBeNull();
+    expect(checkpoint?.failures).toHaveLength(1);
+    expect(checkpoint?.failures?.[0]).toMatchObject({
+      uri: 'https://cms.partner.test/api/venues',
+      message: 'Strapi venues fetch failed: 500',
+    });
+    expect(typeof checkpoint?.failures?.[0]?.at).toBe('string');
+  });
+
+  it('leaves failures empty on a clean run', async () => {
+    registerFixtureConnector('fixture-no-failures', 3);
+    const sourceId = await createSource('fixture-no-failures');
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    expect(checkpoint?.failures).toEqual([]);
   });
 });
