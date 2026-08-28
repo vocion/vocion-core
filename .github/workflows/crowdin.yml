@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Skip gracefully when Crowdin secrets aren't configured (forks / installs
       # that don't localize) instead of failing every push red.
