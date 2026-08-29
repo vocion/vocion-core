@@ -16,7 +16,7 @@ import type { RuntimeContext } from '../types';
 import type { HubspotClient, HubspotPage, HubspotRecord, StageInfo } from '@/libs/hubspot/client';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { asJson, clampLimit, distinctiveTokens, hubspotClientForCtx } from './hubspotDirect';
+import { asJson, clampLimit, distinctiveTokens, emailDirection, hubspotClientForCtx, isAutoReply, isMeetingBoilerplate, stripHtml } from './hubspotDirect';
 
 /** Firmographics read off a company object — what grounds an account brief. */
 export const COMPANY_PROPS = [
@@ -283,10 +283,142 @@ export function hubspotCompanyDealsTool(ctx: RuntimeContext) {
   );
 }
 
+/**
+ * Logged engagement types pulled as the activity timeline, with the title +
+ * body property for each and whether the body is HTML (needs tag-stripping).
+ * Notes are handled separately (a different body property).
+ */
+const CONVERSATION_TYPES = [
+  { kind: 'emails', subjectKey: 'hs_email_subject', bodyKey: 'hs_email_text', isHtml: false },
+  { kind: 'meetings', subjectKey: 'hs_meeting_title', bodyKey: 'hs_meeting_body', isHtml: true },
+  { kind: 'calls', subjectKey: 'hs_call_title', bodyKey: 'hs_call_body', isHtml: true },
+] as const;
+const ACTIVITY_ASSOCIATIONS = ['notes', 'emails', 'meetings', 'calls'] as const;
+
+/** Bound per-type batch reads so a heavily-logged account cannot fan out unboundedly. */
+const MAX_ENGAGEMENTS_PER_TYPE = 50;
+
+export function hubspotCompanyActivityTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const { company_id, limit } = args as { company_id: string; limit?: number };
+      const resolved = await hubspotClientForCtx(ctx);
+      if (!resolved.ok) {
+        return asJson(resolved);
+      }
+      const client = resolved.client;
+      const cap = clampLimit(limit, 20, 100);
+
+      // All four association lists in ONE GET.
+      const assoc = await client.get<HubspotRecord>(`/crm/v3/objects/companies/${company_id}`, {
+        associations: ACTIVITY_ASSOCIATIONS.join(','),
+      });
+      if (!assoc.ok) {
+        if (assoc.error === 'hubspot_error' && assoc.status === 404) {
+          return asJson({ ok: true, count: 0, activity: [], reason: 'no_match', message: `HubSpot has no company with id "${company_id}".` });
+        }
+        return asJson(assoc);
+      }
+      const idsByType: Record<string, string[]> = {};
+      for (const kind of ACTIVITY_ASSOCIATIONS) {
+        idsByType[kind] = (assoc.data.associations?.[kind]?.results ?? [])
+          .map(r => String(r.id ?? ''))
+          .filter(Boolean)
+          .slice(0, MAX_ENGAGEMENTS_PER_TYPE);
+      }
+
+      async function batchRead(objectType: string, ids: string[], properties: string[]) {
+        if (ids.length === 0) {
+          return { ok: true as const, data: { results: [] } as HubspotPage };
+        }
+        return client.post<HubspotPage>(`/crm/v3/objects/${objectType}/batch/read`, {
+          properties,
+          inputs: ids.map(id => ({ id })),
+        });
+      }
+
+      // Each item keeps its full ISO timestamp for sorting (ISO-8601 sorts
+      // chronologically as a plain string); `when` is the date shown.
+      const items: Array<{ ts: string; type: string; when: string; direction: 'in' | 'out' | null; subject: string | null; snippet: string }> = [];
+
+      const notes = await batchRead('notes', idsByType.notes!, ['hs_note_body', 'hs_timestamp']);
+      if (!notes.ok) {
+        return asJson(notes);
+      }
+      for (const note of notes.data.results ?? []) {
+        const p = note.properties ?? {};
+        const snippet = stripHtml(p.hs_note_body);
+        if (!snippet) {
+          continue;
+        }
+        const ts = p.hs_timestamp ?? '';
+        items.push({ ts, type: 'note', when: ts.slice(0, 10), direction: null, subject: null, snippet: snippet.slice(0, 600) });
+      }
+
+      for (const { kind, subjectKey, bodyKey, isHtml } of CONVERSATION_TYPES) {
+        const props = [subjectKey, bodyKey, 'hs_timestamp'];
+        if (kind === 'emails') {
+          props.push('hs_email_direction');
+        }
+        const read = await batchRead(kind, idsByType[kind]!, props);
+        if (!read.ok) {
+          return asJson(read);
+        }
+        for (const row of read.data.results ?? []) {
+          const p = row.properties ?? {};
+          const subject = (p[subjectKey] ?? '').trim();
+          const bodyRaw = p[bodyKey] ?? '';
+          // Out-of-office / auto-reply emails are pure noise — drop them.
+          if (kind === 'emails' && isAutoReply(subject, bodyRaw)) {
+            continue;
+          }
+          let body = isHtml ? stripHtml(bodyRaw) : bodyRaw.replace(/\s+/g, ' ').trim();
+          // A meeting/call body that is just a join invite is not discussion:
+          // keep the informative title, blank the boilerplate snippet.
+          if ((kind === 'meetings' || kind === 'calls') && isMeetingBoilerplate(body)) {
+            body = '';
+          }
+          if (!subject && !body) {
+            continue;
+          }
+          const ts = p.hs_timestamp ?? '';
+          items.push({
+            ts,
+            type: kind.slice(0, -1),
+            when: ts.slice(0, 10),
+            direction: kind === 'emails' ? emailDirection(p.hs_email_direction) : null,
+            subject: subject || null,
+            snippet: body.slice(0, 500),
+          });
+        }
+      }
+
+      items.sort((a, b) => b.ts.localeCompare(a.ts));
+      const activity = items.slice(0, cap).map(({ ts, ...rest }) => rest);
+      return asJson({
+        ok: true,
+        source: 'hubspot_live',
+        company_id,
+        count: activity.length,
+        activity,
+      });
+    },
+    {
+      name: 'hubspot_company_activity',
+      description: 'Reads HubSpot LIVE, current as of this call: ONE company\'s logged activity — notes, emails, meetings, and calls — as a single newest-first timeline matching the HubSpot record page. Each item is {type, when, direction, subject, snippet}; email direction is "in" (the client wrote) or "out" (our side wrote), derived from HubSpot\'s engagement records. Signal over noise: out-of-office / auto-replies are dropped, calendar/Zoom join-invite meeting bodies are blanked (title kept), HTML is stripped. This is "what was actually discussed" behind a stalled or lost deal. Get the company id from hubspot_search_companies; default 20 items, max 100.',
+      schema: z.object({
+        company_id: z.string().min(1).describe('HubSpot company id (numeric string), from hubspot_search_companies.'),
+        limit: z.number().int().positive().optional().describe('Max timeline items, newest first (default 20, max 100).'),
+      }),
+    },
+  );
+}
+
 export function hubspotCompanyTools(ctx: RuntimeContext) {
   return [
     hubspotSearchCompaniesTool(ctx),
     hubspotGetCompanyTool(ctx),
     hubspotCompanyDealsTool(ctx),
+    hubspotCompanyActivityTool(ctx),
   ];
 }
