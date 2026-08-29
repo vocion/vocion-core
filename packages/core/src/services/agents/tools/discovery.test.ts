@@ -156,9 +156,9 @@ describe('grants', () => {
   it('no longer carries the CRM reads — they are source-gated, not granted', () => {
     const names = discoveryTools(ctxFor(ORG)).map(t => t.name);
 
-    expect(names).not.toContain('get_hubspot_contacts');
-    expect(names).not.toContain('get_hubspot_deals');
-    expect(names).not.toContain('get_hubspot_companies');
+    expect(names).not.toContain('hubspot_count_contacts');
+    expect(names).not.toContain('hubspot_count_deals');
+    expect(names).not.toContain('hubspot_count_companies');
   });
 });
 

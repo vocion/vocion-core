@@ -10,6 +10,7 @@
 
 import type { Action } from './types';
 import { z } from 'zod';
+import { createHubspotClient, tokenFromCredentials } from '@/libs/hubspot/client';
 
 const hubspotUpdateInput = z.object({
   objectType: z.enum(['contacts', 'deals', 'companies']),
@@ -29,19 +30,20 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
   external: true,
   sourceSlug: 'hubspot',
   async execute(ctx, input) {
-    const token = ctx.credentials?.token as string | undefined;
+    const token = tokenFromCredentials(ctx.credentials as Record<string, unknown> | undefined);
     if (!token) {
       throw new Error('hubspot.update requires connected HubSpot credentials (credentials.token)');
     }
-    const res = await fetch(`${input.baseUrl}/crm/v3/objects/${input.objectType}/${input.objectId}`, {
-      method: 'PATCH',
-      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ properties: input.properties }),
-    });
+    const client = createHubspotClient({ token, baseUrl: input.baseUrl });
+    const res = await client.patch<{ id?: string; updatedAt?: string }>(
+      `/crm/v3/objects/${input.objectType}/${input.objectId}`,
+      { properties: input.properties },
+    );
     if (!res.ok) {
-      throw new Error(`HubSpot update failed: ${res.status} ${await res.text().catch(() => '')}`);
+      // Actions run through the review queue, whose contract is throw-on-failure.
+      throw new Error(`HubSpot update failed: ${res.message}`);
     }
-    const body = (await res.json()) as { id?: string; updatedAt?: string };
+    const body = res.data;
     return {
       objectType: input.objectType,
       objectId: body.id ?? input.objectId,

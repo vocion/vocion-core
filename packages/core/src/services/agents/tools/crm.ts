@@ -1,16 +1,19 @@
 /**
- * CRM tools — the STRUCTURED read path over the synced HubSpot mirror.
+ * CRM COUNT tools — the STRUCTURED read path over the synced HubSpot mirror.
  *
- * One tool per object type. A tool named for contacts returns contacts, and
- * only contacts: the previous single tool returned contacts + deals +
- * companies, so a model choosing by name could not choose correctly.
+ * One tool per object type, named `hubspot_count_*` because counting is what
+ * the mirror does better than the live API: exact totals, facet breakdowns,
+ * sums, trailing windows. Record-level reads live in the DIRECT tools
+ * (`hubspot_get_contact`, `hubspot_search_*`, `hubspot_company_*`, …), which
+ * hit the live API — the routing rule every description repeats: fetching a
+ * record goes to the source, counting goes to the mirror.
  *
- * These answer "how many" and "which ones". `search_knowledge` answers "what
- * was said" and is a relevance top-k, so it can never count. Every response
- * therefore leads with an exact `total` from COUNT(*), carries `facets` so
- * filter values are DISCOVERABLE rather than guessed, pages explicitly, and
- * names any field the mirror does not carry in `unavailableFields` so a
- * missing column produces an honest refusal instead of a plausible number.
+ * `search_knowledge` answers "what was said" and is a relevance top-k, so it
+ * can never count. Every response here therefore leads with an exact `total`
+ * from COUNT(*), carries `facets` so filter values are DISCOVERABLE rather
+ * than guessed, pages explicitly, and names any field the mirror does not
+ * carry in `unavailableFields` so a missing column produces an honest refusal
+ * instead of a plausible number.
  *
  * NOT granted-only: these build for any agent whose `connectorSources`
  * include a HubSpot source. The discovery lane's grant gate protects
@@ -137,13 +140,14 @@ async function run(ctx: RuntimeContext, objectType: CrmObjectType, args: ToolArg
 
 const FRESHNESS = 'Reads the synced CRM mirror, so `as_of` is the last sync time — call freshen_source("hubspot") first if the question implies "right now".';
 const HONESTY = 'Anything listed in `unavailable_fields` is NOT synced for these records: say the field is unavailable rather than estimating it. Report `total` (the exact COUNT), never the number of records shown.';
+const ROUTING = 'Routing: FETCHING a record goes to the source, COUNTING goes here (the mirror). One specific person → hubspot_get_contact; find people by name → hubspot_search_contacts; one account, its deals, or its activity → hubspot_get_company / hubspot_company_deals / hubspot_company_activity; how many / how much / broken down by → the hubspot_count_* tools.';
 
-export function getHubspotContactsTool(ctx: RuntimeContext) {
+export function hubspotCountContactsTool(ctx: RuntimeContext) {
   return tool(
     async args => run(ctx, 'contacts', args as ToolArgs),
     {
-      name: 'get_hubspot_contacts',
-      description: `Count and list HubSpot CONTACTS (people) from the CRM. Use this for any "how many contacts/leads/MQLs" question and for looking a person up — never search_knowledge, which returns at most 15 relevance hits and cannot count. Filter with lifecycle_stages; \`facets.lifecycleStage\` returns every stage present with its count, so read it to learn the exact stage strings (e.g. "lead", "salesqualifiedlead") instead of guessing. Use created_within_days for "added this week/month" — it resolves the window on the server, so you never have to know today's date. For deals use get_hubspot_deals; for companies use get_hubspot_companies. ${FRESHNESS} ${HONESTY}`,
+      name: 'hubspot_count_contacts',
+      description: `Counts HubSpot CONTACTS (people) in the synced CRM mirror: exact totals, lifecycle/source breakdowns, and trailing windows. Use this for any "how many contacts/leads/MQLs" question — never search_knowledge, which returns at most 15 relevance hits and cannot count. Filter with lifecycle_stages; \`facets.lifecycleStage\` returns every stage present with its count, so read it to learn the exact stage strings (e.g. "lead", "salesqualifiedlead") instead of guessing. Use created_within_days for "added this week/month" — it resolves the window on the server, so you never have to know today's date. ${ROUTING} ${FRESHNESS} ${HONESTY}`,
       schema: z.object({
         lifecycle_stages: z.array(z.string()).optional().describe('Contact lifecycle stages, e.g. ["lead"] or ["salesqualifiedlead"]. Omit for ALL contacts. Case-insensitive.'),
         ...pageArgs,
@@ -152,12 +156,12 @@ export function getHubspotContactsTool(ctx: RuntimeContext) {
   );
 }
 
-export function getHubspotDealsTool(ctx: RuntimeContext) {
+export function hubspotCountDealsTool(ctx: RuntimeContext) {
   return tool(
     async args => run(ctx, 'deals', args as ToolArgs),
     {
-      name: 'get_hubspot_deals',
-      description: `Count and list HubSpot DEALS (the revenue pipeline) from the CRM. Use for "how many deals", pipeline breakdowns, and deal value. Filter with deal_stages / pipelines; \`facets.dealStage\` and \`facets.pipeline\` return every value present with its count, so read them rather than guessing stage names. \`total_amount\` is the summed value across ALL matches and \`facet_amounts\` is that sum broken down per stage and per pipeline — so value-by-stage is ONE call. NEVER page through deals adding amounts up yourself; the sums are already computed over every match, and a page only ever holds part of them. For "open pipeline" pass status:"open". Use created_within_days for "opened this month" — it resolves the window on the server. For people use get_hubspot_contacts; for accounts use get_hubspot_companies. ${FRESHNESS} ${HONESTY}`,
+      name: 'hubspot_count_deals',
+      description: `Counts HubSpot DEALS (the revenue pipeline) in the synced CRM mirror: exact totals, pipeline breakdowns, and summed value by stage/pipeline. Filter with deal_stages / pipelines; \`facets.dealStage\` and \`facets.pipeline\` return every value present with its count, so read them rather than guessing stage names. \`total_amount\` is the summed value across ALL matches and \`facet_amounts\` is that sum broken down per stage and per pipeline — so value-by-stage is ONE call. NEVER page through deals adding amounts up yourself; the sums are already computed over every match, and a page only ever holds part of them. For "open pipeline" pass status:"open". Use created_within_days for "opened this month" — it resolves the window on the server. For ONE company's deal history (including closed-lost and loss reasons) use hubspot_company_deals; for a live pipeline-hygiene list (open deals, stalled first) use hubspot_list_deals. ${ROUTING} ${FRESHNESS} ${HONESTY}`,
       schema: z.object({
         status: z.enum(['open', 'closed']).optional().describe('"open" excludes won AND lost deals. ALWAYS pass this for "open pipeline" questions — it is resolved from the pipeline definitions, so it is correct for custom pipelines whose stage names give no hint. Omit for all deals.'),
         deal_stages: z.array(z.string()).optional().describe('Deal stage LABELS to include (read them from facets.dealStageLabel). Omit for all stages.'),
@@ -168,12 +172,12 @@ export function getHubspotDealsTool(ctx: RuntimeContext) {
   );
 }
 
-export function getHubspotCompaniesTool(ctx: RuntimeContext) {
+export function hubspotCountCompaniesTool(ctx: RuntimeContext) {
   return tool(
     async args => run(ctx, 'companies', args as ToolArgs),
     {
-      name: 'get_hubspot_companies',
-      description: `Count and list HubSpot COMPANIES (accounts) from the CRM. Use for "how many companies", and for account attributes like industry, domain, and size — those live on the COMPANY record, not on contacts. Filter with industries; \`facets.industry\` returns every industry present with its count, and the values are HubSpot enum strings (e.g. "COMPUTER_SOFTWARE", "EDUCATION_MANAGEMENT") — read them off the facets and pass them EXACTLY, never a friendly paraphrase like "education". For people use get_hubspot_contacts; for pipeline use get_hubspot_deals. ${FRESHNESS} ${HONESTY}`,
+      name: 'hubspot_count_companies',
+      description: `Counts HubSpot COMPANIES (accounts) in the synced CRM mirror: exact totals and breakdowns by industry/size — those attributes live on the COMPANY record, not on contacts. Filter with industries; \`facets.industry\` returns every industry present with its count, and the values are HubSpot enum strings (e.g. "COMPUTER_SOFTWARE", "EDUCATION_MANAGEMENT") — read them off the facets and pass them EXACTLY, never a friendly paraphrase like "education". ${ROUTING} ${FRESHNESS} ${HONESTY}`,
       schema: z.object({
         industries: z.array(z.string()).optional().describe('Industries to include. Omit for ALL companies. Case-insensitive.'),
         ...pageArgs,
@@ -193,8 +197,8 @@ export function crmTools(ctx: RuntimeContext) {
     return [];
   }
   return [
-    getHubspotContactsTool(ctx),
-    getHubspotDealsTool(ctx),
-    getHubspotCompaniesTool(ctx),
+    hubspotCountContactsTool(ctx),
+    hubspotCountDealsTool(ctx),
+    hubspotCountCompaniesTool(ctx),
   ];
 }

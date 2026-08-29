@@ -12,8 +12,10 @@
  */
 
 import type { SourceConnector, SourceContext } from './types';
+import type { StageInfo } from '@/libs/hubspot/client';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
+import { createHubspotClient, hubspotNumeric, tokenFromCredentials } from '@/libs/hubspot/client';
 
 const OBJECT_TYPES = ['contacts', 'deals', 'companies'] as const;
 
@@ -61,54 +63,6 @@ type HubSpotPage = { results: HubSpotRecord[]; paging?: { next?: { after?: strin
 function titleFor(objectType: string, props: Record<string, string | null>, id: string): string {
   const fullName = [props.firstname, props.lastname].filter(Boolean).join(' ').trim();
   return props.dealname || props.name || fullName || props.email || `${objectType} ${id}`;
-}
-
-/**
- * Deal-stage metadata, keyed by stage id.
- *
- * Needed because a deal stage is only self-describing in the DEFAULT pipeline,
- * where the ids read as `closedwon` / `appointmentscheduled`. Custom pipelines
- * use opaque numeric ids, so "is this deal open?" is unanswerable from the
- * stage alone — and a hardcoded list of open-looking stage names silently
- * omits every custom pipeline, understating open pipeline value.
- */
-type StageInfo = { label: string; isClosed: boolean; pipelineLabel: string };
-
-/**
- * Fetch stage labels and closed-ness for every deal pipeline. One request per
- * sync, not per record.
- * @param baseUrl
- * @param headers
- */
-async function fetchDealStages(baseUrl: string, headers: Record<string, string>): Promise<Map<string, StageInfo>> {
-  const map = new Map<string, StageInfo>();
-  const res = await fetch(`${baseUrl}/crm/v3/pipelines/deals`, { headers });
-  if (!res.ok) {
-    // Non-fatal: without it, deals still sync and simply carry no
-    // `dealClosed` flag, which the read tools report as unavailable rather
-    // than guessing.
-    return map;
-  }
-  const body = (await res.json()) as {
-    results?: Array<{
-      label?: string;
-      stages?: Array<{ id?: string; label?: string; metadata?: { isClosed?: string | boolean } }>;
-    }>;
-  };
-  for (const pipeline of body.results ?? []) {
-    for (const stage of pipeline.stages ?? []) {
-      if (!stage.id) {
-        continue;
-      }
-      const raw = stage.metadata?.isClosed;
-      map.set(stage.id, {
-        label: stage.label ?? stage.id,
-        isClosed: raw === true || raw === 'true',
-        pipelineLabel: pipeline.label ?? '',
-      });
-    }
-  }
-  return map;
 }
 
 /**
@@ -176,20 +130,20 @@ function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageI
       jobTitle: props.jobtitle ?? undefined,
       // Numeric so it can be summed in SQL; a non-numeric amount is dropped
       // rather than stored as junk that would poison a total.
-      amount: numeric(props.amount),
+      amount: hubspotNumeric(props.amount),
       pipeline: props.pipeline ?? undefined,
       closeDate: props.closedate ?? undefined,
       industry: props.industry ?? undefined,
-      employees: numeric(props.numberofemployees),
+      employees: hubspotNumeric(props.numberofemployees),
       createdAt: props.createdate ?? undefined,
       // How the contact arrived, and prior email engagement. Keys are
       // alphanumeric because `CrmRecordsService.meta()` inlines them.
       originalSource: props.hs_analytics_source ?? undefined,
       originalSourceDetail: props.hs_analytics_source_data_1 ?? undefined,
       latestSource: props.hs_latest_source ?? undefined,
-      emailDelivered: numeric(props.hs_email_delivered),
-      emailOpened: numeric(props.hs_email_open),
-      emailClicked: numeric(props.hs_email_click),
+      emailDelivered: hubspotNumeric(props.hs_email_delivered),
+      emailOpened: hubspotNumeric(props.hs_email_open),
+      emailClicked: hubspotNumeric(props.hs_email_click),
       // Resolved from the pipeline definitions, so "open pipeline" is a real
       // predicate rather than a guess at which stage names look open.
       dealStageLabel: stage?.label,
@@ -197,18 +151,6 @@ function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageI
       pipelineLabel: stage?.pipelineLabel || undefined,
     },
   };
-}
-
-/**
- * Parse a HubSpot numeric property, dropping anything that is not a number.
- * @param v
- */
-function numeric(v: string | null | undefined): number | undefined {
-  if (v == null || v === '') {
-    return undefined;
-  }
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
 }
 
 export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
@@ -220,43 +162,43 @@ export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
   configSchema: hubspotConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = hubspotConfigSchema.parse(ctx.config);
-    const token = (ctx.credentials?.token ?? ctx.credentials?.accessToken) as string | undefined;
+    const token = tokenFromCredentials(ctx.credentials as Record<string, unknown> | undefined);
     if (!token) {
       throw new Error('HubSpot connector requires a private-app token in credentials.token');
     }
     const properties = cfg.properties ?? DEFAULT_PROPERTIES[cfg.objectType];
-    const headers = { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' };
+    const client = createHubspotClient({ token, baseUrl: cfg.baseUrl });
 
     async function fetchPage(after?: string): Promise<HubSpotPage> {
-      let res: Response;
-      if (ctx.since) {
+      const res = ctx.since
         // Incremental: CRM Search filtered on hs_lastmodifieddate >= since.
-        res = await fetch(`${cfg.baseUrl}/crm/v3/objects/${cfg.objectType}/search`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
+        ? await client.post<HubSpotPage>(`/crm/v3/objects/${cfg.objectType}/search`, {
             filterGroups: [{ filters: [{ propertyName: 'hs_lastmodifieddate', operator: 'GTE', value: String(ctx.since.getTime()) }] }],
             sorts: [{ propertyName: 'hs_lastmodifieddate', direction: 'ASCENDING' }],
             properties,
             limit: 100,
             ...(after ? { after } : {}),
-          }),
-        });
-      } else {
-        const params = new URLSearchParams({ limit: '100', properties: properties.join(',') });
-        if (after) {
-          params.set('after', after);
-        }
-        res = await fetch(`${cfg.baseUrl}/crm/v3/objects/${cfg.objectType}?${params.toString()}`, { headers });
-      }
+          })
+        : await client.get<HubSpotPage>(`/crm/v3/objects/${cfg.objectType}`, {
+            limit: '100',
+            properties: properties.join(','),
+            ...(after ? { after } : {}),
+          });
       if (!res.ok) {
-        throw new Error(`HubSpot ${cfg.objectType} fetch failed: ${res.status} ${await res.text().catch(() => '')}`);
+        // The sync contract is throw-on-failure (the run is marked failed).
+        throw new Error(`HubSpot ${cfg.objectType} fetch failed: ${res.message}`);
       }
-      return (await res.json()) as HubSpotPage;
+      return res.data;
     }
 
     // Deal stages resolve through the pipeline definitions; one fetch up front.
-    const stages = cfg.objectType === 'deals' ? await fetchDealStages(cfg.baseUrl, headers) : undefined;
+    // Non-fatal on failure: deals still sync and simply carry no `dealClosed`
+    // flag, which the read tools report as unavailable rather than guessing.
+    let stages: Map<string, StageInfo> | undefined;
+    if (cfg.objectType === 'deals') {
+      const stagesRes = await client.fetchDealStages();
+      stages = stagesRes.ok ? stagesRes.data : undefined;
+    }
 
     let after = ctx.cursor ?? undefined;
     do {
