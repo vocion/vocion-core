@@ -38,7 +38,7 @@ const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
     'hs_email_click',
   ],
   deals: ['dealname', 'amount', 'dealstage', 'pipeline', 'closedate', 'hubspot_owner_id', 'hs_lastmodifieddate', 'createdate'],
-  companies: ['name', 'domain', 'industry', 'numberofemployees', 'hubspot_owner_id', 'hs_lastmodifieddate', 'createdate'],
+  companies: ['name', 'domain', 'industry', 'description', 'numberofemployees', 'hubspot_owner_id', 'hs_lastmodifieddate', 'createdate'],
 };
 
 const hubspotConfigSchema = z.object({
@@ -111,13 +111,41 @@ async function fetchDealStages(baseUrl: string, headers: Record<string, string>)
   return map;
 }
 
+/**
+ * The embedded content is IDENTITY ONLY — the stable fields semantic search
+ * matches a record BY (who or what it is). Everything filterable or volatile
+ * (owner, lifecycle, dates, amounts, analytics sources, email counters) is
+ * metadata-only: `IngestionService` refreshes metadata without re-embedding
+ * when the content hash is unchanged, so a record touch or an email open no
+ * longer re-embeds the record, and a new fetched property lands metadata-only
+ * by default. CRM records stay single-chunk.
+ * @param objectType
+ * @param props
+ * @param stage
+ */
+function identityContent(
+  objectType: string,
+  props: Record<string, string | null>,
+  stage?: StageInfo,
+): string {
+  if (objectType === 'contacts') {
+    const fullName = [props.firstname, props.lastname].filter(Boolean).join(' ').trim();
+    const role = [props.jobtitle, props.company].filter(Boolean).join(' at ');
+    return [fullName, role, props.email].filter(Boolean).join('\n');
+  }
+  if (objectType === 'deals') {
+    return [props.dealname, stage?.pipelineLabel].filter(Boolean).join('\n');
+  }
+  if (objectType === 'companies') {
+    return [props.name, props.domain, props.industry, props.description].filter(Boolean).join('\n');
+  }
+  return '';
+}
+
 function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageInfo>): IngestDoc {
   const props = r.properties ?? {};
   const stage = props.dealstage ? stages?.get(props.dealstage) : undefined;
-  const content = Object.entries(props)
-    .filter(([, v]) => v != null && v !== '')
-    .map(([k, v]) => `${k}: ${v}`)
-    .join('\n');
+  const content = identityContent(objectType, props, stage);
   const modified = props.hs_lastmodifieddate ?? r.updatedAt;
   const email = props.email ?? undefined;
   const emailDomain = email && email.includes('@') ? email.slice(email.lastIndexOf('@') + 1).toLowerCase() : undefined;

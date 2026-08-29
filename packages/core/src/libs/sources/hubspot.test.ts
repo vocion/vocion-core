@@ -33,10 +33,10 @@ async function collect(it: AsyncIterable<IngestDoc>): Promise<IngestDoc[]> {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('hubspotConnector', () => {
-  it('yields one IngestDoc per record with serialized properties', async () => {
+  it('yields one IngestDoc per record with identity-only content', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => res({
       results: [
-        { id: '1', properties: { firstname: 'Mara', lastname: 'Okafor', email: 'mara@acme.com' }, updatedAt: '2026-06-01T00:00:00Z' },
+        { id: '1', properties: { firstname: 'Mara', lastname: 'Okafor', email: 'mara@acme.com', jobtitle: 'VP of Engineering', company: 'Acme' }, updatedAt: '2026-06-01T00:00:00Z' },
       ],
     })));
     const docs = await collect(hubspotConnector.sync(ctx()));
@@ -44,7 +44,33 @@ describe('hubspotConnector', () => {
     expect(docs).toHaveLength(1);
     expect(docs[0]!.externalId).toBe('contacts:1');
     expect(docs[0]!.title).toBe('Mara Okafor');
-    expect(docs[0]!.content).toContain('email: mara@acme.com');
+    expect(docs[0]!.content).toBe('Mara Okafor\nVP of Engineering at Acme\nmara@acme.com');
+  });
+
+  it('keeps content stable when volatile properties change (they are metadata-only)', async () => {
+    const props = { firstname: 'Mara', lastname: 'Okafor', email: 'mara@acme.com', lifecyclestage: 'lead', hs_email_open: '2', hs_lastmodifieddate: '2026-06-01T00:00:00Z', hubspot_owner_id: '77' };
+    vi.stubGlobal('fetch', vi.fn(async () => res({ results: [{ id: '1', properties: props }] })));
+    const [before] = await collect(hubspotConnector.sync(ctx()));
+
+    // An email open + a record touch: counters and dates move, identity doesn't.
+    const touched = { ...props, hs_email_open: '3', hs_lastmodifieddate: '2026-06-02T09:00:00Z', lifecyclestage: 'marketingqualifiedlead' };
+    vi.stubGlobal('fetch', vi.fn(async () => res({ results: [{ id: '1', properties: touched }] })));
+    const [after] = await collect(hubspotConnector.sync(ctx()));
+
+    expect(after!.content).toBe(before!.content);
+    expect(after!.metadata!.emailOpened).toBe(3);
+    expect(after!.metadata!.lifecycleStage).toBe('marketingqualifiedlead');
+  });
+
+  it('embeds company identity (name, domain, industry, description) and keeps size in metadata', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => res({
+      results: [{ id: '9', properties: { name: 'TerraClear', domain: 'terraclear.com', industry: 'COMPUTER_SOFTWARE', description: 'Rock-picking robots.', numberofemployees: '120' } }],
+    })));
+    const docs = await collect(hubspotConnector.sync(ctx({ config: { objectType: 'companies' } })));
+
+    expect(docs[0]!.content).toBe('TerraClear\nterraclear.com\nCOMPUTER_SOFTWARE\nRock-picking robots.');
+    expect(docs[0]!.content).not.toContain('120');
+    expect(docs[0]!.metadata!.employees).toBe(120);
   });
 
   it('follows the after cursor across pages', async () => {
