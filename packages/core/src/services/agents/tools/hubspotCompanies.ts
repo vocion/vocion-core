@@ -124,7 +124,15 @@ export function hubspotSearchCompaniesTool(ctx: RuntimeContext) {
       // Search the query AND its de-spaced variant in one call.
       const variants = [...new Set([query, query.replaceAll(' ', '')])].filter(Boolean);
       let broadened = false;
+      let wildcard = false;
       let res = await companySearch(resolved.client, variants, cap);
+      if (res.ok && (res.data.results ?? []).length === 0) {
+        // CONTAINS_TOKEN is whole-token: "WalkEZ" cannot match a company
+        // tokenized as "walkezstore". A trailing wildcard makes each variant
+        // a prefix match (verified against the live API).
+        wildcard = true;
+        res = await companySearch(resolved.client, variants.map(v => `${v}*`), cap);
+      }
       if (res.ok && (res.data.results ?? []).length === 0) {
         // A multi-word miss often carries words the CRM name omits ("Acme
         // Holdings Inc" vs an "Acme" record). Broaden ONCE to the most
@@ -132,7 +140,7 @@ export function hubspotSearchCompaniesTool(ctx: RuntimeContext) {
         const tokens = distinctiveTokens(query);
         if (tokens.length > 1) {
           broadened = true;
-          res = await companySearch(resolved.client, [tokens[0]!], cap);
+          res = await companySearch(resolved.client, [`${tokens[0]!}*`], cap);
         }
       }
       if (!res.ok) {
@@ -145,6 +153,7 @@ export function hubspotSearchCompaniesTool(ctx: RuntimeContext) {
         query,
         count: companies.length,
         broadened,
+        ...(wildcard && companies.length > 0 ? { matched_via: 'prefix_wildcard' } : {}),
         ...(companies.length === 0
           ? { retry_hint: `No HubSpot company matched "${query}"${broadened ? ' even after broadening to the most distinctive word' : ''}. Try a shorter or partial name, a domain fragment, or a different spelling before concluding the account is not in HubSpot.` }
           : {}),

@@ -105,17 +105,32 @@ describe('hubspot_search_companies', () => {
     expect(bodies[0]).toContain('"value":"TerraClear"');
   });
 
+  it('falls back to a prefix wildcard when the exact tokens miss', async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = String(init?.body ?? '');
+      bodies.push(body);
+      // Whole-token "WalkEZ" misses; the wildcard pass "WalkEZ*" matches.
+      return res(200, body.includes('"value":"WalkEZ*"') ? { results: [TERRACLEAR] } : { results: [] });
+    }));
+    const out = await call(toolsByName().get('hubspot_search_companies'), { name: 'WalkEZ' });
+
+    expect(out).toMatchObject({ ok: true, count: 1, broadened: false, matched_via: 'prefix_wildcard' });
+    expect(bodies).toHaveLength(2);
+  });
+
   it('broadens a multi-word miss once to the most distinctive token', async () => {
     const bodies: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
       const body = String(init?.body ?? '');
       bodies.push(body);
-      return res(200, body.includes('"value":"Holdings"') && !body.includes('Acme Holdings Inc') ? { results: [TERRACLEAR] } : { results: [] });
+      return res(200, body.includes('"value":"Holdings*"') ? { results: [TERRACLEAR] } : { results: [] });
     }));
     const out = await call(toolsByName().get('hubspot_search_companies'), { name: 'Acme Holdings Inc' });
 
     expect(out.broadened).toBe(true);
-    expect(bodies).toHaveLength(2);
+    // Exact variants → wildcard variants → distinctive-token wildcard.
+    expect(bodies).toHaveLength(3);
   });
 });
 
