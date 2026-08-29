@@ -4,6 +4,38 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-08-29 — HubSpot base tools: live record reads + the count/fetch routing rule (v2.17)
+
+Agents could only read HubSpot through the synced mirror (three count/list tools), so record
+questions got narrow, sync-aged answers and tool names didn't say what they read.
+
+- **feat(crm) — ten direct-to-HubSpot tools**, present automatically for any agent whose sources
+  include hubspot (per-user ACLs respected): `hubspot_get_contact` (full live record by email or
+  id, every custom property, ordered field list, `no_match` on unknown ids),
+  `hubspot_search_contacts`, `hubspot_search_companies` (de-spaced variant, prefix-wildcard
+  fallback, broaden-once), `hubspot_get_company`, `hubspot_company_deals` (closed-won AND
+  closed-lost with combined `loss_reason`), `hubspot_company_activity` +
+  `hubspot_contact_emails` (newest-first timelines; OOO/auto-replies dropped, join-invite bodies
+  blanked, HTML stripped, in/out direction derived from HubSpot's own records),
+  `hubspot_list_deals` (open-only pipeline hygiene; `stalled_only` reads per-stage
+  `stallThresholds` from source config and says so when unconfigured), `hubspot_list_properties`
+  and `hubspot_list_lists`.
+- **feat(crm) — the routing rule, in the names.** The three mirror tools are renamed
+  `hubspot_count_*`; every description encodes it both ways: fetching a record goes to the
+  source, counting goes to the mirror.
+- **feat(sources) — identity-only embedded content.** The connector embeds only what a record IS
+  (contact: name, role, email; deal: name, pipeline; company: name, domain, industry,
+  description); everything volatile or filterable is metadata-only. A record touch or email open
+  no longer re-embeds; widening the fetched property list re-embeds zero documents (verified:
+  +2 properties → `unchanged=249`). One deliberate full re-embed lands the new format.
+- **refactor — `libs/hubspot/client.ts`**, the one place that talks to api.hubapi.com (connector,
+  `hubspot.update`, every tool). Errors are data: `no_hubspot_credentials` / `missing_scope`
+  naming the scope / `hubspot_error`.
+- 678 unit tests green; verified in live agent turns against the Metacto portal (loss-reason
+  chain, stall math hand-checked, MQL sweep + brief loop end-to-end on the renamed tools).
+
+---
+
 ## 2026-08-26 — Agent domain tools over MCP + token CLI + cache-aware pulls (v2.16)
 
 The MCP surface and the agent tool surface stop being two catalogs.
