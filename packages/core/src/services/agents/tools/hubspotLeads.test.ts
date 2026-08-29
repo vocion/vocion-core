@@ -202,6 +202,62 @@ describe('hubspot_search_contacts', () => {
   });
 });
 
+describe('hubspot_contact_emails', () => {
+  function stubEmailChain(emails: Array<{ id: string; properties: Record<string, string> }>) {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/associations/emails')) {
+        return res(200, { results: emails.map(e => ({ toObjectId: e.id })) });
+      }
+      if (u.includes('/crm/v3/objects/emails/batch/read')) {
+        return res(200, { results: emails });
+      }
+      if (u.includes('/crm/v3/objects/contacts/search')) {
+        return res(200, { results: [{ id: '9412', properties: { email: 'mara@acme.com' } }] });
+      }
+      return res(500, { message: `unexpected ${u} ${String(init?.method)}` });
+    }));
+  }
+
+  it('returns subject, snippet, direction, timestamp, newest first', async () => {
+    stubEmailChain([
+      { id: 'e1', properties: { hs_email_subject: 'Proposal', hs_email_text: 'Here is the proposal we discussed.', hs_email_direction: 'EMAIL', hs_timestamp: '2026-08-01T10:00:00Z' } },
+      { id: 'e2', properties: { hs_email_subject: 'Re: Proposal', hs_email_html: '<p>Looks great, thanks!</p>', hs_email_direction: 'INCOMING_EMAIL', hs_timestamp: '2026-08-03T09:00:00Z' } },
+      { id: 'e3', properties: { hs_email_subject: 'Automatic reply: Proposal', hs_email_text: 'I am out of the office.', hs_email_direction: 'INCOMING_EMAIL', hs_timestamp: '2026-08-02T09:00:00Z' } },
+    ]);
+    const out = await call(toolsByName().get('hubspot_contact_emails'), { identifier: 'mara@acme.com' });
+
+    expect(out).toMatchObject({ ok: true, contact_id: '9412', total: 2 });
+    // Newest first, the auto-reply dropped.
+    expect(out.emails.map((e: { email_id: string }) => e.email_id)).toEqual(['e2', 'e1']);
+    expect(out.emails[0]).toMatchObject({ subject: 'Re: Proposal', direction: 'in', snippet: 'Looks great, thanks!', timestamp: '2026-08-03T09:00:00Z' });
+    expect(out.emails[1]).toMatchObject({ direction: 'out' });
+  });
+
+  it('without sales-email-read the batch read maps to missing_scope naming it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/associations/emails')) {
+        return res(200, { results: [{ toObjectId: 'e1' }] });
+      }
+      if (u.includes('/batch/read')) {
+        return res(403, { errors: [{ context: { requiredGranularScopes: ['sales-email-read'] } }] });
+      }
+      return res(200, { results: [{ id: '9412', properties: {} }] });
+    }));
+    const out = await call(toolsByName().get('hubspot_contact_emails'), { identifier: '9412' });
+
+    expect(out).toMatchObject({ ok: false, error: 'missing_scope', scope: 'sales-email-read' });
+  });
+
+  it('an unknown identifier is a no_match, not an exception', async () => {
+    stubHubspot({ results: [] });
+    const out = await call(toolsByName().get('hubspot_contact_emails'), { identifier: 'ghost@nowhere.com' });
+
+    expect(out).toMatchObject({ ok: true, reason: 'no_match' });
+  });
+});
+
 describe('gating', () => {
   it('absent for an agent without a hubspot source', () => {
     const names = buildDomainTools(ctxFor(['gmail'])).map(t => t.name);

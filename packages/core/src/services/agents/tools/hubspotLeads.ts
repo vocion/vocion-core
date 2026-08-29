@@ -14,7 +14,7 @@ import type { RuntimeContext } from '../types';
 import type { HubspotClient, HubspotPage, HubspotRecord } from '@/libs/hubspot/client';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { asJson, clampLimit, distinctiveTokens, hubspotClientForCtx } from './hubspotDirect';
+import { asJson, clampLimit, distinctiveTokens, emailDirection, emailSnippet, hubspotClientForCtx, isAutoReply } from './hubspotDirect';
 
 /**
  * Curated contact properties: the normalized record every call returns.
@@ -282,6 +282,136 @@ export function hubspotSearchContactsTool(ctx: RuntimeContext) {
   );
 }
 
+const EMAIL_ENGAGEMENT_PROPS = [
+  'hs_email_subject',
+  'hs_email_text',
+  'hs_email_html',
+  'hs_email_direction',
+  'hs_timestamp',
+  'hs_email_status',
+];
+
+/** Association reads page unordered, so gather up to this many before sorting. */
+const EMAIL_FETCH_CAP = 200;
+
+/**
+ * Resolve a contact id from a numeric id or an email address (mirrors
+ * hubspot_get_contact's handling). `null` = no such contact.
+ * @param client
+ * @param identifier
+ */
+async function resolveContactId(client: HubspotClient, identifier: string) {
+  if (/^\d+$/.test(identifier)) {
+    return { ok: true as const, id: identifier };
+  }
+  const res = await client.post<HubspotPage>('/crm/v3/objects/contacts/search', {
+    filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: identifier }] }],
+    properties: ['email'],
+    limit: 1,
+  });
+  if (!res.ok) {
+    return res;
+  }
+  return { ok: true as const, id: (res.data.results ?? [])[0]?.id ?? null };
+}
+
+export function hubspotContactEmailsTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const { identifier, limit } = args as { identifier: string; limit?: number };
+      const resolved = await hubspotClientForCtx(ctx);
+      if (!resolved.ok) {
+        return asJson(resolved);
+      }
+      const client = resolved.client;
+      const id = (identifier ?? '').trim();
+      if (!id) {
+        return asJson({ ok: false, error: 'bad_argument', message: 'identifier is required (an email address or HubSpot contact id).' });
+      }
+      const cap = clampLimit(limit, 25, 100);
+
+      const contact = await resolveContactId(client, id);
+      if (!contact.ok) {
+        return asJson(contact);
+      }
+      if (!contact.id) {
+        return asJson(noMatch(id));
+      }
+
+      // Associations → batch-read is the reliable path (search results lag).
+      // Association pages are not timestamp-ordered, so gather them all (up
+      // to the cap) before sorting.
+      type AssocPage = { results?: Array<{ toObjectId?: string | number; id?: string | number }>; paging?: { next?: { after?: string } } };
+      const emailIds: string[] = [];
+      let after: string | undefined;
+      do {
+        const page = await client.get<AssocPage>(`/crm/v3/objects/contacts/${contact.id}/associations/emails`, {
+          limit: '100',
+          ...(after ? { after } : {}),
+        });
+        if (!page.ok) {
+          return asJson(page);
+        }
+        for (const r of page.data.results ?? []) {
+          const eid = r.toObjectId ?? r.id;
+          if (eid !== undefined && eid !== null) {
+            emailIds.push(String(eid));
+          }
+        }
+        after = page.data.paging?.next?.after;
+      } while (after && emailIds.length < EMAIL_FETCH_CAP);
+
+      const rows: Array<Record<string, unknown>> = [];
+      // HubSpot's batch-read caps inputs at 100 — chunk it. This endpoint is
+      // where a token without sales-email-read gets its 403 → missing_scope.
+      for (let i = 0; i < Math.min(emailIds.length, EMAIL_FETCH_CAP); i += 100) {
+        const read = await client.post<HubspotPage>('/crm/v3/objects/emails/batch/read', {
+          properties: EMAIL_ENGAGEMENT_PROPS,
+          inputs: emailIds.slice(i, i + 100).map(x => ({ id: x })),
+        });
+        if (!read.ok) {
+          return asJson(read);
+        }
+        for (const r of read.data.results ?? []) {
+          const p = r.properties ?? {};
+          const subject = (p.hs_email_subject ?? '').trim();
+          // Out-of-office / auto-replies carry no signal — drop them.
+          if (isAutoReply(subject, p.hs_email_text ?? p.hs_email_html)) {
+            continue;
+          }
+          rows.push({
+            email_id: r.id,
+            subject: subject || null,
+            snippet: emailSnippet(p.hs_email_text, p.hs_email_html),
+            direction: emailDirection(p.hs_email_direction),
+            status: p.hs_email_status ?? null,
+            timestamp: p.hs_timestamp ?? null,
+          });
+        }
+      }
+      // hs_timestamp is ISO 8601 — lexical sort is chronological.
+      rows.sort((a, b) => String(b.timestamp ?? '').localeCompare(String(a.timestamp ?? '')));
+      return asJson({
+        ok: true,
+        source: 'hubspot_live',
+        contact_id: contact.id,
+        total: rows.length,
+        returned: Math.min(rows.length, cap),
+        truncated: rows.length > cap,
+        emails: rows.slice(0, cap),
+      });
+    },
+    {
+      name: 'hubspot_contact_emails',
+      description: 'Reads HubSpot LIVE, current as of this call: the emails logged for ONE contact (sent and received), newest first — real subject + snippet, direction ("in" = the contact wrote to us, "out" = sent by our side, derived from HubSpot\'s own engagement records), and timestamp. Use it to see what has already been sent to someone before drafting new outreach, or to check who went quiet. Out-of-office / auto-replies are dropped. Takes an email address or contact id; default 25 rows, max 100. Requires the sales-email-read scope: without it the result is missing_scope naming it. For the full account-level story (notes, meetings, calls too) use hubspot_company_activity.',
+      schema: z.object({
+        identifier: z.string().min(1).describe('An email address or a numeric HubSpot contact id.'),
+        limit: z.number().int().positive().optional().describe('Max emails to return, newest first (default 25, max 100).'),
+      }),
+    },
+  );
+}
+
 export function hubspotLeadsTools(ctx: RuntimeContext) {
-  return [hubspotGetContactTool(ctx), hubspotSearchContactsTool(ctx)];
+  return [hubspotGetContactTool(ctx), hubspotSearchContactsTool(ctx), hubspotContactEmailsTool(ctx)];
 }

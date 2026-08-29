@@ -130,3 +130,90 @@ export function clampLimit(raw: number | undefined, fallback: number, max: numbe
   const n = Number.isFinite(raw) ? Math.trunc(raw!) : fallback;
   return Math.max(1, Math.min(n || fallback, max));
 }
+
+/* ------------------------------------------------------------------ */
+/* Engagement-timeline filters (Phase 3) — signal over noise, shared   */
+/* by hubspot_contact_emails and hubspot_company_activity.             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * HubSpot stores note/meeting/call/email bodies as HTML — strip tags and
+ * entities to plain text, collapsing whitespace.
+ * @param raw
+ */
+export function stripHtml(raw: string | null | undefined): string {
+  const noTags = (raw ?? '').replace(/<[^>]+>/g, ' ');
+  const unescaped = noTags
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;/g, '\'');
+  return unescaped.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Out-of-office / automatic replies carry no relationship signal — dropped
+ * from timelines entirely so real replies are not crowded out.
+ */
+const AUTOREPLY_SUBJECT = /^\s*(?:auto(?:matic)? reply|out of office|auto:)/i;
+
+/**
+ * True for an out-of-office / automatic-reply email.
+ * @param subject
+ * @param body
+ */
+export function isAutoReply(subject: string | null | undefined, body: string | null | undefined): boolean {
+  if (AUTOREPLY_SUBJECT.test(subject ?? '')) {
+    return true;
+  }
+  return (body ?? '').toLowerCase().includes('out of the office');
+}
+
+/**
+ * A meeting/call body that is just an auto-generated calendar or
+ * video-conference JOIN INVITE, not discussion — the informative title is
+ * kept, this boilerplate snippet is blanked.
+ */
+const MEETING_BOILERPLATE = new RegExp([
+  'is inviting you to a scheduled Zoom meeting',
+  'Join Zoom Meeting',
+  'Microsoft Teams',
+  'Need help\\?? Join the meeting',
+  'Join the meeting now',
+  'Meeting ID:\\s*[\\d ]{6,}',
+  'Dial in by',
+  'One tap mobile',
+  'Google Meet',
+].join('|'), 'i');
+
+/**
+ * True when a meeting/call body is calendar/video-conference boilerplate.
+ * @param text
+ */
+export function isMeetingBoilerplate(text: string): boolean {
+  return text !== '' && MEETING_BOILERPLATE.test(text);
+}
+
+/**
+ * Email direction, DERIVED from HubSpot's own engagement data, never
+ * configured: INCOMING_EMAIL is mail the portal received; everything else
+ * (EMAIL, FORWARDED_EMAIL) was sent by one of the portal's own owners or
+ * connected inboxes → "out".
+ * @param direction
+ */
+export function emailDirection(direction: string | null | undefined): 'in' | 'out' {
+  return (direction ?? '').toUpperCase().includes('INCOMING') ? 'in' : 'out';
+}
+
+/**
+ * A short plain-text preview of an email body (prefer text; strip HTML).
+ * @param textBody
+ * @param htmlBody
+ * @param n
+ */
+export function emailSnippet(textBody: string | null | undefined, htmlBody: string | null | undefined, n = 240): string {
+  const body = (textBody ?? '').trim() !== '' ? (textBody ?? '').replace(/\s+/g, ' ').trim() : stripHtml(htmlBody);
+  return body.length > n ? `${body.slice(0, n)}…` : body;
+}

@@ -185,6 +185,50 @@ describe('hubspot_company_deals', () => {
   });
 });
 
+describe('hubspot_company_activity', () => {
+  it('one newest-first timeline; auto-replies dropped, invite bodies blanked, HTML stripped', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/crm/v3/objects/companies/501')) {
+        return res(200, { id: '501', associations: {
+          notes: { results: [{ id: 'n1' }] },
+          emails: { results: [{ id: 'e1' }, { id: 'e2' }] },
+          meetings: { results: [{ id: 'm1' }] },
+          calls: { results: [{ id: 'c1' }] },
+        } });
+      }
+      if (u.includes('/crm/v3/objects/notes/batch/read')) {
+        return res(200, { results: [{ id: 'n1', properties: { hs_note_body: '<p>Client asked for a &amp; revised SOW</p>', hs_timestamp: '2026-04-02T10:00:00Z' } }] });
+      }
+      if (u.includes('/crm/v3/objects/emails/batch/read')) {
+        return res(200, { results: [
+          { id: 'e1', properties: { hs_email_subject: 'Checking in', hs_email_text: 'Any update on the contract?', hs_email_direction: 'INCOMING_EMAIL', hs_timestamp: '2026-04-05T10:00:00Z' } },
+          { id: 'e2', properties: { hs_email_subject: 'Out of Office', hs_email_text: 'I am out of the office until Monday', hs_email_direction: 'INCOMING_EMAIL', hs_timestamp: '2026-04-06T10:00:00Z' } },
+        ] });
+      }
+      if (u.includes('/crm/v3/objects/meetings/batch/read')) {
+        return res(200, { results: [{ id: 'm1', properties: { hs_meeting_title: 'Kickoff sync', hs_meeting_body: '<p>Bob is inviting you to a scheduled Zoom meeting. Join Zoom Meeting https://zoom.us/j/123</p>', hs_timestamp: '2026-04-01T10:00:00Z' } }] });
+      }
+      if (u.includes('/crm/v3/objects/calls/batch/read')) {
+        return res(200, { results: [{ id: 'c1', properties: { hs_call_title: 'Pricing call', hs_call_body: '<p>Talked through <b>tiered pricing</b> and they want a smaller phase 1</p>', hs_timestamp: '2026-04-03T10:00:00Z' } }] });
+      }
+      return res(500, {});
+    }));
+    const out = await call(toolsByName().get('hubspot_company_activity'), { company_id: '501' });
+
+    expect(out).toMatchObject({ ok: true, count: 4 });
+    // Newest first; the OOO email is gone entirely.
+    expect(out.activity.map((a: { type: string }) => a.type)).toEqual(['email', 'call', 'note', 'meeting']);
+    expect(out.activity[0]).toMatchObject({ direction: 'in', subject: 'Checking in', when: '2026-04-05' });
+    // Call body: HTML stripped, content kept.
+    expect(out.activity[1].snippet).toBe('Talked through tiered pricing and they want a smaller phase 1');
+    // Note: entities unescaped, no tags.
+    expect(out.activity[2].snippet).toBe('Client asked for a & revised SOW');
+    // Meeting: informative title kept, join-invite boilerplate blanked.
+    expect(out.activity[3]).toMatchObject({ subject: 'Kickoff sync', snippet: '' });
+  });
+});
+
 describe('combineLossReason', () => {
   it('combines category + details, drops placeholder junk, falls back to the stage label', () => {
     expect(combineLossReason({ closed_lost_reason_dropdown: 'Budget', closed_lost_reason: 'Too pricey' }, 'Closed lost')).toBe('Budget - Too pricey');
