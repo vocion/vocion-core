@@ -28,6 +28,8 @@ import { generateImageTool } from './generateImage';
 import { gmailTools } from './gmailThread';
 import { requestHumanReviewTool } from './hitl';
 import { hubspotCatalogTools } from './hubspotCatalog';
+import { hubspotCompanyTools } from './hubspotCompanies';
+import { hubspotDealTools } from './hubspotDeals';
 import { hubspotDirectInScope } from './hubspotDirect';
 import { hubspotLeadsTools } from './hubspotLeads';
 import {
@@ -63,6 +65,8 @@ function hubspotDirectTools(ctx: RuntimeContext): StructuredToolInterface[] {
   }
   return [
     ...hubspotLeadsTools(ctx),
+    ...hubspotCompanyTools(ctx),
+    ...hubspotDealTools(ctx),
     ...hubspotCatalogTools(ctx),
   ];
 }
