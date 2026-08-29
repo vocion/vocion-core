@@ -1,0 +1,22 @@
+packages/core/src/libs/sources/hubspot.test.ts
+  s_3783e5a93299c9::t_de945a125f8b01 36,39,47-73
+packages/core/src/libs/sources/hubspot.ts
+  s_3783e5a93299c9::t_e9767f6e61e25f 41
+  s_3783e5a93299c9::t_d9c6e357822b50 114-144,148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f1907535233103c9d20b3c6b55224977294084ee",
+  "prompts": {},
+  "sessions": {
+    "s_3783e5a93299c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db696632-8c1c-4a53-a475-6595a75ddf55",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
