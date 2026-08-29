@@ -104,7 +104,7 @@ describe('agent-tools bridge — tool surface', () => {
       expect(names).toContain('propose_action');
       // Source-gated: lead-agent has gmail, not hubspot/zoom.
       expect(names).toContain('get_gmail_thread');
-      expect(names).not.toContain('get_hubspot_deals');
+      expect(names).not.toContain('hubspot_count_deals');
       expect(names).not.toContain('get_zoom_transcript');
       // Emit-only / mission-bound tools stay off the MCP surface.
       expect(names).not.toContain('request_human_review');
@@ -146,7 +146,7 @@ describe('agent-tools bridge — tool surface', () => {
       const names = await listToolNames(client);
 
       // crm-agent's sources gate the surface: hubspot in, gmail out.
-      expect(names).toContain('get_hubspot_deals');
+      expect(names).toContain('hubspot_count_deals');
       expect(names).not.toContain('get_gmail_thread');
     } finally {
       await server.close();
@@ -159,7 +159,7 @@ describe('agent-tools bridge — calls', () => {
     const { client, server } = await setupClientServer(configFor('crm-agent'));
     try {
       const result = (await client.callTool({
-        name: 'get_hubspot_deals',
+        name: 'hubspot_count_deals',
         arguments: {},
       })) as ToolResult;
 
@@ -179,13 +179,13 @@ describe('agent-tools bridge — calls', () => {
     const { client, server } = await setupClientServer(configFor('crm-agent'));
     try {
       // Default agent (crm-agent) reaches the tool…
-      const ok = (await client.callTool({ name: 'get_hubspot_deals', arguments: {} })) as ToolResult;
+      const ok = (await client.callTool({ name: 'hubspot_count_deals', arguments: {} })) as ToolResult;
 
       expect(ok.isError).toBeFalsy();
 
       // …but running as lead-agent (no hubspot source) is refused.
       const refused = (await client.callTool({
-        name: 'get_hubspot_deals',
+        name: 'hubspot_count_deals',
         arguments: { agent_slug: 'lead-agent' },
       })) as ToolResult;
 
