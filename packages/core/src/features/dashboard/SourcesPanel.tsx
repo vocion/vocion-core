@@ -20,11 +20,13 @@ import {
   Megaphone,
   MessageSquare,
   NotebookPen,
+  Pencil,
   Plug,
   Plus,
   RefreshCw,
   Search,
   SquareKanban,
+  Trash2,
   Video,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -124,6 +126,8 @@ export function SourcesPanel() {
   const [addingKind, setAddingKind] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [connectingSource, setConnectingSource] = useState<Source | null>(null);
+  const [editingSource, setEditingSource] = useState<Source | null>(null);
+  const [deletingSource, setDeletingSource] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncOutcome, setSyncOutcome] = useState<SyncOutcome | null>(null);
 
@@ -250,6 +254,8 @@ export function SourcesPanel() {
                     source={s}
                     syncing={syncingId === s.id}
                     onSync={() => handleSync(s.id)}
+                    onEdit={() => setEditingSource(s)}
+                    onDelete={() => setDeletingSource(s)}
                     onConnect={() => setConnectingSource(s)}
                   />
                 ))}
@@ -276,6 +282,32 @@ export function SourcesPanel() {
               onClose={() => setAddingKind(null)}
               onAdded={async () => {
                 setAddingKind(null);
+                await refresh();
+              }}
+            />
+          )
+        : null}
+      {editingSource
+        ? (
+            <AddSourceDialog
+              kind={connectorSlugFor(editingSource)}
+              connector={connectors.find(c => c.slug === connectorSlugFor(editingSource)) ?? null}
+              existing={editingSource}
+              onClose={() => setEditingSource(null)}
+              onAdded={async () => {
+                setEditingSource(null);
+                await refresh();
+              }}
+            />
+          )
+        : null}
+      {deletingSource
+        ? (
+            <DeleteSourceDialog
+              source={deletingSource}
+              onClose={() => setDeletingSource(null)}
+              onDeleted={async () => {
+                setDeletingSource(null);
                 await refresh();
               }}
             />
@@ -409,10 +441,12 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   );
 }
 
-function SourceRow({ source, syncing, onSync, onConnect }: {
+function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
   source: Source;
   syncing: boolean;
   onSync: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
   onConnect: () => void;
 }) {
   const last = source.lastSyncedAt ? new Date(source.lastSyncedAt) : null;
@@ -472,7 +506,11 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
           {lastLabel}
         </Badge>
         <div className="flex items-center gap-2">
-          {source.authKind !== 'none'
+          {/* Connect is only for a source with nothing stored yet — that is a
+              call to action. Once a credential exists, Edit changes it along
+              with everything else, so a separate "Update key" was one more
+              button doing a job the edit form already does. */}
+          {needsCreds
             ? (
                 <button
                   type="button"
@@ -480,10 +518,28 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
                   className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
                 >
                   <KeyRound className="size-3" />
-                  {source.credentialConnected ? 'Update key' : 'Connect'}
+                  Connect
                 </button>
               )
             : null}
+          <button
+            type="button"
+            onClick={onEdit}
+            title="Edit this source's settings"
+            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
+          >
+            <Pencil className="size-3" />
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            title="Delete this source and everything ingested from it"
+            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/5"
+          >
+            <Trash2 className="size-3" />
+            Delete
+          </button>
           <button
             type="button"
             onClick={onSync}
@@ -577,6 +633,121 @@ function SyncRunLine({ sync }: { sync: Source['sync'] }) {
   return null;
 }
 
+/**
+ * Which connector a configured source belongs to.
+ *
+ * Sources are all stored with kind `plugin`; the connector is in the config as
+ * `_connector`, falling back to the slug for rows written before that key.
+ * @param source - The configured source row.
+ */
+function connectorSlugFor(source: Source): string {
+  return (source.config?._connector as string | undefined) ?? source.kind ?? source.slug;
+}
+
+/**
+ * Confirm deleting a source, saying exactly what goes with it.
+ *
+ * Deleting cascades to every document ingested from the source and their
+ * embeddings, and there is no undo — so the count is stated up front and the
+ * confirm button is the destructive-coloured one.
+ * @param root0 - Props.
+ * @param root0.source - The source to delete.
+ * @param root0.onClose - Close without deleting.
+ * @param root0.onDeleted - Called after a successful delete.
+ */
+function DeleteSourceDialog({ source, onClose, onDeleted }: {
+  source: Source;
+  onClose: () => void;
+  onDeleted: () => Promise<void> | void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const confirm = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      const message = await deleteSourceById(source.id);
+      if (message) {
+        setError(message);
+        return;
+      }
+      await onDeleted();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-xl rounded-xl border bg-background shadow-xl">
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <Trash2 className="size-4 text-destructive" />
+          <h3 className="font-display text-lg">
+            Delete
+            {' '}
+            {source.slug}
+            ?
+          </h3>
+        </div>
+        <div className="space-y-3 p-4 text-sm">
+          <p>
+            This removes the source and the
+            {' '}
+            {source.documentCount.toLocaleString()}
+            {' '}
+            document
+            {source.documentCount === 1 ? '' : 's'}
+            {' '}
+            ingested from it, so they stop appearing in search. It cannot be undone.
+          </p>
+          <p className="text-muted-foreground">
+            Nothing changes in
+            {' '}
+            {source.kind}
+            {' '}
+            itself, and the stored credential stays — other sources on the same connector keep working.
+          </p>
+        </div>
+        <div className="border-t px-4 py-3">
+          {error
+            ? (
+                <div role="alert" className="mb-3 flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                  {error}
+                </div>
+              )
+            : null}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirm}
+              disabled={deleting}
+              className="inline-flex items-center gap-1.5 rounded-full bg-destructive px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-50"
+            >
+              {deleting
+                ? (
+                    <>
+                      <Loader2 className="size-3 animate-spin" />
+                      Deleting…
+                    </>
+                  )
+                : 'Delete source'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function describeSourceConfig(config: Record<string, unknown>): string {
   const c = config as { urls?: string[]; crawl?: { startUrl?: string; maxPages?: number } };
   if (c.crawl?.startUrl) {
@@ -616,6 +787,7 @@ const CONNECTOR_ICONS: Record<string, LucideIcon> = {
   Megaphone,
   MessageSquare,
   NotebookPen,
+  Pencil,
   SquareKanban,
   Video,
 };
@@ -813,6 +985,31 @@ async function createSourceReturningId(
 }
 
 /**
+ * PATCH one source's config. Returns the server's message on failure, null on success.
+ * @param sourceId - Source to update.
+ * @param configJson - The connector's own config blob, replacing the stored one.
+ */
+async function updateSourceConfig(sourceId: number, configJson: Record<string, unknown>): Promise<string | null> {
+  const res = await fetch(`/rpc/sources/${sourceId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ configJson }),
+  });
+  const data = await res.json();
+  return res.ok ? null : (data.error ?? 'Failed to save the source');
+}
+
+/**
+ * DELETE one source, along with everything ingested from it.
+ * @param sourceId - Source to remove.
+ */
+async function deleteSourceById(sourceId: number): Promise<string | null> {
+  const res = await fetch(`/rpc/sources/${sourceId}`, { method: 'DELETE' });
+  const data = await res.json();
+  return res.ok ? null : (data.error ?? 'Failed to delete the source');
+}
+
+/**
  * POST a new source row. Returns the server's message on failure, null on success.
  * @param kind - Connector slug.
  * @param configJson - The connector's own config blob.
@@ -840,6 +1037,7 @@ function AddSourceDialogFrame({
   title,
   error,
   requirement,
+  submitLabel,
   submitting,
   canSubmit,
   onClose,
@@ -849,6 +1047,8 @@ function AddSourceDialogFrame({
   title: string;
   error: string | null;
   requirement: string | null;
+  /** Wording for the submit button — "Add source" when adding, "Save changes" when editing. */
+  submitLabel: string;
   submitting: boolean;
   canSubmit: boolean;
   onClose: () => void;
@@ -910,10 +1110,10 @@ function AddSourceDialogFrame({
                       ? (
                           <>
                             <Loader2 className="size-3 animate-spin" />
-                            Adding…
+                            Saving…
                           </>
                         )
-                      : 'Add source'}
+                      : submitLabel}
                   </button>
                 </span>
               </div>
@@ -1002,15 +1202,21 @@ function describeMissingPiece(state: {
   return null;
 }
 
-function AddWebSourceDialog({ kind, title, onClose, onAdded }: {
+function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
   kind: string;
   title: string;
+  /** The source being edited, or null when adding a new one. */
+  existing: Source | null;
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
-  const [url, setUrl] = useState('');
-  const [crawl, setCrawl] = useState(true);
-  const [maxPages, setMaxPages] = useState(20);
+  const existingConfig = (existing?.config ?? {}) as {
+    urls?: string[];
+    crawl?: { startUrl?: string; maxPages?: number };
+  };
+  const [url, setUrl] = useState(existingConfig.crawl?.startUrl ?? existingConfig.urls?.[0] ?? '');
+  const [crawl, setCrawl] = useState(existing ? existingConfig.crawl !== undefined : true);
+  const [maxPages, setMaxPages] = useState(existingConfig.crawl?.maxPages ?? 20);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1022,7 +1228,9 @@ function AddWebSourceDialog({ kind, title, onClose, onAdded }: {
       const configJson = crawl
         ? { crawl: { startUrl: url, maxDepth: 1, maxPages } }
         : { urls: [url] };
-      const message = await createSource(kind, configJson);
+      const message = existing
+        ? await updateSourceConfig(existing.id, configJson)
+        : await createSource(kind, configJson);
       if (message) {
         setError(message);
         return;
@@ -1038,6 +1246,7 @@ function AddWebSourceDialog({ kind, title, onClose, onAdded }: {
       title={title}
       error={error}
       requirement={url.trim().length > 0 ? null : 'a URL to read'}
+      submitLabel={existing ? 'Save changes' : 'Add source'}
       submitting={submitting}
       canSubmit={url.trim().length > 0}
       onClose={onClose}
@@ -1192,21 +1401,32 @@ function CollectionVerdict({ check }: { check: CollectionCheck | undefined }) {
  * @param root0.onClose - Dismiss without creating anything.
  * @param root0.onAdded - Called after the source and its token are stored.
  */
-function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
+function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
   kind: string;
   title: string;
+  /** The source being edited, or null when adding a new one. */
+  existing: Source | null;
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
-  const [baseUrl, setBaseUrl] = useState('');
+  const existingConfig = (existing?.config ?? {}) as {
+    baseUrl?: string;
+    collections?: string[];
+    populate?: string;
+    pageSize?: number;
+  };
+  // The token is never sent back to the browser, so an edit starts with the
+  // field empty and keeps whatever is stored unless something is typed.
+  const tokenAlreadyStored = existing?.credentialConnected ?? false;
+  const [baseUrl, setBaseUrl] = useState(existingConfig.baseUrl ?? '');
   const [token, setToken] = useState('');
   const [tokenVisible, setTokenVisible] = useState(false);
-  const [collectionsText, setCollectionsText] = useState('');
-  const [selected, setSelected] = useState<string[]>([]);
+  const [collectionsText, setCollectionsText] = useState((existingConfig.collections ?? []).join(', '));
+  const [selected, setSelected] = useState<string[]>(existingConfig.collections ?? []);
   const [inspection, setInspection] = useState<StrapiInspection | null>(null);
   const [inspecting, setInspecting] = useState(false);
-  const [populate, setPopulate] = useState('*');
-  const [pageSize, setPageSize] = useState(100);
+  const [populate, setPopulate] = useState(existingConfig.populate ?? '*');
+  const [pageSize, setPageSize] = useState(existingConfig.pageSize ?? 100);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1217,7 +1437,7 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
   const catalogue = inspection?.collections ?? null;
   const hasCatalogue = catalogue !== null;
   const chosen = catalogue ? selected : typedCollections;
-  const connectionReady = baseUrl.trim().length > 0 && token.trim().length > 0;
+  const connectionReady = baseUrl.trim().length > 0 && (token.trim().length > 0 || tokenAlreadyStored);
 
   /**
    * This collection's verdict from the last check, so a count can sit beside the
@@ -1237,7 +1457,7 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
 
   const requirement = describeMissingPiece({
     baseUrl,
-    token,
+    token: token.trim() === '' && tokenAlreadyStored ? 'stored' : token,
     chosenCount: chosen.length,
     hasCatalogue,
     failedChecks,
@@ -1317,20 +1537,35 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
     setSubmitting(true);
     setError(null);
     try {
-      const created = await createSourceReturningId(kind, {
+      const configJson = {
         baseUrl: baseUrl.trim().replace(/\/+$/, ''),
         collections: chosen,
         populate: populate.trim() === '' ? '*' : populate.trim(),
         pageSize,
-      });
-      if (created.error || created.id === null) {
-        setError(created.error ?? 'Failed to create source');
-        return;
+      };
+      let sourceId = existing?.id ?? null;
+      if (existing) {
+        const message = await updateSourceConfig(existing.id, configJson);
+        if (message) {
+          setError(message);
+          return;
+        }
+      } else {
+        const created = await createSourceReturningId(kind, configJson);
+        if (created.error || created.id === null) {
+          setError(created.error ?? 'Failed to create source');
+          return;
+        }
+        sourceId = created.id;
       }
-      const tokenError = await storeSourceToken(created.id, token.trim());
-      if (tokenError) {
-        setError(tokenError);
-        return;
+      // On an edit an empty token means "keep the one already stored", so only
+      // write when something was actually typed.
+      if (sourceId !== null && token.trim() !== '') {
+        const tokenError = await storeSourceToken(sourceId, token.trim());
+        if (tokenError) {
+          setError(tokenError);
+          return;
+        }
       }
       await onAdded();
     } finally {
@@ -1343,6 +1578,7 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
       title={title}
       error={error}
       requirement={requirement}
+      submitLabel={existing ? 'Save changes' : 'Add source'}
       submitting={submitting}
       canSubmit={connectionReady && chosen.length > 0 && failedChecks.length === 0}
       onClose={onClose}
@@ -1388,14 +1624,19 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
           <input
             id={TOKEN_INPUT_ID}
             type={tokenVisible ? 'text' : 'password'}
-            required
+            // Required only when there is nothing stored: on an edit an empty
+            // field means "keep the token you already have", and marking it
+            // required would block the form with no visible reason.
+            required={!tokenAlreadyStored}
             autoComplete="off"
             value={token}
             onChange={(e) => {
               setToken(e.target.value);
               setInspection(null);
             }}
-            placeholder="Strapi admin → Settings → API Tokens"
+            placeholder={tokenAlreadyStored
+              ? 'Stored — type a new token to replace it'
+              : 'Strapi admin → Settings → API Tokens'}
             className="w-full rounded-md border border-input bg-background py-2 pr-10 pl-3 text-sm"
           />
           <button
@@ -1412,6 +1653,7 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
           Read-only is enough — it only ever reads the collections you pick. A full-access token gets you nothing extra
           here: no API token can list an instance's collections, so scope won't change that. Show it with the eye to
           check a paste. Stored encrypted against this source, so there is no separate Connect step.
+          {tokenAlreadyStored ? ' Leave it empty to keep the token already stored.' : ''}
         </p>
       </div>
 
@@ -1588,19 +1830,26 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
 function AddSourceDialog({
   kind,
   connector,
+  existing,
   onClose,
   onAdded,
 }: {
   kind: string;
   connector: ConnectorTile | null;
+  /** The source being edited, or null when adding a new one. */
+  existing?: Source | null;
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
-  const title = `Add ${connector?.name ?? kind} source`;
+  const connectorName = connector?.name ?? kind;
+  const source = existing ?? null;
+  // One form per connector, used for both jobs: an edit that could not offer the
+  // same fields as the add would be a second place for the config to drift.
+  const title = source ? `Edit ${connectorName} source` : `Add ${connectorName} source`;
   if (kind === 'strapi') {
-    return <AddStrapiSourceDialog kind={kind} title={title} onClose={onClose} onAdded={onAdded} />;
+    return <AddStrapiSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
   }
-  return <AddWebSourceDialog kind={kind} title={title} onClose={onClose} onAdded={onAdded} />;
+  return <AddWebSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
 }
 
 function formatRelative(date: Date): string {
