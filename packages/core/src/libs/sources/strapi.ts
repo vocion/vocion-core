@@ -331,3 +331,269 @@ export const strapiConnector: SourceConnector<typeof strapiConfigSchema> = {
     }
   },
 };
+
+/** What a single collection check found on the instance. */
+export type StrapiCollectionCheck = {
+  collection: string;
+  status: 'ok' | 'not-found' | 'forbidden' | 'unauthorized' | 'error';
+  entryCount: number | null;
+  message: string | null;
+  /**
+   * True when the collection answers without any credential. Strapi lets a role
+   * make a collection public, and a public collection returns 200 for a stale or
+   * mistyped token too — so a read here proves nothing about the token.
+   */
+  publiclyReadable?: boolean;
+};
+
+/** What an inspect pass learned about a Strapi instance. */
+export type StrapiInspection = {
+  reachable: boolean;
+  /** True when the instance answered a content request with the given token. */
+  authorized: boolean;
+  /** `4`, `5`, or null when no entry was available to tell them apart. */
+  detectedVersion: 4 | 5 | null;
+  /**
+   * Collections read off the instance, when it let us enumerate them. Null means
+   * enumeration is not available — see `enumerationNote` for why — and the
+   * caller should fall back to asking for names and checking them.
+   */
+  collections: string[] | null;
+  enumerationNote: string | null;
+  /** Per-collection results for whatever names the caller asked about. */
+  checks: StrapiCollectionCheck[];
+  /** Set when the instance could not be reached or answered at all. */
+  error: string | null;
+};
+
+/**
+ * Ask a Strapi instance what collections it exposes.
+ *
+ * Strapi keeps the content-type list on an ADMIN route: an API token is a
+ * content-API credential, so `/api/content-type-builder/content-types` answers
+ * 403 for most instances and there is no token-visible catalogue to replace it.
+ * We try it anyway — some deployments do expose it, and when they do the
+ * operator gets a pick-list instead of typing plural ids from memory.
+ * @param baseUrl - Instance root, e.g. `https://cms.partner.org`.
+ * @param token - A Strapi API token.
+ * @returns The plural api ids, or null with a note when the route is closed.
+ */
+async function enumerateCollections(
+  baseUrl: string,
+  token: string,
+): Promise<{ collections: string[] | null; note: string | null; tokenRejected?: boolean }> {
+  const url = `${trimTrailingSlash(baseUrl)}/api/content-type-builder/content-types`;
+  let response: Response;
+  try {
+    response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+  } catch (error) {
+    return { collections: null, note: error instanceof Error ? error.message : String(error) };
+  }
+  if (response.status === 401) {
+    return {
+      collections: null,
+      note: 'This instance rejected the token (401). Check it was copied whole and has not been revoked.',
+      tokenRejected: true,
+    };
+  }
+  if (!response.ok) {
+    return {
+      collections: null,
+      note: `This instance keeps its content-type list behind the admin API (${response.status}), so the collections can't be listed with an API token. Type the plural ids instead and each one will be checked.`,
+    };
+  }
+
+  let body: { data?: { uid?: string; schema?: { kind?: string; pluralName?: string } }[] };
+  try {
+    body = (await response.json()) as typeof body;
+  } catch (error) {
+    return { collections: null, note: error instanceof Error ? error.message : String(error) };
+  }
+
+  const collections: string[] = [];
+  for (const entry of body.data ?? []) {
+    const isApiCollection = (entry.uid ?? '').startsWith('api::') && entry.schema?.kind === 'collectionType';
+    const pluralName = entry.schema?.pluralName;
+    if (isApiCollection && pluralName) {
+      collections.push(pluralName);
+    }
+  }
+  collections.sort((left, right) => left.localeCompare(right));
+  return { collections, note: null };
+}
+
+/**
+ * Check one collection: does it exist, does the token reach it, how many entries
+ * does it hold, and which response shape does it use.
+ * @param baseUrl - Instance root.
+ * @param token - A Strapi API token.
+ * @param collection - Plural api id to check.
+ */
+async function checkOneCollection(
+  baseUrl: string,
+  token: string,
+  collection: string,
+): Promise<{ check: StrapiCollectionCheck; detectedVersion: 4 | 5 | null }> {
+  const url = `${trimTrailingSlash(baseUrl)}/api/${collection}?pagination[pageSize]=1`;
+  let response: Response;
+  try {
+    response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+  } catch (error) {
+    return {
+      check: {
+        collection,
+        status: 'error',
+        entryCount: null,
+        message: error instanceof Error ? error.message : String(error),
+      },
+      detectedVersion: null,
+    };
+  }
+
+  if (response.status === 404) {
+    return {
+      check: { collection, status: 'not-found', entryCount: null, message: 'No such collection on this instance.' },
+      detectedVersion: null,
+    };
+  }
+  if (response.status === 401) {
+    return {
+      check: {
+        collection,
+        status: 'unauthorized',
+        entryCount: null,
+        message: 'The token was rejected — check it was copied whole and has not been revoked.',
+      },
+      detectedVersion: null,
+    };
+  }
+  if (response.status === 403) {
+    return {
+      check: {
+        collection,
+        status: 'forbidden',
+        entryCount: null,
+        message: 'The token cannot read this collection — give it find + findOne permission.',
+      },
+      detectedVersion: null,
+    };
+  }
+  if (!response.ok) {
+    return {
+      check: { collection, status: 'error', entryCount: null, message: `Strapi answered ${response.status}.` },
+      detectedVersion: null,
+    };
+  }
+
+  let body: StrapiPage;
+  try {
+    body = (await response.json()) as StrapiPage;
+  } catch (error) {
+    return {
+      check: {
+        collection,
+        status: 'error',
+        entryCount: null,
+        message: error instanceof Error ? error.message : String(error),
+      },
+      detectedVersion: null,
+    };
+  }
+
+  const firstEntry = (body.data ?? [])[0];
+  const detectedVersion = firstEntry ? (firstEntry.attributes ? 4 : 5) : null;
+
+  // Ask again with no credential. If that also succeeds the collection is
+  // public, so the successful read above says nothing about the token.
+  let publiclyReadable = false;
+  try {
+    const anonymous = await fetch(url);
+    publiclyReadable = anonymous.ok;
+  } catch {
+    // A failed anonymous probe only means we cannot prove the collection is
+    // public; the authenticated read above already succeeded, so carry on.
+    publiclyReadable = false;
+  }
+
+  return {
+    check: {
+      collection,
+      status: 'ok',
+      entryCount: body.meta?.pagination?.total ?? (body.data ?? []).length,
+      message: null,
+      publiclyReadable,
+    },
+    detectedVersion,
+  };
+}
+
+/**
+ * Look at a Strapi instance with a candidate URL + token, before any source row
+ * or credential exists. Powers the Add-source dialog's "Load collections": it
+ * confirms the instance is reachable and the token works, lists the collections
+ * when the instance allows it, and reports on any names the operator typed.
+ *
+ * Runs server-side because the browser cannot call a partner's Strapi directly
+ * (cross-origin), and because the token should not be handed to another origin.
+ * @param input
+ * @param input.baseUrl - Instance root as typed by the operator.
+ * @param input.token - A Strapi API token.
+ * @param input.collections - Names to check; enumeration alone needs none.
+ */
+export async function inspectStrapiInstance(input: {
+  baseUrl: string;
+  token: string;
+  collections?: string[];
+}): Promise<StrapiInspection> {
+  const baseUrl = trimTrailingSlash(input.baseUrl.trim());
+  const requested = input.collections ?? [];
+
+  const { collections, note, tokenRejected } = await enumerateCollections(baseUrl, input.token);
+
+  // Check what the operator asked about; with nothing asked and a catalogue in
+  // hand, check the first few so the reply still proves the token reads content.
+  const toCheck = requested.length > 0
+    ? requested
+    : (collections ?? []).slice(0, 3);
+
+  const checks: StrapiCollectionCheck[] = [];
+  let detectedVersion: 4 | 5 | null = null;
+  for (const collection of toCheck) {
+    const result = await checkOneCollection(baseUrl, input.token, collection);
+    checks.push(result.check);
+    detectedVersion = detectedVersion ?? result.detectedVersion;
+  }
+
+  const anyAnswered = checks.some(check => check.status !== 'error');
+  const anyRejected = checks.some(check => check.status === 'unauthorized');
+  // A read only proves the token when the same collection is NOT public.
+  const provenByToken = checks.some(check => check.status === 'ok' && check.publiclyReadable !== true);
+  const readablePublicly = checks.some(check => check.status === 'ok' && check.publiclyReadable === true);
+  const reachable = collections !== null || anyAnswered;
+
+  // Enumerating the catalogue needs the token, so it proves the token outright.
+  // Otherwise a 401 on a collection is decisive the other way, and a run of
+  // public-only reads is decisive neither way — say which it is rather than
+  // reporting a green tick the operator cannot rely on.
+  const authorized = collections !== null || provenByToken;
+  let tokenNote: string | null = null;
+  if (anyRejected) {
+    tokenNote = 'The token was rejected by this instance (401). Check it was copied whole and has not been revoked.';
+  } else if (!authorized && readablePublicly) {
+    tokenNote = 'These collections are readable without a credential, so the token could not be confirmed here. The sync still sends it.';
+  } else if (!authorized && tokenRejected === true) {
+    tokenNote = 'The token was rejected by this instance (401). Check it was copied whole and has not been revoked.';
+  }
+
+  return {
+    reachable,
+    authorized,
+    detectedVersion,
+    collections,
+    enumerationNote: note,
+    checks,
+    error: reachable
+      ? tokenNote
+      : (checks[0]?.message ?? note ?? 'Could not reach this Strapi instance.'),
+  };
+}

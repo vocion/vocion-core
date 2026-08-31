@@ -5,6 +5,7 @@ import {
   BarChart3,
   Calendar,
   CheckCircle2,
+  CircleAlert,
   Contact,
   Database,
   FileJson,
@@ -612,11 +613,15 @@ export function parseStrapiCollections(raw: string): string[] {
 }
 
 /**
- * POST a new source row. Returns the server's message on failure, null on success.
- * @param kind
- * @param configJson
+ * POST a new source row, reporting the new id so a caller can keep working with
+ * it — storing a token, say. `error` carries the server's message on failure.
+ * @param kind - Connector slug.
+ * @param configJson - The connector's own config blob.
  */
-async function createSource(kind: string, configJson: Record<string, unknown>): Promise<string | null> {
+async function createSourceReturningId(
+  kind: string,
+  configJson: Record<string, unknown>,
+): Promise<{ id: number | null; error: string | null }> {
   const res = await fetch('/rpc/sources', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -624,9 +629,20 @@ async function createSource(kind: string, configJson: Record<string, unknown>): 
   });
   const data = await res.json();
   if (!res.ok) {
-    return data.error ?? 'Failed to create source';
+    return { id: null, error: data.error ?? 'Failed to create source' };
   }
-  return null;
+  const newId = data.source?.id;
+  return { id: typeof newId === 'number' ? newId : null, error: null };
+}
+
+/**
+ * POST a new source row. Returns the server's message on failure, null on success.
+ * @param kind - Connector slug.
+ * @param configJson - The connector's own config blob.
+ */
+async function createSource(kind: string, configJson: Record<string, unknown>): Promise<string | null> {
+  const { error } = await createSourceReturningId(kind, configJson);
+  return error;
 }
 
 /**
@@ -782,16 +798,108 @@ function AddWebSourceDialog({ kind, title, onClose, onAdded }: {
   );
 }
 
+/** One collection's verdict from the inspect call. Mirrors `StrapiCollectionCheck`. */
+type CollectionCheck = {
+  collection: string;
+  status: 'ok' | 'not-found' | 'forbidden' | 'error';
+  entryCount: number | null;
+  message: string | null;
+};
+
+/** What the inspect route reported about an instance. */
+type StrapiInspection = {
+  reachable: boolean;
+  authorized: boolean;
+  detectedVersion: 4 | 5 | null;
+  collections: string[] | null;
+  enumerationNote: string | null;
+  checks: CollectionCheck[];
+  error: string | null;
+};
+
 /**
- * Strapi's own fields. One source covers every collection on one instance —
- * `ensureSource` keys a row on (org, connector slug), so a second Strapi source
- * would resolve back to the first (see `libs/sources/strapi.ts`). That is why
- * collections are a list on this form rather than a source each.
+ * Ask the server to look at a Strapi instance with these details. The call goes
+ * through our own API rather than the browser because a partner's Strapi will
+ * not allow a cross-origin request, and the token should not leave our origin.
+ * @param baseUrl - Instance root as typed.
+ * @param token - The API token as typed.
+ * @param collections - Names to verify; empty asks only for the catalogue.
+ */
+async function inspectStrapi(
+  baseUrl: string,
+  token: string,
+  collections: string[],
+): Promise<{ inspection: StrapiInspection | null; error: string | null }> {
+  const res = await fetch('/rpc/connectors/strapi/inspect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config: { baseUrl }, credentials: { token }, collections }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return { inspection: null, error: data.error ?? 'Could not reach that Strapi instance' };
+  }
+  return { inspection: data.inspection as StrapiInspection, error: null };
+}
+
+/**
+ * Store the API token against a freshly created source, so adding a Strapi
+ * source is one pass instead of add-then-Connect.
+ * @param sourceId - The id returned by the create call.
+ * @param token - The API token to store in the vault.
+ */
+async function storeSourceToken(sourceId: number, token: string): Promise<string | null> {
+  const res = await fetch(`/rpc/sources/${sourceId}/credentials`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credentials: { token } }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return data.error ?? 'The source was created but its token could not be stored';
+  }
+  return null;
+}
+
+/**
+ * The check icon and wording for one collection's verdict.
  * @param root0
- * @param root0.kind
- * @param root0.title
- * @param root0.onClose
- * @param root0.onAdded
+ * @param root0.check
+ */
+function CollectionCheckRow({ check }: { check: CollectionCheck }) {
+  const isOk = check.status === 'ok';
+  return (
+    <li className="flex items-start gap-2 text-xs">
+      {isOk
+        ? <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        : <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" />}
+      <span>
+        <span className="font-medium">{check.collection}</span>
+        {isOk
+          ? ` — ${check.entryCount ?? 0} ${check.entryCount === 1 ? 'entry' : 'entries'}`
+          : ` — ${check.message ?? check.status}`}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Strapi's own fields. The operator gives the instance URL and an API token
+ * first; the server then looks the instance up and, where the instance allows
+ * it, hands back a list of collections to tick rather than plural api ids to
+ * type from memory. Instances that keep their content-type list behind the admin
+ * API cannot be enumerated with an API token, so the typed list stays available
+ * and each name typed there is verified against the instance.
+ *
+ * One source covers every collection on one instance — `ensureSource` keys a row
+ * on (org, connector slug), so a second Strapi source would resolve back to the
+ * first (see `libs/sources/strapi.ts`). That is why collections are a list here
+ * rather than a source each.
+ * @param root0 - Component props.
+ * @param root0.kind - Connector slug, always `strapi` here.
+ * @param root0.title - Dialog heading.
+ * @param root0.onClose - Dismiss without creating anything.
+ * @param root0.onAdded - Called after the source and its token are stored.
  */
 function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
   kind: string;
@@ -800,27 +908,71 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
   onAdded: () => Promise<void> | void;
 }) {
   const [baseUrl, setBaseUrl] = useState('');
+  const [token, setToken] = useState('');
   const [collectionsText, setCollectionsText] = useState('');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [inspection, setInspection] = useState<StrapiInspection | null>(null);
+  const [inspecting, setInspecting] = useState(false);
   const [populate, setPopulate] = useState('*');
   const [pageSize, setPageSize] = useState(100);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const collections = parseStrapiCollections(collectionsText);
+  const typedCollections = parseStrapiCollections(collectionsText);
+  const catalogue = inspection?.collections ?? null;
+  const chosen = catalogue ? selected : typedCollections;
+  const connectionReady = baseUrl.trim().length > 0 && token.trim().length > 0;
+
+  const runInspect = async () => {
+    setInspecting(true);
+    setError(null);
+    try {
+      const { inspection: found, error: message } = await inspectStrapi(
+        baseUrl.trim(),
+        token.trim(),
+        catalogue ? [] : typedCollections,
+      );
+      if (message) {
+        setError(message);
+        setInspection(null);
+        return;
+      }
+      setInspection(found);
+      // A reachable instance with a caveat — a rejected token, or collections
+      // that are public so the token stays unproven — belongs in the panel's own
+      // note, not the dialog's red failure strip.
+      setError(found && !found.reachable ? found.error : null);
+    } finally {
+      setInspecting(false);
+    }
+  };
+
+  const toggleCollection = (collection: string) => {
+    setSelected(current => (
+      current.includes(collection)
+        ? current.filter(entry => entry !== collection)
+        : [...current, collection]
+    ));
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const message = await createSource(kind, {
+      const created = await createSourceReturningId(kind, {
         baseUrl: baseUrl.trim().replace(/\/+$/, ''),
-        collections,
+        collections: chosen,
         populate: populate.trim() === '' ? '*' : populate.trim(),
         pageSize,
       });
-      if (message) {
-        setError(message);
+      if (created.error || created.id === null) {
+        setError(created.error ?? 'Failed to create source');
+        return;
+      }
+      const tokenError = await storeSourceToken(created.id, token.trim());
+      if (tokenError) {
+        setError(tokenError);
         return;
       }
       await onAdded();
@@ -834,7 +986,7 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
       title={title}
       error={error}
       submitting={submitting}
-      canSubmit={baseUrl.trim().length > 0 && collections.length > 0}
+      canSubmit={connectionReady && chosen.length > 0}
       onClose={onClose}
       onSubmit={submit}
     >
@@ -844,7 +996,10 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
           type="url"
           required
           value={baseUrl}
-          onChange={e => setBaseUrl(e.target.value)}
+          onChange={(e) => {
+            setBaseUrl(e.target.value);
+            setInspection(null);
+          }}
           placeholder="https://cms.partner.org"
           className={FIELD_CLASS}
         />
@@ -852,23 +1007,123 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
           The instance root, not the /api path. Works with Strapi v4 and v5 — the version is detected from the response.
         </span>
       </label>
+
       <label className="block">
-        <span className="text-sm font-medium text-foreground/80">Collections</span>
-        <textarea
+        <span className="text-sm font-medium text-foreground/80">API token</span>
+        <input
+          type="password"
           required
-          rows={2}
-          value={collectionsText}
-          onChange={e => setCollectionsText(e.target.value)}
-          placeholder="events, venues"
+          autoComplete="off"
+          value={token}
+          onChange={(e) => {
+            setToken(e.target.value);
+            setInspection(null);
+          }}
+          placeholder="Strapi admin → Settings → API Tokens"
           className={FIELD_CLASS}
         />
         <span className="mt-1 block text-xs text-muted-foreground">
-          Plural API ids, comma separated. One source covers every collection on this instance — they share its URL and token.
-          {collections.length > 0
-            ? ` Syncing ${collections.length === 1 ? '1 collection' : `${collections.length} collections`}: ${collections.join(', ')}.`
-            : ''}
+          Read-only is enough. Stored encrypted against this source, so there is no separate Connect step.
         </span>
       </label>
+
+      <div className="rounded-lg border p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-medium text-foreground/80">Collections</span>
+          <button
+            type="button"
+            onClick={runInspect}
+            disabled={!connectionReady || inspecting}
+            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
+          >
+            {inspecting
+              ? (
+                  <>
+                    <Loader2 className="size-3 animate-spin" />
+                    Checking…
+                  </>
+                )
+              : (catalogue ? 'Reload collections' : 'Load collections')}
+          </button>
+        </div>
+
+        {inspection?.authorized && inspection.detectedVersion
+          ? (
+              <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
+                Connected — Strapi v
+                {inspection.detectedVersion}
+                , token accepted.
+              </p>
+            )
+          : null}
+
+        {inspection?.reachable && inspection.error
+          ? (
+              <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
+                <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+                {inspection.error}
+              </p>
+            )
+          : null}
+
+        {catalogue
+          ? (
+              <>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {catalogue.length}
+                  {' '}
+                  collections on this instance. Tick the ones to sync.
+                </p>
+                <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+                  {catalogue.map(collection => (
+                    <li key={collection}>
+                      <label className="flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/60">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(collection)}
+                          onChange={() => toggleCollection(collection)}
+                        />
+                        {collection}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )
+          : (
+              <>
+                {/* Skipped when the note above already says the same thing — a
+                    rejected token surfaces through both. */}
+                {inspection?.enumerationNote && !inspection.error
+                  ? <p className="mt-2 text-xs text-muted-foreground">{inspection.enumerationNote}</p>
+                  : null}
+                <textarea
+                  required
+                  rows={2}
+                  value={collectionsText}
+                  onChange={e => setCollectionsText(e.target.value)}
+                  placeholder="events, venues"
+                  aria-label="Collections"
+                  className={FIELD_CLASS}
+                />
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Plural API ids, comma separated. Load collections again to check each name against the instance.
+                  {typedCollections.length > 0
+                    ? ` Syncing ${typedCollections.length === 1 ? '1 collection' : `${typedCollections.length} collections`}: ${typedCollections.join(', ')}.`
+                    : ''}
+                </span>
+              </>
+            )}
+
+        {inspection && inspection.checks.length > 0
+          ? (
+              <ul className="mt-2 space-y-1">
+                {inspection.checks.map(check => <CollectionCheckRow key={check.collection} check={check} />)}
+              </ul>
+            )
+          : null}
+      </div>
+
       <label className="block">
         <span className="text-sm font-medium text-foreground/80">Populate</span>
         <input
