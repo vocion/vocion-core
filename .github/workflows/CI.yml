@@ -74,6 +74,11 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
+      # Runs before the build-dependent checks: a payload hidden in a build config
+      # would otherwise execute during lint/type-check on the runner.
+      - name: Config integrity (malware guard)
+        run: npm run check:integrity
+
       - name: Linter
         run: npm run lint
 

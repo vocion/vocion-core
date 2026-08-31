@@ -27,6 +27,11 @@ import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
 import { gmailTools } from './gmailThread';
 import { requestHumanReviewTool } from './hitl';
+import { hubspotCatalogTools } from './hubspotCatalog';
+import { hubspotCompanyTools } from './hubspotCompanies';
+import { hubspotDealTools } from './hubspotDeals';
+import { hubspotDirectInScope } from './hubspotDirect';
+import { hubspotLeadsTools } from './hubspotLeads';
 import {
   addLearningTool,
   checkLearningDedupTool,
@@ -45,6 +50,26 @@ import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { webSearchTool } from './webSearch';
 import { zoomTools } from './zoomTranscript';
+
+/**
+ * The DIRECT-to-HubSpot tool set — live API reads, never the mirror. Present
+ * for any agent with a hubspot source in scope (and, when a per-user ACL is
+ * set, only when it also allows one); the `hubspot_count_*` mirror tools in
+ * `crmTools` gate the same way, so routing is a choice between two present
+ * tools, never a guess at an absent one.
+ * @param ctx
+ */
+function hubspotDirectTools(ctx: RuntimeContext): StructuredToolInterface[] {
+  if (!hubspotDirectInScope(ctx)) {
+    return [];
+  }
+  return [
+    ...hubspotLeadsTools(ctx),
+    ...hubspotCompanyTools(ctx),
+    ...hubspotDealTools(ctx),
+    ...hubspotCatalogTools(ctx),
+  ];
+}
 
 export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
   return [
@@ -74,6 +99,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     freshenSourceTool(ctx),
     // Source-gated — empty unless a HubSpot source is in the agent's scope.
     ...crmTools(ctx),
+    ...hubspotDirectTools(ctx),
     // Source-gated read-through caches (zoom / gmail sources in scope).
     ...zoomTools(ctx),
     ...gmailTools(ctx),

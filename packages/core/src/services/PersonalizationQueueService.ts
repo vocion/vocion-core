@@ -15,7 +15,7 @@
  *     unique index is the guarantee. DO NOTHING rather than DO UPDATE on
  *     purpose: a later re-fire must not wipe a researched brief back to empty.
  *
- * The CRM read is the same one `get_hubspot_contacts` uses, so arrivals here
+ * The CRM read is the same one `hubspot_count_contacts` uses, so arrivals here
  * and counts there can never disagree.
  */
 
