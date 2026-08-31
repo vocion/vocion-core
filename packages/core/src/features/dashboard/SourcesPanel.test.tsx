@@ -411,7 +411,54 @@ describe('add Strapi source', () => {
     await page.getByRole('button', { name: 'Load collections' }).click();
 
     await expect.element(page.getByText(/events.*855 entries/)).toBeVisible();
-    await expect.element(page.getByText(/venue.*No such collection/)).toBeVisible();
+    await expect.element(page.getByText('venueNo such collection')).toBeVisible();
+  });
+
+  it('refuses to add a collection the instance could not read, and says which one', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [
+      notEnumerable([
+        { collection: 'events', status: 'ok', entryCount: 855, message: null },
+        { collection: 'venue', status: 'not-found', entryCount: null, message: 'No such collection on this instance.' },
+      ]),
+    ]);
+    render(<SourcesPanel />);
+    await openStrapiForm();
+
+    await userEvent.fill(page.getByLabelText('Collections'), 'events, venue');
+    await page.getByRole('button', { name: 'Load collections' }).click();
+
+    await expect.element(page.getByText('venueNo such collection')).toBeVisible();
+
+    const submit = page.getByRole('button', { name: 'Add source' }).last();
+
+    await expect.element(submit).toBeDisabled();
+    await expect.element(page.getByRole('alert')).toHaveTextContent('venue — No such collection');
+
+    // Dropping the bad name is enough — the good one still checks out.
+    await userEvent.fill(page.getByLabelText('Collections'), 'events');
+
+    await expect.element(submit).toBeEnabled();
+
+    await submit.click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+
+    const created = posts.find(post => post.url === '/rpc/sources')!;
+
+    expect((created.body.configJson as { collections: string[] }).collections).toEqual(['events']);
+  });
+
+  it('still submits typed collections that have never been checked', async () => {
+    stubSourcesApi(CONNECTORS, [notEnumerable([])]);
+    render(<SourcesPanel />);
+    await openPicker();
+    await page.getByRole('button', { name: /Strapi/ }).click();
+
+    await userEvent.fill(page.getByLabelText(/Strapi URL/), 'https://cms.partner.org');
+    await userEvent.fill(page.getByLabelText(/API token/), 'tok-123');
+    await userEvent.fill(page.getByLabelText('Collections'), 'events');
+
+    await expect.element(page.getByRole('button', { name: 'Add source' }).last()).toBeEnabled();
   });
 
   it('keeps submit disabled until the URL, the token and a collection are all given', async () => {
