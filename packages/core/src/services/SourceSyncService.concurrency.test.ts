@@ -104,7 +104,7 @@ const { eq } = await import('drizzle-orm');
 const { db } = await import('@/libs/DB');
 const { knowledgeSourceSchema, sourceSyncCheckpointSchema } = await import('@/models/Schema');
 const { registerConnector } = await import('@/libs/sources/registry');
-const { MAX_CONCURRENT_INGESTS, runSync, SyncAlreadyRunningError, SyncSavedNothingError } = await import('@/services/SourceSyncService');
+const { MAX_CONCURRENT_INGESTS, runSync, supersedeRunningSync, SyncAlreadyRunningError, SyncSavedNothingError, SyncSupersededError } = await import('@/services/SourceSyncService');
 const { z } = await import('zod');
 
 const ORG_ID = 'org_concurrency_test';
@@ -708,5 +708,65 @@ describe('a sync that saves nothing fails loudly', () => {
 
     expect(result.errors).toBe(0);
     expect(result.created).toBe(0);
+  });
+});
+
+/**
+ * Editing a source stops the run that is reading the old settings.
+ *
+ * The run reads the config once, at the start, so carrying on would write
+ * documents from collections the operator just removed and then advance the
+ * watermark as if that were the current picture.
+ */
+describe('a sync superseded by an edit', () => {
+  it('stops partway and does not delete or advance the watermark', async () => {
+    registerFixtureConnector('fixture-superseded', 200);
+    const sourceId = await createSource('fixture-superseded');
+    // Enough documents, slow enough, that the run is still going when the edit
+    // lands two seconds in — the run's own check interval is two seconds, and
+    // eight ingests run at once, so 200 × 400ms is about ten seconds of work.
+    schedulingLog.durationFor = () => 400;
+
+    const run = runSync({ orgId: ORG_ID, sourceId });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 2200);
+    });
+    const stopped = await supersedeRunningSync(ORG_ID, sourceId, 'settings changed');
+
+    expect(stopped).toBe(true);
+    await expect(run).rejects.toThrow(SyncSupersededError);
+    // Deleting on the strength of a half-read source is how a corpus vanishes.
+    expect(schedulingLog.deleteWasCalled).toBe(false);
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    // The reason the edit recorded stands — the stopped run must not write
+    // `failed` over it and blame itself.
+    expect(checkpoint?.status).toBe('superseded');
+    expect(checkpoint?.error).toBe('settings changed');
+    expect(checkpoint?.since).toBeNull();
+  }, 30_000);
+
+  it('lets the replacement run claim the source straight away', async () => {
+    registerFixtureConnector('fixture-supersede-then-run', 2);
+    const sourceId = await createSource('fixture-supersede-then-run');
+    await supersedeRunningSync(ORG_ID, sourceId, 'settings changed');
+
+    // No sync was running, so there was nothing to stop — and a fresh run must
+    // still be free to start.
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(result.created).toBe(2);
+  });
+
+  it('reports nothing to stop when no run is going', async () => {
+    registerFixtureConnector('fixture-nothing-to-stop', 1);
+    const sourceId = await createSource('fixture-nothing-to-stop');
+
+    expect(await supersedeRunningSync(ORG_ID, sourceId, 'settings changed')).toBe(false);
   });
 });

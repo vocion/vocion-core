@@ -104,7 +104,7 @@ type SourceFixture = {
   credentialConnected: boolean;
   credentialUpdatedAt: string | null;
   sync: {
-    status: 'running' | 'completed' | 'failed' | 'abandoned';
+    status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
     startedAt: string;
     completedAt: string | null;
     error: string | null;
@@ -161,6 +161,13 @@ function stubSourcesApi(
         return new Response(JSON.stringify({ error: 'no inspection stubbed' }), { status: 502 });
       }
       return new Response(JSON.stringify({ inspection: reply }), { status: 200 });
+    }
+    if (/^\/rpc\/sources\/\d+\/sync$/.test(url) && init?.method === 'POST') {
+      posts.push({ url, body: {} });
+      return new Response(
+        JSON.stringify({ result: { created: 1, updated: 0, unchanged: 0, tombstoned: 0, errors: 0, firstError: null } }),
+        { status: 200 },
+      );
     }
     if (/^\/rpc\/sources\/\d+$/.test(url) && (init?.method === 'PATCH' || init?.method === 'DELETE')) {
       posts.push({ url, body: init.body ? JSON.parse(String(init.body)) : {} });
@@ -852,6 +859,33 @@ describe('editing and deleting a source', () => {
     // No new source, and no credential write when the token field was left alone.
     expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(0);
     expect(posts.filter(post => post.url.endsWith('/credentials'))).toHaveLength(0);
+
+    // New settings, new picture: a fresh run starts on its own.
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/sync')).toHaveLength(1));
+  });
+
+  it('warns before saving that the edit restarts the sync', async () => {
+    stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByText(/Saving restarts this source's sync/)).toBeVisible();
+  });
+
+  it('says a run stopped because the settings changed', async () => {
+    stubSourcesApi(CONNECTORS, [], {
+      sources: [sourceRow({
+        status: 'superseded',
+        startedAt: '2026-08-31T18:52:00.000Z',
+        completedAt: '2026-08-31T18:53:00.000Z',
+        error: 'This sync stopped because the source\'s settings changed.',
+        counts: {},
+      })],
+    });
+    renderPanel();
+
+    await expect.element(page.getByText(/stopped when the settings changed/)).toBeVisible();
   });
 
   it('writes a new token only when one is typed', async () => {
