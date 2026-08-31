@@ -151,6 +151,12 @@ export type SyncResult = {
   metadataRefreshed: number;
   tombstoned: number;
   errors: number;
+  /**
+   * The first failure this run hit, verbatim. A count alone ("43 errors") does
+   * not tell an operator whether to fix a token, a key or a document, and the
+   * reason is otherwise only in the server log.
+   */
+  firstError: string | null;
 };
 
 /**
@@ -168,6 +174,28 @@ export class SyncAlreadyRunningError extends Error {
   constructor(sourceId: number) {
     super(`a sync is already running for source ${sourceId}`);
     this.name = 'SyncAlreadyRunningError';
+  }
+}
+
+/**
+ * Every document failed, so the run achieved nothing.
+ *
+ * A single bad document is deliberately survivable — it is counted and the run
+ * carries on. But when NOTHING was saved, the cause is almost never the
+ * documents: it is a missing key, a rejected credential, a misconfigured
+ * environment. Reporting that as a successful sync is how an operator ends up
+ * staring at "no documents yet" after a run that looked fine, which is exactly
+ * what happened with an unset OPENAI_API_KEY on 2026-08-31.
+ */
+export class SyncSavedNothingError extends Error {
+  constructor(
+    public readonly failureCount: number,
+    public readonly firstError: string,
+  ) {
+    super(
+      `all ${failureCount} document(s) failed, so nothing was saved. First failure: ${firstError}`,
+    );
+    this.name = 'SyncSavedNothingError';
   }
 }
 
@@ -362,6 +390,7 @@ export async function runSync(opts: {
     metadataRefreshed: 0,
     tombstoned: 0,
     errors: 0,
+    firstError: null,
   };
   /** What this run managed to do, as stored on the checkpoint row. */
   const countsForCheckpoint = () => ({
@@ -489,6 +518,7 @@ export async function runSync(opts: {
       .catch((error) => {
         result.errors += 1;
         seenButNotSavedExternalIds.add(doc.externalId);
+        result.firstError ??= error instanceof Error ? error.message : String(error);
         // The counter alone loses the reason. Log it — a run full of rate-limit
         // failures and a run full of malformed documents need different fixes.
         log('warn', 'could not save a document during sync', {
@@ -523,6 +553,7 @@ export async function runSync(opts: {
         if (e.kind === 'error') {
           result.errors += 1;
           connectorFailureCount += 1;
+          result.firstError ??= e.message ?? 'the connector reported a failure';
           reportProgress(e, 'connector');
           return;
         }
@@ -556,6 +587,16 @@ export async function runSync(opts: {
     // allSettled, not all: `all` stops waiting the moment one document fails.
     // We want to wait for all of them either way.
     await Promise.allSettled(activeIngests);
+
+    // Nothing saved and something failed: fail the run rather than reporting a
+    // success with zero documents. Thrown here, before the steps below, so the
+    // watermark stays put and nothing gets deleted on the strength of a run
+    // that read nothing. Note the ordering — a source that is genuinely empty
+    // has no errors, so it still completes.
+    const savedSomething = result.created + result.updated + result.unchanged > 0;
+    if (result.errors > 0 && !savedSomething) {
+      throw new SyncSavedNothingError(result.errors, result.firstError ?? 'no reason was reported');
+    }
 
     // Delete the documents the source no longer has.
     //
