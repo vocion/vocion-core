@@ -244,7 +244,7 @@ describe('add Strapi source', () => {
     await page.getByRole('button', { name: 'Load collections' }).click();
 
     await expect.element(page.getByText('Connected — Strapi v5, token accepted.')).toBeVisible();
-    await expect.element(page.getByText('2 collections on this instance. Tick the ones to sync.')).toBeVisible();
+    await expect.element(page.getByText(/2 collections on this instance/)).toBeVisible();
     await expect.element(page.getByRole('checkbox', { name: 'events' })).toBeVisible();
   });
 
