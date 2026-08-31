@@ -86,8 +86,14 @@ function notEnumerable(checks: Inspection['checks']): Inspection {
  * Stand in for the endpoints the panel talks to, recording what it posts.
  * @param connectors - Tiles the picker should offer.
  * @param inspections - Replies for successive /rpc/connectors/strapi/inspect calls; the last repeats.
+ * @param options - `inspectRejection` makes every inspect call fail with that message, as the route does for a URL with no scheme.
+ * @param options.inspectRejection
  */
-function stubSourcesApi(connectors: ConnectorFixture[], inspections: Inspection[] = []) {
+function stubSourcesApi(
+  connectors: ConnectorFixture[],
+  inspections: Inspection[] = [],
+  options: { inspectRejection?: string } = {},
+) {
   const posts: { url: string; body: Record<string, unknown> }[] = [];
   let inspectCall = 0;
   const fetchStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -101,6 +107,9 @@ function stubSourcesApi(connectors: ConnectorFixture[], inspections: Inspection[
     }
     if (url === '/rpc/connectors/strapi/inspect' && init?.method === 'POST') {
       posts.push({ url, body: JSON.parse(String(init.body)) });
+      if (options.inspectRejection) {
+        return new Response(JSON.stringify({ error: options.inspectRejection }), { status: 400 });
+      }
       const reply = inspections[Math.min(inspectCall, inspections.length - 1)];
       inspectCall += 1;
       if (!reply) {
@@ -243,12 +252,66 @@ describe('add Strapi source', () => {
     await page.getByRole('button', { name: /Strapi/ }).click();
 
     await expect.element(page.getByText(/fill in the instance URL and an API token/)).toBeVisible();
-    await expect.element(page.getByText('Add the instance URL and an API token above, then Load collections.')).toBeVisible();
+    await expect.element(page.getByText('Add the instance URL and an API token above and the collections load themselves.')).toBeVisible();
 
     await userEvent.fill(page.getByLabelText(/Strapi URL/), 'https://cms.partner.org');
     await userEvent.fill(page.getByLabelText(/API token/), 'tok-123');
 
-    await expect.element(page.getByText(/Ready — Load collections reads this instance/)).toBeVisible();
+    await expect.element(page.getByText(/Reading this instance|Ready — reading this instance/)).toBeVisible();
+  });
+
+  it('loads the collections on its own once the URL and the token are both filled', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [enumerated(['events', 'venues'])]);
+    render(<SourcesPanel />);
+    await openPicker();
+    await page.getByRole('button', { name: /Strapi/ }).click();
+
+    await userEvent.fill(page.getByLabelText(/Strapi URL/), 'https://cms.partner.org');
+    await userEvent.fill(page.getByLabelText(/API token/), 'tok-123');
+
+    // No click on Load collections — pasting both halves is the whole instruction.
+    await expect.element(page.getByRole('checkbox', { name: /events/ })).toBeVisible();
+    await expect.element(page.getByRole('checkbox', { name: /venues/ })).toBeVisible();
+
+    const inspects = posts.filter(post => post.url === '/rpc/connectors/strapi/inspect');
+
+    expect(inspects.length).toBe(1);
+  });
+
+  it('leaves the load button clickable while a read is in flight, so it acts as a refresh', async () => {
+    stubSourcesApi(CONNECTORS, [enumerated(['events'])]);
+    render(<SourcesPanel />);
+    await openStrapiForm();
+
+    await expect.element(page.getByRole('checkbox', { name: /events/ })).toBeVisible();
+
+    const reload = page.getByRole('button', { name: 'Reload collections' });
+
+    await expect.element(reload).toBeEnabled();
+
+    await reload.click();
+
+    await expect.element(page.getByRole('checkbox', { name: /events/ })).toBeVisible();
+  });
+
+  it('shows a rejected URL in the footer, beside the buttons, so it is visible without scrolling', async () => {
+    stubSourcesApi(CONNECTORS, [], { inspectRejection: 'The base URL must start with http:// or https://' });
+    render(<SourcesPanel />);
+    await openPicker();
+    await page.getByRole('button', { name: /Strapi/ }).click();
+
+    await userEvent.fill(page.getByLabelText(/Strapi URL/), 'cms.partner.org');
+    await userEvent.fill(page.getByLabelText(/API token/), 'tok-123');
+
+    const alert = page.getByRole('alert');
+
+    await expect.element(alert).toHaveTextContent('The base URL must start with http:// or https://');
+
+    // The alert has to live in the pinned footer next to Cancel, not in the
+    // scrolling field list where a long form can push it out of sight.
+    const footer = alert.element().parentElement;
+
+    expect(footer?.querySelector('button')?.textContent).toContain('Cancel');
   });
 
   it('shows the API token in the clear when the eye is clicked, and hides it again', async () => {
