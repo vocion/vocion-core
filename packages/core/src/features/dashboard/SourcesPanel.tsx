@@ -405,8 +405,8 @@ const CONNECTOR_PAGE_SIZE = 25;
  * Alphabetical rather than registry order: the registry is append-ordered by
  * when each connector shipped, which tells an operator scanning the list
  * nothing, and the order shifts under them every time one is added.
- * @param connectors Every connector the server offers as a tile.
- * @param query What the operator typed in the picker's search box.
+ * @param connectors - Every connector the server offers as a tile.
+ * @param query - What the operator typed in the picker's search box.
  */
 export function filterConnectors(connectors: ConnectorTile[], query: string): ConnectorTile[] {
   const words = query.toLowerCase().split(/\s+/).filter(word => word.length > 0);
