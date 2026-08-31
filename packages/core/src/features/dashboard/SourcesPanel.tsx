@@ -1361,6 +1361,24 @@ async function inspectStrapi(
  * @param sourceId - The id returned by the create call.
  * @param token - The API token to store in the vault.
  */
+/**
+ * Read back a source's stored credential so an Edit form can load it.
+ *
+ * Returns null when there is nothing stored, and the server's message when the
+ * read failed — a credential that will not decrypt must not look like an empty
+ * field, or the operator would save an edit believing the old token still works.
+ * @param sourceId - Source whose credential to read.
+ */
+async function loadSourceToken(sourceId: number): Promise<{ token: string | null; error: string | null }> {
+  const res = await fetch(`/rpc/sources/${sourceId}/credentials`);
+  const data = await res.json();
+  if (!res.ok) {
+    return { token: null, error: data.error ?? 'Could not read the stored token' };
+  }
+  const stored = data.credentials as { token?: string } | null;
+  return { token: stored?.token ?? null, error: null };
+}
+
 async function storeSourceToken(sourceId: number, token: string): Promise<string | null> {
   const res = await fetch(`/rpc/sources/${sourceId}/credentials`, {
     method: 'POST',
@@ -1443,6 +1461,8 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
   const tokenAlreadyStored = existing?.credentialConnected ?? false;
   const [baseUrl, setBaseUrl] = useState(existingConfig.baseUrl ?? '');
   const [token, setToken] = useState('');
+  /** The token as stored, so saving an untouched field writes no new credential. */
+  const [storedToken, setStoredToken] = useState<string | null>(null);
   const [tokenVisible, setTokenVisible] = useState(false);
   const [collectionsText, setCollectionsText] = useState((existingConfig.collections ?? []).join(', '));
   const [selected, setSelected] = useState<string[]>(existingConfig.collections ?? []);
@@ -1455,6 +1475,36 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
 
   const inspectRequestRef = useRef(0);
   const lastLoadedPairRef = useRef<string | null>(null);
+
+  // Load the stored token when editing, so the field shows what will be used
+  // rather than an empty box that reads as if the token had been dropped. Once
+  // it lands, the URL and token are both present and the collections re-check
+  // themselves, which is exactly what an operator opening Edit wants to see.
+  const editingSourceId = existing?.id ?? null;
+  useEffect(() => {
+    if (editingSourceId === null) {
+      return;
+    }
+    let stillOpen = true;
+    const load = async () => {
+      const { token: stored, error: message } = await loadSourceToken(editingSourceId);
+      if (!stillOpen) {
+        return;
+      }
+      if (message) {
+        setError(message);
+        return;
+      }
+      if (stored) {
+        setStoredToken(stored);
+        setToken(stored);
+      }
+    };
+    void load();
+    return () => {
+      stillOpen = false;
+    };
+  }, [editingSourceId]);
 
   const typedCollections = parseStrapiCollections(collectionsText);
   const catalogue = inspection?.collections ?? null;
@@ -1581,9 +1631,11 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
         }
         sourceId = created.id;
       }
-      // On an edit an empty token means "keep the one already stored", so only
-      // write when something was actually typed.
-      if (sourceId !== null && token.trim() !== '') {
+      // Write a credential only when this is a token the vault does not already
+      // hold: an empty field means "keep what is stored", and re-saving the
+      // value we just loaded would add a credential row that changes nothing.
+      const tokenIsNew = token.trim() !== '' && token.trim() !== storedToken;
+      if (sourceId !== null && tokenIsNew) {
         const tokenError = await storeSourceToken(sourceId, token.trim());
         if (tokenError) {
           setError(tokenError);
