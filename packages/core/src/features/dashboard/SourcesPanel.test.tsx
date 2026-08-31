@@ -414,6 +414,45 @@ describe('add Strapi source', () => {
     await expect.element(page.getByText('venueNo such collection')).toBeVisible();
   });
 
+  it('names what is still missing, in the order the form is filled', async () => {
+    stubSourcesApi(CONNECTORS, [notEnumerable([])]);
+    render(<SourcesPanel />);
+    await openPicker();
+    await page.getByRole('button', { name: /Strapi/ }).click();
+
+    await expect.element(page.getByText('Still needed: the Strapi instance URL')).toBeVisible();
+
+    await userEvent.fill(page.getByLabelText(/Strapi URL/), 'https://cms.partner.org');
+
+    await expect.element(page.getByText('Still needed: an API token')).toBeVisible();
+
+    await userEvent.fill(page.getByLabelText(/API token/), 'tok-123');
+
+    // The one that was never obvious: a collection has to be chosen.
+    await expect.element(page.getByText(/Still needed: at least one collection/)).toBeVisible();
+
+    await userEvent.fill(page.getByLabelText('Collections'), 'events');
+
+    await expect.element(page.getByText(/Still needed/)).not.toBeInTheDocument();
+  });
+
+  it('puts the same reason on the disabled button as a hover tooltip', async () => {
+    stubSourcesApi(CONNECTORS, [enumerated(['events'])]);
+    render(<SourcesPanel />);
+    await openStrapiForm();
+
+    await expect.element(page.getByRole('checkbox', { name: /events/ })).toBeVisible();
+
+    // A disabled button swallows hover, so the tooltip has to sit on its wrapper.
+    const wrapper = page.getByRole('button', { name: 'Add source' }).last().element().parentElement;
+
+    expect(wrapper?.getAttribute('title')).toContain('at least one collection');
+
+    await page.getByRole('checkbox', { name: /events/ }).click();
+
+    expect(wrapper?.getAttribute('title')).toBeNull();
+  });
+
   it('refuses to add a collection the instance could not read, and says which one', async () => {
     const posts = stubSourcesApi(CONNECTORS, [
       notEnumerable([
@@ -432,7 +471,7 @@ describe('add Strapi source', () => {
     const submit = page.getByRole('button', { name: 'Add source' }).last();
 
     await expect.element(submit).toBeDisabled();
-    await expect.element(page.getByRole('alert')).toHaveTextContent('venue — No such collection');
+    await expect.element(page.getByText(/Still needed: a fix for venue \(no such collection\)/)).toBeVisible();
 
     // Dropping the bad name is enough — the good one still checks out.
     await userEvent.fill(page.getByLabelText('Collections'), 'events');
