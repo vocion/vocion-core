@@ -1,6 +1,29 @@
 'use client';
 
-import { CheckCircle2, Globe, KeyRound, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  BarChart3,
+  Calendar,
+  CheckCircle2,
+  Contact,
+  Database,
+  FileJson,
+  FileText,
+  FolderOpen,
+  Globe,
+  KeyRound,
+  Loader2,
+  Mail,
+  Megaphone,
+  MessageSquare,
+  NotebookPen,
+  Plug,
+  Plus,
+  RefreshCw,
+  Search,
+  SquareKanban,
+  Video,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -397,6 +420,42 @@ function describeSourceConfig(config: Record<string, unknown>): string {
 const CONNECTOR_PAGE_SIZE = 25;
 
 /**
+ * The Lucide icons connectors name in their `icon` field (`libs/sources/*.ts`).
+ * Listed explicitly rather than looked up off the whole Lucide namespace, which
+ * would pull every icon in the library into the client bundle. A connector whose
+ * icon is missing here gets the generic plug rather than nothing.
+ */
+const CONNECTOR_ICONS: Record<string, LucideIcon> = {
+  BarChart3,
+  Calendar,
+  Contact,
+  Database,
+  FileJson,
+  FileText,
+  FolderOpen,
+  Globe,
+  Mail,
+  Megaphone,
+  MessageSquare,
+  NotebookPen,
+  SquareKanban,
+  Video,
+};
+
+/**
+ * A connector's icon. The `icon` field carries a Lucide icon NAME, so rendering
+ * it as text used to print its first letter — "D" on the Strapi tile, from
+ * `Database`, which reads like a shortcut key and means nothing.
+ * @param props.name - The Lucide icon name from the connector's tile data.
+ * @param root0
+ * @param root0.name
+ */
+function ConnectorIcon({ name }: { name: string }) {
+  const Icon = CONNECTOR_ICONS[name] ?? Plug;
+  return <Icon className="size-4" aria-hidden="true" />;
+}
+
+/**
  * Connectors whose name, slug or description contains every word in the query,
  * sorted A–Z by name. Word-at-a-time (rather than one substring match) so
  * "google ads" finds the Google Ads tile whichever order the words are typed.
@@ -491,8 +550,8 @@ function ConnectorPicker({
               className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
             >
               <div className="flex items-center gap-2">
-                <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-                  {c.icon.slice(0, 1)}
+                <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+                  <ConnectorIcon name={c.icon} />
                 </span>
                 <span className="font-medium">{c.name}</span>
                 {c.authKind !== 'none'
