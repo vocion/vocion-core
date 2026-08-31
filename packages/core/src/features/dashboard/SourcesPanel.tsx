@@ -397,22 +397,26 @@ function describeSourceConfig(config: Record<string, unknown>): string {
 const CONNECTOR_PAGE_SIZE = 25;
 
 /**
- * Connectors whose name, slug or description contains every word in the query.
- * Word-at-a-time (rather than one substring match) so "google ads" finds the
- * Google Ads tile whichever order the words are typed. An empty query matches
- * everything, which is what the picker shows on open.
- * @param connectors
- * @param query
+ * Connectors whose name, slug or description contains every word in the query,
+ * sorted A–Z by name. Word-at-a-time (rather than one substring match) so
+ * "google ads" finds the Google Ads tile whichever order the words are typed.
+ * An empty query matches everything, which is what the picker shows on open.
+ *
+ * Alphabetical rather than registry order: the registry is append-ordered by
+ * when each connector shipped, which tells an operator scanning the list
+ * nothing, and the order shifts under them every time one is added.
+ * @param connectors Every connector the server offers as a tile.
+ * @param query What the operator typed in the picker's search box.
  */
 export function filterConnectors(connectors: ConnectorTile[], query: string): ConnectorTile[] {
   const words = query.toLowerCase().split(/\s+/).filter(word => word.length > 0);
-  if (words.length === 0) {
-    return connectors;
-  }
-  return connectors.filter((connector) => {
-    const haystack = `${connector.name} ${connector.slug} ${connector.description}`.toLowerCase();
-    return words.every(word => haystack.includes(word));
-  });
+  const matches = words.length === 0
+    ? [...connectors]
+    : connectors.filter((connector) => {
+        const haystack = `${connector.name} ${connector.slug} ${connector.description}`.toLowerCase();
+        return words.every(word => haystack.includes(word));
+      });
+  return matches.sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function ConnectorPicker({
