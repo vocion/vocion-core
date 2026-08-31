@@ -373,7 +373,11 @@ export type StrapiInspection = {
  * content-API credential, so `/api/content-type-builder/content-types` answers
  * 403 for most instances and there is no token-visible catalogue to replace it.
  * We try it anyway — some deployments do expose it, and when they do the
- * operator gets a pick-list instead of typing plural ids from memory.
+ * operator gets a pick-list instead of typing plural ids from memory. There is
+ * no second-best listing route to fall back on either: checked against
+ * api-dev.veerio.app on 2026-08-31, the Documentation plugin's OpenAPI spec
+ * (`/documentation/v1.0.0/full_documentation.json`) is a 404 and `/api/content-types`
+ * does not exist, so a closed 403 means the operator types the ids.
  * @param baseUrl - Instance root, e.g. `https://cms.partner.org`.
  * @param token - A Strapi API token.
  * @returns The plural api ids, or null with a note when the route is closed.
@@ -399,7 +403,7 @@ async function enumerateCollections(
   if (!response.ok) {
     return {
       collections: null,
-      note: `This instance keeps its content-type list behind the admin API (${response.status}), so the collections can't be listed with an API token. Type the plural ids instead and each one will be checked.`,
+      note: `Nothing wrong with your token — Strapi keeps the list of collections behind its admin API (${response.status}), which no API token can reach whatever its scope. Type the plural ids below instead and each one will be checked against this instance. They are the api ids in Strapi under Content-Type Builder, e.g. \`events\`, \`venues\`.`,
     };
   }
 

@@ -484,6 +484,9 @@ describe('inspectStrapiInstance', () => {
 
     expect(inspection.collections).toBeNull();
     expect(inspection.enumerationNote).toContain('admin API');
+    // The note must not read as a token problem: a read-only token is the right
+    // credential here, and a full-access one would hit the same 403.
+    expect(inspection.enumerationNote).toContain('Nothing wrong with your token');
     expect(inspection.error).toBeNull();
     expect(inspection.reachable).toBe(true);
     expect(inspection.authorized).toBe(true);

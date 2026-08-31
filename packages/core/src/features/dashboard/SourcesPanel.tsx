@@ -1084,12 +1084,14 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
       <p className="rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
         <span className="font-medium text-foreground/80">How this works:</span>
         {' '}
-        fill in the instance URL and an API token and the collections load on their own, so you can pick what to sync.
-        Both are needed before anything can load — the token says you're allowed in, the URL says which instance to ask.
+        fill in the instance URL and an API token and this reads the instance on its own — both are needed, the token
+        says you're allowed in and the URL says which instance to ask.
         {' '}
         <span className="font-medium">Reload collections</span>
         {' '}
-        reads the instance again whenever you want a fresh look.
+        reads it again whenever you want a fresh look. Most instances won't hand out their list of collections (Strapi
+        keeps that behind its admin API), so you'll usually type the plural ids yourself and each one gets checked
+        against the instance — that check is the part worth watching.
       </p>
 
       <label className="block">
@@ -1140,8 +1142,9 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
           </button>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          Read-only is enough. Show it with the eye to check a paste before loading collections. Stored encrypted against
-          this source, so there is no separate Connect step.
+          Read-only is enough — it only ever reads the collections you pick. A full-access token gets you nothing extra
+          here: no API token can list an instance's collections, so scope won't change that. Show it with the eye to
+          check a paste. Stored encrypted against this source, so there is no separate Connect step.
         </p>
       </div>
 
@@ -1242,7 +1245,8 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
                   className={FIELD_CLASS}
                 />
                 <span className="mt-1 block text-xs text-muted-foreground">
-                  Plural API ids, comma separated. Load collections again to check each name against the instance.
+                  Plural API ids, comma separated — find them in Strapi under Content-Type Builder. Reload collections
+                  checks each name against the instance and shows how many entries it holds.
                 </span>
                 {typedCollections.length > 0
                   ? (
