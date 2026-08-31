@@ -1026,6 +1026,17 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
       onClose={onClose}
       onSubmit={submit}
     >
+      <p className="rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground/80">How this works:</span>
+        {' '}
+        fill in the instance URL and an API token, then use
+        {' '}
+        <span className="font-medium">Load collections</span>
+        {' '}
+        to read what that instance holds and choose what to sync. Both are needed before anything can be loaded — the
+        token says you're allowed in, the URL says which instance to ask.
+      </p>
+
       <label className="block">
         <span className="text-sm font-medium text-foreground/80">Strapi URL</span>
         <input
@@ -1114,6 +1125,22 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
               <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
                 <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
                 {inspection.error}
+              </p>
+            )
+          : null}
+
+        {!inspection && !connectionReady
+          ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Add the instance URL and an API token above, then Load collections.
+              </p>
+            )
+          : null}
+
+        {!inspection && connectionReady
+          ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Ready — Load collections reads this instance, or type the plural ids below yourself.
               </p>
             )
           : null}
