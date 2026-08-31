@@ -1,7 +1,8 @@
 /**
  * `/rpc/sources/[id]` — edit or delete one configured source.
  *
- *   PATCH  → replace the source's config from { configJson }
+ *   PATCH  → replace the source's config from { configJson }; stops a run in
+ *              progress, since it is reading the config being replaced
  *   DELETE → remove the source and everything ingested from it
  *
  * The Sources page's Edit dialog posts here. Editing a source is how a changed
@@ -13,7 +14,7 @@
 import { ZodError } from 'zod';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { logger } from '@/libs/Logger';
-import { deleteSource, updateSourceConfig } from '@/services/SourceSyncService';
+import { deleteSource, supersedeRunningSync, updateSourceConfig } from '@/services/SourceSyncService';
 
 /**
  * Read and check the source id out of the route params.
@@ -48,7 +49,16 @@ export async function PATCH(
   }
   try {
     const updated = await updateSourceConfig({ orgId, sourceId, configJson: body.configJson });
-    return Response.json({ source: updated });
+    // A run already going read the OLD config, so it would keep writing
+    // documents the new settings no longer ask for. Tell it to stop; it notices
+    // within a couple of seconds and unwinds without moving the watermark. The
+    // caller starts the replacement run, so this never waits for it.
+    const stoppedRunningSync = await supersedeRunningSync(
+      orgId,
+      sourceId,
+      'This sync stopped because the source\'s settings changed.',
+    );
+    return Response.json({ source: updated, stoppedRunningSync });
   } catch (err) {
     // A config the connector's schema rejects is the caller's mistake, and its
     // message names the field — worth passing back rather than a bare 500.

@@ -49,7 +49,7 @@ type Source = {
   credentialUpdatedAt: string | null;
   /** The latest sync run for this source, whoever started it. Null if never synced. */
   sync: {
-    status: 'running' | 'completed' | 'failed' | 'abandoned';
+    status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
     startedAt: string;
     completedAt: string | null;
     error: string | null;
@@ -295,8 +295,13 @@ export function SourcesPanel() {
               existing={editingSource}
               onClose={() => setEditingSource(null)}
               onAdded={async () => {
+                const editedId = editingSource.id;
                 setEditingSource(null);
                 await refresh();
+                // New settings, new picture: the saved edit already stopped any
+                // run reading the old config, so read the source again now
+                // rather than leaving stale documents until someone notices.
+                await handleSync(editedId);
               }}
             />
           )
@@ -602,6 +607,13 @@ function SyncRunLine({ sync }: { sync: Source['sync'] }) {
         {formatRelative(new Date(sync.startedAt))}
         {' '}
         never finished — its process stopped. Sync now will take over.
+      </p>
+    );
+  }
+  if (sync.status === 'superseded') {
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">
+        A sync stopped when the settings changed; a fresh one runs with the new settings.
       </p>
     );
   }
@@ -1037,6 +1049,7 @@ function AddSourceDialogFrame({
   title,
   error,
   requirement,
+  notice,
   submitLabel,
   submitting,
   canSubmit,
@@ -1047,6 +1060,8 @@ function AddSourceDialogFrame({
   title: string;
   error: string | null;
   requirement: string | null;
+  /** A standing note about what saving will do, shown above the fields. */
+  notice: string | null;
   /** Wording for the submit button — "Add source" when adding, "Save changes" when editing. */
   submitLabel: string;
   submitting: boolean;
@@ -1066,6 +1081,13 @@ function AddSourceDialogFrame({
             <h3 className="font-display text-lg">{title}</h3>
           </div>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+            {notice
+              ? (
+                  <p className="rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    {notice}
+                  </p>
+                )
+              : null}
             {children}
           </div>
           <div className="border-t px-4 py-3">
@@ -1247,6 +1269,7 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
       error={error}
       requirement={url.trim().length > 0 ? null : 'a URL to read'}
       submitLabel={existing ? 'Save changes' : 'Add source'}
+      notice={existing ? 'Saving restarts this source\'s sync: a run in progress stops, and a fresh one reads the source with the new settings.' : null}
       submitting={submitting}
       canSubmit={url.trim().length > 0}
       onClose={onClose}
@@ -1579,6 +1602,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
       error={error}
       requirement={requirement}
       submitLabel={existing ? 'Save changes' : 'Add source'}
+      notice={existing ? 'Saving restarts this source\'s sync: a run in progress stops, and a fresh one reads the source with the new settings.' : null}
       submitting={submitting}
       canSubmit={connectionReady && chosen.length > 0 && failedChecks.length === 0}
       onClose={onClose}
