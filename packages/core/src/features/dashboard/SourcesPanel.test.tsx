@@ -87,7 +87,7 @@ function notEnumerable(checks: Inspection['checks']): Inspection {
  * Stand in for the endpoints the panel talks to, recording what it posts.
  * @param connectors - Tiles the picker should offer.
  * @param inspections - Replies for successive /rpc/connectors/strapi/inspect calls; the last repeats.
- * @param options - `inspectRejection` makes every inspect call fail with that message, as the route does for a URL with no scheme.
+ * @param options - `inspectRejection` makes every inspect call fail with that message, as the route does for a URL with no scheme; `storedToken` is what the credential read returns.
  * @param options.inspectRejection
  */
 type SourceFixture = {
@@ -137,7 +137,7 @@ function sourceRow(sync: SourceFixture['sync']): SourceFixture {
 function stubSourcesApi(
   connectors: ConnectorFixture[],
   inspections: Inspection[] = [],
-  options: { inspectRejection?: string; sources?: SourceFixture[] } = {},
+  options: { inspectRejection?: string; sources?: SourceFixture[]; storedToken?: string } = {},
 ) {
   const posts: { url: string; body: Record<string, unknown> }[] = [];
   let inspectCall = 0;
@@ -161,6 +161,13 @@ function stubSourcesApi(
         return new Response(JSON.stringify({ error: 'no inspection stubbed' }), { status: 502 });
       }
       return new Response(JSON.stringify({ inspection: reply }), { status: 200 });
+    }
+    if (/^\/rpc\/sources\/\d+\/credentials$/.test(url) && (init?.method ?? 'GET') === 'GET') {
+      posts.push({ url: `GET ${url}`, body: {} });
+      return new Response(
+        JSON.stringify({ credentials: options.storedToken === undefined ? null : { token: options.storedToken } }),
+        { status: 200 },
+      );
     }
     if (/^\/rpc\/sources\/\d+\/sync$/.test(url) && init?.method === 'POST') {
       posts.push({ url, body: {} });
@@ -858,7 +865,9 @@ describe('editing and deleting a source', () => {
     expect((patch.body.configJson as { collections: string[] }).collections).toEqual(['events', 'venues']);
     // No new source, and no credential write when the token field was left alone.
     expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(0);
-    expect(posts.filter(post => post.url.endsWith('/credentials'))).toHaveLength(0);
+    // The GET that loads the stored token is recorded as "GET …", so this is
+    // the write specifically.
+    expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(0);
 
     // New settings, new picture: a fresh run starts on its own.
     await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/sync')).toHaveLength(1));
@@ -924,5 +933,76 @@ describe('editing and deleting a source', () => {
 
     await expect.element(page.getByRole('button', { name: 'Connect' })).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Update key' })).not.toBeInTheDocument();
+  });
+});
+
+describe('the stored token on an edit', () => {
+  it('loads it into the field instead of showing an empty box', async () => {
+    stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [sourceRow(null)],
+      storedToken: 'stored-tok-123',
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
+  });
+
+  it('writes no new credential when the loaded token is left alone', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [sourceRow(null)],
+      storedToken: 'stored-tok-123',
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
+
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(1));
+
+    expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(0);
+  });
+
+  it('writes one when the loaded token is replaced', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [sourceRow(null)],
+      storedToken: 'stored-tok-123',
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
+
+    await userEvent.fill(page.getByLabelText(/API token/), 'replacement-tok');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(1));
+  });
+
+  it('says so rather than showing an empty field when the stored token cannot be read', async () => {
+    const fetchStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : String(input);
+      if (url === '/rpc/sources' && (init?.method ?? 'GET') === 'GET') {
+        return new Response(JSON.stringify({ sources: [sourceRow(null)], connectors: CONNECTORS }), { status: 200 });
+      }
+      if (/^\/rpc\/sources\/\d+\/credentials$/.test(url)) {
+        return new Response(
+          JSON.stringify({ error: 'The stored credential could not be decrypted with the current vault key.' }),
+          { status: 500 },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchStub);
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByRole('alert')).toHaveTextContent(/could not be decrypted/);
   });
 });
