@@ -90,6 +90,35 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
 }
 
 /**
+ * Tell a run in progress to stop, because the source it is reading changed.
+ *
+ * Cooperative, not a kill: the run notices at its next check and unwinds
+ * cleanly, leaving the watermark where it was and deleting nothing. Nothing
+ * here waits for that to happen — the caller is free to start the replacement
+ * run, because `beginSync` can claim a checkpoint that is no longer `running`.
+ * @param orgId - Org that owns the source.
+ * @param sourceId - Source whose run should stop.
+ * @param reason - What to record on the checkpoint, shown in the UI.
+ * @returns Whether a running sync was found to stop.
+ */
+export async function supersedeRunningSync(
+  orgId: string,
+  sourceId: number,
+  reason: string,
+): Promise<boolean> {
+  const stopped = await db
+    .update(sourceSyncCheckpointSchema)
+    .set({ status: 'superseded', completedAt: new Date(), error: reason })
+    .where(and(
+      eq(sourceSyncCheckpointSchema.sourceId, sourceId),
+      eq(sourceSyncCheckpointSchema.orgId, orgId),
+      eq(sourceSyncCheckpointSchema.status, 'running'),
+    ))
+    .returning({ id: sourceSyncCheckpointSchema.id });
+  return stopped.length > 0;
+}
+
+/**
  * Replace one source's configuration.
  *
  * The connector is NOT changeable: a source's documents were ingested by one
@@ -259,6 +288,32 @@ export class SyncAlreadyRunningError extends Error {
     this.name = 'SyncAlreadyRunningError';
   }
 }
+
+/**
+ * The source's settings changed while this run was going, so it stopped.
+ *
+ * A run reads the config once, at the start. Carrying on after an edit means
+ * writing documents from collections the operator just removed, or from an
+ * instance they just repointed — and then advancing the watermark as if that
+ * were the current picture. Stopping and starting again is both cheaper to
+ * reason about and what the operator asked for by saving.
+ */
+export class SyncSupersededError extends Error {
+  constructor(sourceId: number) {
+    super(`the settings for source ${sourceId} changed, so this sync stopped`);
+    this.name = 'SyncSupersededError';
+  }
+}
+
+/**
+ * How often a running sync checks whether it has been superseded.
+ *
+ * The check is one indexed read of the checkpoint row, and the loop can run
+ * thousands of times, so it is time-based rather than per-document: two seconds
+ * is far shorter than a run the operator would sit and wait through, and adds
+ * at most one query every two seconds.
+ */
+const SUPERSEDE_CHECK_INTERVAL_MS = 2000;
 
 /**
  * Every document failed, so the run achieved nothing.
@@ -576,6 +631,28 @@ export async function runSync(opts: {
    * ignored, so one bad document never stops the rest of the sync.
    * @param doc - A document yielded by the connector.
    */
+  let lastSupersedeCheck = Date.now();
+  /**
+   * Throw if this source's settings changed since the run started.
+   *
+   * Time-boxed rather than per-document: one indexed read every couple of
+   * seconds, which is nothing beside the embedding call each document makes.
+   */
+  const stopIfSuperseded = async (): Promise<void> => {
+    if (Date.now() - lastSupersedeCheck < SUPERSEDE_CHECK_INTERVAL_MS) {
+      return;
+    }
+    lastSupersedeCheck = Date.now();
+    const [checkpoint] = await db
+      .select({ status: sourceSyncCheckpointSchema.status })
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, opts.sourceId))
+      .limit(1);
+    if (checkpoint && checkpoint.status !== 'running') {
+      throw new SyncSupersededError(opts.sourceId);
+    }
+  };
+
   const beginIngesting = (doc: IngestDoc): void => {
     const ingesting = ingestDocument(
       { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
@@ -643,6 +720,9 @@ export async function runSync(opts: {
         reportProgress(e);
       },
     })) {
+      // An edit to this source stops the run here rather than letting it write
+      // documents the new settings no longer ask for.
+      await stopIfSuperseded();
       if (handledExternalIds.has(doc.externalId)) {
         // Already ingested this document in this run — see handledExternalIds.
         reportProgress({
@@ -746,6 +826,18 @@ export async function runSync(opts: {
     // above. Without this, documents would carry on writing to the database
     // after the sync has been marked failed and the request has ended.
     await Promise.allSettled(activeIngests);
+    // The checkpoint already says why this run stopped, and the replacement run
+    // may have claimed the row by now — writing `failed` over that would blame
+    // the edit for a failure and hide the run that is actually going.
+    if (err instanceof SyncSupersededError) {
+      log('warn', 'sync stopped because the source changed', {
+        sourceId: opts.sourceId,
+        orgId: opts.orgId,
+        connectorSlug,
+        counts: countsForCheckpoint(),
+      });
+      throw err;
+    }
     log('error', 'sync failed', {
       sourceId: opts.sourceId,
       orgId: opts.orgId,
@@ -880,10 +972,11 @@ export async function documentCountsForOrg(orgId: string): Promise<Record<number
 export type SourceSyncState = {
   /**
    * `running` while a run holds the source, `completed` / `failed` afterwards,
-   * and `abandoned` for a run still marked running past the takeover window —
-   * its process died, so the UI must not show it as busy for ever.
+   * `superseded` for a run stopped because the source's settings changed, and
+   * `abandoned` for a run still marked running past the takeover window — its
+   * process died, so the UI must not show it as busy for ever.
    */
-  status: 'running' | 'completed' | 'failed' | 'abandoned';
+  status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
   startedAt: Date;
   completedAt: Date | null;
   /** The fatal error that ended a failed run. */
