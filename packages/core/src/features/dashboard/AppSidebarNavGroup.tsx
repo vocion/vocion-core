@@ -5,6 +5,7 @@ import { ChevronRight } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
+import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
 import { Link } from '@/libs/I18nNavigation';
 
 /**
@@ -60,7 +61,7 @@ export const AppSidebarNavGroup = (props: {
                         )
                       : (
                           <Link href={item.url}>
-                            <item.icon />
+                            <NavPendingIcon icon={item.icon} />
                             <span>{item.title}</span>
                           </Link>
                         )}
