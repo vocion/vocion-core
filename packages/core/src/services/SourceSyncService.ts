@@ -986,8 +986,9 @@ export type SourceSyncState = {
 };
 
 /**
- * The latest sync run per source, so the Sources page can show a run it did not
- * start itself.
+ * The sync run per source, so the Sources page can show a run it did not start
+ * itself. One row per source — a run updates the source's checkpoint rather
+ * than adding another, and a unique index enforces it.
  *
  * Without this the page only knows about syncs from its own tab: a run started
  * in another tab, by the scheduler, or one still going after a page reload was
@@ -1009,12 +1010,11 @@ export async function latestSyncStateForOrg(orgId: string): Promise<Record<numbe
     .where(eq(sourceSyncCheckpointSchema.orgId, orgId));
 
   const takeoverCutoff = Date.now() - ABANDONED_SYNC_AFTER_MS;
+  // One row per source: `source_sync_checkpoint_source_idx` is unique on
+  // source_id, and each run updates that row rather than adding one. So there is
+  // no "pick the newest" to do here.
   const latestPerSource: Record<number, SourceSyncState> = {};
   for (const row of rows) {
-    const existing = latestPerSource[row.sourceId];
-    if (existing && existing.startedAt >= row.startedAt) {
-      continue;
-    }
     // Same rule beginSync uses to take a stuck run over, so the page and the
     // service never disagree about whether a source is busy.
     const isStuck = row.status === 'running' && row.startedAt.getTime() < takeoverCutoff;
