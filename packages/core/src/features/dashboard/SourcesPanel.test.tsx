@@ -26,7 +26,7 @@ function connector(slug: string, name: string, description: string): ConnectorFi
 /**
  * A numbered fixture whose name is zero-padded, so its alphabetical position
  * matches its number — "Connector 2" would otherwise sort after "Connector 19".
- * @param index Which connector in the run of fixtures.
+ * @param index - Which connector in the run of fixtures.
  */
 function paddedConnector(index: number): ConnectorFixture {
   const label = String(index).padStart(2, '0');
@@ -82,6 +82,7 @@ describe('filterConnectors', () => {
   it('leaves the caller\'s array untouched while sorting', () => {
     const original = [...CONNECTORS];
     filterConnectors(CONNECTORS, '');
+
     expect(CONNECTORS).toEqual(original);
   });
 
