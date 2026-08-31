@@ -1,7 +1,7 @@
 'use client';
 
-import { CheckCircle2, Globe, KeyRound, Loader2, Plus, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { CheckCircle2, Globe, KeyRound, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Link } from '@/libs/I18nNavigation';
@@ -178,6 +178,7 @@ const CRED_FIELDS: Record<string, { help: string; fields: CredField[] }> = {
   drive: { help: 'A Google OAuth access token with drive.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
   ga4: { help: 'A Google OAuth access token with analytics.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
   googleAds: { help: 'A Google Ads OAuth access token.', fields: [{ key: 'token', label: 'OAuth access token' }, { key: 'developerToken', label: 'Developer token', optional: true }] },
+  strapi: { help: 'Strapi admin → Settings → API Tokens → Create new API Token. Read-only is enough — this connector never writes back.', fields: [{ key: 'token', label: 'API token' }] },
   zoom: { help: 'Zoom App Marketplace → Develop → Build App → Server-to-Server OAuth. Needs scopes user:read:admin + cloud_recording:read:admin. All three values are on the app\'s Credentials page.', fields: [{ key: 'accountId', label: 'Account ID' }, { key: 'clientId', label: 'Client ID' }, { key: 'clientSecret', label: 'Client secret' }] },
 };
 
@@ -386,6 +387,34 @@ function describeSourceConfig(config: Record<string, unknown>): string {
   return 'Configured source';
 }
 
+/**
+ * How many connector cards render before the picker asks for a click to show
+ * more. The registry is small today but grows with every connector shipped, and
+ * a modal that paints a hundred cards on open is the cost nobody notices until
+ * it is slow. Rendering a page at a time keeps the open instant without pulling
+ * in a virtual-list dependency; the search box is what makes a long list usable.
+ */
+const CONNECTOR_PAGE_SIZE = 25;
+
+/**
+ * Connectors whose name, slug or description contains every word in the query.
+ * Word-at-a-time (rather than one substring match) so "google ads" finds the
+ * Google Ads tile whichever order the words are typed. An empty query matches
+ * everything, which is what the picker shows on open.
+ * @param connectors
+ * @param query
+ */
+export function filterConnectors(connectors: ConnectorTile[], query: string): ConnectorTile[] {
+  const words = query.toLowerCase().split(/\s+/).filter(word => word.length > 0);
+  if (words.length === 0) {
+    return connectors;
+  }
+  return connectors.filter((connector) => {
+    const haystack = `${connector.name} ${connector.slug} ${connector.description}`.toLowerCase();
+    return words.every(word => haystack.includes(word));
+  });
+}
+
 function ConnectorPicker({
   connectors,
   onClose,
@@ -395,17 +424,62 @@ function ConnectorPicker({
   onClose: () => void;
   onPick: (slug: string) => void;
 }) {
+  const [query, setQuery] = useState('');
+  const [visibleCount, setVisibleCount] = useState(CONNECTOR_PAGE_SIZE);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // The picker opens for this input — typing straight away is the point. Done
+  // with a ref rather than `autoFocus`, which the a11y lint rules bar.
+  useEffect(() => {
+    searchInputRef.current?.focus();
+  }, []);
+
+  const matches = useMemo(() => filterConnectors(connectors, query), [connectors, query]);
+  const visible = matches.slice(0, visibleCount);
+  const hiddenCount = matches.length - visible.length;
+
+  // A new query starts a fresh page — otherwise a search run after "Show more"
+  // would keep the taller list height for a two-result match.
+  const changeQuery = (next: string) => {
+    setQuery(next);
+    setVisibleCount(CONNECTOR_PAGE_SIZE);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-2xl rounded-xl border bg-background shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border bg-background shadow-xl">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="font-display text-lg">Pick a source type</h3>
           <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
             Cancel
           </button>
         </div>
-        <div className="grid gap-2 p-4 sm:grid-cols-2">
-          {connectors.map(c => (
+        <div className="border-b px-4 py-3">
+          <label className="relative block">
+            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              onChange={e => changeQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  onClose();
+                }
+              }}
+              placeholder="Search source types — name or what it ingests"
+              aria-label="Search source types"
+              className="w-full rounded-md border border-input bg-background py-2 pr-3 pl-9 text-sm"
+            />
+          </label>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {matches.length === connectors.length
+              ? `${connectors.length} source types`
+              : `${matches.length} of ${connectors.length} source types`}
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 overflow-y-auto p-4">
+          {visible.map(c => (
             <button
               type="button"
               key={c.slug}
@@ -417,108 +491,121 @@ function ConnectorPicker({
                   {c.icon.slice(0, 1)}
                 </span>
                 <span className="font-medium">{c.name}</span>
+                {c.authKind !== 'none'
+                  ? (
+                      <Badge variant="outline" className="ml-auto text-[10px]">
+                        {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
+                      </Badge>
+                    )
+                  : null}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">{c.description}</p>
-              {c.authKind !== 'none'
-                ? (
-                    <Badge variant="outline" className="mt-2 text-[10px]">
-                      {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
-                    </Badge>
-                  )
-                : null}
             </button>
           ))}
+          {matches.length === 0
+            ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No source type matches “
+                  {query}
+                  ”.
+                </p>
+              )
+            : null}
+          {hiddenCount > 0
+            ? (
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(count => count + CONNECTOR_PAGE_SIZE)}
+                  className="rounded-lg border border-dashed py-2 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Show
+                  {' '}
+                  {Math.min(hiddenCount, CONNECTOR_PAGE_SIZE)}
+                  {' '}
+                  more (
+                  {hiddenCount}
+                  {' '}
+                  hidden)
+                </button>
+              )
+            : null}
         </div>
       </div>
     </div>
   );
 }
 
-function AddSourceDialog({
-  kind,
-  connector,
+/**
+ * Split a typed collection list into the array the Strapi connector's config
+ * schema wants. Commas and newlines both separate, so a pasted list works, and
+ * blanks from a trailing comma are dropped rather than failing validation.
+ * @param raw
+ */
+export function parseStrapiCollections(raw: string): string[] {
+  return raw
+    .split(/[,\n]/)
+    .map(entry => entry.trim())
+    .filter(entry => entry.length > 0);
+}
+
+/**
+ * POST a new source row. Returns the server's message on failure, null on success.
+ * @param kind
+ * @param configJson
+ */
+async function createSource(kind: string, configJson: Record<string, unknown>): Promise<string | null> {
+  const res = await fetch('/rpc/sources', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, configJson }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return data.error ?? 'Failed to create source';
+  }
+  return null;
+}
+
+/**
+ * The chrome every add-source form shares: title, error strip, Cancel and the
+ * submit button's pending state. The fields themselves differ per connector —
+ * a web crawl needs a start URL, Strapi needs an instance and its collections —
+ * so each form owns its own state and hands its config to `onSubmit`.
+ * @param root0
+ * @param root0.title
+ * @param root0.error
+ * @param root0.submitting
+ * @param root0.canSubmit
+ * @param root0.onClose
+ * @param root0.onSubmit
+ * @param root0.children
+ */
+function AddSourceDialogFrame({
+  title,
+  error,
+  submitting,
+  canSubmit,
   onClose,
-  onAdded,
+  onSubmit,
+  children,
 }: {
-  kind: string;
-  connector: ConnectorTile | null;
+  title: string;
+  error: string | null;
+  submitting: boolean;
+  canSubmit: boolean;
   onClose: () => void;
-  onAdded: () => Promise<void> | void;
+  onSubmit: (e: React.FormEvent) => void;
+  children: React.ReactNode;
 }) {
-  const [url, setUrl] = useState('');
-  const [crawl, setCrawl] = useState(true);
-  const [maxPages, setMaxPages] = useState(20);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const configJson = crawl
-        ? { crawl: { startUrl: url, maxDepth: 1, maxPages } }
-        : { urls: [url] };
-      const res = await fetch('/rpc/sources', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind, configJson }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? 'Failed to create source');
-        return;
-      }
-      await onAdded();
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
-        <form onSubmit={submit}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl border bg-background shadow-xl">
+        <form onSubmit={onSubmit}>
           <div className="flex items-center justify-between border-b px-4 py-3">
-            <h3 className="font-display text-lg">
-              Add
-              {' '}
-              {connector?.name ?? kind}
-              {' '}
-              source
-            </h3>
+            <h3 className="font-display text-lg">{title}</h3>
           </div>
           <div className="space-y-4 p-4">
-            <label className="block">
-              <span className="text-sm font-medium text-foreground/80">URL</span>
-              <input
-                type="url"
-                required
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-                placeholder="https://example.com/docs"
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={crawl} onChange={e => setCrawl(e.target.checked)} />
-              Crawl linked pages on the same origin
-            </label>
-            {crawl
-              ? (
-                  <label className="block">
-                    <span className="text-sm font-medium text-foreground/80">Max pages</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={200}
-                      value={maxPages}
-                      onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    />
-                  </label>
-                )
-              : null}
+            {children}
             {error
               ? (
                   <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -537,7 +624,7 @@ function AddSourceDialog({
             </button>
             <button
               type="submit"
-              disabled={submitting || !url}
+              disabled={submitting || !canSubmit}
               className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting
@@ -554,6 +641,226 @@ function AddSourceDialog({
       </div>
     </div>
   );
+}
+
+const FIELD_CLASS = 'mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
+
+function AddWebSourceDialog({ kind, title, onClose, onAdded }: {
+  kind: string;
+  title: string;
+  onClose: () => void;
+  onAdded: () => Promise<void> | void;
+}) {
+  const [url, setUrl] = useState('');
+  const [crawl, setCrawl] = useState(true);
+  const [maxPages, setMaxPages] = useState(20);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const configJson = crawl
+        ? { crawl: { startUrl: url, maxDepth: 1, maxPages } }
+        : { urls: [url] };
+      const message = await createSource(kind, configJson);
+      if (message) {
+        setError(message);
+        return;
+      }
+      await onAdded();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <AddSourceDialogFrame
+      title={title}
+      error={error}
+      submitting={submitting}
+      canSubmit={url.trim().length > 0}
+      onClose={onClose}
+      onSubmit={submit}
+    >
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">URL</span>
+        <input
+          type="url"
+          required
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          placeholder="https://example.com/docs"
+          className={FIELD_CLASS}
+        />
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={crawl} onChange={e => setCrawl(e.target.checked)} />
+        Crawl linked pages on the same origin
+      </label>
+      {crawl
+        ? (
+            <label className="block">
+              <span className="text-sm font-medium text-foreground/80">Max pages</span>
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={maxPages}
+                onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
+                className={FIELD_CLASS}
+              />
+            </label>
+          )
+        : null}
+    </AddSourceDialogFrame>
+  );
+}
+
+/**
+ * Strapi's own fields. One source covers every collection on one instance —
+ * `ensureSource` keys a row on (org, connector slug), so a second Strapi source
+ * would resolve back to the first (see `libs/sources/strapi.ts`). That is why
+ * collections are a list on this form rather than a source each.
+ * @param root0
+ * @param root0.kind
+ * @param root0.title
+ * @param root0.onClose
+ * @param root0.onAdded
+ */
+function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
+  kind: string;
+  title: string;
+  onClose: () => void;
+  onAdded: () => Promise<void> | void;
+}) {
+  const [baseUrl, setBaseUrl] = useState('');
+  const [collectionsText, setCollectionsText] = useState('');
+  const [populate, setPopulate] = useState('*');
+  const [pageSize, setPageSize] = useState(100);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const collections = parseStrapiCollections(collectionsText);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const message = await createSource(kind, {
+        baseUrl: baseUrl.trim().replace(/\/+$/, ''),
+        collections,
+        populate: populate.trim() === '' ? '*' : populate.trim(),
+        pageSize,
+      });
+      if (message) {
+        setError(message);
+        return;
+      }
+      await onAdded();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <AddSourceDialogFrame
+      title={title}
+      error={error}
+      submitting={submitting}
+      canSubmit={baseUrl.trim().length > 0 && collections.length > 0}
+      onClose={onClose}
+      onSubmit={submit}
+    >
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">Strapi URL</span>
+        <input
+          type="url"
+          required
+          value={baseUrl}
+          onChange={e => setBaseUrl(e.target.value)}
+          placeholder="https://cms.partner.org"
+          className={FIELD_CLASS}
+        />
+        <span className="mt-1 block text-xs text-muted-foreground">
+          The instance root, not the /api path. Works with Strapi v4 and v5 — the version is detected from the response.
+        </span>
+      </label>
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">Collections</span>
+        <textarea
+          required
+          rows={2}
+          value={collectionsText}
+          onChange={e => setCollectionsText(e.target.value)}
+          placeholder="events, venues"
+          className={FIELD_CLASS}
+        />
+        <span className="mt-1 block text-xs text-muted-foreground">
+          Plural API ids, comma separated. One source covers every collection on this instance — they share its URL and token.
+          {collections.length > 0
+            ? ` Syncing ${collections.length === 1 ? '1 collection' : `${collections.length} collections`}: ${collections.join(', ')}.`
+            : ''}
+        </span>
+      </label>
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">Populate</span>
+        <input
+          type="text"
+          value={populate}
+          onChange={e => setPopulate(e.target.value)}
+          placeholder="*"
+          className={FIELD_CLASS}
+        />
+        <span className="mt-1 block text-xs text-muted-foreground">
+          Relations and media to expand. “*” pulls every first-level relation; Strapi returns bare ids otherwise.
+        </span>
+      </label>
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">Entries per page</span>
+        <input
+          type="number"
+          min={1}
+          max={100}
+          value={pageSize}
+          onChange={e => setPageSize(Math.max(1, Math.min(100, Number.parseInt(e.target.value, 10) || 1)))}
+          className={FIELD_CLASS}
+        />
+        <span className="mt-1 block text-xs text-muted-foreground">
+          Strapi caps a page at 100 by default. The sync walks every page until the collection is exhausted.
+        </span>
+      </label>
+    </AddSourceDialogFrame>
+  );
+}
+
+/**
+ * Route each connector to the form its config schema actually needs.
+ * @param root0
+ * @param root0.kind
+ * @param root0.connector
+ * @param root0.onClose
+ * @param root0.onAdded
+ */
+function AddSourceDialog({
+  kind,
+  connector,
+  onClose,
+  onAdded,
+}: {
+  kind: string;
+  connector: ConnectorTile | null;
+  onClose: () => void;
+  onAdded: () => Promise<void> | void;
+}) {
+  const title = `Add ${connector?.name ?? kind} source`;
+  if (kind === 'strapi') {
+    return <AddStrapiSourceDialog kind={kind} title={title} onClose={onClose} onAdded={onAdded} />;
+  }
+  return <AddWebSourceDialog kind={kind} title={title} onClose={onClose} onAdded={onAdded} />;
 }
 
 function formatRelative(date: Date): string {
