@@ -793,6 +793,66 @@ export async function documentCountsForOrg(orgId: string): Promise<Record<number
   return map;
 }
 
+/** What the last (or current) sync run of one source is doing, for the UI. */
+export type SourceSyncState = {
+  /**
+   * `running` while a run holds the source, `completed` / `failed` afterwards,
+   * and `abandoned` for a run still marked running past the takeover window —
+   * its process died, so the UI must not show it as busy for ever.
+   */
+  status: 'running' | 'completed' | 'failed' | 'abandoned';
+  startedAt: Date;
+  completedAt: Date | null;
+  /** The fatal error that ended a failed run. */
+  error: string | null;
+  /** What the run managed to do: created / updated / unchanged / tombstoned / errors. */
+  counts: Record<string, number>;
+};
+
+/**
+ * The latest sync run per source, so the Sources page can show a run it did not
+ * start itself.
+ *
+ * Without this the page only knows about syncs from its own tab: a run started
+ * in another tab, by the scheduler, or one still going after a page reload was
+ * invisible, and the only sign of it was a 409 "already syncing" when the
+ * operator pressed Sync now.
+ * @param orgId - Org whose sources to report on.
+ */
+export async function latestSyncStateForOrg(orgId: string): Promise<Record<number, SourceSyncState>> {
+  const rows = await db
+    .select({
+      sourceId: sourceSyncCheckpointSchema.sourceId,
+      status: sourceSyncCheckpointSchema.status,
+      startedAt: sourceSyncCheckpointSchema.startedAt,
+      completedAt: sourceSyncCheckpointSchema.completedAt,
+      error: sourceSyncCheckpointSchema.error,
+      counts: sourceSyncCheckpointSchema.counts,
+    })
+    .from(sourceSyncCheckpointSchema)
+    .where(eq(sourceSyncCheckpointSchema.orgId, orgId));
+
+  const takeoverCutoff = Date.now() - ABANDONED_SYNC_AFTER_MS;
+  const latestPerSource: Record<number, SourceSyncState> = {};
+  for (const row of rows) {
+    const existing = latestPerSource[row.sourceId];
+    if (existing && existing.startedAt >= row.startedAt) {
+      continue;
+    }
+    // Same rule beginSync uses to take a stuck run over, so the page and the
+    // service never disagree about whether a source is busy.
+    const isStuck = row.status === 'running' && row.startedAt.getTime() < takeoverCutoff;
+    latestPerSource[row.sourceId] = {
+      status: isStuck ? 'abandoned' : (row.status as SourceSyncState['status']),
+      startedAt: row.startedAt,
+      completedAt: row.completedAt,
+      error: row.error,
+      counts: row.counts,
+    };
+  }
+  return latestPerSource;
+}
+
 /**
  * Fetch a single org-scoped source by id — used by the credentials route to
  * resolve the connector slug (`config._connector`) before storing a token.
