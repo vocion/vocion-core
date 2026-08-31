@@ -32,7 +32,11 @@ export default async function AgentsPage(props: {
   setRequestLocale(locale);
   const { orgId } = await auth();
 
-  const hierarchy = orgId ? await listAgentHierarchy(orgId) : [];
+  // The roster and the applied-workspace sha are independent reads — fetch them
+  // together so the page waits for the slower one, not for their sum.
+  const [hierarchy, sha] = orgId
+    ? await Promise.all([listAgentHierarchy(orgId), getCurrentWorkspaceSha(orgId)])
+    : [[], null];
 
   // Activated agents → clickable lead cards (the existing behavior).
   const activatedCards: AgentCard[] = hierarchy.map(({ primary, specialists }) => ({
@@ -52,7 +56,6 @@ export default async function AgentsPage(props: {
   // carries `+core@<version>`) — a workspace that never opted into the pack
   // shouldn't advertise core's roster.
   const activatedSlugs = new Set(hierarchy.flatMap(({ primary, specialists }) => [primary.slug, ...specialists.map(s => s.slug)]));
-  const sha = orgId ? await getCurrentWorkspaceSha(orgId) : null;
   const packActive = !!sha && /\+core@/.test(sha);
 
   const ghostCards: AgentCard[] = [];
