@@ -162,6 +162,10 @@ function stubSourcesApi(
       }
       return new Response(JSON.stringify({ inspection: reply }), { status: 200 });
     }
+    if (/^\/rpc\/sources\/\d+$/.test(url) && (init?.method === 'PATCH' || init?.method === 'DELETE')) {
+      posts.push({ url, body: init.body ? JSON.parse(String(init.body)) : {} });
+      return new Response(JSON.stringify({ source: { id: 1 }, documentsDeleted: 0 }), { status: 200 });
+    }
     if (/^\/rpc\/sources\/\d+\/credentials$/.test(url) && init?.method === 'POST') {
       posts.push({ url, body: JSON.parse(String(init.body)) });
       return new Response(JSON.stringify({ credentialId: 'cred-1' }), { status: 200 });
@@ -820,5 +824,71 @@ describe('a sync started somewhere else', () => {
     renderPanel();
 
     await expect.element(page.getByText(/Last sync could not save 2 documents/)).toBeVisible();
+  });
+});
+
+describe('editing and deleting a source', () => {
+  it('opens the same form prefilled, and PATCHes instead of creating', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByText('Edit Strapi source')).toBeVisible();
+    await expect.element(page.getByLabelText(/Strapi URL/)).toHaveValue('https://cms.partner.org');
+    await expect.element(page.getByLabelText('Collections')).toHaveValue('events');
+
+    // A stored token counts as present, so nothing is "still needed".
+    await expect.element(page.getByText(/Still needed/)).not.toBeInTheDocument();
+
+    await userEvent.fill(page.getByLabelText('Collections'), 'events, venues');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(1));
+
+    const patch = posts.find(post => post.url === '/rpc/sources/1')!;
+
+    expect((patch.body.configJson as { collections: string[] }).collections).toEqual(['events', 'venues']);
+    // No new source, and no credential write when the token field was left alone.
+    expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(0);
+    expect(posts.filter(post => post.url.endsWith('/credentials'))).toHaveLength(0);
+  });
+
+  it('writes a new token only when one is typed', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await userEvent.fill(page.getByLabelText(/API token/), 'fresh-token');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(1));
+  });
+
+  it('says what a delete takes with it, and only deletes on confirm', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Delete' }).click();
+
+    await expect.element(page.getByText(/It cannot be undone/)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(0);
+
+    await page.getByRole('button', { name: 'Delete' }).click();
+    await page.getByRole('button', { name: 'Delete source' }).click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(1));
+  });
+
+  it('offers Connect only while nothing is stored', async () => {
+    const unconnected = { ...sourceRow(null), credentialConnected: false };
+    stubSourcesApi(CONNECTORS, [], { sources: [unconnected] });
+    renderPanel();
+
+    await expect.element(page.getByRole('button', { name: 'Connect' })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Update key' })).not.toBeInTheDocument();
   });
 });
