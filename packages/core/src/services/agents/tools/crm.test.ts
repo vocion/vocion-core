@@ -144,9 +144,9 @@ describe('source gating', () => {
   it('builds all three for any agent with a HubSpot source — no grant needed', () => {
     const names = buildDomainTools(ctxFor(ORG, ['hubspot'])).map(t => t.name);
 
-    expect(names).toContain('get_hubspot_contacts');
-    expect(names).toContain('get_hubspot_deals');
-    expect(names).toContain('get_hubspot_companies');
+    expect(names).toContain('hubspot_count_contacts');
+    expect(names).toContain('hubspot_count_deals');
+    expect(names).toContain('hubspot_count_companies');
   });
 
   it('matches a differently-named HubSpot source too', () => {
@@ -158,7 +158,7 @@ describe('counts', () => {
   it('returns an exact total, not the page length', async () => {
     await seedCrm();
 
-    const all = await call(toolsByName(ORG).get('get_hubspot_contacts'), { limit: 2 });
+    const all = await call(toolsByName(ORG).get('hubspot_count_contacts'), { limit: 2 });
 
     expect(all.total).toBe(5);
     expect(all.returned).toBe(2);
@@ -168,7 +168,7 @@ describe('counts', () => {
 
   it('filters by lifecycle stage, case-insensitively', async () => {
     await seedCrm();
-    const tool = toolsByName(ORG).get('get_hubspot_contacts');
+    const tool = toolsByName(ORG).get('hubspot_count_contacts');
 
     expect((await call(tool, { lifecycle_stages: ['lead'] })).total).toBe(3);
     expect((await call(tool, { lifecycle_stages: ['LEAD'] })).total).toBe(3);
@@ -178,7 +178,7 @@ describe('counts', () => {
   it('filters by owner', async () => {
     await seedCrm();
 
-    expect((await call(toolsByName(ORG).get('get_hubspot_contacts'), { owner_ids: ['77'] })).total).toBe(1);
+    expect((await call(toolsByName(ORG).get('hubspot_count_contacts'), { owner_ids: ['77'] })).total).toBe(1);
   });
 
   it('reports zero, not an error, when a source exists but has no records of that type', async () => {
@@ -191,14 +191,14 @@ describe('counts', () => {
 
     expect(src).toBeDefined();
 
-    const res = await call(toolsByName(ORG).get('get_hubspot_contacts'));
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'));
 
     expect(res.total).toBe(0);
     expect(res.error).toBeUndefined();
   });
 
   it('says so plainly when no HubSpot source is connected at all', async () => {
-    const res = await call(toolsByName(ORG).get('get_hubspot_contacts'));
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'));
 
     expect(res.error).toBe('no_hubspot_source');
     expect(res.total).toBe(0);
@@ -209,7 +209,7 @@ describe('facets make filter values discoverable', () => {
   it('reports every lifecycle stage present with its count', async () => {
     await seedCrm();
 
-    const res = await call(toolsByName(ORG).get('get_hubspot_contacts'));
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'));
 
     expect(res.facets.lifecycleStage).toEqual({ lead: 3, salesqualifiedlead: 1, customer: 1 });
     // The facet counts sum to the total — the property that makes a
@@ -220,7 +220,7 @@ describe('facets make filter values discoverable', () => {
   it('reports deal stage and pipeline separately', async () => {
     await seedCrm();
 
-    const res = await call(toolsByName(ORG).get('get_hubspot_deals'));
+    const res = await call(toolsByName(ORG).get('hubspot_count_deals'));
 
     expect(res.facets.dealStageLabel).toEqual({ 'Presentation Scheduled': 2, 'Qualified To Buy': 1, 'Dropped': 1 });
     expect(res.facets.pipelineLabel).toEqual({ 'Sales Pipeline': 3, 'Nurture Pipeline': 1 });
@@ -230,7 +230,7 @@ describe('facets make filter values discoverable', () => {
 describe('one tool per object type', () => {
   it('the contacts tool returns only contacts', async () => {
     await seedCrm();
-    const res = await call(toolsByName(ORG).get('get_hubspot_contacts'));
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'));
 
     expect(res.total).toBe(5);
     expect(res.records.every(r => String(r.ref).startsWith('contacts:'))).toBe(true);
@@ -240,8 +240,8 @@ describe('one tool per object type', () => {
     await seedCrm();
     const tools = toolsByName(ORG);
 
-    const deals = await call(tools.get('get_hubspot_deals'));
-    const companies = await call(tools.get('get_hubspot_companies'));
+    const deals = await call(tools.get('hubspot_count_deals'));
+    const companies = await call(tools.get('hubspot_count_companies'));
 
     expect(deals.total).toBe(4);
     expect(deals.records.every(r => String(r.ref).startsWith('deals:'))).toBe(true);
@@ -254,7 +254,7 @@ describe('deal value', () => {
   it('sums amounts across ALL matches, not just the page', async () => {
     await seedCrm();
 
-    const res = await call(toolsByName(ORG).get('get_hubspot_deals'), { limit: 1 });
+    const res = await call(toolsByName(ORG).get('hubspot_count_deals'), { limit: 1 });
 
     expect(res.returned).toBe(1);
     expect(res.total_amount).toBeCloseTo(16500.5, 2);
@@ -277,7 +277,7 @@ describe('deal value', () => {
       ingestedAt: NOW,
     });
 
-    const res = await call(toolsByName(ORG).get('get_hubspot_deals'));
+    const res = await call(toolsByName(ORG).get('hubspot_count_deals'));
 
     expect(res.total).toBe(1);
     expect(res.total_amount).toBeUndefined();
@@ -289,13 +289,13 @@ describe('honesty about what the mirror lacks', () => {
   it('names unsynced fields so the agent can refuse instead of guessing', async () => {
     await seedCrm();
 
-    const companies = await call(toolsByName(ORG).get('get_hubspot_companies'));
+    const companies = await call(toolsByName(ORG).get('hubspot_count_companies'));
 
     // Seeded companies carry no industry — the pre-backfill shape.
     expect(companies.unavailable_fields).toContain('industry');
     expect(companies.facets.industry).toBeUndefined();
 
-    const contacts = await call(toolsByName(ORG).get('get_hubspot_contacts'));
+    const contacts = await call(toolsByName(ORG).get('hubspot_count_contacts'));
 
     // jobTitle IS stamped, so it must not be reported as unavailable.
     expect(contacts.unavailable_fields).not.toContain('jobTitle');
@@ -305,7 +305,7 @@ describe('honesty about what the mirror lacks', () => {
   it('reports the last sync time so staleness is visible', async () => {
     await seedCrm();
 
-    const res = await call(toolsByName(ORG).get('get_hubspot_contacts'));
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'));
 
     expect(res.as_of).toBe(new Date(NOW.getTime() - 3_600_000).toISOString());
     expect(res.sources_read).toContain('hubspot-contacts');
@@ -315,7 +315,7 @@ describe('honesty about what the mirror lacks', () => {
 describe('open vs closed deals', () => {
   it('resolves open/closed from the pipeline flag, not from stage names', async () => {
     await seedCrm();
-    const tool = toolsByName(ORG).get('get_hubspot_deals');
+    const tool = toolsByName(ORG).get('hubspot_count_deals');
 
     const open = await call(tool, { status: 'open' });
     const closed = await call(tool, { status: 'closed' });
@@ -333,7 +333,7 @@ describe('open vs closed deals', () => {
   it('reports value per stage in ONE call, so nothing needs paging to sum', async () => {
     await seedCrm();
 
-    const res = await call(toolsByName(ORG).get('get_hubspot_deals'), { status: 'open', limit: 1 });
+    const res = await call(toolsByName(ORG).get('hubspot_count_deals'), { status: 'open', limit: 1 });
 
     expect(res.returned).toBe(1);
     expect(res.facet_amounts?.dealStageLabel).toEqual({ 'Presentation Scheduled': 7500.5 });
@@ -349,7 +349,7 @@ describe('a filter value that does not exist is refused, not answered', () => {
     // "MQL" is what a caller naturally writes; the stored value is
     // `marketingqualifiedlead`. Returning 0 here is how a wrong number gets
     // reported as fact.
-    const res = await call(toolsByName(ORG).get('get_hubspot_contacts'), { lifecycle_stages: ['MQL'] });
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'), { lifecycle_stages: ['MQL'] });
 
     expect(res.error).toBe('unknown_filter_value');
     expect(res.total).toBeUndefined();
@@ -361,7 +361,7 @@ describe('a filter value that does not exist is refused, not answered', () => {
     await seedCrm();
 
     // Silently dropping "MQL" here would return 3 and read as "leads + MQLs".
-    const res = await call(toolsByName(ORG).get('get_hubspot_contacts'), { lifecycle_stages: ['lead', 'MQL'] });
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'), { lifecycle_stages: ['lead', 'MQL'] });
 
     expect(res.error).toBe('unknown_filter_value');
     expect(res.total).toBeUndefined();
@@ -369,7 +369,7 @@ describe('a filter value that does not exist is refused, not answered', () => {
 
   it('accepts a stage LABEL for deals and rejects the raw internal id', async () => {
     await seedCrm();
-    const tool = toolsByName(ORG).get('get_hubspot_deals');
+    const tool = toolsByName(ORG).get('hubspot_count_deals');
 
     expect((await call(tool, { deal_stages: ['Presentation Scheduled'] })).total).toBe(2);
     expect((await call(tool, { deal_stages: ['presentationscheduled'] })).error).toBe('unknown_filter_value');
@@ -378,7 +378,7 @@ describe('a filter value that does not exist is refused, not answered', () => {
   it('still answers normally when every requested value exists', async () => {
     await seedCrm();
 
-    const res = await call(toolsByName(ORG).get('get_hubspot_contacts'), { lifecycle_stages: ['lead'] });
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'), { lifecycle_stages: ['lead'] });
 
     expect(res.error).toBeUndefined();
     expect(res.total).toBe(3);
@@ -387,7 +387,7 @@ describe('a filter value that does not exist is refused, not answered', () => {
   it('shows the full value distribution even while a filter is applied', async () => {
     await seedCrm();
 
-    const res = await call(toolsByName(ORG).get('get_hubspot_contacts'), { lifecycle_stages: ['lead'] });
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'), { lifecycle_stages: ['lead'] });
 
     // Facets describe the scope BEFORE the value filter, so a caller can see
     // what else it could have asked for.
@@ -398,7 +398,7 @@ describe('a filter value that does not exist is refused, not answered', () => {
 describe('created-date window', () => {
   it('filters by created_after and created_before', async () => {
     await seedCrm();
-    const tool = toolsByName(ORG).get('get_hubspot_contacts');
+    const tool = toolsByName(ORG).get('hubspot_count_contacts');
 
     // Seeded contacts carry no createdAt, so the window matches nothing —
     // which is the honest answer, not an error.
@@ -446,7 +446,7 @@ describe('created-date window', () => {
       contentHash: 'contacts:midnight',
       ingestedAt: NOW,
     });
-    const tool = toolsByName(ORG).get('get_hubspot_contacts');
+    const tool = toolsByName(ORG).get('hubspot_count_contacts');
 
     expect((await call(tool, { created_after: '2026-08-20' })).total).toBe(1);
     expect((await call(tool, { created_after: '2026-08-21' })).total).toBe(0);
@@ -471,7 +471,7 @@ describe('created-date window', () => {
         ingestedAt: NOW,
       });
     }
-    const tool = toolsByName(ORG).get('get_hubspot_contacts');
+    const tool = toolsByName(ORG).get('hubspot_count_contacts');
 
     const week = await call(tool, { created_within_days: 7 });
     const month = await call(tool, { created_within_days: 30 });
@@ -498,7 +498,7 @@ describe('created-date window', () => {
       contentHash: 'contacts:recent',
       ingestedAt: NOW,
     });
-    const tool = toolsByName(ORG).get('get_hubspot_contacts');
+    const tool = toolsByName(ORG).get('hubspot_count_contacts');
 
     // A caller that got today's date wrong by years still gets the right window.
     const res = await call(tool, { created_within_days: 7, created_after: '2020-01-01' });
@@ -510,7 +510,7 @@ describe('created-date window', () => {
   it('rejects an unparseable date as data instead of throwing the turn away', async () => {
     await seedCrm();
 
-    const res = await call(toolsByName(ORG).get('get_hubspot_contacts'), { created_after: 'last tuesday' });
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'), { created_after: 'last tuesday' });
 
     expect(res.error).toBe('bad_argument');
     expect(res.total).toBeUndefined();
@@ -520,7 +520,7 @@ describe('created-date window', () => {
 describe('query lookup', () => {
   it('finds a record by email, company, and HubSpot id, and returns total 0 for a miss', async () => {
     await seedCrm();
-    const tool = toolsByName(ORG).get('get_hubspot_contacts');
+    const tool = toolsByName(ORG).get('hubspot_count_contacts');
 
     expect((await call(tool, { query: 'person1@acme.com' })).total).toBe(1);
     expect((await call(tool, { query: 'acme.com' })).total).toBe(5);
@@ -533,7 +533,7 @@ describe('access control', () => {
   it('returns nothing from another org', async () => {
     await seedCrm();
 
-    const res = await call(toolsByName('org_other').get('get_hubspot_contacts'));
+    const res = await call(toolsByName('org_other').get('hubspot_count_contacts'));
 
     expect(res.total).toBe(0);
     expect(res.error).toBe('no_hubspot_source');
@@ -543,7 +543,7 @@ describe('access control', () => {
     await seedCrm();
 
     // Permitted only the deals source: contacts become unreadable.
-    const res = await call(toolsByName(ORG, ['hubspot'], ['hubspot']).get('get_hubspot_contacts'));
+    const res = await call(toolsByName(ORG, ['hubspot'], ['hubspot']).get('hubspot_count_contacts'));
 
     expect(res.total).toBe(0);
     expect(res.sources_read ?? []).not.toContain('hubspot-contacts');

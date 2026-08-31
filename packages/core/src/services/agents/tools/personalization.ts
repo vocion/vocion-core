@@ -68,9 +68,9 @@ export function queueLeadTool(ctx: RuntimeContext) {
     },
     {
       name: 'queue_lead',
-      description: 'Put leads on the personalization queue (the /gtm/personalization page) — ONE call for the whole batch, passing every ref at once. Takes CRM mirror refs (the `ref` field from get_hubspot_contacts, e.g. "contacts:9412") and reads name, title, company, entrance source and email engagement from the mirror itself, so you never supply them and nothing can be invented. Phase 1 records NO research: claims, missing and the draft sequence stay empty and confidence stays null. Returns the counts first — requested, queued (rows actually written), alreadyQueued (already on the queue, which is what a re-fire looks like), notInMirror (refs with no CRM record), and queueTotal. Report `queued` and `alreadyQueued`, not the number of refs you sent. Running this twice on the same leads is a no-op by construction.',
+      description: 'Put leads on the personalization queue (the /gtm/personalization page) — ONE call for the whole batch, passing every ref at once. Takes CRM mirror refs (the `ref` field from hubspot_count_contacts, e.g. "contacts:9412") and reads name, title, company, entrance source and email engagement from the mirror itself, so you never supply them and nothing can be invented. Phase 1 records NO research: claims, missing and the draft sequence stay empty and confidence stays null. Returns the counts first — requested, queued (rows actually written), alreadyQueued (already on the queue, which is what a re-fire looks like), notInMirror (refs with no CRM record), and queueTotal. Report `queued` and `alreadyQueued`, not the number of refs you sent. Running this twice on the same leads is a no-op by construction.',
       schema: z.object({
-        contact_refs: z.array(z.string().min(1)).min(1).max(500).describe('CRM mirror refs from get_hubspot_contacts (`ref`), e.g. ["contacts:9412","contacts:9413"]. Send them all in one call.'),
+        contact_refs: z.array(z.string().min(1)).min(1).max(500).describe('CRM mirror refs from hubspot_count_contacts (`ref`), e.g. ["contacts:9412","contacts:9413"]. Send them all in one call.'),
         trigger_type: z.enum(['new', 'stale']).default('new').describe('Why the sweep picked the lead up. Phase 1 queues fresh arrivals, so "new".'),
       }),
     },
@@ -85,7 +85,7 @@ export function getLeadLedgerTool(ctx: RuntimeContext) {
     },
     {
       name: 'get_lead_ledger',
-      description: 'Read the personalization queue back (the /gtm/personalization page): who is already queued, in which lane, with what was recorded about them. Returns the TOTAL first, then one page of rows. Use it before queueing to see what past runs already covered, and after queueing to confirm what landed. This reads the QUEUE, not HubSpot — use get_hubspot_contacts for the CRM records themselves.',
+      description: 'Read the personalization queue back (the /gtm/personalization page): who is already queued, in which lane, with what was recorded about them. Returns the TOTAL first, then one page of rows. Use it before queueing to see what past runs already covered, and after queueing to confirm what landed. This reads the QUEUE, not HubSpot — use hubspot_count_contacts for the CRM records themselves.',
       schema: z.object({
         status: z.enum(['queued', 'ready_for_review', 'handed_off', 'held', 'sent']).optional().describe('Narrow to one lane. Omit for every lane.'),
         limit: z.number().int().positive().max(200).optional().describe('Rows per page (default 50). Does NOT limit `total`.'),
@@ -127,7 +127,7 @@ export function reconcileMqlWindowTool(ctx: RuntimeContext) {
       name: 'reconcile_mql_window',
       description: `Coverage check: recompute the window's arrivals from the CRM mirror (no writes) and diff them against the personalization queue. Returns arrivals, queued, and every unqueued lead BY NAME with why. Run this at the end of a queueing pass and report the gap count; if it is non-zero, queue what you missed and re-run. ${WINDOW_CAVEAT}`,
       schema: z.object({
-        lifecycle_stages: z.array(z.string().min(1)).min(1).describe('Exact lifecycle stage strings, read from `facets.lifecycleStage` on a get_hubspot_contacts call — e.g. ["marketingqualifiedlead"]. Never pass a friendly label like "MQL"; it will be refused.'),
+        lifecycle_stages: z.array(z.string().min(1)).min(1).describe('Exact lifecycle stage strings, read from `facets.lifecycleStage` on a hubspot_count_contacts call — e.g. ["marketingqualifiedlead"]. Never pass a friendly label like "MQL"; it will be refused.'),
         since_days: z.number().positive().max(365).optional().describe('Trailing window in days, resolved on the SERVER clock (default 7). Use this rather than created_after; it does not require you to know today\'s date. Pass the SAME value the queueing pass used.'),
         created_after: z.string().optional().describe('ISO date, e.g. "2026-08-19". Only when the caller named an explicit start date; since_days wins over it.'),
         created_before: z.string().optional().describe('ISO date. End of the window, exclusive.'),
