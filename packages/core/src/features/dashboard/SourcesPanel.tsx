@@ -45,6 +45,14 @@ type Source = {
   documentCount: number;
   credentialConnected: boolean;
   credentialUpdatedAt: string | null;
+  /** The latest sync run for this source, whoever started it. Null if never synced. */
+  sync: {
+    status: 'running' | 'completed' | 'failed' | 'abandoned';
+    startedAt: string;
+    completedAt: string | null;
+    error: string | null;
+    counts: Record<string, number>;
+  } | null;
 };
 
 type ConnectorTile = {
@@ -54,6 +62,9 @@ type ConnectorTile = {
   icon: string;
   authKind: 'none' | 'apikey' | 'oauth';
 };
+
+/** How often to re-read the list while a sync is running somewhere. */
+const RUNNING_SYNC_POLL_MS = 5000;
 
 /** What a finished sync run reported back, as the panel states it. */
 type SyncOutcome = { message: string; hadErrors: boolean };
@@ -128,9 +139,31 @@ export function SourcesPanel() {
     }
   }, []);
 
+  /** Re-read the list without blanking the page — used by the while-syncing poll. */
+  const refreshQuietly = useCallback(async () => {
+    const res = await fetch('/rpc/sources');
+    const data = await res.json();
+    setSources(data.sources ?? []);
+    setConnectors(data.connectors ?? []);
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // A run in another tab (or one still going after a reload) finishes without
+  // this tab doing anything, so poll while one is in flight — and only while,
+  // since an idle Sources page has nothing to watch for.
+  const someoneIsSyncing = sources.some(source => source.sync?.status === 'running');
+  useEffect(() => {
+    if (!someoneIsSyncing) {
+      return;
+    }
+    const timer = setInterval(() => {
+      void refreshQuietly();
+    }, RUNNING_SYNC_POLL_MS);
+    return () => clearInterval(timer);
+  }, [someoneIsSyncing, refreshQuietly]);
 
   const handleSync = useCallback(async (id: number) => {
     setSyncingId(id);
@@ -385,6 +418,11 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
   const last = source.lastSyncedAt ? new Date(source.lastSyncedAt) : null;
   const lastLabel = last ? formatRelative(last) : 'never';
   const needsCreds = source.authKind !== 'none' && !source.credentialConnected;
+  // A run this tab did not start still holds the source — another tab, the
+  // scheduler, or one still going after a reload. Pressing Sync now would only
+  // earn a 409, so show it as busy instead of letting the operator find out.
+  const runningElsewhere = source.sync?.status === 'running';
+  const busy = syncing || runningElsewhere;
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="flex items-start gap-3">
@@ -404,6 +442,7 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
               ? `${source.documentCount.toLocaleString()} document${source.documentCount === 1 ? '' : 's'} ingested`
               : 'No documents yet'}
           </p>
+          <SyncRunLine sync={source.sync} />
           <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
             {describeSourceConfig(source.config)}
           </p>
@@ -448,11 +487,13 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
           <button
             type="button"
             onClick={onSync}
-            disabled={syncing || needsCreds}
-            title={needsCreds ? 'Connect credentials first' : undefined}
+            disabled={busy || needsCreds}
+            title={needsCreds
+              ? 'Connect credentials first'
+              : (runningElsewhere ? 'This source is already syncing. Wait for it to finish, then try again.' : undefined)}
             className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
           >
-            {syncing
+            {busy
               ? (
                   <>
                     <Loader2 className="size-3 animate-spin" />
@@ -470,6 +511,70 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
       </div>
     </div>
   );
+}
+
+/**
+ * One line about this source's latest sync run — busy, failed, or finished with
+ * documents it could not save.
+ *
+ * This is the only place a run started somewhere else shows up, and the only
+ * place a failure survives a page reload: the panel's own banner is gone as
+ * soon as the operator navigates away.
+ * @param root0 - Props.
+ * @param root0.sync - The latest run for this source, or null if it never ran.
+ */
+function SyncRunLine({ sync }: { sync: Source['sync'] }) {
+  if (!sync) {
+    return null;
+  }
+  if (sync.status === 'running') {
+    return (
+      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="size-3 animate-spin" />
+        Syncing now — started
+        {' '}
+        {formatRelative(new Date(sync.startedAt))}
+      </p>
+    );
+  }
+  if (sync.status === 'abandoned') {
+    return (
+      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+        A sync started
+        {' '}
+        {formatRelative(new Date(sync.startedAt))}
+        {' '}
+        never finished — its process stopped. Sync now will take over.
+      </p>
+    );
+  }
+  if (sync.status === 'failed') {
+    return (
+      <p className="mt-1 flex items-start gap-1.5 text-xs text-destructive">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+        Last sync failed:
+        {' '}
+        {sync.error ?? 'no reason was recorded'}
+      </p>
+    );
+  }
+  const errorCount = sync.counts.errors ?? 0;
+  if (errorCount > 0) {
+    return (
+      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+        Last sync could not save
+        {' '}
+        {errorCount}
+        {' '}
+        document
+        {errorCount === 1 ? '' : 's'}
+        .
+      </p>
+    );
+  }
+  return null;
 }
 
 function describeSourceConfig(config: Record<string, unknown>): string {
