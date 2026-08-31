@@ -104,7 +104,7 @@ const { eq } = await import('drizzle-orm');
 const { db } = await import('@/libs/DB');
 const { knowledgeSourceSchema, sourceSyncCheckpointSchema } = await import('@/models/Schema');
 const { registerConnector } = await import('@/libs/sources/registry');
-const { MAX_CONCURRENT_INGESTS, runSync, SyncAlreadyRunningError } = await import('@/services/SourceSyncService');
+const { MAX_CONCURRENT_INGESTS, runSync, SyncAlreadyRunningError, SyncSavedNothingError } = await import('@/services/SourceSyncService');
 const { z } = await import('zod');
 
 const ORG_ID = 'org_concurrency_test';
@@ -647,5 +647,66 @@ describe('runSync concurrent ingestion', () => {
       .limit(1);
 
     expect(checkpoint?.failures).toEqual([]);
+  });
+});
+
+/**
+ * A run where every document fails is not a successful run.
+ *
+ * An unset OPENAI_API_KEY on 2026-08-31 fetched 43 Strapi entries, failed to
+ * embed all 43, and still answered 200 with a source that read "no documents
+ * yet" — no way for the operator to tell a misconfigured environment from an
+ * empty CMS. One failed document stays survivable; all of them does not.
+ */
+describe('a sync that saves nothing fails loudly', () => {
+  it('throws with the first reason instead of reporting success', async () => {
+    registerFixtureConnector('fixture-all-fail', 3);
+    schedulingLog.shouldFail = new Set(['doc-0', 'doc-1', 'doc-2']);
+    const sourceId = await createSource('fixture-all-fail');
+
+    await expect(runSync({ orgId: ORG_ID, sourceId })).rejects.toThrow(SyncSavedNothingError);
+    await expect(runSync({ orgId: ORG_ID, sourceId })).rejects.toThrow(/embed failed for doc-0/);
+  });
+
+  it('records the run as failed and does not delete anything', async () => {
+    registerFixtureConnector('fixture-all-fail-checkpoint', 2);
+    schedulingLog.shouldFail = new Set(['doc-0', 'doc-1']);
+    const sourceId = await createSource('fixture-all-fail-checkpoint');
+
+    await expect(runSync({ orgId: ORG_ID, sourceId })).rejects.toThrow(SyncSavedNothingError);
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    expect(checkpoint?.status).toBe('failed');
+    expect(checkpoint?.error).toContain('nothing was saved');
+    // Deleting on the strength of a run that read nothing is how a source's
+    // whole corpus disappears.
+    expect(schedulingLog.deleteWasCalled).toBe(false);
+  });
+
+  it('still completes when one document of several fails, and reports the reason', async () => {
+    registerFixtureConnector('fixture-one-fails', 3);
+    schedulingLog.shouldFail = new Set(['doc-1']);
+    const sourceId = await createSource('fixture-one-fails');
+
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(result.created).toBe(2);
+    expect(result.errors).toBe(1);
+    expect(result.firstError).toContain('embed failed for doc-1');
+  });
+
+  it('completes quietly when the source is genuinely empty', async () => {
+    registerFixtureConnector('fixture-empty', 0);
+    const sourceId = await createSource('fixture-empty');
+
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(result.errors).toBe(0);
+    expect(result.created).toBe(0);
   });
 });

@@ -55,6 +55,56 @@ type ConnectorTile = {
   authKind: 'none' | 'apikey' | 'oauth';
 };
 
+/** What a finished sync run reported back, as the panel states it. */
+type SyncOutcome = { message: string; hadErrors: boolean };
+
+/** The counts a sync run returns. Mirrors SyncResult on the server. */
+type SyncResult = {
+  created: number;
+  updated: number;
+  unchanged: number;
+  tombstoned: number;
+  errors: number;
+  firstError: string | null;
+};
+
+/**
+ * Turn a sync run's counts into one plain sentence.
+ *
+ * The counts are the only thing that says a run did nothing useful — a sync
+ * that fetched 43 documents and failed to save all 43 still answers 200, and
+ * the panel would otherwise show an unchanged document count and no reason.
+ * @param result - Counts the sync route returned, if it returned any.
+ */
+export function describeSyncResult(result: SyncResult | undefined): SyncOutcome {
+  if (!result) {
+    return { message: 'Sync finished, but the server did not say what it did.', hadErrors: true };
+  }
+  const saved = result.created + result.updated;
+  const parts: string[] = [];
+  if (result.created > 0) {
+    parts.push(`${result.created} added`);
+  }
+  if (result.updated > 0) {
+    parts.push(`${result.updated} updated`);
+  }
+  if (result.unchanged > 0) {
+    parts.push(`${result.unchanged} unchanged`);
+  }
+  if (result.tombstoned > 0) {
+    parts.push(`${result.tombstoned} removed`);
+  }
+  const summary = parts.length > 0 ? parts.join(', ') : 'nothing changed';
+  if (result.errors === 0) {
+    return { message: `Sync finished: ${summary}.`, hadErrors: false };
+  }
+  const reason = result.firstError ? ` First failure: ${result.firstError}` : '';
+  return {
+    message: `Sync finished with ${result.errors} document(s) it could not save (${saved} saved, ${summary}).${reason}`,
+    hadErrors: true,
+  };
+}
+
 export function SourcesPanel() {
   const [sources, setSources] = useState<Source[]>([]);
   const [connectors, setConnectors] = useState<ConnectorTile[]>([]);
@@ -64,6 +114,7 @@ export function SourcesPanel() {
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [connectingSource, setConnectingSource] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncOutcome, setSyncOutcome] = useState<SyncOutcome | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -84,12 +135,17 @@ export function SourcesPanel() {
   const handleSync = useCallback(async (id: number) => {
     setSyncingId(id);
     setError(null);
+    setSyncOutcome(null);
     try {
       const res = await fetch(`/rpc/sources/${id}/sync`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? 'Sync failed');
       } else {
+        // A sync that saved some documents and dropped others returns 200, so
+        // without this the dropped ones are invisible and the source just looks
+        // short. Always report what the run actually did.
+        setSyncOutcome(describeSyncResult(data.result as SyncResult | undefined));
         await refresh();
       }
     } catch (err) {
@@ -117,8 +173,22 @@ export function SourcesPanel() {
 
       {error
         ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            <div className="flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <CircleAlert className="mt-0.5 size-4 shrink-0" />
               {error}
+            </div>
+          )
+        : null}
+
+      {syncOutcome
+        ? (
+            <div
+              className={syncOutcome.hadErrors
+                ? 'flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-500'
+                : 'flex items-start gap-1.5 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground'}
+            >
+              {syncOutcome.hadErrors ? <CircleAlert className="mt-0.5 size-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}
+              {syncOutcome.message}
             </div>
           )
         : null}

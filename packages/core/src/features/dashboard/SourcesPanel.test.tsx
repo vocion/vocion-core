@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
-import { filterConnectors, parseStrapiCollections, SourcesPanel } from './SourcesPanel';
+import { describeSyncResult, filterConnectors, parseStrapiCollections, SourcesPanel } from './SourcesPanel';
 
 /**
  * The Sources panel has two jobs a reviewer would notice being wrong: the
@@ -627,5 +627,68 @@ describe('add Strapi source', () => {
       kind: 'web',
       configJson: { crawl: { startUrl: 'https://example.com/docs', maxDepth: 1, maxPages: 20 } },
     });
+  });
+});
+
+describe('describeSyncResult', () => {
+  it('names the reason when documents could not be saved', () => {
+    const outcome = describeSyncResult({
+      created: 0,
+      updated: 0,
+      unchanged: 0,
+      tombstoned: 0,
+      errors: 43,
+      firstError: 'OPENAI_API_KEY is not set — embeddings require an OpenAI key.',
+    });
+
+    expect(outcome.hadErrors).toBe(true);
+    expect(outcome.message).toContain('43 document(s) it could not save');
+    expect(outcome.message).toContain('OPENAI_API_KEY is not set');
+  });
+
+  it('reports a partial run as errors, not as a success', () => {
+    const outcome = describeSyncResult({
+      created: 5,
+      updated: 0,
+      unchanged: 0,
+      tombstoned: 0,
+      errors: 2,
+      firstError: 'rate limited',
+    });
+
+    expect(outcome.hadErrors).toBe(true);
+    expect(outcome.message).toContain('2 document(s) it could not save');
+    expect(outcome.message).toContain('5 saved');
+  });
+
+  it('sums the counts into one sentence for a clean run', () => {
+    const outcome = describeSyncResult({
+      created: 3,
+      updated: 1,
+      unchanged: 9,
+      tombstoned: 2,
+      errors: 0,
+      firstError: null,
+    });
+
+    expect(outcome.hadErrors).toBe(false);
+    expect(outcome.message).toBe('Sync finished: 3 added, 1 updated, 9 unchanged, 2 removed.');
+  });
+
+  it('says so plainly when a clean run changed nothing', () => {
+    const outcome = describeSyncResult({
+      created: 0,
+      updated: 0,
+      unchanged: 0,
+      tombstoned: 0,
+      errors: 0,
+      firstError: null,
+    });
+
+    expect(outcome).toEqual({ message: 'Sync finished: nothing changed.', hadErrors: false });
+  });
+
+  it('does not claim success when the server said nothing at all', () => {
+    expect(describeSyncResult(undefined).hadErrors).toBe(true);
   });
 });
