@@ -76,7 +76,7 @@ function notEnumerable(checks: Inspection['checks']): Inspection {
     authorized: checks.some(check => check.status === 'ok'),
     detectedVersion: checks.some(check => check.status === 'ok') ? 5 : null,
     collections: null,
-    enumerationNote: 'This instance keeps its content-type list behind the admin API (403), so the collections can\'t be listed with an API token. Type the plural ids instead and each one will be checked.',
+    enumerationNote: 'Nothing wrong with your token — Strapi keeps the list of collections behind its admin API (403), which no API token can reach whatever its scope. Type the plural ids below instead and each one will be checked against this instance.',
     checks,
     error: null,
   };
@@ -405,7 +405,7 @@ describe('add Strapi source', () => {
 
     await page.getByRole('button', { name: 'Load collections' }).click();
 
-    await expect.element(page.getByText(/keeps its content-type list behind the admin API/)).toBeVisible();
+    await expect.element(page.getByText(/keeps the list of collections behind its admin API/)).toBeVisible();
 
     await userEvent.fill(page.getByLabelText('Collections'), 'events, venue');
     await page.getByRole('button', { name: 'Load collections' }).click();
