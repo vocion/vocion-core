@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { ComponentPropsWithoutRef } from 'react';
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
+import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
 import { Link } from '@/libs/I18nNavigation';
 
 export const AppSidebarNav = (props: {
@@ -49,7 +50,7 @@ export const AppSidebarNav = (props: {
                           )
                         : (
                             <Link href={item.url}>
-                              <item.icon />
+                              <NavPendingIcon icon={item.icon} />
                               <span>{item.title}</span>
                             </Link>
                           )}
