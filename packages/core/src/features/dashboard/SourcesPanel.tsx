@@ -707,9 +707,14 @@ function AddSourceDialogFrame({
             <div className="flex items-center justify-between gap-3">
               {/* What is still missing, said out loud rather than left for the
                   operator to infer from a greyed-out button. */}
-              <p className="text-xs text-muted-foreground">
-                {requirement ? `Still needed: ${requirement}` : null}
-              </p>
+              {requirement
+                ? (
+                    <p className="flex items-start gap-1.5 text-sm text-destructive">
+                      <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                      {`Still needed: ${requirement}`}
+                    </p>
+                  )
+                : <span />}
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
