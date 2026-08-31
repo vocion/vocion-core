@@ -23,6 +23,16 @@ function connector(slug: string, name: string, description: string): ConnectorFi
   return { slug, name, description, icon: name, authKind: 'apikey' };
 }
 
+/**
+ * A numbered fixture whose name is zero-padded, so its alphabetical position
+ * matches its number — "Connector 2" would otherwise sort after "Connector 19".
+ * @param index Which connector in the run of fixtures.
+ */
+function paddedConnector(index: number): ConnectorFixture {
+  const label = String(index).padStart(2, '0');
+  return connector(`c${label}`, `Connector ${label}`, `Ingest system ${label}.`);
+}
+
 const CONNECTORS: ConnectorFixture[] = [
   connector('web', 'Web', 'Crawl a site from one URL — same-origin BFS.'),
   connector('strapi', 'Strapi', 'Ingest entries from one or more Strapi CMS collections — incremental by updatedAt.'),
@@ -62,6 +72,17 @@ describe('filterConnectors', () => {
     expect(filterConnectors(CONNECTORS, 'strapi').map(c => c.slug)).toEqual(['strapi']);
     expect(filterConnectors(CONNECTORS, 'crm').map(c => c.slug)).toEqual(['hubspot']);
     expect(filterConnectors(CONNECTORS, 'google-ads').map(c => c.slug)).toEqual(['google-ads']);
+  });
+
+  it('sorts matches A–Z by name, not by registry order', () => {
+    expect(filterConnectors(CONNECTORS, '').map(c => c.name)).toEqual(['Google Ads', 'HubSpot', 'Strapi', 'Web']);
+    expect(filterConnectors(CONNECTORS, 'ingest').map(c => c.name)).toEqual(['Google Ads', 'HubSpot', 'Strapi']);
+  });
+
+  it('leaves the caller\'s array untouched while sorting', () => {
+    const original = [...CONNECTORS];
+    filterConnectors(CONNECTORS, '');
+    expect(CONNECTORS).toEqual(original);
   });
 
   it('matches every word in any order, so "ads google" still finds Google Ads', () => {
@@ -117,14 +138,14 @@ describe('connector picker', () => {
   });
 
   it('caps the first page at 25 cards and reveals the rest on demand', async () => {
-    const many = Array.from({ length: 30 }, (_, i) => connector(`c${i}`, `Connector ${i}`, `Ingest system ${i}.`));
+    const many = Array.from({ length: 30 }, (_, i) => paddedConnector(i));
     stubSourcesApi(many);
     render(<SourcesPanel />);
     await openPicker();
 
     // 25 rendered, so the 26th card is absent until "Show more" is clicked.
     await expect.element(page.getByRole('button', { name: /Connector 24/ })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: /Connector 25$/ })).not.toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: /Connector 25/ })).not.toBeInTheDocument();
 
     await page.getByRole('button', { name: /Show 5 more/ }).click();
 
@@ -132,7 +153,7 @@ describe('connector picker', () => {
   });
 
   it('drops back to one page of results when the query changes', async () => {
-    const many = Array.from({ length: 30 }, (_, i) => connector(`c${i}`, `Connector ${i}`, `Ingest system ${i}.`));
+    const many = Array.from({ length: 30 }, (_, i) => paddedConnector(i));
     stubSourcesApi(many);
     render(<SourcesPanel />);
     await openPicker();
