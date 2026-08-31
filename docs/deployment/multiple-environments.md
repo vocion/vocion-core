@@ -1,54 +1,48 @@
 # Running multiple environments
 
-How to give a client deployment more than one environment — production and
-dev, say — without copying anything.
+Give a client deployment a second environment without copying anything.
 
-Written from doing it on `Veerio-Life/veerio-vocion`, which runs
-`agents.veerio.app` and `dev.agents.veerio.app` from one repository.
-
-See also: [the parent-project pattern](./parent-project-pattern.md).
+Companion to [the parent-project pattern](./parent-project-pattern.md).
 
 ---
 
-## The rule
+## The idea
 
 **Environments are OpenTofu workspaces, not copied directories.**
 
-Both environments run the same Terraform, the same scripts, the same
-`workspace/` YAML. The only thing that differs is one variables file each.
+Same Terraform. Same scripts. Same `workspace/` YAML. One variables file each.
 
-For a real example, the entire difference between two live environments:
+A real example — `Veerio-Life/veerio-vocion` runs two environments, and this
+table is the *entire* difference between them:
 
 | Variable | production | dev |
 |---|---|---|
 | `environment` | `production` | `dev` |
 | `apex_domain` | `agents.veerio.app` | `dev.agents.veerio.app` |
-| `hosted_zone_id` | `""` (creates the zone) | the production zone's id |
+| `hosted_zone_id` | `""` (creates a zone) | the production zone's id |
 | `instance_type` | `r6i.xlarge` | `r6i.large` |
 | `data_volume_gb` | `150` | `100` |
 
-Eight other values — account, region, profile, key pair, SSH range, root
-volume, repo, branch — are identical.
+Eight other values are identical.
 
 ---
 
-## What `environment` drives
+## One variable, four effects
 
-One variable, four consequences:
+`environment` decides:
 
-1. **The OpenTofu workspace**, and therefore which state file in S3 is read and
-   written. Environments cannot see each other's resources.
-2. **Resource names**, through a `name_prefix` local.
-3. **The Secrets Manager entry**, via `"<project>/${var.environment}"`.
-4. **The AgentCore environment**, since `infra/agentcore/*.sh` namespace their
-   SSM parameters under `/vocion/agentcore/<env>/`.
+- **Which workspace** → which state file → environments can't see each other.
+- **Resource names**, via a `name_prefix` local.
+- **Which secret**, via `"<project>/${var.environment}"`.
+- **Which AgentCore namespace**, since `infra/agentcore/*.sh` write to
+  `/vocion/agentcore/<env>/`.
 
 ---
 
-## Do this from day one
+## Do this on day one
 
-**Derive every resource name from the environment in your first commit**, even
-if you only ever plan to have one environment.
+Derive every resource name from the environment in your **first commit**, even
+with one environment planned:
 
 ```hcl
 locals {
@@ -56,32 +50,28 @@ locals {
 }
 ```
 
-IAM role, policy and instance-profile names are **unique per AWS account**. A
-stack with hardcoded names applies fine the first time and then collides the
-moment a second workspace exists.
+**Why it can't wait:** IAM role, policy and instance-profile names are unique
+per AWS account. Hardcoded names work perfectly once, then collide the moment a
+second workspace exists.
 
-Retrofitting is worse than it sounds. Renaming an existing environment's
-resources makes Terraform **replace** its IAM role, instance profile and
-security group — on a box already serving traffic. The Veerio deployment hit
-exactly this and had to keep production as a special case:
+**Why retrofitting hurts:** renaming makes Terraform *replace* the IAM role,
+instance profile and security group — on a box already serving traffic. Veerio
+hit this and now carries a conditional forever:
 
 ```hcl
 locals {
-  # production keeps its original unsuffixed names because it was built before
-  # dev existed; renaming would replace live resources for no benefit.
+  # production keeps its original names; renaming would replace live resources
   name_prefix = var.environment == "production" ? "<project>" : "<project>-${var.environment}"
 }
 ```
 
-That conditional is permanent scar tissue from a decision made in the first
-hour. Avoid needing it.
+That line is scar tissue from an hour-one decision.
 
 ---
 
-## Backend layout
+## Backend
 
-Give the backend a workspace prefix so each environment gets its own state
-file under one bucket:
+One bucket, one state file per environment:
 
 ```hcl
 backend "s3" {
@@ -95,29 +85,25 @@ backend "s3" {
 }
 ```
 
-State then lands at `env/production/terraform.tfstate` and
-`env/dev/terraform.tfstate`.
+Gives you `env/production/terraform.tfstate` and `env/dev/terraform.tfstate`.
 
 ---
 
-## Make the second environment cost nothing in DNS
+## Pick the hostname carefully
 
-Give the non-production environment a **subdomain of the production
-hostname** — `dev.agents.example.com`, not `agents-dev.example.com`.
+Use `dev.agents.example.com` — a **child** of the production hostname.
+
+Not `agents-dev.example.com`.
 
 A sibling subdomain needs its own hosted zone and its own NS delegation from
-wherever the parent domain is hosted, which usually means waiting on someone
-else before TLS can issue. A child of the production hostname lives inside the
-zone the stack already created: set `hosted_zone_id` to that zone, and the
-record is just created. No delegation, no waiting, certificate issues on first
-boot.
+wherever the parent domain lives, which usually means waiting on another team
+before HTTPS works. A child lives in the zone your stack already created: point
+`hosted_zone_id` at it and the record just appears. No delegation, no waiting,
+certificate issues on first boot.
 
 ---
 
-## Wire the environment through the deploy script
-
-Take it as an argument, default to production, and print it before doing
-anything:
+## Thread it through the deploy script
 
 ```bash
 readonly ACTION="${1:-plan}"
@@ -133,36 +119,37 @@ readonly WORKSPACE_NAME="${ENVIRONMENT}"
 ./scripts/deploy.sh apply dev      # dev
 ```
 
-Printing the environment on the first line of output is worth more than it
-looks — it is the only thing standing between a tired operator and applying
-dev's plan to production.
+Print the environment on the first line of output. It's the only thing between
+a tired operator and applying dev's plan to production.
 
 ---
 
 ## Adding an environment
 
-1. Copy a tfvars file, change `environment`, `apex_domain` and the sizes.
-2. Create its Secrets Manager entry — one per environment.
-3. `./scripts/deploy.sh apply <name>`. The workspace is created on first run.
+1. Copy a tfvars file; change `environment`, `apex_domain`, the sizes.
+2. Create its Secrets Manager entry.
+3. `./scripts/deploy.sh apply <name>` — the workspace is created on first run.
 
-No Terraform changes. That is the test of whether this pattern is set up
-correctly: **adding an environment should touch no `.tf` file at all.**
+**The test of whether you've set this up right: adding an environment touches
+no `.tf` file at all.**
 
 ---
 
-## Two things that bite
+## Two failures that stay silent
 
-**The database password must match what Postgres was initialised with.** Core's
-compose creates the container with `POSTGRES_PASSWORD=postgres`. Putting a
-different password in the environment secret does not change the database — it
-just means the app cannot authenticate, while the site still serves its sign-in
-page perfectly. Either use the compose default or `ALTER USER` once the box is
-up.
+**The database password must match what Postgres was initialised with.**
 
-**`profiles: []` does not clear a base profile.** Core's dev compose gates the
-temporal worker behind `profiles: [worker]`. An overlay declaring `profiles: []`
-does not override it — the service silently vanishes from the merged config and
-scheduled automations fire into a queue nobody drains. Set
-`COMPOSE_PROFILES=worker` instead, and pair it with `--scale worker=0`, because
-the same profile also pulls in core's dev `worker` service, which crash-loops on
-the standalone production image.
+Core's compose creates the container with `POSTGRES_PASSWORD=postgres`. A
+different password in your environment secret doesn't change the database — the
+app just can't log in, while the sign-in page keeps serving normally. Use the
+compose default, or `ALTER USER` once the box is up.
+
+**`profiles: []` does not clear a base profile.**
+
+Core's dev compose gates the temporal worker behind `profiles: [worker]`. An
+overlay declaring `profiles: []` doesn't override it — the service vanishes from
+the merged config, and scheduled automations fire into a queue nobody drains.
+
+Set `COMPOSE_PROFILES=worker` instead, paired with `--scale worker=0`: the same
+profile also pulls in core's dev `worker` service, which crash-loops on the
+standalone production image.
