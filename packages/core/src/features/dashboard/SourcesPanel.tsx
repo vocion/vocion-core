@@ -680,43 +680,51 @@ function AddSourceDialogFrame({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl border bg-background shadow-xl">
-        <form onSubmit={onSubmit}>
+      {/* Header and footer are pinned and only the fields scroll, so a validation
+          error — which lands in the footer, next to the button that triggered it —
+          is visible wherever the operator has scrolled to. */}
+      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-xl border bg-background shadow-xl">
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <h3 className="font-display text-lg">{title}</h3>
           </div>
-          <div className="space-y-4 p-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
             {children}
+          </div>
+          <div className="border-t px-4 py-3">
             {error
               ? (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  <div
+                    role="alert"
+                    className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+                  >
                     {error}
                   </div>
                 )
               : null}
-          </div>
-          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || !canSubmit}
-              className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
-            >
-              {submitting
-                ? (
-                    <>
-                      <Loader2 className="size-3 animate-spin" />
-                      Adding…
-                    </>
-                  )
-                : 'Add source'}
-            </button>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || !canSubmit}
+                className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
+              >
+                {submitting
+                  ? (
+                      <>
+                        <Loader2 className="size-3 animate-spin" />
+                        Adding…
+                      </>
+                    )
+                  : 'Add source'}
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -728,6 +736,19 @@ const FIELD_CLASS = 'mt-1 w-full rounded-md border border-input bg-background px
 
 /** Ties the Strapi token label to its input without nesting the eye button inside the label. */
 const TOKEN_INPUT_ID = 'strapi-api-token';
+
+/** How long the URL and token must sit unchanged before collections load on their own. */
+const AUTO_LOAD_DEBOUNCE_MS = 700;
+
+/**
+ * One key for a URL plus token, so an instance already read is not read again.
+ * The separator is a NUL because it cannot appear in either value.
+ * @param baseUrl - Instance URL as typed, trimmed.
+ * @param token - API token as typed, trimmed.
+ */
+function credentialPairKey(baseUrl: string, token: string): string {
+  return `${baseUrl}\u0000${token}`;
+}
 
 /** Row-sized wording for a failed collection check; the full message goes in the title. */
 const COLLECTION_STATUS_LABELS: Record<CollectionCheck['status'], string> = {
@@ -945,8 +966,12 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const inspectRequestRef = useRef(0);
+  const lastLoadedPairRef = useRef<string | null>(null);
+
   const typedCollections = parseStrapiCollections(collectionsText);
   const catalogue = inspection?.collections ?? null;
+  const hasCatalogue = catalogue !== null;
   const chosen = catalogue ? selected : typedCollections;
   const connectionReady = baseUrl.trim().length > 0 && token.trim().length > 0;
 
@@ -959,29 +984,59 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
     return inspection?.checks.find(check => check.collection === collection);
   }
 
-  const runInspect = async () => {
+  /**
+   * Reads the instance and replaces the catalogue. Safe to call again while an
+   * earlier read is still in flight: each call takes the next request number and
+   * only the newest one is allowed to write state, so a slow first answer can't
+   * land on top of a fresh refresh.
+   */
+  const runInspect = useCallback(async () => {
+    const instanceUrl = baseUrl.trim();
+    const apiToken = token.trim();
+    // Claim this pair before awaiting, so the auto-load effect does not queue a
+    // second identical read behind this one.
+    lastLoadedPairRef.current = credentialPairKey(instanceUrl, apiToken);
+    const requestNumber = inspectRequestRef.current + 1;
+    inspectRequestRef.current = requestNumber;
     setInspecting(true);
     setError(null);
-    try {
-      const { inspection: found, error: message } = await inspectStrapi(
-        baseUrl.trim(),
-        token.trim(),
-        catalogue ? [] : typedCollections,
-      );
-      if (message) {
-        setError(message);
-        setInspection(null);
-        return;
-      }
-      setInspection(found);
-      // A reachable instance with a caveat — a rejected token, or collections
-      // that are public so the token stays unproven — belongs in the panel's own
-      // note, not the dialog's red failure strip.
-      setError(found && !found.reachable ? found.error : null);
-    } finally {
-      setInspecting(false);
+    const { inspection: found, error: message } = await inspectStrapi(
+      instanceUrl,
+      apiToken,
+      hasCatalogue ? [] : parseStrapiCollections(collectionsText),
+    );
+    if (inspectRequestRef.current !== requestNumber) {
+      return;
     }
-  };
+    setInspecting(false);
+    if (message) {
+      setError(message);
+      setInspection(null);
+      return;
+    }
+    setInspection(found);
+    // A reachable instance with a caveat — a rejected token, or collections
+    // that are public so the token stays unproven — belongs in the panel's own
+    // note, not the dialog's red failure strip.
+    setError(found && !found.reachable ? found.error : null);
+  }, [baseUrl, token, collectionsText, hasCatalogue]);
+
+  // Pasting a URL and a token is the whole instruction, so read the instance as
+  // soon as both are present rather than waiting for a button. Debounced because
+  // typing a URL by hand would otherwise fire a read per keystroke, and skipped
+  // once a pair has been read so a manual refresh isn't immediately repeated.
+  useEffect(() => {
+    if (baseUrl.trim() === '' || token.trim() === '') {
+      return;
+    }
+    if (lastLoadedPairRef.current === credentialPairKey(baseUrl.trim(), token.trim())) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void runInspect();
+    }, AUTO_LOAD_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [baseUrl, token, runInspect]);
 
   const toggleCollection = (collection: string) => {
     setSelected(current => (
@@ -1029,12 +1084,12 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
       <p className="rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
         <span className="font-medium text-foreground/80">How this works:</span>
         {' '}
-        fill in the instance URL and an API token, then use
+        fill in the instance URL and an API token and the collections load on their own, so you can pick what to sync.
+        Both are needed before anything can load — the token says you're allowed in, the URL says which instance to ask.
         {' '}
-        <span className="font-medium">Load collections</span>
+        <span className="font-medium">Reload collections</span>
         {' '}
-        to read what that instance holds and choose what to sync. Both are needed before anything can be loaded — the
-        token says you're allowed in, the URL says which instance to ask.
+        reads the instance again whenever you want a fresh look.
       </p>
 
       <label className="block">
@@ -1093,20 +1148,18 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
       <div className="rounded-lg border p-3">
         <div className="flex items-center justify-between gap-2">
           <span className="text-sm font-medium text-foreground/80">Collections</span>
+          {/* Stays clickable while a read is in flight — it is a refresh, not a
+              pending state, and the newest click is the one that wins. */}
           <button
             type="button"
             onClick={runInspect}
-            disabled={!connectionReady || inspecting}
+            disabled={!connectionReady}
             className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
           >
             {inspecting
-              ? (
-                  <>
-                    <Loader2 className="size-3 animate-spin" />
-                    Checking…
-                  </>
-                )
-              : (catalogue ? 'Reload collections' : 'Load collections')}
+              ? <Loader2 className="size-3 animate-spin" />
+              : <RefreshCw className="size-3" />}
+            {catalogue ? 'Reload collections' : 'Load collections'}
           </button>
         </div>
 
@@ -1132,7 +1185,7 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
         {!inspection && !connectionReady
           ? (
               <p className="mt-2 text-xs text-muted-foreground">
-                Add the instance URL and an API token above, then Load collections.
+                Add the instance URL and an API token above and the collections load themselves.
               </p>
             )
           : null}
@@ -1140,7 +1193,9 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
         {!inspection && connectionReady
           ? (
               <p className="mt-2 text-xs text-muted-foreground">
-                Ready — Load collections reads this instance, or type the plural ids below yourself.
+                {inspecting
+                  ? 'Reading this instance…'
+                  : 'Ready — reading this instance, or type the plural ids below yourself.'}
               </p>
             )
           : null}
