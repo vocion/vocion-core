@@ -8,6 +8,8 @@ import {
   CircleAlert,
   Contact,
   Database,
+  Eye,
+  EyeOff,
   FileJson,
   FileText,
   FolderOpen,
@@ -724,6 +726,18 @@ function AddSourceDialogFrame({
 
 const FIELD_CLASS = 'mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
 
+/** Ties the Strapi token label to its input without nesting the eye button inside the label. */
+const TOKEN_INPUT_ID = 'strapi-api-token';
+
+/** Row-sized wording for a failed collection check; the full message goes in the title. */
+const COLLECTION_STATUS_LABELS: Record<CollectionCheck['status'], string> = {
+  'ok': 'reads',
+  'not-found': 'No such collection',
+  'unauthorized': 'Token rejected',
+  'forbidden': 'No read permission',
+  'error': 'Check failed',
+};
+
 function AddWebSourceDialog({ kind, title, onClose, onAdded }: {
   kind: string;
   title: string;
@@ -801,9 +815,11 @@ function AddWebSourceDialog({ kind, title, onClose, onAdded }: {
 /** One collection's verdict from the inspect call. Mirrors `StrapiCollectionCheck`. */
 type CollectionCheck = {
   collection: string;
-  status: 'ok' | 'not-found' | 'forbidden' | 'error';
+  status: 'ok' | 'not-found' | 'forbidden' | 'unauthorized' | 'error';
   entryCount: number | null;
   message: string | null;
+  /** True when the collection reads without any credential, so the read proves nothing about the token. */
+  publiclyReadable?: boolean;
 };
 
 /** What the inspect route reported about an instance. */
@@ -862,24 +878,34 @@ async function storeSourceToken(sourceId: number, token: string): Promise<string
 }
 
 /**
- * The check icon and wording for one collection's verdict.
- * @param root0
- * @param root0.check
+ * What one collection's check says, rendered beside the collection's own name:
+ * an entry count when it reads, the reason when it doesn't.
+ * @param root0 - Component props.
+ * @param root0.check - The verdict for this collection, or undefined before any check ran.
  */
-function CollectionCheckRow({ check }: { check: CollectionCheck }) {
-  const isOk = check.status === 'ok';
-  return (
-    <li className="flex items-start gap-2 text-xs">
-      {isOk
-        ? <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-        : <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" />}
-      <span>
-        <span className="font-medium">{check.collection}</span>
-        {isOk
-          ? ` — ${check.entryCount ?? 0} ${check.entryCount === 1 ? 'entry' : 'entries'}`
-          : ` — ${check.message ?? check.status}`}
+function CollectionVerdict({ check }: { check: CollectionCheck | undefined }) {
+  if (!check) {
+    return null;
+  }
+  if (check.status === 'ok') {
+    return (
+      <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+        <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+        {check.entryCount ?? 0}
+        {check.entryCount === 1 ? ' entry' : ' entries'}
       </span>
-    </li>
+    );
+  }
+  // Short label on the row, full sentence on hover — the panel's own note above
+  // carries the long version, so a row does not need to wrap to three lines.
+  return (
+    <span
+      title={check.message ?? check.status}
+      className="ml-auto flex items-center gap-1 text-right text-xs text-destructive"
+    >
+      <CircleAlert className="size-3.5 shrink-0" />
+      {COLLECTION_STATUS_LABELS[check.status]}
+    </span>
   );
 }
 
@@ -909,6 +935,7 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
 }) {
   const [baseUrl, setBaseUrl] = useState('');
   const [token, setToken] = useState('');
+  const [tokenVisible, setTokenVisible] = useState(false);
   const [collectionsText, setCollectionsText] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [inspection, setInspection] = useState<StrapiInspection | null>(null);
@@ -922,6 +949,15 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
   const catalogue = inspection?.collections ?? null;
   const chosen = catalogue ? selected : typedCollections;
   const connectionReady = baseUrl.trim().length > 0 && token.trim().length > 0;
+
+  /**
+   * This collection's verdict from the last check, so a count can sit beside the
+   * collection's own name instead of in a list of its own.
+   * @param collection - Plural api id to look up.
+   */
+  function checkFor(collection: string): CollectionCheck | undefined {
+    return inspection?.checks.find(check => check.collection === collection);
+  }
 
   const runInspect = async () => {
     setInspecting(true);
@@ -1008,24 +1044,40 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
         </span>
       </label>
 
-      <label className="block">
-        <span className="text-sm font-medium text-foreground/80">API token</span>
-        <input
-          type="password"
-          required
-          autoComplete="off"
-          value={token}
-          onChange={(e) => {
-            setToken(e.target.value);
-            setInspection(null);
-          }}
-          placeholder="Strapi admin → Settings → API Tokens"
-          className={FIELD_CLASS}
-        />
-        <span className="mt-1 block text-xs text-muted-foreground">
-          Read-only is enough. Stored encrypted against this source, so there is no separate Connect step.
-        </span>
-      </label>
+      {/* The token field is labelled by `htmlFor` rather than by nesting, so the
+          eye button and the help text below stay out of the input's accessible
+          name — a nested label folds every word inside it into that name. */}
+      <div className="block">
+        <label htmlFor={TOKEN_INPUT_ID} className="text-sm font-medium text-foreground/80">API token</label>
+        <div className="relative mt-1">
+          <input
+            id={TOKEN_INPUT_ID}
+            type={tokenVisible ? 'text' : 'password'}
+            required
+            autoComplete="off"
+            value={token}
+            onChange={(e) => {
+              setToken(e.target.value);
+              setInspection(null);
+            }}
+            placeholder="Strapi admin → Settings → API Tokens"
+            className="w-full rounded-md border border-input bg-background py-2 pr-10 pl-3 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => setTokenVisible(visible => !visible)}
+            aria-label={tokenVisible ? 'Hide token' : 'Show token'}
+            title={tokenVisible ? 'Hide token' : 'Show token'}
+            className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+          >
+            {tokenVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Read-only is enough. Show it with the eye to check a paste before loading collections. Stored encrypted against
+          this source, so there is no separate Connect step.
+        </p>
+      </div>
 
       <div className="rounded-lg border p-3">
         <div className="flex items-center justify-between gap-2">
@@ -1072,7 +1124,7 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
                 <p className="mt-2 text-xs text-muted-foreground">
                   {catalogue.length}
                   {' '}
-                  collections on this instance. Tick the ones to sync.
+                  collections on this instance, with how many entries each holds. Tick the ones to sync.
                 </p>
                 <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
                   {catalogue.map(collection => (
@@ -1084,6 +1136,7 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
                           onChange={() => toggleCollection(collection)}
                         />
                         {collection}
+                        <CollectionVerdict check={checkFor(collection)} />
                       </label>
                     </li>
                   ))}
@@ -1108,24 +1161,28 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
                 />
                 <span className="mt-1 block text-xs text-muted-foreground">
                   Plural API ids, comma separated. Load collections again to check each name against the instance.
-                  {typedCollections.length > 0
-                    ? ` Syncing ${typedCollections.length === 1 ? '1 collection' : `${typedCollections.length} collections`}: ${typedCollections.join(', ')}.`
-                    : ''}
                 </span>
+                {typedCollections.length > 0
+                  ? (
+                      <ul className="mt-2 space-y-1">
+                        {typedCollections.map(collection => (
+                          <li
+                            key={collection}
+                            className="flex items-center gap-2 rounded-md px-1 py-1 text-sm"
+                          >
+                            {collection}
+                            <CollectionVerdict check={checkFor(collection)} />
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  : null}
               </>
             )}
-
-        {inspection && inspection.checks.length > 0
-          ? (
-              <ul className="mt-2 space-y-1">
-                {inspection.checks.map(check => <CollectionCheckRow key={check.collection} check={check} />)}
-              </ul>
-            )
-          : null}
       </div>
 
       <label className="block">
-        <span className="text-sm font-medium text-foreground/80">Populate</span>
+        <span className="text-sm font-medium text-foreground/80">Include linked records</span>
         <input
           type="text"
           value={populate}
@@ -1134,7 +1191,15 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
           className={FIELD_CLASS}
         />
         <span className="mt-1 block text-xs text-muted-foreground">
-          Relations and media to expand. “*” pulls every first-level relation; Strapi returns bare ids otherwise.
+          Strapi calls this “populate”. An entry's links to other records — an event's venue, its category, its images —
+          come back as bare id numbers unless you ask for them. Leave it as
+          {' '}
+          <span className="font-mono">*</span>
+          {' '}
+          to pull one level of links, so a synced event reads “at The Fillmore” instead of “venue 42”. Name specific
+          links instead (
+          <span className="font-mono">venue,category</span>
+          ) to keep the documents smaller, or clear it to store ids only.
         </span>
       </label>
       <label className="block">
