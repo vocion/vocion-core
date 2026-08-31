@@ -8,7 +8,7 @@
 import type { SourceContext } from '@/libs/sources/types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { strapiConnector } from '@/libs/sources/strapi';
+import { inspectStrapiInstance, strapiConnector } from '@/libs/sources/strapi';
 
 function res(body: unknown, ok = true, status = 200): Response {
   return {
@@ -414,5 +414,248 @@ describe('strapiConnector', () => {
       kind: 'fetched',
       uri: 'https://cms.partner.org/api/events/1',
     });
+  });
+});
+
+/**
+ * `inspectStrapiInstance` powers the Add-source dialog: it runs before any
+ * source row or credential exists, so it must report what it found rather than
+ * throwing, and must degrade cleanly on instances that keep their content-type
+ * list behind the admin API — which is most of them.
+ */
+describe('inspectStrapiInstance', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * A private instance: the content-type list is admin-only and content needs
+   * the bearer, so the anonymous probe inspect makes is refused. This is the
+   * shape that proves a token actually works.
+   * @param body - Payload for an authenticated content request.
+   */
+  function privateInstance(body: unknown) {
+    return vi.fn(async (url: string, init?: RequestInit) => {
+      const hasToken = Boolean((init?.headers as Record<string, string> | undefined)?.authorization);
+      if (String(url).includes('content-type-builder')) {
+        return res({ error: 'Forbidden' }, false, 403);
+      }
+      if (!hasToken) {
+        return res({ error: 'Unauthorized' }, false, 401);
+      }
+      return res(body);
+    });
+  }
+
+  it('lists collection types when the instance lets an API token enumerate them', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('content-type-builder')) {
+        return res({
+          data: [
+            { uid: 'api::venue.venue', schema: { kind: 'collectionType', pluralName: 'venues' } },
+            { uid: 'api::event.event', schema: { kind: 'collectionType', pluralName: 'events' } },
+            { uid: 'api::home.home', schema: { kind: 'singleType', pluralName: 'homes' } },
+            { uid: 'plugin::users-permissions.user', schema: { kind: 'collectionType', pluralName: 'users' } },
+          ],
+        });
+      }
+      return res(page([{ id: 1, documentId: 'doc-1', name: 'Night market' }]));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const inspection = await inspectStrapiInstance({ baseUrl: 'https://cms.partner.org', token: 'tok' });
+
+    // Alphabetical, api:: collection types only — single types and plugin types
+    // are not content collections a source can walk.
+    expect(inspection.collections).toEqual(['events', 'venues']);
+    expect(inspection.reachable).toBe(true);
+    expect(inspection.authorized).toBe(true);
+    expect(inspection.enumerationNote).toBeNull();
+  });
+
+  it('reports the admin-only content-type list as a note rather than an error', async () => {
+    vi.stubGlobal('fetch', privateInstance(page([{ id: 1, documentId: 'doc-1', name: 'Night market' }])));
+
+    const inspection = await inspectStrapiInstance({
+      baseUrl: 'https://cms.partner.org',
+      token: 'tok',
+      collections: ['events'],
+    });
+
+    expect(inspection.collections).toBeNull();
+    expect(inspection.enumerationNote).toContain('admin API');
+    expect(inspection.error).toBeNull();
+    expect(inspection.reachable).toBe(true);
+    expect(inspection.authorized).toBe(true);
+  });
+
+  it('counts entries and detects v5 from a flat entry', async () => {
+    vi.stubGlobal('fetch', privateInstance({
+      data: [{ id: 1, documentId: 'doc-1', name: 'Night market' }],
+      meta: { pagination: { total: 855 } },
+    }));
+
+    const inspection = await inspectStrapiInstance({
+      baseUrl: 'https://cms.partner.org',
+      token: 'tok',
+      collections: ['events'],
+    });
+
+    expect(inspection.detectedVersion).toBe(5);
+    expect(inspection.checks).toEqual([
+      { collection: 'events', status: 'ok', entryCount: 855, message: null, publiclyReadable: false },
+    ]);
+  });
+
+  it('detects v4 from a nested entry', async () => {
+    vi.stubGlobal('fetch', privateInstance({
+      data: [{ id: 1, attributes: { name: 'Night market' } }],
+      meta: { pagination: { total: 2 } },
+    }));
+
+    const inspection = await inspectStrapiInstance({
+      baseUrl: 'https://cms.partner.org',
+      token: 'tok',
+      collections: ['events'],
+    });
+
+    expect(inspection.detectedVersion).toBe(4);
+  });
+
+  it('separates a missing collection from one the token cannot read', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const target = String(url);
+      const hasToken = Boolean((init?.headers as Record<string, string> | undefined)?.authorization);
+      if (target.includes('content-type-builder')) {
+        return res({ error: 'Forbidden' }, false, 403);
+      }
+      if (target.includes('/api/ghosts')) {
+        return res({ error: 'Not Found' }, false, 404);
+      }
+      if (target.includes('/api/secrets')) {
+        return res({ error: 'Forbidden' }, false, 403);
+      }
+      if (!hasToken) {
+        return res({ error: 'Unauthorized' }, false, 401);
+      }
+      return res(page([{ id: 1, documentId: 'doc-1' }]));
+    }));
+
+    const inspection = await inspectStrapiInstance({
+      baseUrl: 'https://cms.partner.org',
+      token: 'tok',
+      collections: ['events', 'ghosts', 'secrets'],
+    });
+
+    expect(inspection.checks.map(check => [check.collection, check.status])).toEqual([
+      ['events', 'ok'],
+      ['ghosts', 'not-found'],
+      ['secrets', 'forbidden'],
+    ]);
+    // One readable collection is enough to call the token good.
+    expect(inspection.authorized).toBe(true);
+  });
+
+  it('calls out a rejected token instead of blaming the collection', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => res({ error: 'Unauthorized' }, false, 401)));
+
+    const inspection = await inspectStrapiInstance({
+      baseUrl: 'https://cms.partner.org',
+      token: 'stale-token',
+      collections: ['events'],
+    });
+
+    expect(inspection.reachable).toBe(true);
+    expect(inspection.authorized).toBe(false);
+    expect(inspection.checks[0]!.status).toBe('unauthorized');
+    expect(inspection.error).toContain('rejected');
+  });
+
+  it('still flags a rejected token when the collection is publicly readable', async () => {
+    // A public Strapi collection answers 200 with no credential at all, so a
+    // 200 here must not be read as proof the token works.
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (
+      String(url).includes('content-type-builder')
+        ? res({ error: 'Unauthorized' }, false, 401)
+        : res(page([{ id: 1, documentId: 'doc-1' }]))
+    )));
+
+    const inspection = await inspectStrapiInstance({
+      baseUrl: 'https://cms.partner.org',
+      token: 'stale-token',
+      collections: ['events'],
+    });
+
+    expect(inspection.authorized).toBe(false);
+    expect(inspection.enumerationNote).toContain('rejected the token');
+  });
+
+  it('reports an unreachable host without throwing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('getaddrinfo ENOTFOUND cms.partner.org');
+    }));
+
+    const inspection = await inspectStrapiInstance({
+      baseUrl: 'https://cms.partner.org',
+      token: 'tok',
+      collections: ['events'],
+    });
+
+    expect(inspection.reachable).toBe(false);
+    expect(inspection.authorized).toBe(false);
+    expect(inspection.error).toContain('ENOTFOUND');
+  });
+
+  it('trims a trailing slash off the base URL before calling the instance', async () => {
+    const fetchMock = privateInstance(page([{ id: 1, documentId: 'doc-1' }]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await inspectStrapiInstance({
+      baseUrl: 'https://cms.partner.org/',
+      token: 'tok',
+      collections: ['events'],
+    });
+
+    expect(fetchMock.mock.calls.every(call => !String(call[0]).includes('.org//'))).toBe(true);
+  });
+
+  it('sends the token as a bearer header on every request but the public probe', async () => {
+    const fetchMock = privateInstance(page([{ id: 1, documentId: 'doc-1' }]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await inspectStrapiInstance({ baseUrl: 'https://cms.partner.org', token: 'tok-abc', collections: ['events'] });
+
+    const authenticated = fetchMock.mock.calls.filter(call => call[1] !== undefined);
+    const anonymous = fetchMock.mock.calls.filter(call => call[1] === undefined);
+
+    expect(authenticated).toHaveLength(2);
+
+    for (const call of authenticated) {
+      expect((call[1] as RequestInit).headers).toEqual({ authorization: 'Bearer tok-abc' });
+    }
+
+    // Exactly one deliberate credential-free probe, to tell public from private.
+    expect(anonymous).toHaveLength(1);
+  });
+
+  it('says the token could not be confirmed when the collection is public', async () => {
+    // Everything answers 200, with or without a credential — the shape of a
+    // Strapi whose public role can read the collection.
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (
+      String(url).includes('content-type-builder')
+        ? res({ error: 'Forbidden' }, false, 403)
+        : res(page([{ id: 1, documentId: 'doc-1' }]))
+    )));
+
+    const inspection = await inspectStrapiInstance({
+      baseUrl: 'https://cms.partner.org',
+      token: 'tok',
+      collections: ['events'],
+    });
+
+    expect(inspection.checks[0]!.status).toBe('ok');
+    expect(inspection.checks[0]!.publiclyReadable).toBe(true);
+    expect(inspection.authorized).toBe(false);
+    expect(inspection.error).toContain('could not be confirmed');
   });
 });
