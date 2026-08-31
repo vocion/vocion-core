@@ -1,3 +1,4 @@
+import { NextIntlClientProvider } from 'next-intl';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
@@ -89,17 +90,61 @@ function notEnumerable(checks: Inspection['checks']): Inspection {
  * @param options - `inspectRejection` makes every inspect call fail with that message, as the route does for a URL with no scheme.
  * @param options.inspectRejection
  */
+type SourceFixture = {
+  id: number;
+  slug: string;
+  kind: string;
+  config: Record<string, unknown>;
+  lastSyncedAt: string | null;
+  enabled: string;
+  createdAt: string;
+  authKind: 'none' | 'apikey' | 'oauth';
+  objectType: string | null;
+  documentCount: number;
+  credentialConnected: boolean;
+  credentialUpdatedAt: string | null;
+  sync: {
+    status: 'running' | 'completed' | 'failed' | 'abandoned';
+    startedAt: string;
+    completedAt: string | null;
+    error: string | null;
+    counts: Record<string, number>;
+  } | null;
+};
+
+/**
+ * One configured source row as /rpc/sources returns it.
+ * @param sync - The latest sync run to report, or null for a source never synced.
+ */
+function sourceRow(sync: SourceFixture['sync']): SourceFixture {
+  return {
+    id: 1,
+    slug: 'strapi-cms',
+    kind: 'strapi',
+    config: { baseUrl: 'https://cms.partner.org', collections: ['events'] },
+    lastSyncedAt: null,
+    enabled: 'true',
+    createdAt: '2026-08-01T00:00:00.000Z',
+    authKind: 'apikey',
+    objectType: null,
+    documentCount: 0,
+    credentialConnected: true,
+    credentialUpdatedAt: '2026-08-01T00:00:00.000Z',
+    sync,
+  };
+}
+
 function stubSourcesApi(
   connectors: ConnectorFixture[],
   inspections: Inspection[] = [],
-  options: { inspectRejection?: string } = {},
+  options: { inspectRejection?: string; sources?: SourceFixture[] } = {},
 ) {
   const posts: { url: string; body: Record<string, unknown> }[] = [];
   let inspectCall = 0;
   const fetchStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : String(input);
     if (url === '/rpc/sources' && (init?.method ?? 'GET') === 'GET') {
-      return new Response(JSON.stringify({ sources: [], connectors }), { status: 200 });
+      return new Response(JSON.stringify({ sources: options.sources ?? [], connectors }), { status: 200 });
     }
     if (url === '/rpc/sources' && init?.method === 'POST') {
       posts.push({ url, body: JSON.parse(String(init.body)) });
@@ -140,6 +185,18 @@ async function openPicker() {
   await page.getByRole('button', { name: 'Add source' }).first().click();
 
   await expect.element(page.getByPlaceholder(/Search source types/)).toBeVisible();
+}
+
+/**
+ * Render the panel inside the intl provider its locale-aware links need.
+ * Only tests that render a configured source row reach one.
+ */
+function renderPanel() {
+  return render(
+    <NextIntlClientProvider locale="en" messages={{}}>
+      <SourcesPanel />
+    </NextIntlClientProvider>,
+  );
 }
 
 describe('filterConnectors', () => {
@@ -690,5 +747,78 @@ describe('describeSyncResult', () => {
 
   it('does not claim success when the server said nothing at all', () => {
     expect(describeSyncResult(undefined).hadErrors).toBe(true);
+  });
+});
+
+describe('a sync started somewhere else', () => {
+  it('shows the source as syncing and blocks Sync now, with the 409 wording on hover', async () => {
+    stubSourcesApi(CONNECTORS, [], {
+      sources: [sourceRow({
+        status: 'running',
+        startedAt: new Date(Date.now() - 60_000).toISOString(),
+        completedAt: null,
+        error: null,
+        counts: {},
+      })],
+    });
+    renderPanel();
+
+    await expect.element(page.getByText(/Syncing now — started/)).toBeVisible();
+
+    const syncButton = page.getByRole('button', { name: /Syncing…/ });
+
+    await expect.element(syncButton).toBeDisabled();
+    await expect.element(syncButton).toHaveAttribute(
+      'title',
+      'This source is already syncing. Wait for it to finish, then try again.',
+    );
+  });
+
+  it('keeps a failed run visible after a reload, with its reason', async () => {
+    stubSourcesApi(CONNECTORS, [], {
+      sources: [sourceRow({
+        status: 'failed',
+        startedAt: '2026-08-31T18:52:00.000Z',
+        completedAt: '2026-08-31T18:53:00.000Z',
+        error: 'all 43 document(s) failed, so nothing was saved. First failure: OPENAI_API_KEY is not set',
+        counts: { errors: 43 },
+      })],
+    });
+    renderPanel();
+
+    await expect.element(page.getByText(/Last sync failed:/)).toBeVisible();
+    await expect.element(page.getByText(/OPENAI_API_KEY is not set/)).toBeVisible();
+  });
+
+  it('says a run that never finished can be taken over', async () => {
+    stubSourcesApi(CONNECTORS, [], {
+      sources: [sourceRow({
+        status: 'abandoned',
+        startedAt: '2026-08-31T10:00:00.000Z',
+        completedAt: null,
+        error: null,
+        counts: {},
+      })],
+    });
+    renderPanel();
+
+    await expect.element(page.getByText(/never finished — its process stopped/)).toBeVisible();
+    // Takeover is allowed, so the button must not be stuck disabled.
+    await expect.element(page.getByRole('button', { name: /Sync now/ })).toBeEnabled();
+  });
+
+  it('flags a finished run that dropped documents', async () => {
+    stubSourcesApi(CONNECTORS, [], {
+      sources: [sourceRow({
+        status: 'completed',
+        startedAt: '2026-08-31T18:52:00.000Z',
+        completedAt: '2026-08-31T18:53:00.000Z',
+        error: null,
+        counts: { created: 10, errors: 2 },
+      })],
+    });
+    renderPanel();
+
+    await expect.element(page.getByText(/Last sync could not save 2 documents/)).toBeVisible();
   });
 });
