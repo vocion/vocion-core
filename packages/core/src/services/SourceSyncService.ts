@@ -90,6 +90,89 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
 }
 
 /**
+ * Replace one source's configuration.
+ *
+ * The connector is NOT changeable: a source's documents were ingested by one
+ * connector's rules and its stored credential belongs to that connector, so
+ * pointing an existing row at a different one would leave both behind. Change
+ * the URL, the collections, the page size — not what kind of thing this is.
+ * @param input - Org, source and the replacement config.
+ * @param input.orgId - Org that owns the source.
+ * @param input.sourceId - Source to update.
+ * @param input.configJson - The new config, without the internal `_connector` key.
+ */
+export async function updateSourceConfig(input: {
+  orgId: string;
+  sourceId: number;
+  configJson: Record<string, unknown>;
+}): Promise<{ id: number; slug: string }> {
+  const [row] = await db
+    .select({
+      id: knowledgeSourceSchema.id,
+      slug: knowledgeSourceSchema.slug,
+      configJson: knowledgeSourceSchema.configJson,
+    })
+    .from(knowledgeSourceSchema)
+    .where(and(
+      eq(knowledgeSourceSchema.id, input.sourceId),
+      eq(knowledgeSourceSchema.orgId, input.orgId),
+    ))
+    .limit(1);
+  if (!row) {
+    throw new Error(`No source ${input.sourceId} in this workspace`);
+  }
+  const existing = row.configJson as Record<string, unknown>;
+  const connectorSlug = (existing._connector as string | undefined) ?? row.slug;
+  const connector = getConnector(connectorSlug);
+  if (!connector) {
+    throw new Error(`Unknown source connector: ${connectorSlug}`);
+  }
+  // Same validation the add path runs, so an edit cannot store a config that a
+  // fresh source would have refused.
+  connector.configSchema.parse(input.configJson);
+  await db
+    .update(knowledgeSourceSchema)
+    .set({ configJson: { ...input.configJson, _connector: connectorSlug } })
+    .where(and(
+      eq(knowledgeSourceSchema.id, input.sourceId),
+      eq(knowledgeSourceSchema.orgId, input.orgId),
+    ));
+  return { id: row.id, slug: row.slug };
+}
+
+/**
+ * Delete one source and everything ingested from it.
+ *
+ * The documents, their chunks and the sync checkpoint go with it through the
+ * schema's cascades — this is not recoverable, and the caller is expected to
+ * have confirmed with the operator first. The stored CREDENTIAL is left alone
+ * on purpose: it belongs to the connector, not to this source, so deleting one
+ * HubSpot source must not disconnect its siblings.
+ * @param orgId - Org that owns the source.
+ * @param sourceId - Source to delete.
+ */
+export async function deleteSource(orgId: string, sourceId: number): Promise<{ documentsDeleted: number }> {
+  const [documents] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(knowledgeDocumentSchema)
+    .where(and(
+      eq(knowledgeDocumentSchema.orgId, orgId),
+      eq(knowledgeDocumentSchema.sourceId, sourceId),
+    ));
+  const deleted = await db
+    .delete(knowledgeSourceSchema)
+    .where(and(
+      eq(knowledgeSourceSchema.id, sourceId),
+      eq(knowledgeSourceSchema.orgId, orgId),
+    ))
+    .returning({ id: knowledgeSourceSchema.id });
+  if (deleted.length === 0) {
+    throw new Error(`No source ${sourceId} in this workspace`);
+  }
+  return { documentsDeleted: Number(documents?.count ?? 0) };
+}
+
+/**
  * How many documents `runSync` ingests at the same time.
  *
  * Ingesting a document is almost entirely spent waiting on one OpenAI
