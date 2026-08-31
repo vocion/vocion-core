@@ -27,6 +27,50 @@ deliberate commit, never a deploy-time surprise.
 
 ---
 
+## Why `infra/terraform` and `infra/aws` are separate
+
+This trips everyone up, because both folders say "infrastructure" and both
+concern AWS. They are not two homes for the same thing. **They run in different
+places, at different times, with different credentials.**
+
+|  | `infra/terraform/` | `infra/aws/` |
+|---|---|---|
+| **Runs where** | your laptop, or CI | on the EC2 box, as root |
+| **Talks to** | the AWS API | Docker, on that one machine |
+| **Written in** | declarative HCL | bash, compose, Caddyfile |
+| **Needs** | AWS credentials + the state file | no AWS credentials at all |
+| **Runs how often** | rarely — resize, DNS, IAM | every single deploy |
+| **When it fails** | apply errors out, nothing changed | box is up but serving badly |
+
+Read it as a handoff:
+
+```
+tofu apply                          → creates the machine
+  └─ user-data.sh (first boot only) → fetches the secret, clones the repo
+       └─ infra/aws/bootstrap.sh    → builds the image, starts the stack
+            └─ apply-workspace.sh   → migrations, workspace YAML into the DB
+
+git push origin main                → re-runs bootstrap.sh only
+```
+
+`infra/terraform` creates the machine. `infra/aws` is what the machine *does*
+once it exists. The first is cattle-shaped and runs from outside; the second
+is the box's own runbook and runs from inside.
+
+Merging them would put "needs AWS credentials and a state file" in the same
+directory as "runs as root on a box that deliberately has neither", and would
+mean editing a Caddy config triggered a Terraform plan.
+
+**The name `infra/aws` is admittedly poor** — `infra/terraform` is also AWS.
+`infra/box`, `infra/host` or `runtime/` would all be clearer. The name is kept
+because this repo uses it too (`vocion-core/infra/aws/`), several absolute
+paths depend on it (`/opt/vocion/infra/aws/Caddyfile` in the compose overlay,
+`${CORE}/infra/aws/.env.production` in `bootstrap.sh`), and having the
+framework and its parent projects disagree about the layout costs more than the
+better name is worth. Rename it in both, or in neither.
+
+---
+
 ## The part people miss
 
 **A deployment has two phases, and the second one lives in this repo.**
