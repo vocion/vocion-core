@@ -750,6 +750,15 @@ function credentialPairKey(baseUrl: string, token: string): string {
   return `${baseUrl}\u0000${token}`;
 }
 
+/**
+ * True when a check ran and the instance would not hand over the collection.
+ * An absent check means nothing was verified yet, which is not a failure.
+ * @param check - Verdict for one collection, or undefined when unchecked.
+ */
+function isUnreadable(check: CollectionCheck | undefined): check is CollectionCheck {
+  return check !== undefined && check.status !== 'ok';
+}
+
 /** Row-sized wording for a failed collection check; the full message goes in the title. */
 const COLLECTION_STATUS_LABELS: Record<CollectionCheck['status'], string> = {
   'ok': 'reads',
@@ -989,7 +998,7 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
   // so typed ids that have never been checked still submit.
   const failedChecks = chosen
     .map(collection => checkFor(collection))
-    .filter((check): check is CollectionCheck => check !== undefined && check.status !== 'ok');
+    .filter(isUnreadable);
 
   const blockedReason = failedChecks.length > 0
     ? `${failedChecks.map(check => `${check.collection} — ${COLLECTION_STATUS_LABELS[check.status]}`).join(', ')}. Fix or untick before adding: syncing a collection this instance won't read gets you an empty source.`
@@ -1026,6 +1035,13 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
       return;
     }
     setInspection(found);
+    // A reload can turn a collection that read fine into one that no longer
+    // does — a revoked permission, a renamed type. Untick those rather than
+    // leaving a dead choice ticked and the submit button mysteriously off.
+    const rejected = (found?.checks ?? []).filter(isUnreadable).map(check => check.collection);
+    if (rejected.length > 0) {
+      setSelected(current => current.filter(collection => !rejected.includes(collection)));
+    }
     // A reachable instance with a caveat — a rejected token, or collections
     // that are public so the token stays unproven — belongs in the panel's own
     // note, not the dialog's red failure strip.
@@ -1225,10 +1241,14 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
                 <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
                   {catalogue.map(collection => (
                     <li key={collection}>
-                      <label className="flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/60">
+                      <label className="flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/60 has-[input:disabled]:text-muted-foreground">
+                        {/* A collection the instance would not read stays listed —
+                            that is the answer to "where is my collection?" — but
+                            it cannot be ticked, so nothing unreadable is synced. */}
                         <input
                           type="checkbox"
                           checked={selected.includes(collection)}
+                          disabled={isUnreadable(checkFor(collection))}
                           onChange={() => toggleCollection(collection)}
                         />
                         {collection}
