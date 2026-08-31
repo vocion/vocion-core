@@ -984,6 +984,17 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
     return inspection?.checks.find(check => check.collection === collection);
   }
 
+  // A collection the instance could not read is not worth saving: the sync would
+  // hit the same 404 or 403 on every run. Only a check that actually ran counts,
+  // so typed ids that have never been checked still submit.
+  const failedChecks = chosen
+    .map(collection => checkFor(collection))
+    .filter((check): check is CollectionCheck => check !== undefined && check.status !== 'ok');
+
+  const blockedReason = failedChecks.length > 0
+    ? `${failedChecks.map(check => `${check.collection} — ${COLLECTION_STATUS_LABELS[check.status]}`).join(', ')}. Fix or untick before adding: syncing a collection this instance won't read gets you an empty source.`
+    : null;
+
   /**
    * Reads the instance and replaces the catalogue. Safe to call again while an
    * earlier read is still in flight: each call takes the next request number and
@@ -1075,9 +1086,9 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
   return (
     <AddSourceDialogFrame
       title={title}
-      error={error}
+      error={error ?? blockedReason}
       submitting={submitting}
-      canSubmit={connectionReady && chosen.length > 0}
+      canSubmit={connectionReady && chosen.length > 0 && failedChecks.length === 0}
       onClose={onClose}
       onSubmit={submit}
     >
