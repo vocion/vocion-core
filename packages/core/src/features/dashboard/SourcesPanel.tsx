@@ -252,7 +252,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
+      <div className="w-full max-w-xl rounded-xl border bg-background shadow-xl">
         <form onSubmit={submit}>
           <div className="flex items-center gap-2 border-b px-4 py-3">
             <KeyRound className="size-4 text-muted-foreground" />
@@ -664,6 +664,7 @@ async function createSource(kind: string, configJson: Record<string, unknown>): 
 function AddSourceDialogFrame({
   title,
   error,
+  requirement,
   submitting,
   canSubmit,
   onClose,
@@ -672,6 +673,7 @@ function AddSourceDialogFrame({
 }: {
   title: string;
   error: string | null;
+  requirement: string | null;
   submitting: boolean;
   canSubmit: boolean;
   onClose: () => void;
@@ -683,7 +685,7 @@ function AddSourceDialogFrame({
       {/* Header and footer are pinned and only the fields scroll, so a validation
           error — which lands in the footer, next to the button that triggered it —
           is visible wherever the operator has scrolled to. */}
-      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-xl border bg-background shadow-xl">
+      <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border bg-background shadow-xl">
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <h3 className="font-display text-lg">{title}</h3>
@@ -702,28 +704,39 @@ function AddSourceDialogFrame({
                   </div>
                 )
               : null}
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submitting || !canSubmit}
-                className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
-              >
-                {submitting
-                  ? (
-                      <>
-                        <Loader2 className="size-3 animate-spin" />
-                        Adding…
-                      </>
-                    )
-                  : 'Add source'}
-              </button>
+            <div className="flex items-center justify-between gap-3">
+              {/* What is still missing, said out loud rather than left for the
+                  operator to infer from a greyed-out button. */}
+              <p className="text-xs text-muted-foreground">
+                {requirement ? `Still needed: ${requirement}` : null}
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                {/* The title rides the wrapper, not the button: a disabled button
+                    swallows its own hover events, so its tooltip never opens. */}
+                <span title={canSubmit ? undefined : (requirement ?? undefined)}>
+                  <button
+                    type="submit"
+                    disabled={submitting || !canSubmit}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
+                  >
+                    {submitting
+                      ? (
+                          <>
+                            <Loader2 className="size-3 animate-spin" />
+                            Adding…
+                          </>
+                        )
+                      : 'Add source'}
+                  </button>
+                </span>
+              </div>
             </div>
           </div>
         </form>
@@ -768,6 +781,47 @@ const COLLECTION_STATUS_LABELS: Record<CollectionCheck['status'], string> = {
   'error': 'Check failed',
 };
 
+/**
+ * Plain-English name for whatever is still missing before a Strapi source can be
+ * added, in the order the form is filled. Null once nothing is missing.
+ *
+ * This is the disabled Add source button's explanation — both as a line in the
+ * footer and as its hover tooltip — so it has to read like an instruction, not
+ * like a validation code.
+ * @param state - What the form holds right now.
+ * @param state.baseUrl - Instance URL as typed.
+ * @param state.token - API token as typed.
+ * @param state.chosenCount - How many collections are ticked or typed.
+ * @param state.hasCatalogue - Whether the instance listed its collections, so they are ticked rather than typed.
+ * @param state.failedChecks - Chosen collections this instance would not read.
+ */
+function describeMissingPiece(state: {
+  baseUrl: string;
+  token: string;
+  chosenCount: number;
+  hasCatalogue: boolean;
+  failedChecks: CollectionCheck[];
+}): string | null {
+  if (state.baseUrl.trim() === '') {
+    return 'the Strapi instance URL';
+  }
+  if (state.token.trim() === '') {
+    return 'an API token';
+  }
+  if (state.chosenCount === 0) {
+    return state.hasCatalogue
+      ? 'at least one collection ticked in the list above'
+      : 'at least one collection — type its plural api id above';
+  }
+  if (state.failedChecks.length > 0) {
+    const named = state.failedChecks
+      .map(check => `${check.collection} (${COLLECTION_STATUS_LABELS[check.status].toLowerCase()})`)
+      .join(', ');
+    return `a fix for ${named} — this instance won't read it, so syncing it would store nothing`;
+  }
+  return null;
+}
+
 function AddWebSourceDialog({ kind, title, onClose, onAdded }: {
   kind: string;
   title: string;
@@ -803,6 +857,7 @@ function AddWebSourceDialog({ kind, title, onClose, onAdded }: {
     <AddSourceDialogFrame
       title={title}
       error={error}
+      requirement={url.trim().length > 0 ? null : 'a URL to read'}
       submitting={submitting}
       canSubmit={url.trim().length > 0}
       onClose={onClose}
@@ -1000,9 +1055,13 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
     .map(collection => checkFor(collection))
     .filter(isUnreadable);
 
-  const blockedReason = failedChecks.length > 0
-    ? `${failedChecks.map(check => `${check.collection} — ${COLLECTION_STATUS_LABELS[check.status]}`).join(', ')}. Fix or untick before adding: syncing a collection this instance won't read gets you an empty source.`
-    : null;
+  const requirement = describeMissingPiece({
+    baseUrl,
+    token,
+    chosenCount: chosen.length,
+    hasCatalogue,
+    failedChecks,
+  });
 
   /**
    * Reads the instance and replaces the catalogue. Safe to call again while an
@@ -1102,7 +1161,8 @@ function AddStrapiSourceDialog({ kind, title, onClose, onAdded }: {
   return (
     <AddSourceDialogFrame
       title={title}
-      error={error ?? blockedReason}
+      error={error}
+      requirement={requirement}
       submitting={submitting}
       canSubmit={connectionReady && chosen.length > 0 && failedChecks.length === 0}
       onClose={onClose}
