@@ -448,6 +448,26 @@ describe('add Strapi source', () => {
     expect((created.body.configJson as { collections: string[] }).collections).toEqual(['events']);
   });
 
+  it('lists a collection the instance rejected but will not let it be ticked', async () => {
+    stubSourcesApi(CONNECTORS, [
+      {
+        ...enumerated(['events', 'venues']),
+        checks: [
+          { collection: 'events', status: 'ok', entryCount: 855, message: null },
+          { collection: 'venues', status: 'forbidden', entryCount: null, message: 'The token has no read permission for this collection.' },
+        ],
+      },
+    ]);
+    render(<SourcesPanel />);
+    await openStrapiForm();
+
+    // Still listed — hiding it would leave "where is my collection?" unanswered.
+    await expect.element(page.getByRole('checkbox', { name: /venues/ })).toBeVisible();
+    await expect.element(page.getByText('venuesNo read permission')).toBeVisible();
+    await expect.element(page.getByRole('checkbox', { name: /venues/ })).toBeDisabled();
+    await expect.element(page.getByRole('checkbox', { name: /events/ })).toBeEnabled();
+  });
+
   it('still submits typed collections that have never been checked', async () => {
     stubSourcesApi(CONNECTORS, [notEnumerable([])]);
     render(<SourcesPanel />);
