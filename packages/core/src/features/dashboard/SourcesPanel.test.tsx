@@ -236,6 +236,55 @@ describe('connector picker', () => {
 });
 
 describe('add Strapi source', () => {
+  it('says what is needed before collections can be loaded', async () => {
+    stubSourcesApi(CONNECTORS, [notEnumerable([])]);
+    render(<SourcesPanel />);
+    await openPicker();
+    await page.getByRole('button', { name: /Strapi/ }).click();
+
+    await expect.element(page.getByText(/fill in the instance URL and an API token/)).toBeVisible();
+    await expect.element(page.getByText('Add the instance URL and an API token above, then Load collections.')).toBeVisible();
+
+    await userEvent.fill(page.getByLabelText(/Strapi URL/), 'https://cms.partner.org');
+    await userEvent.fill(page.getByLabelText(/API token/), 'tok-123');
+
+    await expect.element(page.getByText(/Ready — Load collections reads this instance/)).toBeVisible();
+  });
+
+  it('shows the API token in the clear when the eye is clicked, and hides it again', async () => {
+    stubSourcesApi(CONNECTORS, [notEnumerable([])]);
+    render(<SourcesPanel />);
+    await openStrapiForm();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveAttribute('type', 'password');
+
+    await page.getByRole('button', { name: 'Show token' }).click();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveAttribute('type', 'text');
+
+    await page.getByRole('button', { name: 'Hide token' }).click();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveAttribute('type', 'password');
+  });
+
+  it('puts each collection\'s entry count on its own row in the list', async () => {
+    stubSourcesApi(CONNECTORS, [{
+      ...enumerated(['events', 'venues']),
+      checks: [
+        { collection: 'events', status: 'ok', entryCount: 855, message: null },
+        { collection: 'venues', status: 'ok', entryCount: 1, message: null },
+      ],
+    }]);
+    render(<SourcesPanel />);
+    await openStrapiForm();
+
+    await page.getByRole('button', { name: 'Load collections' }).click();
+
+    // The count rides the checkbox's own label, so the row reads as one thing.
+    await expect.element(page.getByRole('checkbox', { name: /events.*855 entries/ })).toBeVisible();
+    await expect.element(page.getByRole('checkbox', { name: /venues.*1 entry/ })).toBeVisible();
+  });
+
   it('lists the instance\'s collections to tick when the instance can be enumerated', async () => {
     stubSourcesApi(CONNECTORS, [enumerated(['events', 'venues'])]);
     render(<SourcesPanel />);
