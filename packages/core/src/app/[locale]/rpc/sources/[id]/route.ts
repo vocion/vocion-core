@@ -18,12 +18,18 @@ import { deleteSource, supersedeRunningSync, updateSourceConfig } from '@/servic
 
 /**
  * Read and check the source id out of the route params.
+ *
+ * The whole segment has to be digits. `Number.parseInt` alone would read
+ * "7x" as 7, so a typo'd or hand-edited URL would edit or delete source 7
+ * while looking like it addressed something else.
  * @param ctx - Route context carrying the dynamic segments.
  */
 async function readSourceId(ctx: { params: Promise<{ id: string }> }): Promise<number | null> {
   const params = await ctx.params;
-  const sourceId = Number.parseInt(params.id, 10);
-  return Number.isInteger(sourceId) ? sourceId : null;
+  if (!/^\d+$/.test(params.id)) {
+    return null;
+  }
+  return Number.parseInt(params.id, 10);
 }
 
 export async function PATCH(
