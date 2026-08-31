@@ -428,11 +428,13 @@ async function enumerateCollections(
  * @param baseUrl - Instance root.
  * @param token - A Strapi API token.
  * @param collection - Plural api id to check.
+ * @param probePublicAccess - Re-request without the token to tell public from private. Skipped when the catalogue already proved the token.
  */
 async function checkOneCollection(
   baseUrl: string,
   token: string,
   collection: string,
+  probePublicAccess: boolean,
 ): Promise<{ check: StrapiCollectionCheck; detectedVersion: 4 | 5 | null }> {
   const url = `${trimTrailingSlash(baseUrl)}/api/${collection}?pagination[pageSize]=1`;
   let response: Response;
@@ -506,13 +508,15 @@ async function checkOneCollection(
   // Ask again with no credential. If that also succeeds the collection is
   // public, so the successful read above says nothing about the token.
   let publiclyReadable = false;
-  try {
-    const anonymous = await fetch(url);
-    publiclyReadable = anonymous.ok;
-  } catch {
-    // A failed anonymous probe only means we cannot prove the collection is
-    // public; the authenticated read above already succeeded, so carry on.
-    publiclyReadable = false;
+  if (probePublicAccess) {
+    try {
+      const anonymous = await fetch(url);
+      publiclyReadable = anonymous.ok;
+    } catch {
+      // A failed anonymous probe only means we cannot prove the collection is
+      // public; the authenticated read above already succeeded, so carry on.
+      publiclyReadable = false;
+    }
   }
 
   return {
@@ -525,6 +529,41 @@ async function checkOneCollection(
     },
     detectedVersion,
   };
+}
+
+/**
+ * How many collection checks run at once. An instance with forty collections
+ * would take forty round trips one at a time; a small pool keeps the dialog
+ * responsive without hammering a partner's CMS.
+ */
+const COLLECTION_CHECK_CONCURRENCY = 8;
+
+/**
+ * Run `worker` over `items` with at most `limit` in flight, keeping results in
+ * the input's order.
+ * @param items - Inputs to process.
+ * @param limit - Maximum number of workers running at once.
+ * @param worker - Called once per item.
+ */
+async function mapWithConcurrency<TItem, TResult>(
+  items: TItem[],
+  limit: number,
+  worker: (item: TItem) => Promise<TResult>,
+): Promise<TResult[]> {
+  const results: TResult[] = Array.from({ length: items.length });
+  let nextIndex = 0;
+
+  async function runNext(): Promise<void> {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index]!);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, runNext);
+  await Promise.all(workers);
+  return results;
 }
 
 /**
@@ -550,19 +589,23 @@ export async function inspectStrapiInstance(input: {
 
   const { collections, note, tokenRejected } = await enumerateCollections(baseUrl, input.token);
 
-  // Check what the operator asked about; with nothing asked and a catalogue in
-  // hand, check the first few so the reply still proves the token reads content.
-  const toCheck = requested.length > 0
-    ? requested
-    : (collections ?? []).slice(0, 3);
+  // Every collection gets checked, so the picker can show each one's entry count
+  // beside its name. The catalogue itself already proved the token, so those runs
+  // skip the extra public probe — one request per collection, not two.
+  const toCheck = collections ?? requested;
+  const probePublicAccess = collections === null;
 
-  const checks: StrapiCollectionCheck[] = [];
-  let detectedVersion: 4 | 5 | null = null;
-  for (const collection of toCheck) {
-    const result = await checkOneCollection(baseUrl, input.token, collection);
-    checks.push(result.check);
-    detectedVersion = detectedVersion ?? result.detectedVersion;
-  }
+  const results = await mapWithConcurrency(
+    toCheck,
+    COLLECTION_CHECK_CONCURRENCY,
+    collection => checkOneCollection(baseUrl, input.token, collection, probePublicAccess),
+  );
+
+  const checks = results.map(result => result.check);
+  const detectedVersion = results.reduce<4 | 5 | null>(
+    (found, result) => found ?? result.detectedVersion,
+    null,
+  );
 
   const anyAnswered = checks.some(check => check.status !== 'error');
   const anyRejected = checks.some(check => check.status === 'unauthorized');
