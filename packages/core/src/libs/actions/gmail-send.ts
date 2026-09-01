@@ -44,6 +44,32 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
   grant: 'send_email',
   external: true,
   sourceSlug: 'gmail',
+  // The card template, email kind: one send, reviewed and edited inline.
+  async reviewCard(_ctx, input) {
+    return {
+      title: `${input.draft ? 'Draft email' : 'SEND email'} → ${input.to}`,
+      system: 'Gmail',
+      subject: { name: input.to },
+      contentHeading: { label: 'Email · 1 send' },
+      content: [{ kind: 'email' as const, id: 'message', label: 'Send 1', subject: input.subject, body: input.body }],
+      fields: [
+        { label: 'To', value: input.to },
+        ...(input.cc ? [{ label: 'Cc', value: input.cc }] : []),
+      ],
+      verbs: { approve: input.draft ? 'Approve → draft' : 'Approve & send', reject: 'Reject' },
+    };
+  },
+  applyContentEdits(input, edits) {
+    const edit = edits.find(e => e.id === 'message');
+    if (!edit) {
+      return input;
+    }
+    return {
+      ...input,
+      ...(edit.subject !== undefined ? { subject: edit.subject } : {}),
+      ...(edit.body !== undefined ? { body: edit.body } : {}),
+    };
+  },
   async execute(ctx, input) {
     // Durable path: refresh-token exchange (see googleAuth); falls back to a
     // raw short-lived credentials.token.

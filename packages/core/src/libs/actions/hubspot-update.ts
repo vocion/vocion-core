@@ -29,6 +29,19 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
   grant: 'update_crm',
   external: true,
   sourceSlug: 'hubspot',
+  // The card template, fields only: the properties being set are the review
+  // surface. Editing stays on the shell's property editor (input.properties).
+  async reviewCard(_ctx, input) {
+    return {
+      title: `Update HubSpot ${input.objectType.replace(/s$/, '')} record`,
+      system: 'HubSpot CRM',
+      fields: [
+        { label: 'Record', value: `${input.objectType}:${input.objectId}` },
+        ...Object.entries(input.properties).map(([label, value]) => ({ label, value: String(value ?? '') })),
+      ],
+      verbs: { approve: 'Update', reject: 'Reject' },
+    };
+  },
   async execute(ctx, input) {
     const token = tokenFromCredentials(ctx.credentials as Record<string, unknown> | undefined);
     if (!token) {
