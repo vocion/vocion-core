@@ -72,6 +72,15 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
    * dedup. Throw to abort the whole sync (rolls back nothing — partial
    * progress is intentional so a 1000-doc sync that fails on doc 487
    * still keeps the first 486).
+   *
+   * A connector that fetches several independent slices (Strapi's
+   * collections, say) may instead catch a slice's failure, report it via
+   * `onProgress({ kind: 'error' })`, and carry on with the rest — losing
+   * one slice should not cost the others. SourceSyncService counts those
+   * reports into `result.errors`, records them on the checkpoint for the
+   * UI, and — importantly — suppresses tombstoning for the whole run,
+   * since a slice we could not read is not a slice whose documents we can
+   * safely call deleted.
    */
   sync: (ctx: SourceContext) => AsyncIterable<IngestDoc>;
 };
