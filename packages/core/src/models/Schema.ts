@@ -1679,6 +1679,23 @@ export const sourceSyncCheckpointSchema = pgTable(
     completedAt: timestamp('completed_at', { mode: 'date' }),
     counts: jsonb('counts').$type<Record<string, number>>().default({}).notNull(),
     error: text('error'),
+    /**
+     * The non-fatal failures a run hit and carried on past — one Strapi
+     * collection returning a 500 while its siblings synced, a document that
+     * would not embed. `error` above holds the single fatal error that ended a
+     * run; this holds everything the run survived, so the UI can say what was
+     * skipped instead of only showing a lower document count.
+     *
+     * `scope` says which layer reported it: `connector` for a whole slice of the
+     * source that never arrived, `document` for one item that would not save.
+     * Capped per scope when written (see SourceSyncService) so a run failing on
+     * hundreds of documents cannot crowd out the record of a collection that
+     * never loaded, nor grow this row without bound.
+     */
+    failures: jsonb('failures')
+      .$type<{ scope: 'connector' | 'document'; uri?: string; message: string; at: string }[]>()
+      .default([])
+      .notNull(),
   },
   table => [
     uniqueIndex('source_sync_checkpoint_source_idx').on(table.sourceId),
