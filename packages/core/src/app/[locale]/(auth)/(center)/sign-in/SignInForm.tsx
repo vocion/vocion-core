@@ -11,15 +11,9 @@ type Props = {
   callbackUrl: string;
   error: string | null;
   hint: { email: string; password: string } | null;
-  /**
-   * True only on a brand-new instance with no users, where /api/signup
-   * still accepts a self-service registration. False once anyone exists —
-   * joining then requires an invite link from an admin.
-   */
-  canSelfSignUp: boolean;
 };
 
-export function SignInForm({ callbackUrl, error: initialError, hint, canSelfSignUp }: Props) {
+export function SignInForm({ callbackUrl, error: initialError, hint }: Props) {
   const [email, setEmail] = useState(hint?.email ?? '');
   const [password, setPassword] = useState(hint?.password ?? '');
   const [showPassword, setShowPassword] = useState(false);
@@ -109,19 +103,10 @@ export function SignInForm({ callbackUrl, error: initialError, hint, canSelfSign
           </Button>
         </form>
 
-        {canSelfSignUp
-          ? (
-              <p className="mt-6 text-center text-sm text-muted-foreground">
-                New here?
-                {' '}
-                <a className="font-medium text-foreground underline-offset-4 hover:underline" href="/sign-up">Create an account</a>
-              </p>
-            )
-          : (
-              <p className="mt-6 text-center text-sm text-muted-foreground">
-                This instance is invite-only — ask an admin for an invite link to join.
-              </p>
-            )}
+        {/* Accounts come from invites only, so there is no sign-up link to offer. */}
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          This instance is invite-only — ask an admin for an invite link to join.
+        </p>
       </div>
     </div>
   );
