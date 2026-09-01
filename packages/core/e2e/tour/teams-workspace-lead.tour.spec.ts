@@ -1,11 +1,13 @@
 import type { Page } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
 
 /**
  * F1 usage tour — "Teams + Workspace Lead" (design.md §5, the 8-shot
  * storyboard) as ONE cinematic spec with video on (playwright.config.ts
  * `tour` project). Self-seeding: runs against a FRESH PGlite-backed dev
- * server (zero users), creates the first-run admin via /sign-up, and
+ * server (zero users), creates the bootstrap admin with
+ * src/scripts/create-local-user.ts (the web signup route is invite-only), and
  * loads the bundled Meridian sample from the empty state — shot 1 IS the
  * empty state. No live model anywhere: shot 7 is the seeded composer
  * pre-fill, deliberately never sent.
@@ -15,7 +17,7 @@ import { expect, test } from '@playwright/test';
  * exact command sequence.
  */
 
-/** The "Chris-equivalent" first-run admin — becomes the workspace-default owner. */
+/** The "Chris-equivalent" bootstrap admin — becomes the workspace-default owner. */
 const ADMIN = {
   name: 'Chris Fitkin',
   account: 'Meridian Outdoor',
@@ -36,20 +38,41 @@ function dwell(page: Page, ms: number): Promise<void> {
   return page.waitForTimeout(ms);
 }
 
+/**
+ * Creates the account, its default project and the admin user straight in
+ * the database — the same command an operator runs on a real box. The web
+ * route cannot do this: accounts are invite-only, and there is nobody to
+ * issue the first invite on a fresh instance.
+ */
+function createBootstrapAdmin(): void {
+  execFileSync(
+    'npx',
+    [
+      'tsx',
+      'src/scripts/create-local-user.ts',
+      '--email',
+      ADMIN.email,
+      '--name',
+      ADMIN.name,
+      '--account',
+      ADMIN.account,
+      '--password',
+      ADMIN.password,
+      '--role',
+      'admin',
+    ],
+    { stdio: 'inherit' },
+  );
+}
+
 test('F1 storyboard: empty state → seed → org chart → provenance → team detail → workspace lead → chat pre-fill → under the hood', async ({ page }) => {
-  // ── Prologue (not a storyboard shot): first-run admin on the fresh DB ──
-  await page.goto('/sign-up');
+  // ── Prologue (not a storyboard shot): bootstrap admin on the fresh DB ──
+  createBootstrapAdmin();
 
-  await expect(
-    page.getByRole('heading', { name: 'Set up your Vocion instance' }),
-    'tour needs a FRESH database (zero users) — restart the PGlite dev server, see e2e/tour/README.md',
-  ).toBeVisible();
-
-  await page.getByLabel('Your name').fill(ADMIN.name);
-  await page.getByLabel('Account / team name').fill(ADMIN.account);
+  await page.goto('/sign-in');
   await page.getByLabel('Email').fill(ADMIN.email);
-  await page.getByLabel('Password').fill(ADMIN.password);
-  await page.getByRole('button', { name: 'Create instance + sign in' }).click();
+  await page.getByLabel('Password', { exact: true }).fill(ADMIN.password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL('**/dashboard**');
 
   // Let the post-sign-up full load go quiet, then navigate CLIENT-SIDE for

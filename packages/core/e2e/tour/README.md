@@ -3,8 +3,9 @@
 `teams-workspace-lead.tour.spec.ts` walks design.md's 8-shot storyboard as
 one cinematic Playwright spec with `video: 'on'` (the `tour` project in
 `playwright.config.ts`). It is **self-seeding**: it needs a *fresh* database
-(zero users), signs up the first-run admin ("Chris Fitkin" — he becomes the
-workspace-default owner), and loads the bundled Meridian Outdoor sample from
+(zero users), creates the bootstrap admin ("Chris Fitkin" — he becomes the
+workspace-default owner) by running `src/scripts/create-local-user.ts`, then
+signs in and loads the bundled Meridian Outdoor sample from
 the Teams empty state. Shot 7 only asserts the seeded composer pre-fill —
 **no message is ever sent**, so no model key or agent runtime is needed.
 

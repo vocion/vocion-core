@@ -4,26 +4,43 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
-import { accountMembershipSchema, inviteSchema, projectSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
+import { accountMembershipSchema, inviteSchema, userSchema } from '@/models/Schema';
+
+/**
+ * Registration endpoint. Accepting an invite is the ONLY way to create an
+ * account through the web.
+ *
+ * This route used to double as first-run setup: while the instance had no
+ * users, an unauthenticated POST created the tenant account, its default
+ * project and an admin user. That made every reachable deployment claimable
+ * by whoever found it first — a self-hosted URL is guessable (dev/staging
+ * subdomains of a known production hostname), and the window stayed open
+ * from the moment the box served traffic until a human happened to sign up.
+ *
+ * The first admin is now created on the instance instead, where being able
+ * to run the command is the authorization:
+ *
+ *   tsx src/scripts/create-local-user.ts --email you@example.com
+ *       --name "You" --role admin            (run inside packages/core)
+ *
+ * That script prints a generated password when none is passed. Everyone
+ * after the first joins by invite from inside the dashboard.
+ */
 
 const bodySchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   password: z.string().min(8),
-  accountName: z.string().optional(),
-  inviteToken: z.string().nullable().optional(),
+  inviteToken: z.string().min(1),
 });
-
-const slugify = (s: string) =>
-  s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'workspace';
 
 export async function POST(req: Request) {
   const raw = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(raw);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid input.' }, { status: 400 });
+    return NextResponse.json({ error: 'An invite token is required to create an account.' }, { status: 403 });
   }
-  const { name, email, password, accountName, inviteToken } = parsed.data;
+  const { name, email, password, inviteToken } = parsed.data;
   const lowerEmail = email.toLowerCase();
 
   // Reject duplicate emails
@@ -32,50 +49,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'An account with this email already exists.' }, { status: 409 });
   }
 
-  // Determine flow: first-run (no users yet) vs invite-accept
-  const [anyUser] = await db.select({ id: userSchema.id }).from(userSchema).limit(1);
-
-  if (!anyUser) {
-    // First-run: create account + project + admin user
-    if (!accountName) {
-      return NextResponse.json({ error: 'Account name is required for first-run setup.' }, { status: 400 });
-    }
-    const accountId = `acct-${randomUUID()}`;
-    const projectId = `proj-${randomUUID()}`;
-    const userId = `usr-${randomUUID()}`;
-    const passwordHash = await hashPassword(password);
-
-    await db.transaction(async (tx) => {
-      await tx.insert(tenantAccountSchema).values({
-        id: accountId,
-        name: accountName,
-        slug: slugify(accountName),
-      });
-      await tx.insert(projectSchema).values({
-        id: projectId,
-        accountId,
-        slug: 'default',
-        name: 'Default project',
-      });
-      await tx.insert(userSchema).values({
-        id: userId,
-        name,
-        email: lowerEmail,
-        passwordHash,
-      });
-      await tx.insert(accountMembershipSchema).values({
-        accountId,
-        userId,
-        role: 'admin',
-      });
-    });
-    return NextResponse.json({ ok: true, accountId, projectId, userId, mode: 'first-run' });
-  }
-
-  // Invite flow
-  if (!inviteToken) {
-    return NextResponse.json({ error: 'An invite token is required to join this account.' }, { status: 403 });
-  }
   const [invite] = await db.select().from(inviteSchema).where(eq(inviteSchema.token, inviteToken)).limit(1);
   if (!invite) {
     return NextResponse.json({ error: 'Invalid invite token.' }, { status: 404 });
