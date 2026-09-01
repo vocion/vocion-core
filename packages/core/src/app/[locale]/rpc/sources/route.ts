@@ -2,7 +2,7 @@
  * `/rpc/sources` — list + create source connectors.
  *
  *   GET  → { sources, connectors }
- *           - `sources`: this org's configured rows
+ *           - `sources`: this org's configured rows, each with its latest sync run
  *           - `connectors`: built-in picker tiles (web, drive, ...)
  *   POST → create a new source row from { kind, slug?, configJson }.
  *
@@ -13,7 +13,7 @@
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listConnectors } from '@/libs/sources/registry';
 import { credentialStatusForOrg } from '@/services/SourceCredentialService';
-import { addSource, documentCountsForOrg, listSources } from '@/services/SourceSyncService';
+import { addSource, documentCountsForOrg, latestSyncStateForOrg, listSources } from '@/services/SourceSyncService';
 
 export async function GET() {
   const { orgId } = await auth();
@@ -23,6 +23,7 @@ export async function GET() {
   const sources = await listSources(orgId);
   const credStatus = await credentialStatusForOrg(orgId);
   const docCounts = await documentCountsForOrg(orgId);
+  const syncState = await latestSyncStateForOrg(orgId);
   const connectorBySlug = new Map(listConnectors().map(c => [c.slug, c]));
   // Decorate each source with its connector's auth requirement, whether a live
   // credential is stored, the object type it pulls, and how many documents it
@@ -39,6 +40,9 @@ export async function GET() {
       documentCount: docCounts[s.id] ?? 0,
       credentialConnected: authKind === 'none' ? true : (st?.connected ?? false),
       credentialUpdatedAt: st?.updatedAt ?? null,
+      // The last run's state, so the page can show a sync it did not start —
+      // another tab's, the scheduler's, or one still going after a reload.
+      sync: syncState[s.id] ?? null,
     };
   });
   const connectors = listConnectors().map(c => ({
