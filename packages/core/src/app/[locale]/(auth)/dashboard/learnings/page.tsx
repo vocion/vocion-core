@@ -30,9 +30,10 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
     notFound();
   }
 
+  const CANDIDATE_PAGE_SIZE = 20;
   const [steps, pending] = await Promise.all([
     listSteps(orgId),
-    listCandidates(orgId, { status: 'pending', limit: 20 }),
+    listCandidates(orgId, { status: 'pending', limit: CANDIDATE_PAGE_SIZE }),
   ]);
 
   return (
@@ -58,6 +59,8 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
           sourceFeedbackJobId: candidate.sourceFeedbackJobId,
           createdAt: candidate.createdAt.toISOString(),
         }))}
+        total={pending.total}
+        pageSize={CANDIDATE_PAGE_SIZE}
       />
 
       {steps.length === 0

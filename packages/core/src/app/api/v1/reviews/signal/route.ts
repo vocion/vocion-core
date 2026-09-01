@@ -10,8 +10,13 @@ import { authApi, isErrorResponse, readJsonBody, writeApiErrorResponse } from '.
  * `{ id, signal, hint? }` where `signal` is one of `approve`, `edit`,
  * `reject`, `skip`, `save`, `rewrite`.
  *
- * The item stays in the queue; only the signal is recorded, which is what the
- * trust ladder learns from. Requires the `approve` capability.
+ * `signal` shares some words with the `action` field of
+ * `POST /api/v1/reviews/decide`, but means something different: this endpoint
+ * never decides anything. The item stays in the queue and only the signal is
+ * recorded, which is what the trust ladder learns from. To actually approve or
+ * reject an item, call `/api/v1/reviews/decide`.
+ *
+ * Requires the `approve` capability.
  * Auth: tenant API token or dashboard session.
  * @param req
  */
