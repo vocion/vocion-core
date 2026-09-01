@@ -28,7 +28,7 @@ export async function POST(req: Request, context: { params: Promise<{ step: stri
     return body;
   }
   if (typeof body.ruleText !== 'string' || body.ruleText.trim().length === 0) {
-    return jsonError('INVALID_BODY', '`ruleText` is required (non-empty string)', 400);
+    return jsonError('VALIDATION_FAILED', '`ruleText` is required (non-empty string)', 400);
   }
 
   try {
@@ -38,7 +38,9 @@ export async function POST(req: Request, context: { params: Promise<{ step: stri
     if (message.startsWith('unknown learning step')) {
       return jsonError('NOT_FOUND', message, 404);
     }
+    // Anything else is a genuine fault: log it and let it surface as a 500
+    // with a stack trace rather than minting an error code of its own.
     console.error(`[api/v1/learnings] dedup check failed for step "${step}"`, err);
-    return jsonError('CHECK_FAILED', message, 500);
+    throw err;
   }
 }
