@@ -1709,6 +1709,13 @@ export const apiTokenSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     lastUsedAt: timestamp('last_used_at', { mode: 'date' }),
     revokedAt: timestamp('revoked_at', { mode: 'date' }),
+    /**
+     * When the token stops authenticating, or `null` for a token that never
+     * expires. Nullable on purpose: every token issued before this column
+     * existed keeps working, and a long-lived integration credential is a
+     * legitimate choice the person issuing it gets to make.
+     */
+    expiresAt: timestamp('expires_at', { mode: 'date' }),
   },
   table => [
     index('api_token_org_idx').on(table.orgId),

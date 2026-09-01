@@ -6,6 +6,7 @@ import {
   adoptionUserDetailRoute,
   adoptionUsersRoute,
 } from './Analytics';
+import { createTokenRoute, listTokensRoute, revokeTokenRoute } from './ApiTokens';
 import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
@@ -138,6 +139,11 @@ export const router = {
   teams: {
     list: listTeamsRoute,
     seedSample: seedSampleTeamsRoute,
+  },
+  apiTokens: {
+    list: listTokensRoute,
+    create: createTokenRoute,
+    revoke: revokeTokenRoute,
   },
   members: {
     list: listMembersRoute,

@@ -442,6 +442,13 @@
       "when": 1787200300000,
       "tag": "0062_learning_candidate",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1787200400000,
+      "tag": "0063_api_token_expiry",
+      "breakpoints": true
     }
   ]
 }

@@ -23,7 +23,7 @@ import 'dotenv/config';
 
 function printHelp(): void {
   console.warn(`Usage:
-  manage-tokens issue  --org <id-or-slug> --name <label> [--role <role>] [--created-by <who>]
+  manage-tokens issue  --org <id-or-slug> --name <label> [--role <role>] [--expires-in-days <n>] [--created-by <who>]
   manage-tokens list   --org <id-or-slug>
   manage-tokens revoke --org <id-or-slug> --id <tokenId>
 
@@ -31,9 +31,29 @@ Options:
   --org         Project id or slug (orgId == projectId for auth-created rows)
   --name        Human label for the token (issue)
   --role        Workspace role for the token principal (issue; default: owner)
+  --expires-in-days  Days until the token stops working (issue; default: never)
   --created-by  Audit label for who issued it (issue; default: cli)
   --id          Token id to revoke (revoke; from list output)
   -h, --help    Show this help`);
+}
+
+/**
+ * Turn `--expires-in-days` into a Date, or null when the flag is absent — an
+ * omitted flag keeps the CLI's original behavior of issuing a token that never
+ * expires. Exits with usage code 2 on a value that is not a positive integer.
+ * @param raw - The raw flag value, if given.
+ */
+function readExpiresInDays(raw: string | undefined): Date | null {
+  if (raw === undefined) {
+    return null;
+  }
+  if (!/^\d+$/.test(raw) || Number.parseInt(raw, 10) === 0) {
+    console.error('✗ --expires-in-days must be a positive whole number of days');
+    process.exit(2);
+  }
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + Number.parseInt(raw, 10));
+  return expiresAt;
 }
 
 async function resolveOrgId(arg: string): Promise<string | undefined> {
@@ -45,12 +65,30 @@ async function resolveOrgId(arg: string): Promise<string | undefined> {
   return project?.id;
 }
 
+/**
+ * One-word status for a listed token. Revoked is reported ahead of expired: it
+ * was killed deliberately, which is the more useful fact.
+ * @param token - The listed token row.
+ * @param token.revokedAt - When it was revoked, if it was.
+ * @param token.expiresAt - When it expires, or null for never.
+ */
+function tokenStatus(token: { revokedAt: Date | null; expiresAt: Date | null }): string {
+  if (token.revokedAt) {
+    return `REVOKED ${token.revokedAt.toISOString()}`;
+  }
+  if (token.expiresAt && token.expiresAt.getTime() <= Date.now()) {
+    return `EXPIRED ${token.expiresAt.toISOString()}`;
+  }
+  return 'active';
+}
+
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     options: {
       'org': { type: 'string' },
       'name': { type: 'string' },
       'role': { type: 'string' },
+      'expires-in-days': { type: 'string' },
       'created-by': { type: 'string' },
       'id': { type: 'string' },
       'help': { type: 'boolean', short: 'h' },
@@ -80,11 +118,13 @@ async function main(): Promise<void> {
       console.error('✗ --name is required for issue');
       process.exit(2);
     }
+    const expiresAt = readExpiresInDays(values['expires-in-days']);
     const issued = await issueToken({
       orgId,
       name: values.name,
       role: values.role as Parameters<typeof issueToken>[0]['role'],
       createdBy: values['created-by'] ?? 'cli',
+      expiresAt,
     });
     console.warn(`✓ token issued for org ${orgId} (id: ${issued.id})`);
     console.warn('');
@@ -102,9 +142,9 @@ async function main(): Promise<void> {
       return;
     }
     for (const t of tokens) {
-      const status = t.revokedAt ? `REVOKED ${t.revokedAt.toISOString()}` : 'active';
       const lastUsed = t.lastUsedAt ? t.lastUsedAt.toISOString() : 'never';
-      console.warn(`${t.id}  ${status}  created ${t.createdAt.toISOString()}  last used ${lastUsed}  — ${t.name}`);
+      const expiry = t.expiresAt ? t.expiresAt.toISOString() : 'never';
+      console.warn(`${t.id}  ${tokenStatus(t)}  created ${t.createdAt.toISOString()}  expires ${expiry}  last used ${lastUsed}  — ${t.name}`);
     }
     return;
   }
