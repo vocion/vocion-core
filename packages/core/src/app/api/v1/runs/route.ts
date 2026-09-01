@@ -14,7 +14,7 @@ import { authApi, jsonError } from '../_shared';
  * @param req
  */
 export async function GET(req: Request) {
-  const auth = await authApi();
+  const auth = await authApi(req);
   if ('status' in auth) {
     return auth;
   }

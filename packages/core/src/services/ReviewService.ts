@@ -10,9 +10,11 @@
  * (firsthq/docs/platform-plan.md §4).
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
+import { and, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { actionRunSchema, missionRunSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
+import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
@@ -37,6 +39,16 @@ export type ListOptions = {
   assignedTo?: string | null;
   /** Include snoozed items (default: hide items snoozed into the future). */
   includeSnoozed?: boolean;
+  /** Restrict to one plane. Omit for the unified queue. */
+  kind?: ReviewKind;
+};
+
+/** A page of the queue plus the total number of items the filters matched. */
+export type PendingPage = {
+  items: ReviewItem[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 /** The status that means "needs human review" for each kind. */
@@ -47,62 +59,445 @@ const PENDING_STATUS: Record<ReviewKind, string> = {
 };
 
 /**
+ * Routing predicates shared by all three planes.
+ *
+ * Assignment and snooze live in one table, so the same two predicates apply
+ * whichever run table it is joined to. They run in SQL rather than over the
+ * fetched rows so a page never has to load the rows it is about to discard.
+ * @param opts
+ * @param now - Evaluation time for the snooze window.
+ */
+function routingFilters(opts: ListOptions, now: Date): SQL[] {
+  const filters: SQL[] = [];
+  if (!opts.includeSnoozed) {
+    filters.push(or(
+      isNull(reviewAssignmentSchema.snoozedUntil),
+      lte(reviewAssignmentSchema.snoozedUntil, now),
+    )!);
+  }
+  if (opts.assignedTo === null) {
+    // The triage queue: no assignment row, or one that names nobody.
+    filters.push(isNull(reviewAssignmentSchema.assignedTo));
+  } else if (opts.assignedTo !== undefined) {
+    filters.push(eq(reviewAssignmentSchema.assignedTo, opts.assignedTo));
+  }
+  return filters;
+}
+
+/**
+ * The LEFT JOIN that hangs an item's routing off its run row.
+ * @param orgId
+ * @param kind
+ * @param runIdColumn - The run table's primary key.
+ */
+function assignmentJoin(orgId: string, kind: ReviewKind, runIdColumn: PgColumn): SQL {
+  return and(
+    eq(reviewAssignmentSchema.orgId, orgId),
+    eq(reviewAssignmentSchema.kind, kind),
+    eq(reviewAssignmentSchema.runId, runIdColumn),
+  )!;
+}
+
+/** One plane's slice of the queue, plus how many rows that plane holds in total. */
+type PlaneResult = { items: ReviewItem[]; total: number };
+
+/**
+ * How many rows the plane holds, given the slice already fetched.
+ *
+ * A short read answers the question for free: fewer rows came back than were
+ * asked for, so that is all there is. Only a full read needs a COUNT.
+ * @param fetched - Rows the capped query returned.
+ * @param cap - The cap that query ran under, or undefined for an uncapped read.
+ * @param countRows - Runs the COUNT, only called when the read came back full.
+ */
+async function planeTotal(
+  fetched: number,
+  cap: number | undefined,
+  countRows: () => Promise<number>,
+): Promise<number> {
+  if (cap === undefined || fetched < cap) {
+    return fetched;
+  }
+  return countRows();
+}
+
+/**
+ * Paused workflow runs awaiting a human.
+ * @param orgId
+ * @param opts
+ * @param now
+ * @param cap - Most rows to fetch. Undefined fetches every match.
+ */
+async function listWorkflowPlane(orgId: string, opts: ListOptions, now: Date, cap?: number): Promise<PlaneResult> {
+  const where = and(
+    eq(workflowRunSchema.orgId, orgId),
+    eq(workflowRunSchema.status, PENDING_STATUS.workflow),
+    ...routingFilters(opts, now),
+  );
+  const query = db
+    .select({
+      id: workflowRunSchema.id,
+      status: workflowRunSchema.status,
+      assignedTo: reviewAssignmentSchema.assignedTo,
+      snoozedUntil: reviewAssignmentSchema.snoozedUntil,
+      note: reviewAssignmentSchema.note,
+    })
+    .from(workflowRunSchema)
+    .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'workflow', workflowRunSchema.id))
+    .where(where)
+    .orderBy(desc(workflowRunSchema.id));
+  const rows = cap === undefined ? await query : await query.limit(cap);
+
+  const items = rows.map(row => ({
+    kind: 'workflow' as const,
+    id: row.id,
+    orgId,
+    title: `Workflow run #${row.id}`,
+    status: row.status,
+    assignedTo: row.assignedTo,
+    snoozedUntil: row.snoozedUntil,
+    note: row.note,
+  }));
+  const total = await planeTotal(items.length, cap, async () => {
+    const [counted] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(workflowRunSchema)
+      .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'workflow', workflowRunSchema.id))
+      .where(where);
+    return counted?.total ?? 0;
+  });
+  return { items, total };
+}
+
+/**
+ * Missions parked at a review gate.
+ * @param orgId
+ * @param opts
+ * @param now
+ * @param cap - Most rows to fetch. Undefined fetches every match.
+ */
+async function listMissionPlane(orgId: string, opts: ListOptions, now: Date, cap?: number): Promise<PlaneResult> {
+  const where = and(
+    eq(missionRunSchema.orgId, orgId),
+    eq(missionRunSchema.status, PENDING_STATUS.mission),
+    ...routingFilters(opts, now),
+  );
+  const query = db
+    .select({
+      id: missionRunSchema.id,
+      title: missionRunSchema.title,
+      status: missionRunSchema.status,
+      assignedTo: reviewAssignmentSchema.assignedTo,
+      snoozedUntil: reviewAssignmentSchema.snoozedUntil,
+      note: reviewAssignmentSchema.note,
+    })
+    .from(missionRunSchema)
+    .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'mission', missionRunSchema.id))
+    .where(where)
+    .orderBy(desc(missionRunSchema.id));
+  const rows = cap === undefined ? await query : await query.limit(cap);
+
+  const items = rows.map(row => ({
+    kind: 'mission' as const,
+    id: row.id,
+    orgId,
+    title: row.title,
+    status: row.status,
+    assignedTo: row.assignedTo,
+    snoozedUntil: row.snoozedUntil,
+    note: row.note,
+  }));
+  const total = await planeTotal(items.length, cap, async () => {
+    const [counted] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(missionRunSchema)
+      .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'mission', missionRunSchema.id))
+      .where(where);
+    return counted?.total ?? 0;
+  });
+  return { items, total };
+}
+
+/**
+ * Proposed actions waiting on approval, minus the ones that have expired.
+ * @param orgId
+ * @param opts
+ * @param now
+ * @param cap - Most rows to fetch. Undefined fetches every match.
+ */
+async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?: number): Promise<PlaneResult> {
+  const where = and(
+    eq(actionRunSchema.orgId, orgId),
+    eq(actionRunSchema.status, PENDING_STATUS.action),
+    // Stale suggestions drop out of the queue, matching the dashboard list.
+    or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
+    ...routingFilters(opts, now),
+  );
+  const query = db
+    .select({
+      id: actionRunSchema.id,
+      actionId: actionRunSchema.actionId,
+      status: actionRunSchema.status,
+      assignedTo: reviewAssignmentSchema.assignedTo,
+      snoozedUntil: reviewAssignmentSchema.snoozedUntil,
+      note: reviewAssignmentSchema.note,
+    })
+    .from(actionRunSchema)
+    .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
+    .where(where)
+    .orderBy(desc(actionRunSchema.id));
+  const rows = cap === undefined ? await query : await query.limit(cap);
+
+  const items = rows.map(row => ({
+    kind: 'action' as const,
+    id: row.id,
+    orgId,
+    title: `Action · ${row.actionId}`,
+    status: row.status,
+    assignedTo: row.assignedTo,
+    snoozedUntil: row.snoozedUntil,
+    note: row.note,
+  }));
+  const total = await planeTotal(items.length, cap, async () => {
+    const [counted] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(actionRunSchema)
+      .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
+      .where(where);
+    return counted?.total ?? 0;
+  });
+  return { items, total };
+}
+
+/** An empty plane, for the kinds a `kind` filter excludes. */
+const EMPTY_PLANE: PlaneResult = { items: [], total: 0 };
+
+/**
+ * Every plane the options ask for, each capped at `cap` rows.
+ * @param orgId
+ * @param opts
+ * @param cap - Most rows to fetch per plane. Undefined fetches every match.
+ */
+async function listPlanes(orgId: string, opts: ListOptions, cap?: number): Promise<PlaneResult[]> {
+  const now = new Date();
+  const wants = (kind: ReviewKind) => opts.kind === undefined || opts.kind === kind;
+  return Promise.all([
+    wants('workflow') ? listWorkflowPlane(orgId, opts, now, cap) : EMPTY_PLANE,
+    wants('mission') ? listMissionPlane(orgId, opts, now, cap) : EMPTY_PLANE,
+    wants('action') ? listActionPlane(orgId, opts, now, cap) : EMPTY_PLANE,
+  ]);
+}
+
+/**
  * The single pending-review queue for an org, newest-first within each kind.
  * Decorated with routing: each item carries its assignee + snooze. Pass
  * `opts.assignedTo` for a per-person queue (a user id, or `null` for the
  * unassigned/triage queue); snoozed items are hidden unless `includeSnoozed`.
+ *
+ * Returns every matching row. Anything serving a client should call
+ * `listPendingPage` instead, which asks the database for one page.
  * @param orgId
  * @param opts
  */
 export async function listPending(orgId: string, opts: ListOptions = {}): Promise<ReviewItem[]> {
-  const [workflows, missions, actions] = await Promise.all([
-    db
-      .select({ id: workflowRunSchema.id, status: workflowRunSchema.status })
-      .from(workflowRunSchema)
-      .where(and(eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.status, PENDING_STATUS.workflow)))
-      .orderBy(desc(workflowRunSchema.id)),
-    db
-      .select({ id: missionRunSchema.id, title: missionRunSchema.title, status: missionRunSchema.status })
-      .from(missionRunSchema)
-      .where(and(eq(missionRunSchema.orgId, orgId), eq(missionRunSchema.status, PENDING_STATUS.mission)))
-      .orderBy(desc(missionRunSchema.id)),
-    db
-      .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, status: actionRunSchema.status })
-      .from(actionRunSchema)
-      .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, PENDING_STATUS.action)))
-      .orderBy(desc(actionRunSchema.id)),
-  ]);
-
-  const base: ReviewItem[] = [
-    ...workflows.map(r => ({ kind: 'workflow' as const, id: r.id, orgId, title: `Workflow run #${r.id}`, status: r.status })),
-    ...missions.map(r => ({ kind: 'mission' as const, id: r.id, orgId, title: r.title, status: r.status })),
-    ...actions.map(r => ({ kind: 'action' as const, id: r.id, orgId, title: `Action · ${r.actionId}`, status: r.status })),
-  ];
-
-  // Decorate with routing. One fetch of the org's assignments, keyed by kind:id.
-  const assignments = await db
-    .select()
-    .from(reviewAssignmentSchema)
-    .where(eq(reviewAssignmentSchema.orgId, orgId));
-  const byKey = new Map(assignments.map(a => [`${a.kind}:${a.runId}`, a]));
-
-  const now = new Date();
-  let items = base.map((item) => {
-    const a = byKey.get(`${item.kind}:${item.id}`);
-    return { ...item, assignedTo: a?.assignedTo ?? null, snoozedUntil: a?.snoozedUntil ?? null, note: a?.note ?? null };
-  });
-
-  if (!opts.includeSnoozed) {
-    items = items.filter(i => !i.snoozedUntil || i.snoozedUntil <= now);
-  }
-  if (opts.assignedTo !== undefined) {
-    items = items.filter(i => i.assignedTo === opts.assignedTo);
-  }
-  return items;
+  const planes = await listPlanes(orgId, opts);
+  return planes.flatMap(plane => plane.items);
 }
 
 export async function pendingCount(orgId: string, opts: ListOptions = {}): Promise<number> {
-  return (await listPending(orgId, opts)).length;
+  // Cap of 0 fetches no rows, so every plane falls through to its COUNT.
+  const planes = await listPlanes(orgId, opts, 0);
+  return planes.reduce((sum, plane) => sum + plane.total, 0);
+}
+
+/**
+ * One page of the pending queue, plus the total the filters matched.
+ *
+ * The queue spans three tables, so the window is applied after the three
+ * per-plane queries are merged — but each of those queries only ever fetches
+ * `offset + limit` rows, which is every row the window could possibly draw
+ * from. The queue can therefore grow without the cost of a page growing with
+ * it. Ordering is workflow, then mission, then action, newest id first inside
+ * each — a stable order, so paging never shows the same row twice.
+ * @param orgId
+ * @param opts
+ * @param opts.limit - Rows per page. Defaults to every matching row.
+ * @param opts.offset - Rows to skip.
+ */
+export async function listPendingPage(
+  orgId: string,
+  opts: ListOptions & { limit?: number; offset?: number } = {},
+): Promise<PendingPage> {
+  const offset = opts.offset ?? 0;
+  const cap = opts.limit === undefined ? undefined : offset + opts.limit;
+  const planes = await listPlanes(orgId, opts, cap);
+
+  const merged = planes.flatMap(plane => plane.items);
+  const total = planes.reduce((sum, plane) => sum + plane.total, 0);
+  const limit = opts.limit ?? total;
+  return { items: merged.slice(offset, offset + limit), total, limit, offset };
+}
+
+/** A queue item with everything a reviewer needs to decide it. */
+export type ReviewDetail = ReviewItem & {
+  /** The payload the decision would act on — the action input, or the run input. */
+  input: Record<string, unknown> | null;
+  /** Agent-proposal envelope: confidence, rationale, evidence. Actions only. */
+  proposal: Record<string, unknown> | null;
+  /** The action's own rendering of itself, when it defines a `reviewCard`. */
+  card: unknown | null;
+  /** Everything else about the underlying row, kept verbatim for the client. */
+  record: Record<string, unknown>;
+};
+
+/**
+ * One queue item in full, or `null` when the org does not own it.
+ *
+ * `listPending` deliberately returns a thin row so the queue stays cheap to
+ * poll. A client rendering its own review screen needs the rest — the proposed
+ * input, why the agent proposed it, and the action's card — which is what this
+ * returns.
+ * @param orgId
+ * @param kind
+ * @param id
+ */
+export async function getReviewDetail(orgId: string, kind: ReviewKind, id: number): Promise<ReviewDetail | null> {
+  const [assignment] = await db
+    .select()
+    .from(reviewAssignmentSchema)
+    .where(and(
+      eq(reviewAssignmentSchema.orgId, orgId),
+      eq(reviewAssignmentSchema.kind, kind),
+      eq(reviewAssignmentSchema.runId, id),
+    ))
+    .limit(1);
+
+  const routing = {
+    assignedTo: assignment?.assignedTo ?? null,
+    snoozedUntil: assignment?.snoozedUntil ?? null,
+    note: assignment?.note ?? null,
+  };
+
+  if (kind === 'action') {
+    const [row] = await db
+      .select()
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.id, id)))
+      .limit(1);
+    if (!row) {
+      return null;
+    }
+    return {
+      kind,
+      id: row.id,
+      orgId,
+      title: `Action · ${row.actionId}`,
+      status: row.status,
+      ...routing,
+      input: row.input ?? null,
+      proposal: (row.proposal as Record<string, unknown> | null) ?? null,
+      card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
+      record: row as unknown as Record<string, unknown>,
+    };
+  }
+
+  if (kind === 'workflow') {
+    const [row] = await db
+      .select()
+      .from(workflowRunSchema)
+      .where(and(eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.id, id)))
+      .limit(1);
+    if (!row) {
+      return null;
+    }
+    return {
+      kind,
+      id: row.id,
+      orgId,
+      title: `Workflow run #${row.id}`,
+      status: row.status,
+      ...routing,
+      input: row.input ?? null,
+      proposal: null,
+      card: null,
+      record: row as unknown as Record<string, unknown>,
+    };
+  }
+
+  const [row] = await db
+    .select()
+    .from(missionRunSchema)
+    .where(and(eq(missionRunSchema.orgId, orgId), eq(missionRunSchema.id, id)))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  return {
+    kind,
+    id: row.id,
+    orgId,
+    title: row.title,
+    status: row.status,
+    ...routing,
+    input: null,
+    proposal: null,
+    card: null,
+    record: row as unknown as Record<string, unknown>,
+  };
+}
+
+/**
+ * Render an action's own review card, or `null` when it defines none.
+ *
+ * A presenter is client code that can throw; a broken card must never take the
+ * whole queue down, so a failure is logged and degrades to the generic view.
+ * @param orgId
+ * @param actionId
+ * @param input
+ */
+async function renderActionCard(orgId: string, actionId: string, input: Record<string, unknown>): Promise<unknown | null> {
+  const { getAction } = await import('@/libs/actions/registry');
+  const presenter = getAction(actionId)?.reviewCard;
+  if (!presenter) {
+    return null;
+  }
+  try {
+    return (await presenter({ orgId }, input)) ?? null;
+  } catch (error) {
+    console.error(`[ReviewService] reviewCard presenter for "${actionId}" failed`, error);
+    return null;
+  }
+}
+
+/**
+ * Proposals the confidence gate executed without a human — the audit trail for
+ * the trust ladder. Newest first.
+ * @param orgId
+ * @param opts
+ * @param opts.limit
+ * @param opts.offset
+ */
+export async function listAutoExecuted(
+  orgId: string,
+  opts: { limit?: number; offset?: number } = {},
+): Promise<{ items: Array<typeof actionRunSchema.$inferSelect>; total: number; limit: number; offset: number }> {
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+  const autoApproved = and(
+    eq(actionRunSchema.orgId, orgId),
+    sql`${actionRunSchema.proposal} ->> 'autoApproved' = 'true'`,
+  );
+  const [items, [counted]] = await Promise.all([
+    db
+      .select()
+      .from(actionRunSchema)
+      .where(autoApproved)
+      .orderBy(desc(actionRunSchema.id))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: sql<number>`count(*)::int` }).from(actionRunSchema).where(autoApproved),
+  ]);
+  return { items, total: counted?.total ?? 0, limit, offset };
 }
 
 async function upsertAssignment(
@@ -133,11 +528,41 @@ async function upsertAssignment(
  * @param opts.assignedBy
  * @param opts.note
  */
+export class UnknownAssigneeError extends Error {
+  constructor(userId: string) {
+    super(`no member of this org with id ${JSON.stringify(userId)}`);
+    this.name = 'UnknownAssigneeError';
+  }
+}
+
+/**
+ * Is this user a member of the account that owns the project?
+ *
+ * `assigned_to` is a foreign key, so an id that names nobody used to surface as
+ * a database error — a 500 for what is really a bad request. Checking first
+ * turns it into an answer the caller can act on, and stops one org routing work
+ * to a user in another.
+ * @param orgId
+ * @param userId
+ */
+async function isOrgMember(orgId: string, userId: string): Promise<boolean> {
+  const [member] = await db
+    .select({ userId: accountMembershipSchema.userId })
+    .from(accountMembershipSchema)
+    .innerJoin(projectSchema, eq(projectSchema.accountId, accountMembershipSchema.accountId))
+    .where(and(eq(projectSchema.id, orgId), eq(accountMembershipSchema.userId, userId)))
+    .limit(1);
+  return member !== undefined;
+}
+
 export async function assign(
   orgId: string,
   item: { kind: ReviewKind; id: number },
   opts: { assignedTo: string | null; assignedBy?: string; note?: string },
 ): Promise<void> {
+  if (opts.assignedTo !== null && !(await isOrgMember(orgId, opts.assignedTo))) {
+    throw new UnknownAssigneeError(opts.assignedTo);
+  }
   await upsertAssignment(orgId, item, {
     assignedTo: opts.assignedTo,
     assignedBy: opts.assignedBy ?? null,
