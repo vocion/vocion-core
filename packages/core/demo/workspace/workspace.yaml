@@ -1,0 +1,8 @@
+version: 1
+# Placeholder — resolved to the live project id at apply time via --project.
+orgId: proj_acme_revops
+name: acme-revops
+description: acme-revops workspace
+defaults:
+  model: gpt-5.4-mini
+  temperature: '0.3'

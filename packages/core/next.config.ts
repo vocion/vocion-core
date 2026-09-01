@@ -55,10 +55,14 @@ const baseConfig: NextConfig = {
   // (the dashboard then shows "not scheduled yet" for every schedule).
   // Externalizing keeps it a real node_modules dependency, which `output:
   // standalone` traces into the runtime image.
-  serverExternalPackages: ['@temporalio/client', '@temporalio/common', '@temporalio/proto'],
+  serverExternalPackages: ['@temporalio/client', '@temporalio/common', '@temporalio/proto', '@electric-sql/pglite'],
   reactCompiler: process.env.NODE_ENV === 'production', // Keep the development environment fast
   outputFileTracingIncludes: {
-    '/': ['./migrations/**/*'],
+    // demo/**: the hosted demo sandbox's baked PGlite seed, recorded LLM
+    // fixtures, and workspace — inert unless VOCION_LLM_MODE/pglite:// are set.
+    // Keyed broadly: the DB (and thus the seed copy) boots in every function.
+    '/': ['./migrations/**/*', './demo/**/*'],
+    '/**': ['./migrations/**/*', './demo/**/*'],
   },
 };
 
