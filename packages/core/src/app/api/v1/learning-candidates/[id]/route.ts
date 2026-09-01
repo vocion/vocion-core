@@ -1,15 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCandidate, updateCandidate } from '@/services/LearningCandidateService';
-import { authApi, isErrorResponse, jsonError, readJsonBody } from '../../_shared';
-
-/**
- * Parse the `:id` path segment, or return the 400 body to send back.
- * @param raw
- */
-function parseCandidateId(raw: string): number | null {
-  const id = Number.parseInt(raw, 10);
-  return Number.isFinite(id) ? id : null;
-}
+import { authApi, isErrorResponse, jsonError, readIdParam, readJsonBody } from '../../_shared';
 
 /**
  * GET /api/v1/learning-candidates/:id
@@ -25,9 +16,9 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const id = parseCandidateId((await context.params).id);
-  if (id === null) {
-    return jsonError('VALIDATION_FAILED', 'Candidate id must be an integer', 400);
+  const id = readIdParam((await context.params).id, 'Candidate');
+  if (isErrorResponse(id)) {
+    return id;
   }
   const candidate = await getCandidate(caller.orgId, id);
   if (!candidate) {
@@ -55,9 +46,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const id = parseCandidateId((await context.params).id);
-  if (id === null) {
-    return jsonError('VALIDATION_FAILED', 'Candidate id must be an integer', 400);
+  const id = readIdParam((await context.params).id, 'Candidate');
+  if (isErrorResponse(id)) {
+    return id;
   }
   const body = await readJsonBody(req);
   if (isErrorResponse(body)) {

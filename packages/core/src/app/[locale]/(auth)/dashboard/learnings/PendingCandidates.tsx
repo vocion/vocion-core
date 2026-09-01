@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Loader2, ThumbsDown, X } from 'lucide-react';
+import { Check, ChevronDown, Loader2, ThumbsDown, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { buttonVariants } from '@/components/ui/buttonVariants';
@@ -16,7 +16,12 @@ export type PendingCandidate = {
 };
 
 type Props = {
+  /** The first page, rendered on the server. */
   candidates: PendingCandidate[];
+  /** How many pending candidates exist in total, across every page. */
+  total: number;
+  /** Rows per page, used for the "load more" fetches. */
+  pageSize: number;
 };
 
 /**
@@ -31,16 +36,25 @@ type Props = {
  * was wrong, and is worth more than the rejection itself.
  * @param root0
  * @param root0.candidates
+ * @param root0.total
+ * @param root0.pageSize
  */
-export function PendingCandidates({ candidates }: Props) {
+export function PendingCandidates({ candidates, total, pageSize }: Props) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [reason, setReason] = useState('');
+  const [extraRows, setExtraRows] = useState<PendingCandidate[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  if (candidates.length === 0) {
+  // The server re-renders the first page after every decision, so a row it now
+  // sends is dropped from the locally fetched tail to avoid showing it twice.
+  const serverIds = new Set(candidates.map(candidate => candidate.id));
+  const rows = [...candidates, ...extraRows.filter(row => !serverIds.has(row.id))];
+
+  if (rows.length === 0) {
     return null;
   }
 
@@ -84,13 +98,14 @@ export function PendingCandidates({ candidates }: Props) {
       const res = await fetch(`/api/v1/learning-candidates/${candidate.id}/decide`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision, reason: rejectReason }),
+        body: JSON.stringify({ action: decision, reason: rejectReason }),
       });
       if (!res.ok) {
         throw new Error(await messageFor(res));
       }
       setRejectingId(null);
       setReason('');
+      setExtraRows(current => current.filter(row => row.id !== candidate.id));
       router.refresh();
     } catch (err) {
       console.error('[PendingCandidates] could not decide candidate', err);
@@ -100,11 +115,35 @@ export function PendingCandidates({ candidates }: Props) {
     }
   }
 
+  /**
+   * Fetch the next page from the same endpoint an external panel would call,
+   * and append it. Keeps the whole queue reachable instead of stopping at the
+   * server-rendered first page.
+   */
+  async function loadMore(): Promise<void> {
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const query = new URLSearchParams({ status: 'pending', limit: String(pageSize), offset: String(rows.length) });
+      const res = await fetch(`/api/v1/learning-candidates?${query}`);
+      if (!res.ok) {
+        throw new Error(await messageFor(res));
+      }
+      const body = await res.json();
+      setExtraRows(current => [...current, ...(body.items as PendingCandidate[])]);
+    } catch (err) {
+      console.error('[PendingCandidates] could not load more candidates', err);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
   return (
     <section className="mb-8 rounded-xl border border-primary/30 bg-primary/5 p-5">
       <h2 className="text-base font-semibold">
         Suggested rules (
-        {candidates.length}
+        {rows.length < total ? `${rows.length} of ${total}` : total}
         )
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
@@ -118,7 +157,7 @@ export function PendingCandidates({ candidates }: Props) {
       )}
 
       <ul className="mt-4 space-y-3">
-        {candidates.map((candidate) => {
+        {rows.map((candidate) => {
           const current = candidate.editedRuleText ?? candidate.ruleText;
           const draft = drafts[candidate.id] ?? current;
           const busy = busyId === candidate.id;
@@ -141,6 +180,9 @@ export function PendingCandidates({ candidates }: Props) {
                 value={draft}
                 onChange={e => setDrafts(d => ({ ...d, [candidate.id]: e.target.value }))}
                 rows={3}
+                // Locked while the decision is in flight: the row disappears on
+                // success, and an edit typed meanwhile would vanish with it.
+                disabled={busy}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
               />
 
@@ -150,6 +192,7 @@ export function PendingCandidates({ candidates }: Props) {
                       <input
                         value={reason}
                         onChange={e => setReason(e.target.value)}
+                        disabled={busy}
                         placeholder="Why is this not a rule worth keeping?"
                         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
                       />
@@ -165,6 +208,7 @@ export function PendingCandidates({ candidates }: Props) {
                         </button>
                         <button
                           type="button"
+                          disabled={busy}
                           className={buttonVariants({ size: 'sm', variant: 'outline' })}
                           onClick={() => {
                             setRejectingId(null);
@@ -207,6 +251,22 @@ export function PendingCandidates({ candidates }: Props) {
           );
         })}
       </ul>
+
+      {rows.length < total && (
+        <button
+          type="button"
+          disabled={loadingMore}
+          onClick={loadMore}
+          className={`mt-4 ${buttonVariants({ size: 'sm', variant: 'outline' })}`}
+        >
+          {loadingMore ? <Loader2 className="mr-2 size-4 animate-spin" /> : <ChevronDown className="mr-2 size-4" />}
+          Load
+          {' '}
+          {Math.min(pageSize, total - rows.length)}
+          {' '}
+          more
+        </button>
+      )}
     </section>
   );
 }

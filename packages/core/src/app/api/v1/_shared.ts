@@ -95,6 +95,21 @@ export function requireCapability(caller: ApiCaller, action: string): NextRespon
   }
 }
 
+/**
+ * Read a numeric `:id` path segment, or return the 400 body to send back.
+ *
+ * Strict on purpose: `Number.parseInt` reads `"12abc"` as `12`, which would act
+ * on a record the client never named. Only digits are accepted.
+ * @param raw - The raw path segment.
+ * @param what - What the id names, for the error message.
+ */
+export function readIdParam(raw: string, what: string): number | NextResponseType {
+  if (!/^\d+$/.test(raw)) {
+    return jsonError('VALIDATION_FAILED', `${what} id must be a positive integer`, 400);
+  }
+  return Number.parseInt(raw, 10);
+}
+
 /** Page window for a list endpoint, clamped so one request cannot scan a table. */
 export type PageWindow = { limit: number; offset: number };
 
@@ -150,7 +165,9 @@ export function writeApiErrorResponse(error: unknown): NextResponseType {
 export async function readJsonBody(req: Request): Promise<Record<string, unknown> | NextResponseType> {
   try {
     const body = await req.json();
-    if (!body || typeof body !== 'object') {
+    // `typeof` calls an array an object, so it needs saying separately: a JSON
+    // array carries none of the named fields a handler goes on to read.
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return jsonError('VALIDATION_FAILED', 'Request body must be a JSON object', 400);
     }
     return body as Record<string, unknown>;
