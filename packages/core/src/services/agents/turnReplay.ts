@@ -15,7 +15,7 @@ import type { AgentEvent } from './types';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
-import { hashKey, llmMode, REPLAY_FALLBACK_TEXT } from '@/libs/llm/replay';
+import { hashKey, llmMode, REPLAY_FALLBACK_TEXT, resolveDemoPath } from '@/libs/llm/replay';
 
 type TurnResult = {
   response: string;
@@ -32,7 +32,7 @@ type StoredTurn = {
 };
 
 function turnsDir(): string {
-  const base = process.env.VOCION_LLM_CACHE_DIR ?? join(process.cwd(), 'demo', 'llm-cache');
+  const base = resolveDemoPath(process.env.VOCION_LLM_CACHE_DIR ?? join('demo', 'llm-cache'));
   return join(base, '..', 'turns');
 }
 
