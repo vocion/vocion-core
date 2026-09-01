@@ -1,26 +1,24 @@
 'use client';
 
+import type { ReviewCard } from '@/libs/actions/types';
 import { ArrowLeft, ArrowRight, Bookmark, Check, Loader2, Mail, RefreshCw, ShieldCheck, SkipForward, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { ReviewActionCard } from '@/features/review/ReviewActionCard';
 import { client } from '@/libs/Orpc';
 
 /**
  * Review — FOCUS MODE with a human header. Every item leads with WHAT is
  * being approved in plain language (the action, the system it touches, the
- * concrete changes) — the raw payload is a drill, never the surface. Every
- * item is steerable (tell the agent what to change → rewrite) and editable
- * in place; Back returns to the previous item; the Up-next rail jumps
- * anywhere. No popups. gmail.send never auto-sends.
+ * concrete changes) — the raw payload is a drill, never the surface.
+ *
+ * An action that presents a structured card renders through the shared
+ * `ReviewActionCard` template — the same card, editing, note, snooze and
+ * decide path every deciding surface uses. Actions without one keep the
+ * generic layout below: steerable, editable in place. Back returns to the
+ * previous item; the Up-next rail jumps anywhere. No popups. gmail.send
+ * never auto-sends.
  */
-
-type ReviewCard = {
-  title: string;
-  system?: string;
-  fields: Array<{ label: string; value: string; href?: string }>;
-  summary?: string;
-  nextAction?: string;
-};
 
 type ActionRun = {
   id: number;
@@ -191,6 +189,16 @@ export function ReviewFocus() {
     }
   };
 
+  // The shared card owns its own decide/snooze; this just drops the item.
+  const onCardDecided = () => {
+    if (!current) {
+      return;
+    }
+    setItems(prev => prev.filter(i => i.id !== current.id));
+    setPinnedId(null);
+    setDecided(d => d + 1);
+  };
+
   const onSteer = async () => {
     if (!current) {
       return;
@@ -249,124 +257,101 @@ export function ReviewFocus() {
           </span>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          {/* WHAT am I approving — plain language, system badge, then why. */}
-          <div className="flex items-start gap-3">
-            <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
-              {desc.isEmail ? <Mail className="size-4" aria-hidden /> : <RefreshCw className="size-4" aria-hidden />}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-base leading-snug font-semibold break-words">{desc.title}</div>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase">{desc.system}</span>
-                {pct !== null && (
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tone(current.proposal?.confidence)}`}>
-                    {pct}
-                    %
-                  </span>
-                )}
-                {current.input.draft === true && <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">dry run → Drafts</span>}
-                {current.invokedBy && <span className="text-[11px] text-muted-foreground">{current.invokedBy.replace('agent:', 'proposed by ')}</span>}
+        {current.card && (
+          <ReviewActionCard run={{ ...current, card: current.card }} onDecided={onCardDecided} />
+        )}
+
+        {!current.card && (
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            {/* WHAT am I approving — plain language, system badge, then why. */}
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
+                {desc.isEmail ? <Mail className="size-4" aria-hidden /> : <RefreshCw className="size-4" aria-hidden />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-base leading-snug font-semibold break-words">{desc.title}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase">{desc.system}</span>
+                  {pct !== null && (
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tone(current.proposal?.confidence)}`}>
+                      {pct}
+                      %
+                    </span>
+                  )}
+                  {current.input.draft === true && <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">dry run → Drafts</span>}
+                  {current.invokedBy && <span className="text-[11px] text-muted-foreground">{current.invokedBy.replace('agent:', 'proposed by ')}</span>}
+                </div>
               </div>
             </div>
-          </div>
-          {/* Structured card: labeled rows (deep-linked), the work summary, and what approving does. */}
-          {current.card
-            ? (
-                <div className="mt-3 space-y-2">
-                  <dl className="space-y-1">
-                    {current.card.fields.map(f => (
-                      <div key={f.label} className="flex gap-2 text-sm">
-                        <dt className="w-24 shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{f.label}</dt>
-                        <dd className="min-w-0 break-words">
-                          {f.href
-                            ? <a href={f.href} target="_blank" rel="noreferrer" className="text-brand-amber-deep underline decoration-brand-amber/40 underline-offset-2 hover:decoration-brand-amber">{f.value}</a>
-                            : f.value}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                  {(current.card.summary ?? current.proposal?.rationale) && (
-                    <div className="flex gap-2 text-sm">
-                      <span className="w-24 shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Summary</span>
-                      <p className="min-w-0 break-words text-foreground/85">{current.card.summary ?? current.proposal?.rationale}</p>
-                    </div>
-                  )}
-                  {current.card.nextAction && (
-                    <div className="flex gap-2 text-sm">
-                      <span className="w-24 shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Next</span>
-                      <p className="min-w-0 font-medium break-words">{current.card.nextAction}</p>
-                    </div>
-                  )}
-                </div>
-              )
-            : current.proposal?.rationale && <p className="mt-3 text-sm break-words text-foreground/85">{current.proposal.rationale}</p>}
+            {/* Card-carrying runs render through ReviewActionCard above; here the rationale is the surface. */}
+            {current.proposal?.rationale && <p className="mt-3 text-sm break-words text-foreground/85">{current.proposal.rationale}</p>}
 
-          {/* The concrete changes — every field editable; your version is what runs. */}
-          <div className="mt-4 space-y-2">
-            {Object.entries(edited).map(([k, v]) => (
-              k === longField
-                ? (
-                    <label key={k} className="block">
-                      <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{k}</span>
-                      <textarea className={`${fieldClass} min-h-32 resize-y leading-relaxed`} value={v} onChange={ev => setEdited(e => ({ ...e, [k]: ev.target.value }))} disabled={busy || steering} />
-                    </label>
-                  )
-                : (
-                    <label key={k} className="block">
-                      <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{k}</span>
-                      <input className={fieldClass} value={v} onChange={ev => setEdited(e => ({ ...e, [k]: ev.target.value }))} disabled={busy || steering} />
-                    </label>
-                  )
-            ))}
-          </div>
+            {/* The concrete changes — every field editable; your version is what runs. */}
+            <div className="mt-4 space-y-2">
+              {Object.entries(edited).map(([k, v]) => (
+                k === longField
+                  ? (
+                      <label key={k} className="block">
+                        <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{k}</span>
+                        <textarea className={`${fieldClass} min-h-32 resize-y leading-relaxed`} value={v} onChange={ev => setEdited(e => ({ ...e, [k]: ev.target.value }))} disabled={busy || steering} />
+                      </label>
+                    )
+                  : (
+                      <label key={k} className="block">
+                        <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{k}</span>
+                        <input className={fieldClass} value={v} onChange={ev => setEdited(e => ({ ...e, [k]: ev.target.value }))} disabled={busy || steering} />
+                      </label>
+                    )
+              ))}
+            </div>
 
-          {/* Steer — tell the agent what to change; it rewrites, you re-review. */}
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-brand-amber"
-              placeholder="Steer the agent — e.g. shorter, mention the July 20 call, firmer ask"
-              value={steer}
-              onChange={ev => setSteer(ev.target.value)}
-              disabled={busy || steering}
-              onKeyDown={(ev) => {
-                if (ev.key === 'Enter') {
-                  ev.preventDefault();
-                  void onSteer();
-                }
-              }}
-            />
-            <Button size="sm" variant="outline" onClick={() => void onSteer()} disabled={busy || steering}>
-              {steering ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-              Rewrite
-            </Button>
-          </div>
+            {/* Steer — tell the agent what to change; it rewrites, you re-review. */}
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-brand-amber"
+                placeholder="Steer the agent — e.g. shorter, mention the July 20 call, firmer ask"
+                value={steer}
+                onChange={ev => setSteer(ev.target.value)}
+                disabled={busy || steering}
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    void onSteer();
+                  }
+                }}
+              />
+              <Button size="sm" variant="outline" onClick={() => void onSteer()} disabled={busy || steering}>
+                {steering ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                Rewrite
+              </Button>
+            </div>
 
-          {/* Raw payload demoted to a drill — never the surface. */}
-          <details className="mt-3">
-            <summary className="cursor-pointer text-[11px] text-muted-foreground transition hover:text-foreground">raw payload</summary>
-            <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[11px] break-words whitespace-pre-wrap">{JSON.stringify(current.input, null, 2)}</pre>
-          </details>
+            {/* Raw payload demoted to a drill — never the surface. */}
+            <details className="mt-3">
+              <summary className="cursor-pointer text-[11px] text-muted-foreground transition hover:text-foreground">raw payload</summary>
+              <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[11px] break-words whitespace-pre-wrap">{JSON.stringify(current.input, null, 2)}</pre>
+            </details>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Button size="sm" variant="ghost" onClick={onSkip} disabled={busy}>
-              <SkipForward className="size-3.5" />
-              Skip
-            </Button>
-            <Button size="sm" variant="outline" onClick={onSave} disabled={busy}>
-              <Bookmark className="size-3.5" />
-              Save for later
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => void onDecide('reject')} disabled={busy}>
-              <X className="size-3.5" />
-              Reject
-            </Button>
-            <Button size="sm" onClick={() => void onDecide('approve')} disabled={busy}>
-              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-              {desc.isEmail ? (current.input.draft === true ? 'Approve → draft' : 'Approve & send') : 'Approve'}
-            </Button>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Button size="sm" variant="ghost" onClick={onSkip} disabled={busy}>
+                <SkipForward className="size-3.5" />
+                Skip
+              </Button>
+              <Button size="sm" variant="outline" onClick={onSave} disabled={busy}>
+                <Bookmark className="size-3.5" />
+                Save for later
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => void onDecide('reject')} disabled={busy}>
+                <X className="size-3.5" />
+                Reject
+              </Button>
+              <Button size="sm" onClick={() => void onDecide('approve')} disabled={busy}>
+                {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                {desc.isEmail ? (current.input.draft === true ? 'Approve → draft' : 'Approve & send') : 'Approve'}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Up-next rail — jump anywhere; Back returns. */}

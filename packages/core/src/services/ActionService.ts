@@ -190,8 +190,10 @@ export async function proposeAction(input: {
  * Resolves the source's vault credentials, runs the action, records the result.
  * @param runId
  * @param orgId
+ * @param opts
+ * @param opts.reviewedBy - The human who approved, when it came through review.
  */
-export async function executeAction(runId: number, orgId: string): Promise<ProposeResult> {
+export async function executeAction(runId: number, orgId: string, opts?: { reviewedBy?: string }): Promise<ProposeResult> {
   const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, runId)).limit(1);
   if (!run || run.orgId !== orgId) {
     throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);
@@ -205,7 +207,7 @@ export async function executeAction(runId: number, orgId: string): Promise<Propo
   const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
 
   try {
-    const result = await action.execute({ orgId, credentials, invokedBy: run.invokedBy ?? undefined }, run.input);
+    const result = await action.execute({ orgId, credentials, invokedBy: run.invokedBy ?? undefined, reviewedBy: opts?.reviewedBy }, run.input);
     await db
       .update(actionRunSchema)
       .set({ status: 'done', result, executedAt: new Date() })
@@ -247,14 +249,32 @@ export async function updateActionInput(runId: number, orgId: string, input: Rec
 }
 
 /**
- * Reject a pending action (from the review queue) — never executes.
+ * Reject a pending action (from the review queue) — never executes. The
+ * action's `onRejected` hook runs after the flip so the domain record it
+ * back-links can move lanes with the decision (fail-soft: the rejection
+ * stands even if the hook fails).
  * @param runId
  * @param orgId
  * @param reason
+ * @param opts
+ * @param opts.reviewedBy - The human who declined, when it came through review.
  */
-export async function rejectAction(runId: number, orgId: string, reason?: string): Promise<void> {
-  await db
+export async function rejectAction(runId: number, orgId: string, reason?: string, opts?: { reviewedBy?: string }): Promise<void> {
+  const [run] = await db
     .update(actionRunSchema)
     .set({ status: 'rejected', error: reason ?? null, executedAt: new Date() })
-    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)));
+    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+    .returning({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy });
+  if (!run) {
+    return;
+  }
+  const action = getAction(run.actionId);
+  await action?.onRejected?.(
+    { orgId, invokedBy: run.invokedBy ?? undefined, reviewedBy: opts?.reviewedBy },
+    run.input,
+    runId,
+    reason,
+  ).catch((err) => {
+    console.error(`[ActionService] onRejected hook for "${run.actionId}" failed`, err);
+  });
 }
