@@ -139,7 +139,7 @@ ENABLE_FEEDBACK_WORKER=1 npm run worker:serve
 docker compose --profile worker up -d
 ```
 
-Opt-in via the env flag. Drains `feedback_job` rows queued by Drive webhooks, classifies via Haiku, and writes the classification back. Self-improver subagent surfaces candidates for user approval; main agent commits via `add_learning`.
+Opt-in via the env flag. Drains `feedback_job` rows queued by Drive webhooks, classifies via Haiku, and writes the classification back. A classification that proposes rule text becomes a **learning candidate** — a suggestion in a queue, never an applied rule. A person adopts or rejects it at `/dashboard/learnings` or over `/api/v1/learning-candidates`; the worker never commits a learning itself.
 
 ## Evals + budgets
 

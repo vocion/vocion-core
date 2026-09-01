@@ -16,7 +16,7 @@ import { authApi, jsonError } from '../../../_shared';
  * @param context.params
  */
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
-  const auth = await authApi();
+  const auth = await authApi(req);
   if ('status' in auth) {
     return auth;
   }
@@ -37,7 +37,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const updated = await submitWorkflowRunFeedback({
     orgId: auth.orgId,
     runId: id,
-    submittedBy: 'api',
+    submittedBy: auth.actorId,
     rating: (body.rating ?? null) as 'up' | 'down' | null,
     note: body.note ?? null,
   });
