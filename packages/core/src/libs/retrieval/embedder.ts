@@ -20,6 +20,7 @@ import process from 'node:process';
 import OpenAI, { APIConnectionError } from 'openai';
 import { langfuse, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
+import { hashKey, llmMode, pseudoVector, readEntry, writeEntry } from '@/libs/llm/replay';
 
 const MODEL = process.env.VOCION_EMBEDDING_MODEL ?? 'text-embedding-3-small';
 const BATCH_SIZE = 100;
@@ -214,6 +215,15 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
   if (texts.length === 0) {
     return [];
   }
+  // Demo sandbox replay: never call OpenAI. Recorded vectors come back
+  // exactly; unrecorded text gets a deterministic pseudo-vector so
+  // retrieval stays functional (stable, if arbitrary, ranking).
+  if (llmMode() === 'replay') {
+    return texts.map((text) => {
+      const cached = readEntry<number[]>('embeddings', hashKey(MODEL, text));
+      return cached ?? pseudoVector(text);
+    });
+  }
   const trace = traceFor({
     feature: FEATURES.RETRIEVAL_EMBED,
     slug: opts.sourceSlug ?? opts.purpose,
@@ -264,6 +274,10 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
       });
       for (const item of res.data) {
         out[i + item.index] = item.embedding;
+        // Demo sandbox record: persist per-text vectors for exact replay.
+        if (llmMode() === 'record' && batch[item.index] !== undefined) {
+          writeEntry('embeddings', hashKey(MODEL, batch[item.index]!), item.embedding);
+        }
       }
       // Check every input in this batch actually came back with a vector.
       //

@@ -1,0 +1,6 @@
+slug: pipeline_analyst
+name: Pipeline Analyst
+description: Reads pipeline and account records, summarizes risk and movement, and prepares weekly reporting for human review.
+active: true
+systemPromptFile: pipeline-analyst.system-prompt.md
+skills: []
