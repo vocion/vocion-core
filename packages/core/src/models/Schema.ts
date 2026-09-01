@@ -2072,14 +2072,36 @@ export const leadBriefSchema = pgTable(
     briefError: text('brief_error'),
     /** When the last try was handed out — what spaces the retries an hour apart. */
     lastAttemptAt: timestamp('last_attempt_at', { mode: 'date' }),
-    /** The drafted sequence awaiting review. Empty until the drafting slice runs. */
+    /** The drafted, numbered sends awaiting review. `day` is the send's offset in the recommended sequence's cadence, when known. */
     draftSequence: jsonb('draft_sequence').$type<Array<{
       step: number;
+      day?: number;
       subject: string;
       body: string;
     }>>().default([]).notNull(),
     /** The review-queue action_run this brief was surfaced as. */
     reviewActionRunId: integer('review_action_run_id'),
+    /**
+     * The EXISTING HubSpot sequence the agent recommends enrolling into. The
+     * agent never invents a sequence: `save_draft_sequence` verifies the id
+     * against the live sequence library when credentials allow.
+     */
+    recommendedSequence: jsonb('recommended_sequence').$type<{
+      id: string;
+      name: string;
+      reason?: string;
+      senderEmail?: string;
+      hubspotUserId?: string;
+      verified?: boolean;
+    }>(),
+    /** HubSpot's stage-entry date. Null = the mirror had nothing; display falls back to `arrivedAt`, labeled "Arrived", never as stage timing. */
+    mqlAt: timestamp('mql_at', { mode: 'date' }),
+    /** Drafting tries so far — same three-try budget as the briefs. */
+    draftAttempts: integer('draft_attempts').default(0).notNull(),
+    /** Why the last drafting try produced nothing. */
+    draftError: text('draft_error'),
+    /** When the last drafting try was handed out — the retry floor's anchor. */
+    lastDraftAttemptAt: timestamp('last_draft_attempt_at', { mode: 'date' }),
     /** Thresholds in force — without them the confidence call cannot be re-derived. */
     thresholds: jsonb('thresholds').$type<Record<string, number>>(),
     /** Model id + prompt version, e.g. `claude-sonnet-4-6#personalization-v1`. */

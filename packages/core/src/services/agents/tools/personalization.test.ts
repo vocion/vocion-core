@@ -19,7 +19,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { knowledgeSourceSchema, knowledgeDocumentSchema, leadBriefSchema } = await import('@/models/Schema');
+const { actionRunSchema, knowledgeSourceSchema, knowledgeDocumentSchema, leadBriefSchema } = await import('@/models/Schema');
 const { buildDomainTools } = await import('./registry');
 const { personalizationTools, PERSONALIZATION_TOOL_NAMES } = await import('./personalization');
 
@@ -151,12 +151,14 @@ beforeEach(async () => {
   await db.delete(leadBriefSchema);
   await db.delete(knowledgeDocumentSchema);
   await db.delete(knowledgeSourceSchema);
+  await db.delete(actionRunSchema);
 });
 
 afterAll(async () => {
   await db.delete(leadBriefSchema);
   await db.delete(knowledgeDocumentSchema);
   await db.delete(knowledgeSourceSchema);
+  await db.delete(actionRunSchema);
 });
 
 describe('grant gating', () => {
@@ -822,5 +824,222 @@ describe('regeneration', () => {
     const result = await regenerateBrief(OTHER, { id: row!.id, note: 'not yours' });
 
     expect(result).toMatchObject({ regenerated: false, reason: 'not_found' });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Draft generation                                                    */
+/* ------------------------------------------------------------------ */
+
+type DraftClaimOut = {
+  lead: null | {
+    id: number;
+    contactRef: string;
+    contactName: string;
+    sections: Array<{ heading: string; body: string }>;
+    confidence: number | null;
+    attempt: number;
+    attemptsRemaining: number;
+  };
+  waiting: number;
+};
+
+type DraftSaveOut = {
+  saved?: boolean;
+  error?: string;
+  message?: string;
+  sendCount?: number;
+  sequenceVerified?: boolean;
+  reviewRunId?: number;
+  reviewRunStatus?: string;
+};
+
+function draftArgs(contactRef: string, over: Record<string, unknown> = {}) {
+  return {
+    contact_ref: contactRef,
+    sends: [
+      { day: 0, subject: 'The platform hires', body: 'Saw the hires. Worth four minutes: [link]' },
+      { day: 4, subject: 'One level deeper', body: 'The switching-costs section.' },
+    ],
+    recommended_sequence: { id: 'seq-311', name: 'AI-Readiness Nurture', reason: 'Entrance path matches the nurture.' },
+    sender_email: 'chris@metacto.com',
+    ...over,
+  };
+}
+
+/**
+ * Queue a lead and write its brief, so it sits briefed in ready_for_review.
+ * @param tools
+ * @param confidence
+ */
+async function seedBriefed(tools: Map<string, Invokable>, confidence = 0.72): Promise<string> {
+  const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+  const ref = claimed.lead!.contactRef;
+  await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(ref, { confidence }));
+  return ref;
+}
+
+describe('next_brief_to_draft', () => {
+  it('hands out a briefed lead with the whole brief attached and counts the try', async () => {
+    await seedMirror();
+    const tools = toolsByName(ORG);
+    await call<QueueResult>(tools.get('queue_lead'), { contact_refs: ['contacts:1'] });
+    const ref = await seedBriefed(tools);
+
+    const out = await call<DraftClaimOut>(tools.get('next_brief_to_draft'));
+
+    expect(out.lead).toMatchObject({ contactRef: ref, attempt: 1, attemptsRemaining: 2 });
+    expect(out.lead!.sections).toStrictEqual(SECTIONS);
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+
+    expect(row!.draftAttempts).toBe(1);
+    // Drafting never touches the brief's own retry budget.
+    expect(row!.briefAttempts).toBe(1);
+  });
+
+  it('never hands out an unbriefed lead or one whose briefing failed', async () => {
+    await seedMirror();
+    const tools = toolsByName(ORG);
+    // contacts:1 queued but unbriefed; a brief-failed lead surfaced in review.
+    await call<QueueResult>(tools.get('queue_lead'), { contact_refs: ['contacts:1'] });
+    await db.insert(leadBriefSchema).values({
+      orgId: ORG,
+      contactRef: 'contacts:99',
+      contactName: 'Failed Lead',
+      triggerType: 'new',
+      status: 'ready_for_review',
+      skippedReason: 'brief-failed',
+      briefError: 'crawl failed three times',
+    });
+
+    const out = await call<DraftClaimOut>(tools.get('next_brief_to_draft'));
+
+    expect(out.lead).toBeNull();
+    expect(out.waiting).toBe(0);
+  });
+
+  it('does not hand the same lead out twice inside one run', async () => {
+    await seedMirror();
+    const tools = toolsByName(ORG);
+    await call<QueueResult>(tools.get('queue_lead'), { contact_refs: ['contacts:1'] });
+    await seedBriefed(tools);
+
+    const first = await call<DraftClaimOut>(tools.get('next_brief_to_draft'));
+    const second = await call<DraftClaimOut>(tools.get('next_brief_to_draft'));
+
+    expect(first.lead).not.toBeNull();
+    expect(second.lead).toBeNull();
+  });
+
+  it('stops handing out a lead once its drafts exist or a review item is pending', async () => {
+    await seedMirror();
+    const tools = toolsByName(ORG);
+    await call<QueueResult>(tools.get('queue_lead'), { contact_refs: ['contacts:1'] });
+    const ref = await seedBriefed(tools);
+    const claimed = await call<DraftClaimOut>(tools.get('next_brief_to_draft'));
+    await call<DraftSaveOut>(tools.get('save_draft_sequence'), draftArgs(claimed.lead!.contactRef));
+
+    // Reset the retry floor: eligibility, not the floor, must be the reason.
+    await db.update(leadBriefSchema).set({ lastDraftAttemptAt: null }).where(eq(leadBriefSchema.contactRef, ref));
+
+    const out = await call<DraftClaimOut>(tools.get('next_brief_to_draft'));
+
+    expect(out.lead).toBeNull();
+  });
+});
+
+describe('save_draft_sequence', () => {
+  it('writes the numbered sends and proposes exactly one pending enroll item — even at low confidence', async () => {
+    await seedMirror();
+    const tools = toolsByName(ORG);
+    await call<QueueResult>(tools.get('queue_lead'), { contact_refs: ['contacts:1'] });
+    // Low confidence drafts anyway: reviewer edits are the training signal.
+    const ref = await seedBriefed(tools, 0.2);
+    await call<DraftClaimOut>(tools.get('next_brief_to_draft'));
+
+    const out = await call<DraftSaveOut>(tools.get('save_draft_sequence'), draftArgs(ref));
+
+    expect(out).toMatchObject({ saved: true, sendCount: 2, reviewRunStatus: 'pending' });
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+
+    // Steps are numbered by position server-side; the lane never moves here.
+    expect(row!.draftSequence).toMatchObject([{ step: 1, day: 0 }, { step: 2, day: 4 }]);
+    expect(row!.recommendedSequence).toMatchObject({ id: 'seq-311', name: 'AI-Readiness Nurture' });
+    expect(row!.status).toBe('ready_for_review');
+    expect(row!.reviewActionRunId).toBe(out.reviewRunId);
+
+    // A re-run UPDATES the one pending item, never duplicates it.
+    await db.update(leadBriefSchema).set({ draftSequence: [], lastDraftAttemptAt: null }).where(eq(leadBriefSchema.contactRef, ref));
+    const again = await call<DraftSaveOut>(tools.get('save_draft_sequence'), draftArgs(ref));
+
+    expect(again.reviewRunId).toBe(out.reviewRunId);
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.status).toBe('pending');
+  });
+
+  it('refuses an unbriefed lead and an unknown ref, writing nothing', async () => {
+    await seedMirror();
+    const tools = toolsByName(ORG);
+    await call<QueueResult>(tools.get('queue_lead'), { contact_refs: ['contacts:1'] });
+
+    const unbriefed = await call<DraftSaveOut>(tools.get('save_draft_sequence'), draftArgs('contacts:1'));
+
+    expect(unbriefed.error).toBe('not_briefed');
+
+    const unknown = await call<DraftSaveOut>(tools.get('save_draft_sequence'), draftArgs('contacts:404'));
+
+    expect(unknown.error).toBe('not_on_queue');
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(runs).toHaveLength(0);
+  });
+
+  it('never writes into another org queue', async () => {
+    await seedMirror();
+    const tools = toolsByName(ORG);
+    await call<QueueResult>(tools.get('queue_lead'), { contact_refs: ['contacts:1'] });
+    const ref = await seedBriefed(tools);
+
+    const out = await call<DraftSaveOut>(toolsByName(OTHER).get('save_draft_sequence') as Invokable, draftArgs(ref));
+
+    expect(out.error).toBe('not_on_queue');
+  });
+});
+
+describe('record_draft_failure', () => {
+  it('stores the text without spending a try, and never overwrites written drafts', async () => {
+    await seedMirror();
+    const tools = toolsByName(ORG);
+    await call<QueueResult>(tools.get('queue_lead'), { contact_refs: ['contacts:1'] });
+    const ref = await seedBriefed(tools);
+    await call<DraftClaimOut>(tools.get('next_brief_to_draft'));
+
+    const out = await call<{ recorded: boolean; attemptsUsed: number }>(tools.get('record_draft_failure'), {
+      contact_ref: ref,
+      error: 'hubspot_list_sequences returned missing_scope',
+    });
+
+    expect(out).toMatchObject({ recorded: true, attemptsUsed: 1 });
+
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+
+    expect(row!.draftError).toContain('missing_scope');
+
+    // Drafts written later clear the error; a later failure cannot replace them.
+    await call<DraftSaveOut>(tools.get('save_draft_sequence'), draftArgs(ref));
+    const tooLate = await call<{ recorded: boolean; reason?: string }>(tools.get('record_draft_failure'), { contact_ref: ref, error: 'too late' });
+
+    expect(tooLate).toMatchObject({ recorded: false, reason: 'not_awaiting_drafts' });
+
+    const [after] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+
+    expect(after!.draftError).toBeNull();
+    expect(after!.draftSequence).toHaveLength(2);
   });
 });

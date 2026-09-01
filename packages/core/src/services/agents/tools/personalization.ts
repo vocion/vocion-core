@@ -1,7 +1,9 @@
 /**
- * Personalization-lane tools — new MQLs become queue rows, then each one is
- * researched into a brief. No draft copy, no Loom, no touch plan, no sends,
- * no HubSpot writes.
+ * Personalization-lane tools — new MQLs become queue rows, each one is
+ * researched into a brief, and each briefed lead is drafted into numbered
+ * sends recommending an EXISTING HubSpot sequence. Nothing is ever sent
+ * here: `save_draft_sequence` proposes the `personalization.enroll` review
+ * item server-side, and only a human's Enroll executes it.
  *
  * The guarantees are STRUCTURAL, the same way the discovery lane's are:
  *
@@ -15,6 +17,11 @@
  *     never change who the lead is however the model describes them.
  *   - `next_lead_to_brief` counts the try in the act of handing out the work,
  *     so the three-try budget holds even when a run dies silently.
+ *     `next_brief_to_draft` makes the same contract for the drafting phase.
+ *   - `save_draft_sequence` proposes the review item ITSELF, in the same
+ *     operation that writes the drafts — the agent cannot forget to surface
+ *     the lead, and the recommendation is verified against the live
+ *     sequence library so an invented sequence is refused.
  *   - These tools are GRANTED, not default: they build only for agents whose
  *     `harness.grantTools` names them.
  *
@@ -29,15 +36,20 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { resolvedModelId } from '@/libs/llm';
 import {
+  claimBriefToDraft,
   claimLeadToBrief,
   leadLedger,
   MAX_BRIEF_ATTEMPTS,
+  MAX_DRAFT_ATTEMPTS,
   queueLeads,
   reconcileMqlWindow,
   recordBriefFailure,
+  recordDraftFailure,
+  saveDraftSequence,
   saveLeadBrief,
   UnknownStageError,
 } from '@/services/PersonalizationQueueService';
+import { hubspotClientForCtx } from './hubspotDirect';
 
 /** Tool names that exist only for agents granted them via `harness.grantTools`. */
 export const PERSONALIZATION_TOOL_NAMES = [
@@ -47,9 +59,13 @@ export const PERSONALIZATION_TOOL_NAMES = [
   'next_lead_to_brief',
   'save_lead_brief',
   'record_brief_failure',
+  'next_brief_to_draft',
+  'save_draft_sequence',
+  'record_draft_failure',
+  'hubspot_list_sequences',
 ] as const;
 
-const WINDOW_CAVEAT = 'The window filters the HubSpot CONTACT CREATE date, not the date the contact became an MQL, because the mirror does not carry a stage-entry date. So this answers "created in the window and at this stage now". Say that when you report the number; do not present it as "became an MQL this week". `window.since` in the response is the bound actually applied, so report that rather than a date you worked out yourself.';
+const WINDOW_CAVEAT = 'The window filters the HubSpot CONTACT CREATE date, not the date the contact became an MQL. The mirror now carries the stage-entry date for DISPLAY (it shows on queue rows and review cards where present), but the arrival window still keys on the create date. So this answers "created in the window and at this stage now". Say that when you report the number; do not present it as "became an MQL this week". `window.since` in the response is the bound actually applied, so report that rather than a date you worked out yourself.';
 
 export function queueLeadTool(ctx: RuntimeContext) {
   return tool(
@@ -230,6 +246,118 @@ export function recordBriefFailureTool(ctx: RuntimeContext) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Draft generation                                                    */
+/* ------------------------------------------------------------------ */
+
+export function nextBriefToDraftTool(ctx: RuntimeContext) {
+  return tool(
+    async () => {
+      const result = await claimBriefToDraft(ctx.orgId);
+      return JSON.stringify(result, null, 2);
+    },
+    {
+      name: 'next_brief_to_draft',
+      description: `Hand out the next BRIEFED lead that still needs its outreach drafted, OLDEST ARRIVAL FIRST, with the whole brief attached (sections, claims, missing, confidence) so you never re-read it elsewhere. Call it, draft that one lead per the draft-mql-sequence skill, save with save_draft_sequence, then call this again; stop when \`lead\` comes back null. Taking the lead COUNTS the try (${MAX_DRAFT_ATTEMPTS} total), same contract as next_lead_to_brief. Draft whatever the confidence says: a low score is drafted anyway and the reviewer's edits are the training signal. Leads whose briefing failed are never handed out here.`,
+      schema: z.object({}),
+    },
+  );
+}
+
+export function saveDraftSequenceTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const result = await saveDraftSequence(ctx.orgId, {
+        contactRef: args.contact_ref,
+        sends: args.sends,
+        recommendedSequence: args.recommended_sequence,
+        senderEmail: args.sender_email,
+        hubspotUserId: args.hubspot_user_id,
+        briefedBy: {
+          agentSlug: ctx.agentSlug,
+          missionRunId: ctx.missionRunId,
+          userId: ctx.userId,
+        },
+      });
+      if (!result.saved) {
+        return JSON.stringify({ error: result.reason, message: result.message, contact_ref: result.contactRef }, null, 2);
+      }
+      return JSON.stringify(result, null, 2);
+    },
+    {
+      name: 'save_draft_sequence',
+      description: 'Save the drafted, numbered sends onto the briefed lead AND surface it for review — this one call writes the drafts and proposes the personalization.enroll review item server-side, so never call propose_action for it yourself. Call it EXACTLY ONCE per lead, at the end of the draft-mql-sequence skill. The recommendation must be an EXISTING sequence from hubspot_list_sequences: an id the library does not hold is refused and nothing is saved. Re-running on the same lead updates the one pending review item, never duplicates it. Do NOT claim anything was sent or enrolled — the drafts wait for a human\'s Enroll.',
+      schema: z.object({
+        contact_ref: z.string().min(1).describe('The `contactRef` from next_brief_to_draft, e.g. "contacts:9412".'),
+        sends: z.array(z.object({
+          day: z.number().int().min(0).optional().describe('The send\'s day offset in the recommended sequence\'s cadence (Day 0, Day 4, …), when the sequence defines one.'),
+          subject: z.string().min(1).describe('Subject line, in the founder voice.'),
+          body: z.string().min(1).describe('The personalized send body. This is what the reviewer reads and edits.'),
+        })).min(1).max(10).describe('The numbered sends IN ORDER — one entry per send of the recommended sequence, personalized for this lead. Steps are numbered by position server-side.'),
+        recommended_sequence: z.object({
+          id: z.string().min(1).describe('The sequence id, exactly as hubspot_list_sequences returned it. Never invent one.'),
+          name: z.string().min(1).describe('The sequence name, as returned.'),
+          reason: z.string().optional().describe('One or two sentences: why THIS sequence for THIS lead. Renders on the review card.'),
+        }).describe('The existing HubSpot sequence the lead should be enrolled into.'),
+        sender_email: z.string().min(1).describe('The sender the enrollment will run as — the `userEmail` you passed to hubspot_list_sequences.'),
+        hubspot_user_id: z.string().optional().describe('The `userId` from the hubspot_list_sequences response. Pass it through; it scopes verification and the enrollment.'),
+      }),
+    },
+  );
+}
+
+export function recordDraftFailureTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const result = await recordDraftFailure(ctx.orgId, args.contact_ref, args.error);
+      return JSON.stringify(result, null, 2);
+    },
+    {
+      name: 'record_draft_failure',
+      description: `Record why a briefed lead could not be drafted. Call it as soon as you give up on a lead, before moving to the next one, then keep going. The try was already counted by the claim; after ${MAX_DRAFT_ATTEMPTS} tries the lead simply stops being handed out and a person reads this text on it. Name the tool that failed and quote the message.`,
+      schema: z.object({
+        contact_ref: z.string().min(1).describe('The `contactRef` from next_brief_to_draft.'),
+        error: z.string().min(1).describe('What went wrong, in plain words.'),
+      }),
+    },
+  );
+}
+
+export function hubspotListSequencesTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const resolved = await hubspotClientForCtx(ctx);
+      if (!resolved.ok) {
+        return JSON.stringify(resolved, null, 2);
+      }
+      const { listSequences, resolveHubspotUserId } = await import('@/libs/hubspot/sequences');
+      const user = await resolveHubspotUserId(resolved.client, args.user_email);
+      if (!user.ok) {
+        return JSON.stringify(user, null, 2);
+      }
+      const sequences = await listSequences(resolved.client, user.data.userId);
+      if (!sequences.ok) {
+        return JSON.stringify(sequences, null, 2);
+      }
+      return JSON.stringify({
+        ok: true,
+        source: 'hubspot_live',
+        count: sequences.data.length,
+        userEmail: args.user_email,
+        userId: user.data.userId,
+        sequences: sequences.data,
+      }, null, 2);
+    },
+    {
+      name: 'hubspot_list_sequences',
+      description: 'Reads HubSpot LIVE: the sender\'s EXISTING sequence library — the only sequences a draft may recommend. Returns the count first, then {id, name, stepCount} per sequence, plus the `userId` that save_draft_sequence and the enrollment need (pass it through as hubspot_user_id). Recommending an id this tool did not return will be refused at save time. If the token lacks the sequences scope, the error names the scope; report that rather than guessing.',
+      schema: z.object({
+        user_email: z.string().min(1).describe('The sender whose sequence library to read, e.g. the founder\'s email. Sequences are per-user in HubSpot.'),
+      }),
+    },
+  );
+}
+
 /**
  * Build the personalization tool set — empty unless the agent's harness config
  * GRANTS them by name. The gate lives here, so every consumer of the registry
@@ -245,6 +373,10 @@ export function personalizationTools(ctx: RuntimeContext) {
     nextLeadToBriefTool(ctx),
     saveLeadBriefTool(ctx),
     recordBriefFailureTool(ctx),
+    nextBriefToDraftTool(ctx),
+    saveDraftSequenceTool(ctx),
+    recordDraftFailureTool(ctx),
+    hubspotListSequencesTool(ctx),
   ];
   return all.filter(t => grants.has(t.name));
 }
