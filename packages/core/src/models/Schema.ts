@@ -1512,6 +1512,53 @@ export const knowledgeSourceSchema = pgTable(
   ],
 );
 
+/**
+ * A rule the system proposes but has not adopted.
+ *
+ * The feedback worker classifies a `feedback_job` and, when the classification
+ * yields rule text, lands it here as `pending` — it never writes a `learning`
+ * row itself. A human (in the dashboard, or through
+ * `/api/v1/learning-candidates`) edits it, approves it into a real rule, or
+ * rejects it with a reason. That keeps the record of *why* a suggestion was
+ * turned down, which a plain delete would throw away.
+ */
+export const learningCandidateSchema = pgTable(
+  'learning_candidate',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    /** The learning step this rule would attach to, by name (not id — the step may not exist yet). */
+    stepName: text('step_name').notNull(),
+    /** What the classifier proposed. Never overwritten, so the original stays auditable. */
+    ruleText: text('rule_text').notNull(),
+    /** What a human changed it to. Null until someone edits it. */
+    editedRuleText: text('edited_rule_text'),
+    /** The feedback this came from. Kept as a back-link for "why does this rule exist". */
+    sourceFeedbackJobId: integer('source_feedback_job_id').references(() => feedbackJobSchema.id, { onDelete: 'set null' }),
+    /** The run the feedback was about, when there was one. */
+    sourceRunId: integer('source_run_id'),
+    /** 'pending' | 'approved' | 'rejected'. */
+    status: text('status').default('pending').notNull(),
+    /** Required when rejecting — a rejection with no reason teaches nobody anything. */
+    rejectedReason: text('rejected_reason'),
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { mode: 'date' }),
+    /** The rule created on approval, so a candidate and its rule stay linked. */
+    createdLearningId: integer('created_learning_id').references(() => learningSchema.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => ({
+    // The queue query is always "this org's candidates in this state".
+    orgStatusIdx: index('learning_candidate_org_status_idx').on(table.orgId, table.status),
+  }),
+);
+
 export const knowledgeDocumentSchema = pgTable(
   'knowledge_document',
   {
