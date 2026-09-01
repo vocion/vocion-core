@@ -50,9 +50,11 @@ const LEADS: Seed[] = [
     ],
     missing: [],
     draftSequence: [
-      { step: 1, subject: 'Ticket volume at Redpoint', body: 'You grabbed the triage ebook last week, so I\'ll skip the pitch.\n\nMost MSPs your size hit the same wall: volume climbs, the team doesn\'t. Worth 20 minutes to walk through what we did for a 12-person shop in the same spot?' },
-      { step: 2, subject: 'Following up', body: 'Circling back on this. If the timing is wrong, say so and I\'ll leave it.' },
+      { step: 1, day: 0, subject: 'Ticket volume at Redpoint', body: 'You grabbed the triage ebook last week, so I\'ll skip the pitch.\n\nMost MSPs your size hit the same wall: volume climbs, the team doesn\'t. Worth 20 minutes to walk through what we did for a 12-person shop in the same spot?' },
+      { step: 2, day: 4, subject: 'Following up', body: 'Circling back on this. If the timing is wrong, say so and I\'ll leave it.' },
     ],
+    recommendedSequence: { id: 'seq-demo-1', name: 'MSP Triage Nurture', reason: 'The triage ebook is the entrance path, and this nurture is built around it.', senderEmail: 'chris@metacto.com', verified: false },
+    mqlAt: new Date(Date.now() - 8 * 24 * HOURS),
     briefedAt: new Date(Date.now() - 2 * HOURS),
   },
   {
@@ -244,6 +246,53 @@ async function main() {
       await db.insert(schema.leadBriefSchema).values(payload);
     }
   }
+
+  // The fully-drafted lead also gets its pending personalization.enroll run,
+  // so both surfaces show the decidable card. Upserted via the dedup key,
+  // same as the real propose path.
+  const drafted = LEADS[0]!;
+  const dedupKey = `personalization.enroll:${drafted.contactRef}`;
+  const [leadRow] = await db
+    .select({ id: schema.leadBriefSchema.id })
+    .from(schema.leadBriefSchema)
+    .where(and(eq(schema.leadBriefSchema.orgId, orgId), eq(schema.leadBriefSchema.contactRef, drafted.contactRef)))
+    .limit(1);
+  const enrollInput = {
+    leadBriefId: leadRow!.id,
+    contactRef: drafted.contactRef,
+    contactName: drafted.contactName,
+    companyName: drafted.companyName ?? undefined,
+    sequenceId: 'seq-demo-1',
+    sequenceName: 'MSP Triage Nurture',
+    senderEmail: 'chris@metacto.com',
+    sends: drafted.draftSequence!,
+  };
+  const [existingRun] = await db
+    .select({ id: schema.actionRunSchema.id })
+    .from(schema.actionRunSchema)
+    .where(and(
+      eq(schema.actionRunSchema.orgId, orgId),
+      eq(schema.actionRunSchema.dedupKey, dedupKey),
+      eq(schema.actionRunSchema.status, 'pending'),
+    ))
+    .limit(1);
+  let runId = existingRun?.id;
+  if (runId) {
+    await db.update(schema.actionRunSchema).set({ input: enrollInput }).where(eq(schema.actionRunSchema.id, runId));
+  } else {
+    const [inserted] = await db.insert(schema.actionRunSchema).values({
+      orgId,
+      actionId: 'personalization.enroll',
+      input: enrollInput,
+      status: 'pending',
+      invokedBy: 'agent:revenue-lead',
+      proposal: { confidence: drafted.confidence ?? undefined, rationale: 'The triage ebook is the entrance path, and this nurture is built around it.' },
+      dedupKey,
+    }).returning({ id: schema.actionRunSchema.id });
+    runId = inserted!.id;
+  }
+  await db.update(schema.leadBriefSchema).set({ reviewActionRunId: runId }).where(eq(schema.leadBriefSchema.id, leadRow!.id));
+  console.log(`Pending personalization.enroll run #${runId} for ${drafted.contactName}.`);
 
   const lanes = LEADS.reduce<Record<string, number>>((acc, l) => {
     acc[l.status!] = (acc[l.status!] ?? 0) + 1;

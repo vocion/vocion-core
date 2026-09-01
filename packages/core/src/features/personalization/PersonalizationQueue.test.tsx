@@ -10,6 +10,38 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: () => {} }),
 }));
 
+// The queue reads the SAME pending-run feed the review queue reads, keyed to
+// rows by reviewActionRunId. One pending enroll run for Jamie Smith.
+vi.mock('@/libs/Orpc', () => ({
+  client: {
+    review: {
+      listPendingActions: vi.fn(async () => [{
+        id: 501,
+        actionId: 'personalization.enroll',
+        status: 'pending',
+        input: {},
+        invokedBy: 'agent:revenue-lead',
+        proposal: { confidence: 0.84 },
+        card: {
+          title: 'New MQL ready to enroll',
+          system: 'Personalization',
+          subject: { name: 'Jamie Smith', role: 'COO', company: 'Redpoint IT' },
+          recommendation: { headline: 'Enroll in: AI-Readiness Nurture · 2 sends' },
+          content: [
+            { kind: 'email', id: 'send-1', label: 'Day 0', subject: 'Ticket triage', body: 'Jamie, how do tickets get triaged out of hours?' },
+            { kind: 'email', id: 'send-2', label: 'Day 4', subject: 'One level deeper', body: 'The triage doc, if useful.' },
+          ],
+          fields: [],
+          verbs: { approve: 'Enroll', reject: 'Decline' },
+        },
+      }]),
+      decideAction: vi.fn(async () => ({ ok: true })),
+      snoozeAction: vi.fn(async () => ({ ok: true })),
+      rewriteDraft: vi.fn(async () => ({ body: '' })),
+    },
+  },
+}));
+
 /**
  * The queue's job is to be trustworthy at a glance: every row carries a brief,
  * the count matches the rows, and the brief behind a row is readable without
@@ -40,6 +72,11 @@ function brief(over: Partial<BriefRow> & Pick<BriefRow, 'id' | 'contactName'>): 
     briefError: null,
     briefAttempts: 1,
     regenerateNote: null,
+    draftSequence: [],
+    recommendedSequence: null,
+    reviewActionRunId: null,
+    draftError: null,
+    mqlAt: null,
     arrivedAt: '2026-08-24T09:00:00.000Z',
     briefedAt: '2026-08-25T10:00:00.000Z',
     ...over,
@@ -192,14 +229,48 @@ describe('PersonalizationQueue', () => {
     await expect.element(page.getByRole('button', { name: 'Regenerate' })).toBeEnabled();
   });
 
-  it('offers lane actions only once leads are selected, and keeps them disabled until the review action ships', async () => {
+  it('decides per lead: selection points at the card, no bulk lane buttons', async () => {
     await render(<PersonalizationQueue briefs={BRIEFS} />);
-
-    expect(page.getByRole('button', { name: /Hand off \d+ selected/ }).elements()).toHaveLength(0);
 
     await userEvent.click(page.getByRole('checkbox', { name: 'Select Jamie Smith' }));
 
     await expect.element(page.getByText('1 selected')).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Hand off 1 selected' })).toBeDisabled();
+    await expect.element(page.getByText(/Decisions are per lead/)).toBeVisible();
+    expect(page.getByRole('button', { name: /Hand off \d+ selected/ }).elements()).toHaveLength(0);
+  });
+
+  it('renders the shared review card on a row with a pending enroll run — the same run, same verbs', async () => {
+    const withRun = [
+      { ...BRIEFS[0]!, reviewActionRunId: 501, draftSequence: [{ step: 1, day: 0, subject: 'Ticket triage', body: 'Jamie, how do tickets get triaged out of hours?' }] },
+      ...BRIEFS.slice(1),
+    ];
+    await render(<PersonalizationQueue briefs={withRun} />);
+
+    await userEvent.click(page.getByRole('button', { name: 'Show brief for Jamie Smith' }));
+
+    await expect.element(page.getByTestId('review-action-card')).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Enroll' })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Decline' })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Snooze' })).toBeVisible();
+    // Decline requires a reason on this object type.
+    await expect.element(page.getByRole('button', { name: 'Decline' })).toBeDisabled();
+  });
+
+  it('shows drafted sends read-only when the run is decided or snoozed away', async () => {
+    const decided = [{
+      ...BRIEFS[0]!,
+      status: 'handed_off',
+      reviewActionRunId: 999,
+      recommendedSequence: { id: 'seq-1', name: 'AI-Readiness Nurture' },
+      draftSequence: [{ step: 1, day: 0, subject: 'Ticket triage', body: 'Jamie, how do tickets get triaged out of hours?' }],
+    }];
+    await render(<PersonalizationQueue briefs={decided} />);
+
+    await userEvent.click(page.getByRole('button', { name: 'Hand off' }));
+    await userEvent.click(page.getByRole('button', { name: 'Show brief for Jamie Smith' }));
+
+    await expect.element(page.getByText(/Outreach content/)).toBeVisible();
+    await expect.element(page.getByText(/Day 0 · Ticket triage/)).toBeVisible();
+    expect(page.getByTestId('review-action-card').elements()).toHaveLength(0);
   });
 });
