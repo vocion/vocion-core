@@ -42,6 +42,9 @@ const EXPIRY_CHOICES: Array<{ value: string; label: string }> = [
 
 type FreshToken = { id: string; token: string; name: string };
 
+/** Bounds for the custom date field, matching what the router will accept. */
+const CUSTOM_EXPIRY_MAX_YEARS = 10;
+
 /** What a token row is doing right now, in the order the checks matter. */
 type TokenState = 'revoked' | 'expired' | 'active';
 
@@ -85,10 +88,33 @@ function selectedExpiry(choice: string, customDate: string): string | null {
       throw new Error('Pick a date for the custom expiry.');
     }
     // End of the chosen day, so a token dated today still works today.
-    return new Date(`${customDate}T23:59:59`).toISOString();
+    const expiresAt = new Date(`${customDate}T23:59:59`);
+    // The field's `min` stops the picker at today, but a typed date can still
+    // land in the past — refuse it here rather than round-tripping to the
+    // router for the same answer.
+    if (expiresAt.getTime() <= Date.now()) {
+      throw new Error('Pick a date in the future.');
+    }
+    return expiresAt.toISOString();
   }
   return isoDaysFromNow(Number.parseInt(choice, 10));
 }
+
+/**
+ * A `yyyy-mm-dd` string for the date picker's bounds, built from local time so
+ * the field agrees with the calendar the person is looking at rather than UTC.
+ * @param yearsFromNow - Whole years to add; 0 gives today.
+ */
+function dateFieldValue(yearsFromNow: number): string {
+  const day = new Date();
+  day.setFullYear(day.getFullYear() + yearsFromNow);
+  const month = `${day.getMonth() + 1}`.padStart(2, '0');
+  const dayOfMonth = `${day.getDate()}`.padStart(2, '0');
+  return `${day.getFullYear()}-${month}-${dayOfMonth}`;
+}
+
+const EARLIEST_EXPIRY_DATE = dateFieldValue(0);
+const LATEST_EXPIRY_DATE = dateFieldValue(CUSTOM_EXPIRY_MAX_YEARS);
 
 /**
  * Human-readable label for a token's state.
@@ -302,13 +328,23 @@ export function ApiTokensPanel() {
                   ))}
                 </select>
                 {expiryChoice === 'custom' && (
-                  <Input
-                    type="date"
-                    aria-label="Custom expiry date"
-                    value={customDate}
-                    onChange={e => setCustomDate(e.target.value)}
-                    required
-                  />
+                  <>
+                    <Input
+                      type="date"
+                      aria-label="Custom expiry date"
+                      value={customDate}
+                      onChange={e => setCustomDate(e.target.value)}
+                      // The picker cannot reach a past day, and stops at the
+                      // same ten-year ceiling the router enforces. Today is
+                      // allowed: a custom date expires at the end of that day.
+                      min={EARLIEST_EXPIRY_DATE}
+                      max={LATEST_EXPIRY_DATE}
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      The token expires at the end of the day you pick.
+                    </p>
+                  </>
                 )}
                 {expiryChoice === 'never' && (
                   <p className="text-xs text-muted-foreground">
