@@ -2,7 +2,6 @@ import type { NextRequest } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 import { NextResponse } from 'next/server';
 import { SURFACE_PATH_SEGMENTS } from './features/navigation/surfaces';
-import { auth } from './libs/Auth';
 import { routing } from './libs/I18nRouting';
 
 const handleI18nRouting = createMiddleware(routing);
@@ -41,6 +40,28 @@ function publicOrigin(request: NextRequest): string {
 // actual configured locale. With `as-needed` prefixing, unprefixed paths like
 // `/dashboard/teams` have no locale; the naive regex would capture `dashboard`
 // and build `/dashboard/sign-in`, which loops. Returns '' when there's no locale.
+/**
+ * Session presence check for the middleware.
+ *
+ * Normal deployments call auth() (dynamically imported so the DB client —
+ * and, in the demo sandbox, PGlite's wasm bundle — never loads at middleware
+ * module init). The demo sandbox (VOCION_DEMO_SEED_DIR set) gates on cookie
+ * presence only: PGlite cannot run in the middleware bundle, and every
+ * protected page re-checks the session in the Node runtime anyway.
+ * @param request - incoming request (cookies read in demo mode)
+ */
+async function hasSession(request: NextRequest): Promise<boolean> {
+  if (process.env.VOCION_DEMO_SEED_DIR) {
+    return Boolean(
+      request.cookies.get('__Secure-authjs.session-token')
+      ?? request.cookies.get('authjs.session-token'),
+    );
+  }
+  const { auth } = await import('./libs/Auth');
+  const session = await auth();
+  return Boolean(session?.user?.id);
+}
+
 function localeOf(path: string): string {
   const seg = path.match(/^\/([^/]+)(?:\/|$)/)?.[1];
   return seg && (routing.locales as readonly string[]).includes(seg) ? seg : '';
@@ -63,8 +84,7 @@ export default async function proxy(request: NextRequest) {
 
   // Protected routes: must have an auth.js session, else redirect to sign-in
   if (PROTECTED_PATH.test(path)) {
-    const session = await auth();
-    if (!session?.user?.id) {
+    if (!(await hasSession(request))) {
       const locale = localeOf(path);
       const signInUrl = new URL(`/${locale ? `${locale}/` : ''}sign-in`, origin);
       // callbackUrl points back at the requested page on the PUBLIC origin.
@@ -75,8 +95,7 @@ export default async function proxy(request: NextRequest) {
 
   // Sign-in / sign-up pages: if already signed in, redirect to dashboard
   if (AUTH_PATH.test(path) && !path.includes('/setup') && !path.includes('/invite')) {
-    const session = await auth();
-    if (session?.user?.id) {
+    if (await hasSession(request)) {
       const locale = localeOf(path);
       return NextResponse.redirect(new URL(`/${locale ? `${locale}/` : ''}dashboard`, origin));
     }
