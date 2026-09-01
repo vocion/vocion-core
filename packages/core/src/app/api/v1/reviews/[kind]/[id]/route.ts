@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { apiGetReview } from '@/services/writeApi';
-import { authApi, isErrorResponse, writeApiErrorResponse } from '../../../_shared';
+import { authApi, isErrorResponse, readIdParam, writeApiErrorResponse } from '../../../_shared';
 
 /**
  * GET /api/v1/reviews/:kind/:id
@@ -23,9 +23,13 @@ export async function GET(req: Request, context: { params: Promise<{ kind: strin
   if (isErrorResponse(caller)) {
     return caller;
   }
-  const { kind, id } = await context.params;
+  const { kind, id: rawId } = await context.params;
+  const id = readIdParam(rawId, 'Review');
+  if (isErrorResponse(id)) {
+    return id;
+  }
   try {
-    return NextResponse.json(await apiGetReview(caller, kind, Number.parseInt(id, 10)));
+    return NextResponse.json(await apiGetReview(caller, kind, id));
   } catch (e) {
     return writeApiErrorResponse(e);
   }

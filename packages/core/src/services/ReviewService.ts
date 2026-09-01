@@ -14,7 +14,7 @@ import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import { and, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { actionRunSchema, missionRunSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
+import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
@@ -528,11 +528,41 @@ async function upsertAssignment(
  * @param opts.assignedBy
  * @param opts.note
  */
+export class UnknownAssigneeError extends Error {
+  constructor(userId: string) {
+    super(`no member of this org with id ${JSON.stringify(userId)}`);
+    this.name = 'UnknownAssigneeError';
+  }
+}
+
+/**
+ * Is this user a member of the account that owns the project?
+ *
+ * `assigned_to` is a foreign key, so an id that names nobody used to surface as
+ * a database error — a 500 for what is really a bad request. Checking first
+ * turns it into an answer the caller can act on, and stops one org routing work
+ * to a user in another.
+ * @param orgId
+ * @param userId
+ */
+async function isOrgMember(orgId: string, userId: string): Promise<boolean> {
+  const [member] = await db
+    .select({ userId: accountMembershipSchema.userId })
+    .from(accountMembershipSchema)
+    .innerJoin(projectSchema, eq(projectSchema.accountId, accountMembershipSchema.accountId))
+    .where(and(eq(projectSchema.id, orgId), eq(accountMembershipSchema.userId, userId)))
+    .limit(1);
+  return member !== undefined;
+}
+
 export async function assign(
   orgId: string,
   item: { kind: ReviewKind; id: number },
   opts: { assignedTo: string | null; assignedBy?: string; note?: string },
 ): Promise<void> {
+  if (opts.assignedTo !== null && !(await isOrgMember(orgId, opts.assignedTo))) {
+    throw new UnknownAssigneeError(opts.assignedTo);
+  }
   await upsertAssignment(orgId, item, {
     assignedTo: opts.assignedTo,
     assignedBy: opts.assignedBy ?? null,

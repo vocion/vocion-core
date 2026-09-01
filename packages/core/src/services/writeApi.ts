@@ -215,11 +215,18 @@ export async function apiAssignReview(
   assertId(input.id);
   enforceQueueCapability(caller, 'manage the queue');
 
-  await ReviewService.assign(caller.orgId, { kind: input.kind, id: input.id }, {
-    assignedTo: input.assignedTo,
-    assignedBy: caller.actorId,
-    note: input.note,
-  });
+  try {
+    await ReviewService.assign(caller.orgId, { kind: input.kind, id: input.id }, {
+      assignedTo: input.assignedTo,
+      assignedBy: caller.actorId,
+      note: input.note,
+    });
+  } catch (error) {
+    if (error instanceof ReviewService.UnknownAssigneeError) {
+      throw new WriteApiError(400, 'VALIDATION_FAILED', error.message);
+    }
+    throw error;
+  }
 
   const reviews = await ReviewService.listPending(caller.orgId);
   return { ok: true, reviews };
