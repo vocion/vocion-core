@@ -103,10 +103,9 @@ export function SignInForm({ callbackUrl, error: initialError, hint }: Props) {
           </Button>
         </form>
 
+        {/* Accounts come from invites only, so there is no sign-up link to offer. */}
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          New here?
-          {' '}
-          <a className="font-medium text-foreground underline-offset-4 hover:underline" href="/sign-up">Create an account</a>
+          This instance is invite-only — ask an admin for an invite link to join.
         </p>
       </div>
     </div>
