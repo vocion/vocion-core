@@ -1,6 +1,7 @@
 import { cpSync, existsSync, rmSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import process from 'node:process';
+import { resolveDemoPath } from '@/libs/llm/replay';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { Env } from '@/libs/Env';
@@ -21,7 +22,7 @@ export const createDbConnection = () => {
     const rawDataDir = Env.DATABASE_URL.slice('pglite://'.length);
     const base = isAbsolute(rawDataDir) ? rawDataDir : join(process.cwd(), rawDataDir);
     const rawSeed = process.env.VOCION_DEMO_SEED_DIR;
-    const seedDir = rawSeed ? (isAbsolute(rawSeed) ? rawSeed : join(process.cwd(), rawSeed)) : undefined;
+    const seedDir = rawSeed ? resolveDemoPath(rawSeed) : undefined;
     // Per-process data dir: concurrent processes (build workers, serverless
     // instances) never contend, and every cold start begins from the pristine
     // seed — the demo resets itself by construction.
