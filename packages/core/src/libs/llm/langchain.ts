@@ -15,6 +15,8 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatOpenAI } from '@langchain/openai';
+import { llmMode } from './replay';
+import { getReplayCache } from './replayCache';
 
 /**
  * Model roles. Add a new role here (not a new env var) when you need
@@ -148,17 +150,22 @@ export function buildChatModel(
   const provider = opts.provider ?? resolveProvider(role);
   const model = opts.model ?? resolveModel(role, provider);
   const temperature = opts.temperature ?? 0;
-  const streaming = opts.streaming ?? true;
+  // Record/replay (demo sandbox): the LangChain cache only intercepts
+  // non-streamed generations, so both modes force streaming off. In
+  // replay mode the cache never misses (fallback generation), so the
+  // provider below is constructed but never called.
+  const mode = llmMode();
+  const streaming = mode === 'live' ? (opts.streaming ?? true) : false;
 
   switch (provider) {
     case 'anthropic': {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
+      const apiKey = process.env.ANTHROPIC_API_KEY ?? (mode === 'replay' ? 'replay-mode-no-key' : undefined);
       if (!apiKey) {
         throw new Error(`ANTHROPIC_API_KEY is not set; cannot construct chat model for role ${role}`);
       }
       const thinkingBudget = resolveThinkingBudget(role);
       if (thinkingBudget !== null) {
-        return new ChatAnthropic({
+        return withReplay(new ChatAnthropic({
           model,
           // Extended thinking requires temperature 1 — override the
           // deterministic default 0 ONLY on this opt-in path.
@@ -175,30 +182,43 @@ export function buildChatModel(
             : thinkingBudget + 4096 > 16384
               ? { maxTokens: thinkingBudget + 4096 }
               : {}),
-        });
+        }));
       }
-      return new ChatAnthropic({
+      return withReplay(new ChatAnthropic({
         model,
         temperature,
         streaming,
         apiKey,
         ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
-      });
+      }));
     }
     case 'openai': {
-      const apiKey = process.env.OPENAI_API_KEY;
+      const apiKey = process.env.OPENAI_API_KEY ?? (mode === 'replay' ? 'replay-mode-no-key' : undefined);
       if (!apiKey) {
         throw new Error(`OPENAI_API_KEY is not set; cannot construct chat model for role ${role}`);
       }
-      return new ChatOpenAI({
+      return withReplay(new ChatOpenAI({
         model,
         temperature,
         streaming,
         apiKey,
         ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
-      });
+      }));
     }
   }
+}
+
+/**
+ * Attach the record/replay file cache in non-live modes. In `record`,
+ * generations are persisted after each real call; in `replay`, the cache
+ * always answers (recorded or fallback) and the provider is never hit.
+ * @param model
+ */
+function withReplay<T extends BaseChatModel>(model: T): T {
+  if (llmMode() !== 'live') {
+    model.cache = getReplayCache();
+  }
+  return model;
 }
 
 /**

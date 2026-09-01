@@ -158,6 +158,8 @@ export async function runAgentDeep(opts: {
   const { chargeUsage, preflightCheck } = await import('./BudgetService');
 
   const rawEmit = opts.onEvent ?? (() => {});
+  // Demo sandbox record buffer — every emitted event, in order (turnReplay).
+  const recordedEvents: import('./agents/types').AgentEvent[] = [];
   // When a DELEGATE's search surfaces sources, tag those documents with the
   // specialist's name so the Sources drawer can show "via <specialist>".
   // `activeSpecialist` is set while a subagent's search tool is executing (the
@@ -175,9 +177,18 @@ export async function runAgentDeep(opts: {
     if (event.type === 'recommended_action') {
       emittedCards.push(event.recommendation.label);
     }
+    recordedEvents.push(event);
     rawEmit(event);
   };
 
+  // Demo sandbox turn replay/record (VOCION_LLM_MODE) — see
+  // services/agents/turnReplay.ts. Replay short-circuits the whole loop;
+  // record captures the full event stream alongside the live run.
+  const { maybeReplayTurn, recordTurn } = await import('./agents/turnReplay');
+  const replayed = await maybeReplayTurn(opts, emit);
+  if (replayed) {
+    return replayed;
+  }
   // Phase 7 — pre-flight budget check. Refuse the run if the agent
   // is over its hard cap; otherwise proceed.
   const budgetCheck = await preflightCheck({ orgId: opts.orgId, agentSlug: opts.agentSlug });
@@ -471,6 +482,12 @@ export async function runAgentDeep(opts: {
   await langfuse.flushAsync();
 
   emit({ type: 'done', response: finalText, traceId: trace.id });
+
+  recordTurn(opts, recordedEvents, {
+    response: finalText,
+    traceId: trace.id,
+    toolCalls: toolCallLog,
+  });
 
   return {
     response: finalText,

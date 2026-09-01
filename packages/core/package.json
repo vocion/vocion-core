@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
     "node": ">=20"
@@ -73,6 +73,7 @@
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/lang-yaml": "^6.1.3",
+    "@electric-sql/pglite": "^0.3.15",
     "@langchain/anthropic": "^1.3.29",
     "@langchain/core": "^1.1.45",
     "@langchain/openai": "^1.4.5",
@@ -131,7 +132,6 @@
   "devDependencies": {
     "@chromatic-com/playwright": "^0.12.8",
     "@clerk/testing": "^1.14.3",
-    "@electric-sql/pglite": "^0.3.15",
     "@electric-sql/pglite-socket": "^0.0.20",
     "@faker-js/faker": "^10.3.0",
     "@lingual/i18n-check": "^0.8.19",

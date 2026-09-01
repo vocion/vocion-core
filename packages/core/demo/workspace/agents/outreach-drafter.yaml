@@ -1,0 +1,6 @@
+slug: outreach_drafter
+name: Outreach Drafter
+description: Drafts follow-up emails and outreach from account context. Every draft is held for human approval before anything is sent.
+active: true
+systemPromptFile: outreach-drafter.system-prompt.md
+skills: []
