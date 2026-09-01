@@ -1,0 +1,55 @@
+packages/core/migrations/meta/_journal.json
+  s_e07d1f1bf750ce::t_122c845dcb1e64 459-465,468
+packages/core/src/libs/hubspot/sequences.ts
+  s_e07d1f1bf750ce::t_bf1b178217d146 1-172
+packages/core/src/services/agents/tools/hubspotDirect.ts
+  s_e07d1f1bf750ce::t_c9866fcd54f1ef 87-96,101
+packages/core/src/services/agents/tools/personalization.ts
+  s_e07d1f1bf750ce::t_495231dc0ca53d 2-6,20-24,39,43,47-48,52,62-65,68,249-260,262-360,376-379
+  s_e07d1f1bf750ce::t_3057f6ae7bf929 261
+packages/core/migrations/0065_lead_brief_drafting.sql
+  s_e07d1f1bf750ce::t_bdbcaa5011f0e7 1-30
+packages/core/src/services/ActionService.ts
+  s_e07d1f1bf750ce::t_fbeda532cbcdc4 159-161,165
+packages/core/src/models/Schema.ts
+  s_e07d1f1bf750ce::t_f006a79302b3e5 2075,2078,2084-2104
+packages/core/src/services/CrmRecordsService.ts
+  s_e07d1f1bf750ce::t_dda10bec42e8ef 34
+packages/core/src/libs/actions/personalization-enroll.ts
+  s_e07d1f1bf750ce::t_287fd69f400fc6 200,204-215
+  s_e07d1f1bf750ce::t_0f9a313eb3cacd 1-41,44-199,201-203,216-272
+  s_e07d1f1bf750ce::t_24377392421a1c 42-43
+packages/core/src/libs/actions/personalization-enroll.test.ts
+  s_e07d1f1bf750ce::t_98cb3eae58e1fd 1-240
+packages/core/src/services/agents/tools/personalization.test.ts
+  s_e07d1f1bf750ce::t_767a8705183afe 22,154,161,829-1041
+  s_e07d1f1bf750ce::t_443804f1f392f0 1042-1045
+packages/core/src/libs/sources/hubspot.ts
+  s_e07d1f1bf750ce::t_21f9b33185d903 41-44
+  s_e07d1f1bf750ce::t_a6aa7b82dbcae3 151-156
+packages/core/src/libs/actions/registry.ts
+  s_e07d1f1bf750ce::t_fbeda532cbcdc4 11,31
+packages/core/src/services/PersonalizationQueueService.ts
+  s_e07d1f1bf750ce::t_9bc552d899ac43 2-5,181-185,217-219
+  s_e07d1f1bf750ce::t_2ff93006e4a4d5 803-839,841,843-995,999,1001-1145
+  s_e07d1f1bf750ce::t_f0ef9fd81096db 996-998,1000
+  s_e07d1f1bf750ce::t_f9480ecf5a961e 778-786
+  s_e07d1f1bf750ce::t_0fcaa7bf2ff0d2 840
+  s_e07d1f1bf750ce::t_15716ffdf7e822 842
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "730f41e68515d2a7d8e5d7ac0ba782562c6e55d0",
+  "prompts": {},
+  "sessions": {
+    "s_e07d1f1bf750ce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de6b3548-85b0-4849-a751-0d6151eb6bae",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
