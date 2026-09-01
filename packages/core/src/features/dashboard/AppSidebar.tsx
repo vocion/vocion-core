@@ -12,6 +12,7 @@ import {
   Database,
   FileText,
   GitBranch,
+  KeyRound,
   LineChart,
   MessageSquare,
   Network,
@@ -63,10 +64,14 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], ...props }: 
   const [view, setView] = useState<NavView>('work');
 
   // Restore the persisted view after mount (SSR renders the default).
+  // localStorage cannot be read while rendering on the server, so a lazy
+  // useState initializer would hydrate with a mismatched value — the setState
+  // here is the intended hydration pattern, not a cascading render.
   useEffect(() => {
     try {
       const stored = localStorage.getItem(NAV_VIEW_KEY);
       if (stored === 'manage') {
+        // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
         setView('manage');
       }
     } catch { /* private mode */ }
@@ -172,6 +177,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], ...props }: 
                   items={[
                     ...(isAdmin ? [{ title: t('adoption'), url: '/dashboard/adoption', icon: BarChart3 }] : []),
                     { title: 'Members', url: '/dashboard/members', icon: UserPlus },
+                    ...(isAdmin ? [{ title: 'API tokens', url: '/dashboard/api-tokens', icon: KeyRound }] : []),
                     { title: 'System', url: '/dashboard/admin', icon: ShieldCheck },
                     { title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText },
                   ]}
