@@ -84,12 +84,21 @@ export type CtxClient = {
  * @param ctx
  */
 export async function hubspotClientForCtx(ctx: RuntimeContext): Promise<CtxClient | HubspotFailure> {
-  const sources = await hubspotSourcesForOrg(ctx.orgId);
+  return hubspotClientForOrg(ctx.orgId);
+}
+
+/**
+ * Same resolution keyed on the org alone — for service-layer callers (e.g.
+ * sequence verification in `saveDraftSequence`) that hold no RuntimeContext.
+ * @param orgId
+ */
+export async function hubspotClientForOrg(orgId: string): Promise<CtxClient | HubspotFailure> {
+  const sources = await hubspotSourcesForOrg(orgId);
   if (sources.length === 0) {
     return noHubspotCredentials('No HubSpot source is connected in this workspace, so live HubSpot reads are unavailable. Say that rather than guessing.');
   }
   for (const source of sources) {
-    const credentials = await getCredentialsForSource(ctx.orgId, source.slug);
+    const credentials = await getCredentialsForSource(orgId, source.slug);
     const token = tokenFromCredentials(credentials as Record<string, unknown> | undefined);
     if (token) {
       const baseUrl = typeof source.configJson?.baseUrl === 'string' ? source.configJson.baseUrl : undefined;

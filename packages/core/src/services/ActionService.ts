@@ -156,10 +156,13 @@ export async function proposeAction(input: {
     //     means a human confirms every detected discovery call, and that is the
     //     calibration data 020 is built on; auto-approving would both skip the
     //     human and poison the feedback signal.
+    //   - personalization.enroll — approving it enrolls a real lead into a
+    //     HubSpot sequence that sends real email. No trust rule can release
+    //     an enrollment without a human.
     // Deliberately not configurable; revisit only once UC5 trust reporting
     // exists and a human opts in explicitly. Fails safe — it can only keep the
     // item in the review queue, never release it.
-    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal') {
+    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll') {
       return { runId: run!.id, status: 'pending' };
     }
     // Trust ladder: an ENABLED rule whose threshold this proposal's

@@ -1,6 +1,8 @@
 /**
- * PersonalizationQueueService — the phase-1 personalization lane: new MQLs
- * become rows on the `lead_brief` queue and nothing else happens.
+ * PersonalizationQueueService — the personalization lane: new MQLs become
+ * rows on the `lead_brief` queue, each is researched into a brief, and each
+ * briefed lead is drafted into numbered sends recommending an EXISTING
+ * HubSpot sequence, then proposed as a `personalization.enroll` review item.
  *
  * Two structural guarantees, both here rather than in a prompt:
  *
@@ -176,7 +178,11 @@ function num(v: unknown): number {
  * @param rec
  */
 function arrivedAt(rec: CrmRecord): Date | null {
-  const raw = str(rec.createdAt);
+  return toDate(rec.createdAt);
+}
+
+function toDate(v: unknown): Date | null {
+  const raw = str(v);
   if (!raw) {
     return null;
   }
@@ -208,6 +214,9 @@ function toRow(rec: CrmRecord, opts: { orgId: string; triggerType: string; brief
     engagementSent: num(rec.emailDelivered),
     engagementOpened: num(rec.emailOpened),
     status: QUEUED_STATUS,
+    // HubSpot's stage-entry date, when the mirror carries it. Null falls back
+    // to arrivedAt on every surface, labeled "Arrived", never as stage timing.
+    mqlAt: toDate(rec.mqlEnteredAt),
     briefVersion: QUEUE_BRIEF_VERSION,
     workspaceSha: opts.workspaceSha,
     briefedBy: opts.briefedBy,
@@ -766,6 +775,15 @@ export async function regenerateBrief(
       lastAttemptAt: null,
       briefError: null,
       skippedReason: null,
+      // Drafts hang off the brief, so a rewrite clears them too. A pending
+      // enroll item is not cancelled here: the next drafting pass updates it
+      // in place through the dedup key and re-links it.
+      draftSequence: [],
+      recommendedSequence: null,
+      draftAttempts: 0,
+      lastDraftAttemptAt: null,
+      draftError: null,
+      reviewActionRunId: null,
       regenerateNote: opts.note,
       // Back to the stamp that means "no research pass behind this row".
       briefVersion: QUEUE_BRIEF_VERSION,
@@ -780,6 +798,349 @@ export async function regenerateBrief(
     return { regenerated: false, reason: 'not_found', id: opts.id };
   }
   return { regenerated: true, id: opts.id, contactRef: row.contactRef, contactName: row.contactName };
+}
+
+/* ------------------------------------------------------------------ */
+/* Draft generation                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Drafting tries before a lead stops being handed out — same budget as the briefs. */
+export const MAX_DRAFT_ATTEMPTS = 3;
+
+/** One drafted send. `day` is its offset in the recommended sequence's cadence, when known. */
+export type DraftSend = { day?: number; subject: string; body: string };
+
+export type ClaimedDraftLead = {
+  id: number;
+  contactRef: string;
+  contactName: string;
+  contactTitle: string | null;
+  companyName: string | null;
+  entranceSource: string | null;
+  utmCampaign: string | null;
+  confidence: number | null;
+  sections: BriefSection[];
+  claims: BriefClaim[];
+  missing: string[];
+  regenerateNote: string | null;
+  mqlAt: Date | null;
+  arrivedAt: Date | null;
+  /** Which try this is, 1-based. */
+  attempt: number;
+  attemptsRemaining: number;
+};
+
+export type DraftClaimResult = {
+  lead: ClaimedDraftLead | null;
+  /** Briefed leads still waiting for drafts, this claim excluded. */
+  waiting: number;
+};
+
+/**
+ * Briefed, undrafted, not yet surfaced as a review item, tries left.
+ * @param orgId
+ * @param floor
+ */
+function draftEligible(orgId: string, floor: Date) {
+  return and(
+    eq(leadBriefSchema.orgId, orgId),
+    eq(leadBriefSchema.status, REVIEW_STATUS),
+    // A failed brief never gets drafts: drafting requires written sections.
+    sql`jsonb_array_length(${leadBriefSchema.sections}) > 0`,
+    sql`jsonb_array_length(${leadBriefSchema.draftSequence}) = 0`,
+    isNull(leadBriefSchema.reviewActionRunId),
+    lt(leadBriefSchema.draftAttempts, MAX_DRAFT_ATTEMPTS),
+    or(isNull(leadBriefSchema.lastDraftAttemptAt), lt(leadBriefSchema.lastDraftAttemptAt, floor)),
+  );
+}
+
+/**
+ * Hand out the next briefed lead that needs a draft sequence, counting the
+ * try in the same operation — the same claim contract as `claimLeadToBrief`:
+ * being given the work IS the attempt. Returns the whole brief so the
+ * drafting pass never re-reads it through another tool.
+ * @param orgId
+ * @param opts
+ * @param opts.now
+ */
+export async function claimBriefToDraft(
+  orgId: string,
+  opts: { now?: Date } = {},
+): Promise<DraftClaimResult> {
+  const now = opts.now ?? new Date();
+  const floor = new Date(now.getTime() - RETRY_FLOOR_MINUTES * 60_000);
+  const eligible = draftEligible(orgId, floor);
+
+  const [next] = await db
+    .select({ id: leadBriefSchema.id })
+    .from(leadBriefSchema)
+    .where(eligible)
+    .orderBy(sql`${leadBriefSchema.arrivedAt} asc nulls last`, asc(leadBriefSchema.id))
+    .limit(1);
+
+  const [waitingRow] = await db
+    .select({ n: count() })
+    .from(leadBriefSchema)
+    .where(and(
+      eq(leadBriefSchema.orgId, orgId),
+      eq(leadBriefSchema.status, REVIEW_STATUS),
+      sql`jsonb_array_length(${leadBriefSchema.sections}) > 0`,
+      sql`jsonb_array_length(${leadBriefSchema.draftSequence}) = 0`,
+      isNull(leadBriefSchema.reviewActionRunId),
+      lt(leadBriefSchema.draftAttempts, MAX_DRAFT_ATTEMPTS),
+    ));
+  const waiting = waitingRow?.n ?? 0;
+
+  if (!next) {
+    return { lead: null, waiting };
+  }
+
+  // Re-asserted predicate, same as the brief claim: two overlapping runs
+  // cannot both claim the same lead and burn two tries on one pass.
+  const [claimed] = await db
+    .update(leadBriefSchema)
+    .set({
+      draftAttempts: sql`${leadBriefSchema.draftAttempts} + 1`,
+      lastDraftAttemptAt: now,
+    })
+    .where(and(eq(leadBriefSchema.id, next.id), eligible))
+    .returning({
+      id: leadBriefSchema.id,
+      contactRef: leadBriefSchema.contactRef,
+      contactName: leadBriefSchema.contactName,
+      contactTitle: leadBriefSchema.contactTitle,
+      companyName: leadBriefSchema.companyName,
+      entranceSource: leadBriefSchema.entranceSource,
+      utmCampaign: leadBriefSchema.utmCampaign,
+      confidence: leadBriefSchema.confidence,
+      sections: leadBriefSchema.sections,
+      claims: leadBriefSchema.claims,
+      missing: leadBriefSchema.missing,
+      regenerateNote: leadBriefSchema.regenerateNote,
+      mqlAt: leadBriefSchema.mqlAt,
+      arrivedAt: leadBriefSchema.arrivedAt,
+      draftAttempts: leadBriefSchema.draftAttempts,
+    });
+
+  if (!claimed) {
+    return { lead: null, waiting };
+  }
+
+  return {
+    waiting: Math.max(waiting - 1, 0),
+    lead: {
+      id: claimed.id,
+      contactRef: claimed.contactRef,
+      contactName: claimed.contactName,
+      contactTitle: claimed.contactTitle,
+      companyName: claimed.companyName,
+      entranceSource: claimed.entranceSource,
+      utmCampaign: claimed.utmCampaign,
+      confidence: claimed.confidence,
+      sections: claimed.sections,
+      claims: claimed.claims,
+      missing: claimed.missing,
+      regenerateNote: claimed.regenerateNote,
+      mqlAt: claimed.mqlAt,
+      arrivedAt: claimed.arrivedAt,
+      attempt: claimed.draftAttempts,
+      attemptsRemaining: MAX_DRAFT_ATTEMPTS - claimed.draftAttempts,
+    },
+  };
+}
+
+export type SaveDraftSequenceOptions = {
+  contactRef: string;
+  /** The numbered sends, in order. Steps are numbered server-side by position. */
+  sends: DraftSend[];
+  /** The EXISTING sequence the agent recommends — from the sequence library read. */
+  recommendedSequence: { id: string; name: string; reason?: string };
+  senderEmail: string;
+  /** HubSpot user id from the library read — scopes verification and the later enrollment. */
+  hubspotUserId?: string;
+  briefedBy?: BriefedBy;
+  now?: Date;
+};
+
+export type SaveDraftSequenceResult = {
+  saved: boolean;
+  reason?: 'not_on_queue' | 'not_briefed' | 'unknown_sequence';
+  contactRef: string;
+  message?: string;
+  sendCount?: number;
+  /** True when the recommendation was checked against the live sequence library. */
+  sequenceVerified?: boolean;
+  /** The pending `personalization.enroll` review item — proposed here, server-side, so the agent cannot forget. */
+  reviewRunId?: number;
+  reviewRunStatus?: string;
+};
+
+/**
+ * Write the drafted sends onto a briefed lead and propose the
+ * `personalization.enroll` review item in the same operation — the propose
+ * step is structural, not a prompt instruction the agent can skip.
+ *
+ * The recommendation must name an EXISTING sequence: when HubSpot credentials
+ * are connected, the id is verified against the live library and an unknown
+ * id is refused. The write list is closed the same way `save_lead_brief`'s
+ * is — identity and the brief itself are not arguments here.
+ * @param orgId
+ * @param opts
+ */
+export async function saveDraftSequence(orgId: string, opts: SaveDraftSequenceOptions): Promise<SaveDraftSequenceResult> {
+  // Verify the recommended sequence exists before anything is written. A
+  // portal without connected credentials skips the check (there is no library
+  // to read); the flag on the row says which happened.
+  let sequenceVerified = false;
+  if (opts.hubspotUserId) {
+    const { hubspotClientForOrg } = await import('@/services/agents/tools/hubspotDirect');
+    const resolved = await hubspotClientForOrg(orgId);
+    if (resolved.ok) {
+      const { getSequence } = await import('@/libs/hubspot/sequences');
+      const res = await getSequence(resolved.client, opts.recommendedSequence.id, opts.hubspotUserId);
+      if (!res.ok && res.error === 'hubspot_error' && res.status === 404) {
+        return {
+          saved: false,
+          reason: 'unknown_sequence',
+          contactRef: opts.contactRef,
+          message: `NOTHING WAS SAVED. Sequence ${opts.recommendedSequence.id} does not exist in the sender's HubSpot sequence library. Re-read the library and recommend a sequence it actually returns.`,
+        };
+      }
+      sequenceVerified = res.ok;
+    }
+  }
+
+  const sends = opts.sends.map((send, i) => ({
+    step: i + 1,
+    ...(send.day !== undefined ? { day: send.day } : {}),
+    subject: send.subject,
+    body: send.body,
+  }));
+
+  const [row] = await db
+    .update(leadBriefSchema)
+    .set({
+      draftSequence: sends,
+      recommendedSequence: {
+        id: opts.recommendedSequence.id,
+        name: opts.recommendedSequence.name,
+        reason: opts.recommendedSequence.reason,
+        senderEmail: opts.senderEmail,
+        hubspotUserId: opts.hubspotUserId,
+        verified: sequenceVerified,
+      },
+      // Drafts supersede whatever the last drafting failure said.
+      draftError: null,
+    })
+    .where(and(
+      eq(leadBriefSchema.orgId, orgId),
+      eq(leadBriefSchema.contactRef, opts.contactRef),
+      eq(leadBriefSchema.status, REVIEW_STATUS),
+      // A failed brief never gets drafts, whatever the caller sends.
+      sql`jsonb_array_length(${leadBriefSchema.sections}) > 0`,
+    ))
+    .returning({
+      id: leadBriefSchema.id,
+      contactName: leadBriefSchema.contactName,
+      companyName: leadBriefSchema.companyName,
+      confidence: leadBriefSchema.confidence,
+    });
+
+  if (!row) {
+    const [exists] = await db
+      .select({ id: leadBriefSchema.id })
+      .from(leadBriefSchema)
+      .where(and(eq(leadBriefSchema.orgId, orgId), eq(leadBriefSchema.contactRef, opts.contactRef)))
+      .limit(1);
+    return {
+      saved: false,
+      reason: exists ? 'not_briefed' : 'not_on_queue',
+      contactRef: opts.contactRef,
+      message: exists
+        ? 'NOTHING WAS SAVED. The lead exists but is not a briefed lead in ready_for_review, so drafts cannot attach to it.'
+        : 'NOTHING WAS SAVED. No queue row carries that contact_ref. Use the exact `contactRef` next_brief_to_draft handed you.',
+    };
+  }
+
+  // Propose the review item server-side. Dedup is keyed on the contact, so a
+  // re-fired sweep updates the one pending item rather than duplicating it;
+  // onProposed back-links lead_brief.review_action_run_id.
+  const { proposeAction } = await import('@/services/ActionService');
+  const invokedBy = opts.briefedBy?.agentSlug ? `agent:${opts.briefedBy.agentSlug}` : 'personalization-drafting';
+  const proposed = await proposeAction({
+    orgId,
+    actionId: 'personalization.enroll',
+    input: {
+      leadBriefId: row.id,
+      contactRef: opts.contactRef,
+      contactName: row.contactName,
+      companyName: row.companyName ?? undefined,
+      sequenceId: opts.recommendedSequence.id,
+      sequenceName: opts.recommendedSequence.name,
+      senderEmail: opts.senderEmail,
+      hubspotUserId: opts.hubspotUserId,
+      sends,
+    },
+    principal: { kind: 'agent', id: invokedBy, scope: { orgId }, grants: ['*'], autonomy: 2 },
+    invokedBy,
+    proposal: {
+      confidence: row.confidence ?? undefined,
+      rationale: opts.recommendedSequence.reason,
+    },
+  });
+
+  return {
+    saved: true,
+    contactRef: opts.contactRef,
+    sendCount: sends.length,
+    sequenceVerified,
+    reviewRunId: proposed.runId,
+    reviewRunStatus: proposed.status,
+  };
+}
+
+export type DraftFailureResult = {
+  recorded: boolean;
+  reason?: 'not_awaiting_drafts';
+  contactRef: string;
+  attemptsUsed?: number;
+  attemptsRemaining?: number;
+};
+
+/**
+ * Record why a briefed lead could not be drafted. Stored, not acted on — the
+ * try was already spent by the claim; this is the text a person reads on a
+ * lead whose drafts never arrived.
+ * @param orgId
+ * @param contactRef
+ * @param error
+ */
+export async function recordDraftFailure(
+  orgId: string,
+  contactRef: string,
+  error: string,
+): Promise<DraftFailureResult> {
+  const [row] = await db
+    .update(leadBriefSchema)
+    .set({ draftError: error.slice(0, 2000) })
+    .where(and(
+      eq(leadBriefSchema.orgId, orgId),
+      eq(leadBriefSchema.contactRef, contactRef),
+      eq(leadBriefSchema.status, REVIEW_STATUS),
+      // Written drafts are never replaced by an error.
+      sql`jsonb_array_length(${leadBriefSchema.draftSequence}) = 0`,
+    ))
+    .returning({ draftAttempts: leadBriefSchema.draftAttempts });
+
+  if (!row) {
+    return { recorded: false, reason: 'not_awaiting_drafts', contactRef };
+  }
+  return {
+    recorded: true,
+    contactRef,
+    attemptsUsed: row.draftAttempts,
+    attemptsRemaining: Math.max(MAX_DRAFT_ATTEMPTS - row.draftAttempts, 0),
+  };
 }
 
 /**

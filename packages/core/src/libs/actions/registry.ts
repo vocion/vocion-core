@@ -8,6 +8,7 @@ import type { Action } from './types';
 import { discoveryReviewProposalAction } from './discovery-review';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
+import { personalizationEnrollAction } from './personalization-enroll';
 
 const registry = new Map<string, Action>();
 
@@ -27,3 +28,4 @@ export function listActions(): Action[] {
 registerAction(gmailSendAction);
 registerAction(hubspotUpdateAction);
 registerAction(discoveryReviewProposalAction);
+registerAction(personalizationEnrollAction);
