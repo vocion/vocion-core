@@ -17,8 +17,25 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import process from 'node:process';
+
+/**
+ * Resolve a demo asset path across runtimes. Locally the process cwd IS
+ * packages/core; on Vercel the function cwd is the monorepo bundle root
+ * (/var/task) with the app under packages/core. Try both.
+ * @param raw - configured path (absolute or repo-relative)
+ */
+export function resolveDemoPath(raw: string): string {
+  if (isAbsolute(raw)) {
+    return raw;
+  }
+  const candidates = [
+    join(process.cwd(), raw),
+    join(process.cwd(), 'packages', 'core', raw),
+  ];
+  return candidates.find(c => existsSync(c)) ?? candidates[0]!;
+}
 
 export type LLMMode = 'live' | 'record' | 'replay';
 
@@ -28,7 +45,7 @@ export function llmMode(): LLMMode {
 }
 
 export function cacheDir(sub: 'chat' | 'embeddings'): string {
-  const base = process.env.VOCION_LLM_CACHE_DIR ?? join(process.cwd(), 'demo', 'llm-cache');
+  const base = resolveDemoPath(process.env.VOCION_LLM_CACHE_DIR ?? join('demo', 'llm-cache'));
   const dir = join(base, sub);
   if (llmMode() === 'record') {
     mkdirSync(dir, { recursive: true });
