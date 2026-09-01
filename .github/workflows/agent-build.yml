@@ -1,0 +1,89 @@
+# Agent build sandbox (shell) — turns an APPROVED feature request into a PR.
+#
+# Inert by default, twice over: it only fires on the `approved-for-build`
+# label (a human gesture — the review-queue philosophy applied to
+# engineering), and the build step is skipped until the ANTHROPIC_API_KEY
+# secret exists. Roadmap + requirements: requirements/self-promoting-loop.md.
+#
+# Sandbox contract:
+#   - ephemeral runner, destroyed on exit; no standing credentials
+#   - GITHUB_TOKEN scoped to contents + pull-requests + issues on THIS repo
+#   - Anthropic key with a spend cap; zero production secrets
+#   - tests run with VOCION_LLM_MODE=replay so nothing needs live LLM keys
+#   - nothing merges itself: CI is the hard gate, human review the soft one
+name: agent-build
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  build:
+    if: github.event.label.name == 'approved-for-build' && github.repository == 'vocion/vocion-core'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Guard — require the build secret
+        id: guard
+        env:
+          HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          echo "ready=$HAS_KEY" >> "$GITHUB_OUTPUT"
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::notice::agent-build is a shell — set ANTHROPIC_API_KEY to arm it. Issue #${{ github.event.issue.number }} stays labeled for when it is."
+          fi
+
+      - name: Install
+        if: steps.guard.outputs.ready == 'true'
+        run: npm ci
+
+      # The build itself: Claude Code, headless, with the issue as the brief.
+      # claude-code-action handles branch + PR creation and comments progress
+      # on the issue. Tools are scoped by the runner: the only credential in
+      # scope is the job's GITHUB_TOKEN.
+      - name: Build the feature
+        if: steps.guard.outputs.ready == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            You are building an approved feature request for vocion-core.
+
+            The brief is issue #${{ github.event.issue.number }}: read it with
+            `gh issue view ${{ github.event.issue.number }}`, then implement it.
+
+            Requirements:
+            - Follow the conventions in CLAUDE.md (structural over prompting,
+              conventional commits, strict TypeScript).
+            - Run `npm run check:types`, `npm run lint`, and the test suite
+              (VOCION_LLM_MODE=replay — never call a live model from tests).
+            - Open ONE pull request: plan, diff summary, test output, and an
+              honest section on what you could not verify.
+            - Any BUG you find that is out of scope for this feature gets its
+              own issue via `gh issue create --label found-by-agent`, linked
+              from the PR body — never bundled into the PR.
+            - If the feature cannot be built safely, say so in a comment on
+              the issue instead of opening a speculative PR.
+          claude_args: "--max-turns 80"
+
+      - name: Report shell status
+        if: steps.guard.outputs.ready != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} \
+            --body "agent-build shell triggered: label seen, but the sandbox is not armed yet (no ANTHROPIC_API_KEY secret). See requirements/self-promoting-loop.md, Phase 5."
