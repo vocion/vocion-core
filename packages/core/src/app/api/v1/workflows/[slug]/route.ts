@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { getWorkflow, startWorkflow } from '@/services/WorkflowService';
 import { authApi, jsonError } from '../../_shared';
 
-export async function GET(_req: Request, context: { params: Promise<{ slug: string }> }) {
-  const auth = await authApi();
+export async function GET(req: Request, context: { params: Promise<{ slug: string }> }) {
+  const auth = await authApi(req);
   if ('status' in auth) {
     return auth;
   }
@@ -43,7 +43,7 @@ export async function GET(_req: Request, context: { params: Promise<{ slug: stri
  * @param context.params
  */
 export async function POST(req: Request, context: { params: Promise<{ slug: string }> }) {
-  const auth = await authApi();
+  const auth = await authApi(req);
   if ('status' in auth) {
     return auth;
   }

@@ -439,8 +439,15 @@
     {
       "idx": 62,
       "version": "7",
+      "when": 1787200300000,
+      "tag": "0062_learning_candidate",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
       "when": 1787286600000,
-      "tag": "0062_sync_checkpoint_failures",
+      "tag": "0063_sync_checkpoint_failures",
       "breakpoints": true
     }
   ]

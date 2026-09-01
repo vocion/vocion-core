@@ -6,17 +6,19 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { listCandidates } from '@/services/LearningCandidateService';
 import { listSteps } from '@/services/LearningsService';
+import { PendingCandidates } from './PendingCandidates';
 
 /**
  * Learnings list — one row per step (e.g. `meeting_triage`,
  * `support_reply_review`). Each step holds a bucket of approved rules
  * the agent reads at `/learnings/<step>.md` in its virtual filesystem.
  *
- * The self-improver subagent proposes new rules at runtime; humans
- * approve them via this UI before they land in the bucket. v0.5 ships
- * with manual add/edit/remove (the approve-flow for self-improver
- * candidates is a v0.5.1 follow-up).
+ * The feedback worker proposes new rules at runtime; humans approve them here
+ * before they land in the bucket. Pending suggestions show at the top of this
+ * page, and the same decisions are available over
+ * `/api/v1/learning-candidates` so an external admin panel can drive them too.
  * @param props
  * @param props.params
  */
@@ -28,7 +30,11 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
     notFound();
   }
 
-  const steps = await listSteps(orgId);
+  const CANDIDATE_PAGE_SIZE = 20;
+  const [steps, pending] = await Promise.all([
+    listSteps(orgId),
+    listCandidates(orgId, { status: 'pending', limit: CANDIDATE_PAGE_SIZE }),
+  ]);
 
   return (
     <>
@@ -42,6 +48,19 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
           </div>
         )}
         description="Whitelisted rule buckets the self-improver agent feeds, gated by human approval. Each step is mounted into the agent's virtual FS at /learnings/<step>.md."
+      />
+
+      <PendingCandidates
+        candidates={pending.items.map(candidate => ({
+          id: candidate.id,
+          stepName: candidate.stepName,
+          ruleText: candidate.ruleText,
+          editedRuleText: candidate.editedRuleText,
+          sourceFeedbackJobId: candidate.sourceFeedbackJobId,
+          createdAt: candidate.createdAt.toISOString(),
+        }))}
+        total={pending.total}
+        pageSize={CANDIDATE_PAGE_SIZE}
       />
 
       {steps.length === 0

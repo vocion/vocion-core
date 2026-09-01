@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { getWorkflowRun } from '@/services/WorkflowService';
 import { authApi, jsonError } from '../../_shared';
 
-export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
-  const auth = await authApi();
+export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
+  const auth = await authApi(req);
   if ('status' in auth) {
     return auth;
   }
