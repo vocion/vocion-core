@@ -80,3 +80,5 @@ infra/aws/.env.production
 
 # agent-runtime build artifacts
 packages/agent-runtime/dist/
+
+.env*

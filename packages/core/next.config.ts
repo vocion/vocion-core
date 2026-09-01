@@ -61,8 +61,10 @@ const baseConfig: NextConfig = {
     // demo/**: the hosted demo sandbox's baked PGlite seed, recorded LLM
     // fixtures, and workspace — inert unless VOCION_LLM_MODE/pglite:// are set.
     // Keyed broadly: the DB (and thus the seed copy) boots in every function.
-    '/': ['./migrations/**/*', './demo/**/*'],
-    '/**': ['./migrations/**/*', './demo/**/*'],
+    // The pglite wasm bundle + extensions load via computed fs paths the
+    // tracer cannot see; include them explicitly (hoisted at the repo root).
+    '/': ['./migrations/**/*', './demo/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
+    '/**': ['./migrations/**/*', './demo/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
   },
 };
 
