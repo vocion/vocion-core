@@ -29,7 +29,7 @@ export default async function ApiTokensPage() {
 
       <DashboardSection
         title="Tokens"
-        description="Send one as `Authorization: Bearer <token>` to the REST API at /api/v1 or to the MCP endpoint at /api/mcp. The secret is shown once, when you create it."
+        description="Send one in the Authorization header as a bearer token to the REST API at /api/v1 or to the MCP endpoint at /api/mcp. The secret is shown once, when you create it."
       >
         <ApiTokensPanel />
       </DashboardSection>
