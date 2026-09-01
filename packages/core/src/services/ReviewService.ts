@@ -580,14 +580,22 @@ export async function assign(
  * @param item.id
  * @param until
  * @param byUserId
+ * @param opts
+ * @param opts.note
  */
 export async function snooze(
   orgId: string,
   item: { kind: ReviewKind; id: number },
   until: Date,
   byUserId?: string,
+  opts?: { note?: string },
 ): Promise<void> {
-  await upsertAssignment(orgId, item, { status: 'snoozed', snoozedUntil: until, assignedBy: byUserId ?? null });
+  await upsertAssignment(orgId, item, {
+    status: 'snoozed',
+    snoozedUntil: until,
+    assignedBy: byUserId ?? null,
+    ...(opts?.note !== undefined ? { note: opts.note } : {}),
+  });
 }
 
 /**
@@ -602,12 +610,19 @@ export async function snooze(
  * @param opts.reason
  * @param opts.reviewedBy
  * @param opts.editedInput
+ * @param opts.note
  */
 export async function decide(
   item: { kind: ReviewKind; id: number },
   action: 'approve' | 'reject',
   orgId: string,
-  opts?: { reason?: string; reviewedBy?: string; editedInput?: Record<string, unknown> },
+  opts?: {
+    reason?: string;
+    reviewedBy?: string;
+    editedInput?: Record<string, unknown>;
+    /** Reviewer's note for the agent — stored on the assignment, the triage signal, and the learning capture. */
+    note?: string;
+  },
 ): Promise<void> {
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
   switch (item.kind) {
@@ -631,9 +646,14 @@ export async function decide(
         if (opts?.editedInput) {
           await updateActionInput(item.id, orgId, opts.editedInput);
         }
-        await executeAction(item.id, orgId);
+        await executeAction(item.id, orgId, { reviewedBy });
       } else {
-        await rejectAction(item.id, orgId, opts?.reason);
+        await rejectAction(item.id, orgId, opts?.reason ?? opts?.note, { reviewedBy });
+      }
+      // The reviewer's note rides every verb: assignment note (visible on the
+      // item), triage signal hint, and the learning capture below.
+      if (opts?.note) {
+        await upsertAssignment(orgId, item, { note: opts.note }).catch(() => {});
       }
       // Typed signal: edit-then-approve is a distinct signal from a clean
       // approve (the operator changed the wording → weaker tone match).
@@ -642,12 +662,13 @@ export async function decide(
         runId: item.id,
         userId: reviewedBy,
         signal: action === 'approve' ? (opts?.editedInput ? 'edit' : 'approve') : 'reject',
+        hint: opts?.note,
       }).catch(() => {});
       // The decision is training signal: record what a good/bad proposal
       // looks like in the `crm-updates` learning step so agents check their
       // next proposals against real operator judgment. Never blocks the
       // decision itself.
-      await recordActionDecisionLearning(item.id, orgId, action, opts?.reason).catch(() => {});
+      await recordActionDecisionLearning(item.id, orgId, action, opts?.reason ?? opts?.note).catch(() => {});
   }
 }
 

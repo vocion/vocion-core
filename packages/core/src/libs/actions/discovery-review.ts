@@ -153,6 +153,7 @@ export const discoveryReviewProposalAction: Action<typeof discoveryReviewInput> 
       fields,
       summary: classification?.reasoning,
       nextAction,
+      verbs: { approve: 'Approve', reject: 'Reject' },
     };
   },
   async execute(ctx, input) {

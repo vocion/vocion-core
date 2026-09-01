@@ -41,24 +41,34 @@ const FeedbackInput = z.object({
 export const listPendingActionsRoute = os.handler(async () => {
   const { orgId } = await guardAuth();
   const { db } = await import('@/libs/DB');
-  const { actionRunSchema } = await import('@/models/Schema');
-  const { and, desc, eq, gt, isNull, or } = await import('drizzle-orm');
+  const { actionRunSchema, reviewAssignmentSchema } = await import('@/models/Schema');
+  const { and, desc, eq, gt, isNull, lte, or } = await import('drizzle-orm');
   const { getAction } = await import('@/libs/actions/registry');
+  const now = new Date();
   const rows = await db
-    .select()
+    .select({ run: actionRunSchema })
     .from(actionRunSchema)
+    .leftJoin(reviewAssignmentSchema, and(
+      eq(reviewAssignmentSchema.orgId, orgId),
+      eq(reviewAssignmentSchema.kind, 'action'),
+      eq(reviewAssignmentSchema.runId, actionRunSchema.id),
+    ))
     .where(and(
       eq(actionRunSchema.orgId, orgId),
       eq(actionRunSchema.status, 'pending'),
       // Drop stale suggestions — expired items fall out of the queue.
-      or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, new Date())),
+      or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
+      // Snoozed items are hidden until their date, then resurface — the same
+      // predicate ReviewService.routingFilters applies, on every surface that
+      // consumes this feed.
+      or(isNull(reviewAssignmentSchema.snoozedUntil), lte(reviewAssignmentSchema.snoozedUntil, now)),
     ))
     .orderBy(desc(actionRunSchema.createdAt))
     .limit(50);
   // Structured cards: an action that defines one presents itself consistently
   // everywhere the queue renders. Best-effort — a presenter error falls back
   // to the generic card, never blocks the queue.
-  return Promise.all(rows.map(async (row) => {
+  return Promise.all(rows.map(async ({ run: row }) => {
     const presenter = getAction(row.actionId)?.reviewCard;
     if (!presenter) {
       return row;
@@ -169,18 +179,67 @@ export const decideActionRoute = os
     id: z.number().int().positive(),
     decision: z.enum(['approve', 'reject']),
     reason: z.string().optional(),
+    /** Reviewer's note for the agent — stored with the decision on every verb. */
+    note: z.string().max(2000).optional(),
     /** Operator-edited payload (edit-then-approve) — only applied on approve. */
     editedInput: z.record(z.string(), z.unknown()).optional(),
+    /** Edits to the card's typed content items — mapped back onto the input by the action's own `applyContentEdits`. */
+    contentEdits: z.array(z.object({
+      id: z.string().min(1),
+      subject: z.string().optional(),
+      body: z.string().optional(),
+    })).optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
     const { decide } = await import('@/services/ReviewService');
+
+    // Typed-content edit-then-approve: the ACTION owns the mapping from card
+    // content back to its input, so the client never reverse-engineers input
+    // shapes. The mapped input is re-validated in ActionService like any edit.
+    let editedInput = input.editedInput;
+    if (input.decision === 'approve' && input.contentEdits?.length) {
+      const { db } = await import('@/libs/DB');
+      const { actionRunSchema } = await import('@/models/Schema');
+      const { and, eq } = await import('drizzle-orm');
+      const { getAction } = await import('@/libs/actions/registry');
+      const [run] = await db
+        .select({ actionId: actionRunSchema.actionId, input: actionRunSchema.input })
+        .from(actionRunSchema)
+        .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
+        .limit(1);
+      const apply = run ? getAction(run.actionId)?.applyContentEdits : undefined;
+      if (run && apply) {
+        editedInput = apply({ ...run.input, ...(editedInput ?? {}) }, input.contentEdits) as Record<string, unknown>;
+      }
+    }
+
     await decide({ kind: 'action', id: input.id }, input.decision, orgId, {
       reason: input.reason,
+      note: input.note,
       reviewedBy: userId,
-      editedInput: input.decision === 'approve' ? input.editedInput : undefined,
+      editedInput: input.decision === 'approve' ? editedInput : undefined,
     });
     return { ok: true };
+  });
+
+/** Snooze a pending action — hidden from every review surface until the date, then it resurfaces. */
+export const snoozeActionRoute = os
+  .input(z.object({
+    id: z.number().int().positive(),
+    /** ISO datetime the item resurfaces at. */
+    until: z.string().datetime(),
+    note: z.string().max(2000).optional(),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { snooze } = await import('@/services/ReviewService');
+    const until = new Date(input.until);
+    if (Number.isNaN(until.getTime()) || until.getTime() <= Date.now()) {
+      throw ApiError.badRequest('`until` must be a future datetime');
+    }
+    await snooze(orgId, { kind: 'action', id: input.id }, until, userId ?? undefined, { note: input.note });
+    return { ok: true, until: until.toISOString() };
   });
 
 export const submitFeedback = os

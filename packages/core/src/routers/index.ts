@@ -79,6 +79,7 @@ import {
   recordSignalRoute,
   resume,
   rewriteDraftRoute,
+  snoozeActionRoute,
   submitFeedback,
 } from './Review';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
@@ -191,6 +192,7 @@ export const router = {
     listPendingActions: listPendingActionsRoute,
     listAutoExecuted: listAutoExecutedRoute,
     decideAction: decideActionRoute,
+    snoozeAction: snoozeActionRoute,
     propose: proposeFromRecommendationRoute,
     recordSignal: recordSignalRoute,
     rewriteDraft: rewriteDraftRoute,
