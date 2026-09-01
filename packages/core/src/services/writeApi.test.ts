@@ -31,6 +31,7 @@ vi.mock('@/services/ReviewService', () => ({
   snooze: vi.fn(),
   recordActionSignal: vi.fn(),
   rewriteDraft: vi.fn(),
+  UnknownAssigneeError: class UnknownAssigneeError extends Error {},
 }));
 
 const proposeAction = vi.fn();
@@ -253,6 +254,22 @@ describe('apiAssignReview', () => {
       .rejects
       .toMatchObject({ status: 403 });
     expect(mockAssign).not.toHaveBeenCalled();
+  });
+
+  it('turns an assignee who is not a member into a 400, not a database fault', async () => {
+    mockAssign.mockRejectedValueOnce(new ReviewService.UnknownAssigneeError('u_nobody'));
+
+    await expect(apiAssignReview(owner, { kind: 'mission', id: 7, assignedTo: 'u_nobody' }))
+      .rejects
+      .toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
+  });
+
+  it('lets an unrelated failure through', async () => {
+    mockAssign.mockRejectedValueOnce(new Error('connection reset'));
+
+    await expect(apiAssignReview(owner, { kind: 'mission', id: 7, assignedTo: 'u_andrew' }))
+      .rejects
+      .toThrow('connection reset');
   });
 });
 
