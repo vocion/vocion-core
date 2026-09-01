@@ -38,6 +38,10 @@ const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
     'hs_email_delivered',
     'hs_email_open',
     'hs_email_click',
+    // The MQL stage-entry date, both spellings: the v2 pipeline property and
+    // the legacy per-stage date. Whichever the portal carries wins in toDoc.
+    'hs_v2_date_entered_marketingqualifiedlead',
+    'hs_lifecyclestage_marketingqualifiedlead_date',
   ],
   deals: ['dealname', 'amount', 'dealstage', 'pipeline', 'closedate', 'hubspot_owner_id', 'hs_lastmodifieddate', 'createdate'],
   companies: ['name', 'domain', 'industry', 'description', 'numberofemployees', 'hubspot_owner_id', 'hs_lastmodifieddate', 'createdate'],
@@ -144,6 +148,12 @@ function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageI
       emailDelivered: hubspotNumeric(props.hs_email_delivered),
       emailOpened: hubspotNumeric(props.hs_email_open),
       emailClicked: hubspotNumeric(props.hs_email_click),
+      // When the contact ENTERED the MQL stage — the date the arrival window
+      // cannot see (it filters on createdate). Whichever spelling the portal
+      // carries; absent on rows synced before the widening until a full sync.
+      mqlEnteredAt: props.hs_v2_date_entered_marketingqualifiedlead
+        ?? props.hs_lifecyclestage_marketingqualifiedlead_date
+        ?? undefined,
       // Resolved from the pipeline definitions, so "open pipeline" is a real
       // predicate rather than a guess at which stage names look open.
       dealStageLabel: stage?.label,
