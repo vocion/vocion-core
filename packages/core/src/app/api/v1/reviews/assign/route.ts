@@ -1,34 +1,33 @@
 import { NextResponse } from 'next/server';
-import { apiAssignReview, WriteApiError } from '@/services/writeApi';
-import { jsonError } from '../../_shared';
+import { apiAssignReview } from '@/services/writeApi';
+import { authApi, isErrorResponse, readJsonBody, writeApiErrorResponse } from '../../_shared';
 
 /**
  * POST /api/v1/reviews/assign
  *
  * Route a queue item to a user. Body: `{ kind, id, assignedTo, note? }` where
- * `assignedTo` is an org user id or `null` to unassign. Returns the refreshed
- * queue. Auth: `Authorization: Bearer vcn_live_…`.
+ * `assignedTo` is an org user id, or `null` to unassign. Returns the refreshed
+ * queue. Requires the `approve` capability.
+ * Auth: tenant API token or dashboard session.
  * @param req
  */
 export async function POST(req: Request) {
-  let body: Record<string, unknown>;
-  try {
-    body = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return jsonError('VALIDATION_FAILED', 'Request body must be JSON', 400);
+  const caller = await authApi(req);
+  if (isErrorResponse(caller)) {
+    return caller;
+  }
+  const body = await readJsonBody(req);
+  if (isErrorResponse(body)) {
+    return body;
   }
   try {
-    const out = await apiAssignReview(req.headers.get('authorization'), {
+    return NextResponse.json(await apiAssignReview(caller, {
       kind: body.kind as 'workflow' | 'mission' | 'action',
       id: Number(body.id),
       assignedTo: (body.assignedTo as string | null) ?? null,
       note: typeof body.note === 'string' ? body.note : undefined,
-    });
-    return NextResponse.json(out);
+    }));
   } catch (e) {
-    if (e instanceof WriteApiError) {
-      return jsonError(e.code, e.message, e.status);
-    }
-    throw e;
+    return writeApiErrorResponse(e);
   }
 }

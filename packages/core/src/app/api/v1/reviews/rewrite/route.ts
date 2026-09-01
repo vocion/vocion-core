@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server';
-import { apiSnoozeReview } from '@/services/writeApi';
+import { apiRewriteDraft } from '@/services/writeApi';
 import { authApi, isErrorResponse, readJsonBody, writeApiErrorResponse } from '../../_shared';
 
 /**
- * POST /api/v1/reviews/snooze
+ * POST /api/v1/reviews/rewrite
  *
- * Delay a queue item until an ISO timestamp — hidden from the active queue
- * meanwhile, and visible again with `?includeSnoozed=true`. Body:
- * `{ kind, id, until }`. Returns the refreshed queue. Requires the `approve`
- * capability.
+ * Ask the model to rewrite a pending draft. Body: `{ id, hint? }`.
+ *
+ * The rewrite is returned, not saved — send it back through
+ * `POST /api/v1/reviews/decide` as `editedInput` to adopt it. That way a client
+ * can offer the reviewer a preview before anything changes.
+ * Requires the `approve` capability.
  * Auth: tenant API token or dashboard session.
  * @param req
  */
@@ -22,10 +24,9 @@ export async function POST(req: Request) {
     return body;
   }
   try {
-    return NextResponse.json(await apiSnoozeReview(caller, {
-      kind: body.kind as 'workflow' | 'mission' | 'action',
+    return NextResponse.json(await apiRewriteDraft(caller, {
       id: Number(body.id),
-      until: String(body.until),
+      hint: typeof body.hint === 'string' ? body.hint : undefined,
     }));
   } catch (e) {
     return writeApiErrorResponse(e);

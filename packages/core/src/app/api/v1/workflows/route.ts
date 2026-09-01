@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { listWorkflows } from '@/services/WorkflowService';
 import { authApi } from '../_shared';
 
-export async function GET() {
-  const auth = await authApi();
+export async function GET(req: Request) {
+  const auth = await authApi(req);
   if ('status' in auth) {
     return auth;
   }

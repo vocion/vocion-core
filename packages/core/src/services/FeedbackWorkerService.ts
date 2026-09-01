@@ -7,16 +7,18 @@
  * SKIP LOCKED`. Each job is classified via the Haiku classifier;
  * the resulting bucket is stored back on the row.
  *
- * The worker DOES NOT auto-commit learnings — that's the
- * self-improver subagent's job, gated by user approval in the chat
- * UI. The worker's role is to triage and queue.
+ * The worker DOES NOT auto-commit learnings. When a classification proposes
+ * rule text, it records a **learning candidate** — a suggestion sitting in a
+ * queue — and stops there. A person adopts it (in the dashboard, or through
+ * `/api/v1/learning-candidates`) or rejects it with a reason. The worker's role
+ * is to triage and queue, never to change how an agent behaves.
  *
  * Architecture: Next.js / Vercel cannot host this loop. Ship as a
  * separate process via `npm run worker:serve` (entry:
  * scripts/worker-serve.ts). Opt-in via ENABLE_FEEDBACK_WORKER=1.
  */
 
-import { sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { feedbackJobSchema } from '@/models/Schema';
 import { classifyComment } from './feedback/classifier';
@@ -36,9 +38,15 @@ export type FeedbackPayload = {
 /* Enqueue                                                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Where a piece of feedback came from. `api` is an external client posting to
+ * `/api/v1/feedback` — an admin panel outside Vocion, typically.
+ */
+export type FeedbackSource = 'drive' | 'slack' | 'manual' | 'api';
+
 export async function enqueue(opts: {
   orgId: string;
-  source: 'drive' | 'slack' | 'manual';
+  source: FeedbackSource;
   externalId: string;
   payload: FeedbackPayload;
 }) {
@@ -65,6 +73,42 @@ export async function enqueue(opts: {
     })
     .returning();
   return row!;
+}
+
+export type ListJobsOptions = {
+  status?: string;
+  source?: string;
+  limit?: number;
+  offset?: number;
+};
+
+/**
+ * A page of an org's feedback jobs, newest first, with the total the filters
+ * matched. Lets a client watch a piece of feedback move from `queued` to
+ * `classified` and on into a learning candidate.
+ * @param orgId
+ * @param opts
+ */
+export async function listJobs(
+  orgId: string,
+  opts: ListJobsOptions = {},
+): Promise<{ items: Array<typeof feedbackJobSchema.$inferSelect>; total: number; limit: number; offset: number }> {
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+  const filters = [eq(feedbackJobSchema.orgId, orgId)];
+  if (opts.status) {
+    filters.push(eq(feedbackJobSchema.status, opts.status));
+  }
+  if (opts.source) {
+    filters.push(eq(feedbackJobSchema.source, opts.source));
+  }
+  const where = and(...filters);
+
+  const [items, [counted]] = await Promise.all([
+    db.select().from(feedbackJobSchema).where(where).orderBy(desc(feedbackJobSchema.id)).limit(limit).offset(offset),
+    db.select({ total: sql<number>`count(*)::int` }).from(feedbackJobSchema).where(where),
+  ]);
+  return { items, total: counted?.total ?? 0, limit, offset };
 }
 
 /* ------------------------------------------------------------------ */
@@ -122,6 +166,8 @@ export async function runOnce(): Promise<boolean> {
           })}::jsonb
       WHERE id = ${row.id}
     `);
+
+    await recordLearningCandidate(row.id, row.org_id, classification.rule_text, payload.targetSlug);
     return true;
   } catch (err) {
     const msg = (err as Error).message ?? 'classifier failed';
@@ -131,6 +177,43 @@ export async function runOnce(): Promise<boolean> {
       WHERE id = ${row.id}
     `);
     return true;
+  }
+}
+
+/**
+ * Turn a classification that proposed a rule into a pending learning candidate.
+ *
+ * Still no auto-commit: a candidate is a suggestion sitting in a queue, and only
+ * a person approving it writes a real `learning` row. A candidate needs a step
+ * to attach to, so feedback that names no target is classified and left alone.
+ *
+ * A failure here must not fail the job — the classification is already saved,
+ * and losing the candidate is recoverable while re-running the classifier costs
+ * another model call.
+ * @param feedbackJobId
+ * @param orgId
+ * @param ruleText
+ * @param targetSlug - The learning step the rule would attach to.
+ */
+async function recordLearningCandidate(
+  feedbackJobId: number,
+  orgId: string,
+  ruleText: string | undefined,
+  targetSlug: string | undefined,
+): Promise<void> {
+  if (!ruleText?.trim() || !targetSlug) {
+    return;
+  }
+  try {
+    const { createCandidate } = await import('@/services/LearningCandidateService');
+    await createCandidate({
+      orgId,
+      stepName: targetSlug,
+      ruleText,
+      sourceFeedbackJobId: feedbackJobId,
+    });
+  } catch (error) {
+    console.error(`[FeedbackWorkerService] could not record a learning candidate for job ${feedbackJobId}`, error);
   }
 }
 

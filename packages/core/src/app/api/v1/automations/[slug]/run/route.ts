@@ -24,7 +24,7 @@ import { authApi, jsonError } from '../../../_shared';
  * @param context.params
  */
 export async function POST(req: Request, context: { params: Promise<{ slug: string }> }) {
-  const auth = await authApi();
+  const auth = await authApi(req);
   if ('status' in auth) {
     return auth;
   }
