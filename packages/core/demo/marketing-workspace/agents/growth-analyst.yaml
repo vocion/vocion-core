@@ -1,0 +1,7 @@
+slug: growth_analyst
+name: Growth Analyst
+description: Reads the tracker records - runs, engagement, votes - and proposes learnings and strategy adjustments for human approval. Owns the numbers in the Monday report.
+active: true
+parent: marketing_lead
+systemPromptFile: growth-analyst.system-prompt.md
+skills: []

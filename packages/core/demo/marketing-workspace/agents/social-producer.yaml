@@ -1,0 +1,7 @@
+slug: social_producer
+name: Social Producer
+description: Drafts the LinkedIn post, X thread, and dev.to syndication for each run - and the video script for the walkthrough recording.
+active: true
+parent: marketing_lead
+systemPromptFile: social-producer.system-prompt.md
+skills: []

@@ -1,0 +1,7 @@
+slug: showcase_builder
+name: Showcase Builder
+description: Builds or updates the demo workspace for the chosen use case - agents, objects, sample data, recorded runs - using the workspace tools, and captures what the demo proves.
+active: true
+parent: marketing_lead
+systemPromptFile: showcase-builder.system-prompt.md
+skills: []
