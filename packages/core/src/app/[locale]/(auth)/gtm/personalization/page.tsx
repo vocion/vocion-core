@@ -15,14 +15,17 @@ import { ORG_ROLE } from '@/types/Auth';
 
 /**
  * Personalization — researched leads waiting on a decision. The hourly sweep
- * queues each new MQL, researches it, and writes a brief; a lead reaches this
- * page only once it carries one, or once briefing has failed three times and
- * the error is what there is to read.
+ * queues each new MQL, researches it, writes a brief, then drafts the
+ * outreach and surfaces the lead as a personalization.enroll review item; a
+ * lead reaches this page only once it carries a brief, or once briefing has
+ * failed three times and the error is what there is to read.
  *
  * Unbriefed rows are filtered out HERE rather than hidden by the lane picker,
  * so no filter, search or "All" tab can surface a lead with nothing behind it.
  *
- * Nothing here has been sent, and drafting is a later slice.
+ * Nothing here has been sent. Deciding a lead here is the SAME operation on
+ * the SAME run as deciding it on the review queue (the card fetches the
+ * pending run by the row's back-link and rides the shared decide path).
  *
  * Optional surface at `/gtm/personalization`. Linked only where
  * `workspace.yaml` lists `surfaces: [personalization]` (see
@@ -83,6 +86,11 @@ export default async function PersonalizationPage(props: {
     briefError: r.briefError,
     briefAttempts: r.briefAttempts,
     regenerateNote: r.regenerateNote,
+    draftSequence: r.draftSequence,
+    recommendedSequence: r.recommendedSequence,
+    reviewActionRunId: r.reviewActionRunId,
+    draftError: r.draftError,
+    mqlAt: r.mqlAt?.toISOString() ?? null,
     arrivedAt: r.arrivedAt?.toISOString() ?? null,
     briefedAt: r.briefedAt?.toISOString() ?? null,
   }));
