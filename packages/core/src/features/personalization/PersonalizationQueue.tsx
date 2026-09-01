@@ -1,31 +1,32 @@
 'use client';
 
+import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import { ArrowDown, ArrowUp, ChevronRight } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Input } from '@/components/ui/input';
 import { StatusPill } from '@/components/ui/status-pill';
+import { ReviewActionCard } from '@/features/review/ReviewActionCard';
+import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
 import { confidenceLevel } from './confidence';
 import { RegenerateBriefControl } from './RegenerateBriefControl';
 
 /**
  * The personalization review queue — one lead per row, four lanes across the
- * top. A row expands to the brief that justifies it: the written sections, the
- * claims with their sources and kinds, what research could not reach, and the
- * confidence with its reason.
+ * top. A row expands to the brief that justifies it and, when the lead has a
+ * pending personalization.enroll item, the SAME review card the review queue
+ * shows, deciding the SAME run through the shared decide path (Decline /
+ * Snooze / Enroll). A snoozed item's card is hidden here exactly as it is
+ * hidden there, until its date.
  *
  * Nothing reaches this screen without a brief. A lead the sweep has picked up
  * but not yet researched, and a lead part-way through its retries, are both
  * absent by construction: the page is handed only rows that carry one. When
  * the tries run out the lead arrives anyway, carrying the error where the
  * brief would be, because a reviewer needs to see what failed.
- *
- * Scaffold status: the lane-moving actions (hand off / hold / send) are
- * rendered DISABLED until the review action ships, because a button that looks
- * like it moves a lead and doesn't is worse than no button. Regenerate is
- * live.
  */
 
 export type BriefRow = {
@@ -49,6 +50,16 @@ export type BriefRow = {
   briefAttempts: number;
   /** The instruction behind the last rewrite, kept so the brief has a why. */
   regenerateNote: string | null;
+  /** The drafted, numbered sends (empty until the drafting pass runs). */
+  draftSequence: Array<{ step: number; day?: number; subject: string; body: string }>;
+  /** The EXISTING sequence the agent recommends enrolling into. */
+  recommendedSequence: { id: string; name: string; reason?: string } | null;
+  /** The pending review run this lead decides through, when one exists. */
+  reviewActionRunId: number | null;
+  /** Why the last drafting try produced nothing. */
+  draftError: string | null;
+  /** HubSpot's stage-entry date; null falls back to arrival, labeled as such. */
+  mqlAt: string | null;
   arrivedAt: string | null;
   briefedAt: string | null;
 };
@@ -121,6 +132,9 @@ function entranceLabel(value: string): string {
 
 const BriefListRow = (props: {
   row: BriefRow;
+  /** The pending enroll run this row decides through — absent when decided or snoozed. */
+  run: ReviewCardRun | undefined;
+  onDecided: () => void;
   selected: boolean;
   expanded: boolean;
   onSelect: () => void;
@@ -136,7 +150,9 @@ const BriefListRow = (props: {
   const meta = [
     row.contactTitle,
     row.companyName,
-    row.arrivedAt ? `arrived ${arrivedLabel(row.arrivedAt)}` : null,
+    // The true stage-entry date wins; the create date is labeled as arrival,
+    // never as when they became an MQL.
+    row.mqlAt ? `MQL ${arrivedLabel(row.mqlAt)}` : row.arrivedAt ? `arrived ${arrivedLabel(row.arrivedAt)}` : null,
     row.entranceSource ? entranceLabel(row.entranceSource) : null,
     // "via", not "utm=": what the CRM carries is the source detail (the ad
     // network, the keyword), which is only sometimes a campaign tag.
@@ -179,127 +195,163 @@ const BriefListRow = (props: {
       </div>
 
       {props.expanded && (
-        <div className="grid gap-6 pb-5 pl-7 text-sm @2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div>
-            {row.regenerateNote && (
-              <div className="mb-4 rounded-md border border-border bg-muted/40 p-3">
-                <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Rewritten on your instruction
-                </div>
-                <p className="whitespace-pre-line">{row.regenerateNote}</p>
+        <div className="pb-5 pl-7">
+          {/* The decidable card — the SAME run the review queue decides. A
+              snoozed or already-decided lead has no pending run, so the sends
+              render read-only below instead. */}
+          {props.run && (
+            <div className="mb-6 max-w-3xl">
+              <ReviewActionCard run={props.run} onDecided={props.onDecided} />
+            </div>
+          )}
+          {!props.run && row.draftSequence.length > 0 && (
+            <div className="mb-6 max-w-3xl rounded-md border border-border bg-muted/30 p-3">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                Outreach content ·
+                {' '}
+                {row.recommendedSequence ? `for ${row.recommendedSequence.name}` : 'drafted'}
               </div>
-            )}
-
-            {/* The error stands where the brief would be, so a lead that ran
-                out of tries reads as a failure rather than a thin brief. */}
-            {row.sections.length === 0 && row.briefError
-              ? (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
-                    <h3 className="mb-1 text-xs font-semibold tracking-wide text-destructive uppercase">
-                      No brief. Briefing failed
-                      {' '}
-                      {row.briefAttempts}
-                      {row.briefAttempts === 1 ? ' time' : ' times'}
-                    </h3>
-                    <p className="whitespace-pre-line">{row.briefError}</p>
-                    <p className="mt-2 text-[13px] text-muted-foreground">
-                      The retries have stopped. Regenerate to put this lead back in line for another pass.
-                    </p>
+              {row.draftSequence.map(send => (
+                <div key={send.step} className="border-t border-border/60 py-2 text-sm first:border-t-0">
+                  <div className="font-semibold">
+                    {send.day !== undefined ? `Day ${send.day}` : `Send ${send.step}`}
+                    {' · '}
+                    {send.subject}
                   </div>
-                )
-              : row.sections.length === 0
-                ? <p className="text-muted-foreground">No brief recorded.</p>
-                : (
-                    <div className="flex flex-col gap-4">
-                      {row.sections.map(section => (
-                        <section key={section.heading}>
-                          <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                            {section.heading}
-                          </h3>
-                          {/* The skill writes markdown, so render it. Raw
+                  <p className="mt-1 whitespace-pre-line text-muted-foreground">{send.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {!props.run && row.draftSequence.length === 0 && row.draftError && (
+            <p className="mb-4 max-w-3xl text-[13px] text-muted-foreground">
+              Drafting has not produced sends yet:
+              {' '}
+              {row.draftError}
+            </p>
+          )}
+          <div className="grid gap-6 text-sm @2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <div>
+              {row.regenerateNote && (
+                <div className="mb-4 rounded-md border border-border bg-muted/40 p-3">
+                  <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                    Rewritten on your instruction
+                  </div>
+                  <p className="whitespace-pre-line">{row.regenerateNote}</p>
+                </div>
+              )}
+
+              {/* The error stands where the brief would be, so a lead that ran
+                out of tries reads as a failure rather than a thin brief. */}
+              {row.sections.length === 0 && row.briefError
+                ? (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                      <h3 className="mb-1 text-xs font-semibold tracking-wide text-destructive uppercase">
+                        No brief. Briefing failed
+                        {' '}
+                        {row.briefAttempts}
+                        {row.briefAttempts === 1 ? ' time' : ' times'}
+                      </h3>
+                      <p className="whitespace-pre-line">{row.briefError}</p>
+                      <p className="mt-2 text-[13px] text-muted-foreground">
+                        The retries have stopped. Regenerate to put this lead back in line for another pass.
+                      </p>
+                    </div>
+                  )
+                : row.sections.length === 0
+                  ? <p className="text-muted-foreground">No brief recorded.</p>
+                  : (
+                      <div className="flex flex-col gap-4">
+                        {row.sections.map(section => (
+                          <section key={section.heading}>
+                            <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                              {section.heading}
+                            </h3>
+                            {/* The skill writes markdown, so render it. Raw
                               `**Name:**` on the page is the reviewer reading
                               the syntax instead of the brief. `pre-line` keeps
                               the single newlines the brief writes one field
                               per line; markdown would otherwise run them into
                               one paragraph. */}
-                          <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:whitespace-pre-line">
-                            <Markdown remarkPlugins={[remarkGfm]}>{section.body}</Markdown>
-                          </div>
-                        </section>
-                      ))}
-                    </div>
-                  )}
+                            <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:whitespace-pre-line">
+                              <Markdown remarkPlugins={[remarkGfm]}>{section.body}</Markdown>
+                            </div>
+                          </section>
+                        ))}
+                      </div>
+                    )}
 
-            <div className="mt-4">
-              <RegenerateBriefControl briefId={row.id} contactName={row.contactName} />
+              <div className="mt-4">
+                <RegenerateBriefControl briefId={row.id} contactName={row.contactName} />
+              </div>
             </div>
-          </div>
 
-          <div className="flex flex-col gap-4">
-            <div>
-              <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                Claims
-              </h3>
-              {row.claims.length === 0
-                ? <p className="text-muted-foreground">No claims recorded.</p>
-                : (
-                    <ul className="flex flex-col gap-2">
-                      {row.claims.map(claim => (
-                        <li key={`${claim.kind}-${claim.source}-${claim.text}`}>
-                          <div>{claim.text}</div>
-                          {/* Every claim carries its kind and where it came
+            <div className="flex flex-col gap-4">
+              <div>
+                <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  Claims
+                </h3>
+                {row.claims.length === 0
+                  ? <p className="text-muted-foreground">No claims recorded.</p>
+                  : (
+                      <ul className="flex flex-col gap-2">
+                        {row.claims.map(claim => (
+                          <li key={`${claim.kind}-${claim.source}-${claim.text}`}>
+                            <div>{claim.text}</div>
+                            {/* Every claim carries its kind and where it came
                               from — an unsourced claim is not a claim, and a
                               fact and an inference are not the same thing. */}
-                          <div className="text-[11px] text-muted-foreground">
-                            {claim.kind}
-                            {' · '}
-                            {isUrl(claim.source)
-                              ? (
-                                  <a
-                                    href={claim.source}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="underline underline-offset-2 hover:text-foreground"
-                                  >
-                                    {claim.source}
-                                  </a>
-                                )
-                              : claim.source}
-                            {claim.date ? ` · ${claim.date}` : ''}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                            <div className="text-[11px] text-muted-foreground">
+                              {claim.kind}
+                              {' · '}
+                              {isUrl(claim.source)
+                                ? (
+                                    <a
+                                      href={claim.source}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="underline underline-offset-2 hover:text-foreground"
+                                    >
+                                      {claim.source}
+                                    </a>
+                                  )
+                                : claim.source}
+                              {claim.date ? ` · ${claim.date}` : ''}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+              </div>
+
+              {row.missing.length > 0 && (
+                <div>
+                  <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    Missing
+                  </h3>
+                  <ul className="list-inside list-disc text-muted-foreground">
+                    {row.missing.map(m => <li key={m}>{m}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {level && (
+                <div>
+                  <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    Confidence
+                  </h3>
+                  <p>
+                    {row.confidence?.toFixed(2)}
+                    {' · '}
+                    {level}
+                  </p>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    How well the evidence supports this brief and its angle, not a prediction that the
+                    lead replies. The reason is in the brief's own confidence section.
+                  </p>
+                </div>
+              )}
             </div>
-
-            {row.missing.length > 0 && (
-              <div>
-                <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  Missing
-                </h3>
-                <ul className="list-inside list-disc text-muted-foreground">
-                  {row.missing.map(m => <li key={m}>{m}</li>)}
-                </ul>
-              </div>
-            )}
-
-            {level && (
-              <div>
-                <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  Confidence
-                </h3>
-                <p>
-                  {row.confidence?.toFixed(2)}
-                  {' · '}
-                  {level}
-                </p>
-                <p className="mt-1 text-[13px] text-muted-foreground">
-                  How well the evidence supports this brief and its angle, not a prediction that the
-                  lead replies. The reason is in the brief's own confidence section.
-                </p>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -315,12 +367,48 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
     () => props.briefs.filter(b => b.status !== 'queued'),
     [props.briefs],
   );
+  const router = useRouter();
   const [lane, setLane] = useState<string>(DEFAULT_LANE);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortKey>('arrived');
   const [descending, setDescending] = useState(true);
   const [selected, setSelected] = useState(() => new Set<number>());
   const [expanded, setExpanded] = useState<number | null>(null);
+  // The pending enroll runs, keyed by run id: the SAME feed the review queue
+  // reads, so snoozing there hides the card here and vice versa. A brief row
+  // reaches its run through the reviewActionRunId back-link.
+  const [runs, setRuns] = useState<Map<number, ReviewCardRun>>(() => new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    void client.review.listPendingActions()
+      .then((pending) => {
+        if (cancelled) {
+          return;
+        }
+        const next = new Map<number, ReviewCardRun>();
+        for (const run of pending as unknown as Array<ReviewCardRun & { card?: ReviewCardRun['card'] }>) {
+          if (run.actionId === 'personalization.enroll' && run.card) {
+            next.set(run.id, run as ReviewCardRun);
+          }
+        }
+        setRuns(next);
+      })
+      .catch(() => setRuns(new Map()));
+    return () => {
+      cancelled = true;
+    };
+  }, [briefs]);
+
+  const onDecided = (runId: number) => {
+    setRuns((prev) => {
+      const next = new Map(prev);
+      next.delete(runId);
+      return next;
+    });
+    // The lane flip happened server-side; re-render the page's rows.
+    router.refresh();
+  };
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: briefs.length };
@@ -442,28 +530,14 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
                 {selected.size === 0
                   ? <span className="text-muted-foreground">Select all</span>
                   : (
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">
-                          {selected.size}
-                          {' '}
-                          selected
+                      <span className="font-medium">
+                        {selected.size}
+                        {' '}
+                        selected
+                        <span className="ml-2 font-normal text-muted-foreground">
+                          Decisions are per lead: expand a row to Decline, Snooze or Enroll on its card.
                         </span>
-                        {/* Disabled until `personalization.review_brief` ships.
-                            The aria-label distinguishes the ACTION from the
-                            same-named lane tab above it. */}
-                        {['Hand off', 'Hold', 'Send'].map(action => (
-                          <button
-                            key={action}
-                            type="button"
-                            disabled
-                            aria-label={`${action} ${selected.size} selected`}
-                            title="Lane actions arrive with the review action (personalization.review_brief)"
-                            className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground opacity-50"
-                          >
-                            {action}
-                          </button>
-                        ))}
-                      </div>
+                      </span>
                     )}
               </div>
 
@@ -471,6 +545,8 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
                 <BriefListRow
                   key={row.id}
                   row={row}
+                  run={row.reviewActionRunId != null ? runs.get(row.reviewActionRunId) : undefined}
+                  onDecided={() => row.reviewActionRunId != null && onDecided(row.reviewActionRunId)}
                   selected={selected.has(row.id)}
                   expanded={expanded === row.id}
                   onSelect={() => toggleOne(row.id)}
