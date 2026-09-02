@@ -25,7 +25,7 @@ in a workflow.
 | `agent` | agent slug | required | The single agent that owns the mission. If it is a lead, its specialists are the team the runtime can hand off to. |
 | `status` | `active` \| `disabled` \| `draft` | `active` | Whether the mission can run. |
 | `version` | positive int | `1` | Bump when the charter changes materially. |
-| `autonomyPolicy.level` | int 1–5 | `1` | How much the agent may do without asking. |
+| `autonomyPolicy.level` | int 1–5 | `1` | How much the mission may do without asking: 1 draft only, 2 ask before action, 3 act within rules, 4 manage a goal, 5 improve itself. Levels 1–2 gate every external action; 3+ let them run unless the task flags approval. Internal analysis and drafting are never gated. |
 | `successCriteria` | string[] | `[]` | How to tell the mission is being met. |
 | `desiredArtifacts` | string[] | `[]` | What the mission should produce — a brief, a list, a draft. |
 | `schedule` | 5-field cron, UTC | — | When set, the owning agent checks the charter on that cadence: review current state, do only what's needed now, report. Each check is one mission run. |

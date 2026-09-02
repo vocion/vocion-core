@@ -11,7 +11,7 @@ only the definition is authored.
 | **Path** | `objects/<slug>/type.yaml` — the filename is fixed as `type.yaml` (or `.yml`) |
 | **Schema** | `ObjectTypeManifestSchema` — `packages/core/src/libs/workspace/schemas.ts` |
 | **Applied to** | `business_object_type` table |
-| **Runtime** | Classification, plus the `lookup_objects` tool |
+| **Runtime** | Read back by the built-in `lookup_objects` tool; the classification prompt is stored on the type and applied by the feature paths that classify (e.g. discovery detection) |
 | **Surface** | `/api/v1/objects/types`, `/dashboard/objects` |
 | **Layering** | Composable — a base default can be patched with `extends: core` |
 

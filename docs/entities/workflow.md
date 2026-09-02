@@ -45,11 +45,13 @@ Every step has a `name` (slug) and a `type`. Four types exist:
 |---|---|---|
 | `approve` | `prompt`, optional `reviews` | Pauses in the review queue for a human decision. `reviews` names the earlier step whose output is being judged. |
 | `ask` | `prompt`, optional `default`, optional `outputAs` | Pauses until a human supplies text. When `default` interpolates to a non-empty string, the step completes with that value and never pauses — so one workflow serves both an automated caller and a person starting it by hand. `outputAs` names the variable (defaults to the step name). |
-| `action` | `action` (registered id, e.g. `gmail.send_email`), `input` | Runs a connector-backed action. |
+| `action` | `action` (registered id, e.g. `gmail.send`), `input` | Runs a connector-backed action. |
 | `sync` | `sources` (min 1) | Incrementally syncs the named sources first, so later steps read live data instead of a stale index. Per-source failures degrade gracefully: the step records them and the run continues on the existing index. |
 
 There is no `skill` step. Skills are read by the agent on its own judgement —
 see ADR 0003.
+
+Registered action ids are listed in [trust rules](./trust.md); the source of truth is `packages/core/src/libs/actions/`.
 
 ## Interpolation
 
@@ -80,7 +82,7 @@ steps:
     reviews: transcript
   - name: send
     type: action
-    action: gmail.send_email
+    action: gmail.send
     input:
       body: '{{steps.review-draft.output.body}}'
 ```
