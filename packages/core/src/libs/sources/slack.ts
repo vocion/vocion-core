@@ -31,6 +31,12 @@ export const slackConnector: SourceConnector<typeof slackConfigSchema> = {
   icon: 'MessageSquare',
   authKind: 'oauth',
   configSchema: slackConfigSchema,
+  bulkImport: {
+    columns: [
+      { column: 'channel', type: 'text', required: true, configPath: 'channel', example: 'C0123ABCD' },
+    ],
+    identityColumns: ['channel'],
+  },
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = slackConfigSchema.parse(ctx.config);
     const token = ctx.credentials?.token as string | undefined;

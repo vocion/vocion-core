@@ -129,9 +129,21 @@ describe('GET /rpc/sources', () => {
     const body = await (await GET()).json();
 
     expect(body.connectors).toEqual([
-      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey' },
-      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none' },
+      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey', supportsBulkImport: false },
+      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none', supportsBulkImport: false },
     ]);
+  });
+
+  it('tells the page which connectors accept a CSV import', async () => {
+    vi.mocked(listConnectors).mockReturnValue([
+      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none', bulkImport: { columns: [], identityColumns: ['url'] } },
+      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey' },
+    ] as never);
+
+    const body = await (await GET()).json();
+
+    expect(body.connectors.map((tile: { slug: string; supportsBulkImport: boolean }) => [tile.slug, tile.supportsBulkImport]))
+      .toEqual([['web', true], ['strapi', false]]);
   });
 
   it('refuses a caller with no workspace', async () => {

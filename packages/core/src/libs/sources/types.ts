@@ -41,6 +41,72 @@ export type SourceContext = {
   onProgress?: (event: { kind: 'fetched' | 'skipped' | 'error'; uri?: string; message?: string }) => void;
 };
 
+/** What kind of value one CSV column holds, so a text cell can be coerced before validation. */
+export type BulkImportColumnType = 'text' | 'number' | 'boolean' | 'list';
+
+/**
+ * One column of a connector's bulk-import CSV.
+ *
+ * `configPath` is a dotted path into the connector's config object, so
+ * `crawl.maxPages` writes `{ crawl: { maxPages: 20 } }`. Connectors whose
+ * config shape cannot be expressed as flat path assignments leave it off and
+ * supply `buildConfig` instead.
+ */
+export type BulkImportColumn = {
+  /** Header text in the template, e.g. `max_pages`. Lower snake case. */
+  column: string;
+  type: BulkImportColumnType;
+  /** Whether a row with this cell empty is rejected. */
+  required: boolean;
+  /**
+   * Dotted path into the config object this cell lands at.
+   *
+   * Also how a schema rejection is traced back to the column the operator
+   * typed into. A connector with a `buildConfig` still declares it for that
+   * reason — `buildConfig` decides what is written, `configPath` says where the
+   * value ends up. Omitted only by a column that lands nowhere, such as a flag
+   * choosing between two config shapes.
+   */
+  configPath?: string;
+  /** The value written into the template's example row. */
+  example: string;
+};
+
+/**
+ * Opts a connector into CSV bulk import: one source per row, a downloadable
+ * template, and a preview that validates every row before anything is written.
+ *
+ * The template, the cell coercion and the preview all read from this one
+ * descriptor plus the connector's existing `configSchema`, so a connector
+ * added later gets bulk import by declaring a descriptor and nothing else.
+ */
+export type BulkImportDescriptor = {
+  /** Columns in template order. The `slug` column is prepended automatically. */
+  columns: BulkImportColumn[];
+  /**
+   * The columns whose combined value identifies the source — used to name it
+   * and to recognise a row that is already configured. All must be required
+   * columns. Usually one (a URL, a channel id); more when a single column is
+   * not enough on its own, as two Jira sources on the same site pulling
+   * different projects are two different sources.
+   *
+   * The first column also seeds the generated slug.
+   */
+  identityColumns: string[];
+  /**
+   * Build one row's config when a flat column-to-path mapping cannot express
+   * it (the web connector picks between a crawl and a single-URL fetch, say).
+   * Receives the already-coerced cell values keyed by column name.
+   */
+  buildConfig?: (cells: Record<string, unknown>) => Record<string, unknown>;
+  /**
+   * Read the identity parts back out of a stored config, so an import can tell
+   * that a row is already configured. One entry per `identityColumns` entry.
+   * Defaults to reading each identity column's `configPath`.
+   */
+  identityFromConfig?: (config: Record<string, unknown>) => string[] | null;
+};
+
 export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
   /** Stable slug — `web`, `google-drive`, `github`. */
   slug: string;
@@ -66,6 +132,12 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
    * per source via the manifest's `reconcileSchedule`.
    */
   defaultReconcileCron?: string;
+  /**
+   * Opts this connector into CSV bulk import. Omitted = the connector is
+   * added one at a time only, which is right for anything needing an
+   * interactive verification step (Strapi) or existing once per org (Zoom).
+   */
+  bulkImport?: BulkImportDescriptor;
   /**
    * Yield each document the source currently exposes. Order doesn't
    * matter; idempotency is handled by IngestionService's content-hash
