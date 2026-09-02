@@ -1149,6 +1149,32 @@ export const conversationMessageRelations = relations(conversationMessageSchema,
 }));
 
 /* ------------------------------------------------------------------ */
+/* Chat widget state — shared "last viewed conversation" pointer      */
+/* ------------------------------------------------------------------ */
+
+// One row per (org, user): which agent + conversation they last VIEWED,
+// not necessarily messaged. Read on mount by both the full-page chat and
+// the floating chat bubble so either surface resumes exactly where the
+// other left off.
+export const chatWidgetStateSchema = pgTable(
+  'chat_widget_state',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    agentSlug: text('agent_slug').notNull(),
+    conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('chat_widget_state_org_user_idx').on(table.orgId, table.userId),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Feedback jobs — async worker queue (Phase 6)                       */
 /* ------------------------------------------------------------------ */
 
