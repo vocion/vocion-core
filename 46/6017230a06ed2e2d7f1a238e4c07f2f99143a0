@@ -1,0 +1,21 @@
+packages/core/src/libs/actions/gmail-send.ts
+  s_8c230ca8a3ac3c::t_1956410251322a 47-53
+packages/core/src/libs/actions/gmail-send.test.ts
+  s_8c230ca8a3ac3c::t_f9b62698a5b3f0 54-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "466017230a06ed2e2d7f1a238e4c07f2f99143a0",
+  "prompts": {},
+  "sessions": {
+    "s_8c230ca8a3ac3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f401c65f-a13c-4893-840f-e4e9b5880b2f",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
