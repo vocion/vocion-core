@@ -46,6 +46,15 @@ type Props = {
     reference?: { model?: string; verdict?: string; confidence?: number; at?: string };
     classifier?: { model_arn?: string; top?: { name: string; confidence: number } | null; at?: string };
   } | null;
+  /** `metadata.engines` — the two engines side by side + the hybrid rule (see kitVision.summarizeEngines). */
+  engines?: {
+    claude?: { verdict: string; confidence: number | null; model?: string | null; at?: string | null } | null;
+    rekognition?: { label: string; verdict: string | null; confidence: number; good: number | null; bad: number | null; at?: string | null } | null;
+    agreement?: 'agree' | 'disagree' | 'one-engine' | 'none';
+    hybrid_verdict?: string | null;
+    hybrid_confidence?: number | null;
+    hybrid_reason?: string;
+  } | null;
 };
 
 /**
@@ -61,6 +70,21 @@ function engineName(model?: string): string {
 }
 
 const pct = (n: number | undefined | null) => (typeof n === 'number' ? `${Math.round(n * 100)}%` : null);
+
+function EngineCell({ name, sub, verdict, confidence, detail }: { name: string; sub: string; verdict: string | null; confidence: number | null; detail: string }) {
+  const tone = verdict === 'pass' ? 'text-emerald-600' : verdict === 'hold' ? 'text-amber-600' : 'text-muted-foreground';
+  return (
+    <div className="px-3 py-2.5">
+      <div className="text-xs font-semibold">{name}</div>
+      <div className="text-[11px] text-muted-foreground">{sub}</div>
+      <div className={`mt-1.5 text-lg font-semibold tabular-nums ${tone}`}>
+        {verdict ? verdict.toUpperCase() : '—'}
+        {pct(confidence) && <span className="ml-2 text-sm font-normal text-muted-foreground">{pct(confidence)}</span>}
+      </div>
+      <div className="text-[11px] text-muted-foreground">{detail}</div>
+    </div>
+  );
+}
 
 export function InspectionPhoto(props: Props) {
   const [active, setActive] = useState<number | null>(null);
@@ -229,6 +253,41 @@ export function InspectionPhoto(props: Props) {
         Hover or click a finding to see where to look. Numbers match the list. Regions are the model's estimate, not measured.
         {typeof props.regionsChecked === 'number' && ` ${props.regionsChecked} regions checked against the sheet.`}
       </p>
+
+      {props.engines && (props.engines.claude || props.engines.rekognition) && (
+        <div className="mt-4 overflow-hidden rounded-md border border-border">
+          <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+            <EngineCell
+              name="Claude Vision"
+              sub={props.engines.claude?.model ? `reference comparison · ${props.engines.claude.model}` : 'reference comparison'}
+              verdict={props.engines.claude?.verdict ?? null}
+              confidence={props.engines.claude?.confidence ?? null}
+              detail={props.engines.claude ? `${findings.length} region finding${findings.length === 1 ? '' : 's'} — names what is wrong and where` : 'not run'}
+            />
+            <EngineCell
+              name="Amazon Rekognition Custom Labels"
+              sub="whole-image classifier · trained on this workspace's good/bad sets"
+              verdict={props.engines.rekognition?.verdict ?? null}
+              confidence={props.engines.rekognition ? props.engines.rekognition.confidence : null}
+              detail={props.engines.rekognition
+                ? `label ${props.engines.rekognition.label}${props.engines.rekognition.good != null && props.engines.rekognition.bad != null ? ` · good ${Math.round(props.engines.rekognition.good * 100)}% / bad ${Math.round(props.engines.rekognition.bad * 100)}%` : ''} — cannot name a part`
+                : 'not run (model training or stopped)'}
+            />
+          </div>
+          <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-3 py-2 text-xs ${props.engines.agreement === 'disagree' ? 'bg-amber-500/10' : 'bg-muted/30'}`}>
+            <span className="font-semibold">
+              Hybrid:
+              {' '}
+              {props.engines.hybrid_verdict ? props.engines.hybrid_verdict.toUpperCase() : '—'}
+              {pct(props.engines.hybrid_confidence) ? ` · ${pct(props.engines.hybrid_confidence)}` : ''}
+            </span>
+            <span className="text-muted-foreground">{props.engines.hybrid_reason}</span>
+            <span className={`ml-auto rounded-full border px-2 py-0.5 ${props.engines.agreement === 'agree' ? 'border-emerald-600/40 text-emerald-700' : props.engines.agreement === 'disagree' ? 'border-amber-600/50 text-amber-700' : 'border-border text-muted-foreground'}`}>
+              {props.engines.agreement === 'agree' ? 'engines agree' : props.engines.agreement === 'disagree' ? 'engines disagree' : 'one engine'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {props.explanation && <p className="mt-3 text-sm leading-relaxed">{props.explanation}</p>}
 
