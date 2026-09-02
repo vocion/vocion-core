@@ -81,6 +81,21 @@ export const s3Connector: SourceConnector<typeof s3ConfigSchema> = {
   icon: 'Database',
   authKind: 'none',
   configSchema: s3ConfigSchema,
+  bulkImport: {
+    // `pathFields` (a metadata map) and `filenamePattern` (a regex) are left to
+    // the single-add form: neither reads well in a spreadsheet cell, and
+    // neither is needed to stand a bucket up.
+    columns: [
+      { column: 'bucket', type: 'text', required: true, configPath: 'bucket', example: 'my-assets-bucket' },
+      { column: 'prefix', type: 'text', required: false, configPath: 'prefix', example: 'templates/' },
+      { column: 'region', type: 'text', required: false, configPath: 'region', example: '' },
+      { column: 'extensions', type: 'list', required: false, configPath: 'extensions', example: '.jpg;.png' },
+      { column: 'max_objects', type: 'number', required: false, configPath: 'maxObjects', example: '5000' },
+    ],
+    // Two prefixes in one bucket are two sources, so the prefix is part of the
+    // identity — and a blank prefix (the whole bucket) is one of its values.
+    identityColumns: ['bucket', 'prefix'],
+  },
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = s3ConfigSchema.parse(ctx.config);
     let entries;

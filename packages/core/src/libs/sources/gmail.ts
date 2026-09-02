@@ -193,6 +193,12 @@ export const gmailConnector: SourceConnector<typeof gmailConfigSchema> = {
   icon: 'Mail',
   authKind: 'oauth',
   configSchema: gmailConfigSchema,
+  bulkImport: {
+    columns: [
+      { column: 'query', type: 'text', required: true, configPath: 'query', example: 'in:inbox from:client.example' },
+    ],
+    identityColumns: ['query'],
+  },
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = gmailConfigSchema.parse(ctx.config);
     // Durable path: refresh-token exchange (see googleAuth); legacy fallback

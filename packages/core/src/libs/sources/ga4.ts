@@ -34,6 +34,15 @@ export const ga4Connector: SourceConnector<typeof ga4ConfigSchema> = {
   icon: 'BarChart3',
   authKind: 'oauth',
   configSchema: ga4ConfigSchema,
+  bulkImport: {
+    columns: [
+      { column: 'property_id', type: 'text', required: true, configPath: 'propertyId', example: '123456789' },
+      { column: 'dimensions', type: 'list', required: false, configPath: 'dimensions', example: 'date;landingPagePlusQueryString' },
+      { column: 'metrics', type: 'list', required: false, configPath: 'metrics', example: 'sessions;conversions;bounceRate' },
+      { column: 'limit', type: 'number', required: false, configPath: 'limit', example: '10000' },
+    ],
+    identityColumns: ['property_id'],
+  },
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = ga4ConfigSchema.parse(ctx.config);
     const token = ctx.credentials?.token as string | undefined;

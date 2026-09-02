@@ -65,6 +65,10 @@ build-archive.log
 /test-results/
 /playwright-report/
 /playwright/.cache/
+# ...and the same output when the suite runs from inside a workspace package.
+packages/*/test-results/
+packages/*/playwright-report/
+packages/*/playwright/.cache/
 
 # OpenTofu / Terraform — local state + operator secrets
 infra/terraform/.terraform/

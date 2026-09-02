@@ -77,6 +77,16 @@ export default defineConfig<ChromaticConfig>({
       retries: 0,
       use: { ...devices['Desktop Chrome'], video: 'on', trace: 'off' },
     },
+    // CSV bulk import of sources (VEERIO-244). Self-seeding on a FRESH PGlite
+    // DB like the tour, so no Clerk setup project and no dependencies.
+    // Run with: npx playwright test --project=bulk-import
+    {
+      name: 'bulk-import',
+      testDir: './e2e/bulk-import',
+      timeout: 120 * 1000,
+      retries: 0,
+      use: { ...devices['Desktop Chrome'] },
+    },
     ...(process.env.CI
       ? [
           {

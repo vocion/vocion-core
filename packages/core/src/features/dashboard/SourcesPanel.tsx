@@ -33,6 +33,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Link } from '@/libs/I18nNavigation';
+import { AddSourceDialogFrame, FIELD_CLASS } from './sources/AddSourceDialogFrame';
+import { BulkImportSourcesForm } from './sources/BulkImportSourcesForm';
 
 type Source = {
   id: number;
@@ -63,6 +65,8 @@ type ConnectorTile = {
   description: string;
   icon: string;
   authKind: 'none' | 'apikey' | 'oauth';
+  /** Whether this connector accepts a CSV bulk import (server decides). */
+  supportsBulkImport?: boolean;
 };
 
 /** How often to re-read the list while a sync is running somewhere. */
@@ -1045,109 +1049,6 @@ async function createSource(kind: string, configJson: Record<string, unknown>): 
  * @param root0.onSubmit
  * @param root0.children
  */
-function AddSourceDialogFrame({
-  title,
-  error,
-  requirement,
-  notice,
-  submitLabel,
-  submitting,
-  canSubmit,
-  onClose,
-  onSubmit,
-  children,
-}: {
-  title: string;
-  error: string | null;
-  requirement: string | null;
-  /** A standing note about what saving will do, shown above the fields. */
-  notice: string | null;
-  /** Wording for the submit button — "Add source" when adding, "Save changes" when editing. */
-  submitLabel: string;
-  submitting: boolean;
-  canSubmit: boolean;
-  onClose: () => void;
-  onSubmit: (e: React.FormEvent) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      {/* Header and footer are pinned and only the fields scroll, so a validation
-          error — which lands in the footer, next to the button that triggered it —
-          is visible wherever the operator has scrolled to. */}
-      <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border bg-background shadow-xl">
-        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <h3 className="font-display text-lg">{title}</h3>
-          </div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-            {notice
-              ? (
-                  <p className="rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                    {notice}
-                  </p>
-                )
-              : null}
-            {children}
-          </div>
-          <div className="border-t px-4 py-3">
-            {error
-              ? (
-                  <div
-                    role="alert"
-                    className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-                  >
-                    {error}
-                  </div>
-                )
-              : null}
-            <div className="flex items-center justify-between gap-3">
-              {/* What is still missing, said out loud rather than left for the
-                  operator to infer from a greyed-out button. */}
-              {requirement
-                ? (
-                    <p className="flex items-start gap-1.5 text-sm text-destructive">
-                      <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                      {`Still needed: ${requirement}`}
-                    </p>
-                  )
-                : <span />}
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-                >
-                  Cancel
-                </button>
-                {/* The title rides the wrapper, not the button: a disabled button
-                    swallows its own hover events, so its tooltip never opens. */}
-                <span title={canSubmit ? undefined : (requirement ?? undefined)}>
-                  <button
-                    type="submit"
-                    disabled={submitting || !canSubmit}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
-                  >
-                    {submitting
-                      ? (
-                          <>
-                            <Loader2 className="size-3 animate-spin" />
-                            Saving…
-                          </>
-                        )
-                      : submitLabel}
-                  </button>
-                </span>
-              </div>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-const FIELD_CLASS = 'mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
 
 /** Ties the Strapi token label to its input without nesting the eye button inside the label. */
 const TOKEN_INPUT_ID = 'strapi-api-token';
@@ -1224,11 +1125,13 @@ function describeMissingPiece(state: {
   return null;
 }
 
-function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
+function AddWebSourceDialog({ kind, title, existing, tabs, onClose, onAdded }: {
   kind: string;
   title: string;
   /** The source being edited, or null when adding a new one. */
   existing: Source | null;
+  /** Tab switcher, when this connector also accepts a CSV import. */
+  tabs?: React.ReactNode;
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
@@ -1267,6 +1170,7 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
     <AddSourceDialogFrame
       title={title}
       error={error}
+      tabs={tabs}
       requirement={url.trim().length > 0 ? null : 'a URL to read'}
       submitLabel={existing ? 'Save changes' : 'Add source'}
       notice={existing ? 'Saving restarts this source\'s sync: a run in progress stops, and a fresh one reads the source with the new settings.' : null}
@@ -1439,6 +1343,7 @@ function CollectionVerdict({ check }: { check: CollectionCheck | undefined }) {
  * @param root0 - Component props.
  * @param root0.kind - Connector slug, always `strapi` here.
  * @param root0.title - Dialog heading.
+ * @param root0.existing
  * @param root0.onClose - Dismiss without creating anything.
  * @param root0.onAdded - Called after the source and its token are stored.
  */
@@ -1900,6 +1805,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
  * @param root0
  * @param root0.kind
  * @param root0.connector
+ * @param root0.existing
  * @param root0.onClose
  * @param root0.onAdded
  */
@@ -1922,10 +1828,87 @@ function AddSourceDialog({
   // One form per connector, used for both jobs: an edit that could not offer the
   // same fields as the add would be a second place for the config to drift.
   const title = source ? `Edit ${connectorName} source` : `Add ${connectorName} source`;
+  // Importing replaces an add, never an edit: a file describes new sources, and
+  // an edit is already scoped to the one row the operator opened.
+  const canImport = source === null && connector?.supportsBulkImport === true;
+  const [mode, setMode] = useState<AddSourceMode>('single');
+
   if (kind === 'strapi') {
     return <AddStrapiSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
   }
-  return <AddWebSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
+
+  const tabs = canImport
+    ? <AddSourceModeTabs mode={mode} onChange={setMode} />
+    : undefined;
+
+  if (canImport && mode === 'bulk') {
+    return (
+      <BulkImportSourcesForm
+        kind={kind}
+        connectorName={connectorName}
+        title={`Import ${connectorName} sources`}
+        tabs={tabs}
+        onClose={onClose}
+        onImported={onAdded}
+      />
+    );
+  }
+
+  return <AddWebSourceDialog kind={kind} title={title} existing={source} tabs={tabs} onClose={onClose} onAdded={onAdded} />;
+}
+
+/** Which way of adding sources the dialog is showing. */
+type AddSourceMode = 'single' | 'bulk';
+
+/**
+ * Switch between adding one source by hand and importing a file of them.
+ *
+ * Rendered only for connectors that accept an import, so the choice never
+ * appears where one of the two options would do nothing.
+ * @param root0 - Component props.
+ * @param root0.mode - The tab currently showing.
+ * @param root0.onChange - Called with the tab the operator picked.
+ */
+function AddSourceModeTabs({ mode, onChange }: {
+  mode: AddSourceMode;
+  onChange: (mode: AddSourceMode) => void;
+}) {
+  return (
+    <div role="tablist" className="flex items-center gap-1">
+      <AddSourceModeTab label="One at a time" value="single" mode={mode} onChange={onChange} />
+      <AddSourceModeTab label="Import many" value="bulk" mode={mode} onChange={onChange} />
+    </div>
+  );
+}
+
+/**
+ * One tab button.
+ * @param root0 - Component props.
+ * @param root0.label - Visible text.
+ * @param root0.value - The mode this tab selects.
+ * @param root0.mode - The mode currently showing.
+ * @param root0.onChange - Called with `value` on click.
+ */
+function AddSourceModeTab({ label, value, mode, onChange }: {
+  label: string;
+  value: AddSourceMode;
+  mode: AddSourceMode;
+  onChange: (mode: AddSourceMode) => void;
+}) {
+  const selected = mode === value;
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      onClick={() => onChange(value)}
+      className={selected
+        ? 'rounded-full bg-muted px-3 py-1 text-sm font-medium'
+        : 'rounded-full px-3 py-1 text-sm text-muted-foreground hover:text-foreground'}
+    >
+      {label}
+    </button>
+  );
 }
 
 function formatRelative(date: Date): string {

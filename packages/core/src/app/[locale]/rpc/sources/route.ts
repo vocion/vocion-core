@@ -3,7 +3,8 @@
  *
  *   GET  → { sources, connectors }
  *           - `sources`: this org's configured rows, each with its latest sync run
- *           - `connectors`: built-in picker tiles (web, drive, ...)
+ *           - `connectors`: built-in picker tiles (web, drive, ...), each
+ *             flagged with whether it accepts a CSV bulk import
  *   POST → create a new source row from { kind, slug?, configJson }.
  *
  * The Sources page reads `GET` to populate the table; the
@@ -51,6 +52,9 @@ export async function GET() {
     description: c.description,
     icon: c.icon,
     authKind: c.authKind,
+    // Whether the Add-source dialog should offer the "Import many" tab. The
+    // descriptor itself stays server-side; the page only needs the yes/no.
+    supportsBulkImport: c.bulkImport !== undefined,
   }));
   return Response.json({ sources: withStatus, connectors });
 }

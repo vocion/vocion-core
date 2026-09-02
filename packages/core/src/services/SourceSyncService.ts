@@ -31,13 +31,13 @@
  */
 
 import type { IngestDoc } from './IngestionService';
-import { and, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, like, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { deriveSlugSeed, readIdentityParts, uniqueSlug } from '@/libs/sources/bulkImport';
 import { getConnector } from '@/libs/sources/registry';
 import { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
 import {
   deleteDocumentsGoneFromSource,
-  ensureSource,
   ingestDocument,
   markSourceSynced,
 } from './IngestionService';
@@ -70,6 +70,19 @@ export type AddSourceInput = {
   configJson: Record<string, unknown>;
 };
 
+/**
+ * Raised when a source row cannot be created because its slug is taken.
+ *
+ * A distinct type so callers can tell "you already have one of these" apart
+ * from a config that failed validation, and answer accordingly.
+ */
+export class SourceSlugTakenError extends Error {
+  constructor(public readonly slug: string) {
+    super(`A source with the name "${slug}" already exists.`);
+    this.name = 'SourceSlugTakenError';
+  }
+}
+
 export async function addSource(input: AddSourceInput): Promise<{ id: number; slug: string }> {
   const connector = getConnector(input.kind);
   if (!connector) {
@@ -79,14 +92,127 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
   // a ZodError with a usable message when the form data is bad.
   connector.configSchema.parse(input.configJson);
 
-  const slug = input.slug ?? generateSlug(input.kind, input.configJson);
-  const ref = await ensureSource({
-    orgId: input.orgId,
+  const slug = input.slug ?? await claimUnusedSlug(input.orgId, generateSlug(input.kind, input.configJson));
+  const created = await insertSourceRows(input.orgId, [{
     slug,
-    kind: 'plugin',
     configJson: { ...input.configJson, _connector: input.kind },
+  }]);
+  return { id: created[0]!.id, slug };
+}
+
+/**
+ * Create many source rows at once, as a CSV import does.
+ *
+ * All or nothing: a failure on row 40 leaves the first 39 uncreated, because a
+ * half-applied import is worse than none — the operator cannot tell which rows
+ * to remove before retrying. Callers validate every row first (see
+ * `libs/sources/bulkImport`), so reaching a failure here means something raced
+ * us, not that the file was bad.
+ * @param input - Org, connector, and the rows to create.
+ * @param input.orgId - Org that will own the sources.
+ * @param input.kind - Connector slug every row belongs to.
+ * @param input.rows - Slug plus validated config, one per source.
+ * @returns The created rows, in the order supplied.
+ * @throws SourceSlugTakenError when a slug is already in use.
+ */
+export async function addSourcesFromImport(input: {
+  orgId: string;
+  kind: string;
+  rows: Array<{ slug: string; configJson: Record<string, unknown> }>;
+}): Promise<Array<{ id: number; slug: string }>> {
+  const connector = getConnector(input.kind);
+  if (!connector) {
+    throw new Error(`Unknown source connector: ${input.kind}`);
+  }
+  for (const row of input.rows) {
+    connector.configSchema.parse(row.configJson);
+  }
+  return insertSourceRows(
+    input.orgId,
+    input.rows.map(row => ({
+      slug: row.slug,
+      configJson: { ...row.configJson, _connector: input.kind },
+    })),
+  );
+}
+
+/**
+ * Insert source rows inside one transaction, refusing any slug already taken.
+ *
+ * The pre-check exists to produce a message naming the offending slug; the
+ * `(org_id, slug)` unique index is what actually guarantees it, and a row that
+ * slips past the check between the read and the write surfaces as the same
+ * error rather than a database constraint dump.
+ * @param orgId - Org that will own the rows.
+ * @param rows - Slug plus the full `config_json` to store.
+ * @returns The created rows, in the order supplied.
+ */
+async function insertSourceRows(
+  orgId: string,
+  rows: Array<{ slug: string; configJson: Record<string, unknown> }>,
+): Promise<Array<{ id: number; slug: string }>> {
+  const slugs = rows.map(row => row.slug);
+  const duplicateInBatch = slugs.find((slug, index) => slugs.indexOf(slug) !== index);
+  if (duplicateInBatch) {
+    throw new SourceSlugTakenError(duplicateInBatch);
+  }
+
+  return db.transaction(async (tx) => {
+    const alreadyThere = await tx
+      .select({ slug: knowledgeSourceSchema.slug })
+      .from(knowledgeSourceSchema)
+      .where(and(
+        eq(knowledgeSourceSchema.orgId, orgId),
+        inArray(knowledgeSourceSchema.slug, slugs),
+      ));
+    if (alreadyThere[0]) {
+      throw new SourceSlugTakenError(alreadyThere[0].slug);
+    }
+
+    const created: Array<{ id: number; slug: string }> = [];
+    for (const row of rows) {
+      try {
+        const inserted = await tx
+          .insert(knowledgeSourceSchema)
+          .values({
+            orgId,
+            slug: row.slug,
+            kind: 'plugin',
+            configJson: row.configJson,
+          })
+          .returning({ id: knowledgeSourceSchema.id });
+        created.push({ id: inserted[0]!.id, slug: row.slug });
+      } catch (error) {
+        log('warn', 'could not insert a source row', {
+          orgId,
+          slug: row.slug,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw new SourceSlugTakenError(row.slug);
+      }
+    }
+    return created;
   });
-  return { id: ref.sourceId, slug };
+}
+
+/**
+ * The first free slug at or after `seed` for this org.
+ *
+ * Two different pages on one host derive the same seed, and the old behaviour
+ * was to hand back the existing row and drop the new config on the floor. This
+ * suffixes instead, so the second page becomes its own source.
+ * @param orgId - Org whose slugs are checked.
+ * @param seed - Preferred slug.
+ */
+async function claimUnusedSlug(orgId: string, seed: string): Promise<string> {
+  const neighbours = await db
+    .select({ slug: knowledgeSourceSchema.slug })
+    .from(knowledgeSourceSchema)
+    .where(and(
+      eq(knowledgeSourceSchema.orgId, orgId),
+      like(knowledgeSourceSchema.slug, `${seed}%`),
+    ));
+  return uniqueSlug(seed, new Set(neighbours.map(row => row.slug)));
 }
 
 /**
@@ -1055,23 +1181,18 @@ export async function getSourceById(orgId: string, sourceId: number): Promise<
 }
 
 function generateSlug(kind: string, config: Record<string, unknown>): string {
-  // Pick a stable, human-readable slug derived from the config when
-  // we can — falls back to a kind-prefixed timestamp otherwise.
-  const cfg = config as { urls?: string[]; crawl?: { startUrl?: string } };
-  const seed = cfg.crawl?.startUrl ?? cfg.urls?.[0];
-  if (seed) {
-    try {
-      const host = new URL(seed).hostname.replace(/\W+/g, '-');
-      return `${kind}-${host}`.slice(0, 60);
-    } catch (error) {
-      // Not a parseable URL, so fall back to the timestamped name below. Worth
-      // logging: it usually means the config holds something unexpected.
-      log('warn', 'could not derive a source name from its config URL', {
-        kind,
-        seed,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+  // Name the source after the thing it reads, using the connector's own
+  // identity declaration so the picker and a CSV import agree on the name.
+  // The host alone is not enough: two pages on one host have to be two
+  // sources, so the path contributes too (see `deriveSlugSeed`).
+  const connector = getConnector(kind);
+  const identityParts = connector?.bulkImport ? readIdentityParts(connector, config) : null;
+  if (identityParts?.[0]) {
+    return deriveSlugSeed(kind, identityParts[0]);
   }
+  // Nothing in the config names the source — a connector with no bulk-import
+  // descriptor, or one whose identity field is absent. A timestamp at least
+  // does not collide with an existing row.
+  log('warn', 'could not derive a source name from its config', { kind });
   return `${kind}-${Date.now()}`;
 }

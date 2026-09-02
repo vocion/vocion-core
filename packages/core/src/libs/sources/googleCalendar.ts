@@ -85,6 +85,14 @@ export const googleCalendarConnector: SourceConnector<typeof calendarConfigSchem
   icon: 'Calendar',
   authKind: 'oauth',
   configSchema: calendarConfigSchema,
+  bulkImport: {
+    columns: [
+      { column: 'calendar_id', type: 'text', required: true, configPath: 'calendarId', example: 'team@example.com' },
+      { column: 'past_days', type: 'number', required: false, configPath: 'pastDays', example: '30' },
+      { column: 'future_days', type: 'number', required: false, configPath: 'futureDays', example: '60' },
+    ],
+    identityColumns: ['calendar_id'],
+  },
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = calendarConfigSchema.parse(ctx.config);
     const token = await resolveGoogleAccessToken(ctx.credentials);

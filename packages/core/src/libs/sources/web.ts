@@ -31,6 +31,49 @@ const webConfigSchema = z.object({
   message: 'Provide either `urls` or `crawl`.',
 });
 
+/**
+ * Build one imported row's config, choosing between a crawl and a plain fetch.
+ *
+ * The web connector's config is one shape or the other, not a flat bag of
+ * settings, so the generic column-to-path mapping cannot express it. A blank
+ * `crawl` cell means crawl — the same default the single-add form uses.
+ * @param cells - Coerced cell values, keyed by CSV column name.
+ * @returns The `config_json` blob for that row.
+ */
+function buildWebImportConfig(cells: Record<string, unknown>): Record<string, unknown> {
+  const url = cells.url as string;
+  if (cells.crawl === false) {
+    // A single-page fetch. `max_depth` / `max_pages` describe a crawl and have
+    // nothing to bound here, so they are deliberately not carried over.
+    return { urls: [url] };
+  }
+  const crawl: Record<string, unknown> = { startUrl: url };
+  if (cells.max_depth !== undefined) {
+    crawl.maxDepth = cells.max_depth;
+  }
+  if (cells.max_pages !== undefined) {
+    crawl.maxPages = cells.max_pages;
+  }
+  return { crawl };
+}
+
+/**
+ * The URL an existing web source reads, whichever shape its config uses.
+ * @param config - A stored `config_json` blob.
+ * @returns The identity parts, or null when the config names no URL.
+ */
+function webIdentityFromConfig(config: Record<string, unknown>): string[] | null {
+  const crawl = config.crawl as { startUrl?: string } | undefined;
+  if (typeof crawl?.startUrl === 'string') {
+    return [crawl.startUrl];
+  }
+  const urls = config.urls as string[] | undefined;
+  if (Array.isArray(urls) && typeof urls[0] === 'string') {
+    return [urls[0]];
+  }
+  return null;
+}
+
 export const webConnector: SourceConnector<typeof webConfigSchema> = {
   slug: 'web',
   name: 'Web URL',
@@ -38,6 +81,19 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
   icon: 'Globe',
   authKind: 'none',
   configSchema: webConfigSchema,
+  bulkImport: {
+    columns: [
+      { column: 'url', type: 'text', required: true, configPath: 'crawl.startUrl', example: 'https://example.com/docs' },
+      // `crawl` picks between the two config shapes rather than landing in one
+      // of them, so it names no path.
+      { column: 'crawl', type: 'boolean', required: false, example: 'true' },
+      { column: 'max_depth', type: 'number', required: false, configPath: 'crawl.maxDepth', example: '1' },
+      { column: 'max_pages', type: 'number', required: false, configPath: 'crawl.maxPages', example: '20' },
+    ],
+    identityColumns: ['url'],
+    buildConfig: buildWebImportConfig,
+    identityFromConfig: webIdentityFromConfig,
+  },
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = webConfigSchema.parse(ctx.config);
     if (cfg.urls?.length) {

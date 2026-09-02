@@ -170,6 +170,14 @@ export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
   icon: 'Contact',
   authKind: 'apikey',
   configSchema: hubspotConfigSchema,
+  bulkImport: {
+    columns: [
+      { column: 'object_type', type: 'text', required: true, configPath: 'objectType', example: 'contacts' },
+      { column: 'properties', type: 'list', required: false, configPath: 'properties', example: '' },
+      { column: 'portal_id', type: 'text', required: false, configPath: 'portalId', example: '' },
+    ],
+    identityColumns: ['object_type'],
+  },
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = hubspotConfigSchema.parse(ctx.config);
     const token = tokenFromCredentials(ctx.credentials as Record<string, unknown> | undefined);
