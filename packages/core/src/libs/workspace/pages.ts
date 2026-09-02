@@ -36,7 +36,8 @@ const FieldSchema = z.object({
   label: z.string().optional(),
   /** Accessor: `title` | `status` | `createdAt` | `meta.<dot.path>` */
   from: z.string().optional(),
-  format: z.enum(['text', 'badge', 'score', 'date', 'mono']).default('text'),
+  /** `image` renders the value (a URL) as a thumbnail. */
+  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image']).default('text'),
   /** For `format: badge` — map raw value → status-pill tone. */
   tones: z.record(z.string(), z.enum(['ok', 'warn', 'bad', 'info', 'muted'])).optional(),
 });

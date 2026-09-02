@@ -94,6 +94,16 @@ export type ReviewContent
     summary?: string;
     /** Inline preview; `href` opens side-by-side. */
     previewHref?: string;
+  }
+  | {
+    kind: 'image';
+    id: string;
+    label: string;
+    /** Image URL — in-app (`/api/v1/s3/object?…`) or absolute. */
+    url: string;
+    caption?: string;
+    /** Short finding lines rendered under the image. */
+    findings?: string[];
   };
 
 /** One reviewer edit to a content item, keyed by the item's `id`. */

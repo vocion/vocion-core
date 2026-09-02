@@ -191,6 +191,8 @@ function Cell({ row, field }: { row: PageRow; field: PageField }) {
       return <span className="text-sm text-muted-foreground">{raw instanceof Date ? raw.toLocaleDateString() : s}</span>;
     case 'mono':
       return <span className="font-mono text-xs">{s}</span>;
+    case 'image':
+      return <img src={s} alt={field.label ?? field.key} loading="lazy" className="h-14 w-24 rounded border border-border object-cover" />;
     default:
       return <span className="text-sm">{s}</span>;
   }
