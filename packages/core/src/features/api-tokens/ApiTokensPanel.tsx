@@ -372,9 +372,11 @@ export function ApiTokensPanel() {
             <TableHead>Key</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Expires</TableHead>
-            <TableHead>Last used</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead className="w-24" />
+            <TableHead className="whitespace-nowrap">Last used</TableHead>
+            <TableHead className="whitespace-nowrap">Created</TableHead>
+            {/* The revoke action, right-aligned so it sits at the edge of the
+                card rather than floating in the middle of a wide table. */}
+            <TableHead className="w-24 text-right" />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -400,9 +402,9 @@ export function ApiTokensPanel() {
                     // still expire it out from under us.
                     : <span className="text-muted-foreground">—</span>}
                 </TableCell>
-                <TableCell>{token.lastUsedAt ? formatDate(token.lastUsedAt) : 'Never used'}</TableCell>
-                <TableCell>{formatDate(token.createdAt)}</TableCell>
-                <TableCell>
+                <TableCell className="whitespace-nowrap">{token.lastUsedAt ? formatDate(token.lastUsedAt) : 'Never used'}</TableCell>
+                <TableCell className="whitespace-nowrap">{formatDate(token.createdAt)}</TableCell>
+                <TableCell className="text-right">
                   {state !== 'revoked' && (
                     <Button variant="ghost" size="sm" onClick={() => onRevoke(token)}>
                       <Trash2 className="size-3.5" />
