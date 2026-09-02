@@ -1,3 +1,4 @@
+import type { Finding } from '@/features/dashboard/InspectionPhoto';
 import {
   ArrowLeft,
   Calendar,
@@ -13,6 +14,7 @@ import {
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { InspectionPhoto } from '@/features/dashboard/InspectionPhoto';
 import { ObjectAgentActivity } from '@/features/dashboard/ObjectAgentActivity';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -102,52 +104,16 @@ export default async function ObjectDetailPage(props: {
         <div className="space-y-6 lg:col-span-2">
           {/* Image-backed objects (inspections, scans): the picture first, then what was found. */}
           {typeof meta.image_url === 'string' && (
-            <div className="rounded-lg border border-border p-5">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                <FileText className="size-4" />
-                Photo
-                {typeof meta.verdict === 'string' && (
-                  <Badge variant="outline" className={`ml-auto text-xs ${meta.verdict === 'pass' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {meta.verdict}
-                    {typeof meta.confidence === 'number' ? ` · ${Math.round(meta.confidence * 100)}%` : ''}
-                  </Badge>
-                )}
-              </div>
-              <a href={meta.image_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border border-border bg-muted/30">
-                <img src={meta.image_url} alt={obj.title} className="max-h-[520px] w-full object-contain" />
-              </a>
-              {typeof meta.explanation === 'string' && (
-                <p className="mt-3 text-sm leading-relaxed">{meta.explanation}</p>
-              )}
-              {Array.isArray(meta.findings) && meta.findings.length > 0 && (
-                <ul className="mt-3 divide-y divide-border rounded-md border border-border">
-                  {(meta.findings as Array<Record<string, unknown>>).map((f, i) => (
-                    <li key={`${String(f.region)}-${i}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm">
-                      <span className="font-medium">{String(f.region ?? 'region')}</span>
-                      <Badge variant="outline" className={`text-[11px] ${f.severity === 'blocking' ? 'text-red-600' : f.severity === 'info' ? 'text-muted-foreground' : 'text-amber-600'}`}>{String(f.issue ?? '')}</Badge>
-                      {f.expected !== undefined && (
-                        <span className="text-muted-foreground">
-                          expected
-                          {String(f.expected)}
-                        </span>
-                      )}
-                      {f.observed !== undefined && (
-                        <span className="text-muted-foreground">
-                          saw
-                          {String(f.observed)}
-                        </span>
-                      )}
-                      {typeof f.confidence === 'number' && (
-                        <span className="ml-auto font-mono text-xs text-muted-foreground">
-                          {Math.round(f.confidence * 100)}
-                          %
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <InspectionPhoto
+              objectId={obj.id}
+              title={obj.title}
+              imageUrl={meta.image_url}
+              verdict={typeof meta.verdict === 'string' ? meta.verdict : null}
+              confidence={typeof meta.confidence === 'number' ? meta.confidence : null}
+              explanation={typeof meta.explanation === 'string' ? meta.explanation : null}
+              findings={Array.isArray(meta.findings) ? (meta.findings as Finding[]) : []}
+              regionsChecked={typeof meta.regions_checked === 'number' ? meta.regions_checked : null}
+            />
           )}
           {/* Summary */}
           <div className="rounded-lg border border-border p-5">

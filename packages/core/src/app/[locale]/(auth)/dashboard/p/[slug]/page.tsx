@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
+import { LinkRow } from '@/features/dashboard/LinkRow';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -356,31 +357,35 @@ export default async function WorkspacePage(props: {
                       {f.label ?? f.key}
                     </th>
                   ))}
+                  {manifest.rowLink && <th className="w-8 px-2 py-2" aria-label="Open" />}
                 </tr>
               </thead>
               <tbody>
                 {g.rows.length === 0 && (
                   <tr>
-                    <td colSpan={fields.length} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={fields.length + (manifest.rowLink ? 1 : 0)} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       Nothing here yet.
                     </td>
                   </tr>
                 )}
-                {g.rows.map(row => (
-                  <tr key={row.id} className="border-b border-border/60 last:border-0 hover:bg-muted/30">
-                    {fields.map((f, fi) => (
-                      <td key={f.key} className="px-4 py-2.5">
-                        {fi === 0 && manifest.rowLink
-                          ? (
-                              <Link href={manifest.rowLink.replace('{id}', String(row.id)) as never} className="font-medium hover:underline">
-                                <Cell row={row} field={f} />
-                              </Link>
-                            )
-                          : <Cell row={row} field={f} />}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                {g.rows.map((row) => {
+                  const cells = fields.map(f => (
+                    <td key={f.key} className="px-4 py-2.5">
+                      <Cell row={row} field={f} />
+                    </td>
+                  ));
+                  return manifest.rowLink
+                    ? (
+                        <LinkRow key={row.id} href={manifest.rowLink.replace('{id}', String(row.id))}>
+                          {cells}
+                        </LinkRow>
+                      )
+                    : (
+                        <tr key={row.id} className="border-b border-border/60 last:border-0 hover:bg-muted/30">
+                          {cells}
+                        </tr>
+                      );
+                })}
               </tbody>
             </table>
           </div>
