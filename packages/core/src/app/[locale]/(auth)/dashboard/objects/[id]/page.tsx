@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { InspectionPhoto } from '@/features/dashboard/InspectionPhoto';
 import { ObjectAgentActivity } from '@/features/dashboard/ObjectAgentActivity';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { VisionEngineControl } from '@/features/dashboard/VisionEngineControl';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getBusinessObject } from '@/services/BusinessObjectService';
@@ -103,6 +104,7 @@ export default async function ObjectDetailPage(props: {
         {/* Main content — left 2 cols */}
         <div className="space-y-6 lg:col-span-2">
           {/* Image-backed objects (inspections, scans): the picture first, then what was found. */}
+          {typeof meta.image_url === 'string' && <VisionEngineControl compact />}
           {typeof meta.image_url === 'string' && (
             <InspectionPhoto
               objectId={obj.id}
