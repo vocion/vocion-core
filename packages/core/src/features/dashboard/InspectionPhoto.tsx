@@ -1,8 +1,8 @@
 'use client';
 
-import { BookOpen, Check, CheckCircle2, Circle, Loader2, MessageSquareWarning, ScanSearch, ThumbsDown, ThumbsUp, XCircle } from 'lucide-react';
+import { BookOpen, Check, CheckCircle2, Circle, Loader2, Maximize2, MessageSquareWarning, Minus, Plus, ScanSearch, ThumbsDown, ThumbsUp, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useVisionModel } from '@/features/dashboard/VisionEngineControl';
@@ -31,6 +31,9 @@ export type Finding = {
   severity?: string;
   confidence?: number;
   box?: number[];
+  /** Crop-before-count: the zoomed crop the count was made on. */
+  crop_url?: string;
+  zoom?: { count: number; expected: number | null; scale: number; matches: boolean };
   feedback?: { signal: 'agree' | 'disagree'; note?: string | null; by?: string | null; at?: string };
 };
 
@@ -87,6 +90,7 @@ function initialPhases(hybrid: boolean): Phase[] {
     { key: 'references', label: 'Find verified-good references for this kit', state: 'todo' },
     { key: 'model', label: 'Claude Vision compares candidate to references', state: 'todo' },
     { key: 'parsed', label: 'Verdict and findings parsed', state: 'todo' },
+    { key: 'zoom', label: 'Zoom into fastener boxes and count', state: 'todo' },
     { key: 'saved', label: 'Inspection record updated', state: 'todo' },
     ...(hybrid ? [{ key: 'classifier', label: 'Rekognition classifier second opinion', state: 'todo' as const }] : []),
   ];
@@ -133,6 +137,76 @@ export function InspectionPhoto(props: Props) {
   const [lastRun, setLastRun] = useState<{ ms: number; verdict?: string } | null>(null);
 
   const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // Zoom / pan. `view` is the transform applied to the image + overlay
+  // together (same wrapper), so regions stay glued to the picture.
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
+  const drag = useRef<{ startX: number; startY: number; x: number; y: number } | null>(null);
+  const MIN = 1;
+  const MAX = 8;
+
+  const clampView = useCallback((v: { scale: number; x: number; y: number }) => {
+    const el = frameRef.current;
+    const scale = Math.min(MAX, Math.max(MIN, v.scale));
+    if (!el || scale === 1) {
+      return { scale, x: 0, y: 0 };
+    }
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    const maxX = (w * scale - w) / 2;
+    const maxY = (h * scale - h) / 2;
+    return { scale, x: Math.max(-maxX, Math.min(maxX, v.x)), y: Math.max(-maxY, Math.min(maxY, v.y)) };
+  }, []);
+
+  /** Zoom by factor around a point given in frame pixels (defaults to centre). */
+  const zoomAt = useCallback((factor: number, px?: number, py?: number) => {
+    setView((v) => {
+      const el = frameRef.current;
+      if (!el) {
+        return v;
+      }
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      const cx = (px ?? w / 2) - w / 2;
+      const cy = (py ?? h / 2) - h / 2;
+      const next = Math.min(MAX, Math.max(MIN, v.scale * factor));
+      const k = next / v.scale;
+      // keep the point under the cursor fixed
+      return clampView({ scale: next, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k });
+    });
+  }, [clampView]);
+
+  /** Zoom so a normalised [x,y,w,h] box fills ~60% of the frame. */
+  const zoomToBox = useCallback((box: number[]) => {
+    const el = frameRef.current;
+    if (!el || box.length !== 4) {
+      return;
+    }
+    const [bx, by, bw, bh] = box as [number, number, number, number];
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    const scale = Math.min(MAX, Math.max(1.5, 0.6 / Math.max(bw, bh, 0.02)));
+    const cxImg = (bx + bw / 2 - 0.5) * w;
+    const cyImg = (by + bh / 2 - 0.5) * h;
+    setView(clampView({ scale, x: -cxImg * scale, y: -cyImg * scale }));
+  }, [clampView]);
+
+  const resetView = useCallback(() => setView({ scale: 1, x: 0, y: 0 }), []);
+
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el) {
+      return;
+    }
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [zoomAt]);
   const [history, setHistory] = useState<History | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
 
@@ -204,9 +278,17 @@ export function InspectionPhoto(props: Props) {
             case 'parsed':
               setPhase('model', 'done');
               setPhase('parsed', 'done', `${String(ev.verdict).toUpperCase()} · ${pct(ev.confidence as number)} · ${String(ev.findings)} finding(s)`);
+              setPhase('zoom', 'doing', 'checking for boxes that need a closer look');
+              break;
+            case 'zoom':
+              setPhase('zoom', 'doing', `cropping ${String(ev.count)} region(s) at full resolution: ${((ev.regions as string[]) ?? []).join(', ')}`);
+              break;
+            case 'zoomed':
+              setPhase('zoom', 'done', `${String(ev.corrected)} of ${String(ev.zoomed)} matched the printed quantity → ${String(ev.verdict).toUpperCase()} · ${pct(ev.confidence as number)}`);
               setPhase('saved', 'doing');
               break;
             case 'saved':
+              setPhases(ps => (ps ?? []).map(p => (p.key === 'zoom' && p.state !== 'done' ? { ...p, state: 'done', detail: p.detail ?? 'nothing needed a closer look' } : p)));
               setPhase('saved', 'done', ev.inspection_id ? `record #${String(ev.inspection_id)}` : undefined);
               setPhase('classifier', 'doing');
               break;
@@ -270,6 +352,13 @@ export function InspectionPhoto(props: Props) {
   }
 
   const highlight = pinned ?? active;
+  useEffect(() => {
+    if (pinned !== null && findings[pinned]?.box) {
+      zoomToBox(findings[pinned]!.box!);
+    } else if (pinned === null) {
+      resetView();
+    }
+  }, [pinned, findings, zoomToBox, resetView]);
   const analyzed = !!props.checks?.reference;
   const verdictTone = props.verdict === 'pass' ? 'text-emerald-600 border-emerald-600/40' : 'text-amber-600 border-amber-600/40';
   const refs = liveRefs.length ? liveRefs : (props.referenceUrls ?? []);
@@ -322,41 +411,96 @@ export function InspectionPhoto(props: Props) {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <div className="lg:sticky lg:top-4 lg:self-start">
-          <div className="relative overflow-hidden rounded-md border border-border bg-muted/30" onMouseLeave={() => setActive(null)}>
-            <img src={props.imageUrl} alt={props.title} className="block w-full select-none" draggable={false} />
-            <svg className="pointer-events-none absolute inset-0 size-full" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden>
+          { }
+          <div
+            ref={frameRef}
+            role="presentation"
+            className={`relative overflow-hidden rounded-md border border-border bg-muted/30 ${view.scale > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`}
+            onMouseLeave={() => {
+              setActive(null);
+              drag.current = null;
+            }}
+            onDoubleClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              if (view.scale > 1) {
+                resetView();
+              } else {
+                zoomAt(2.5, e.clientX - r.left, e.clientY - r.top);
+              }
+            }}
+            onMouseDown={(e) => {
+              if (view.scale > 1 && e.button === 0) {
+                drag.current = { startX: e.clientX, startY: e.clientY, x: view.x, y: view.y };
+              }
+            }}
+            onMouseMove={(e) => {
+              if (drag.current) {
+                const d = drag.current;
+                setView(v => clampView({ scale: v.scale, x: d.x + (e.clientX - d.startX), y: d.y + (e.clientY - d.startY) }));
+              }
+            }}
+            onMouseUp={() => {
+              drag.current = null;
+            }}
+          >
+            <div
+              className="relative"
+              style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`, transformOrigin: 'center center', transition: drag.current ? 'none' : 'transform 160ms ease-out' }}
+            >
+              <img src={props.imageUrl} alt={props.title} className="block w-full select-none" draggable={false} />
+              <svg className="pointer-events-none absolute inset-0 size-full" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden>
+                {findings.map((f, i) => {
+                  if (!f.box || f.box.length !== 4) {
+                    return null;
+                  }
+                  const [x, y, w, h] = f.box.map(v => Math.max(0, Math.min(1, v))) as [number, number, number, number];
+                  const on = highlight === i;
+                  const dim = highlight !== null && !on;
+                  return (
+                    <g key={`${f.region}-${i}`} opacity={dim ? 0.25 : 1}>
+                      <rect x={x * 1000} y={y * 1000} width={w * 1000} height={h * 1000} fill={on ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.06)'} stroke={on ? '#f59e0b' : 'rgba(245,158,11,0.85)'} strokeWidth={on ? 6 : 3} vectorEffect="non-scaling-stroke" />
+                      <text x={x * 1000 + 8} y={Math.max(y * 1000 - 10, 22)} fill="#f59e0b" fontSize="26" fontWeight="700" style={{ paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.7)', strokeWidth: 6 }}>{i + 1}</text>
+                    </g>
+                  );
+                })}
+              </svg>
               {findings.map((f, i) => {
                 if (!f.box || f.box.length !== 4) {
                   return null;
                 }
-                const [x, y, w, h] = f.box.map(v => Math.max(0, Math.min(1, v))) as [number, number, number, number];
-                const on = highlight === i;
-                const dim = highlight !== null && !on;
+                const [x, y, w, h] = f.box as [number, number, number, number];
                 return (
-                  <g key={`${f.region}-${i}`} opacity={dim ? 0.25 : 1}>
-                    <rect x={x * 1000} y={y * 1000} width={w * 1000} height={h * 1000} fill={on ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.06)'} stroke={on ? '#f59e0b' : 'rgba(245,158,11,0.85)'} strokeWidth={on ? 6 : 3} vectorEffect="non-scaling-stroke" />
-                    <text x={x * 1000 + 8} y={Math.max(y * 1000 - 10, 22)} fill="#f59e0b" fontSize="26" fontWeight="700" style={{ paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.7)', strokeWidth: 6 }}>{i + 1}</text>
-                  </g>
+                  <button key={`hit-${f.region}-${i}`} type="button" aria-label={`Finding ${i + 1}: ${f.region ?? ''}`} onMouseEnter={() => setActive(i)} onFocus={() => setActive(i)} onClick={() => setPinned(p => (p === i ? null : i))} className="absolute cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-500" style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
                 );
               })}
-            </svg>
-            {findings.map((f, i) => {
-              if (!f.box || f.box.length !== 4) {
-                return null;
-              }
-              const [x, y, w, h] = f.box as [number, number, number, number];
-              return (
-                <button key={`hit-${f.region}-${i}`} type="button" aria-label={`Finding ${i + 1}: ${f.region ?? ''}`} onMouseEnter={() => setActive(i)} onFocus={() => setActive(i)} onClick={() => setPinned(p => (p === i ? null : i))} className="absolute cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-500" style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
-              );
-            })}
+            </div>
             {analyzing && (
               <div className="pointer-events-none absolute inset-0 bg-background/40 backdrop-blur-[1px]">
                 <div className="absolute inset-x-0 top-0 h-1 animate-pulse bg-amber-500" />
               </div>
             )}
+            { }
+            <div role="toolbar" aria-label="Zoom" className="absolute right-2 bottom-2 flex items-center gap-1 rounded-md border border-border bg-background/90 p-1 shadow-sm backdrop-blur" onDoubleClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
+              <button type="button" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.4)} disabled={view.scale <= MIN} className="rounded p-1 hover:bg-muted disabled:opacity-40"><Minus className="size-3.5" aria-hidden /></button>
+              <span className="min-w-10 text-center font-mono text-[11px] tabular-nums">{`${view.scale.toFixed(1)}×`}</span>
+              <button type="button" aria-label="Zoom in" onClick={() => zoomAt(1.4)} disabled={view.scale >= MAX} className="rounded p-1 hover:bg-muted disabled:opacity-40"><Plus className="size-3.5" aria-hidden /></button>
+              <button
+                type="button"
+                aria-label="Reset zoom"
+                onClick={() => {
+                  resetView();
+                  setPinned(null);
+                }}
+                disabled={view.scale === 1}
+                className="rounded p-1 hover:bg-muted disabled:opacity-40"
+              >
+                <Maximize2 className="size-3.5" aria-hidden />
+              </button>
+              <a href={props.imageUrl} target="_blank" rel="noreferrer" className="rounded px-1.5 py-1 text-[11px] hover:bg-muted" title="Open the full-resolution photo in a new tab">4K ↗</a>
+            </div>
           </div>
           <p className="mt-1.5 text-[11px] text-muted-foreground">
-            {findings.some(f => f.box) ? 'Hover or click a finding to see where to look. Numbers match the list. Regions are the model\'s estimate.' : analyzed ? 'No regions to mark.' : 'Run Analyze to check this photo against verified-good references.'}
+            {findings.some(f => f.box) ? 'Hover a finding to see where to look; click it to zoom there. Scroll or double-click the photo to zoom, drag to pan. Regions are the model\'s estimate.' : analyzed ? 'Scroll or double-click to zoom, drag to pan.' : 'Run Analyze to check this photo against verified-good references. Scroll or double-click to zoom.'}
             {typeof props.regionsChecked === 'number' && ` ${props.regionsChecked} regions checked.`}
           </p>
           {refs.length > 0 && (
@@ -440,13 +584,26 @@ export function InspectionPhoto(props: Props) {
                 const on = highlight === i;
                 const fb = f.feedback;
                 return (
-                  <li key={`${f.region}-${i}`} onMouseEnter={() => setActive(i)} onMouseLeave={() => setActive(null)} className={`px-3 py-2.5 text-sm transition ${on ? 'bg-amber-500/10' : ''}`}>
+                  // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events -- the numbered button inside is the keyboard path; the row is a larger mouse target for the same action
+                  <li
+                    key={`${f.region}-${i}`}
+                    onMouseEnter={() => setActive(i)}
+                    onMouseLeave={() => setActive(null)}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest('a,button,textarea,input')) {
+                        return;
+                      }
+                      setPinned(p => (p === i ? null : i));
+                    }}
+                    className={`px-3 py-2.5 text-sm transition ${f.box ? 'cursor-zoom-in' : ''} ${pinned === i ? 'bg-amber-500/15 ring-1 ring-amber-500/40 ring-inset' : on ? 'bg-amber-500/10' : ''}`}
+                    title={f.box ? (pinned === i ? 'Click to zoom back out' : 'Click to zoom to this region') : undefined}
+                  >
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                       <button type="button" onClick={() => setPinned(p => (p === i ? null : i))} className="flex items-baseline gap-2 text-left">
                         <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[11px] font-bold text-white">{i + 1}</span>
                         <span className="font-medium">{f.region ?? 'region'}</span>
                       </button>
-                      <Badge variant="outline" className={`text-[11px] ${f.severity === 'blocking' ? 'text-red-600' : f.severity === 'info' ? 'text-muted-foreground' : 'text-amber-600'}`}>{f.issue ?? ''}</Badge>
+                      <Badge variant="outline" className={`text-[11px] ${f.issue === 'ok' ? 'text-emerald-600' : f.severity === 'blocking' ? 'text-red-600' : f.severity === 'info' ? 'text-muted-foreground' : 'text-amber-600'}`}>{f.issue === 'ok' ? 'ok after zoom' : (f.issue ?? '')}</Badge>
                       {!f.box && <span className="text-[11px] text-muted-foreground">no region marked</span>}
                       {pct(f.confidence) && <span className="ml-auto font-mono text-xs text-muted-foreground" title="How sure the model is about this specific finding">{`${pct(f.confidence)} sure`}</span>}
                     </div>
@@ -466,6 +623,15 @@ export function InspectionPhoto(props: Props) {
                         </div>
                       )}
                     </div>
+                    {f.crop_url && (
+                      <div className="mt-2 flex items-center gap-3">
+                        <a href={f.crop_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded border border-border"><img src={f.crop_url} alt={`zoomed crop of ${f.region ?? 'region'}`} className="h-20 w-28 object-cover" loading="lazy" /></a>
+                        <div className="text-[11px] text-muted-foreground">
+                          <div className="font-medium text-foreground">Zoomed to count</div>
+                          {f.zoom ? `${f.zoom.count} counted at ${f.zoom.scale}× · expected ${f.zoom.expected ?? '?'} · ${f.zoom.matches ? 'matches' : 'does not match'}` : 'crop-before-count pass'}
+                        </div>
+                      </div>
+                    )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {fb
                         ? (

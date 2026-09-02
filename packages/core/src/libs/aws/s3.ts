@@ -12,6 +12,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -94,6 +95,10 @@ export async function copyObject(opts: { bucket: string; fromKey: string; toKey:
     Key: opts.toKey,
     ...(opts.metadata ? { Metadata: opts.metadata, MetadataDirective: 'REPLACE' } : {}),
   }));
+}
+
+export async function putObject(opts: { bucket: string; key: string; body: Uint8Array; contentType: string; region?: string; metadata?: Record<string, string> }): Promise<void> {
+  await s3Client(opts.region).send(new PutObjectCommand({ Bucket: opts.bucket, Key: opts.key, Body: opts.body, ContentType: opts.contentType, Metadata: opts.metadata }));
 }
 
 export async function presignGet(opts: { bucket: string; key: string; region?: string; expiresIn?: number }): Promise<string> {
