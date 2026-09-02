@@ -15,6 +15,8 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatOpenAI } from '@langchain/openai';
+import { platformForLLMProvider } from '@/libs/platforms/registry';
+import { resolvePlatformKey } from '@/services/ApiTokenService';
 import { llmMode } from './replay';
 import { getReplayCache } from './replayCache';
 
@@ -132,6 +134,12 @@ export type BuildChatModelOptions = {
   streaming?: boolean;
   /** Cap on output tokens. Unset = the provider integration's default. */
   maxTokens?: number;
+  /**
+   * Provider key to authenticate with. Wins over the env var, and is how an
+   * org's own stored key reaches the model. Unset falls back to the server's
+   * key, which is the right answer for any org that has not supplied one.
+   */
+  apiKey?: string;
 };
 
 /**
@@ -159,7 +167,7 @@ export function buildChatModel(
 
   switch (provider) {
     case 'anthropic': {
-      const apiKey = process.env.ANTHROPIC_API_KEY ?? (mode === 'replay' ? 'replay-mode-no-key' : undefined);
+      const apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY ?? (mode === 'replay' ? 'replay-mode-no-key' : undefined);
       if (!apiKey) {
         throw new Error(`ANTHROPIC_API_KEY is not set; cannot construct chat model for role ${role}`);
       }
@@ -193,7 +201,7 @@ export function buildChatModel(
       }));
     }
     case 'openai': {
-      const apiKey = process.env.OPENAI_API_KEY ?? (mode === 'replay' ? 'replay-mode-no-key' : undefined);
+      const apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY ?? (mode === 'replay' ? 'replay-mode-no-key' : undefined);
       if (!apiKey) {
         throw new Error(`OPENAI_API_KEY is not set; cannot construct chat model for role ${role}`);
       }
@@ -206,6 +214,37 @@ export function buildChatModel(
       }));
     }
   }
+}
+
+/**
+ * Return a LangChain `BaseChatModel` for `role`, built on **the org's own
+ * provider key** when it has stored one and on the server's key otherwise.
+ *
+ * This is the per-request form of {@link buildChatModel}. Async because
+ * resolving the org's key means decrypting a row, so any call site that has an
+ * org id and is already inside an async function should prefer it — that is
+ * what puts a customer's model spend on the customer's own account.
+ *
+ * An explicit `opts.apiKey` still wins; the lookup is skipped entirely in that
+ * case.
+ * @param role - Which model role to build.
+ * @param orgId - The org the call is being made for.
+ * @param opts - The same overrides {@link buildChatModel} accepts.
+ */
+export async function buildChatModelForOrg(
+  role: ModelRole,
+  orgId: string,
+  opts: BuildChatModelOptions = {},
+): Promise<BaseChatModel> {
+  if (opts.apiKey) {
+    return buildChatModel(role, opts);
+  }
+  const provider = opts.provider ?? resolveProvider(role);
+  const platform = platformForLLMProvider(provider);
+  const apiKey = platform ? await resolvePlatformKey(orgId, platform.id) : null;
+  // `?? undefined` rather than passing null: an org with no stored key must
+  // fall through to the env var, not override it with an empty value.
+  return buildChatModel(role, { ...opts, provider, apiKey: apiKey ?? undefined });
 }
 
 /**

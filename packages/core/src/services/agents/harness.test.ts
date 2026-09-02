@@ -18,7 +18,11 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
-vi.mock('@/libs/llm', () => ({ buildChatModel: vi.fn(() => ({ stub: 'model' })) }));
+vi.mock('@/libs/llm', () => ({
+  buildChatModel: vi.fn(() => ({ stub: 'model' })),
+  // The harness resolves the org's own provider key before building the model.
+  buildChatModelForOrg: vi.fn(async () => ({ stub: 'model' })),
+}));
 vi.mock('@/services/agents/tools/registry', () => ({ buildDomainTools: vi.fn(() => []) }));
 vi.mock('deepagents', () => ({
   createDeepAgent: vi.fn((opts: unknown) => ({ compiled: true, opts })),

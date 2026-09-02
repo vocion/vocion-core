@@ -13,13 +13,14 @@
  * UI is a thin viewer over the rows.
  */
 
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
-import { buildChatModel } from '@/libs/llm';
+import { buildChatModelForOrg } from '@/libs/llm';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { evalCaseResultSchema, evalDatasetSchema, evalRunSchema } from '@/models/Schema';
 import { runAgentDeep } from './AgentService';
@@ -119,7 +120,7 @@ export async function runDataset(opts: {
     throw new Error('failed to create eval_run row');
   }
 
-  const judge = buildChatModel('classifier', { temperature: 0 });
+  const judge = await buildChatModelForOrg('classifier', opts.orgId, { temperature: 0 });
   const items = dataset.items ?? [];
   const latencies: number[] = [];
   let toolCallCount = 0;
@@ -215,7 +216,7 @@ export async function runDataset(opts: {
 /* ------------------------------------------------------------------ */
 
 async function scoreOne(
-  judge: ReturnType<typeof buildChatModel>,
+  judge: BaseChatModel,
   ctx: {
     input: string;
     response: string;

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
-import { buildChatModel } from '@/libs/llm';
+import { buildChatModelForOrg } from '@/libs/llm';
 import { agentSchema, knowledgeDocumentSchema, knowledgeSourceSchema, missionSchema, playbookSchema } from '@/models/Schema';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
 
@@ -450,7 +450,7 @@ async function gatherDeclaredContext(orgId: string, agentSlug: string): Promise<
 
 async function synthesizeViaModel(input: SynthesisInput, orgId: string, agentSlug: string): Promise<SynthesizedChip[]> {
   const { system, user } = buildSynthesisPrompt(input);
-  const model = buildChatModel('classifier', { temperature: 0, streaming: false, maxTokens: 1024 });
+  const model = await buildChatModelForOrg('classifier', orgId, { temperature: 0, streaming: false, maxTokens: 1024 });
 
   const trace = traceFor({
     feature: FEATURES.CHIP_SYNTHESIS,

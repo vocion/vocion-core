@@ -1703,11 +1703,21 @@ export const sourceSyncCheckpointSchema = pgTable(
 );
 
 /**
- * Tenant API tokens — the control-plane credential. An app (FirstHQ) or a
- * client integration authenticates with `vcn_live_<id>_<secret>`; we store only
- * the SHA-256 of the secret. A token carries an authz role + optional grants, so
- * its mutations route through the same permission model as everything else.
- * See firsthq/docs/platform-plan.md §5.
+ * Tenant API credentials. One table, two shapes, told apart by `platform`
+ * (see `libs/platforms/registry.ts`):
+ *
+ *   - `platform = 'vocion'` — the control-plane credential. An app (FirstHQ) or
+ *     a client integration authenticates with `vcn_live_<id>_<secret>`; we store
+ *     only the SHA-256 of the secret. The token carries an authz role + optional
+ *     grants, so its mutations route through the same permission model as
+ *     everything else. See firsthq/docs/platform-plan.md §5.
+ *   - any other platform — a key the org supplied for a third party (OpenAI,
+ *     Anthropic, …), encrypted at rest with the same per-org DEK that protects
+ *     `source_credential`. Vocion decrypts it to call out on the org's behalf,
+ *     so the org's own account is billed. These rows never authenticate anybody
+ *     into* Vocion; `verifyToken` refuses them outright.
+ *
+ * The `api_token_shape_ck` constraint keeps the two shapes from mixing.
  */
 export const apiTokenSchema = pgTable(
   'api_token',
@@ -1716,8 +1726,24 @@ export const apiTokenSchema = pgTable(
     id: text('id').primaryKey(),
     orgId: text('org_id').notNull(),
     name: text('name').notNull(),
-    /** SHA-256 hex of the secret half. The plaintext is shown once, at issue. */
-    secretHash: text('secret_hash').notNull(),
+    /** Which platform this credential belongs to. See `CredentialPlatformId`. */
+    platform: text('platform').default('vocion').notNull(),
+    /**
+     * SHA-256 hex of the secret half. The plaintext is shown once, at issue.
+     * Set only on `vocion` rows — a supplied third-party key is stored
+     * encrypted below instead, because we have to be able to read it back.
+     */
+    secretHash: text('secret_hash'),
+    /** FK to the DEK that encrypted `ciphertext`. Null on `vocion` rows. */
+    dekId: integer('dek_id').references(() => sourceDekSchema.id, { onDelete: 'restrict' }),
+    /** AES-256-GCM ciphertext of the supplied key. Null on `vocion` rows. */
+    ciphertext: text('ciphertext'),
+    /** AES-256-GCM nonce (12 bytes, base64). */
+    nonce: text('nonce'),
+    /** AES-256-GCM auth tag (16 bytes, base64). */
+    authTag: text('auth_tag'),
+    /** Masked tail of a supplied key, e.g. `…4a9F`, for display only. */
+    keyHint: text('key_hint'),
     /** authz workspace role the token acts as. */
     role: text('role').default('owner').notNull(),
     /** Explicit authz action grants (empty = the role's defaults). */
@@ -1736,6 +1762,14 @@ export const apiTokenSchema = pgTable(
   },
   table => [
     index('api_token_org_idx').on(table.orgId),
+    // One live credential per third-party platform per org, so resolving "the
+    // org's OpenAI key" is a single deterministic row rather than a guess.
+    // Revoked rows are excluded, which is what makes rotation possible: revoke
+    // the old key, store a new one. `vocion` rows are excluded too — an org is
+    // meant to hold as many Vocion tokens as it has integrations.
+    uniqueIndex('api_token_org_platform_live_idx')
+      .on(table.orgId, table.platform)
+      .where(sql`${table.revokedAt} is null and ${table.platform} <> 'vocion'`),
   ],
 );
 

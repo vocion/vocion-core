@@ -32,7 +32,7 @@ import { createDeepAgent, StateBackend } from 'deepagents';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { buildChatModel } from '@/libs/llm';
+import { buildChatModelForOrg } from '@/libs/llm';
 import { agentSchema, playbookSchema, projectSchema, teamSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
 import { mountSkills } from '@/services/playbooks/mount';
@@ -226,7 +226,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
 
   // Per-agent output cap from the harness block (falls back to the
   // langchain provider default when unset).
-  const model = buildChatModel('main', {
+  const model = await buildChatModelForOrg('main', orgId, {
     ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
   });
 

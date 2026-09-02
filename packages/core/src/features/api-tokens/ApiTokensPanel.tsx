@@ -1,17 +1,24 @@
 'use client';
 
 /**
- * Admin surface for tenant API tokens (`vcn_live_…`).
+ * Admin surface for an org's API credentials, in both directions.
  *
- * The whole point of this panel is that issuing a credential no longer needs
- * shell access: an admin names a token, picks how long it should live, copies
- * the secret once, and pastes it into whatever outside tool needs to call
- * Vocion. The secret is shown exactly once, right after creation — after a
- * reload only the hash exists, so the row can never show it again.
+ * **Vocion tokens.** Issuing a credential no longer needs shell access: an
+ * admin names a token, picks how long it should live, copies the secret once,
+ * and pastes it into whatever outside tool needs to call Vocion. The secret is
+ * shown exactly once, right after creation — after a reload only the hash
+ * exists, so the row can never show it again. An org may hold as many of these
+ * as it has integrations.
+ *
+ * **Platform keys.** The org's own OpenAI or Anthropic key, pasted here so
+ * their model runs bill their account. Exactly one live key per platform: the
+ * database enforces it, and this panel says so before you save and again when
+ * you are about to replace one, because the replacement takes effect instantly
+ * and silently otherwise.
  */
 
 import type { TokenSummary } from '@/services/ApiTokenService';
-import { Check, Copy, KeyRound, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, Copy, KeyRound, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,6 +49,28 @@ const EXPIRY_CHOICES: Array<{ value: string; label: string }> = [
 
 type FreshToken = { id: string; token: string; name: string };
 
+/** A platform option exactly as `apiTokens.listPlatforms` returns it. */
+type PlatformOption = {
+  id: string;
+  label: string;
+  keySource: 'minted' | 'supplied';
+  keyShapeHint: string;
+  helpText: string;
+  fields: PlatformField[];
+};
+
+/** One input a platform's credential is made of, as the server describes it. */
+type PlatformField = {
+  name: string;
+  label: string;
+  shapeHint: string;
+  /** A non-secret field (an AWS access key id) is shown back in full. */
+  secret: boolean;
+};
+
+/** The platform selected by default, and the only one Vocion mints itself. */
+const VOCION_PLATFORM_ID = 'vocion';
+
 /** Bounds for the custom date field, matching what the router will accept. */
 const CUSTOM_EXPIRY_MAX_YEARS = 10;
 
@@ -61,6 +90,28 @@ function tokenState(token: TokenSummary): TokenState {
     return 'expired';
   }
   return 'active';
+}
+
+/**
+ * The live credential a platform currently holds, or undefined when it holds
+ * none. "Live" means neither revoked nor expired — the same test the server
+ * applies when it goes looking for the org's key, so what this panel says is
+ * on file is what a model run will actually use.
+ * @param tokens - Every credential row for the org.
+ * @param platformId - The platform being asked about.
+ */
+function liveKeyFor(tokens: TokenSummary[], platformId: string): TokenSummary | undefined {
+  return tokens.find(token => token.platform === platformId && tokenState(token) === 'active');
+}
+
+/**
+ * The display name for a platform id. Falls back to the raw id so a row stored
+ * by an older build still renders something recognisable rather than blank.
+ * @param platforms - The options the server offered.
+ * @param platformId - The id stored on the credential row.
+ */
+function platformLabel(platforms: PlatformOption[], platformId: string): string {
+  return platforms.find(platform => platform.id === platformId)?.label ?? platformId;
 }
 
 /**
@@ -115,6 +166,24 @@ function dateFieldValue(yearsFromNow: number): string {
 
 const EARLIEST_EXPIRY_DATE = dateFieldValue(0);
 const LATEST_EXPIRY_DATE = dateFieldValue(CUSTOM_EXPIRY_MAX_YEARS);
+
+/**
+ * The submit button's text. It says what is about to happen, because "Save" on
+ * a platform that already holds a key would hide the fact that saving throws
+ * the old key away.
+ * @param isMinted - Whether Vocion generates this credential.
+ * @param replacing - Whether a live key for this platform is about to be replaced.
+ * @param busy - Whether the request is in flight.
+ */
+function submitLabel(isMinted: boolean, replacing: boolean, busy: boolean): string {
+  if (isMinted) {
+    return busy ? 'Creating…' : 'Create token';
+  }
+  if (replacing) {
+    return busy ? 'Replacing…' : 'Replace key';
+  }
+  return busy ? 'Saving…' : 'Save key';
+}
 
 /**
  * Human-readable label for a token's state.
@@ -180,11 +249,14 @@ function FreshTokenNotice({ fresh, onDismiss }: { fresh: FreshToken; onDismiss: 
 
 export function ApiTokensPanel() {
   const [tokens, setTokens] = useState<TokenSummary[]>([]);
+  const [platforms, setPlatforms] = useState<PlatformOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
+  const [platformId, setPlatformId] = useState(VOCION_PLATFORM_ID);
   const [name, setName] = useState('');
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [expiryChoice, setExpiryChoice] = useState('90');
   const [customDate, setCustomDate] = useState('');
   const [creating, setCreating] = useState(false);
@@ -192,11 +264,16 @@ export function ApiTokensPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      setTokens(await client.apiTokens.list());
+      const [rows, options] = await Promise.all([
+        client.apiTokens.list(),
+        client.apiTokens.listPlatforms(),
+      ]);
+      setTokens(rows);
+      setPlatforms(options);
       setError(null);
     } catch (err) {
-      console.error('[ApiTokensPanel] could not load tokens', err);
-      setError('Could not load API tokens.');
+      console.error('[ApiTokensPanel] could not load credentials', err);
+      setError('Could not load API credentials.');
     }
     setLoading(false);
   }, []);
@@ -207,28 +284,61 @@ export function ApiTokensPanel() {
     void refresh();
   }, [refresh]);
 
+  const selectedPlatform = platforms.find(platform => platform.id === platformId);
+  const isMinted = (selectedPlatform?.keySource ?? 'minted') === 'minted';
+  // Only meaningful for a supplied platform: a Vocion row is allowed to have
+  // as many siblings as the org wants.
+  const existingKey = isMinted ? undefined : liveKeyFor(tokens, platformId);
+
+  /**
+   * Reset the create form back to its opening state. Called after a successful
+   * save so a stale key never sits in a field, and on cancel for the same
+   * reason.
+   */
+  const resetForm = () => {
+    setName('');
+    setFieldValues({});
+    setCustomDate('');
+    setShowCreate(false);
+  };
+
   const onCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (existingKey) {
+      // eslint-disable-next-line no-alert
+      const proceed = window.confirm(
+        `${selectedPlatform?.label} already has a key on file (${existingKey.keyHint ?? 'saved'}).\n\n`
+        + 'Saving this one replaces it. The old key stops being used immediately and cannot be recovered.',
+      );
+      if (!proceed) {
+        return;
+      }
+    }
     setCreating(true);
     setError(null);
     try {
       const expiresAt = selectedExpiry(expiryChoice, customDate);
-      const created = await client.apiTokens.create({ name, expiresAt });
-      setFresh({ id: created.id, token: created.token, name: created.name });
-      setName('');
-      setCustomDate('');
-      setShowCreate(false);
+      if (isMinted) {
+        const created = await client.apiTokens.create({ name, expiresAt });
+        setFresh({ id: created.id, token: created.token, name: created.name });
+      } else {
+        await client.apiTokens.createPlatformKey({ name, platform: platformId, values: fieldValues, expiresAt });
+      }
+      resetForm();
       await refresh();
     } catch (err) {
-      console.error('[ApiTokensPanel] could not create token', err);
-      setError(err instanceof Error && err.message ? err.message : 'Could not create the token.');
+      console.error('[ApiTokensPanel] could not save credential', err);
+      setError(err instanceof Error && err.message ? err.message : 'Could not save the credential.');
     }
     setCreating(false);
   };
 
   const onRevoke = async (token: TokenSummary) => {
+    const consequence = token.platform === VOCION_PLATFORM_ID
+      ? 'Anything using it stops working immediately.'
+      : 'This workspace goes back to running on the Vocion server key immediately.';
     // eslint-disable-next-line no-alert
-    if (!window.confirm(`Revoke “${token.name}”? Anything using it stops working immediately.`)) {
+    if (!window.confirm(`Revoke “${token.name}”? ${consequence}`)) {
       return;
     }
     setError(null);
@@ -242,7 +352,7 @@ export function ApiTokensPanel() {
   };
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading API tokens…</p>;
+    return <p className="text-sm text-muted-foreground">Loading API credentials…</p>;
   }
 
   return (
@@ -255,6 +365,8 @@ export function ApiTokensPanel() {
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
+            <TableHead>Platform</TableHead>
+            <TableHead>Key</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Expires</TableHead>
             <TableHead>Last used</TableHead>
@@ -268,6 +380,10 @@ export function ApiTokensPanel() {
             return (
               <TableRow key={token.id}>
                 <TableCell className="font-medium">{token.name}</TableCell>
+                <TableCell>{platformLabel(platforms, token.platform)}</TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">
+                  {token.keyHint ?? 'Vocion-issued'}
+                </TableCell>
                 <TableCell>
                   <Badge variant={state === 'active' ? 'default' : 'secondary'}>
                     {stateLabel(state)}
@@ -289,8 +405,8 @@ export function ApiTokensPanel() {
           })}
           {tokens.length === 0 && (
             <TableRow>
-              <TableCell colSpan={6} className="text-sm text-muted-foreground">
-                No API tokens yet.
+              <TableCell colSpan={8} className="text-sm text-muted-foreground">
+                No API credentials yet.
               </TableCell>
             </TableRow>
           )}
@@ -300,6 +416,38 @@ export function ApiTokensPanel() {
       {showCreate
         ? (
             <form onSubmit={onCreate} className="space-y-4 rounded-md border p-4">
+              <div className="space-y-2">
+                <Label htmlFor="token-platform">Platform</Label>
+                <select
+                  id="token-platform"
+                  value={platformId}
+                  onChange={e => setPlatformId(e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                >
+                  {platforms.map(platform => (
+                    <option key={platform.id} value={platform.id}>{platform.label}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  {selectedPlatform?.helpText}
+                </p>
+                {!isMinted && !existingKey && (
+                  <p className="text-xs text-muted-foreground">
+                    {`A workspace holds one ${selectedPlatform?.label} key at a time.`}
+                  </p>
+                )}
+                {existingKey && (
+                  <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                    <span>
+                      {`A workspace holds one ${selectedPlatform?.label} key at a time, and this one already has `}
+                      <span className="font-mono">{existingKey.keyHint ?? 'a key'}</span>
+                      {' on file. Saving replaces it — the old key stops being used immediately.'}
+                    </span>
+                  </p>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="token-name">Name</Label>
                 <Input
@@ -311,9 +459,32 @@ export function ApiTokensPanel() {
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  Name it after whatever will use it, so you know what breaks when you revoke it.
+                  {isMinted
+                    ? 'Name it after whatever will use it, so you know what breaks when you revoke it.'
+                    : 'Name it after the account the key belongs to, so you know whose bill it lands on.'}
                 </p>
               </div>
+
+              {(selectedPlatform?.fields ?? []).map(field => (
+                <div key={field.name} className="space-y-2">
+                  <Label htmlFor={`platform-field-${field.name}`}>{field.label}</Label>
+                  <Input
+                    id={`platform-field-${field.name}`}
+                    type={field.secret ? 'password' : 'text'}
+                    value={fieldValues[field.name] ?? ''}
+                    onChange={e => setFieldValues(current => ({ ...current, [field.name]: e.target.value }))}
+                    placeholder={field.secret ? 'Paste the value' : field.shapeHint}
+                    autoComplete="off"
+                    spellCheck={false}
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {field.secret
+                      ? `Expected shape: ${field.shapeHint}. Stored encrypted — after saving, only the last four characters are ever shown.`
+                      : `Expected shape: ${field.shapeHint}. Not a secret, so this one stays readable.`}
+                  </p>
+                </div>
+              ))}
 
               <div className="space-y-2">
                 <Label htmlFor="token-expiry">Expires</Label>
@@ -348,16 +519,18 @@ export function ApiTokensPanel() {
                 )}
                 {expiryChoice === 'never' && (
                   <p className="text-xs text-muted-foreground">
-                    A token with no expiry works until it is revoked.
+                    {isMinted
+                      ? 'A token with no expiry works until it is revoked.'
+                      : 'A key with no expiry is used until it is revoked or replaced.'}
                   </p>
                 )}
               </div>
 
               <div className="flex gap-2">
                 <Button type="submit" size="sm" disabled={creating}>
-                  {creating ? 'Creating…' : 'Create token'}
+                  {submitLabel(isMinted, Boolean(existingKey), creating)}
                 </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setShowCreate(false)}>
+                <Button type="button" variant="ghost" size="sm" onClick={resetForm}>
                   Cancel
                 </Button>
               </div>
@@ -366,7 +539,7 @@ export function ApiTokensPanel() {
         : (
             <Button size="sm" onClick={() => setShowCreate(true)}>
               <KeyRound className="size-3.5" />
-              Create token
+              Add credential
             </Button>
           )}
     </div>

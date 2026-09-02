@@ -21,7 +21,8 @@ vi.mock('./AuthGuards', () => ({
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema } = await import('@/models/Schema');
 const { guardAuth } = await import('./AuthGuards');
-const { createTokenRoute, listTokensRoute, revokeTokenRoute } = await import('./ApiTokens');
+const { sourceDekSchema } = await import('@/models/Schema');
+const { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revokeTokenRoute } = await import('./ApiTokens');
 const { issueToken } = await import('@/services/ApiTokenService');
 
 const ORG = 'org_router_test';
@@ -137,5 +138,94 @@ describe('apiTokens routes', () => {
     const { verifyToken } = await import('@/services/ApiTokenService');
 
     expect(await verifyToken(theirs.token)).not.toBeNull();
+  });
+});
+
+/**
+ * Platform-key routes. Storing an OpenAI key is the same privilege escalation
+ * as minting a Vocion token — arguably worse, since it redirects where a
+ * workspace's model spend lands — so the admin gate matters just as much here.
+ */
+describe('platform key routes', () => {
+  const OPENAI_KEY = 'sk-abcdefghijklmnop1234';
+
+  beforeEach(async () => {
+    await db.delete(apiTokenSchema);
+    await db.delete(sourceDekSchema);
+  });
+
+  it('offers the platform list to any signed-in member', async () => {
+    signedInAs('member');
+    const options = await call<Array<{ id: string; keySource: string; fields: Array<{ name: string }> }>>(listPlatformsRoute, undefined);
+
+    expect(options.map(option => option.id)).toContain('openai');
+    expect(options.find(option => option.id === 'vocion')?.keySource).toBe('minted');
+  });
+
+  it('describes each platform fields so the form does not hardcode them', async () => {
+    signedInAs('member');
+    const options = await call<Array<{ id: string; keySource: string; fields: Array<{ name: string }> }>>(listPlatformsRoute, undefined);
+    const aws = options.find(option => option.id === 'aws');
+
+    expect(aws?.fields.map(field => field.name)).toEqual(['accessKeyId', 'secretAccessKey']);
+  });
+
+  it('stores a key for an admin and returns only the masked hint', async () => {
+    signedInAs('admin');
+    const saved = await call<{ keyHint: string }>(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+      expiresAt: null,
+    });
+
+    expect(saved.keyHint).toBe('…1234');
+    expect(JSON.stringify(saved)).not.toContain(OPENAI_KEY);
+  });
+
+  it('refuses a member', async () => {
+    signedInAs('member');
+
+    await expect(call(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+      expiresAt: null,
+    })).rejects.toThrow();
+
+    expect(await db.select().from(apiTokenSchema)).toHaveLength(0);
+  });
+
+  it('passes the shape complaint back to the person pasting', async () => {
+    signedInAs('admin');
+
+    await expect(call(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: 'nonsense' },
+      expiresAt: null,
+    })).rejects.toThrow(/does not look like a valid OpenAI key/);
+  });
+
+  it('rejects an unknown platform at the input boundary', async () => {
+    signedInAs('admin');
+
+    await expect(call(createPlatformKeyRoute, {
+      name: 'Mystery',
+      platform: 'mystery-llm',
+      values: { apiKey: 'anything' },
+      expiresAt: null,
+    })).rejects.toThrow();
+  });
+
+  it('applies the same expiry rules as a minted token', async () => {
+    signedInAs('admin');
+
+    await expect(call(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    })).rejects.toThrow(/future/);
   });
 });
