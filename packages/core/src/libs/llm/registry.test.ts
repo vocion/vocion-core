@@ -11,7 +11,7 @@ const { db } = await import('@/libs/DB');
 const { apiTokenSchema, sourceDekSchema } = await import('@/models/Schema');
 const { storePlatformKey } = await import('@/services/ApiTokenService');
 const { buildChatModel, buildChatModelForOrg, withPromptCache } = await import('./langchain');
-const { getLLMClient, getLLMClientForOrg, resetLLMClients, resolveOrgProviderKey } = await import('./registry');
+const { getLLMClient, getLLMClientForOrg, resolveOrgProviderKey } = await import('./registry');
 
 /**
  * Provider registry tests — construction + error paths. We don't hit real
@@ -20,10 +20,6 @@ const { getLLMClient, getLLMClientForOrg, resetLLMClients, resolveOrgProviderKey
 describe('getLLMClient', () => {
   const originalOpenAI = process.env.OPENAI_API_KEY;
   const originalAnthropic = process.env.ANTHROPIC_API_KEY;
-
-  beforeEach(() => {
-    resetLLMClients();
-  });
 
   afterEach(() => {
     if (originalOpenAI === undefined) {
@@ -73,21 +69,13 @@ describe('getLLMClient', () => {
     expect(() => getLLMClient('azure-openai')).toThrow(/not yet implemented/);
   });
 
-  it('reuses the same cached client across calls on the same key', () => {
+  it('builds a fresh client per call, so no client is ever shared', () => {
+    // The old per-provider singleton is gone on purpose: it was the thing that
+    // would have handed one tenant's client to another once keys became
+    // per-org. Fresh construction is the guarantee.
     process.env.OPENAI_API_KEY = 'sk-test';
-    const a = getLLMClient('openai');
-    const b = getLLMClient('openai');
 
-    expect(a).toBe(b);
-  });
-
-  it('builds a different client when the env key changes', () => {
-    process.env.OPENAI_API_KEY = 'sk-first';
-    const first = getLLMClient('openai');
-    process.env.OPENAI_API_KEY = 'sk-second';
-    const second = getLLMClient('openai');
-
-    expect(first).not.toBe(second);
+    expect(getLLMClient('openai')).not.toBe(getLLMClient('openai'));
   });
 });
 
@@ -105,7 +93,6 @@ describe('getLLMClientForOrg', () => {
   const originalOpenAI = process.env.OPENAI_API_KEY;
 
   beforeEach(async () => {
-    resetLLMClients();
     await db.delete(apiTokenSchema);
     await db.delete(sourceDekSchema);
     process.env.OPENAI_API_KEY = 'sk-server-key-fallback';
@@ -123,7 +110,7 @@ describe('getLLMClientForOrg', () => {
 
   it('falls back to the server key when the org has stored none', async () => {
     expect(await resolveOrgProviderKey('openai', ORG_A)).toBeNull();
-    expect(await getLLMClientForOrg('openai', ORG_A)).toBe(getLLMClient('openai'));
+    expect((await getLLMClientForOrg('openai', ORG_A)).provider).toBe('openai');
   });
 
   it('resolves the org own key once it is stored', async () => {
@@ -132,32 +119,21 @@ describe('getLLMClientForOrg', () => {
     expect(await resolveOrgProviderKey('openai', ORG_A)).toBe(KEY_A);
   });
 
-  it('never hands one org the client built on another org key', async () => {
+  it('resolves each org to its own key, never the other org key', async () => {
     await storePlatformKey({ orgId: ORG_A, name: 'a', platform: 'openai', apiKey: KEY_A });
     await storePlatformKey({ orgId: ORG_B, name: 'b', platform: 'openai', apiKey: KEY_B });
 
-    const clientA = await getLLMClientForOrg('openai', ORG_A);
-    const clientB = await getLLMClientForOrg('openai', ORG_B);
-
-    expect(clientA).not.toBe(clientB);
-    // Neither is the server-key client either.
-    expect(clientA).not.toBe(getLLMClient('openai'));
+    expect(await resolveOrgProviderKey('openai', ORG_A)).toBe(KEY_A);
+    expect(await resolveOrgProviderKey('openai', ORG_B)).toBe(KEY_B);
   });
 
-  it('reuses one client for repeated calls by the same org', async () => {
+  it('picks up a rotated key on the very next call, with nothing to invalidate', async () => {
     await storePlatformKey({ orgId: ORG_A, name: 'a', platform: 'openai', apiKey: KEY_A });
 
-    expect(await getLLMClientForOrg('openai', ORG_A)).toBe(await getLLMClientForOrg('openai', ORG_A));
-  });
-
-  it('picks up a rotated key without a restart', async () => {
-    await storePlatformKey({ orgId: ORG_A, name: 'a', platform: 'openai', apiKey: KEY_A });
-    const before = await getLLMClientForOrg('openai', ORG_A);
+    expect(await resolveOrgProviderKey('openai', ORG_A)).toBe(KEY_A);
 
     await storePlatformKey({ orgId: ORG_A, name: 'a rotated', platform: 'openai', apiKey: KEY_B });
-    const after = await getLLMClientForOrg('openai', ORG_A);
 
-    expect(after).not.toBe(before);
     expect(await resolveOrgProviderKey('openai', ORG_A)).toBe(KEY_B);
   });
 
@@ -166,7 +142,8 @@ describe('getLLMClientForOrg', () => {
     const { revokeToken } = await import('@/services/ApiTokenService');
     await revokeToken(ORG_A, id);
 
-    expect(await getLLMClientForOrg('openai', ORG_A)).toBe(getLLMClient('openai'));
+    expect(await resolveOrgProviderKey('openai', ORG_A)).toBeNull();
+    expect((await getLLMClientForOrg('openai', ORG_A)).provider).toBe('openai');
   });
 
   it('refuses a provider we have no adapter for, even with a key on file', async () => {

@@ -1,5 +1,4 @@
 import type { LLMClient, LLMProviderName } from '@vocion/sdk';
-import { createHash } from 'node:crypto';
 import process from 'node:process';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
@@ -9,64 +8,27 @@ import { anthropicClient } from './anthropic';
 import { openaiClient } from './openai';
 
 /**
- * Provider clients, cached so a skill run does not re-run a constructor and
- * re-open a TCP pool on every call.
+ * Provider clients are constructed per call.
  *
- * Two things can vary per client: the provider, and **whose key it holds**. An
- * org that has stored its own OpenAI key gets a client built on that key; every
- * other org shares the client built on the server's env key. So the cache is
- * keyed on the provider plus a fingerprint of the key in use — never on the
- * provider alone. That is what keeps one tenant's client from being handed to
- * another, and it also makes rotation free: a new key is a new fingerprint, so
- * the stale client is simply never looked up again.
+ * There used to be one cached client per provider, which saved a constructor
+ * and shared a TCP pool. That cache is gone, and deliberately: resolving an
+ * org's own key now means a database read and an AES decrypt on every call, so
+ * the constructor was never the expensive part — and a cache keyed on anything
+ * less than the exact key in use is how one tenant ends up holding another
+ * tenant's client. Building fresh is cheap, correct, and makes a revoked or
+ * rotated key take effect on the very next call with nothing to invalidate.
  *
  * Unconfigured providers throw on first use with a clear message about which
  * env var is missing. Vertex + azure-openai are registered as "not yet
  * implemented" placeholders so plugin authors can declare the intent today; we
  * ship the adapters when a real customer needs them.
- */
-
-/**
- * Ceiling on cached clients. One per provider per distinct key, so this only
- * grows with the number of orgs holding their own keys. When it fills, the
- * oldest entry goes — a evicted client just gets rebuilt on next use.
- */
-const MAX_CACHED_CLIENTS = 200;
-
-const clientCache = new Map<string, LLMClient>();
-
-/**
- * Short, non-reversible stand-in for a key, used only as a cache key. Never
- * logged, never returned — but a hash rather than the key itself means the
- * secret is not sitting in a Map key for a heap dump to find.
- * @param apiKey - The provider key the client will be built on.
- */
-function keyFingerprint(apiKey: string): string {
-  return createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
-}
-
-/**
- * Build a client for `provider` on `apiKey`, or return the cached one.
  * @param provider - Which provider to construct.
  * @param apiKey - The key the client authenticates with.
  */
-function cachedClient(provider: LLMProviderName, apiKey: string): LLMClient {
-  const cacheKey = `${provider}:${keyFingerprint(apiKey)}`;
-  const cached = clientCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-  const client = provider === 'openai'
+function buildClient(provider: LLMProviderName, apiKey: string): LLMClient {
+  return provider === 'openai'
     ? openaiClient(new OpenAI({ apiKey }))
     : anthropicClient(new Anthropic({ apiKey }));
-  if (clientCache.size >= MAX_CACHED_CLIENTS) {
-    const oldest = clientCache.keys().next();
-    if (!oldest.done) {
-      clientCache.delete(oldest.value);
-    }
-  }
-  clientCache.set(cacheKey, client);
-  return client;
 }
 
 /**
@@ -114,7 +76,7 @@ export function getLLMClient(provider: LLMProviderName): LLMClient {
   if (!apiKey) {
     refuseProvider(provider);
   }
-  return cachedClient(provider, apiKey);
+  return buildClient(provider, apiKey);
 }
 
 /**
@@ -138,7 +100,7 @@ export async function getLLMClientForOrg(provider: LLMProviderName, orgId: strin
   if (!apiKey) {
     return getLLMClient(provider);
   }
-  return cachedClient(provider, apiKey);
+  return buildClient(provider, apiKey);
 }
 
 /**
@@ -159,11 +121,6 @@ export async function resolveOrgProviderKey(
     return null;
   }
   return resolvePlatformKey(orgId, platform.id);
-}
-
-/** Reset cached clients — test-only escape hatch. */
-export function resetLLMClients(): void {
-  clientCache.clear();
 }
 
 /* ------------------------------------------------------------------ */
