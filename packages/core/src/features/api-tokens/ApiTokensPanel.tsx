@@ -317,12 +317,15 @@ export function ApiTokensPanel() {
     setCreating(true);
     setError(null);
     try {
-      const expiresAt = selectedExpiry(expiryChoice, customDate);
       if (isMinted) {
-        const created = await client.apiTokens.create({ name, expiresAt });
+        const created = await client.apiTokens.create({
+          name,
+          expiresAt: selectedExpiry(expiryChoice, customDate),
+        });
         setFresh({ id: created.id, token: created.token, name: created.name });
       } else {
-        await client.apiTokens.createPlatformKey({ name, platform: platformId, values: fieldValues, expiresAt });
+        // No expiry: the platform that issued the key owns its lifetime.
+        await client.apiTokens.createPlatformKey({ name, platform: platformId, values: fieldValues });
       }
       resetForm();
       await refresh();
@@ -389,7 +392,14 @@ export function ApiTokensPanel() {
                     {stateLabel(state)}
                   </Badge>
                 </TableCell>
-                <TableCell>{formatDate(token.expiresAt)}</TableCell>
+                <TableCell>
+                  {token.platform === VOCION_PLATFORM_ID
+                    ? formatDate(token.expiresAt)
+                    // A supplied key has no expiry of ours, and printing
+                    // "Never" would overclaim — the platform that issued it can
+                    // still expire it out from under us.
+                    : <span className="text-muted-foreground">—</span>}
+                </TableCell>
                 <TableCell>{token.lastUsedAt ? formatDate(token.lastUsedAt) : 'Never used'}</TableCell>
                 <TableCell>{formatDate(token.createdAt)}</TableCell>
                 <TableCell>
@@ -486,45 +496,51 @@ export function ApiTokensPanel() {
                 </div>
               ))}
 
-              <div className="space-y-2">
-                <Label htmlFor="token-expiry">Expires</Label>
-                <select
-                  id="token-expiry"
-                  value={expiryChoice}
-                  onChange={e => setExpiryChoice(e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                >
-                  {EXPIRY_CHOICES.map(choice => (
-                    <option key={choice.value} value={choice.value}>{choice.label}</option>
-                  ))}
-                </select>
-                {expiryChoice === 'custom' && (
-                  <>
-                    <Input
-                      type="date"
-                      aria-label="Custom expiry date"
-                      value={customDate}
-                      onChange={e => setCustomDate(e.target.value)}
-                      // The picker cannot reach a past day, and stops at the
-                      // same ten-year ceiling the router enforces. Today is
-                      // allowed: a custom date expires at the end of that day.
-                      min={EARLIEST_EXPIRY_DATE}
-                      max={LATEST_EXPIRY_DATE}
-                      required
-                    />
+              {!isMinted && (
+                <p className="text-xs text-muted-foreground">
+                  {`No expiry to set — ${selectedPlatform?.label} decides when this key stops working. Revoke it here, or replace it, when you want Vocion to stop using it.`}
+                </p>
+              )}
+
+              {isMinted && (
+                <div className="space-y-2">
+                  <Label htmlFor="token-expiry">Expires</Label>
+                  <select
+                    id="token-expiry"
+                    value={expiryChoice}
+                    onChange={e => setExpiryChoice(e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  >
+                    {EXPIRY_CHOICES.map(choice => (
+                      <option key={choice.value} value={choice.value}>{choice.label}</option>
+                    ))}
+                  </select>
+                  {expiryChoice === 'custom' && (
+                    <>
+                      <Input
+                        type="date"
+                        aria-label="Custom expiry date"
+                        value={customDate}
+                        onChange={e => setCustomDate(e.target.value)}
+                        // The picker cannot reach a past day, and stops at the
+                        // same ten-year ceiling the router enforces. Today is
+                        // allowed: a custom date expires at the end of that day.
+                        min={EARLIEST_EXPIRY_DATE}
+                        max={LATEST_EXPIRY_DATE}
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        The token expires at the end of the day you pick.
+                      </p>
+                    </>
+                  )}
+                  {expiryChoice === 'never' && (
                     <p className="text-xs text-muted-foreground">
-                      The token expires at the end of the day you pick.
+                      A token with no expiry works until it is revoked.
                     </p>
-                  </>
-                )}
-                {expiryChoice === 'never' && (
-                  <p className="text-xs text-muted-foreground">
-                    {isMinted
-                      ? 'A token with no expiry works until it is revoked.'
-                      : 'A key with no expiry is used until it is revoked or replaced.'}
-                  </p>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex gap-2">
                 <Button type="submit" size="sm" disabled={creating}>

@@ -154,12 +154,9 @@ export const createPlatformKeyRoute = os
     platform: z.string().refine(isCredentialPlatformId, 'Unknown platform.'),
     /** Field values keyed by the platform's field names, e.g. `{ apiKey }`. */
     values: z.record(z.string(), z.string().min(1).max(8192)),
-    /** ISO datetime, or null for a key with no expiry. */
-    expiresAt: z.string().nullable(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardTokenAdmin();
-    const expiresAt = readExpiry(input.expiresAt);
     try {
       const { id, keyHint } = await storePlatformKey({
         orgId,
@@ -167,9 +164,15 @@ export const createPlatformKeyRoute = os
         platform: input.platform as CredentialPlatformId,
         values: input.values,
         createdBy: userId,
-        expiresAt,
+        // A supplied key never carries an expiry of ours. The platform that
+        // issued it owns its lifetime — OpenAI decides when an `sk-` key stops
+        // working — so a second expiry here could only ever be wrong: it would
+        // stop us using a key that is still perfectly valid at the vendor, and
+        // the person who set it has no way to see that is what happened.
+        // Revoking or replacing is how a supplied key ends.
+        expiresAt: null,
       });
-      return { id, name: input.name, platform: input.platform, keyHint, expiresAt };
+      return { id, name: input.name, platform: input.platform, keyHint };
     } catch (error) {
       // The validation errors from the registry are written for the person
       // pasting the key and name no secret, so they are safe to pass through.
