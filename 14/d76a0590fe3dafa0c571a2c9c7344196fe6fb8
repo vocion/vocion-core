@@ -1,0 +1,26 @@
+packages/core/src/features/personalization/LeadContext.tsx
+  s_8c230ca8a3ac3c::t_6093096fc94253 1-38,40-73,79-134,142-228
+  s_8c230ca8a3ac3c::t_ccdc1f155fa9dd 74-78,135-141
+  s_8c230ca8a3ac3c::t_17d96c4de2efe1 39
+packages/core/src/features/personalization/PersonalizationQueue.tsx
+  s_8c230ca8a3ac3c::t_60e5d23bd9b6c9 105
+  s_8c230ca8a3ac3c::t_992b663b19672b 115
+  s_8c230ca8a3ac3c::t_626c865ba3b0fd 13
+  s_8c230ca8a3ac3c::t_b0b9e2958e5455 193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "14d76a0590fe3dafa0c571a2c9c7344196fe6fb8",
+  "prompts": {},
+  "sessions": {
+    "s_8c230ca8a3ac3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f401c65f-a13c-4893-840f-e4e9b5880b2f",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
