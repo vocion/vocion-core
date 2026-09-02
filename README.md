@@ -6,7 +6,7 @@ Context as code. Skills as plugins. Review surfaces built in.
 
 ## What this is
 
-Vocion is a Next.js app + Postgres schema + MCP server + workflow runner. You author your work — **Sources, Objects, Skills, Workflows, Agents, and Missions** — as YAML + markdown in git, apply it to the database, and get a typed runtime with a unified human-review queue, observability, and a plugin ecosystem.
+Vocion is a Next.js app + Postgres schema + MCP server + workflow runner. You author your work — **Sources, Objects, Skills, Playbooks, Workflows, Missions, Automations, Agents, and Teams** — as YAML + markdown in git, apply it to the database, and get a typed runtime with a unified human-review queue, observability, and a plugin ecosystem.
 
 It's built for the part most agent frameworks skip — **operating** AI in production:
 
@@ -26,21 +26,32 @@ This repo is `@vocion/core`. The full platform is layered:
 | `@vocion/plugin-*` | `packages/plugins/*` | Connectors + skills shipped as separate npm packages |
 | `vocion-starter` | separate repo (planned) | Forkable example install — quick start in 10 minutes |
 
-See [`docs/reference/repo-architecture.md`](./docs/reference/repo-architecture.md) for the full layered model + versioning + compatibility rules.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the layered model, versioning, and compatibility rules.
 
-## The five resources
+## What you author
 
-Everything you author lives in a **workspace** — a git-backed directory of YAML + markdown that sits *outside* this repo, at the peer level of the checkout (`../workspace/<org>/`). Scaffold one with `npm run workspace:scaffold -- <name>`; see [`docs/workspace.md`](./docs/workspace.md) for the full authoring guide.
+Everything you author lives in a **workspace** — a git-backed directory of YAML + markdown that sits *outside* this repo, at the peer level of the checkout (`../workspace/<org>/`). Scaffold one with `npm run workspace:scaffold -- <name>`; see [`docs/workspace.md`](./docs/workspace.md) for the authoring guide and [`docs/entities/`](./docs/entities/) for a field-by-field reference of every file type.
 
-| Block | Path | Shape |
+| Entity | Path (inside `workspace/<org>/`) | Shape |
 |---|---|---|
-| **Source** | `workspace/<org>/sources/<slug>/source.yaml` | Auth, retrieval overrides, indexing filters |
-| **Object** | `workspace/<org>/objects/<slug>/type.yaml` | Business entity (Account, Deal, …) with source weights |
-| **Skill** | `workspace/<org>/skills/<slug>/skill.yaml` + `prompt.md` | LLM-powered unit of work, typed input/output |
-| **Workflow** | `workspace/<org>/workflows/<slug>/workflow.yaml` | Sequence of skills + HITL approve gates |
-| **Agent** | `workspace/<org>/agents/<slug>.yaml` + `<slug>.system-prompt.md` | LLM orchestrator wiring skills + workflows |
+| **[Workspace manifest](./docs/entities/workspace-manifest.md)** | `workspace.yaml` | Org id, name, workspace lead, defaults, dashboard surfaces, base-pack pin |
+| **[Agent](./docs/entities/agent.md)** | `agents/<slug>.yaml` + `<slug>.system-prompt.md` | LLM orchestrator: prompt, hierarchy, skills, sources, harness settings |
+| **[Team](./docs/entities/team.md)** | `teams/<slug>.yaml` | Agents grouped under a lead, with an accountable human |
+| **[Skill](./docs/entities/skill.md)** | `skills/<slug>/SKILL.md` | Frontmatter + markdown procedure, read on the model's judgement |
+| **[Playbook](./docs/entities/playbook.md)** | `playbooks/<slug>/SKILL.md` | Standing context attached to a skill or an agent by name |
+| **[Mission](./docs/entities/mission.md)** | `missions/<slug>.yaml` | Standing responsibility: goal, success criteria, autonomy level |
+| **[Workflow](./docs/entities/workflow.md)** | `workflows/<slug>/workflow.yaml` | Deterministic steps with approve / ask gates |
+| **[Automation](./docs/entities/automation.md)** | `automations/<slug>.yaml` | The only place time and events live: `when` → `do` |
+| **[Object type](./docs/entities/object-type.md)** | `objects/<slug>/type.yaml` | Business entity (Account, Deal, …) with source weights + classification prompt |
+| **[Source](./docs/entities/source.md)** | `sources/<slug>.yaml` | Connector kind, config, sync + reconcile cadence, per-source access (no credentials) |
+| **[Trust rules](./docs/entities/trust.md)** | `trust.yaml` | Which actions may auto-execute, and above what confidence |
+| **[Learning step](./docs/entities/learning-step.md)** | `learnings/<name>.yaml` | Named bucket of accumulated rules an agent reads |
+| **[Eval dataset](./docs/entities/eval-dataset.md)** | `evals/<slug>.yaml` | Per-agent test cases for `npm run eval:run` |
+| **[Workspace page](./docs/workspace-pages.md)** | `pages/<slug>.yaml` | Tenant-defined dashboard page, derived from a core archetype (file-only) |
 
-Apply to DB with `npm run workspace:apply -- <path> --project <id|slug>`. Every apply records a `workspace_version` audit row; every `skill_run` stamps the `workspace_sha` so any output traces back to the exact prompts that produced it.
+A **[base pack](./docs/entities/base-pack.md)** ships inside core at `packages/core/templates/base/` and layers *underneath* a workspace: pin it with `extends: core@<version>`, activate the agents you want with `use:`, and override any default with a same-slug file marked `extends: core`.
+
+Apply to DB with `npm run workspace:apply -- <path> --project <id|slug>`. Every apply records a `workspace_version` audit row; every `tool_call` stamps the `workspace_sha` so any output traces back to the exact prompts that produced it.
 
 ## Plugin contract
 
@@ -71,7 +82,7 @@ export default {
 } satisfies PluginManifest;
 ```
 
-See [`docs/guides/writing-a-plugin.md`](./docs/guides/writing-a-plugin.md) for the full authoring guide.
+The reference plugin lives at `packages/plugins/transcript-highlights/`; the contract it implements is `@vocion/sdk`.
 
 ## Getting started
 
@@ -103,9 +114,9 @@ npm run dev:next
 # → http://localhost:3000
 ```
 
-The workspace is where all tenant context lives — agents, operations, playbooks, workflows, object types. It's a separate git-tracked directory (usually its own repo, or a directory in the deployment repo that carries vocion-core as a submodule), so client context is reviewable in PRs and never mixed into core. Set `WORKSPACE_PATH` wherever the app runs; without it no workspace is configured. Authoring guide: [`docs/workspace.md`](./docs/workspace.md).
+The workspace is where all tenant context lives — agents, teams, skills, playbooks, missions, workflows, automations, object types, sources. It's a separate git-tracked directory (usually its own repo, or a directory in the deployment repo that carries vocion-core as a submodule), so client context is reviewable in PRs and never mixed into core. Set `WORKSPACE_PATH` wherever the app runs; without it no workspace is configured. Authoring guide: [`docs/workspace.md`](./docs/workspace.md).
 
-Full install topology, env vars, production deploy, and troubleshooting: [`docs/guides/self-hosting.md`](./docs/guides/self-hosting.md).
+Environment topology and deploy patterns: [`docs/deployment/multiple-environments.md`](./docs/deployment/multiple-environments.md) and [`docs/deployment/parent-project-pattern.md`](./docs/deployment/parent-project-pattern.md).
 
 ## MCP server
 
@@ -132,7 +143,7 @@ For an app or a client integration to drive Vocion — start work, approve, mana
 
 ## Retrieval
 
-Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with reciprocal rank fusion across the two arms, optional LLM rerank. No third-party retrieval engine. Swap embedders, rerankers, chunking strategies per-org or per-source via `workspace/<org>/retrieval.yaml` — no code change needed.
+Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with reciprocal rank fusion across the two arms, optional LLM rerank. No third-party retrieval engine. Embedding and rerank models are environment-level knobs (`VOCION_EMBEDDING_MODEL`, `VOCION_RERANK_MODEL`); per-type and per-agent retrieval weighting is authored in the workspace (`sourceRelevance` on an object type, `searchConfig` on an agent) — no code change needed.
 
 ## Tech stack
 
@@ -154,7 +165,7 @@ packages/
     └── transcript-highlights/   # Reference sample plugin
 
 workspace/<org>/                   # Tenant-owned YAML + markdown (per-tenant workspace repo)
-docs/                            # Concepts, guides, reference
+docs/                            # Workspace guide, per-entity reference, object model, deployment
 ```
 
 ## License
@@ -181,9 +192,11 @@ grant trademark rights.
 ## Docs
 
 - [`docs/README.md`](./docs/README.md) — docs index
-- [`docs/concepts/`](./docs/concepts/) — the five resources, one page each (~15 min read end-to-end)
-- [`docs/guides/`](./docs/guides/) — quickstart, authoring, plugin, self-hosting, tenant extraction
-- [`docs/reference/`](./docs/reference/) — MCP tools, repo architecture, retrieval config, auth
+- [`docs/workspace.md`](./docs/workspace.md) — workspace-as-code: create, author, apply, base packs, commands
+- [`docs/entities/`](./docs/entities/) — one page per authored entity type, field by field
+- [`docs/object-model.md`](./docs/object-model.md) — where every object is authored, stored, executed, and shown
+- [`docs/workspace-pages.md`](./docs/workspace-pages.md) — tenant-defined dashboard pages
+- [`docs/deployment/`](./docs/deployment/) — multiple environments, parent-project pattern
 
 ## Contributing
 

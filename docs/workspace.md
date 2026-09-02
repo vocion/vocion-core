@@ -33,24 +33,34 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 
 ```
 <workspace-dir>/
-├── workspace.yaml                # manifest: orgId placeholder, name, defaults
+├── workspace.yaml                # manifest: orgId, name, lead, defaults, base-pack pin
+├── trust.yaml                    # which actions may auto-execute, and above what confidence
 ├── agents/
 │   ├── <agent>.yaml              # agent metadata + refs
 │   └── <agent>.system-prompt.md  # long-form system prompt
+├── teams/
+│   └── <team>.yaml               # slug comes from the FILENAME; lead + accountable human
 ├── skills/                       # the deepagents unit — read on the model's judgement
 │   └── <slug>/SKILL.md           # YAML frontmatter + markdown procedure
 ├── playbooks/
 │   └── <slug>/SKILL.md           # context attached to a skill or an agent by name
-├── workflows/                    # YAML — sequential steps with approve gates
-├── missions/                     # YAML — recurring team objectives
+├── missions/                     # YAML — standing responsibilities (goal, autonomy)
+├── workflows/
+│   └── <slug>/workflow.yaml      # deterministic steps with approve/ask gates
+├── automations/                  # YAML — the only place time + events live
 ├── objects/
 │   └── <type-slug>/
 │       ├── type.yaml             # schema, source relevance, icon
 │       └── classification-prompt.md
 ├── sources/                      # YAML — connector definitions (no credentials!)
-├── automations/
-└── learnings/                    # whitelisted rule-step buckets
+├── learnings/                    # whitelisted rule-step buckets
+├── evals/                        # YAML — per-agent test cases for `npm run eval:run`
+└── pages/                        # optional tenant dashboard pages (file-only, see below)
 ```
+
+**Every field of every file type** is documented one page per entity in
+[`docs/entities/`](./entities/) — start at the [docs index](./README.md).
+Workspace pages have their own guide: [`docs/workspace-pages.md`](./workspace-pages.md).
 
 **Slugs:** lowercase, alphanumeric, dashes/underscores only, start with a letter. The directory name and the frontmatter `slug` both use dashes (`draft-followup-email`).
 
@@ -205,14 +215,24 @@ WHERE tc.id = <row_id>;
 -- prompts + skills active at the moment the call ran.
 ```
 
-If the SHA is suffixed `-dirty-<hash>`, the apply happened with uncommitted changes. Clean applies only carry the git short SHA.
+How to read a `workspace_sha`:
+
+| Shape | Meaning |
+|---|---|
+| `<git sha>` | Clean apply — the workspace had no uncommitted changes. |
+| `<git sha>-dirty-<hash>` | The apply happened with uncommitted changes; the hash covers every loaded file. |
+| `local-<hash>` | The workspace is not in a git repo (or git could not be read) — content hash only. |
+| `…+core@<version>` | A base pack was pinned. The suffix is appended to any of the above, so the same files on two pack versions stay distinguishable. |
 
 ## Validation rules
 
 - Every `SKILL.md` (skill or playbook) must carry YAML frontmatter with `slug`, `name`, and `description`.
-- Every `agent.yaml` must have either `systemPromptFile` or inline `systemPrompt`.
+- Every `agents/<slug>.yaml` must have either `systemPromptFile` or inline `systemPrompt`.
+- The agent hierarchy is one level deep: `parent` must name an agent that has no `parent` of its own, and never the agent itself. The deprecated `role` field, if authored, must match the value derived from `parent`.
+- A team's `lead`, an agent's `team`, the manifest's `lead`, an automation's or workflow's owning `agent`, and an automation's `do.workflow` / `do.checkMission` must all resolve inside the workspace.
 - Slugs must be unique within each resource type.
-- YAML is strictly validated by Zod — unknown fields are not allowed.
+- Every YAML file is validated by its Zod schema; a wrong type, a missing required field, or a bad slug fails the load with the file path and the reason.
+- Unknown fields are **stripped, not rejected** — schemas are plain `z.object`, so a typo'd key is silently ignored rather than reported. Check the field name against [`docs/entities/`](./entities/) when a setting appears to have no effect.
 - Applies are idempotent and atomic per resource: a validation failure in one resource doesn't block the rest.
 
 ## What does NOT live in a workspace
