@@ -15,8 +15,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatOpenAI } from '@langchain/openai';
-import { platformForLLMProvider } from '@/libs/platforms/registry';
-import { resolvePlatformKey } from '@/services/ApiTokenService';
+import { resolveOrgProviderKey } from './orgKey';
 import { llmMode } from './replay';
 import { getReplayCache } from './replayCache';
 
@@ -240,8 +239,7 @@ export async function buildChatModelForOrg(
     return buildChatModel(role, opts);
   }
   const provider = opts.provider ?? resolveProvider(role);
-  const platform = platformForLLMProvider(provider);
-  const apiKey = platform ? await resolvePlatformKey(orgId, platform.id) : null;
+  const apiKey = await resolveOrgProviderKey(provider, orgId);
   // `?? undefined` rather than passing null: an org with no stored key must
   // fall through to the env var, not override it with an empty value.
   return buildChatModel(role, { ...opts, provider, apiKey: apiKey ?? undefined });
