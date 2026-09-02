@@ -49,6 +49,11 @@ const LEADS: Seed[] = [
       { text: 'Posted twice this month about ticket volume outpacing headcount.', kind: 'signal', source: 'https://www.linkedin.com/in/jamiesmith-msp', date: '2026-08-19' },
     ],
     missing: [],
+    sections: [
+      { heading: 'Prospect', body: '**Name:** Jamie Smith\n**Role:** Managing Partner\n**Company:** Redpoint IT, a 14-person MSP serving mid-market legal and healthcare clients.' },
+      { heading: 'Research That Matters', body: 'Two LinkedIn posts this month about ticket volume outpacing headcount, and the triage ebook was the entrance path. The pain is named in their own words.' },
+      { heading: 'Recommended Angle', body: 'Lead with the ticket-triage wall: volume climbs, the team does not. Offer the 12-person-shop walkthrough.' },
+    ],
     draftSequence: [
       { step: 1, day: 0, subject: 'Ticket volume at Redpoint', body: 'You grabbed the triage ebook last week, so I\'ll skip the pitch.\n\nMost MSPs your size hit the same wall: volume climbs, the team doesn\'t. Worth 20 minutes to walk through what we did for a 12-person shop in the same spot?' },
       { step: 2, day: 4, subject: 'Following up', body: 'Circling back on this. If the timing is wrong, say so and I\'ll leave it.' },
@@ -158,6 +163,10 @@ const LEADS: Seed[] = [
       { text: 'Attended the agent workforce webinar and asked two questions about rollout.', kind: 'engagement', source: 'hubspot:contacts/88206', date: '2026-08-21' },
     ],
     missing: [],
+    sections: [
+      { heading: 'Prospect', body: '**Name:** Priya Raghunathan\n**Role:** Director of Engineering\n**Company:** Halden Systems.' },
+      { heading: 'Recommended Angle', body: 'Answer her two webinar questions about rollout directly; the interest is already explicit.' },
+    ],
     // The decided case the lead page shows read-only: the approved sends and
     // the sequence they rode to.
     draftSequence: [
