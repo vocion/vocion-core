@@ -51,4 +51,15 @@ describe('gmailSendAction', () => {
     // An edit against an id the card never issued changes nothing.
     expect(gmailSendAction.applyContentEdits!(input, [{ id: 'other', body: 'x' }])).toEqual(input);
   });
+
+  it('dedups on the recipient, not the wording, so a re-firing automation cannot stack drafts', () => {
+    // The model rewrites the subject every pass; the recipient is the identity.
+    const a = gmailSendAction.dedupKeyFor!(parse({ to: 'hilhow@amazon.com', subject: 'AWS reconnect — next steps', body: 'x' }));
+    const b = gmailSendAction.dedupKeyFor!(parse({ to: ' HilHow@Amazon.com ', subject: 'DaGen + CloudSmart intros', body: 'y', draft: true }));
+
+    expect(a).toBe('gmail.send:hilhow@amazon.com');
+    expect(b).toBe(a);
+    // A different recipient is a different queue item.
+    expect(gmailSendAction.dedupKeyFor!(parse({ to: 'other@b.com', subject: 'Hi', body: 'x' }))).not.toBe(a);
+  });
 });
