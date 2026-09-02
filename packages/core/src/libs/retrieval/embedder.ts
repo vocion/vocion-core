@@ -20,6 +20,7 @@ import process from 'node:process';
 import OpenAI, { APIConnectionError } from 'openai';
 import { langfuse, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
+import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 import { hashKey, llmMode, pseudoVector, readEntry, writeEntry } from '@/libs/llm/replay';
 
 const MODEL = process.env.VOCION_EMBEDDING_MODEL ?? 'text-embedding-3-small';
@@ -131,7 +132,7 @@ function sleep(milliseconds: number): Promise<void> {
  * Send one embedding request, retrying temporary failures.
  *
  * This is the only place embedding requests are retried. The OpenAI client can
- * do its own retrying, and is switched off in `client()` for that reason —
+ * do its own retrying, and is switched off in `clientForOrg()` for that reason —
  * otherwise both layers retry the same request without knowing about each
  * other, turning five attempts into fifteen and multiplying the waits between
  * them. That makes a rate limit worse rather than better.
@@ -179,22 +180,29 @@ async function sendWithRetries<T>(sendRequest: (attempt: number) => Promise<T>):
   throw lastError ?? new Error('embedding retry loop ended without a result');
 }
 
-let _client: OpenAI | null = null;
-function client(): OpenAI {
-  if (!_client) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY is not set — embeddings require an OpenAI key. Set it on the running container or in .env.local.');
-    }
-    // maxRetries: 0 — retrying is handled by sendWithRetries above, and this
-    // client would otherwise retry the same request twice more underneath it.
-    // Two layers that can't see each other multiply: five of our attempts
-    // become fifteen requests, each already carrying the client's own waits.
-    // Ours is the layer to keep, because it logs each retry and honours the
-    // `Retry-After` header rather than only backing off blindly.
-    _client = new OpenAI({ apiKey, maxRetries: 0 });
+/**
+ * An OpenAI client for one org's embeddings, on that org's own key when it has
+ * stored one and on the server's key otherwise.
+ *
+ * Built per call rather than cached. A cached client would hold one org's key
+ * and hand it to the next org that asked, which is the whole reason the LLM
+ * client cache was removed; a constructor is cheap next to an HTTP round trip
+ * either way, and building fresh means a rotated or revoked key takes effect on
+ * the very next batch.
+ * @param orgId - The org whose embeddings are being generated.
+ */
+async function clientForOrg(orgId: string): Promise<OpenAI> {
+  const apiKey = await resolveOrgProviderKey('openai', orgId) ?? process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('No OpenAI key available — embeddings require one. Store an OpenAI key for this workspace under API credentials, or set OPENAI_API_KEY on the running container or in .env.local.');
   }
-  return _client;
+  // maxRetries: 0 — retrying is handled by sendWithRetries above, and this
+  // client would otherwise retry the same request twice more underneath it.
+  // Two layers that can't see each other multiply: five of our attempts
+  // become fifteen requests, each already carrying the client's own waits.
+  // Ours is the layer to keep, because it logs each retry and honours the
+  // `Retry-After` header rather than only backing off blindly.
+  return new OpenAI({ apiKey, maxRetries: 0 });
 }
 
 export type EmbedOptions = {
@@ -224,6 +232,9 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
       return cached ?? pseudoVector(text);
     });
   }
+  // Resolved once for the whole call: every batch below belongs to the same
+  // org, so one key lookup covers them all.
+  const openai = await clientForOrg(opts.orgId);
   const trace = traceFor({
     feature: FEATURES.RETRIEVAL_EMBED,
     slug: opts.sourceSlug ?? opts.purpose,
@@ -254,7 +265,7 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
           input: { count: batch.length },
         });
         try {
-          const response = await client().embeddings.create({ model: MODEL, input: batch });
+          const response = await openai.embeddings.create({ model: MODEL, input: batch });
           const usage = response.usage ?? { prompt_tokens: 0, total_tokens: 0 };
           totalTokens += usage.total_tokens;
           generation.end({

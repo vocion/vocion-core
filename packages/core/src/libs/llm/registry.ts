@@ -2,10 +2,9 @@ import type { LLMClient, LLMProviderName } from '@vocion/sdk';
 import process from 'node:process';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { platformForLLMProvider } from '@/libs/platforms/registry';
-import { resolvePlatformKey } from '@/services/ApiTokenService';
 import { anthropicClient } from './anthropic';
 import { openaiClient } from './openai';
+import { resolveOrgProviderKey } from './orgKey';
 
 /**
  * Provider clients are constructed per call.
@@ -83,9 +82,9 @@ export function getLLMClient(provider: LLMProviderName): LLMClient {
  * A client for `provider` built on **the org's own key** when it has stored
  * one, and on the server's key otherwise.
  *
- * Async because resolving the org's key means decrypting a row. Callers that
- * run per-request should reach for this; the resolution is a single indexed
- * lookup and the resulting client is cached.
+ * Async because resolving the org's key means reading and decrypting a row —
+ * a single indexed lookup. Callers that run per-request should reach for this.
+ * Nothing here is cached, by the design described at the top of this file.
  * @param provider - Which provider to construct.
  * @param orgId - The org whose stored key should be preferred.
  */
@@ -103,25 +102,7 @@ export async function getLLMClientForOrg(provider: LLMProviderName, orgId: strin
   return buildClient(provider, apiKey);
 }
 
-/**
- * The org's stored key for whatever platform backs `provider`, or null when it
- * has none (or when no platform maps to that provider at all).
- *
- * Exported because the LangChain factory needs the same answer without wanting
- * an `LLMClient` built for it.
- * @param provider - The provider about to be called.
- * @param orgId - The org the call is being made for.
- */
-export async function resolveOrgProviderKey(
-  provider: LLMProviderName,
-  orgId: string,
-): Promise<string | null> {
-  const platform = platformForLLMProvider(provider);
-  if (!platform) {
-    return null;
-  }
-  return resolvePlatformKey(orgId, platform.id);
-}
+export type { BuildChatModelOptions, LangChainProvider, ModelRole } from './langchain';
 
 /* ------------------------------------------------------------------ */
 /* Role-based LangChain chat-model factory (re-export)                 */
@@ -132,5 +113,8 @@ export async function resolveOrgProviderKey(
 // provider-neutral LLMClient above stays the contract for plugin skills
 // (ctx.llm); buildChatModel is the contract for agent runtimes.
 
-export type { BuildChatModelOptions, LangChainProvider, ModelRole } from './langchain';
 export { buildChatModel, buildChatModelForOrg, withPromptCache } from './langchain';
+// Re-exported here so `@/libs/llm` stays the one import for anything
+// key-related; the implementation lives in `./orgKey` so lighter call sites can
+// take it without the client factory.
+export { resolveOrgProviderKey } from './orgKey';
