@@ -32,6 +32,7 @@ import { hubspotCompanyTools } from './hubspotCompanies';
 import { hubspotDealTools } from './hubspotDeals';
 import { hubspotDirectInScope } from './hubspotDirect';
 import { hubspotLeadsTools } from './hubspotLeads';
+import { kitVisionTools } from './kitVision';
 import {
   addLearningTool,
   checkLearningDedupTool,
@@ -106,6 +107,8 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
     ...personalizationTools(ctx),
+    // Granted-only: reference-based kit verification + the Rekognition second opinion.
+    ...kitVisionTools(ctx),
     // Every invocation writes one tool_call row — the activity record,
     // covering all three harness providers at this single seam.
   ].map(t => withToolCallRecord(t as StructuredToolInterface, ctx));
