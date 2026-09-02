@@ -35,6 +35,7 @@ import { db } from '@/libs/DB';
 import { metadataFromKey, parseS3Config } from '@/libs/sources/s3';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { createBusinessObject, updateBusinessObject } from '@/services/BusinessObjectService';
+import { getLearnings, listSteps } from '@/services/LearningsService';
 
 export const KIT_VISION_TOOL_NAMES = ['vision_compare_reference', 'vision_detect_labels'] as const;
 
@@ -228,7 +229,7 @@ function toImageBlock(bytes: Uint8Array, contentType: string) {
   return { type: 'image' as const, source: { type: 'base64' as const, media_type: mt as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: Buffer.from(bytes).toString('base64') } };
 }
 
-async function pickReferences(src: S3Source, template: string, excludeKey: string, want: number): Promise<string[]> {
+export async function pickReferences(src: S3Source, template: string, excludeKey: string, want: number): Promise<string[]> {
   const prefixes = [
     `${src.prefix}${template}/good/`,
     `templates/${template}/good/`,
@@ -242,6 +243,30 @@ async function pickReferences(src: S3Source, template: string, excludeKey: strin
     }
   }
   return [];
+}
+
+/**
+ * Every adopted learning in the org, flattened — the rules the vision prompt must apply.
+ * @param orgId
+ */
+export async function loadLearningRules(orgId: string): Promise<Array<{ id: number; step: string; text: string }>> {
+  const out: Array<{ id: number; step: string; text: string }> = [];
+  try {
+    const steps = await listSteps(orgId);
+    for (const st of steps) {
+      const l = await getLearnings(orgId, st.name);
+      for (const r of l.rules) {
+        out.push({ id: r.id, step: st.name, text: r.ruleText });
+      }
+    }
+  } catch { /* no learning steps — fine */ }
+  return out;
+}
+
+function progress(ctx: RuntimeContext, tool: string, meta: Record<string, unknown>) {
+  try {
+    ctx.emit({ type: 'tool_progress', tool, meta } as never);
+  } catch { /* emit is best-effort */ }
 }
 
 export function kitVisionTools(ctx: RuntimeContext) {
@@ -265,8 +290,16 @@ export function kitVisionTools(ctx: RuntimeContext) {
         if (!refKeys.length) {
           return JSON.stringify({ error: `No verified-good reference photos found for template ${template}. Enrol the template with at least one good photo first.` });
         }
+        progress(ctx, 'vision_compare_reference', { phase: 'references', template, image_key: key, reference_keys: refKeys, reference_urls: refKeys.map(k => appImageUrl(bucket, k)) });
+
+        const rules = await loadLearningRules(ctx.orgId);
+        const learningsBlock = rules.length
+          ? `\n\n## Workspace learnings — approved rules, apply them\n${rules.map(r => `- (${r.step} #${r.id}) ${r.text.trim().replace(/\s+/g, ' ')}`).join('\n')}`
+          : '';
+        const systemPrompt = COMPARE_SYSTEM + learningsBlock;
 
         const [cand, ...refs] = await Promise.all([key, ...refKeys].map(k => getObjectBytes({ bucket, key: k, region })));
+        progress(ctx, 'vision_compare_reference', { phase: 'model', model: VISION_MODEL, images: 1 + refs.length, learnings: rules.length });
         const client = new Anthropic();
         const content: Anthropic.ContentBlockParam[] = [
           { type: 'text', text: `CANDIDATE photo (key: ${key}):` },
@@ -282,7 +315,7 @@ export function kitVisionTools(ctx: RuntimeContext) {
           model: VISION_MODEL,
           max_tokens: 1500,
           temperature: 0,
-          system: COMPARE_SYSTEM,
+          system: systemPrompt,
           messages: [{ role: 'user', content }],
         });
         const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
@@ -296,6 +329,7 @@ export function kitVisionTools(ctx: RuntimeContext) {
           return JSON.stringify({ error: `Vision model returned an unparseable verdict: ${(err as Error).message}`, raw: text.slice(0, 800) });
         }
 
+        progress(ctx, 'vision_compare_reference', { phase: 'parsed', verdict: verdict.verdict, confidence: verdict.confidence, findings: verdict.findings.length });
         const pathMeta = src ? metadataFromKey(src.cfg, key) : {};
         const record = await upsertInspection(ctx, {
           imageKey: key,
@@ -313,10 +347,20 @@ export function kitVisionTools(ctx: RuntimeContext) {
             reference_keys: refKeys,
             checks: {
               ...((await findInspection(ctx.orgId, key))?.metadata as { checks?: Record<string, unknown> } | undefined)?.checks,
-              reference: { model: VISION_MODEL, verdict: verdict.verdict, confidence: verdict.confidence, at: new Date().toISOString(), usage: res.usage },
+              reference: {
+                model: VISION_MODEL,
+                verdict: verdict.verdict,
+                confidence: verdict.confidence,
+                at: new Date().toISOString(),
+                usage: res.usage,
+                prompt: { system: systemPrompt, user: `CANDIDATE photo (${key}) + ${refKeys.length} REFERENCE photo(s) (${refKeys.join(', ')}); "Template id: ${template}. Return the JSON verdict now."` },
+                learnings_applied: rules.map(r => ({ id: r.id, step: r.step, text: r.text })),
+                temperature: 0,
+              },
             },
           },
         });
+        progress(ctx, 'vision_compare_reference', { phase: 'saved', inspection_id: record?.id ?? null });
         return JSON.stringify({
           ...verdict,
           template_id: template,

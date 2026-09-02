@@ -509,6 +509,13 @@ export const LearningStepManifestSchema = z.object({
   preamble: z.string().optional(),
   /** Which agent slugs own / read this step. */
   agents: z.array(z.string()).default([]),
+  /**
+   * SEED rules shipped with the workspace. Applied once each (keyed on
+   * `workspace:<id>` in `learning.source`); later edits to a seeded rule's
+   * text are applied as updates. Rules people add at runtime live only in
+   * the DB and are never touched by apply.
+   */
+  rules: z.array(z.object({ id: SlugSchema, text: z.string().min(1) })).default([]),
 });
 export type LearningStepManifest = z.infer<typeof LearningStepManifestSchema>;
 
