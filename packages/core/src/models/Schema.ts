@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
-import { bigint, boolean, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -1770,6 +1770,29 @@ export const apiTokenSchema = pgTable(
     uniqueIndex('api_token_org_platform_live_idx')
       .on(table.orgId, table.platform)
       .where(sql`${table.revokedAt} is null and ${table.platform} <> 'vocion'`),
+    // The two credential shapes must never mix. A `vocion` row carries a secret
+    // hash and no ciphertext; anything else carries ciphertext with everything
+    // needed to decrypt it, and no hash. Enforced in the database because a
+    // half-written row here is a credential that can either not be verified or
+    // not be decrypted, and neither failure shows up until someone tries to use
+    // it. Declared here as well as in migration 0066 so that `drizzle-kit
+    // generate` can see it and does not propose dropping it later.
+    check(
+      'api_token_shape_ck',
+      sql`(
+      ${table.platform} = 'vocion'
+      and ${table.secretHash} is not null
+      and ${table.ciphertext} is null
+      and ${table.dekId} is null
+    ) or (
+      ${table.platform} <> 'vocion'
+      and ${table.secretHash} is null
+      and ${table.ciphertext} is not null
+      and ${table.nonce} is not null
+      and ${table.authTag} is not null
+      and ${table.dekId} is not null
+    )`,
+    ),
   ],
 );
 

@@ -25,7 +25,7 @@
 import type { CredentialPlatformId } from '@/libs/platforms/registry';
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { isCredentialPlatformId, listPlatforms } from '@/libs/platforms/registry';
+import { CredentialValidationError, DEFAULT_PLATFORM_ID, isCredentialPlatformId, listPlatforms } from '@/libs/platforms/registry';
 import { issueToken, listTokens, revokeToken, storePlatformKey } from '@/services/ApiTokenService';
 import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
@@ -151,7 +151,13 @@ export const listPlatformsRoute = os.handler(async () => {
 export const createPlatformKeyRoute = os
   .input(z.object({
     name: z.string().trim().min(1, 'Give the credential a name.').max(80),
-    platform: z.string().refine(isCredentialPlatformId, 'Unknown platform.'),
+    // Refuses `vocion` here rather than letting it travel two layers down to
+    // the service. A Vocion token is minted by `create`, never supplied, so
+    // this route has nothing it could do with one.
+    platform: z
+      .string()
+      .refine(isCredentialPlatformId, 'Unknown platform.')
+      .refine(value => value !== DEFAULT_PLATFORM_ID, 'Vocion tokens are created, not supplied.'),
     /** Field values keyed by the platform's field names, e.g. `{ apiKey }`. */
     values: z.record(z.string(), z.string().min(1).max(8192)),
   }))
@@ -174,11 +180,17 @@ export const createPlatformKeyRoute = os
       });
       return { id, name: input.name, platform: input.platform, keyHint };
     } catch (error) {
-      // The validation errors from the registry are written for the person
-      // pasting the key and name no secret, so they are safe to pass through.
-      // Anything else is ours and gets a generic message.
-      const message = error instanceof Error ? error.message : '';
-      console.error('[apiTokens.createPlatformKey] could not store key', { platform: input.platform, message });
-      throw ApiError.badRequest(message || 'Could not save the key.');
+      // Only `CredentialValidationError` is safe to show. Every one of those
+      // messages is authored in the platform registry, describes something the
+      // person can fix, and names no secret. Anything else came from the
+      // database or the vault and can carry a constraint detail, a connection
+      // string or a KMS error in its message, so it is logged here and
+      // replaced with a message that says nothing.
+      const isSafeToShow = error instanceof CredentialValidationError;
+      console.error('[apiTokens.createPlatformKey] could not store key', {
+        platform: input.platform,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw ApiError.badRequest(isSafeToShow ? error.message : 'Could not save the key.');
     }
   });
