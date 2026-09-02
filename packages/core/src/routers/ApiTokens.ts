@@ -1,10 +1,17 @@
 /**
- * Dashboard routes for tenant API tokens (`vcn_live_…`).
+ * Dashboard routes for an org's API credentials.
  *
- * These are the credentials an outside caller — an admin panel, a script, an
- * MCP client — presents to `/api/v1/*` and `/api/mcp`. Before this router they
- * could only be minted from a shell (`src/scripts/manage-tokens.ts`), which
- * meant server access was a prerequisite for integrating anything.
+ * Two kinds share this router, told apart by platform:
+ *
+ *   - **Vocion tokens** (`vcn_live_…`) — what an outside caller (an admin
+ *     panel, a script, an MCP client) presents to `/api/v1/*` and `/api/mcp`.
+ *     Before this router they could only be minted from a shell
+ *     (`src/scripts/manage-tokens.ts`), which meant server access was a
+ *     prerequisite for integrating anything.
+ *   - **Supplied platform keys** — the org's own OpenAI or Anthropic key,
+ *     stored encrypted so their model spend bills their account instead of
+ *     ours. Nothing reads these back out to a client; the only thing that ever
+ *     leaves is the masked hint.
  *
  * Two rules shape every handler here:
  *
@@ -15,9 +22,11 @@
  *    one for itself and outlive the revoke that was meant to kill it.
  */
 
+import type { CredentialPlatformId } from '@/libs/platforms/registry';
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { issueToken, listTokens, revokeToken } from '@/services/ApiTokenService';
+import { isCredentialPlatformId, listPlatforms } from '@/libs/platforms/registry';
+import { issueToken, listTokens, revokeToken, storePlatformKey } from '@/services/ApiTokenService';
 import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -102,4 +111,71 @@ export const revokeTokenRoute = os
     // another's credential by guessing an id.
     await revokeToken(orgId, input.tokenId);
     return { ok: true };
+  });
+
+/**
+ * The platform selector's options. Everything the form needs to render and
+ * validate a choice, so the UI never carries its own copy of the platform list.
+ *
+ * Public to any signed-in member: it is a static description of what this build
+ * supports, not org data.
+ */
+export const listPlatformsRoute = os.handler(async () => {
+  await guardAuth();
+  return listPlatforms().map(platform => ({
+    id: platform.id,
+    label: platform.label,
+    keySource: platform.keySource,
+    keyShapeHint: platform.keyShapeHint,
+    helpText: platform.helpText,
+    // RegExp does not survive the wire, so the form gets the human hint and
+    // the server stays the only place the shape is actually enforced.
+    fields: platform.fields.map(field => ({
+      name: field.name,
+      label: field.label,
+      shapeHint: field.shapeHint,
+      secret: field.secret,
+    })),
+  }));
+});
+
+/**
+ * Store a key the org supplied for a third-party platform.
+ *
+ * Separate from `create` rather than a branch inside it because the two have
+ * genuinely different inputs and different outputs: one returns a generated
+ * secret exactly once, the other accepts a secret and returns only a masked
+ * hint. Folding them together would mean a response type where the dangerous
+ * field is sometimes present.
+ */
+export const createPlatformKeyRoute = os
+  .input(z.object({
+    name: z.string().trim().min(1, 'Give the credential a name.').max(80),
+    platform: z.string().refine(isCredentialPlatformId, 'Unknown platform.'),
+    /** Field values keyed by the platform's field names, e.g. `{ apiKey }`. */
+    values: z.record(z.string(), z.string().min(1).max(8192)),
+    /** ISO datetime, or null for a key with no expiry. */
+    expiresAt: z.string().nullable(),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardTokenAdmin();
+    const expiresAt = readExpiry(input.expiresAt);
+    try {
+      const { id, keyHint } = await storePlatformKey({
+        orgId,
+        name: input.name,
+        platform: input.platform as CredentialPlatformId,
+        values: input.values,
+        createdBy: userId,
+        expiresAt,
+      });
+      return { id, name: input.name, platform: input.platform, keyHint, expiresAt };
+    } catch (error) {
+      // The validation errors from the registry are written for the person
+      // pasting the key and name no secret, so they are safe to pass through.
+      // Anything else is ours and gets a generic message.
+      const message = error instanceof Error ? error.message : '';
+      console.error('[apiTokens.createPlatformKey] could not store key', { platform: input.platform, message });
+      throw ApiError.badRequest(message || 'Could not save the key.');
+    }
   });
