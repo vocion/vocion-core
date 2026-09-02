@@ -35,6 +35,7 @@ type ZoomRecordingList = {
     start_time?: string;
     duration?: number;
     host_email?: string;
+    share_url?: string;
     recording_files?: Array<{
       id?: string;
       file_type?: string;
@@ -44,6 +45,8 @@ type ZoomRecordingList = {
   }>;
   next_page_token?: string;
 };
+
+type ZoomMeeting = NonNullable<ZoomRecordingList['meetings']>[number];
 
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
@@ -80,6 +83,88 @@ function vttToText(vtt: string): string {
     .split('\n')
     .filter(line => line.trim() !== '' && line.trim() !== 'WEBVTT' && !/^\d+$/.test(line.trim()) && !line.includes('-->'))
     .join('\n');
+}
+
+/**
+ * Build the IngestDoc for one recorded meeting. Shared by the sync loop and
+ * the targeted fetch below so tool-upserted transcripts are byte-identical to
+ * sync-ingested ones — a later scheduled sync re-ingest is then a
+ * hash-unchanged no-op instead of a pointless re-embed.
+ * @param mtg
+ * @param transcript
+ * @param fallbackHostEmail
+ */
+export function recordingToDoc(mtg: ZoomMeeting, transcript: string, fallbackHostEmail: string): IngestDoc {
+  return {
+    externalId: `zoom:${mtg.uuid}`,
+    title: `${mtg.topic ?? 'Zoom meeting'} — ${mtg.start_time ?? ''}`,
+    content: [
+      `Meeting: ${mtg.topic ?? '(untitled)'}`,
+      `When: ${mtg.start_time ?? 'unknown'} (${mtg.duration ?? '?'} min)`,
+      `Host: ${mtg.host_email ?? fallbackHostEmail}`,
+      transcript ? `\nTranscript:\n${transcript}` : '\n(no transcript available)',
+    ].join('\n'),
+    lastModifiedAt: mtg.start_time ? new Date(mtg.start_time) : null,
+    metadata: {
+      kind: 'zoom-recording',
+      meetingId: mtg.id,
+      host: mtg.host_email ?? fallbackHostEmail,
+      start: mtg.start_time ?? null,
+      durationMin: mtg.duration ?? null,
+      hasTranscript: !!transcript,
+      // Deep link for review surfaces (the discovery card's "Meeting").
+      shareUrl: mtg.share_url ?? null,
+    },
+  };
+}
+
+/**
+ * Fetch one meeting's cloud recording + transcript on demand (the read-through
+ * miss path of `get_zoom_transcript`). Returns `null` when Zoom has no
+ * recording for the id; `hasTranscript: false` when the recording exists but
+ * the transcript file isn't ready yet (Zoom processes them asynchronously).
+ * @param opts
+ * @param opts.credentials
+ * @param opts.meetingId
+ * @param opts.apiBaseUrl
+ * @param opts.authBaseUrl
+ */
+export async function fetchZoomMeetingTranscript(opts: {
+  credentials: Record<string, unknown> | undefined;
+  /** Meeting UUID (preferred) or numeric meeting id. */
+  meetingId: string;
+  apiBaseUrl?: string;
+  authBaseUrl?: string;
+}): Promise<{ doc: IngestDoc; hasTranscript: boolean } | null> {
+  const api = opts.apiBaseUrl ?? 'https://api.zoom.us/v2';
+  const token = await mintToken(opts.authBaseUrl ?? 'https://zoom.us', opts.credentials);
+  const headers = { authorization: `Bearer ${token}` };
+
+  // Zoom API rule: a UUID that begins with '/' or contains '//' must be
+  // DOUBLE URL-encoded in the path; anything else single-encodes.
+  const needsDouble = opts.meetingId.startsWith('/') || opts.meetingId.includes('//');
+  const encoded = needsDouble
+    ? encodeURIComponent(encodeURIComponent(opts.meetingId))
+    : encodeURIComponent(opts.meetingId);
+
+  const res = await fetch(`${api}/meetings/${encoded}/recordings`, { headers });
+  if (res.status === 404) {
+    return null;
+  }
+  if (!res.ok) {
+    throw new Error(`Zoom recordings fetch failed: ${res.status} ${await res.text().catch(() => '')}`);
+  }
+  const mtg = (await res.json()) as ZoomMeeting;
+
+  const transcriptFile = (mtg.recording_files ?? []).find(f => f.file_type === 'TRANSCRIPT');
+  let transcript = '';
+  if (transcriptFile?.download_url) {
+    const tRes = await fetch(`${transcriptFile.download_url}?access_token=${encodeURIComponent(token)}`);
+    if (tRes.ok) {
+      transcript = vttToText(await tRes.text());
+    }
+  }
+  return { doc: recordingToDoc(mtg, transcript, mtg.host_email ?? ''), hasTranscript: !!transcript };
 }
 
 function* dayWindows(fromMs: number, toMs: number): Generator<{ from: string; to: string }> {
@@ -159,25 +244,7 @@ export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
               }
             }
             ctx.onProgress?.({ kind: 'fetched', uri: mtg.uuid });
-            yield {
-              externalId: `zoom:${mtg.uuid}`,
-              title: `${mtg.topic ?? 'Zoom meeting'} — ${mtg.start_time ?? ''}`,
-              content: [
-                `Meeting: ${mtg.topic ?? '(untitled)'}`,
-                `When: ${mtg.start_time ?? 'unknown'} (${mtg.duration ?? '?'} min)`,
-                `Host: ${mtg.host_email ?? user.email}`,
-                transcript ? `\nTranscript:\n${transcript}` : '\n(no transcript available)',
-              ].join('\n'),
-              lastModifiedAt: mtg.start_time ? new Date(mtg.start_time) : null,
-              metadata: {
-                kind: 'zoom-recording',
-                meetingId: mtg.id,
-                host: mtg.host_email ?? user.email,
-                start: mtg.start_time ?? null,
-                durationMin: mtg.duration ?? null,
-                hasTranscript: !!transcript,
-              },
-            };
+            yield recordingToDoc(mtg, transcript, user.email);
           }
           recPageToken = list.next_page_token || undefined;
         } while (recPageToken);

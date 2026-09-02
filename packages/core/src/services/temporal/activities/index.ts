@@ -2,11 +2,10 @@
  * Activities for vocionWorkflow (Phase H.1).
  *
  * Activities run in the worker process and have full Node access —
- * DB, network, OperationService, etc. The Workflow function (which
- * runs in a deterministic sandbox) calls these via `proxyActivities`.
+ * DB, network, etc. The Workflow function (which runs in a
+ * deterministic sandbox) calls these via `proxyActivities`.
  *
- * The six activities mirror the existing in-process runLoop:
- *   - executeSkillActivity        — wraps OperationService.executeSkill
+ * The activities mirror the in-process runLoop:
  *   - executeActionActivity       — v1 stub (action steps still TBD)
  *   - recordStepStartedActivity   — Postgres mirror: step begins
  *   - recordStepCompletedActivity — Postgres mirror: step done
@@ -22,10 +21,9 @@
 import { eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { workflowRunSchema } from '@/models/Schema';
-import { executeSkill } from '@/services/OperationService';
 
 export type StepStatus = 'running' | 'completed' | 'failed' | 'awaiting_approval';
-export type WorkflowStepType = 'skill' | 'approve' | 'action';
+export type WorkflowStepType = 'approve' | 'action' | 'ask' | 'sync';
 
 export type StepResultEntry = {
   status: StepStatus;
@@ -35,40 +33,6 @@ export type StepResultEntry = {
   error?: string;
   skillRunId?: number;
 };
-
-/* ------------------------------------------------------------------ */
-/* Execute a skill step                                                */
-/* ------------------------------------------------------------------ */
-
-export type ExecuteSkillActivityInput = {
-  orgId: string;
-  skillSlug: string;
-  input: Record<string, unknown>;
-  runId: number;
-  stepName: string;
-};
-
-export type ExecuteSkillActivityOutput = {
-  output: unknown;
-  skillRunId: number;
-  status: string;
-};
-
-export async function executeSkillActivity(
-  input: ExecuteSkillActivityInput,
-): Promise<ExecuteSkillActivityOutput> {
-  const result = await executeSkill({
-    orgId: input.orgId,
-    skillSlug: input.skillSlug,
-    input: input.input,
-    userId: `workflow-run-${input.runId}`,
-  });
-  return {
-    output: result.output,
-    skillRunId: result.runId,
-    status: result.skill.requiresApproval === 'true' ? 'pending' : 'auto',
-  };
-}
 
 /* ------------------------------------------------------------------ */
 /* Execute an action step (v1 stub)                                    */

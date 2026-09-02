@@ -24,9 +24,13 @@ export function buildTransportTools(
 ): StructuredToolInterface[] {
   return spec.catalog.map(entry =>
     tool(
-      async (input: unknown) => {
+      async (input: unknown, config?: { metadata?: { checkpoint_ns?: unknown } }) => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), TOOL_TIMEOUT_MS);
+        // checkpoint_ns rides along so the core-side tool_call record can
+        // attribute a delegated specialist's call. Attribution only.
+        const cp = config?.metadata?.checkpoint_ns;
+        const ns = typeof cp === 'string' ? cp : Array.isArray(cp) ? cp.join('|') : undefined;
         try {
           const res = await fetch(spec.endpoint, {
             method: 'POST',
@@ -34,7 +38,7 @@ export function buildTransportTools(
               'content-type': 'application/json',
               'authorization': `Bearer ${spec.claim}`,
             },
-            body: JSON.stringify({ tool: entry.name, input: input ?? {} }),
+            body: JSON.stringify({ tool: entry.name, input: input ?? {}, ...(ns ? { ns } : {}) }),
             signal: controller.signal,
           });
           if (!res.ok) {

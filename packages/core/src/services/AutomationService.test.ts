@@ -3,6 +3,7 @@
  * workflow/mission starters, and verifies fireAutomation routes `do`
  * correctly — plus EventService firing event-when automations.
  */
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -11,15 +12,26 @@ vi.mock('@/services/WorkflowService', () => ({
 }));
 vi.mock('@/services/MissionService', () => ({
   getMission: vi.fn(async () => ({ id: 1, name: 'No Lead Goes Cold', goal: 'goal', successCriteria: [] })),
-  scheduledCheckBrief: vi.fn(() => 'check brief'),
+  scheduledCheckBrief: vi.fn((_template: unknown, prompt?: string) => prompt ? `check brief + ${prompt}` : 'check brief'),
   startMission: vi.fn(async () => ({ id: 305, status: 'completed' })),
+}));
+// The built-in registry is empty since discovery detection went agent-driven;
+// a stub job keeps the `do: job` dispatch seam covered.
+vi.mock('@/services/jobs/registry', () => ({
+  isBuiltInJob: vi.fn((name: string) => name === 'stub-job'),
+  runBuiltInJob: vi.fn(async (name: string, _orgId: string, input: Record<string, unknown>) => {
+    if (name !== 'stub-job') {
+      throw new Error(`unknown automation job: ${name}`);
+    }
+    return { echoed: input };
+  }),
 }));
 
 const { db } = await import('@/libs/DB');
-const { automationSchema, eventLogSchema, workflowSchema } = await import('@/models/Schema');
+const { automationRunSchema, automationSchema, eventLogSchema, workflowSchema } = await import('@/models/Schema');
 const { startWorkflow } = await import('@/services/WorkflowService');
 const { startMission } = await import('@/services/MissionService');
-const { fireAutomation } = await import('@/services/AutomationService');
+const { fireAutomation, listAutomationRuns } = await import('@/services/AutomationService');
 const { emitEvent } = await import('@/services/EventService');
 
 const ORG = 'org_auto';
@@ -36,6 +48,7 @@ async function seedAutomation(slug: string, whenConfig: Record<string, unknown>,
 }
 
 beforeEach(async () => {
+  await db.delete(automationRunSchema);
   await db.delete(automationSchema);
   await db.delete(eventLogSchema);
   await db.delete(workflowSchema);
@@ -43,6 +56,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  await db.delete(automationRunSchema);
   await db.delete(automationSchema);
   await db.delete(eventLogSchema);
 });
@@ -53,7 +67,7 @@ describe('fireAutomation', () => {
 
     const res = await fireAutomation(ORG, 'reply-followup', { input: { dealId: 9 } });
 
-    expect(res).toEqual({ kind: 'workflow', runId: 210 });
+    expect(res).toEqual({ kind: 'workflow', runId: 210, automationRunId: expect.any(Number) });
     expect(vi.mocked(startWorkflow)).toHaveBeenCalledWith(expect.objectContaining({
       orgId: ORG,
       slug: 'discovery_followup',
@@ -66,7 +80,7 @@ describe('fireAutomation', () => {
 
     const res = await fireAutomation(ORG, 'follow-up-check');
 
-    expect(res).toEqual({ kind: 'mission_check', runId: 305 });
+    expect(res).toEqual({ kind: 'mission_check', runId: 305, automationRunId: expect.any(Number) });
     expect(vi.mocked(startMission)).toHaveBeenCalledWith(expect.objectContaining({
       orgId: ORG,
       missionSlug: 'follow-up-queue',
@@ -79,6 +93,72 @@ describe('fireAutomation', () => {
     await seedAutomation('paused-one', { schedule: '0 12 * * *' }, { checkMission: 'x' }, 'disabled');
 
     await expect(fireAutomation(ORG, 'paused-one')).rejects.toThrow(/not active/);
+  });
+
+  /**
+   * A `job` dispatch used to persist nothing at all, so an hourly sweep that
+   * scanned nothing, ran clean, or threw were indistinguishable afterwards.
+   */
+  it('records a run row carrying the merged input and the job result', async () => {
+    await seedAutomation('sweeper', { schedule: '0 * * * *' }, { job: 'stub-job', input: { sellerDomain: 'metacto.com' } });
+
+    const res = await fireAutomation(ORG, 'sweeper', { input: { dryRun: true }, invokedBy: 'dashboard:test-run', dryRun: true });
+
+    expect(res.kind).toBe('job');
+
+    const [row] = await db.select().from(automationRunSchema).where(eq(automationRunSchema.id, res.automationRunId));
+
+    expect(row).toMatchObject({
+      slug: 'sweeper',
+      kind: 'job',
+      status: 'ok',
+      invokedBy: 'dashboard:test-run',
+      dryRun: true,
+      error: null,
+    });
+    expect(row?.input).toMatchObject({ sellerDomain: 'metacto.com', dryRun: true });
+    expect(row?.result).toMatchObject({ echoed: { sellerDomain: 'metacto.com', dryRun: true } });
+    expect(row?.finishedAt).toBeInstanceOf(Date);
+  });
+
+  it('carries do.prompt into the scheduled-check brief; the mission stays the standing context', async () => {
+    await seedAutomation(
+      'discovery-sweep',
+      { schedule: '0 * * * *' },
+      { checkMission: 'discovery-to-proposal', prompt: 'Run a detection pass over the last 3 days.' },
+    );
+
+    const res = await fireAutomation(ORG, 'discovery-sweep');
+
+    expect(res.kind).toBe('mission_check');
+    expect(vi.mocked(startMission)).toHaveBeenCalledWith(expect.objectContaining({
+      missionSlug: 'discovery-to-proposal',
+      mode: 'check',
+      brief: 'check brief + Run a detection pass over the last 3 days.',
+    }));
+  });
+
+  it('records the failure and still rethrows when the do throws', async () => {
+    await seedAutomation('broken', { schedule: '0 * * * *' }, { job: 'no-such-job' });
+
+    await expect(fireAutomation(ORG, 'broken')).rejects.toThrow(/unknown automation job/);
+
+    const rows = await db.select().from(automationRunSchema).where(eq(automationRunSchema.slug, 'broken'));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: 'error' });
+    expect(rows[0]?.error).toMatch(/unknown automation job/);
+  });
+
+  it('lists runs newest first', async () => {
+    await seedAutomation('sweeper', { schedule: '0 * * * *' }, { job: 'stub-job', input: { sellerDomain: 'metacto.com' } });
+
+    const first = await fireAutomation(ORG, 'sweeper');
+    const second = await fireAutomation(ORG, 'sweeper');
+
+    const runs = await listAutomationRuns(ORG, 'sweeper', 5);
+
+    expect(runs.map(r => r.id)).toEqual([second.automationRunId, first.automationRunId]);
   });
 });
 

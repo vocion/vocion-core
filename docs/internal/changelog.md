@@ -4,6 +4,265 @@ What's shipped, dated, newest first. Roadmap of what's next lives in [`roadmap.m
 
 ---
 
+## 2026-08-29 — HubSpot base tools: live record reads + the count/fetch routing rule (v2.17)
+
+Agents could only read HubSpot through the synced mirror (three count/list tools), so record
+questions got narrow, sync-aged answers and tool names didn't say what they read.
+
+- **feat(crm) — ten direct-to-HubSpot tools**, present automatically for any agent whose sources
+  include hubspot (per-user ACLs respected): `hubspot_get_contact` (full live record by email or
+  id, every custom property, ordered field list, `no_match` on unknown ids),
+  `hubspot_search_contacts`, `hubspot_search_companies` (de-spaced variant, prefix-wildcard
+  fallback, broaden-once), `hubspot_get_company`, `hubspot_company_deals` (closed-won AND
+  closed-lost with combined `loss_reason`), `hubspot_company_activity` +
+  `hubspot_contact_emails` (newest-first timelines; OOO/auto-replies dropped, join-invite bodies
+  blanked, HTML stripped, in/out direction derived from HubSpot's own records),
+  `hubspot_list_deals` (open-only pipeline hygiene; `stalled_only` reads per-stage
+  `stallThresholds` from source config and says so when unconfigured), `hubspot_list_properties`
+  and `hubspot_list_lists`.
+- **feat(crm) — the routing rule, in the names.** The three mirror tools are renamed
+  `hubspot_count_*`; every description encodes it both ways: fetching a record goes to the
+  source, counting goes to the mirror.
+- **feat(sources) — identity-only embedded content.** The connector embeds only what a record IS
+  (contact: name, role, email; deal: name, pipeline; company: name, domain, industry,
+  description); everything volatile or filterable is metadata-only. A record touch or email open
+  no longer re-embeds; widening the fetched property list re-embeds zero documents (verified:
+  +2 properties → `unchanged=249`). One deliberate full re-embed lands the new format.
+- **refactor — `libs/hubspot/client.ts`**, the one place that talks to api.hubapi.com (connector,
+  `hubspot.update`, every tool). Errors are data: `no_hubspot_credentials` / `missing_scope`
+  naming the scope / `hubspot_error`.
+- 678 unit tests green; verified in live agent turns against the Metacto portal (loss-reason
+  chain, stall math hand-checked, MQL sweep + brief loop end-to-end on the renamed tools).
+
+---
+
+## 2026-08-26 — Agent domain tools over MCP + token CLI + cache-aware pulls (v2.16)
+
+The MCP surface and the agent tool surface stop being two catalogs.
+
+- **feat(mcp) — the domain-tool registry bridged over MCP.** `interfaces/mcp/tools/agent-tools.ts`
+  is the registry's fourth consumer: ctx rebuilt from a real agent row exactly as the BYOA
+  endpoint does, so source/grant/exclude gates apply identically. Default agent =
+  `VOCION_MCP_AGENT_SLUG` → `project.leadAgentSlug`; per-call `agent_slug` override, re-gated at
+  call time. `buildServer` is async and carries caller identity (`token:<id>` over HTTP — bearer
+  identity no longer discarded — `'mcp'` on stdio). Capability-tool name collisions skipped;
+  emit-only tools excluded; buffered events returned alongside output. The autonomy gate is
+  untouched: `propose_action` keeps its hardcoded agent principal, so external writes land
+  PENDING regardless of the caller's token — pinned by test. 7 E2E tests over InMemoryTransport.
+- **feat(sources) — get_zoom_transcript + get_gmail_thread, read-through caches.** Answer from
+  the synced mirror when present and fresh (zoom transcripts immutable — hit iff hasTranscript;
+  gmail threads TTL'd, default 15 min), else fetch live via new exported connector helpers and
+  upsert through `ingestDocument` (zoom docs byte-identical to sync via extracted
+  `recordingToDoc` — re-syncs are hash-unchanged no-ops). Provenance in every response
+  (`source: cache|live`, `upserted`). Gmail message metadata gains `threadId`. 21 tests.
+- **feat(tokens) — manage-tokens CLI.** `tokens:issue/list/revoke`, closing the roadmap's
+  "issuance is a manual DB path" gap. Plaintext printed once; org by id-or-slug.
+- Verified E2E on the metacto deployment: 65 tools over prod HTTP, real CRM reads, a 39k-char
+  transcript through the cache path; 572 unit tests green.
+
+---
+
+## 2026-08-21 — Typed CRM reads: one tool per object type (v2.15)
+
+Semantic search answers "what was said"; counting was inference off a relevance top-k. Split the
+read path: `search_knowledge` keeps meaning, three typed tools answer "how many" in SQL.
+
+- **feat(crm) — get_hubspot_contacts / _deals / _companies.** One object type each, SQL over the
+  synced mirror (no live-API read — two read paths means two answers to one question). Exact
+  `COUNT(*)` independent of the page, facets computed BEFORE value filters, explicit pagination,
+  per-stage amount sums; open-vs-closed resolved from HubSpot's pipeline definitions, never stage
+  names; an absent filter value returns NO count (0 for a bad value is how a wrong number becomes
+  fact). Gated on a HubSpot source in scope — the grant gate stays on `classify_call`, which is
+  what the privacy guarantee protects. Partial expression indexes: migrations 0054 + 0055.
+- **fix(ingest) — metadata refresh.** The unchanged-content path never refreshed metadata (the
+  content hash governs EMBEDDING, not metadata) — a connector widening what it stamps could never
+  land new fields. Fixed with sorted-key jsonb comparison; a predicted 16.5k-doc re-embed became a
+  96s pass with 184 re-embeds. Also: `freshen_source` now resolves the connector family (an exact
+  slug freshened deals while contacts/companies stayed stale); `as_of` attributes to contributing
+  sources and reports the oldest; searchKnowledge no longer forces discovery/intro queries to zoom.
+- Verified on the real mirror: open pipeline 46 deals / $3,653,261, every call under 55ms; 544
+  tests (32 new).
+
+---
+
+## 2026-08-18/20 — Discovery detection: privacy-gated, agent-driven, audited (v2.5–v2.14)
+
+Ticket 011 — discovery calls detected and routed toward proposals, with the transcript read
+structurally gated, then re-built agent-driven with a full audit trail.
+
+- **feat(discovery) — privacy-gated detection (#55).** A transcript is never read unless the
+  meeting first matched a CRM party the seller owns; `readMatchedTranscript` is the sole
+  chunk-content reader and refuses without a match row. Zoom↔calendar correlation by shared
+  meeting id (never time), fail-closed; seller/free-email domains excluded. `discovery_candidate`
+  provenance ledger (migration 0049); v1 supervised — every classification lands in review,
+  nothing auto-runs.
+- **feat(automation) — the sweep becomes a real automation (#56, #57).** New `job` do-type runs it
+  on Temporal like crm-sweep (deploy installs AND runs it, no SSH step). Then made inspectable,
+  testable, owned: `automation_run` rows (0051), owner agent on automations + workflows (0050),
+  manual run endpoint + Test-run UI with `dryRun` and `day` replay, ask-step interpolable
+  defaults. Fix: late-ingested invites no longer age recordings out permanently (unwindowed event
+  map + partial index 0052). `discovery.review_proposal` added to the never-auto list — no trust
+  rule can generate a proposal without a human.
+- **feat(discovery) — agent-driven detection (#59, v2.8).** The deterministic sweep job deleted;
+  a mission-checked agent drives it with granted-only tools (`get_hubspot_contacts`,
+  `match_meetings`, `classify_call`, `get_discovery_ledger`, `reconcile_discovery_window`).
+  `classify_call` reads through the content gate, makes ONE fixed model call, and persists
+  verdict + provenance in the same function — the transcript never enters agent-steered context.
+  Audit trail (0053): transcript_hash, thresholds, classifier_version, workspace_sha, assessed_by;
+  `/dashboard/discovery` ledger view; structured review cards.
+- **feat(discovery) — coverage honesty.** Granola notes matched alongside Zoom recordings;
+  fail-closed meetings reported as `unmatchable` with reason + fix instead of "0 gaps" (a real
+  31-min prospect intro had read as clean coverage); name-in-title matching rescues zero-attendee
+  recordings (title names an eligible contact by full name, gated on empty attendees).
+- **fixes** — connector-specific multi-field credentials (Zoom S2S OAuth); agent compile scoped to
+  the org — same-slug rows across projects compiled the wrong agent (#60); count-first tool
+  payloads + JSON result counts surfaced in the activity trace.
+
+---
+
+## 2026-08-12/17 — Base RevOps pack: a core layer under the workspace (007) (v2.3–v2.4)
+
+Ticket 007 — core ships generic agents; a workspace activates and extends them instead of
+copy-pasting.
+
+- **feat(workspace) — manifest + merge engine.** `extends` / `use` / `disable` activation
+  selectors + `pack.yaml` schema; pure deep-merge with array directives (`$append` / `$remove` /
+  replace). `loadPack()` resolves the pack a workspace extends, with a pin check
+  (`extends: core@1.0.0`). No `extends` → byte-for-byte unchanged, pinned by tests.
+- **feat(workspace) — compose at load.** Agent-rooted activation (naming an agent pulls its skills
+  + object types transitively) and a per-slug ladder: core / workspace / merged, with provenance
+  tagged; merged set feeds the existing uniqueness/hierarchy asserts.
+- **feat(workspace) — base agents.** The pack ships revenue-director + proposal-writer skeletons
+  plus their operations (proposal_brief keeps `requiresApproval: true`); later five generic role
+  agents (delivery-lead + 4 specialists).
+- **feat(workspace) — provenance + safety.** The pack pin folds into workspace_sha
+  (`<sha>+core@1.0.0`) so "exactly what ran" survives pack upgrades; approval-downgrade guard — a
+  workspace override cannot flip a base operation's `requiresApproval: true → false`, caught at
+  load so `workspace:check` fails too. Drilldowns show both layers (read-only `core` badge).
+- **feat(agents) — ghost cards (v2.4).** Un-activated core agents render as greyed "Core · not
+  activated" cards with an activation filter, so what the pack offers is visible before you turn
+  it on. Also: workspace switch persisted via cookie (v2.3.1).
+
+---
+
+## 2026-08-05 — Jira connector + per-source reconcile schedules (v2.2)
+
+- **feat(connectors) — Jira.** Projects + issues via JQL search; incremental via a
+  relative-minutes updated window (timezone-proof, 5-min overlap); opt-in `projectKeys`; done
+  detection via statusCategory with a `notDoneStatuses` override; issues keyed by the immutable
+  numeric id; Retry-After honored on 429, actionable reconnect error on 401/403.
+- **feat(sources) — reconcile schedules.** Optional `reconcileSchedule` manifest cron (or
+  connector `defaultReconcileCron`): a second Temporal schedule runs a FULL sync so upstream
+  deletions get pruned — incremental syncs can never observe them. A changed source config starts
+  a one-off full sync on apply, so scope edits take effect immediately.
+
+---
+
+## 2026-07-21/24 — Chat transparency + review triage + team briefings (v2.1.5)
+
+The chat surface stops hiding the work, and review becomes triage instead of popups.
+
+- **feat(chat) — the typed trace.** Typed hierarchical trace events from raw `streamEvents(v2)`
+  rendered as the redesigned Activity trace with tool-call drilldown; true token streaming (no
+  more answer dump); tool-output echoes buffered + sanitized out of replies; core anti-slop voice
+  directive. The structural-card guarantee landed as code (`recommendActionBackstop`) after three
+  prompt iterations failed — the structural-over-prompting convention, now documented.
+- **feat(chat) — citations + sources.** Inline `[n]` citations open a two-level Sources drawer
+  (tap a source to slide into detail, Cited/All tabs); cited sources persist + rehydrate across
+  reload (migration 0045); delegate-found sources attributed "via <specialist>".
+- **feat(review) — action queue + triage.** Action-queue foundation: upsert-by-key + expiry
+  (migration 0046); Slack-style catch-up triage + a multi-card stepper in chat; typed decision
+  signals + Rewrite-with-AI, scoped by individual/action/workspace (decision index 0047);
+  focus-mode overhaul (one flow, no popups, list as nav); edit-then-approve for gmail.send drafts;
+  **never-auto-send guard** — gmail.send / send_email always require explicit human approval.
+- **feat(briefings) — team-scoped.** Per-team briefs + rollup, history, regenerate, scoped chat
+  handoff, conversation picker (migration 0048); agents gain get_briefing / refresh_briefing +
+  `freshen_source` (gen-time incremental pull, so a brief isn't stale by construction).
+- **feat(chat/nav)** — resumable mid-turn streams (AI SDK Phase A/B anchor); Use-vs-Configure
+  sidebar views + bottom workspace row (ChatGPT pattern). Also repaired the 0021/0022 migration
+  snapshot collision. Later in v2.1.5 (07-29): syncs run document upserts concurrently and stop
+  deleting documents that still exist (#45).
+
+---
+
+## 2026-07-20 — Teams/F1: the org chart becomes real (v2.1.4)
+
+- **feat(teams) — team primitive.** `team` table + agent/project columns (migration 0044),
+  workspace authoring (`teams`, `lead`, `accountableUser`), TeamService + `teams.list`; org-chart
+  hero at `/dashboard/teams` + per-team detail pages; the org chart exposed as a `teams_list` MCP
+  tool.
+- **feat(chat) — the workspace lead is the front door.** Default conversation targets the
+  workspace lead; the switcher shows only workspace + team leads; workspace-scoped greeting +
+  dynamic capability/urgency suggestion chips. F1 slice 2: team leads merge into the lead's chat
+  subagents, and workspace-lead missions consult the team leads.
+- **feat(teams) — Meridian sample.** The "Meridian Outdoor — Revenue" sample workspace bundles in,
+  seeded via `teams.seedSample` through the real workspace-apply pipeline; workspace-lead badge +
+  Consults rail on agent profiles.
+- **polish** — top bar consolidated into one account menu, chat surface stripped to messages +
+  composer, mobile touch-target sweep; proven with a headless 8-shot usage-tour storyboard.
+
+---
+
+## 2026-07-13/18 — v2.0: the bundled workspace is gone + adoption analytics (v2.0–v2.1)
+
+- **feat(workspace)! — BREAKING (v2.0.0).** The in-repo `workspace/metacto` is deleted;
+  `workspace:scaffold` creates `../workspace/<name>` at the peer level (minimal-but-valid,
+  `workspace:check` passes as-is). `WORKSPACE_PATH` has no fallback: reads degrade to "no
+  workspace", applies/writes error explicitly with a pointer to the scaffold. Export round-trip
+  fidelity for post-v0.2 agent fields fixed in v2.0.1.
+- **chore(license)** — core relicensed under MPL 2.0 + commercial/contributor terms (#40).
+- **feat(adoption) — who is actually adopting (#41, v2.1.0).** Admin `/dashboard/adoption`:
+  logins, sessions, chat, and accountability actions per user and per agent over 7/30/90-day
+  windows. `user_activity_event` append-only stream (migration 0043) + last_login/last_active on
+  membership; fire-and-forget `track()` that never throws into the action it rides; HITL decisions
+  + run feedback captured through one attribution choke point with honest-or-null agent
+  attribution; power/active/dormant/never classification, drill-downs, CSV, backfill + demo
+  seeder. Also fixed the `reviewedBy: 'web'` attribution bug.
+- **fixes (v2.1.1–v2.1.3)** — lazy Logger in `track()` (unblocked workspace:apply), leftover
+  bundled-workspace Docker COPY dropped, pgdata volume name overridable.
+
+---
+
+## 2026-07-10/11 — BYOA: the loop ships as an artifact + AgentCore memory (v1.71–v1.74)
+
+Covered in the public blog posts — internal pointer only.
+
+- **feat(agents) — BYOA runtime (v1.71).** The deepagents loop as a standalone artifact
+  (`packages/agent-runtime`, `/invocations` + `/ping` SSE), same bundle on a laptop and on Bedrock
+  AgentCore Runtime; third harness provider `runtime`. Agents are data (definition travels in the
+  payload — apply stays a DB sync, agent edits never redeploy); tools execute in core behind a
+  signed TenantClaim; `usage` events charge budgets.
+- **feat(agents) — fleet cutover (v1.72).** sales-assistant on `harness.provider: runtime` via
+  workspace YAML; path-filtered CI deploy pipeline (ships inert until the OIDC role is
+  provisioned); `VOCION_DISABLE_RUNTIME` kill-switch + `npm run dev:agent-runtime`.
+- **feat(agents) — AgentCore Memory (v1.73–v1.74).** Conversation continuity (Memory session per
+  persisted conversation; belt-and-suspenders payload history, `VOCION_MEMORY_AUTHORITATIVE=1` for
+  the token savings) + long-term memory (`vocion_facts` + `vocion_preferences` extraction
+  strategies, per-turn recall injected as a model-input preamble). Every Memory failure degrades
+  silently — continuity never breaks chat. Both verified live through the real SSE route.
+
+---
+
+## 2026-07-04/09 — Agent harness, hierarchy, meeting connectors (v1.61–v1.70)
+
+The week between the trust sprint and BYOA — the substrate later work builds on.
+
+- **feat(agents) — the agent harness (v1.61).** Provider-selectable execution (`local` |
+  `agentcore`) with first-class AWS AgentCore support; migration 0040; env kill-switch to force
+  the local harness. Plus smooth streaming (frame-batched deltas, stick-to-bottom scroll).
+- **feat(agents) — lead/specialist hierarchy (#38).** First-class hierarchy + redesigned agent
+  pages (migration 0041); missions run ONE agent, team derived via `parent_agent_slug`
+  (migration 0042).
+- **feat(sources) — the meeting substrate.** google-calendar, zoom, and granola connectors — what
+  discovery detection later correlates over; workspace drift-check routes + a dashboard drift
+  banner with apply-from-UI.
+- **feat(dashboard)** — multi-workspace project switcher; Activity page becomes the single home
+  for run history; briefings get a floating composer + highlight-to-ask handoff into chat.
+- **fix(security)** — malicious payload removed from `postcss.config.mjs` (#37); vault switched to
+  a static import (require() broke in the app bundle).
+
+---
+
 ## 2026-07-03 (night) — Memory, trust, ask steps, briefings (v1.60)
 
 The "Trust & the Daily Loop" sprint — every open feature task closed.

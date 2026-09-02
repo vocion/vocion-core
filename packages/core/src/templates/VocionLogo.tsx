@@ -9,7 +9,7 @@
  *     When set, it replaces the built-in Vocion bars mark. Deployments pass
  *     their own logo here so the OSS build carries no third-party art.
  *
- * The default mark is three rising bars — growth, signal, momentum — filled
+ * The default mark is a "V" (voice / vocation) rising into a spark — drawn
  * with `currentColor` so it inherits the surrounding text color.
  * @param props
  * @param props.isTextHidden
@@ -75,14 +75,17 @@ export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' |
             <svg
               className={`shrink-0 ${iconSize}`}
               viewBox="0 0 24 24"
-              fill="currentColor"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.4}
+              strokeLinecap="round"
+              strokeLinejoin="round"
               xmlns="http://www.w3.org/2000/svg"
               aria-hidden="true"
             >
-              {/* Three rising bars — growth, signal, momentum. */}
-              <rect x="3" y="14" width="4" height="7" rx="1" />
-              <rect x="10" y="9" width="4" height="12" rx="1" />
-              <rect x="17" y="4" width="4" height="17" rx="1" />
+              {/* Vocion mark — a "V" (voice / vocation) rising into a spark. */}
+              <path d="M4.5 5.5 12 18.5 19.5 5.5" />
+              <circle cx="19.5" cy="5.5" r="1.7" fill="currentColor" stroke="none" />
             </svg>
           )}
       {!props.isTextHidden && (

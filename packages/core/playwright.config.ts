@@ -66,6 +66,17 @@ export default defineConfig<ChromaticConfig>({
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['setup'],
     },
+    // The headless usage-video tour (F1 storyboard). Self-seeding: signs up
+    // the first-run admin on a FRESH PGlite DB, so no Clerk setup project
+    // and no dependencies. One long cinematic spec — generous timeout.
+    // Run with: npx playwright test --project=tour  (see e2e/tour/README.md)
+    {
+      name: 'tour',
+      testDir: './e2e/tour',
+      timeout: 240 * 1000,
+      retries: 0,
+      use: { ...devices['Desktop Chrome'], video: 'on', trace: 'off' },
+    },
     ...(process.env.CI
       ? [
           {

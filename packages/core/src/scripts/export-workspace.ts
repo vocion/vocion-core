@@ -1,10 +1,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { stringify as stringifyYaml } from 'yaml';
 import { db } from '@/libs/DB';
-import { agentSchema, businessObjectTypeSchema, skillSchema } from '@/models/Schema';
+import { projectLeadToManifestKeys, teamRowToManifest } from '@/libs/workspace/team-export';
+import { agentSchema, businessObjectTypeSchema, projectSchema, teamSchema, userSchema } from '@/models/Schema';
 import 'dotenv/config';
 
 /**
@@ -24,20 +25,48 @@ async function main(): Promise<void> {
   mkdirSync(outDir, { recursive: true });
 
   const agents = await db.select().from(agentSchema).where(eq(agentSchema.orgId, orgId));
-  const skills = await db.select().from(skillSchema).where(eq(skillSchema.orgId, orgId));
   const objectTypes = await db.select().from(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.orgId, orgId));
+  const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId));
+  const [project] = await db.select().from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1);
 
-  // workspace.yaml
+  // accountable_user_id → email, for teams + the workspace default.
+  const accountableIds = [
+    ...teams.map(t => t.accountableUserId),
+    project?.accountableUserId ?? null,
+  ].filter((id): id is string => id !== null);
+  const emailByUserId = new Map<string, string>(
+    accountableIds.length > 0
+      ? (await db.select({ id: userSchema.id, email: userSchema.email }).from(userSchema).where(inArray(userSchema.id, accountableIds)))
+          .map(u => [u.id, u.email] as const)
+      : [],
+  );
+
+  // workspace.yaml — workspace lead + default owner come from the project
+  // row when one matches the org (workspace lead is project config).
   writeFile(join(outDir, 'workspace.yaml'), stringifyYaml({
     version: 1,
     orgId,
     name,
     description: `Exported context for ${name} on ${new Date().toISOString()}`,
+    ...projectLeadToManifestKeys(
+      project ?? { leadAgentSlug: null, accountableUserId: null },
+      emailByUserId,
+    ),
     defaults: {
-      model: mode(skills.map(s => s.model ?? 'gpt-4o')),
+      model: mode(agents.map(a => a.model ?? 'gpt-4o')),
       temperature: '0.3',
     },
   }));
+
+  // teams/<slug>.yaml — slug is the filename; inherited accountability is
+  // NOT baked in (NULL accountable_user_id exports as an absent key).
+  if (teams.length > 0) {
+    const teamsDir = join(outDir, 'teams');
+    mkdirSync(teamsDir, { recursive: true });
+    for (const t of teams) {
+      writeFile(join(teamsDir, `${t.slug}.yaml`), stringifyYaml(teamRowToManifest(t, emailByUserId), { lineWidth: 0 }));
+    }
+  }
 
   // agents/<slug>.yaml + agents/<slug>.system-prompt.md
   const agentsDir = join(outDir, 'agents');
@@ -53,6 +82,16 @@ async function main(): Promise<void> {
       icon: a.icon,
       active: a.active !== 'false',
       parent: a.parentAgentSlug ?? undefined,
+      // Team membership (F1). Prefer the validated slug ref; fall back to
+      // the legacy free-text label so pre-teams workspaces round-trip.
+      // A lead's own team is OMITTED — apply auto-assigns it, so writing
+      // it out would make the first re-apply a spurious update.
+      team: teams.some(t => t.slug === a.teamSlug && t.leadAgentSlug === a.slug)
+        ? undefined
+        : a.teamSlug ?? a.team ?? undefined,
+      // Work-mode label. Was silently dropped on export before F1, which
+      // made every export→apply round-trip rewrite agentType to NULL.
+      agentType: (a.agentType ?? undefined) as 'mission' | 'workflow' | 'operational' | undefined,
       model: a.model,
       temperature: a.temperature,
       systemPromptFile: promptFile,
@@ -62,7 +101,7 @@ async function main(): Promise<void> {
       eyebrow: a.eyebrow ?? undefined,
       suggestions: (a.suggestions ?? []).length > 0 ? a.suggestions : undefined,
       subagents: (a.subagents ?? []).length > 0 ? a.subagents : undefined,
-      playbookTags: (a.playbookTags ?? []).length > 0 ? a.playbookTags : undefined,
+      playbooks: (a.playbookSlugs ?? []).length > 0 ? a.playbookSlugs : undefined,
       learningSteps: (a.learningSteps ?? []).length > 0 ? a.learningSteps : undefined,
       // Harness block — carries the execution-layer choice (BYOA
       // `provider: runtime`, agentcore, interrupts, excludeTools…).
@@ -80,33 +119,8 @@ async function main(): Promise<void> {
     writeFile(join(agentsDir, `${a.slug}.yaml`), stringifyYaml(manifest, { lineWidth: 0 }));
   }
 
-  // skills/<slug>/skill.yaml + skills/<slug>/prompt.md
-  // v0.2 renamed skills/ → operations/; the loader prefers operations/
-  // when both exist, so exporting to skills/ gets silently ignored in a
-  // scaffolded workspace (scaffold creates operations/).
-  const skillsDir = join(outDir, 'operations');
-  mkdirSync(skillsDir, { recursive: true });
-  for (const s of skills) {
-    const skillDir = join(skillsDir, s.slug.replace(/_/g, '-'));
-    mkdirSync(skillDir, { recursive: true });
-
-    writeFile(join(skillDir, 'prompt.md'), s.promptTemplate);
-
-    const manifest = stripNulls({
-      slug: s.slug,
-      name: s.name,
-      description: s.description,
-      category: (s.category ?? 'query') as 'query' | 'mutation' | 'composite',
-      status: (s.status ?? 'active') as 'active' | 'disabled' | 'draft',
-      version: s.version ?? 1,
-      model: s.model,
-      temperature: s.temperature,
-      requiresApproval: s.requiresApproval !== 'false',
-      promptFile: 'prompt.md',
-      inputSchema: s.inputSchema ?? undefined,
-    });
-    writeFile(join(skillDir, 'skill.yaml'), stringifyYaml(manifest, { lineWidth: 0 }));
-  }
+  // Skills and playbooks are file-authored (skills/<slug>/SKILL.md,
+  // playbooks/<slug>/SKILL.md) — nothing to export from the DB.
 
   // objects/<slug>/type.yaml + objects/<slug>/classification-prompt.md
   const objectsDir = join(outDir, 'objects');
@@ -136,7 +150,7 @@ async function main(): Promise<void> {
 
   console.log(`\n✓ exported to ${outDir}`);
   console.log(`  agents: ${agents.length}`);
-  console.log(`  skills: ${skills.length}`);
+  console.log(`  teams: ${teams.length}`);
   console.log(`  objectTypes: ${objectTypes.length}`);
   process.exit(0);
 }

@@ -10,7 +10,7 @@
 
 import type { Principal, WorkspaceRole } from '@/services/authz';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { apiTokenSchema } from '@/models/Schema';
 
@@ -30,6 +30,8 @@ export type IssuedToken = { token: string; id: string };
  * @param input.createdBy
  * @param input.role
  * @param input.grants
+ * @param input.expiresAt - When the token stops working; omit or pass null for
+ * a token that never expires.
  */
 export async function issueToken(input: {
   orgId: string;
@@ -37,6 +39,7 @@ export async function issueToken(input: {
   createdBy?: string;
   role?: WorkspaceRole;
   grants?: string[];
+  expiresAt?: Date | null;
 }): Promise<IssuedToken> {
   const id = randomUUID().replace(/-/g, '').slice(0, 16);
   const secret = randomBytes(24).toString('hex'); // hex → no '_', safe to split
@@ -48,6 +51,7 @@ export async function issueToken(input: {
     role: input.role ?? 'owner',
     grants: input.grants ?? [],
     createdBy: input.createdBy ?? null,
+    expiresAt: input.expiresAt ?? null,
   });
   return { token: `${PREFIX}_${id}_${secret}`, id };
 }
@@ -68,6 +72,11 @@ export async function verifyToken(raw: string): Promise<TokenIdentity | null> {
   const secret = parts[3]!;
   const [row] = await db.select().from(apiTokenSchema).where(eq(apiTokenSchema.id, id)).limit(1);
   if (!row || row.revokedAt) {
+    return null;
+  }
+  // An expired token is refused exactly like a revoked one, and the row stays
+  // put so the dashboard can still show what expired and when.
+  if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) {
     return null;
   }
   if (sha256(secret) !== row.secretHash) {
@@ -102,7 +111,22 @@ export async function revokeToken(orgId: string, id: string): Promise<void> {
     .where(and(eq(apiTokenSchema.orgId, orgId), eq(apiTokenSchema.id, id)));
 }
 
-export async function listTokens(orgId: string): Promise<Array<{ id: string; name: string; createdAt: Date; lastUsedAt: Date | null; revokedAt: Date | null }>> {
+/** One row of the token list — metadata only, never the secret or its hash. */
+export type TokenSummary = {
+  id: string;
+  name: string;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  revokedAt: Date | null;
+  expiresAt: Date | null;
+};
+
+/**
+ * List an org's tokens, newest first. Revoked and expired tokens are included
+ * so the dashboard can show a credential's whole history, not just live ones.
+ * @param orgId
+ */
+export async function listTokens(orgId: string): Promise<TokenSummary[]> {
   return db
     .select({
       id: apiTokenSchema.id,
@@ -110,7 +134,9 @@ export async function listTokens(orgId: string): Promise<Array<{ id: string; nam
       createdAt: apiTokenSchema.createdAt,
       lastUsedAt: apiTokenSchema.lastUsedAt,
       revokedAt: apiTokenSchema.revokedAt,
+      expiresAt: apiTokenSchema.expiresAt,
     })
     .from(apiTokenSchema)
-    .where(eq(apiTokenSchema.orgId, orgId));
+    .where(eq(apiTokenSchema.orgId, orgId))
+    .orderBy(desc(apiTokenSchema.createdAt));
 }

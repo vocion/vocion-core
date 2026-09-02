@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { getAgent } from '@/services/AgentService';
 import { authApi, jsonError } from '../../_shared';
 
-export async function GET(_req: Request, context: { params: Promise<{ slug: string }> }) {
-  const auth = await authApi();
+export async function GET(req: Request, context: { params: Promise<{ slug: string }> }) {
+  const auth = await authApi(req);
   if ('status' in auth) {
     return auth;
   }

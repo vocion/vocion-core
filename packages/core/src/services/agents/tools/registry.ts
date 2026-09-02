@@ -16,11 +16,23 @@
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { z } from 'zod';
+import { withToolCallRecord } from '../toolCallRecord';
+import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
+import { crmTools } from './crm';
+import { discoveryTools } from './discovery';
 import { fetchUrlTool } from './fetchUrl';
+import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
+import { gmailTools } from './gmailThread';
 import { requestHumanReviewTool } from './hitl';
+import { hubspotCatalogTools } from './hubspotCatalog';
+import { hubspotCompanyTools } from './hubspotCompanies';
+import { hubspotDealTools } from './hubspotDeals';
+import { hubspotDirectInScope } from './hubspotDirect';
+import { hubspotLeadsTools } from './hubspotLeads';
+import { kitVisionTools } from './kitVision';
 import {
   addLearningTool,
   checkLearningDedupTool,
@@ -31,13 +43,34 @@ import {
 } from './learnings';
 import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
+import { personalizationTools } from './personalization';
 import { proposeActionTool } from './proposeAction';
-import { publishBriefingTool } from './publishBriefing';
+import { recommendActionTool } from './recommendAction';
 import { runCodeTool } from './runCode';
-import { runOperationTool } from './runOperation';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { webSearchTool } from './webSearch';
+import { zoomTools } from './zoomTranscript';
+
+/**
+ * The DIRECT-to-HubSpot tool set — live API reads, never the mirror. Present
+ * for any agent with a hubspot source in scope (and, when a per-user ACL is
+ * set, only when it also allows one); the `hubspot_count_*` mirror tools in
+ * `crmTools` gate the same way, so routing is a choice between two present
+ * tools, never a guess at an absent one.
+ * @param ctx
+ */
+function hubspotDirectTools(ctx: RuntimeContext): StructuredToolInterface[] {
+  if (!hubspotDirectInScope(ctx)) {
+    return [];
+  }
+  return [
+    ...hubspotLeadsTools(ctx),
+    ...hubspotCompanyTools(ctx),
+    ...hubspotDealTools(ctx),
+    ...hubspotCatalogTools(ctx),
+  ];
+}
 
 export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
   return [
@@ -49,7 +82,6 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     runCodeTool(ctx),
     createArtifactTool(ctx),
     lookupObjectsTool(ctx),
-    runOperationTool(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),
     checkLearningDedupTool(ctx),
@@ -60,9 +92,26 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     listRunFeedbackTool(ctx),
     requestHumanReviewTool(ctx),
     proposeActionTool(ctx),
+    recommendActionTool(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
-  ] as StructuredToolInterface[];
+    getBriefingTool(ctx),
+    refreshBriefingTool(ctx),
+    freshenSourceTool(ctx),
+    // Source-gated — empty unless a HubSpot source is in the agent's scope.
+    ...crmTools(ctx),
+    ...hubspotDirectTools(ctx),
+    // Source-gated read-through caches (zoom / gmail sources in scope).
+    ...zoomTools(ctx),
+    ...gmailTools(ctx),
+    // Granted-only (harness.grantTools) — empty for agents without the grant.
+    ...discoveryTools(ctx),
+    ...personalizationTools(ctx),
+    // Granted-only: reference-based kit verification + the Rekognition second opinion.
+    ...kitVisionTools(ctx),
+    // Every invocation writes one tool_call row — the activity record,
+    // covering all three harness providers at this single seam.
+  ].map(t => withToolCallRecord(t as StructuredToolInterface, ctx));
 }
 
 export type ToolCatalogEntry = {

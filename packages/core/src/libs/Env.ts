@@ -27,6 +27,12 @@ export const Env = createEnv({
      * on the main model per the Anthropic API constraint.
      */
     VOCION_THINKING_BUDGET: z.coerce.number().int().positive().optional(),
+    /**
+     * TEMPORARY (phase 2 removes it). Set to '1' to expose the personalization
+     * queue reset. Unset means the route 404s and the control does not render,
+     * so taking the escape hatch away is a config change, not a deploy.
+     */
+    VOCION_ALLOW_QUEUE_RESET: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -55,6 +61,7 @@ export const Env = createEnv({
     LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY,
     LANGFUSE_SECRET_KEY: process.env.LANGFUSE_SECRET_KEY,
     VOCION_THINKING_BUDGET: process.env.VOCION_THINKING_BUDGET,
+    VOCION_ALLOW_QUEUE_RESET: process.env.VOCION_ALLOW_QUEUE_RESET,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

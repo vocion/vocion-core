@@ -14,6 +14,8 @@ type PrimitiveFile = {
   fullPath?: string;
   content: string;
   language: 'yaml' | 'markdown' | 'javascript';
+  /** Provenance: `workspace` (editable) or `core` (inherited base default, read-only). */
+  layer?: 'workspace' | 'core';
 };
 
 type Props = {
@@ -114,6 +116,14 @@ export function PrimitiveFiles({ files, editInGitPath, dirty = false, dirtyFiles
                 <span className="inline-flex items-center gap-1.5">
                   <FileText className="size-3" />
                   {name}
+                  {f.layer === 'core' && (
+                    <span
+                      className="rounded bg-muted-foreground/15 px-1 py-px text-[9px] font-medium tracking-wide text-muted-foreground uppercase"
+                      title="Inherited from the core base pack (read-only). Override it with an extends: core file in your workspace."
+                    >
+                      core
+                    </span>
+                  )}
                 </span>
               </button>
             );

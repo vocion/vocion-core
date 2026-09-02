@@ -52,7 +52,7 @@ export default async function ObservabilityPage(props: {
 
   const [budgets, runCounts] = await Promise.all([
     listAgentBudgets(orgId).catch(() => []),
-    countRunsLast24h(orgId).catch(() => ({ skillRuns: 0, workflowRuns: 0 })),
+    countRunsLast24h(orgId).catch(() => ({ toolCalls: 0, workflowRuns: 0 })),
   ]);
 
   const totalCents = budgets.reduce((acc, b) => acc + (b.currentCents ?? 0), 0);
@@ -105,8 +105,8 @@ export default async function ObservabilityPage(props: {
           />
           <StatCard
             label="Runs (last 24h)"
-            value={String(runCounts.skillRuns + runCounts.workflowRuns)}
-            hint={`${runCounts.skillRuns} operation · ${runCounts.workflowRuns} workflow`}
+            value={String(runCounts.toolCalls + runCounts.workflowRuns)}
+            hint={`${runCounts.toolCalls} tool calls · ${runCounts.workflowRuns} workflow`}
           />
           <StatCard
             label="Active agents"

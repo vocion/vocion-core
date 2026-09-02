@@ -44,6 +44,39 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
   grant: 'send_email',
   external: true,
   sourceSlug: 'gmail',
+  // One PENDING email per recipient: a re-firing automation refreshes its
+  // draft in place instead of stacking the queue. The recipient is the
+  // identity because the model rewrites the subject on every pass (observed
+  // in prod: 16 stacked drafts to one address, every subject different).
+  // Pending-only dedup, so a fresh email to the same person proposes cleanly
+  // once the last one is decided.
+  dedupKeyFor: input => `gmail.send:${input.to.trim().toLowerCase()}`,
+  // The card template, email kind: one send, reviewed and edited inline.
+  async reviewCard(_ctx, input) {
+    return {
+      title: `${input.draft ? 'Draft email' : 'SEND email'} → ${input.to}`,
+      system: 'Gmail',
+      subject: { name: input.to },
+      contentHeading: { label: 'Email · 1 send' },
+      content: [{ kind: 'email' as const, id: 'message', label: 'Send 1', subject: input.subject, body: input.body }],
+      fields: [
+        { label: 'To', value: input.to },
+        ...(input.cc ? [{ label: 'Cc', value: input.cc }] : []),
+      ],
+      verbs: { approve: input.draft ? 'Approve → draft' : 'Approve & send', reject: 'Reject' },
+    };
+  },
+  applyContentEdits(input, edits) {
+    const edit = edits.find(e => e.id === 'message');
+    if (!edit) {
+      return input;
+    }
+    return {
+      ...input,
+      ...(edit.subject !== undefined ? { subject: edit.subject } : {}),
+      ...(edit.body !== undefined ? { body: edit.body } : {}),
+    };
+  },
   async execute(ctx, input) {
     // Durable path: refresh-token exchange (see googleAuth); falls back to a
     // raw short-lived credentials.token.

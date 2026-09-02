@@ -10,17 +10,111 @@ const FewShotExampleSchema = z.object({
   label: z.string().optional(),
 });
 
+/**
+ * Base-pack activation allowlist (workspace.yaml `use:`). Activation is
+ * AGENT-rooted: naming an agent transitively pulls in the skills it
+ * declares in `skills:` and the playbooks those skills attach — you
+ * never hand-list an agent's own skills. `skills` remains for a skill
+ * no activated agent mounts; `playbooks` for standalone context. `use:
+ * all` takes every default the pack ships. Omitting `use` while
+ * `extends` is set means `use: none` — explicit opt-in, no surprise
+ * agents.
+ */
+const ActivationSelectorSchema = z.object({
+  agents: z.array(SlugSchema).default([]),
+  skills: z.array(z.string()).default([]),
+  playbooks: z.array(z.string()).default([]),
+}).partial();
+
 export const WorkspaceManifestSchema = z.object({
   version: z.literal(1).describe('manifest format version'),
   orgId: z.string().min(1).describe('Clerk organization id'),
   name: z.string().min(1),
   description: z.string().optional(),
+  /**
+   * Workspace lead agent (F1) — the agent that runs the whole workspace
+   * and consults the team leads. Must name an agent in this workspace;
+   * applied to `project.leadAgentSlug`. Omit = no workspace lead.
+   */
+  lead: SlugSchema.optional(),
+  /**
+   * Workspace-default accountable human (F1) — an email, resolved to a
+   * user id at apply and stored on `project.accountableUserId`. Teams
+   * without their own `accountableUser` inherit this at read time.
+   */
+  accountableUser: z.string().email().optional(),
   defaults: z.object({
     model: z.string().optional(),
     temperature: z.string().optional(),
   }).partial().optional(),
+  /**
+   * Optional dashboard surfaces to switch on, by registry id (see
+   * `features/navigation/surfaces.ts`). The route, page, label, icon and
+   * sidebar section all live in core; this list only says which ones this
+   * workspace gets. Unknown ids fail at load. Omit for none.
+   */
+  surfaces: z.array(z.string()).default([]),
+  /**
+   * Pin a versioned base pack that ships inside vocion-core, e.g.
+   * `core@1.4.0` (or bare `core` to track the pack's current version).
+   * OMIT → no base layer at all: the workspace loads exactly as it does
+   * today, byte-for-byte. A workspace only ever moves onto a new pack
+   * version by changing this pin — publishing a newer pack never reaches
+   * a pinned instance.
+   */
+  extends: z.string().optional().describe('base pack pin, e.g. "core@1.4.0"; omit for no base layer'),
+  /**
+   * Activation allowlist for the pinned pack. `use: all` activates every
+   * default; an {agents,operations} selector activates only what it names
+   * (agents pull their skills transitively). Omitted while `extends` is
+   * set = activate nothing (`use: none`).
+   */
+  use: z.union([z.literal('all'), ActivationSelectorSchema]).optional(),
+  /**
+   * Suppress a core default even under `use: all` — the escape hatch. A
+   * disabled slug is omitted from the merged workspace entirely.
+   */
+  disable: ActivationSelectorSchema.optional(),
 });
 export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
+
+/**
+ * Team manifest (F1) — workspace/<org>/teams/<slug>.yaml. The team's
+ * slug comes from the FILENAME (no `slug:` field), so a team cannot
+ * disagree with its own path. Teams are flat by construction: there is
+ * no parent field here and no parent column in the `team` table.
+ */
+export const TeamManifestSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  /**
+   * Slug of the agent leading this team. Optional — a team may exist
+   * before its lead is chosen (rendered "no lead yet") — but when set
+   * it must name an agent in this workspace.
+   */
+  lead: SlugSchema.optional(),
+  /**
+   * The accountable human for this team — an email, resolved to a user
+   * id at apply. Omit to inherit the workspace-level default
+   * (`accountableUser:` in workspace.yaml); inheritance is resolved at
+   * read time and is NOT baked in on export.
+   */
+  accountableUser: z.string().email().optional(),
+});
+export type TeamManifest = z.infer<typeof TeamManifestSchema>;
+
+/**
+ * `pack.yaml` — the identity of a base pack shipped inside vocion-core at
+ * `packages/core/templates/<name>/`. The version is what a workspace pins
+ * via `extends: core@<version>` and what folds into `workspace_sha`, so a
+ * pinned instance is insulated from later pack publishes.
+ */
+export const PackManifestSchema = z.object({
+  name: z.literal('core').describe('pack identity — only "core" today'),
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, 'pack version must be semver x.y.z'),
+  description: z.string().optional(),
+});
+export type PackManifest = z.infer<typeof PackManifestSchema>;
 
 export const AgentManifestSchema = z.object({
   slug: SlugSchema,
@@ -42,7 +136,12 @@ export const AgentManifestSchema = z.object({
   role: z.enum(['lead', 'specialist']).optional(),
   /** The work mode this agent primarily runs. */
   agentType: z.enum(['mission', 'workflow', 'operational']).optional(),
-  /** DEPRECATED display label. Hierarchy comes from `parent`, not this. */
+  /**
+   * The team this agent belongs to (F1) — a slug matching a file in the
+   * workspace's teams/ dir. Validated whenever the workspace defines
+   * teams; workspaces without a teams/ dir keep the old behavior
+   * (free-text display label, deprecated) byte-for-byte.
+   */
   team: z.string().optional(),
   model: z.string().optional(),
   temperature: z.union([z.string(), z.number()]).optional(),
@@ -78,8 +177,12 @@ export const AgentManifestSchema = z.object({
     s => !!(s.systemPrompt || s.systemPromptFile),
     { message: 'subagent must have either systemPrompt or systemPromptFile' },
   )).default([]),
-  /** Playbook-tag filter — see `playbook.tags`. */
-  playbookTags: z.array(z.string()).default([]),
+  /**
+   * Playbooks attached to this agent by name — context that should
+   * always be present for it, independent of any skill. A named slug
+   * must resolve to a playbook the workspace or its base pack ships.
+   */
+  playbooks: z.array(z.string()).default([]),
   /** Names of `learning_step` rows this agent owns. (Wired in Phase 5.) */
   learningSteps: z.array(z.string()).default([]),
   /** Empty-state suggestions shown in the chat UI. */
@@ -113,33 +216,29 @@ export const AgentManifestSchema = z.object({
     interrupts: z.array(z.string()).default([]),
     maxTokens: z.number().int().positive().optional(),
     excludeTools: z.array(z.string()).default([]),
+    /**
+     * Granted-only tools this agent receives. Some built-ins (the discovery
+     * lane: classify_call, match_meetings, …) exist only for agents that name
+     * them here — the inverse of excludeTools, for tools too powerful to be
+     * default-on.
+     */
+    grantTools: z.array(z.string()).default([]),
     model: z.string().optional(),
+    /**
+     * Structural guarantee for A2UI action cards: when true and a turn ends
+     * with ZERO recommend_action calls, the runtime runs a small follow-up
+     * pass over the finished answer that emits the cards the agent's rules
+     * require. Exists because prompt compliance alone proved unreliable —
+     * long tool outputs (e.g. the daily brief) anchor the model into prose
+     * mode and it stops calling the tool (observed 3→0 card regression).
+     */
+    recommendActionBackstop: z.boolean().optional(),
   }).partial().default({}),
 }).refine(
   v => !!(v.systemPromptFile || v.systemPrompt),
   { message: 'agent must have either systemPromptFile or inline systemPrompt' },
 );
 export type AgentManifest = z.infer<typeof AgentManifestSchema>;
-
-export const SkillManifestSchema = z.object({
-  slug: SlugSchema,
-  name: z.string(),
-  description: z.string().optional(),
-  category: z.enum(['query', 'mutation', 'composite']).default('query'),
-  status: z.enum(['active', 'disabled', 'draft']).default('active'),
-  version: z.number().int().positive().default(1),
-  model: z.string().optional(),
-  temperature: z.union([z.string(), z.number()]).optional(),
-  requiresApproval: z.boolean().default(true),
-  promptFile: z.string().optional().describe('path to markdown prompt template, relative to skill file'),
-  promptTemplate: z.string().optional(),
-  scriptFile: z.string().optional().describe('path to .js/.ts postprocess module, relative to skill file. default export: (output, input, ctx) => output'),
-  inputSchema: z.record(z.string(), z.unknown()).optional(),
-}).refine(
-  v => !!(v.promptFile || v.promptTemplate),
-  { message: 'skill must have either promptFile or inline promptTemplate' },
-);
-export type SkillManifest = z.infer<typeof SkillManifestSchema>;
 
 /* ----------------------------------------------------------------
  * Workflow manifest
@@ -158,15 +257,6 @@ const InterpolatableStringSchema = z.string().describe(
  *   - `ask`     — HITL input; pause until a human supplies text
  *   - `action`  — connector-backed action (v1 = registered stubs only)
  */
-const SkillStepSchema = z.object({
-  name: SlugSchema,
-  type: z.literal('skill').default('skill'),
-  skill: z.string().describe('skill slug to invoke'),
-  input: z.record(z.string(), z.unknown()).default({}),
-  /** Optional — persist this step's output into named variable (defaults to step name). */
-  outputAs: z.string().optional(),
-});
-
 const ApproveStepSchema = z.object({
   name: SlugSchema,
   type: z.literal('approve'),
@@ -186,6 +276,14 @@ const AskStepSchema = z.object({
   name: SlugSchema,
   type: z.literal('ask'),
   prompt: z.string().describe('what to ask the human — shown in the review queue'),
+  /**
+   * Optional interpolable template (e.g. `{{input.transcript}}`). When it
+   * resolves to a non-empty string the step completes with that value and the
+   * run never pauses — an ask that already has its answer doesn't ask. Lets one
+   * workflow serve both an automated caller that supplies the data and a human
+   * starting it by hand, without forking the definition.
+   */
+  default: z.string().optional(),
   /** Optional — persist this step's output into named variable (defaults to step name). */
   outputAs: z.string().optional(),
 });
@@ -209,7 +307,7 @@ const SyncStepSchema = z.object({
   sources: z.array(z.string()).min(1),
 });
 
-const WorkflowStepSchema = z.discriminatedUnion('type', [SkillStepSchema, ApproveStepSchema, AskStepSchema, ActionStepSchema, SyncStepSchema]);
+const WorkflowStepSchema = z.discriminatedUnion('type', [ApproveStepSchema, AskStepSchema, ActionStepSchema, SyncStepSchema]);
 
 const ManualTriggerSchema = z.object({
   type: z.literal('manual').default('manual'),
@@ -262,6 +360,13 @@ export const AutomationManifestSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   status: z.enum(['active', 'disabled']).default('active'),
+  /**
+   * Owning agent slug. For `checkMission` the owner is implied by the
+   * mission's own `agent`, so this is optional; for `job`/`workflow`
+   * automations, which carry no mission, set it so the schedule rolls up to a
+   * visible agent instead of running ownerless. Validated to exist.
+   */
+  agent: SlugSchema.optional(),
   when: z.object({
     /** 5-field cron, UTC. */
     schedule: z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'schedule must be a 5-field cron').optional(),
@@ -273,9 +378,24 @@ export const AutomationManifestSchema = z.object({
   do: z.object({
     workflow: z.string().optional(),
     checkMission: z.string().optional(),
-    /** Fixed input passed to workflow runs. */
+    /** Built-in server job (deterministic, not an agent). */
+    job: z.string().optional(),
+    /**
+     * Execution prompt for `checkMission` fires — WHAT to do on this cadence.
+     * The mission stays the standing context (charter, working notes); the
+     * automation carries the marching orders. Falls back to the generic
+     * scheduled-check brief when omitted.
+     */
+    prompt: z.string().optional(),
+    /** Fixed input passed to the workflow run / job. */
     input: z.record(z.string(), z.unknown()).optional(),
-  }).refine(d => !!d.workflow !== !!d.checkMission, { message: 'do must have exactly one of workflow | checkMission' }),
+  }).refine(
+    d => [d.workflow, d.checkMission, d.job].filter(Boolean).length === 1,
+    { message: 'do must have exactly one of workflow | checkMission | job' },
+  ).refine(
+    d => !d.prompt || !!d.checkMission,
+    { message: 'do.prompt requires do.checkMission — only mission checks carry an execution prompt' },
+  ),
 });
 export type AutomationManifest = z.infer<typeof AutomationManifestSchema>;
 
@@ -285,6 +405,8 @@ export const WorkflowManifestSchema = z.object({
   description: z.string().optional(),
   status: z.enum(['active', 'disabled', 'draft']).default('active'),
   version: z.number().int().positive().default(1),
+  /** Owning agent slug — the agent this procedure belongs to. Validated to exist. */
+  agent: SlugSchema.optional(),
   trigger: WorkflowTriggerSchema,
   steps: z.array(WorkflowStepSchema).min(1),
   /** Optional input JSON Schema for manual triggers. */
@@ -387,14 +509,26 @@ export const LearningStepManifestSchema = z.object({
   preamble: z.string().optional(),
   /** Which agent slugs own / read this step. */
   agents: z.array(z.string()).default([]),
+  /**
+   * SEED rules shipped with the workspace. Applied once each (keyed on
+   * `workspace:<id>` in `learning.source`); later edits to a seeded rule's
+   * text are applied as updates. Rules people add at runtime live only in
+   * the DB and are never touched by apply.
+   */
+  rules: z.array(z.object({ id: SlugSchema, text: z.string().min(1) })).default([]),
 });
 export type LearningStepManifest = z.infer<typeof LearningStepManifestSchema>;
 
 export const PlaybookManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().describe('Human-readable name for catalog UI.'),
-  description: z.string().describe('One-line summary the agent reads to decide when to activate this playbook.'),
-  tags: z.array(z.string()).default([]).describe('Per-agent filter — an agent\'s `playbookTags` field selects which playbooks mount into its virtual FS. Empty agent list = all playbooks mount.'),
+  description: z.string().describe('One-line summary the agent reads to decide when to activate this skill or playbook.'),
+  /**
+   * Playbook slugs this skill attaches (skill folders only). A playbook
+   * named here travels wherever the skill is switched on. Each slug must
+   * resolve to a playbook the workspace or its base pack ships.
+   */
+  playbooks: z.array(z.string()).default([]),
   version: z.number().int().positive().default(1),
   /**
    * Sibling resource files (e.g. `REFERENCE.html`, `COMPONENTS.md`,

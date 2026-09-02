@@ -13,6 +13,8 @@ node_modules/
 # testing
 /coverage
 /vitest-test-results
+# Also written under packages/core when vitest runs from there.
+vitest-test-results/
 
 # next.js
 .next/
@@ -78,3 +80,5 @@ infra/aws/.env.production
 
 # agent-runtime build artifacts
 packages/agent-runtime/dist/
+
+.env*

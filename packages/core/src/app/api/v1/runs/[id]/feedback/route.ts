@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { submitSkillRunFeedback } from '@/services/SkillService';
+import { submitWorkflowRunFeedback } from '@/services/WorkflowService';
 import { authApi, jsonError } from '../../../_shared';
 
 /**
  * POST /api/v1/runs/:id/feedback
  *
- * Submit (or update) post-hoc feedback on a skill run. Body:
+ * Submit (or update) post-hoc feedback on a workflow run. Body:
  *
  *   { "rating": "up" | "down" | null, "note": string | null }
  *
@@ -16,7 +16,7 @@ import { authApi, jsonError } from '../../../_shared';
  * @param context.params
  */
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
-  const auth = await authApi();
+  const auth = await authApi(req);
   if ('status' in auth) {
     return auth;
   }
@@ -34,16 +34,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     return jsonError('VALIDATION_FAILED', 'rating must be "up", "down", or null', 400);
   }
 
-  const updated = await submitSkillRunFeedback({
+  const updated = await submitWorkflowRunFeedback({
     orgId: auth.orgId,
     runId: id,
-    submittedBy: 'api',
+    submittedBy: auth.actorId,
     rating: (body.rating ?? null) as 'up' | 'down' | null,
     note: body.note ?? null,
   });
 
   if (!updated) {
-    return jsonError('NOT_FOUND', `No skill run found with id ${id}`, 404);
+    return jsonError('NOT_FOUND', `No workflow run found with id ${id}`, 404);
   }
 
   return NextResponse.json({

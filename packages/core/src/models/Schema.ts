@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
-import { bigint, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, boolean, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -152,6 +152,28 @@ export const projectSchema = pgTable(
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description'),
+    /**
+     * Workspace lead agent (F1) — slug of the agent that runs the whole
+     * workspace and consults the team leads. Slug reference, no FK
+     * (same convention as `agent.parentAgentSlug`). The workspace lead
+     * is project CONFIG, not a special team row. Authored as top-level
+     * `lead:` in workspace.yaml. NULL = no workspace lead configured.
+     */
+    leadAgentSlug: text('lead_agent_slug'),
+    /**
+     * Workspace-default accountable human (F1). Teams whose own
+     * `accountableUserId` is NULL inherit this at read time. Authored
+     * as top-level `accountableUser:` (an email) in workspace.yaml,
+     * resolved to a user id at apply.
+     */
+    accountableUserId: text('accountable_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
+    /**
+     * Optional dashboard surfaces this workspace switched on, by registry id
+     * (`features/navigation/surfaces.ts`). Authored as top-level `surfaces:`
+     * in workspace.yaml and replaced wholesale at apply. Empty = the default
+     * sidebar only.
+     */
+    enabledSurfaces: jsonb('enabled_surfaces').$type<string[]>().default([]).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -353,119 +375,51 @@ export const objectDocumentLinkRelations = relations(objectDocumentLinkSchema, (
 }));
 
 /* ------------------------------------------------------------------ */
-/* Skills — configurable LLM-powered capabilities                     */
+/* Tool calls — the activity record, one row per tool invocation      */
 /* ------------------------------------------------------------------ */
 
-/** Skill definitions: prompt template, input/output schema, versioning */
-export const skillSchema = pgTable(
-  'skill',
+/**
+ * One row per domain-tool invocation, written at the tool registry so
+ * all three harness providers (local, agentcore, runtime) are covered.
+ * This is the record of what agents actually do; it replaces the
+ * operation-scoped skill_run history. Cost and model latency live on
+ * the linked Langfuse trace, not here; durationMs is the tool's own
+ * wall time.
+ */
+export const toolCallSchema = pgTable(
+  'tool_call',
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
-    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
     projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
-    slug: text('slug').notNull(),
-    name: text('name').notNull(),
-    description: text('description'),
-    /** The system/user prompt template. Supports {{variable}} interpolation. */
-    promptTemplate: text('prompt_template').notNull(),
-    /**
-     * Optional path to a postprocess script (e.g. `postprocess.js`)
-     * stored in the skill's context folder. When set, the runtime imports
-     * it after the prompt runs and calls `default(output, input, ctx)` to
-     * transform the output before it lands in the review queue.
-     */
-    scriptFile: text('script_file'),
-    /** JSON Schema describing expected input variables */
-    inputSchema: jsonb('input_schema').$type<Record<string, unknown>>(),
-    /** LLM model to use (e.g. gpt-4o, claude-sonnet-4-20250514) */
-    model: text('model').default('gpt-4o'),
-    /** Temperature for generation */
-    temperature: text('temperature').default('0.3'),
-    /** Whether output requires human approval before acting */
-    requiresApproval: text('requires_approval').default('true'),
-    /** Skill category: query, mutation, composite */
-    category: text('category').default('query'),
-    /** Status: active, disabled, draft */
-    status: text('status').default('active'),
-    /**
-     * Kind of operation (v0.2). `operation` (default) is a typed
-     * Zod-validated single LLM call or plugin invocation — what this
-     * table has always represented. `playbook-ref` will be used in a
-     * later phase if a playbook needs a DB-row mirror; today the
-     * playbook table is the canonical store and this column is
-     * future-proofing.
-     */
-    kind: text('kind').default('operation').notNull(),
-    version: integer('version').default(1),
-    updatedAt: timestamp('updated_at', { mode: 'date' })
-      .defaultNow()
-      .$onUpdate(() => new Date())
-      .notNull(),
+    /** The agent that made the call — the delegated specialist when nested, never the lead on its behalf. */
+    agentSlug: text('agent_slug').notNull(),
+    /** The dispatching lead when the call was made by a delegated specialist. */
+    leadAgentSlug: text('lead_agent_slug'),
+    tool: text('tool').notNull(),
+    input: jsonb('input').$type<Record<string, unknown>>().default({}),
+    /** Tool output, truncated for storage. */
+    output: text('output'),
+    /** Error message when the invocation threw; null on success. */
+    error: text('error'),
+    durationMs: integer('duration_ms'),
+    conversationId: integer('conversation_id'),
+    missionRunId: integer('mission_run_id'),
+    /** Which harness executed the loop: local | agentcore | runtime. */
+    provider: text('provider'),
+    /** Langfuse trace of the turn — cost and latency are read there. */
+    langfuseTraceId: text('langfuse_trace_id'),
+    /** Context version SHA active when this call executed. */
+    workspaceSha: text('workspace_sha'),
+    createdBy: text('created_by'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
-    uniqueIndex('skill_org_slug_idx').on(table.orgId, table.slug),
+    index('tool_call_org_created_idx').on(table.orgId, table.createdAt),
+    index('tool_call_org_agent_idx').on(table.orgId, table.agentSlug),
+    index('tool_call_org_tool_idx').on(table.orgId, table.tool),
   ],
 );
-
-/**
- * v0.2 — canonical TS alias. The underlying Postgres table stays `skill`
- *  (renaming risks data loss) but new code should reference this name.
- */
-export const operationSchema = skillSchema;
-
-/** Skill execution runs with Langfuse trace IDs */
-export const skillRunSchema = pgTable('skill_run', {
-  id: serial('id').primaryKey(),
-  orgId: text('org_id').notNull(),
-  /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
-  projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
-  skillId: integer('skill_id').notNull().references(() => skillSchema.id, { onDelete: 'cascade' }),
-  /** Input variables provided to the prompt */
-  input: jsonb('input').$type<Record<string, unknown>>().default({}),
-  /** LLM-generated output */
-  output: text('output'),
-  /** Approval status: pending, approved, rejected, auto */
-  status: text('status').default('pending'),
-  /** Langfuse trace ID for observability */
-  langfuseTraceId: text('langfuse_trace_id'),
-  /** Context version SHA active when this run executed — links to workspace_version.sha */
-  workspaceSha: text('workspace_sha'),
-  /** Who ran it */
-  createdBy: text('created_by'),
-  /** Who approved/rejected it */
-  reviewedBy: text('reviewed_by'),
-  reviewedAt: timestamp('reviewed_at', { mode: 'date' }),
-  /**
-   * Agent's self-assessment of output confidence — drives the
-   * <ConfidenceIndicator /> in the UI. Nullable when the runtime
-   * doesn't expose a signal. One of: 'confident' | 'uncertain' |
-   * 'speculative'. See `types/Status.ts`.
-   */
-  confidence: text('confidence'),
-  /** Optional thumb up/down captured alongside approve/reject or later. */
-  rating: text('rating'),
-  /** Free-form note from the reviewer explaining the rating. */
-  feedbackNote: text('feedback_note'),
-  feedbackBy: text('feedback_by'),
-  feedbackAt: timestamp('feedback_at', { mode: 'date' }),
-  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-});
-
-export const skillRelations = relations(skillSchema, ({ many }) => ({
-  runs: many(skillRunSchema),
-}));
-
-export const skillRunRelations = relations(skillRunSchema, ({ one }) => ({
-  skill: one(skillSchema, {
-    fields: [skillRunSchema.skillId],
-    references: [skillSchema.id],
-  }),
-}));
-
-/** v0.2 canonical alias — see {@link operationSchema}. */
-export const operationRunSchema = skillRunSchema;
 
 /* ------------------------------------------------------------------ */
 /* Playbooks — markdown + YAML procedural guides for agents           */
@@ -487,8 +441,12 @@ export const playbookSchema = pgTable(
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     description: text('description').notNull(),
-    /** Per-agent mount filter. Empty array = all agents see it. */
-    tags: jsonb('tags').$type<string[]>().default([]).notNull(),
+    /** 'skill' (the deepagents unit) or 'playbook' (attached context). */
+    kind: text('kind').default('playbook').notNull(),
+    /** 'core' (base pack), 'workspace' (workspace-only), or 'override' (workspace replacing the base). */
+    origin: text('origin').default('workspace').notNull(),
+    /** Playbook slugs a skill attaches — they mount wherever the skill does. */
+    attachedPlaybooks: jsonb('attached_playbooks').$type<string[]>().default([]).notNull(),
     /** Full frontmatter snapshot (for catalog UI). */
     frontmatter: jsonb('frontmatter').$type<Record<string, unknown>>().default({}).notNull(),
     /** SHA-256 of the SKILL.md body (not the frontmatter). Used to detect file changes on re-apply. */
@@ -529,8 +487,10 @@ export const agentSchema = pgTable(
     /** LLM model (e.g. claude-sonnet-4-20250514, gpt-4o) */
     model: text('model').default('gpt-4o'),
     temperature: text('temperature').default('0.3'),
-    /** Skill slugs this agent can invoke */
+    /** Skill slugs this agent mounts (SKILL.md units). */
     skillSlugs: jsonb('skill_slugs').$type<string[]>().default([]),
+    /** Playbook slugs attached to this agent by name — always-present context. */
+    playbookSlugs: jsonb('playbook_slugs').$type<string[]>().default([]),
     /** Source slugs this agent can search (e.g. ["zoom","hubspot","gmail"]). Maps to knowledge_source.slug. */
     connectorSources: jsonb('connector_sources').$type<string[]>().default([]),
     /** Business object type slugs this agent can read/create */
@@ -553,6 +513,8 @@ export const agentSchema = pgTable(
       maxTokens?: number;
       /** Built-in tool names to withhold from this agent (e.g. propose_action for agents with no CRM writes). */
       excludeTools?: string[];
+      /** Granted-only tool names to hand this agent (e.g. classify_call). Gated tools are absent unless named here. */
+      grantTools?: string[];
       /** agentcore provider only: Bedrock model id for the managed harness (defaults to the harness service default). */
       model?: string;
     }>().default({}).notNull(),
@@ -588,12 +550,6 @@ export const agentSchema = pgTable(
       model?: string;
     }>>().default([]).notNull(),
     /**
-     * Playbook-tag filter (v0.2). Empty array = mount every playbook
-     * in this org. Non-empty = mount only playbooks whose `tags` field
-     * intersects this set. Used by services/playbooks/mount.ts.
-     */
-    playbookTags: jsonb('playbook_tags').$type<string[]>().default([]).notNull(),
-    /**
      * Learning-step ownership (v0.2). Names of the per-step rule
      * buckets this agent reads from + can write to. Each entry must
      * match a row in `learning_step.name`. (Phase 5 wires the table;
@@ -626,6 +582,14 @@ export const agentSchema = pgTable(
     /** Legacy display label. Hierarchy comes from `parentAgentSlug`, not this. */
     team: text('team'),
     /**
+     * Slug of the team this agent belongs to (see `team.slug`, same
+     * org). Slug reference, no FK — same convention as
+     * `parentAgentSlug`. Authored as `team:` in workspace agent YAML;
+     * validated against the workspace's teams/ dir at check/apply.
+     * NULL = not on a team. Distinct from the legacy `team` label above.
+     */
+    teamSlug: text('team_slug'),
+    /**
      * Slug of the primary agent this specialist reports to (same org).
      * NULL = primary agent. One level deep: a parent cannot itself have
      * a parent. Slug reference, no FK — same convention as skillSlugs.
@@ -641,6 +605,65 @@ export const agentSchema = pgTable(
     uniqueIndex('agent_org_slug_idx').on(table.orgId, table.slug),
   ],
 );
+
+/* ------------------------------------------------------------------ */
+/* Teams — the org-chart grouping of agents (F1)                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A team: an org-chart grouping of agents under a lead agent and an
+ * accountable HUMAN. Catalog only — a team executes nothing itself, so
+ * there is no `team_run` table. Flat by construction: no parent-team
+ * column exists, so nesting is impossible by schema shape, not by
+ * validation. Authored as workspace/<org>/teams/<slug>.yaml.
+ *
+ * The team row's serial PK is the future attachment point for KPIs
+ * (F3) and feedback routing (F4) — those land as FKs to `team.id`,
+ * zero columns here now.
+ */
+export const teamSchema = pgTable(
+  'team',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    /**
+     * Slug of the agent leading this team (same org). Slug reference,
+     * no FK — same convention as `agent.parentAgentSlug`. NULL = no
+     * lead assigned yet (the team still renders, marked "no lead").
+     */
+    leadAgentSlug: text('lead_agent_slug'),
+    /**
+     * The human accountable for this team. NULL = inherit the
+     * workspace default (`project.accountableUserId`) — inheritance is
+     * resolved at read time (TeamService), never baked into the row.
+     */
+    accountableUserId: text('accountable_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('team_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
+
+export const teamRelations = relations(teamSchema, ({ one }) => ({
+  project: one(projectSchema, {
+    fields: [teamSchema.projectId],
+    references: [projectSchema.id],
+  }),
+  accountableUser: one(userSchema, {
+    fields: [teamSchema.accountableUserId],
+    references: [userSchema.id],
+  }),
+}));
 
 /* ------------------------------------------------------------------ */
 /* Automations — the WHEN of the system, as a first-class object       */
@@ -666,13 +689,52 @@ export const automationSchema = pgTable(
     status: text('status').default('active'),
     /** `{schedule: '<cron UTC>'}` or `{event: '<type>', filter?: {...}}`. */
     whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string; filter?: Record<string, unknown> }>().notNull(),
-    /** `{workflow: '<slug>', input?: {...}}` or `{checkMission: '<slug>'}`. */
-    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; input?: Record<string, unknown> }>().notNull(),
+    /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>', prompt?}` (prompt = the authored execution orders for each check) | `{job: '<name>', input?}` (built-in server job). */
+    doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> }>().notNull(),
+    /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
+    ownerAgentSlug: text('owner_agent_slug'),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
     uniqueIndex('automation_org_slug_idx').on(table.orgId, table.slug),
+  ],
+);
+
+/**
+ * One row per automation dispatch — the evidence a schedule actually fired.
+ * Workflow and mission dispatches already leave a run row of their own; a
+ * `job` left nothing at all, so this is the only trace an hourly sweep ran
+ * (and the only place its result is kept).
+ */
+export const automationRunSchema = pgTable(
+  'automation_run',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** The automation's slug — not an FK, so a run survives the automation being removed. */
+    slug: text('slug').notNull(),
+    /** Which do-type dispatched: 'workflow' | 'mission_check' | 'job'. */
+    kind: text('kind').notNull(),
+    /** 'running' | 'ok' | 'error'. */
+    status: text('status').default('running').notNull(),
+    /** `automation:<slug>` for a schedule fire, `user:<id>` for a dashboard test run. */
+    invokedBy: text('invoked_by'),
+    /** True when the caller asked for a no-writes rehearsal (test runs). */
+    dryRun: boolean('dry_run').default(false).notNull(),
+    /** The merged input the do actually received — what to reproduce a run from. */
+    input: jsonb('input').$type<Record<string, unknown>>(),
+    /** The do's return value (e.g. the sweep's counts). Null while running or on error. */
+    result: jsonb('result'),
+    error: text('error'),
+    /** workflow_run / mission_run id for those kinds; null for jobs (they have no run row). */
+    targetRunId: integer('target_run_id'),
+    startedAt: timestamp('started_at', { mode: 'date' }).defaultNow().notNull(),
+    finishedAt: timestamp('finished_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('automation_run_org_slug_started_idx').on(table.orgId, table.slug, table.startedAt),
   ],
 );
 
@@ -707,6 +769,8 @@ export const workflowSchema = pgTable(
     steps: jsonb('steps').$type<Array<Record<string, unknown>>>().notNull(),
     /** Default input schema for manual triggers — JSON Schema. */
     inputSchema: jsonb('input_schema').$type<Record<string, unknown>>(),
+    /** Owning agent slug — the agent this procedure belongs to. Nullable for legacy/unowned workflows. */
+    ownerAgentSlug: text('owner_agent_slug'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1042,6 +1106,20 @@ export const conversationMessageSchema = pgTable('conversation_message', {
     | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string }
   >>(),
+  /**
+   * Cited/pulled source documents for this assistant turn — so inline `[n]`
+   * citations still resolve (and the Sources drawer repopulates) after a
+   * reload. Nullable for user turns + legacy rows.
+   */
+  documentsJson: jsonb('documents_json').$type<Array<{
+    document_id: string;
+    semantic_identifier: string;
+    link: string;
+    source_type: string;
+    blurb: string;
+    citationIndex?: number;
+    foundBy?: string;
+  }>>(),
   /**
    * Per-message Langfuse trace id for the assistant turn that
    * produced this row. Populated by AgentService at write time so the
@@ -1460,6 +1538,53 @@ export const knowledgeSourceSchema = pgTable(
   ],
 );
 
+/**
+ * A rule the system proposes but has not adopted.
+ *
+ * The feedback worker classifies a `feedback_job` and, when the classification
+ * yields rule text, lands it here as `pending` — it never writes a `learning`
+ * row itself. A human (in the dashboard, or through
+ * `/api/v1/learning-candidates`) edits it, approves it into a real rule, or
+ * rejects it with a reason. That keeps the record of *why* a suggestion was
+ * turned down, which a plain delete would throw away.
+ */
+export const learningCandidateSchema = pgTable(
+  'learning_candidate',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    /** The learning step this rule would attach to, by name (not id — the step may not exist yet). */
+    stepName: text('step_name').notNull(),
+    /** What the classifier proposed. Never overwritten, so the original stays auditable. */
+    ruleText: text('rule_text').notNull(),
+    /** What a human changed it to. Null until someone edits it. */
+    editedRuleText: text('edited_rule_text'),
+    /** The feedback this came from. Kept as a back-link for "why does this rule exist". */
+    sourceFeedbackJobId: integer('source_feedback_job_id').references(() => feedbackJobSchema.id, { onDelete: 'set null' }),
+    /** The run the feedback was about, when there was one. */
+    sourceRunId: integer('source_run_id'),
+    /** 'pending' | 'approved' | 'rejected'. */
+    status: text('status').default('pending').notNull(),
+    /** Required when rejecting — a rejection with no reason teaches nobody anything. */
+    rejectedReason: text('rejected_reason'),
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { mode: 'date' }),
+    /** The rule created on approval, so a candidate and its rule stay linked. */
+    createdLearningId: integer('created_learning_id').references(() => learningSchema.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => ({
+    // The queue query is always "this org's candidates in this state".
+    orgStatusIdx: index('learning_candidate_org_status_idx').on(table.orgId, table.status),
+  }),
+);
+
 export const knowledgeDocumentSchema = pgTable(
   'knowledge_document',
   {
@@ -1580,6 +1705,23 @@ export const sourceSyncCheckpointSchema = pgTable(
     completedAt: timestamp('completed_at', { mode: 'date' }),
     counts: jsonb('counts').$type<Record<string, number>>().default({}).notNull(),
     error: text('error'),
+    /**
+     * The non-fatal failures a run hit and carried on past — one Strapi
+     * collection returning a 500 while its siblings synced, a document that
+     * would not embed. `error` above holds the single fatal error that ended a
+     * run; this holds everything the run survived, so the UI can say what was
+     * skipped instead of only showing a lower document count.
+     *
+     * `scope` says which layer reported it: `connector` for a whole slice of the
+     * source that never arrived, `document` for one item that would not save.
+     * Capped per scope when written (see SourceSyncService) so a run failing on
+     * hundreds of documents cannot crowd out the record of a collection that
+     * never loaded, nor grow this row without bound.
+     */
+    failures: jsonb('failures')
+      .$type<{ scope: 'connector' | 'document'; uri?: string; message: string; at: string }[]>()
+      .default([])
+      .notNull(),
   },
   table => [
     uniqueIndex('source_sync_checkpoint_source_idx').on(table.sourceId),
@@ -1610,6 +1752,13 @@ export const apiTokenSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     lastUsedAt: timestamp('last_used_at', { mode: 'date' }),
     revokedAt: timestamp('revoked_at', { mode: 'date' }),
+    /**
+     * When the token stops authenticating, or `null` for a token that never
+     * expires. Nullable on purpose: every token issued before this column
+     * existed keeps working, and a long-lived integration credential is a
+     * legitimate choice the person issuing it gets to make.
+     */
+    expiresAt: timestamp('expires_at', { mode: 'date' }),
   },
   table => [
     index('api_token_org_idx').on(table.orgId),
@@ -1665,6 +1814,10 @@ export const briefingSchema = pgTable(
     content: text('content').notNull(),
     /** Who published — usually `agent:<slug>` via a mission check. */
     publishedBy: text('published_by'),
+    /** Team this brief belongs to; NULL = the workspace-wide ROLLUP brief. */
+    teamSlug: text('team_slug'),
+    /** Agent that published it (plain slug). */
+    agentSlug: text('agent_slug'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
@@ -1721,11 +1874,27 @@ export const actionRunSchema = pgTable(
      * Surfaced in the review queue + daily brief; feeds the trust ladder.
      */
     proposal: jsonb('proposal').$type<{ confidence?: number; rationale?: string; evidence?: string[]; autoApproved?: boolean; autoApprovedThreshold?: number }>(),
+    /**
+     * Idempotency/upsert key for agent-suggested actions — the review-card
+     * system keys on (object type + object id + action slug), e.g.
+     * `follow-up:1234:gmail.send`. Re-surfacing the same owed action UPDATES
+     * the existing PENDING row instead of piling up duplicates. Nullable:
+     * direct/ad-hoc proposals don't set it.
+     */
+    dedupKey: text('dedup_key'),
+    /**
+     * When this suggestion goes stale and should drop out of the queue /
+     * daily brief / todo recommendations. Nullable = never expires.
+     */
+    expiresAt: timestamp('expires_at', { mode: 'date' }),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     executedAt: timestamp('executed_at', { mode: 'date' }),
   },
   table => [
     index('action_run_org_status_idx').on(table.orgId, table.status),
+    // Lookup for upsert-by-key (dedupe only pending items in code, so a decided
+    // action can be re-proposed later — hence a plain index, not unique).
+    index('action_run_dedup_idx').on(table.orgId, table.dedupKey),
   ],
 );
 
@@ -1782,9 +1951,208 @@ export const userActivityEventSchema = pgTable(
     index('user_activity_event_org_agent_created_idx').on(table.orgId, table.agentSlug, table.createdAt),
     // Resource-anchored events are naturally unique — this makes the backfill
     // idempotent (insert ... on conflict do nothing) and guards live double-fires.
+    // The DECISION participates in uniqueness (empty for other event types):
+    // a run legitimately receives multiple review.decided signals (rewritten →
+    // skipped → approved) and the narrower index silently dropped all but the
+    // first (0047).
     uniqueIndex('user_activity_event_resource_idx')
-      .on(table.orgId, table.eventType, table.resourceType, table.resourceId)
+      .on(table.orgId, table.eventType, table.resourceType, table.resourceId, sql`(coalesce(${table.metadata}->>'decision',''))`)
       .where(sql`resource_id IS NOT NULL`),
+  ],
+);
+
+/**
+ * discovery_candidate — the record of a meeting the discovery-detection sweep
+ * matched to a CRM party the seller owns, plus (once classified) its
+ * is-discovery / proposal-ready scores. Ticket 011.
+ *
+ * This is the feature's provenance ledger and its safety invariant: a row
+ * exists ONLY for meetings that passed the CRM match gate, so the presence of a
+ * row is itself the proof that the content gate (§3 of the plan) was satisfied
+ * before any transcript was read. Ties to ticket 010 (filed context).
+ */
+export const discoveryCandidateSchema = pgTable(
+  'discovery_candidate',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Meeting document's stable externalId, e.g. `zoom:<uuid>` / `gcal:<eventId>`. */
+    meetingExternalId: text('meeting_external_id').notNull(),
+    /** knowledge_document.id of the meeting — the handle the content gate reads through. */
+    meetingDocId: integer('meeting_doc_id'),
+    /** Title + start copied at match time (metadata only — never the transcript body). */
+    meetingTitle: text('meeting_title'),
+    meetingStart: timestamp('meeting_start', { mode: 'date' }),
+    /** Why it matched: 'hubspot-contact' | 'hubspot-company' | 'hubspot-deal' | 'calendly-external'. */
+    matchType: text('match_type').notNull(),
+    /** The matched CRM ref (`deals:123`, `contacts:9`) or the external domain. */
+    matchRef: text('match_ref'),
+    /** Human-readable reason the match fired. */
+    matchReason: text('match_reason'),
+    matchedAt: timestamp('matched_at', { mode: 'date' }).defaultNow().notNull(),
+    /** Lifecycle: 'matched' | 'classified' | 'routed' | 'dropped'. */
+    status: text('status').default('matched').notNull(),
+    /** Two-dimensional classification output (null until Stage 2 runs). */
+    classification: jsonb('classification').$type<{
+      isDiscovery: boolean;
+      isDiscoveryConfidence: number;
+      proposalReady: boolean;
+      proposalReadyConfidence: number;
+      reasoning: string;
+      model?: string;
+    }>(),
+    classifiedAt: timestamp('classified_at', { mode: 'date' }),
+    /** Route the supervised router chose: 'generate' | 'confirm' | 'drop'. */
+    route: text('route'),
+    /** The review-queue action_run this candidate was surfaced as (supervised mode). */
+    reviewActionRunId: integer('review_action_run_id'),
+    /** knowledge_document.contentHash at read time — which exact transcript version was scored. */
+    transcriptHash: text('transcript_hash'),
+    /** The thresholds the route was decided under. Without them the route cannot be re-derived. */
+    thresholds: jsonb('thresholds').$type<{ discovery: number; ready: number }>(),
+    /** Model id + fixed prompt version, e.g. `claude-haiku-4-5-20251001#discovery-v1`. */
+    classifierVersion: text('classifier_version'),
+    /** Workspace sha in force at assessment — same stamp skill/mission runs carry. */
+    workspaceSha: text('workspace_sha'),
+    /** Who ordered the assessment: agent slug + the mission_run/user turn behind it. */
+    assessedBy: jsonb('assessed_by').$type<{ agentSlug?: string; missionRunId?: number; userId?: string }>(),
+    /** Matched-but-not-assessed coverage record: 'no-transcript' | 'out-of-window' | 'not-reached'. */
+    skippedReason: text('skipped_reason'),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('discovery_candidate_org_meeting_idx').on(table.orgId, table.meetingExternalId),
+    index('discovery_candidate_org_status_idx').on(table.orgId, table.status),
+  ],
+);
+
+/**
+ * lead_brief — the personalization ledger. One row per MQL the agent picked
+ * up, carrying the researched brief, the drafted sequence, and the audit
+ * trail behind both. Mirrors `discovery_candidate`: the row IS the record of
+ * the pass, so a brief that was never logged is unreachable.
+ *
+ * Dropped and held leads are rows here too. An absence means the sweep never
+ * saw the lead, which is what `reconcile_mql_window` checks for.
+ */
+export const leadBriefSchema = pgTable(
+  'lead_brief',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** CRM mirror ref, e.g. `contacts:9412`. The join key back to HubSpot. */
+    contactRef: text('contact_ref').notNull(),
+    /** Contact identity copied at brief time so the queue renders without a CRM read. */
+    contactName: text('contact_name').notNull(),
+    contactTitle: text('contact_title'),
+    companyName: text('company_name'),
+    /** Why the sweep picked it up: 'new' (fresh MQL) | 'stale' (aged, unworked). */
+    triggerType: text('trigger_type').notNull(),
+    /** How the lead arrived — HubSpot's original source, e.g. 'PAID_SOCIAL'. */
+    entranceSource: text('entrance_source'),
+    /** The source detail behind it: the ad network, the keyword, the campaign. */
+    utmCampaign: text('utm_campaign'),
+    /** Prior engagement from the CRM mirror — what makes a lead warm, not our sends. */
+    engagementSent: integer('engagement_sent').default(0).notNull(),
+    engagementOpened: integer('engagement_opened').default(0).notNull(),
+    /**
+     * Queue lane: 'queued' | 'ready_for_review' | 'handed_off' | 'held' | 'sent'.
+     * Defaults to 'queued' because a row is recorded before any research runs,
+     * and a lead with no brief has nothing to review.
+     */
+    status: text('status').default('queued').notNull(),
+    /**
+     * Agent's self-assessment, 0..1. The confident/uncertain/speculative
+     * label is DERIVED from this in one place (`features/personalization/
+     * confidence.ts`) so the ladder can move without a backfill.
+     */
+    confidence: real('confidence'),
+    /** The researched claims. Each carries where it came from and when. */
+    claims: jsonb('claims').$type<Array<{
+      text: string;
+      kind: string;
+      source: string;
+      date?: string;
+    }>>().default([]).notNull(),
+    /** What research could NOT retrieve. Shown to the reviewer, never inferred around. */
+    missing: jsonb('missing').$type<string[]>().default([]).notNull(),
+    /**
+     * The brief itself, as written prose the page renders in order. `claims`
+     * carries the same research structurally; this is what a reviewer reads.
+     * Empty means no brief has been written, which is what keeps a lead off
+     * the review screen.
+     */
+    sections: jsonb('sections').$type<Array<{
+      heading: string;
+      body: string;
+    }>>().default([]).notNull(),
+    /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
+    regenerateNote: text('regenerate_note'),
+    /** Briefing tries so far. Three, then the lead surfaces with its error. */
+    briefAttempts: integer('brief_attempts').default(0).notNull(),
+    /** Why the last try produced no brief. Rendered where the brief would be. */
+    briefError: text('brief_error'),
+    /** When the last try was handed out — what spaces the retries an hour apart. */
+    lastAttemptAt: timestamp('last_attempt_at', { mode: 'date' }),
+    /** The drafted, numbered sends awaiting review. `day` is the send's offset in the recommended sequence's cadence, when known. */
+    draftSequence: jsonb('draft_sequence').$type<Array<{
+      step: number;
+      day?: number;
+      subject: string;
+      body: string;
+    }>>().default([]).notNull(),
+    /** The review-queue action_run this brief was surfaced as. */
+    reviewActionRunId: integer('review_action_run_id'),
+    /**
+     * The EXISTING HubSpot sequence the agent recommends enrolling into. The
+     * agent never invents a sequence: `save_draft_sequence` verifies the id
+     * against the live sequence library when credentials allow.
+     */
+    recommendedSequence: jsonb('recommended_sequence').$type<{
+      id: string;
+      name: string;
+      reason?: string;
+      senderEmail?: string;
+      hubspotUserId?: string;
+      verified?: boolean;
+    }>(),
+    /** HubSpot's stage-entry date. Null = the mirror had nothing; display falls back to `arrivedAt`, labeled "Arrived", never as stage timing. */
+    mqlAt: timestamp('mql_at', { mode: 'date' }),
+    /** Drafting tries so far — same three-try budget as the briefs. */
+    draftAttempts: integer('draft_attempts').default(0).notNull(),
+    /** Why the last drafting try produced nothing. */
+    draftError: text('draft_error'),
+    /** When the last drafting try was handed out — the retry floor's anchor. */
+    lastDraftAttemptAt: timestamp('last_draft_attempt_at', { mode: 'date' }),
+    /** Thresholds in force — without them the confidence call cannot be re-derived. */
+    thresholds: jsonb('thresholds').$type<Record<string, number>>(),
+    /** Model id + prompt version, e.g. `claude-sonnet-4-6#personalization-v1`. */
+    briefVersion: text('brief_version'),
+    /** Workspace sha at brief time — the same stamp skill/mission runs carry. */
+    workspaceSha: text('workspace_sha'),
+    /** Who ordered the pass: agent slug + the mission_run/user turn behind it. */
+    briefedBy: jsonb('briefed_by').$type<{ agentSlug?: string; missionRunId?: number; userId?: string }>(),
+    /** Picked-up-but-not-briefed coverage record: 'no-contact-data' | 'out-of-window' | 'not-reached'. */
+    skippedReason: text('skipped_reason'),
+    /** When the lead arrived — the CRM create date, copied at queue time. */
+    arrivedAt: timestamp('arrived_at', { mode: 'date' }),
+    briefedAt: timestamp('briefed_at', { mode: 'date' }),
+    decidedAt: timestamp('decided_at', { mode: 'date' }),
+    decidedBy: text('decided_by'),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    // One brief per lead — this is what makes a re-fire of the sweep a no-op.
+    uniqueIndex('lead_brief_org_contact_idx').on(table.orgId, table.contactRef),
+    index('lead_brief_org_status_idx').on(table.orgId, table.status),
   ],
 );
 

@@ -1,11 +1,12 @@
 'use client';
 
 import type { AgentRun, ChatMessage, IndexedDocument } from './types';
-import { AlertCircle, FileText, Sparkles } from 'lucide-react';
+import { AlertCircle, FileText } from 'lucide-react';
 import { memo } from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
+import { RecommendedActionStack } from './RecommendedActionStack';
 import { WorkTimeline } from './WorkTimeline';
 
 /**
@@ -53,7 +54,17 @@ function formatTime(ts: number | undefined): string {
  * so every completed message — including its markdown parse — skips
  * re-rendering entirely while tokens stream in below it.
  */
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, streaming = false, activity }: AgentMessageProps) => {
+/**
+ * Turn inline `[n]` citation markers the model emits into real markdown links
+ * with a private scheme, so react-markdown's `a` renderer can make them
+ * tappable superscripts. Skips `[n](…)` (already a link) and `[n]:` (link defs).
+ * @param text
+ */
+function citeLinkify(text: string): string {
+  return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
+}
+
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity }: AgentMessageProps) => {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
@@ -63,11 +74,12 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   const toolRuns = runs.filter((r): r is Extract<AgentRun, { type: 'tool' }> => r.type === 'tool');
   const textRuns = runs.filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text');
 
+  // No avatar glyph — the transcript is text-first (Claude-app pattern).
+  // The small speaker label carries identity; with named humans and
+  // multiple agents sharing a surface, the NAME is the signal, not a
+  // decorative circle.
   return (
-    <div className="flex gap-3">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
-        <Sparkles className="size-4" aria-hidden="true" />
-      </div>
+    <div className="flex">
       <div className="max-w-2xl min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <span>{agentName}</span>
@@ -92,14 +104,45 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           )}
         </div>
         <div className="mt-2 text-sm leading-relaxed">
-          {(toolRuns.length > 0 || streaming || message.thinkingText) && (
-            <WorkTimeline runs={toolRuns} streaming={streaming} activity={activity} thinkingText={message.thinkingText} />
+          {(toolRuns.length > 0 || streaming || message.thinkingText || (message.trace?.length ?? 0) > 0) && (
+            <WorkTimeline runs={toolRuns} streaming={streaming} activity={activity} thinkingText={message.thinkingText} documents={message.documents} trace={message.trace} />
           )}
           {textRuns.map((run, i) => (
             <div key={i} className="prose prose-sm max-w-none dark:prose-invert">
-              <Markdown remarkPlugins={[remarkGfm]}>{run.text}</Markdown>
+              <Markdown
+                remarkPlugins={[remarkGfm]}
+                // Keep our private citation scheme; react-markdown's default
+                // sanitizer would strip `vocion-cite:` and drop the link.
+                urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
+                components={{
+                  a({ href, children, ...props }) {
+                    const m = typeof href === 'string' && href.startsWith('vocion-cite:') ? href.slice('vocion-cite:'.length) : null;
+                    if (m !== null) {
+                      const n = Number(m);
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => onCitationClick?.(n)}
+                          className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
+                          aria-label={`Open source ${n}`}
+                        >
+                          {n}
+                        </button>
+                      );
+                    }
+                    return <a href={href} target="_blank" rel="noreferrer" {...props}>{children}</a>;
+                  },
+                }}
+              >
+                {citeLinkify(run.text)}
+              </Markdown>
             </div>
           ))}
+          {/* One card renders directly; several become the in-chat triage
+              stepper (skip / save-for-later / queue-all). */}
+          {(message.recommendations?.length ?? 0) > 0 && (
+            <RecommendedActionStack recs={message.recommendations!} />
+          )}
         </div>
         {message.confidence && (
           <div className="mt-2 flex justify-end">

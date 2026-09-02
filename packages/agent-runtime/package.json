@@ -18,8 +18,7 @@
     "@langchain/aws": "^1.0.4",
     "@langchain/core": "^1.1.45",
     "deepagents": "^1.10.1",
-    "langfuse": "^3.38.6",
-    "zod": "^4.3.6"
+    "langfuse": "^3.38.6"
   },
   "devDependencies": {
     "esbuild": "~0.18.20",

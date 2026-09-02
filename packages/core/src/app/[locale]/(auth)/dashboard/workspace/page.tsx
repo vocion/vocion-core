@@ -6,7 +6,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
-import { agentSchema, businessObjectSchema, businessObjectTypeSchema, skillSchema, workflowSchema } from '@/models/Schema';
+import { agentSchema, businessObjectSchema, businessObjectTypeSchema, playbookSchema, workflowSchema } from '@/models/Schema';
 
 /**
  * Context dashboard — cross-cutting overview of every authored primitive
@@ -34,7 +34,7 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
     db.select().from(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.orgId, orgId)),
     db.select({ id: businessObjectSchema.id, typeId: businessObjectSchema.typeId }).from(businessObjectSchema).where(eq(businessObjectSchema.orgId, orgId)),
     db.select({ id: agentSchema.id, slug: agentSchema.slug, name: agentSchema.name, connectorSources: agentSchema.connectorSources }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.active, 'true'))),
-    db.select({ id: skillSchema.id }).from(skillSchema).where(and(eq(skillSchema.orgId, orgId), eq(skillSchema.status, 'active'))),
+    db.select({ id: playbookSchema.id }).from(playbookSchema).where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.kind, 'skill'))),
     db.select({ id: workflowSchema.id }).from(workflowSchema).where(and(eq(workflowSchema.orgId, orgId), eq(workflowSchema.status, 'active'))),
   ]);
 

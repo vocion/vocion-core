@@ -1,0 +1,6 @@
+slug: revenue_lead
+name: Revenue Lead
+description: Coordinates the revenue workforce — triages asks, delegates to the analyst and drafter, and reports pipeline state in plain business language.
+active: true
+systemPromptFile: revenue-lead.system-prompt.md
+skills: []

@@ -1,23 +1,39 @@
 import { NextResponse } from 'next/server';
-import { apiListReviews, WriteApiError } from '@/services/writeApi';
-import { jsonError } from '../_shared';
+import { apiListReviews } from '@/services/writeApi';
+import { authApi, isErrorResponse, readPagination, writeApiErrorResponse } from '../_shared';
 
 /**
  * GET /api/v1/reviews
  *
- * The unified pending-review queue (skills awaiting approval, paused
- * workflows, missions awaiting review) for the token's org. Authenticated
- * with a tenant API token: `Authorization: Bearer vcn_live_…`.
+ * The unified pending-review queue — paused workflow runs, missions awaiting
+ * review, and pending action proposals — for the caller's org.
+ *
+ * Query parameters:
+ * - `kind` — `workflow` | `mission` | `action`, to see one plane only.
+ * - `assignedTo` — a user id for that person's queue, or `unassigned` for triage.
+ * - `includeSnoozed` — `true` to include items delayed into the future.
+ * - `limit`, `offset` — the page window. The response carries the real total.
+ *
+ * Auth: a tenant API token (`Authorization: Bearer vcn_live_…`) or a
+ * signed-in dashboard session.
  * @param req
  */
 export async function GET(req: Request) {
-  const assignedTo = new URL(req.url).searchParams.get('assignedTo') ?? undefined;
+  const caller = await authApi(req);
+  if (isErrorResponse(caller)) {
+    return caller;
+  }
+  const url = new URL(req.url);
+  const { limit, offset } = readPagination(url);
   try {
-    return NextResponse.json(await apiListReviews(req.headers.get('authorization'), { assignedTo }));
+    return NextResponse.json(await apiListReviews(caller, {
+      assignedTo: url.searchParams.get('assignedTo') ?? undefined,
+      kind: url.searchParams.get('kind') ?? undefined,
+      includeSnoozed: url.searchParams.get('includeSnoozed') === 'true',
+      limit,
+      offset,
+    }));
   } catch (e) {
-    if (e instanceof WriteApiError) {
-      return jsonError(e.code, e.message, e.status);
-    }
-    throw e;
+    return writeApiErrorResponse(e);
   }
 }

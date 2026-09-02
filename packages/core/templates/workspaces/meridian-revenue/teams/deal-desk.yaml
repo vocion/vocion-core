@@ -1,0 +1,6 @@
+name: Deal Desk
+description: >-
+  Proposals and pricing for active opportunities — two proposals out the
+  door this quarter worth $305k combined.
+lead: deal-desk-lead
+# No accountableUser: inherits the workspace default (labeled as inherited).

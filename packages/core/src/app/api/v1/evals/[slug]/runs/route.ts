@@ -12,12 +12,12 @@ import { authApi, jsonError } from '../../../_shared';
  * generation + LLM judge). The HTTP handler must not block on the full
  * run; we fire-and-forget via Promise.resolve so the runDataset() call
  * still lands in the event loop.
- * @param _req
+ * @param req
  * @param context
  * @param context.params
  */
-export async function POST(_req: Request, context: { params: Promise<{ slug: string }> }) {
-  const auth = await authApi();
+export async function POST(req: Request, context: { params: Promise<{ slug: string }> }) {
+  const auth = await authApi(req);
   if ('status' in auth) {
     return auth;
   }

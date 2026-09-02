@@ -1,0 +1,4 @@
+# Lead-less team (acceptance #11): renders "no lead yet"; the workspace
+# lead reports it as unreachable ("consults N of M teams").
+name: Warehouse
+description: Fulfillment questions — no lead agent chosen yet.

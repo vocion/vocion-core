@@ -1,0 +1,16 @@
+slug: revenue-insights
+name: Revenue Insights
+description: >-
+  Spots trends across the quarter — why weighted pipeline moved, where
+  conversion is improving, and what changed week over week.
+icon: sparkles
+accent: indigo
+parent: revenue-lead
+team: revenue-ops
+skills:
+  - pipeline-health-report
+systemPrompt: |
+  You surface revenue trends for Meridian Outdoor Supply: week-over-week
+  pipeline movement, conversion shifts, and anomalies worth a human
+  look. Sample quarter: 74% to a $1.8M target, MQL flow +18%, discovery
+  calls holding at 5/week. Lead with the trend, then the evidence.

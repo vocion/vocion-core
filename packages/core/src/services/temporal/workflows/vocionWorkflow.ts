@@ -11,7 +11,6 @@
  * runs in the host process (where Node imports + I/O are fine).
  *
  * Loop semantics mirror the old in-process `runLoop()`:
- *   skill → executeSkillActivity → recordStepCompleted
  *   approve → recordApprovalRequested → await Signal → branch
  *   action → executeActionActivity → recordStepCompleted
  * Any Activity failure (after retries) → recordStepFailed → end-with-fail.
@@ -39,8 +38,7 @@ const acts = proxyActivities<typeof activities>({
 
 /** Persisted shape mirrors `workflow.steps[]` JSONB in Postgres. */
 export type WorkflowStepSpec
-  = | { name: string; type: 'skill'; skill: string; input?: Record<string, unknown> }
-    | { name: string; type: 'approve'; prompt?: string }
+  = | { name: string; type: 'approve'; prompt?: string }
     | { name: string; type: 'action'; actionType: string; input?: Record<string, unknown> };
 
 export type VocionWorkflowInput = {
@@ -67,21 +65,7 @@ export async function vocionWorkflow(input: VocionWorkflowInput): Promise<{ stat
     });
 
     try {
-      if (step.type === 'skill') {
-        const r = await acts.executeSkillActivity({
-          orgId: input.orgId,
-          skillSlug: step.skill,
-          input: step.input ?? {},
-          runId: input.runId,
-          stepName: step.name,
-        });
-        await acts.recordStepCompletedActivity({
-          runId: input.runId,
-          stepName: step.name,
-          output: r.output,
-          skillRunId: r.skillRunId,
-        });
-      } else if (step.type === 'approve') {
+      if (step.type === 'approve') {
         await acts.recordApprovalRequestedActivity({
           runId: input.runId,
           stepName: step.name,

@@ -19,16 +19,13 @@
  * Usage: npm run adoption:backfill
  */
 import process from 'node:process';
-import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import {
-  agentSchema,
   conversationMessageSchema,
   conversationSchema,
   learningSchema,
   missionRunSchema,
-  skillRunSchema,
-  skillSchema,
   userActivityEventSchema,
   workflowRunSchema,
 } from '@/models/Schema';
@@ -49,19 +46,6 @@ async function insertBatch(rows: EventRow[]): Promise<number> {
 
 async function main() {
   const out: EventRow[] = [];
-
-  // Agent attribution, same honest-or-null rule as live capture
-  // (services/adoption/attribution.ts): a skill maps to an agent only when
-  // exactly one agent in the org lists it. One pass, not per-row queries.
-  const [allAgents, allSkills] = await Promise.all([
-    db.select({ orgId: agentSchema.orgId, slug: agentSchema.slug, skillSlugs: agentSchema.skillSlugs }).from(agentSchema),
-    db.select({ id: skillSchema.id, orgId: skillSchema.orgId, slug: skillSchema.slug }).from(skillSchema),
-  ]);
-  const skillAgent = new Map<number, string | null>();
-  for (const s of allSkills) {
-    const owners = allAgents.filter(a => a.orgId === s.orgId && (a.skillSlugs ?? []).includes(s.slug));
-    skillAgent.set(s.id, owners.length === 1 ? owners[0]!.slug : null);
-  }
 
   // chat.conversation_created — conversation.createdBy is the author.
   const convs = await db
@@ -111,42 +95,10 @@ async function main() {
     }
   }
 
-  // review.decided (skill) — reviewedBy + reviewedAt with decision latency.
-  const skillDecisions = await db
-    .select()
-    .from(skillRunSchema)
-    .where(and(isNotNull(skillRunSchema.reviewedBy), inArray(skillRunSchema.status, ['approved', 'rejected'])));
-  for (const r of skillDecisions) {
-    if (isHumanActor(r.reviewedBy)) {
-      const at = r.reviewedAt ?? r.createdAt;
-      out.push({
-        orgId: r.orgId,
-        projectId: r.projectId,
-        userId: r.reviewedBy,
-        agentSlug: skillAgent.get(r.skillId) ?? null,
-        eventType: 'review.decided',
-        resourceType: 'skill_run',
-        resourceId: String(r.id),
-        metadata: {
-          kind: 'skill',
-          decision: r.status as 'approved' | 'rejected',
-          ...(r.reviewedAt ? { latencyMs: r.reviewedAt.getTime() - r.createdAt.getTime() } : {}),
-        },
-        createdAt: at,
-      });
-    }
-  }
-
-  // review.feedback — skill / workflow / mission runs with feedbackBy.
-  // Attribution mirrors live capture: skill → unique owning agent,
-  // mission → the run's team lead, workflow → none.
+  // review.feedback — workflow / mission runs with feedbackBy.
+  // Attribution mirrors live capture: mission → the run's team lead,
+  // workflow → none.
   const feedbackSources = [
-    {
-      kind: 'skill' as const,
-      resource: 'skill_run',
-      rows: await db.select().from(skillRunSchema).where(isNotNull(skillRunSchema.feedbackBy)),
-      agentSlugFor: (r: typeof skillRunSchema.$inferSelect) => skillAgent.get(r.skillId) ?? null,
-    },
     {
       kind: 'workflow' as const,
       resource: 'workflow_run',

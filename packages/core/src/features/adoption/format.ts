@@ -5,7 +5,10 @@ export const formatPercent = (v: number | null): string =>
 
 export const formatCount = (v: number): string => v.toLocaleString();
 
-/** "3d ago" style relative timestamp; '—' for never. */
+/**
+ * "3d ago" style relative timestamp; '—' for never.
+ * @param d
+ */
 export function formatAgo(d: Date | string | null): string {
   if (!d) {
     return '—';
@@ -33,7 +36,10 @@ export function formatAgo(d: Date | string | null): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/** Median decision latency etc. — humanize a millisecond duration. */
+/**
+ * Median decision latency etc. — humanize a millisecond duration.
+ * @param ms
+ */
 export function formatDuration(ms: number | null): string {
   if (ms == null) {
     return '—';
@@ -56,7 +62,11 @@ export function formatDuration(ms: number | null): string {
   return `${Math.round(h / 24)}d`;
 }
 
-/** Delta vs the previous period, rendered as a signed percentage. */
+/**
+ * Delta vs the previous period, rendered as a signed percentage.
+ * @param current
+ * @param previous
+ */
 export function formatDelta(current: number, previous: number): { text: string; direction: 'up' | 'down' | 'flat' } {
   if (previous === 0) {
     return current > 0 ? { text: 'new', direction: 'up' } : { text: '—', direction: 'flat' };

@@ -3,12 +3,11 @@ import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { workflowRunSchema, workflowSchema } from '@/models/Schema';
-import { executeSkill } from './SkillService';
 
 /**
  * Workflow execution. v1 scope:
  *   - Sequential step execution (no parallel)
- *   - Step types: `skill`, `approve`, `ask`, `action`, `sync`
+ *   - Step types: `approve`, `ask`, `action`, `sync`
  *   - `action` steps are stubs — they record intent but perform no side effects
  *     (v2 wires concrete actions: gmail.send_email, hubspot.update_deal, etc.)
  *   - No durable scheduler — if the process dies mid-run, the run is stuck at
@@ -217,24 +216,7 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
     await persistState(runId, { stepResults, currentStep: cursor });
 
     try {
-      if (step.type === 'skill') {
-        const skillInput = interpolateRecord(step.input as Record<string, unknown>, scope);
-        const result = await executeSkill({
-          orgId: run.orgId,
-          skillSlug: step.skill,
-          input: skillInput,
-          userId: `workflow:${workflow.slug}:${runId}`,
-        });
-        const output = tryParseJson(result.output);
-        stepResults[name] = {
-          status: 'completed',
-          output,
-          startedAt: stepResults[name]!.startedAt,
-          finishedAt: new Date().toISOString(),
-          skillRunId: result.runId,
-        };
-        scope.steps[step.outputAs ?? name] = { output };
-      } else if (step.type === 'sync') {
+      if (step.type === 'sync') {
         // Freshness gate: incrementally sync the named sources so downstream
         // agent steps read live data (last-hours mail, current CRM state),
         // not index-freshness. Per-source failures are recorded, not fatal —
@@ -304,6 +286,23 @@ async function runLoop(runId: number): Promise<WorkflowRunSummary> {
         const [paused] = await db.select().from(workflowRunSchema).where(eq(workflowRunSchema.id, runId));
         return summarize(paused!);
       } else if (step.type === 'ask') {
+        // An ask whose `default` already resolves doesn't ask: an automated
+        // caller that supplied the data (e.g. discovery detection handing over
+        // a transcript it is already authorized to read) shouldn't make a human
+        // paste in what the system is holding. Falls through to the pause when
+        // the template resolves to nothing, so a manual start still works.
+        const prefill = step.default === undefined ? undefined : interpolateValue(step.default, scope);
+        if (typeof prefill === 'string' && prefill.trim().length > 0) {
+          stepResults[name] = {
+            status: 'completed',
+            output: prefill,
+            startedAt: stepResults[name]!.startedAt,
+            finishedAt: new Date().toISOString(),
+          };
+          scope.steps[step.outputAs ?? name] = { output: prefill };
+          cursor += 1;
+          continue;
+        }
         // Human input as a step: pause the run in Review until a human
         // supplies text via resumeWorkflow(runId, orgId, { input }). Reuses
         // the `awaiting_approval` StepStatus; the `kind: 'ask'` discriminator
@@ -482,14 +481,6 @@ function resolvePath(scope: Record<string, unknown>, path: string): unknown {
   return current;
 }
 
-function tryParseJson(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
-}
-
 function summarize(row: typeof workflowRunSchema.$inferSelect): WorkflowRunSummary {
   return {
     id: row.id,
@@ -554,6 +545,7 @@ export async function getWorkflow(orgId: string, slug: string): Promise<Workflow
     description: row.description ?? undefined,
     status: (row.status ?? 'active') as WorkflowManifest['status'],
     version: row.version ?? 1,
+    agent: row.ownerAgentSlug ?? undefined,
     trigger: row.trigger as WorkflowManifest['trigger'],
     steps: row.steps as unknown as WorkflowManifest['steps'],
     inputSchema: row.inputSchema ?? undefined,

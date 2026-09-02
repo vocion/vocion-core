@@ -1,6 +1,6 @@
 'use client';
 
-import { Send } from 'lucide-react';
+import { ArrowUp, Square } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 /**
@@ -9,8 +9,11 @@ import { useEffect, useRef } from 'react';
  * - max-width 3xl, centered
  * - rounded-2xl with focus-within ring + amber-tinted shadow
  * - auto-resize textarea (24px → 220px)
- * - 36px square send button, amber filled when enabled
- * - keyboard hint row (Enter / Shift+Enter / Clear conversation)
+ * - square send button, amber filled when enabled
+ *
+ * "Insert quarter, shoot aliens": textarea + send, nothing else. No
+ * keyboard-hint row (Enter-to-send is a convention, not a lesson), no
+ * inline "Clear conversation" — starting over lives in the chat's ⋯ menu.
  *
  * Stateless: parent (`<ChatShell />`) owns the `value` + `onChange`
  * + `onSubmit` + `disabled`. Composer only handles autosize +
@@ -21,18 +24,22 @@ export type ChatComposerProps = {
   value: string;
   onChange: (next: string) => void;
   onSubmit: () => void;
-  onClearConversation?: () => void;
   disabled?: boolean;
   placeholder?: string;
+  /** True while a turn is streaming — the send button becomes a Stop button. */
+  streaming?: boolean;
+  /** Abort the in-flight turn (shown as Stop while streaming). */
+  onStop?: () => void;
 };
 
 export function ChatComposer({
   value,
   onChange,
   onSubmit,
-  onClearConversation,
   disabled = false,
   placeholder,
+  streaming = false,
+  onStop,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -78,42 +85,33 @@ export function ChatComposer({
             placeholder={placeholder ?? 'Ask anything…'}
             disabled={disabled}
             rows={1}
-            className="flex-1 resize-none border-0 bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-50"
+            // 16px on mobile: iOS Safari auto-zooms (and scroll-cuts) any focused
+            // input under 16px. Compact 14px only from sm: up (no mobile zoom).
+            className="flex-1 resize-none border-0 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
             style={{ minHeight: 24, maxHeight: 220 }}
           />
-          <button
-            type="submit"
-            disabled={!sendEnabled}
-            className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-amber text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:hover:translate-y-0 sm:size-9"
-            aria-label="Send message"
-          >
-            <Send className="size-4" aria-hidden="true" />
-          </button>
+          {streaming
+            ? (
+                <button
+                  type="button"
+                  onClick={() => onStop?.()}
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm transition hover:border-brand-amber hover:text-brand-amber-deep sm:size-9"
+                  aria-label="Stop generating"
+                >
+                  <Square className="size-3.5 fill-current" aria-hidden="true" />
+                </button>
+              )
+            : (
+                <button
+                  type="submit"
+                  disabled={!sendEnabled}
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-amber text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50 disabled:shadow-none disabled:hover:translate-y-0 sm:size-9"
+                  aria-label="Send message"
+                >
+                  <ArrowUp className="size-5 sm:size-[18px]" aria-hidden="true" />
+                </button>
+              )}
         </form>
-
-        <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-          {/* Keyboard hint is meaningless on a touch keyboard — desktop only. */}
-          <span className="hidden sm:inline">
-            <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">Enter</kbd>
-            {' '}
-            to send ·
-            {' '}
-            <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">Shift</kbd>
-            +
-            <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">Enter</kbd>
-            {' '}
-            for newline
-          </span>
-          {onClearConversation && (
-            <button
-              type="button"
-              onClick={onClearConversation}
-              className="ml-auto py-1 hover:text-brand-amber-deep"
-            >
-              Clear conversation
-            </button>
-          )}
-        </div>
       </div>
     </div>
   );

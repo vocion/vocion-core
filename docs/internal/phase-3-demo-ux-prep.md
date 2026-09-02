@@ -19,7 +19,8 @@ import { db } from '@/libs/DB';
 import { tenantAccountSchema } from '@/models/Schema';
 
 const hasAnyAccount = await db.select({ id: tenantAccountSchema.id })
-  .from(tenantAccountSchema).limit(1);
+  .from(tenantAccountSchema)
+  .limit(1);
 
 if (hasAnyAccount.length === 0 && !request.nextUrl.pathname.startsWith('/setup')) {
   return NextResponse.redirect(new URL('/setup', request.url));
@@ -124,12 +125,19 @@ Modify `src/app/[locale]/(auth)/(center)/sign-in/page.tsx` (the auth.js custom f
 const hintEmail = process.env.VOCION_DEMO_HINT_EMAIL;
 const hintPassword = process.env.VOCION_DEMO_HINT_PASSWORD;
 
-{hintEmail && hintPassword && (
+{ hintEmail && hintPassword && (
   <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
-    <strong>Demo credentials:</strong> {hintEmail} / {hintPassword}{' '}
+    <strong>Demo credentials:</strong>
+    {' '}
+    {hintEmail}
+    {' '}
+    /
+    {' '}
+    {hintPassword}
+    {' '}
     <button onClick={() => autofill(hintEmail, hintPassword)}>autofill</button>
   </div>
-)}
+); }
 ```
 
 Only renders when both env vars are set — production builds without them never show the banner.

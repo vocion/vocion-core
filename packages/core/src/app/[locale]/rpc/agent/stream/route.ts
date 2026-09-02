@@ -16,6 +16,7 @@
 import type { AgentEvent } from '@/services/agents/types';
 import type { ConversationRun } from '@/services/ConversationService';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { openStream } from '@/libs/streams/buffer';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import {
   appendMessage,
@@ -33,9 +34,23 @@ const KEEPALIVE_INTERVAL_MS = 15_000;
  * assistant turn can be persisted at end-of-stream. Mirrors rev-ai's
  * `_RunCollector` (server/main.py:1182-1212).
  */
+type CollectedDoc = { document_id: string; semantic_identifier: string; link: string; source_type: string; blurb: string; citationIndex?: number; foundBy?: string };
+
 class RunCollector {
   private runs: ConversationRun[] = [];
   private currentText: string | null = null;
+  private documents: CollectedDoc[] = [];
+  private readonly docKeys = new Set<string>();
+
+  onDocuments(docs: CollectedDoc[]): void {
+    for (const d of docs) {
+      const key = `${d.citationIndex ?? ''}:${d.document_id}:${d.semantic_identifier}`;
+      if (!this.docKeys.has(key)) {
+        this.docKeys.add(key);
+        this.documents.push(d);
+      }
+    }
+  }
 
   onTextDelta(delta: string): void {
     if (!delta) {
@@ -70,14 +85,14 @@ class RunCollector {
     }
   }
 
-  finalise(): { text: string; runs: ConversationRun[] } {
+  finalise(): { text: string; runs: ConversationRun[]; documents: CollectedDoc[] } {
     this.flushText();
     const text = this.runs
       .filter((r): r is { type: 'text'; text: string } => r.type === 'text')
       .map(r => r.text)
       .join('\n\n')
       .trim();
-    return { text, runs: this.runs };
+    return { text, runs: this.runs, documents: this.documents };
   }
 }
 
@@ -151,6 +166,12 @@ export async function POST(request: Request): Promise<Response> {
   const collector = conversationId !== null ? new RunCollector() : null;
   const encoder = new TextEncoder();
 
+  // Resumable stream: buffer every event of this turn so a client that drops
+  // (refresh / phone lock) can replay what it missed and re-attach LIVE via
+  // /rpc/agent/stream/resume. stream_meta tells the client its stream id.
+  const streamId = crypto.randomUUID();
+  const buffered = openStream(streamId);
+
   // Multiplex the agent event stream + a 15s keepalive timer into one
   // ReadableStream. Whichever fires first gets written; on disconnect
   // we cancel both. (See ADR 0001 §2 — keepalives.)
@@ -168,6 +189,7 @@ export async function POST(request: Request): Promise<Response> {
       };
 
       const sendEvent = (event: AgentEvent) => {
+        buffered.append(JSON.stringify(event));
         // Tee certain events into the RunCollector for persistence.
         if (collector) {
           if (event.type === 'response_delta') {
@@ -176,6 +198,8 @@ export async function POST(request: Request): Promise<Response> {
             collector.onToolStart(event.tool, event.input);
           } else if (event.type === 'tool_end') {
             collector.onToolEnd(event.tool, event.output);
+          } else if (event.type === 'documents') {
+            collector.onDocuments(event.documents as CollectedDoc[]);
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -184,6 +208,10 @@ export async function POST(request: Request): Promise<Response> {
       const keepaliveTimer = setInterval(() => {
         safeEnqueue(encoder.encode(': keepalive\n\n'));
       }, KEEPALIVE_INTERVAL_MS);
+
+      // First frame: the resume handle (not part of the AgentEvent union —
+      // the client stashes it and never reduces it into the transcript).
+      safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'stream_meta', streamId })}\n\n`));
 
       try {
         await runAgentDeep({
@@ -201,9 +229,10 @@ export async function POST(request: Request): Promise<Response> {
         sendEvent({ type: 'error', message: m });
       } finally {
         clearInterval(keepaliveTimer);
+        buffered.close();
         // Persist the assistant turn now that the stream is closing.
         if (collector && conversationId !== null) {
-          const { text, runs } = collector.finalise();
+          const { text, runs, documents } = collector.finalise();
           if (text || runs.length > 0) {
             try {
               await appendMessage({
@@ -212,6 +241,7 @@ export async function POST(request: Request): Promise<Response> {
                 role: 'assistant',
                 content: text,
                 runs,
+                documents,
               });
             } catch {
               /* conversation may have been deleted mid-stream */

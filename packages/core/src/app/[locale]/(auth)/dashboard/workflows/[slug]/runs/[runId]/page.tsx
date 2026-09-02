@@ -140,11 +140,9 @@ export default async function WorkflowRunDetailPage(props: Props) {
             const result = stepResults[step.name];
             const status = (result?.status ?? 'pending');
             const meta = STATUS_META[status];
-            const kindLabel = step.type === 'skill' && 'skill' in step
-              ? `operation · ${step.skill}`
-              : step.type === 'action' && 'action' in step
-                ? `action · ${step.action}`
-                : 'approval';
+            const kindLabel = step.type === 'action' && 'action' in step
+              ? `action · ${step.action}`
+              : 'approval';
             const card = result?.output !== undefined
               ? resolveCard(result.output, { surface: 'workflow-run' })
               : null;

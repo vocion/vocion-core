@@ -10,11 +10,10 @@
  * `createDeepAgent` graph wiring:
  *   - LangChain `BaseChatModel` from the role registry, honoring the
  *     agent's `harness_config` knobs (e.g. `maxTokens`).
- *   - Tool factories from `./tools/*` plus run_operation. Operations
- *     listed in `harness_config.interrupts` pause for human approval
- *     through the hitl_gate flow before executing (tools/runOperation.ts).
- *   - Subagents from the `agent.subagents` JSONB column.
- *   - Playbook mount via deepagents `createSkillsMiddleware`.
+ *   - Tool factories from `./tools/*` (the single registry).
+ *   - Subagents from registered child agents + the `agent.subagents`
+ *     JSONB column.
+ *   - Skill + playbook mount via deepagents `createSkillsMiddleware`.
  *
  * The harness DEPLOYS AS PART OF CORE — in-process with the Next.js
  * app, same compose/EC2 topology; there is no separate runtime service
@@ -30,13 +29,13 @@ import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
 import { tool as makeTool } from '@langchain/core/tools';
 import { createDeepAgent, StateBackend } from 'deepagents';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { buildChatModel } from '@/libs/llm';
-import { agentSchema, playbookSchema } from '@/models/Schema';
+import { agentSchema, playbookSchema, projectSchema, teamSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
-import { mountPlaybooks } from '@/services/playbooks/mount';
+import { mountSkills } from '@/services/playbooks/mount';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
@@ -79,12 +78,17 @@ export type CompiledAgentGraph = {
 };
 
 async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAgentGraph> {
+  // Org-scoped, not slug-only: slugs repeat across projects (two workspaces on
+  // one box, plus orphaned rows from older deploys), and an unscoped pick is
+  // arbitrary — one org's chat silently compiling ANOTHER org's prompt/config.
+  // Bit us in prod: the revenue-lead graph compiled a stale duplicate row, so
+  // freshly granted tools never reached the model.
   const [row] = await db
     .select()
     .from(agentSchema)
-    .where(eq(agentSchema.slug, agentSlug));
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agentSlug)));
   if (!row) {
-    throw new Error(`agent ${agentSlug} not found`);
+    throw new Error(`agent ${agentSlug} not found in org ${orgId}`);
   }
 
   // Build a no-op runtime context; the SSE route swaps in a real
@@ -104,9 +108,9 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    operationSlugs: row.skillSlugs ?? [],
     harnessConfig,
     emit: noopEmit,
+    citationSeq: { current: 0 },
   };
 
   // Tools: built-ins from createDeepAgent (ls/read_file/.../task/write_todos)
@@ -120,11 +124,105 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   const excludeTools = new Set(harnessConfig.excludeTools ?? []);
   const tools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
 
-  const subagents = (row.subagents ?? []).map((s): SubAgent => ({
-    name: s.name,
-    description: s.description,
-    systemPrompt: s.systemPrompt,
+  // ONE mechanism: agents are agents. A lead's delegable roster DERIVES from
+  // registered agents that name this agent as their parent (parentAgentSlug)
+  // — same rows the Agents page/org chart shows, so delegation and the
+  // registry can't drift. The inline `subagents` JSONB is DEPRECATED: kept
+  // only as a fallback for names not registered (legacy brief-runner etc.).
+  const children = await db
+    .select()
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, row.slug)));
+  // Specialists get the SAME domain tool surface as the lead. Explicit
+  // because deepagents defaults a custom subagent's tools to [] (only its
+  // auto-injected general-purpose inherits) — which silently left every
+  // registered specialist with filesystem tools only.
+  const subagentTools = tools as SubAgent['tools'];
+  const subagents: SubAgent[] = children.map(c => ({
+    name: c.slug,
+    description: c.description ?? c.name,
+    systemPrompt: c.systemPrompt ?? '',
+    tools: subagentTools,
   }));
+  const registered = new Set(subagents.map(s => s.name));
+  for (const s of row.subagents ?? []) {
+    if (!registered.has(s.name)) {
+      subagents.push({ name: s.name, description: s.description, systemPrompt: s.systemPrompt, tools: subagentTools });
+    }
+  }
+
+  // F1 "consult the leads", chat path: when THIS agent is the workspace
+  // lead (project.lead_agent_slug), the team leads from the `team` table
+  // merge into its dispatchable subagents — "how's the quarter?" in chat
+  // then consults every team, with the team named in each subagent's
+  // description for per-team provenance (acceptance #4). JSONB-authored
+  // subagents win name collisions. Lead-less teams are named in the
+  // system prompt so the answer degrades per team ("no lead yet") rather
+  // than silently omitting one (acceptance #5).
+  let systemPrompt = row.systemPrompt ?? undefined;
+  const [project] = await db
+    .select({ leadAgentSlug: projectSchema.leadAgentSlug })
+    .from(projectSchema)
+    .where(eq(projectSchema.id, orgId))
+    .limit(1);
+  if (project?.leadAgentSlug === row.slug) {
+    const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId));
+    const leadSlugs = teams.map(t => t.leadAgentSlug).filter((s): s is string => s !== null && s !== row.slug);
+    const leadRows = leadSlugs.length > 0
+      ? await db.select().from(agentSchema).where(and(eq(agentSchema.orgId, orgId), inArray(agentSchema.slug, leadSlugs)))
+      : [];
+    const taken = new Set(subagents.map(s => s.name));
+    for (const team of teams) {
+      const lead = leadRows.find(a => a.slug === team.leadAgentSlug);
+      if (!lead || taken.has(lead.slug)) {
+        continue;
+      }
+      taken.add(lead.slug);
+      subagents.push({
+        name: lead.slug,
+        description: `${lead.name} — lead of the ${team.name} team. Consult for: ${team.description ?? lead.description ?? `the ${team.name} team's status and work`}.`,
+        systemPrompt: lead.systemPrompt ?? `You are ${lead.name}, lead of the ${team.name} team.`,
+        tools: subagentTools,
+      });
+    }
+    const leadless = teams.filter(t => t.leadAgentSlug === null).map(t => t.name);
+    if (leadless.length > 0) {
+      const note = `Teams with no lead yet — you cannot consult them; say so plainly per team (e.g. "${leadless[0]} has no lead yet"), never silently omit them: ${leadless.join(', ')}.`;
+      systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
+    }
+  }
+
+  // Output discipline (CORE, all agents). The main model reliably PASTES raw
+  // tool output — record JSON, search hits — into its reply and ignores "don't
+  // paste" rules; fighting that with content-stripping is whack-a-mole (it
+  // pretty-prints/reformats so nothing matches). Instead give it a sanctioned
+  // place to lay data out — a <scratch> block we strip deterministically — so
+  // the user only ever sees what's AFTER it. Delimiter-based = format-agnostic.
+  const OUTPUT_DISCIPLINE = [
+    'OUTPUT FORMAT (strict):',
+    'You may lay out raw data to reason over — record JSON, and ESPECIALLY search results and email contents (From/Subject/body, message lists) — but ONLY inside a single <scratch>…</scratch> block at the very START of your reply.',
+    'Everything AFTER </scratch> is the answer the user sees. It must be clean synthesis in plain language: NO raw records, JSON, field:value lists, search hits, email headers/bodies, ids, or /dashboard links. When asked to "find an email" or "go get" something, the answer is the EXTRACTED fact in words (e.g. "Eric — ericb@exactcustomer.com"), never the search results you read to find it.',
+    'If you have no raw data to lay out, skip the scratch block and just answer.',
+    'VOICE (chat replies): write like a sharp human chief of staff texting a busy founder — not a chatbot. In a conversational reply, hard bans: NO decorative or "stoplight" emoji (🔴🟡🟢✅) as bullets or status markers; NO templated scaffolding ("Here are your top three moves right now:", "I hope this helps", "Let me know if…"); NO filler closers ("Want me to draft all three now for your review?"). Keep a short ranked list tight (a bold lead-in + one line each), no per-item ##/### headers or --- rules. Lead with the move, be specific, cut hedging. EXCEPTION — a PUBLISHED, scannable document (a daily briefing via publish_briefing, or an explicitly long report): there, clear section structure and priority markers ARE appropriate (that\'s a document meant to be scanned, not a chat message). The ban is on chatbot slop in conversation, not on structure in documents.',
+    'CITATIONS: search_knowledge results are numbered like "[3] **title** [source]". When a sentence in your answer states a fact you got from a specific search result, cite it inline with that bracketed number immediately after the claim, e.g. "He owns healthcare-IT at Gauge [3]." Use the exact numbers from the results (they are globally unique for this turn); cite more than one where relevant ("[2][5]"); never invent a number or cite a source you did not use. Only facts grounded in search results get a marker — not every sentence.',
+  ].join(' ');
+  systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE].filter(Boolean).join('\n\n');
+
+  // deepagents auto-injects a built-in `general-purpose` subagent whose prompt
+  // is generic (DEFAULT_SUBAGENT_PROMPT — no answer-style rules). So when the
+  // lead delegates "what should I do" to it, that subagent calls lookup_objects
+  // and, told nothing otherwise, pastes the raw record back — the lead's
+  // "synthesize, never dump" rule never reaches the actor that composes the
+  // reply. Pre-define our own `general-purpose` carrying the discipline; the
+  // injector skips its default when one already exists by that name.
+  if (!subagents.some(s => s.name === 'general-purpose')) {
+    subagents.push({
+      name: 'general-purpose',
+      description: 'General-purpose worker for research and multi-step tasks the lead delegates.',
+      systemPrompt: 'You do delegated research and multi-step work, then return a concise, SYNTHESIZED result to the lead. NEVER paste raw tool output, record field-dumps (key: value lists), internal ids, /dashboard/... deep-links, or profile URLs — name people and the human reason in plain language. Return only what the lead needs to answer, tightly.',
+      tools: subagentTools,
+    });
+  }
 
   // Per-agent output cap from the harness block (falls back to the
   // langchain provider default when unset).
@@ -132,17 +230,19 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
   });
 
-  // Only mount deepagents' SkillsMiddleware when the org actually HAS
-  // playbooks. The middleware requires initialized state fields and fails in
-  // the webpack production bundle ("Middleware SkillsMiddleware has required
-  // state fields that must be initialized") — dev/Turbopack tolerated it, so
-  // this broke PROD chat only. With zero playbooks the middleware buys
-  // nothing; playbook bodies still mount via initialFiles for the file tools.
+  // Only mount deepagents' SkillsMiddleware when THIS AGENT actually
+  // mounts something. The middleware requires initialized state fields and
+  // fails in the webpack production bundle ("Middleware SkillsMiddleware
+  // has required state fields that must be initialized") — dev/Turbopack
+  // tolerated it, so this broke PROD chat only. With nothing mounted the
+  // middleware buys nothing; bodies still mount via initialFiles for the
+  // file tools.
   const [playbookCount] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(playbookSchema)
     .where(eq(playbookSchema.orgId, orgId));
-  const hasPlaybooks = Number(playbookCount?.n ?? 0) > 0;
+  const hasAnyFolders = Number(playbookCount?.n ?? 0) > 0;
+  const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
 
   const graph = createDeepAgent({
     model,
@@ -154,10 +254,10 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     // it a SECOND system message once the middleware prepends its own, which
     // the model API rejects ("System messages are only permitted as the first
     // passed message").
-    systemPrompt: row.systemPrompt ?? undefined,
+    systemPrompt,
     backend: new StateBackend(),
     // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).
-    ...(hasPlaybooks ? { skills: ['/playbooks/'] } : {}),
+    ...(hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
 
   // Attach the mutable RuntimeContext for the request adapter to update.
@@ -197,12 +297,23 @@ export function bindRequestEmit(
   userId?: string,
   allowedSourceSlugs?: string[],
   missionSlug?: string,
+  missionRunId?: number,
+  conversationId?: number,
 ): void {
   const internal = compiled as unknown as { __ctx: RuntimeContext };
   internal.__ctx.emit = emit;
   internal.__ctx.userId = userId;
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
   internal.__ctx.missionSlug = missionSlug;
+  internal.__ctx.missionRunId = missionRunId;
+  internal.__ctx.conversationId = conversationId;
+  internal.__ctx.provider = 'local';
+  internal.__ctx.traceId = undefined;
+  // Fresh delegation map per turn — the tool-call record attributes a
+  // specialist's calls through it (taskId → specialist name).
+  internal.__ctx.delegations = new Map();
+  // Fresh citation numbering per turn (the graph/ctx is reused across requests).
+  internal.__ctx.citationSeq = { current: 0 };
 }
 
 /* ------------------------------------------------------------------ */
@@ -237,17 +348,18 @@ export async function buildInitialFiles(
   const [row] = await db
     .select()
     .from(agentSchema)
-    .where(eq(agentSchema.slug, agentSlug));
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agentSlug)));
   if (!row) {
     return {};
   }
-  const playbooks = await mountPlaybooks({
+  const mounted = await mountSkills({
     orgId,
-    agentTags: row.playbookTags ?? null,
+    skillSlugs: row.skillSlugs ?? [],
+    playbookSlugs: row.playbookSlugs ?? [],
   });
   const learnings = await bundleStepMarkdown(orgId, row.learningSteps ?? []);
   return Object.fromEntries(
-    Object.entries({ ...playbooks, ...learnings }).map(([path, body]) => [path, toFileData(body)]),
+    Object.entries({ ...mounted, ...learnings }).map(([path, body]) => [path, toFileData(body)]),
   );
 }
 

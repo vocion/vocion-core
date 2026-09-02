@@ -21,23 +21,20 @@ describe('writer', () => {
           slug: 'test_skill',
           name: 'Test Skill',
           description: 'unit test skill',
-          category: 'query',
-          status: 'active',
           version: 1,
-          requiresApproval: false,
         } as never,
-        promptMd: '# Test\n\nUse {{transcript}} as input.',
+        promptMd: '# Test\n\nDo the test thing.',
       });
 
-      expect(written.files).toHaveLength(2);
-      expect(written.files.some(f => f.endsWith('skill.yaml'))).toBe(true);
-      expect(written.files.some(f => f.endsWith('prompt.md'))).toBe(true);
+      expect(written.files).toHaveLength(1);
+      expect(written.files.some(f => f.endsWith('SKILL.md'))).toBe(true);
 
       const loaded = loadWorkspace(dir);
 
       expect(loaded.skills).toHaveLength(1);
       expect(loaded.skills[0]!.slug).toBe('test_skill');
-      expect(loaded.skills[0]!.resolvedPromptTemplate).toBe('# Test\n\nUse {{transcript}} as input.');
+      expect(loaded.skills[0]!.kind).toBe('skill');
+      expect(loaded.skills[0]!.body).toBe('# Test\n\nDo the test thing.');
     } finally {
       rmSync(dir, { recursive: true });
     }
@@ -52,7 +49,7 @@ describe('writer', () => {
           slug: 'testbot',
           name: 'TestBot',
           active: true,
-          skills: ['test_skill'],
+          skills: [],
           connectorSources: ['zoom'],
           objectTypes: [],
           documentSetIds: [],
@@ -126,10 +123,8 @@ describe('writer', () => {
         manifest: {
           slug: 'doomed',
           name: 'Doomed',
-          category: 'query',
-          status: 'active',
+          description: 'doomed test skill',
           version: 1,
-          requiresApproval: false,
         } as never,
         promptMd: 'bye',
       });
@@ -153,10 +148,8 @@ describe('writer', () => {
         manifest: {
           slug: 'Has-Capitals',
           name: 'Bad',
-          category: 'query',
-          status: 'active',
+          description: 'bad slug',
           version: 1,
-          requiresApproval: false,
         } as never,
         promptMd: 'x',
       })).toThrow();

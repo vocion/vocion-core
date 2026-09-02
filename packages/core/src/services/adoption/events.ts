@@ -22,6 +22,13 @@ export const feedbackRating = z.enum(['up', 'down']);
 type EventSpec = {
   /** True when the event is agent-attributable — callers should pass `agentSlug`. */
   agent?: boolean;
+  /**
+   * True when the event may be written by a NON-human actor (an agent turn, a
+   * scheduled mission check). Adoption still measures humans; a system event
+   * exists for auditability, and the read side keeps ignoring it for
+   * per-user metrics because its userId never matches a member.
+   */
+  system?: boolean;
   /** Metadata envelope schema. Counts and enums only — never message content. */
   meta?: z.ZodType;
 };
@@ -33,12 +40,25 @@ export const ADOPTION_EVENTS = {
   'activity.heartbeat': {},
   'chat.conversation_created': { agent: true },
   'chat.message_sent': { agent: true },
-  /** One event for every HITL approval surface; the run kind travels in metadata. */
+  /**
+   * One event for every HITL approval surface; the run kind travels in
+   * metadata. `decision` is the TYPED triage signal — approve/edit/reject are
+   * terminal; skip/save leave the item pending; rewrite = the human asked AI
+   * to redo the draft (a strong tone/quality signal). These feed confidence +
+   * alignment scoring and the per-user tone prompt. `hint` carries a rewrite
+   * instruction ("shorter", "warmer") when present.
+   */
   'review.decided': {
     agent: true,
     meta: z.object({
       kind: runKind,
-      decision: z.enum(['approved', 'rejected']),
+      decision: z.enum(['approved', 'edited', 'rejected', 'skipped', 'saved', 'rewritten']),
+      // Scope dimensions for learnings/tone: the event's userId = individual,
+      // orgId = workspace, and actionId = action type. Together they let
+      // downstream scoring attribute a signal to a person, an action class, or
+      // the whole workspace.
+      actionId: z.string().optional(),
+      hint: z.string().optional(),
       latencyMs: z.number().optional(),
     }),
   },
@@ -51,6 +71,21 @@ export const ADOPTION_EVENTS = {
     }),
   },
   'learning.added': { agent: true },
+  /**
+   * One assessed call = one event, whoever ordered it (scheduled mission
+   * check or a chat turn). The drill-down pointer to the ledger:
+   * `resource: ['discovery_candidate', id]`. Metadata is enum-and-boolean
+   * only — the scores and reasoning live on the ledger row, never here.
+   */
+  'discovery.classified': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      route: z.enum(['generate', 'confirm', 'drop']),
+      isDiscovery: z.boolean(),
+      proposalReady: z.boolean(),
+    }),
+  },
 } as const satisfies Record<string, EventSpec>;
 
 export type AdoptionEventType = keyof typeof ADOPTION_EVENTS;

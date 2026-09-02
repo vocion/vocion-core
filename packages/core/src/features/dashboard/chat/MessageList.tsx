@@ -28,12 +28,16 @@ export type MessageListProps = {
   streaming?: boolean;
   /** Live status line while streaming — rendered in the last agent message's work timeline. */
   activity?: string | null;
+  /** Opens the Sources drawer when a message's "Sources · N" pill is clicked. */
+  onShowSources?: () => void;
+  /** Opens the Sources drawer focused on citation `[n]` when an inline marker is tapped. */
+  onCitationClick?: (n: number) => void;
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, streaming = false, activity }: MessageListProps) {
+export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
   // position changes must never themselves cause a re-render.
@@ -71,7 +75,7 @@ export function MessageList({ messages, agentName, streaming = false, activity }
 
   const lastIdx = messages.length - 1;
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="flex flex-1 flex-col gap-8 overflow-y-auto px-6 py-6">
+    <div ref={containerRef} onScroll={handleScroll} className="flex flex-1 flex-col gap-8 overflow-y-auto px-4 pt-16 pb-6 sm:px-6">
       <div className="mx-auto w-full max-w-4xl space-y-8">
         {messages.map((msg, i) => msg.role === 'user'
           ? <UserMessage key={i} content={msg.content} />
@@ -82,6 +86,8 @@ export function MessageList({ messages, agentName, streaming = false, activity }
                 agentName={agentName}
                 streaming={streaming && i === lastIdx}
                 activity={i === lastIdx ? activity : undefined}
+                onShowSources={onShowSources}
+                onCitationClick={onCitationClick}
               />
             ))}
       </div>

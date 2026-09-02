@@ -1,9 +1,10 @@
-import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSkill, LoadedSource, LoadedWorkflow, LoadedWorkspace } from './loader';
+import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, skillSchema, trustRuleSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
+import { effectiveTeamSlug } from './teams';
 
 export type ApplyOptions = {
   dryRun?: boolean;
@@ -30,6 +31,7 @@ export type ApplyResult = {
     learningSteps: ResourceCounts;
     evalDatasets: ResourceCounts;
     sources: ResourceCounts;
+    teams: ResourceCounts;
   };
   errors: Array<{ resource: string; slug: string; message: string }>;
   versionId: number | null;
@@ -52,6 +54,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     learningSteps: blank(),
     evalDatasets: blank(),
     sources: blank(),
+    teams: blank(),
   };
 
   // Object types first — agents and skills may reference them
@@ -64,18 +67,33 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     }
   }
 
+  // Skills are SKILL.md folders — same catalog table as playbooks, kind-tagged.
   for (const skill of loaded.skills) {
     try {
-      const outcome = await upsertSkill(orgId, skill, defaults, dryRun);
+      const outcome = await upsertPlaybook(orgId, skill, dryRun);
       bump(counts.skills, outcome);
     } catch (err) {
       errors.push({ resource: 'skill', slug: skill.slug, message: (err as Error).message });
     }
   }
 
+  // Teams before agents — agents carry a validated `team:` slug ref.
+  for (const team of loaded.teams) {
+    try {
+      const outcome = await upsertTeam(orgId, team, dryRun, errors);
+      bump(counts.teams, outcome);
+    } catch (err) {
+      errors.push({ resource: 'team', slug: team.slug, message: (err as Error).message });
+    }
+  }
+
+  // Workspace lead + workspace-default accountable human are project
+  // config (workspace.yaml `lead:` / `accountableUser:`), not a team row.
+  await applyWorkspaceLeadConfig(orgId, loaded, dryRun, errors);
+
   for (const agent of loaded.agents) {
     try {
-      const outcome = await upsertAgent(orgId, agent, defaults, dryRun);
+      const outcome = await upsertAgent(orgId, agent, defaults, dryRun, loaded.teams);
       bump(counts.agents, outcome);
       // provider: agentcore — provision/refresh the AWS-managed harness
       // after the row lands, and record the ARN the invoke adapter reads.
@@ -99,6 +117,25 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
       bump(counts.workflows, outcome);
     } catch (err) {
       errors.push({ resource: 'workflow', slug: workflow.slug, message: (err as Error).message });
+    }
+  }
+
+  // A workflow the workspace no longer ships is retired, not left active:
+  // an unauthored definition must not keep starting runs. Run history stays.
+  if (!dryRun) {
+    try {
+      const { ne, notInArray } = await import('drizzle-orm');
+      const authored = loaded.workflows.map(w => w.slug);
+      await db
+        .update(workflowSchema)
+        .set({ status: 'retired' })
+        .where(and(
+          eq(workflowSchema.orgId, orgId),
+          ne(workflowSchema.status, 'retired'),
+          authored.length > 0 ? notInArray(workflowSchema.slug, authored) : undefined,
+        ));
+    } catch (err) {
+      errors.push({ resource: 'workflow', slug: '(retire sweep)', message: (err as Error).message });
     }
   }
 
@@ -193,6 +230,18 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     await reconcileSchedules(orgId, loaded, errors, configChangedSourceSlugs);
   }
 
+  // Compiled chat graphs bake in subagents — including the F1 team-lead
+  // merge for the workspace lead — so an IN-PROCESS apply (MCP write
+  // tools) must flush the harness LRU or the next chat turn serves the
+  // pre-apply roster. Best-effort: CLI applies run in their own process
+  // (nothing to flush) and must not fail on the harness import.
+  if (!dryRun) {
+    try {
+      const { resetAgentRuntimeCache } = await import('@/services/agents/harness');
+      resetAgentRuntimeCache();
+    } catch { /* apply result is already durable; a stale cache is not */ }
+  }
+
   let versionId: number | null = null;
   if (!dryRun) {
     const [row] = await db.insert(workspaceVersionSchema).values({
@@ -227,6 +276,7 @@ type UpsertOutcome = 'created' | 'updated' | 'unchanged';
  * @param orgId
  * @param loaded
  * @param errors
+ * @param configChangedSourceSlugs
  */
 async function reconcileSchedules(
   orgId: string,
@@ -234,6 +284,18 @@ async function reconcileSchedules(
   errors: ApplyResult['errors'],
   configChangedSourceSlugs: Set<string> = new Set(),
 ): Promise<void> {
+  // Schedule-ownership guard. Reconciling Temporal Schedules makes THIS
+  // process the scheduler-of-record. Local dev commonly runs against the
+  // prod DB over an SSH tunnel — 127.0.0.1 looks local but ISN'T — so a URL
+  // heuristic can't tell dev from prod. Require an explicit opt-in instead:
+  // only the deployment that should own crons sets VOCION_SCHEDULE_OWNER=1.
+  // Everyone else skips, so a stray local worker can never fight prod's
+  // scheduler (duplicate drafts, double source syncs).
+  if (process.env.VOCION_SCHEDULE_OWNER !== '1') {
+    console.warn('[workspace:apply] Skipping schedule reconciliation — VOCION_SCHEDULE_OWNER != 1, so this process is not the scheduler-of-record. Set VOCION_SCHEDULE_OWNER=1 on the single deployment that should own mission/source/workflow crons (the prod box), never on a dev machine pointed at prod data.');
+    return;
+  }
+
   const { getTemporalClient } = await import('@/libs/temporal/client');
   try {
     await getTemporalClient();
@@ -363,46 +425,7 @@ async function upsertObjectType(orgId: string, ot: LoadedObjectType, dryRun: boo
   return 'updated';
 }
 
-async function upsertSkill(orgId: string, skill: LoadedSkill, defaults: { model?: string; temperature?: string }, dryRun: boolean): Promise<UpsertOutcome> {
-  const [existing] = await db
-    .select()
-    .from(skillSchema)
-    .where(and(eq(skillSchema.orgId, orgId), eq(skillSchema.slug, skill.slug)));
-
-  const payload = {
-    orgId,
-    slug: skill.slug,
-    name: skill.name,
-    description: skill.description ?? null,
-    promptTemplate: skill.resolvedPromptTemplate,
-    scriptFile: skill.scriptFile ?? null,
-    inputSchema: skill.inputSchema ?? null,
-    model: skill.model ?? defaults.model ?? 'gpt-4o',
-    temperature: String(skill.temperature ?? defaults.temperature ?? '0.3'),
-    requiresApproval: String(skill.requiresApproval),
-    category: skill.category,
-    status: skill.status,
-    version: skill.version,
-  };
-
-  if (!existing) {
-    if (!dryRun) {
-      await db.insert(skillSchema).values(payload);
-    }
-    return 'created';
-  }
-
-  if (isSkillEqual(existing, payload)) {
-    return 'unchanged';
-  }
-
-  if (!dryRun) {
-    await db.update(skillSchema).set(payload).where(eq(skillSchema.id, existing.id));
-  }
-  return 'updated';
-}
-
-async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?: string; temperature?: string }, dryRun: boolean): Promise<UpsertOutcome> {
+async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?: string; temperature?: string }, dryRun: boolean, teams: LoadedTeam[] = []): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
     .from(agentSchema)
@@ -425,7 +448,7 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     harnessConfig: agent.harness,
     fewShotExamples: agent.fewShotExamples,
     subagents: agent.resolvedSubagents,
-    playbookTags: agent.playbookTags,
+    playbookSlugs: agent.playbooks,
     learningSteps: agent.learningSteps,
     suggestions: agent.suggestions,
     accent: agent.accent ?? null,
@@ -436,6 +459,10 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     role: deriveRole(agent.parent),
     agentType: agent.agentType ?? null,
     team: agent.team ?? null,
+    // Validated team membership (F1). Only meaningful when the workspace
+    // defines teams — the loader validated the ref; leads auto-assign to
+    // the team they lead. NULL in team-less workspaces, exactly as before.
+    teamSlug: effectiveTeamSlug(agent, teams),
     parentAgentSlug: agent.parent ?? null,
   };
 
@@ -456,6 +483,137 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
   return 'updated';
 }
 
+/**
+ * Resolve an authored `accountableUser:` email to a user id. Unresolved
+ * emails record a non-fatal error and store NULL — deploy boxes may not
+ * have that user seeded yet; a later apply (after the user signs up)
+ * heals the row.
+ * @param email
+ * @param resource
+ * @param slug
+ * @param errors
+ */
+async function resolveAccountableUser(
+  email: string | undefined,
+  resource: string,
+  slug: string,
+  errors: ApplyResult['errors'],
+): Promise<string | null> {
+  if (email === undefined) {
+    return null;
+  }
+  const [row] = await db
+    .select({ id: userSchema.id })
+    .from(userSchema)
+    .where(eq(userSchema.email, email.toLowerCase()))
+    .limit(1);
+  if (!row) {
+    errors.push({ resource, slug, message: `accountableUser "${email}" does not match any user — storing no owner; re-apply after that user signs up` });
+    return null;
+  }
+  return row.id;
+}
+
+async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, errors: ApplyResult['errors']): Promise<UpsertOutcome> {
+  const [existing] = await db
+    .select()
+    .from(teamSchema)
+    .where(and(eq(teamSchema.orgId, orgId), eq(teamSchema.slug, team.slug)));
+
+  const payload = {
+    orgId,
+    slug: team.slug,
+    name: team.name,
+    description: team.description ?? null,
+    leadAgentSlug: team.lead ?? null,
+    // Explicit owner only — an omitted accountableUser stays NULL so the
+    // workspace default is inherited at read time, never baked in here.
+    accountableUserId: await resolveAccountableUser(team.accountableUser, 'team', team.slug, errors),
+  };
+
+  if (!existing) {
+    if (!dryRun) {
+      await db.insert(teamSchema).values(payload);
+    }
+    return 'created';
+  }
+
+  if (
+    existing.name === payload.name
+    && (existing.description ?? null) === payload.description
+    && (existing.leadAgentSlug ?? null) === payload.leadAgentSlug
+    && (existing.accountableUserId ?? null) === payload.accountableUserId
+  ) {
+    return 'unchanged';
+  }
+
+  if (!dryRun) {
+    await db.update(teamSchema).set(payload).where(eq(teamSchema.id, existing.id));
+  }
+  return 'updated';
+}
+
+/**
+ * Apply workspace.yaml's top-level `lead:` / `accountableUser:` to the
+ * project row (the workspace lead is project config, not a special team).
+ * Declarative: authored values are set, omitted keys clear the columns.
+ * When no project row matches the resolved orgId (manifest-orgId
+ * fallback), warn loudly and skip — never invent a project.
+ * @param orgId
+ * @param loaded
+ * @param dryRun
+ * @param errors
+ */
+async function applyWorkspaceLeadConfig(
+  orgId: string,
+  loaded: LoadedWorkspace,
+  dryRun: boolean,
+  errors: ApplyResult['errors'],
+): Promise<void> {
+  const lead = loaded.manifest.lead ?? null;
+  const accountableUserId = await resolveAccountableUser(loaded.manifest.accountableUser, 'workspace', 'workspace.yaml', errors);
+  // Ids are validated against the core registry at load, so anything reaching
+  // here names a real route. Replaced wholesale: dropping a surface from the
+  // YAML turns it off, same declarative rule as `lead:`.
+  const enabledSurfaces = loaded.manifest.surfaces;
+
+  const [project] = await db
+    .select({
+      id: projectSchema.id,
+      leadAgentSlug: projectSchema.leadAgentSlug,
+      accountableUserId: projectSchema.accountableUserId,
+      enabledSurfaces: projectSchema.enabledSurfaces,
+    })
+    .from(projectSchema)
+    .where(eq(projectSchema.id, orgId))
+    .limit(1);
+
+  if (!project) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0) {
+      console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces NOT applied. Pass --project <id|slug> so they land on a real project.`);
+    }
+    return;
+  }
+
+  const surfacesUnchanged
+    = project.enabledSurfaces.length === enabledSurfaces.length
+      && project.enabledSurfaces.every((s, i) => s === enabledSurfaces[i]);
+
+  if (
+    (project.leadAgentSlug ?? null) === lead
+    && (project.accountableUserId ?? null) === accountableUserId
+    && surfacesUnchanged
+  ) {
+    return;
+  }
+  if (!dryRun) {
+    await db
+      .update(projectSchema)
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces })
+      .where(eq(projectSchema.id, project.id));
+  }
+}
+
 async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, dryRun: boolean): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
@@ -472,6 +630,7 @@ async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, dryRun: b
     trigger: workflow.trigger as unknown as Record<string, unknown>,
     steps: workflow.steps as unknown as Array<Record<string, unknown>>,
     inputSchema: workflow.inputSchema ?? null,
+    ownerAgentSlug: workflow.agent ?? null,
   };
 
   if (!existing) {
@@ -540,7 +699,8 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, dry
     description: automation.description ?? null,
     status: automation.status,
     whenConfig: automation.when as { schedule?: string; event?: string; filter?: Record<string, unknown> },
-    doConfig: automation.do as { workflow?: string; checkMission?: string; input?: Record<string, unknown> },
+    doConfig: automation.do as { workflow?: string; checkMission?: string; job?: string; input?: Record<string, unknown> },
+    ownerAgentSlug: automation.agent ?? null,
   };
 
   if (!existing) {
@@ -553,6 +713,7 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, dry
     existing.name === payload.name
     && (existing.description ?? null) === payload.description
     && existing.status === payload.status
+    && (existing.ownerAgentSlug ?? null) === payload.ownerAgentSlug
     && canonical(existing.whenConfig) === canonical(payload.whenConfig)
     && canonical(existing.doConfig) === canonical(payload.doConfig)
   ) {
@@ -575,12 +736,14 @@ async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, dryRun: boolean
     slug: pb.slug,
     name: pb.name,
     description: pb.description,
-    tags: pb.tags,
+    kind: pb.kind,
+    origin: pb.origin,
+    attachedPlaybooks: pb.playbooks,
     frontmatter: {
       slug: pb.slug,
       name: pb.name,
       description: pb.description,
-      tags: pb.tags,
+      playbooks: pb.playbooks,
       version: pb.version,
       resources: pb.resources,
       license: pb.license,
@@ -603,7 +766,9 @@ async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, dryRun: boolean
     && existing.name === payload.name
     && existing.description === payload.description
     && existing.version === payload.version
-    && canonical(existing.tags) === canonical(payload.tags)
+    && existing.kind === payload.kind
+    && existing.origin === payload.origin
+    && canonical(existing.attachedPlaybooks) === canonical(payload.attachedPlaybooks)
     && canonical(existing.sourceFiles) === canonical(payload.sourceFiles)
   ) {
     return 'unchanged';
@@ -701,6 +866,26 @@ async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean): 
   return 'updated';
 }
 
+/**
+ * Workspace-shipped seed rules → `learning` rows, keyed on source
+ * `workspace:<id>` so re-applying is idempotent and text edits update in place.
+ * @param orgId
+ * @param stepId
+ * @param rules
+ */
+async function seedLearningRules(orgId: string, stepId: number, rules: Array<{ id: string; text: string }>): Promise<void> {
+  for (const r of rules) {
+    const source = `workspace:${r.id}`;
+    const text = r.text.trim();
+    const [existing] = await db.select().from(learningSchema).where(and(eq(learningSchema.orgId, orgId), eq(learningSchema.stepId, stepId), eq(learningSchema.source, source)));
+    if (!existing) {
+      await db.insert(learningSchema).values({ orgId, stepId, ruleText: text, source, createdBy: 'workspace:apply' });
+    } else if (existing.ruleText !== text) {
+      await db.update(learningSchema).set({ ruleText: text, updatedAt: new Date() }).where(eq(learningSchema.id, existing.id));
+    }
+  }
+}
+
 async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRun: boolean): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
@@ -718,9 +903,15 @@ async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRu
 
   if (!existing) {
     if (!dryRun) {
-      await db.insert(learningStepSchema).values(payload);
+      const [row] = await db.insert(learningStepSchema).values(payload).returning();
+      if (row) {
+        await seedLearningRules(orgId, row.id, step.rules ?? []);
+      }
     }
     return 'created';
+  }
+  if (!dryRun) {
+    await seedLearningRules(orgId, existing.id, step.rules ?? []);
   }
 
   if (
@@ -746,6 +937,7 @@ function isWorkflowEqual(a: typeof workflowSchema.$inferSelect, b: Record<string
     trigger: a.trigger,
     steps: a.steps,
     inputSchema: a.inputSchema,
+    ownerAgentSlug: a.ownerAgentSlug ?? null,
   }) === canonical({
     name: b.name,
     description: b.description,
@@ -754,6 +946,7 @@ function isWorkflowEqual(a: typeof workflowSchema.$inferSelect, b: Record<string
     trigger: b.trigger,
     steps: b.steps,
     inputSchema: b.inputSchema,
+    ownerAgentSlug: b.ownerAgentSlug ?? null,
   });
 }
 
@@ -786,34 +979,6 @@ function isObjectTypeEqual(a: typeof businessObjectTypeSchema.$inferSelect, b: R
   });
 }
 
-function isSkillEqual(a: typeof skillSchema.$inferSelect, b: Record<string, unknown>): boolean {
-  return canonical({
-    name: a.name,
-    description: a.description,
-    promptTemplate: a.promptTemplate,
-    scriptFile: a.scriptFile,
-    inputSchema: a.inputSchema,
-    model: a.model,
-    temperature: a.temperature,
-    requiresApproval: a.requiresApproval,
-    category: a.category,
-    status: a.status,
-    version: a.version,
-  }) === canonical({
-    name: b.name,
-    description: b.description,
-    promptTemplate: b.promptTemplate,
-    scriptFile: b.scriptFile,
-    inputSchema: b.inputSchema,
-    model: b.model,
-    temperature: b.temperature,
-    requiresApproval: b.requiresApproval,
-    category: b.category,
-    status: b.status,
-    version: b.version,
-  });
-}
-
 function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unknown>): boolean {
   const fields = [
     'name',
@@ -830,7 +995,7 @@ function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unkn
     'harnessConfig',
     'fewShotExamples',
     'subagents',
-    'playbookTags',
+    'playbookSlugs',
     'learningSteps',
     'suggestions',
     'accent',
@@ -841,6 +1006,7 @@ function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unkn
     'role',
     'agentType',
     'team',
+    'teamSlug',
     'parentAgentSlug',
   ] as const;
   const pick = (src: Record<string, unknown>): Record<string, unknown> => {
