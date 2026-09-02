@@ -135,5 +135,30 @@ function DocumentContent({ item }: ContentRenderProps) {
   );
 }
 
+function ImageContent({ item }: ContentRenderProps) {
+  if (item.kind !== 'image') {
+    return null;
+  }
+  return (
+    <div className="py-3">
+      <a href={item.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border border-border bg-muted/30">
+        <img src={item.url} alt={item.label} loading="lazy" className="max-h-[420px] w-full object-contain" />
+      </a>
+      {item.caption && <p className="mt-2 text-sm break-words text-foreground/85">{item.caption}</p>}
+      {item.findings && item.findings.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {item.findings.map(f => (
+            <li key={f} className="flex gap-2 text-[13px]">
+              <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
+              <span className="break-words">{f}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 registerContentKind('email', EmailContent);
 registerContentKind('document', DocumentContent);
+registerContentKind('image', ImageContent);
