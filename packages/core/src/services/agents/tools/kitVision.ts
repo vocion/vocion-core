@@ -209,6 +209,14 @@ const VerdictSchema = z.object({
     /** Where to look: [x, y, w, h] normalised 0–1 of the CANDIDATE image. */
     box: z.array(z.number().min(0).max(1)).length(4).optional(),
   }).passthrough()).default([]),
+  /** Every region checked, ok ones included, each with a box — for the overlay. */
+  regions: z.array(z.object({
+    region: z.string(),
+    issue: z.enum(['missing', 'wrong_part', 'extra', 'orientation', 'count', 'unreadable', 'ok']).default('ok'),
+    observed: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    box: z.array(z.number().min(0).max(1)).length(4).optional(),
+  }).passthrough()).default([]),
   photo_quality: z.object({ readable: z.boolean(), notes: z.string().optional() }).optional(),
   explanation: z.string(),
 });
@@ -222,8 +230,8 @@ You receive one CANDIDATE photo and one or two REFERENCE photos of the same kit 
 4. Never invent a part number that is not printed on the sheet. Quote the sheet's own labels.
 5. For every finding give "box": [x, y, w, h] — the region of the CANDIDATE image to look at, as fractions 0–1 of image width/height measured from the top-left (x,y = top-left corner of the box). Cover the printed outline and its label; err generous (a box a little too big is fine, a box on the wrong part is not).
 
-Respond with ONLY a JSON object: {"verdict":"pass|hold","confidence":0-1,"kit_id":"...","sheet_title":"...","regions_checked":n,"findings":[{"region":"<label as printed>","issue":"missing|wrong_part|extra|orientation|count|unreadable|ok","expected":"...","observed":"...","severity":"blocking|minor|info","confidence":0-1,"box":[x,y,w,h]}],"photo_quality":{"readable":true,"notes":"..."},"explanation":"2-4 plain sentences a line lead can act on"}
-Include only regions with an issue other than "ok" in findings (keep "ok" out), but count every region in regions_checked. "confidence" on the verdict is your probability the pass/hold call is right; "confidence" on a finding is your probability that specific finding is real.`;
+Respond with ONLY a JSON object: {"verdict":"pass|hold","confidence":0-1,"kit_id":"...","sheet_title":"...","regions_checked":n,"regions":[{"region":"<label as printed>","issue":"ok|missing|wrong_part|extra|orientation|count|unreadable","observed":"<one short phrase>","confidence":0-1,"box":[x,y,w,h]}],"findings":[{"region":"<label as printed>","issue":"missing|wrong_part|extra|orientation|count|unreadable","expected":"...","observed":"...","severity":"blocking|minor|info","confidence":0-1,"box":[x,y,w,h]}],"photo_quality":{"readable":true,"notes":"..."},"explanation":"2-4 plain sentences a line lead can act on"}
+"regions" lists EVERY labelled outline on the sheet, ok ones included, each with its box — a person will hover them to see what you checked. "findings" repeats only the regions with an issue other than "ok". regions_checked = regions.length. "confidence" on the verdict is your probability the pass/hold call is right; "confidence" on a finding is your probability that specific finding is real.`;
 
 function toImageBlock(bytes: Uint8Array, contentType: string) {
   const mt = (contentType === 'image/png' || contentType === 'image/webp' || contentType === 'image/gif') ? contentType : 'image/jpeg';
@@ -447,6 +455,10 @@ export function kitVisionTools(ctx: RuntimeContext) {
           verdict = {
             ...verdict,
             findings: zoom.findings,
+            regions: verdict.regions.map((r) => {
+              const z = zoom.findings.find(f => f.region === r.region);
+              return z ? { ...r, issue: z.issue, observed: z.observed ?? r.observed, confidence: z.confidence ?? r.confidence, box: z.box ?? r.box } : r;
+            }),
             verdict: newVerdict,
             confidence: bumped,
             explanation: `${verdict.explanation} Zoomed into ${zoom.zoomed} fastener box${zoom.zoomed === 1 ? '' : 'es'} to count: ${zoom.corrected} matched the printed quantity${zoom.zoomed - zoom.corrected ? `, ${zoom.zoomed - zoom.corrected} did not` : ''}.`,
@@ -465,8 +477,9 @@ export function kitVisionTools(ctx: RuntimeContext) {
             verdict: verdict.verdict,
             confidence: verdict.confidence,
             findings: verdict.findings,
+            regions: verdict.regions.length ? verdict.regions : verdict.findings,
             explanation: verdict.explanation,
-            regions_checked: verdict.regions_checked ?? null,
+            regions_checked: verdict.regions_checked ?? (verdict.regions.length || null),
             reference_keys: refKeys,
             checks: {
               ...((await findInspection(ctx.orgId, key))?.metadata as { checks?: Record<string, unknown> } | undefined)?.checks,

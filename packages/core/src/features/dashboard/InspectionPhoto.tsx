@@ -54,6 +54,8 @@ type Props = {
   confidence?: number | null;
   explanation?: string | null;
   findings: Finding[];
+  /** Every region checked, ok ones included (same shape as a finding). */
+  regions?: Finding[];
   regionsChecked?: number | null;
   checks?: {
     reference?: { model?: string; verdict?: string; confidence?: number; at?: string; usage?: Record<string, unknown>; prompt?: { system?: string; user?: string }; learnings_applied?: Array<{ id: number; step: string; text: string }> };
@@ -351,14 +353,17 @@ export function InspectionPhoto(props: Props) {
     }
   }
 
+  const okRegions = (props.regions ?? []).filter(r => r.issue === 'ok' || !r.issue).filter(r => !findings.some(f => f.region === r.region && f.issue !== 'ok'));
+  // One index space: findings first (amber, numbered), then ok regions (green).
+  const allRegions: Finding[] = [...findings, ...okRegions];
   const highlight = pinned ?? active;
   useEffect(() => {
-    if (pinned !== null && findings[pinned]?.box) {
-      zoomToBox(findings[pinned]!.box!);
+    if (pinned !== null && allRegions[pinned]?.box) {
+      zoomToBox(allRegions[pinned]!.box!);
     } else if (pinned === null) {
       resetView();
     }
-  }, [pinned, findings, zoomToBox, resetView]);
+  }, [pinned, findings, props.regions, zoomToBox, resetView]);
   const analyzed = !!props.checks?.reference;
   const verdictTone = props.verdict === 'pass' ? 'text-emerald-600 border-emerald-600/40' : 'text-amber-600 border-amber-600/40';
   const refs = liveRefs.length ? liveRefs : (props.referenceUrls ?? []);
@@ -449,28 +454,37 @@ export function InspectionPhoto(props: Props) {
             >
               <img src={props.imageUrl} alt={props.title} className="block w-full select-none" draggable={false} />
               <svg className="pointer-events-none absolute inset-0 size-full" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden>
-                {findings.map((f, i) => {
+                {allRegions.map((f, i) => {
                   if (!f.box || f.box.length !== 4) {
                     return null;
                   }
+                  const ok = i >= findings.length;
                   const [x, y, w, h] = f.box.map(v => Math.max(0, Math.min(1, v))) as [number, number, number, number];
                   const on = highlight === i;
                   const dim = highlight !== null && !on;
+                  const c = ok ? '16,185,129' : '245,158,11';
+                  // Strokes and labels are divided by the CSS zoom so they stay
+                  // hairline at any magnification; fills drop out once zoomed in
+                  // so nothing under a box is hidden.
+                  const z = view.scale;
+                  const fill = z > 1.4 ? 'none' : on ? `rgba(${c},0.14)` : `rgba(${c},${ok ? 0.02 : 0.05})`;
                   return (
-                    <g key={`${f.region}-${i}`} opacity={dim ? 0.25 : 1}>
-                      <rect x={x * 1000} y={y * 1000} width={w * 1000} height={h * 1000} fill={on ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.06)'} stroke={on ? '#f59e0b' : 'rgba(245,158,11,0.85)'} strokeWidth={on ? 6 : 3} vectorEffect="non-scaling-stroke" />
-                      <text x={x * 1000 + 8} y={Math.max(y * 1000 - 10, 22)} fill="#f59e0b" fontSize="26" fontWeight="700" style={{ paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.7)', strokeWidth: 6 }}>{i + 1}</text>
+                    <g key={`${f.region}-${i}`} opacity={dim ? 0.2 : ok && highlight === null ? 0.7 : 1}>
+                      <rect x={x * 1000} y={y * 1000} width={w * 1000} height={h * 1000} fill={fill} stroke={`rgba(${c},${on ? 1 : 0.85})`} strokeWidth={(on ? 5 : ok ? 2 : 3) / z} strokeDasharray={ok && !on ? `${10 / z} ${6 / z}` : undefined} vectorEffect="non-scaling-stroke" />
+                      {(!ok || on) && (
+                        <text x={x * 1000 + 6 / z} y={Math.max(y * 1000 - 8 / z, 20 / z)} fill={`rgb(${c})`} fontSize={22 / z} fontWeight="700" style={{ paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.75)', strokeWidth: 5 / z }}>{ok ? '✓' : i + 1}</text>
+                      )}
                     </g>
                   );
                 })}
               </svg>
-              {findings.map((f, i) => {
+              {allRegions.map((f, i) => {
                 if (!f.box || f.box.length !== 4) {
                   return null;
                 }
                 const [x, y, w, h] = f.box as [number, number, number, number];
                 return (
-                  <button key={`hit-${f.region}-${i}`} type="button" aria-label={`Finding ${i + 1}: ${f.region ?? ''}`} onMouseEnter={() => setActive(i)} onFocus={() => setActive(i)} onClick={() => setPinned(p => (p === i ? null : i))} className="absolute cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-500" style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
+                  <button key={`hit-${f.region}-${i}`} type="button" aria-label={`${i < findings.length ? 'Finding' : 'Region'} ${i + 1}: ${f.region ?? ''}`} onMouseEnter={() => setActive(i)} onFocus={() => setActive(i)} onClick={() => setPinned(p => (p === i ? null : i))} className="absolute cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-amber-500" style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
                 );
               })}
             </div>
@@ -479,7 +493,6 @@ export function InspectionPhoto(props: Props) {
                 <div className="absolute inset-x-0 top-0 h-1 animate-pulse bg-amber-500" />
               </div>
             )}
-            { }
             <div role="toolbar" aria-label="Zoom" className="absolute right-2 bottom-2 flex items-center gap-1 rounded-md border border-border bg-background/90 p-1 shadow-sm backdrop-blur" onDoubleClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
               <button type="button" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.4)} disabled={view.scale <= MIN} className="rounded p-1 hover:bg-muted disabled:opacity-40"><Minus className="size-3.5" aria-hidden /></button>
               <span className="min-w-10 text-center font-mono text-[11px] tabular-nums">{`${view.scale.toFixed(1)}×`}</span>
@@ -500,7 +513,7 @@ export function InspectionPhoto(props: Props) {
             </div>
           </div>
           <p className="mt-1.5 text-[11px] text-muted-foreground">
-            {findings.some(f => f.box) ? 'Hover a finding to see where to look; click it to zoom there. Scroll or double-click the photo to zoom, drag to pan. Regions are the model\'s estimate.' : analyzed ? 'Scroll or double-click to zoom, drag to pan.' : 'Run Analyze to check this photo against verified-good references. Scroll or double-click to zoom.'}
+            {allRegions.some(f => f.box) ? 'Amber = finding, green = matched the references. Hover a region to see where to look; click it to zoom there. Scroll or double-click the photo to zoom, drag to pan. Regions are the model\'s estimate.' : analyzed ? 'Scroll or double-click to zoom, drag to pan.' : 'Run Analyze to check this photo against verified-good references. Scroll or double-click to zoom.'}
             {typeof props.regionsChecked === 'number' && ` ${props.regionsChecked} regions checked.`}
           </p>
           {refs.length > 0 && (
@@ -670,6 +683,36 @@ export function InspectionPhoto(props: Props) {
             </ul>
           )}
           {analyzed && findings.length === 0 && <p className="text-sm text-muted-foreground">No findings — every region matched the references.</p>}
+
+          {okRegions.length > 0 && (
+            <details className="rounded-md border border-border" open={findings.length === 0}>
+              <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-emerald-700">
+                {`${okRegions.length} region${okRegions.length === 1 ? '' : 's'} matched the references`}
+                <span className="ml-2 font-normal text-muted-foreground">hover or click to see each on the photo</span>
+              </summary>
+              <ul className="divide-y divide-border border-t border-border">
+                {okRegions.map((r, j) => {
+                  const i = findings.length + j;
+                  const on = highlight === i;
+                  return (
+                    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events -- mouse convenience; the photo's hit areas are buttons
+                    <li
+                      key={`${r.region}-ok-${j}`}
+                      onMouseEnter={() => setActive(i)}
+                      onMouseLeave={() => setActive(null)}
+                      onClick={() => setPinned(p => (p === i ? null : i))}
+                      className={`flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-1.5 text-[13px] transition ${r.box ? 'cursor-zoom-in' : ''} ${pinned === i ? 'bg-emerald-500/15' : on ? 'bg-emerald-500/10' : ''}`}
+                    >
+                      <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white">✓</span>
+                      <span className="font-medium">{r.region}</span>
+                      {r.observed && <span className="text-muted-foreground">{r.observed}</span>}
+                      {pct(r.confidence) && <span className="ml-auto font-mono text-[11px] text-muted-foreground">{pct(r.confidence)}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+          )}
           {error && <p className="text-xs text-red-600">{error}</p>}
           {findings.some(f => f.feedback) && (
             <p className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
