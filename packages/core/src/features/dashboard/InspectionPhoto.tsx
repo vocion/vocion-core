@@ -1,7 +1,8 @@
 'use client';
 
-import { Check, MessageSquareWarning, ThumbsDown, ThumbsUp } from 'lucide-react';
-import { useState } from 'react';
+import { Check, Loader2, MessageSquareWarning, ScanSearch, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 
 /**
@@ -40,7 +41,24 @@ type Props = {
   explanation?: string | null;
   findings: Finding[];
   regionsChecked?: number | null;
+  /** `metadata.checks` — which engines ran and when. */
+  checks?: {
+    reference?: { model?: string; verdict?: string; confidence?: number; at?: string };
+    classifier?: { model_arn?: string; top?: { name: string; confidence: number } | null; at?: string };
+  } | null;
 };
+
+/**
+ * Human name for a vision model id.
+ * @param model
+ */
+function engineName(model?: string): string {
+  if (!model) {
+    return 'Claude Vision';
+  }
+  const m = model.match(/claude-([a-z]+)-(\d)-(\d)/);
+  return m ? `Claude Vision · ${m[1]!.charAt(0).toUpperCase()}${m[1]!.slice(1)} ${m[2]}.${m[3]}` : `Claude Vision · ${model}`;
+}
 
 const pct = (n: number | undefined | null) => (typeof n === 'number' ? `${Math.round(n * 100)}%` : null);
 
@@ -48,10 +66,42 @@ export function InspectionPhoto(props: Props) {
   const [active, setActive] = useState<number | null>(null);
   const [pinned, setPinned] = useState<number | null>(null);
   const [findings, setFindings] = useState<Finding[]>(props.findings);
+  useEffect(() => {
+    setFindings(props.findings);
+  }, [props.findings]);
   const [noteFor, setNoteFor] = useState<number | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!analyzing) {
+      return;
+    }
+    setElapsed(0);
+    const t = setInterval(() => setElapsed(e => e + 1), 1000);
+    return () => clearInterval(t);
+  }, [analyzing]);
+
+  async function analyze() {
+    setAnalyzing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/objects/${props.objectId}/analyze?classifier=1`, { method: 'POST' });
+      const body = (await res.json()) as { ok?: boolean; error?: { message?: string } };
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+      }
+      router.refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   const highlight = pinned ?? active;
 
@@ -86,6 +136,16 @@ export function InspectionPhoto(props: Props) {
     <div className="rounded-lg border border-border p-5">
       <div className="mb-3 flex flex-wrap items-center gap-2 text-sm font-semibold">
         Photo
+        <button
+          type="button"
+          onClick={analyze}
+          disabled={analyzing}
+          className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-2.5 py-1 text-xs font-medium text-background transition hover:bg-foreground/90 disabled:opacity-60"
+          title="Run the reference comparison (Claude vision) and the Rekognition second opinion on this photo"
+        >
+          {analyzing ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <ScanSearch className="size-3.5" aria-hidden />}
+          {analyzing ? `Analyzing… ${elapsed}s` : props.verdict && props.confidence != null ? 'Re-analyze photo' : 'Analyze photo'}
+        </button>
         {props.verdict && (
           <span className={`ml-auto inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs font-medium ${verdictTone}`}>
             {props.verdict === 'pass' ? 'Pass' : 'Hold'}
@@ -148,6 +208,22 @@ export function InspectionPhoto(props: Props) {
             />
           );
         })}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        <span>
+          <span className="font-medium text-foreground">Engine:</span>
+          {' '}
+          {props.checks?.reference
+            ? `${engineName(props.checks.reference.model)} — reference comparison against verified-good photos${props.checks.reference.at ? ` · ${new Date(props.checks.reference.at).toLocaleString()}` : ''}`
+            : 'not analyzed yet — this row is Havis\'s own label (shadow-mode baseline)'}
+        </span>
+        <span>
+          <span className="font-medium text-foreground">Second opinion:</span>
+          {' '}
+          {props.checks?.classifier?.top
+            ? `Amazon Rekognition Custom Labels — ${props.checks.classifier.top.name} ${Math.round(props.checks.classifier.top.confidence * 100)}%`
+            : 'Amazon Rekognition Custom Labels — not run (model training or stopped)'}
+        </span>
       </div>
       <p className="mt-1.5 text-[11px] text-muted-foreground">
         Hover or click a finding to see where to look. Numbers match the list. Regions are the model's estimate, not measured.
