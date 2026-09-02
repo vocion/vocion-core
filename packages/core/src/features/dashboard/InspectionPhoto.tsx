@@ -4,6 +4,7 @@ import { Check, Loader2, MessageSquareWarning, ScanSearch, ThumbsDown, ThumbsUp 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { useVisionModel } from '@/features/dashboard/VisionEngineControl';
 
 /**
  * The photo-backed object view: the picture with the model's finding regions
@@ -100,6 +101,8 @@ export function InspectionPhoto(props: Props) {
   const [analyzing, setAnalyzing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const router = useRouter();
+  const { state: model } = useVisionModel(30_000);
+  const hybrid = model?.status === 'RUNNING';
 
   useEffect(() => {
     if (!analyzing) {
@@ -168,7 +171,7 @@ export function InspectionPhoto(props: Props) {
           title="Run the reference comparison (Claude vision) and the Rekognition second opinion on this photo"
         >
           {analyzing ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <ScanSearch className="size-3.5" aria-hidden />}
-          {analyzing ? `Analyzing… ${elapsed}s` : props.verdict && props.confidence != null ? 'Re-analyze photo' : 'Analyze photo'}
+          {analyzing ? `Analyzing… ${elapsed}s` : `${props.verdict && props.confidence != null ? 'Re-analyze' : 'Analyze'} · ${hybrid ? 'Claude Vision + Rekognition' : 'Claude Vision'}`}
         </button>
         {props.verdict && (
           <span className={`ml-auto inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs font-medium ${verdictTone}`}>
