@@ -246,6 +246,7 @@ export function kitVisionTools(ctx: RuntimeContext) {
           pathMeta,
           verdict: verdict.verdict,
           patch: {
+            source: 'model',
             verdict: verdict.verdict,
             confidence: verdict.confidence,
             findings: verdict.findings,
