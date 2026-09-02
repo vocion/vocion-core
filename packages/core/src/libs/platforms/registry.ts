@@ -172,7 +172,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     llmProvider: null,
     keyPattern: null,
     keyShapeHint: 'an access key id (starting AKIA or ASIA) plus its secret access key',
-    helpText: 'An IAM access key pair for this workspace. Scope it to only what you want Vocion to reach.',
+    helpText: 'An IAM access key pair, used for AWS services like Bedrock. Scope it to only what you want Vocion to reach.',
     fields: [
       {
         name: 'accessKeyId',

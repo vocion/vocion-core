@@ -176,7 +176,6 @@ describe('platform key routes', () => {
       name: 'Acme OpenAI',
       platform: 'openai',
       values: { apiKey: OPENAI_KEY },
-      expiresAt: null,
     });
 
     expect(saved.keyHint).toBe('…1234');
@@ -190,7 +189,6 @@ describe('platform key routes', () => {
       name: 'Acme OpenAI',
       platform: 'openai',
       values: { apiKey: OPENAI_KEY },
-      expiresAt: null,
     })).rejects.toThrow();
 
     expect(await db.select().from(apiTokenSchema)).toHaveLength(0);
@@ -203,7 +201,6 @@ describe('platform key routes', () => {
       name: 'Acme OpenAI',
       platform: 'openai',
       values: { apiKey: 'nonsense' },
-      expiresAt: null,
     })).rejects.toThrow(/does not look like a valid OpenAI key/);
   });
 
@@ -214,18 +211,33 @@ describe('platform key routes', () => {
       name: 'Mystery',
       platform: 'mystery-llm',
       values: { apiKey: 'anything' },
-      expiresAt: null,
     })).rejects.toThrow();
   });
 
-  it('applies the same expiry rules as a minted token', async () => {
+  it('stores a supplied key with no expiry — the platform owns its lifetime', async () => {
     signedInAs('admin');
-
-    await expect(call(createPlatformKeyRoute, {
+    await call(createPlatformKeyRoute, {
       name: 'Acme OpenAI',
       platform: 'openai',
       values: { apiKey: OPENAI_KEY },
-      expiresAt: new Date(Date.now() - 60_000).toISOString(),
-    })).rejects.toThrow(/future/);
+    });
+    const [row] = await db.select().from(apiTokenSchema);
+
+    expect(row!.expiresAt).toBeNull();
+  });
+
+  it('takes no expiry from the caller at all', async () => {
+    signedInAs('admin');
+    await call(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+      // Ignored even when sent: an expiry of ours could only ever stop us
+      // using a key the vendor still considers valid.
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    } as never);
+    const [row] = await db.select().from(apiTokenSchema);
+
+    expect(row!.expiresAt).toBeNull();
   });
 });
