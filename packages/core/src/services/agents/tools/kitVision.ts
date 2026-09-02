@@ -149,6 +149,8 @@ const VerdictSchema = z.object({
     observed: z.string().optional(),
     severity: z.enum(['blocking', 'minor', 'info']).default('minor'),
     confidence: z.number().min(0).max(1).optional(),
+    /** Where to look: [x, y, w, h] normalised 0–1 of the CANDIDATE image. */
+    box: z.array(z.number().min(0).max(1)).length(4).optional(),
   })).default([]),
   photo_quality: z.object({ readable: z.boolean(), notes: z.string().optional() }).optional(),
   explanation: z.string(),
@@ -161,9 +163,10 @@ You receive one CANDIDATE photo and one or two REFERENCE photos of the same kit 
 2. For each region, decide from the CANDIDATE whether the part is present, absent, the wrong part, mis-oriented (e.g. face-down, mirrored bracket), or off-count (count loose fasteners inside their box). Use the REFERENCES to know what "correct" looks like; ignore differences in station, lighting, hands, background clutter, packaging film wrinkles, or label placement.
 3. Verdict: "pass" only if every region matches; otherwise "hold". Confidence is your honest probability the verdict is right. Screw counts in a QTY box are hard at this resolution — if you cannot count reliably, report issue "unreadable" with low confidence rather than guessing.
 4. Never invent a part number that is not printed on the sheet. Quote the sheet's own labels.
+5. For every finding give "box": [x, y, w, h] — the region of the CANDIDATE image to look at, as fractions 0–1 of image width/height measured from the top-left (x,y = top-left corner of the box). Cover the printed outline and its label; err generous (a box a little too big is fine, a box on the wrong part is not).
 
-Respond with ONLY a JSON object: {"verdict":"pass|hold","confidence":0-1,"kit_id":"...","sheet_title":"...","regions_checked":n,"findings":[{"region":"<label as printed>","issue":"missing|wrong_part|extra|orientation|count|unreadable|ok","expected":"...","observed":"...","severity":"blocking|minor|info","confidence":0-1}],"photo_quality":{"readable":true,"notes":"..."},"explanation":"2-4 plain sentences a line lead can act on"}
-Include only regions with an issue other than "ok" in findings (keep "ok" out), but count every region in regions_checked.`;
+Respond with ONLY a JSON object: {"verdict":"pass|hold","confidence":0-1,"kit_id":"...","sheet_title":"...","regions_checked":n,"findings":[{"region":"<label as printed>","issue":"missing|wrong_part|extra|orientation|count|unreadable|ok","expected":"...","observed":"...","severity":"blocking|minor|info","confidence":0-1,"box":[x,y,w,h]}],"photo_quality":{"readable":true,"notes":"..."},"explanation":"2-4 plain sentences a line lead can act on"}
+Include only regions with an issue other than "ok" in findings (keep "ok" out), but count every region in regions_checked. "confidence" on the verdict is your probability the pass/hold call is right; "confidence" on a finding is your probability that specific finding is real.`;
 
 function toImageBlock(bytes: Uint8Array, contentType: string) {
   const mt = (contentType === 'image/png' || contentType === 'image/webp' || contentType === 'image/gif') ? contentType : 'image/jpeg';
