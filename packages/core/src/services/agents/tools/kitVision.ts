@@ -424,22 +424,41 @@ export function kitVisionTools(ctx: RuntimeContext) {
         });
         content.push({ type: 'text', text: `Template id: ${template}. Return the JSON verdict now.` });
 
-        const res = await client.messages.create({
+        // Every region gets a box now, so the verdict can run long: give it
+        // room, and if it still comes back truncated or malformed, ask once
+        // more for a compact answer before giving up.
+        const parseVerdict = (text: string) => {
+          const jsonText = text.replace(/^```(?:json)?\s*/m, '').replace(/```\s*$/m, '').trim();
+          const start = jsonText.indexOf('{');
+          const end = jsonText.lastIndexOf('}');
+          return VerdictSchema.parse(JSON.parse(jsonText.slice(start, end + 1)));
+        };
+        let res = await client.messages.create({
           model: VISION_MODEL,
-          max_tokens: 1500,
+          max_tokens: 6000,
           temperature: 0,
           system: systemPrompt,
           messages: [{ role: 'user', content }],
         });
-        const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
-        const jsonText = text.replace(/^```(?:json)?\s*/m, '').replace(/```\s*$/m, '').trim();
-        const start = jsonText.indexOf('{');
-        const end = jsonText.lastIndexOf('}');
+        let text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
         let verdict: z.infer<typeof VerdictSchema>;
         try {
-          verdict = VerdictSchema.parse(JSON.parse(jsonText.slice(start, end + 1)));
-        } catch (err) {
-          return JSON.stringify({ error: `Vision model returned an unparseable verdict: ${(err as Error).message}`, raw: text.slice(0, 800) });
+          verdict = parseVerdict(text);
+        } catch (firstErr) {
+          progress(ctx, 'vision_compare_reference', { phase: 'model', model: VISION_MODEL, images: 1 + refs.length, learnings: rules.length, retry: true, reason: res.stop_reason });
+          res = await client.messages.create({
+            model: VISION_MODEL,
+            max_tokens: 8000,
+            temperature: 0,
+            system: `${systemPrompt}\n\nYour previous answer was ${res.stop_reason === 'max_tokens' ? 'cut off' : 'not valid JSON'}. Answer again with ONLY the JSON object. Keep every "observed", "expected" and "notes" value under 12 words and the explanation under 60 words.`,
+            messages: [{ role: 'user', content }],
+          });
+          text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
+          try {
+            verdict = parseVerdict(text);
+          } catch (err) {
+            return JSON.stringify({ error: `Vision model returned an unparseable verdict twice (${(firstErr as Error).message}; then ${(err as Error).message})`, raw: text.slice(0, 800) });
+          }
         }
 
         progress(ctx, 'vision_compare_reference', { phase: 'parsed', verdict: verdict.verdict, confidence: verdict.confidence, findings: verdict.findings.length });
