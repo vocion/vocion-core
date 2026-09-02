@@ -55,6 +55,21 @@ function call<T = unknown>(route: unknown, input: unknown): Promise<T> {
   return procedure['~orpc'].handler({ input, context: {} });
 }
 
+/**
+ * Run a procedure's input schema over a payload, without calling the handler.
+ *
+ * `call` above goes straight to the handler, which is what makes it useful for
+ * testing what a route *does* — but it means it can say nothing about what the
+ * schema refuses. Anything asserting "this is rejected at the input boundary"
+ * has to come through here, or it is really testing the layer underneath.
+ * @param route - The exported procedure.
+ * @param input - The payload a client would have sent.
+ */
+function parseInput(route: unknown, input: unknown): unknown {
+  const procedure = route as { '~orpc': { inputSchema: { parse: (value: unknown) => unknown } } };
+  return procedure['~orpc'].inputSchema.parse(input);
+}
+
 beforeEach(async () => {
   vi.clearAllMocks();
   await db.delete(apiTokenSchema);
@@ -204,14 +219,12 @@ describe('platform key routes', () => {
     })).rejects.toThrow(/does not look like a valid OpenAI key/);
   });
 
-  it('rejects an unknown platform at the input boundary', async () => {
-    signedInAs('admin');
-
-    await expect(call(createPlatformKeyRoute, {
+  it('rejects an unknown platform at the input boundary', () => {
+    expect(() => parseInput(createPlatformKeyRoute, {
       name: 'Mystery',
       platform: 'mystery-llm',
       values: { apiKey: 'anything' },
-    })).rejects.toThrow();
+    })).toThrow(/Unknown platform/);
   });
 
   it('stores a supplied key with no expiry — the platform owns its lifetime', async () => {
@@ -224,6 +237,67 @@ describe('platform key routes', () => {
     const [row] = await db.select().from(apiTokenSchema);
 
     expect(row!.expiresAt).toBeNull();
+  });
+
+  it('refuses the vocion platform at the input boundary', () => {
+    // A Vocion token is minted by `create`, never supplied. Catching it in the
+    // schema means the request never reaches the service to be refused there.
+    expect(() => parseInput(createPlatformKeyRoute, {
+      name: 'Not this way',
+      platform: 'vocion',
+      values: { apiKey: 'vcn_live_abc_def' },
+    })).toThrow(/Vocion tokens are created, not supplied/);
+  });
+
+  it('accepts a supplied platform at the input boundary', () => {
+    // The negative cases above only mean something next to one that passes.
+    expect(() => parseInput(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+    })).not.toThrow();
+  });
+
+  it('replaces a failure that is ours with a message that says nothing', async () => {
+    // A database or vault failure carries whatever text that layer produced —
+    // a constraint detail, a connection string, a KMS error. None of it is for
+    // the person pasting a key, and an error message is one of the easiest
+    // places for internals to leak into a browser.
+    signedInAs('admin');
+    const insert = vi.spyOn(db, 'insert').mockImplementation(() => {
+      throw new Error('duplicate key value violates unique constraint "api_token_pkey" on host db-prod-1.internal');
+    });
+
+    try {
+      await expect(call(createPlatformKeyRoute, {
+        name: 'Acme OpenAI',
+        platform: 'openai',
+        values: { apiKey: OPENAI_KEY },
+      })).rejects.toThrow(/^Could not save the key\.$/);
+    } finally {
+      insert.mockRestore();
+    }
+  });
+
+  it('leaks no internal detail from a failure that is ours', async () => {
+    signedInAs('admin');
+    const insert = vi.spyOn(db, 'insert').mockImplementation(() => {
+      throw new Error('connect ECONNREFUSED 10.0.3.14:5432');
+    });
+
+    try {
+      await call(createPlatformKeyRoute, {
+        name: 'Acme OpenAI',
+        platform: 'openai',
+        values: { apiKey: OPENAI_KEY },
+      });
+      throw new Error('expected a rejection');
+    } catch (error) {
+      expect((error as Error).message).not.toContain('10.0.3.14');
+      expect((error as Error).message).not.toContain('ECONNREFUSED');
+    } finally {
+      insert.mockRestore();
+    }
   });
 
   it('takes no expiry from the caller at all', async () => {
