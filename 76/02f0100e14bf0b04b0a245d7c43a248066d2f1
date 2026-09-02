@@ -1,0 +1,29 @@
+packages/core/src/features/review/ReviewActionCard.stories.tsx
+  s_8c230ca8a3ac3c::t_48b88151d4617c 52
+packages/core/src/features/personalization/PersonalizationQueue.tsx
+  s_8c230ca8a3ac3c::t_10fbe463340baf 3-4,7,10,13-17,22-23,28,73,76,96-102,104-109,111-112,220
+packages/core/src/libs/actions/personalization-enroll.ts
+  s_8c230ca8a3ac3c::t_fbdb14f338182e 158-159
+packages/core/src/features/personalization/PersonalizationQueue.test.tsx
+  s_8c230ca8a3ac3c::t_b3950abe262a9e 7-10,14-17,39-40,46-47,110,113,115-116,119,122-125
+packages/core/src/app/[locale]/(auth)/gtm/personalization/page.tsx
+  s_8c230ca8a3ac3c::t_2b132540ce0d76 70
+  s_8c230ca8a3ac3c::t_63cab0b8e1d293 26-29
+  s_8c230ca8a3ac3c::t_faa8ba306d434a 96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7602f0100e14bf0b04b0a245d7c43a248066d2f1",
+  "prompts": {},
+  "sessions": {
+    "s_8c230ca8a3ac3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f401c65f-a13c-4893-840f-e4e9b5880b2f",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
