@@ -24,6 +24,7 @@ const {
   revokeToken,
   storePlatformKey,
   resolvePlatformKey,
+  revealPlatformCredential,
 } = await import('@/services/ApiTokenService');
 
 const ORG = 'org_platform_keys';
@@ -199,6 +200,83 @@ describe('the two credential shapes never cross', () => {
     const live = (await listTokens(ORG)).filter(row => row.revokedAt === null);
 
     expect(live).toHaveLength(2);
+  });
+});
+
+describe('revealPlatformCredential', () => {
+  it('returns the decrypted key for a live supplied credential', async () => {
+    const { id } = await storePlatformKey({ orgId: ORG, name: 'oai', platform: 'openai', apiKey: OPENAI_KEY });
+
+    expect(await revealPlatformCredential(ORG, id)).toEqual({
+      status: 'ok',
+      values: { apiKey: OPENAI_KEY },
+    });
+  });
+
+  it('returns every field of a multi-field credential', async () => {
+    const pair = {
+      accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+      secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    };
+    const { id } = await storePlatformKey({ orgId: ORG, name: 'Acme AWS', platform: 'aws', values: pair });
+
+    expect(await revealPlatformCredential(ORG, id)).toEqual({ status: 'ok', values: pair });
+  });
+
+  it('refuses a Vocion token, whose plaintext was never stored', async () => {
+    const { id } = await issueToken({ orgId: ORG, name: 'a vocion token' });
+
+    expect(await revealPlatformCredential(ORG, id)).toEqual({ status: 'minted' });
+  });
+
+  it('still opens a revoked key, which the vendor has not forgotten', async () => {
+    const { id } = await storePlatformKey({ orgId: ORG, name: 'oai', platform: 'openai', apiKey: OPENAI_KEY });
+    await revokeToken(ORG, id);
+
+    // Revoking stops Vocion using the key. Whoever has to go and delete it at
+    // OpenAI still needs to be able to read it.
+    expect(await revealPlatformCredential(ORG, id)).toEqual({
+      status: 'ok',
+      values: { apiKey: OPENAI_KEY },
+    });
+  });
+
+  it('still opens an expired key', async () => {
+    const { id } = await storePlatformKey({ orgId: ORG, name: 'oai', platform: 'openai', apiKey: OPENAI_KEY });
+    await db
+      .update(apiTokenSchema)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(apiTokenSchema.id, id));
+
+    expect(await revealPlatformCredential(ORG, id)).toEqual({
+      status: 'ok',
+      values: { apiKey: OPENAI_KEY },
+    });
+  });
+
+  it('still opens a key whose expiry is in the future', async () => {
+    const { id } = await storePlatformKey({
+      orgId: ORG,
+      name: 'oai',
+      platform: 'openai',
+      apiKey: OPENAI_KEY,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    expect(await revealPlatformCredential(ORG, id)).toEqual({
+      status: 'ok',
+      values: { apiKey: OPENAI_KEY },
+    });
+  });
+
+  it('reports an unknown id as not found', async () => {
+    expect(await revealPlatformCredential(ORG, 'no-such-credential')).toEqual({ status: 'not-found' });
+  });
+
+  it('will not open another org’s key, even with the right id', async () => {
+    const { id } = await storePlatformKey({ orgId: ORG, name: 'oai', platform: 'openai', apiKey: OPENAI_KEY });
+
+    expect(await revealPlatformCredential(OTHER_ORG, id)).toEqual({ status: 'not-found' });
   });
 });
 

@@ -6,7 +6,7 @@ import {
   adoptionUserDetailRoute,
   adoptionUsersRoute,
 } from './Analytics';
-import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revokeTokenRoute } from './ApiTokens';
+import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
 import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
@@ -146,6 +146,7 @@ export const router = {
     create: createTokenRoute,
     createPlatformKey: createPlatformKeyRoute,
     listPlatforms: listPlatformsRoute,
+    revealPlatformKey: revealPlatformKeyRoute,
     revoke: revokeTokenRoute,
   },
   members: {
