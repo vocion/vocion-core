@@ -29,8 +29,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { DescribeProjectVersionsCommand, DetectCustomLabelsCommand, RekognitionClient } from '@aws-sdk/client-rekognition';
 import { tool } from '@langchain/core/tools';
 import { and, eq, sql } from 'drizzle-orm';
+import sharp from 'sharp';
 import { z } from 'zod';
-import { appImageUrl, getObjectBytes, guessContentType, listKeys, parseS3Ref } from '@/libs/aws/s3';
+import { appImageUrl, getObjectBytes, guessContentType, listKeys, parseS3Ref, putObject } from '@/libs/aws/s3';
 import { db } from '@/libs/DB';
 import { metadataFromKey, parseS3Config } from '@/libs/sources/s3';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema } from '@/models/Schema';
@@ -207,7 +208,7 @@ const VerdictSchema = z.object({
     confidence: z.number().min(0).max(1).optional(),
     /** Where to look: [x, y, w, h] normalised 0–1 of the CANDIDATE image. */
     box: z.array(z.number().min(0).max(1)).length(4).optional(),
-  })).default([]),
+  }).passthrough()).default([]),
   photo_quality: z.object({ readable: z.boolean(), notes: z.string().optional() }).optional(),
   explanation: z.string(),
 });
@@ -243,6 +244,110 @@ export async function pickReferences(src: S3Source, template: string, excludeKey
     }
   }
   return [];
+}
+
+const ZOOM_SYSTEM = `You are counting parts in a close-up crop of a kit silhouette sheet. The crop shows ONE printed outline box and the loose parts (usually screws, washers or small hardware) laid in it. Count the individual parts you can see. Parts may touch or overlap; count heads, not shadows. Respond with ONLY JSON: {"count": <integer>, "confidence": 0-1, "notes": "<one sentence: what you counted and anything uncertain>"}.`;
+
+/**
+ * Parse a printed quantity out of a region label, e.g. "13405 (CM86508) QTY=4" → 4.
+ * @param region
+ * @param expected
+ */
+function expectedQty(region: string | undefined, expected: string | undefined): number | null {
+  const m = `${region ?? ''} ${expected ?? ''}`.match(/qty\s*(?:[=:]\s*)?(\d+)|\b(\d+)\s+(?:screws?|pieces?|parts?|washers?|nuts?|bolts?)/i);
+  const v = m?.[1] ?? m?.[2];
+  return v ? Number(v) : null;
+}
+
+type Findings = z.infer<typeof VerdictSchema>['findings'];
+
+/**
+ * Crop-before-count: for each finding the model could not count at full
+ * frame, cut the region out of the 4K photo (with padding), upscale it and
+ * ask Claude Vision to count just that box. Returns updated findings plus
+ * the crops written to S3 (derived/…) for the UI to show.
+ * @param opts
+ * @param opts.ctx
+ * @param opts.client
+ * @param opts.bucket
+ * @param opts.region
+ * @param opts.key
+ * @param opts.bytes
+ * @param opts.findings
+ */
+async function zoomAndCount(opts: {
+  ctx: RuntimeContext;
+  client: Anthropic;
+  bucket: string;
+  region?: string;
+  key: string;
+  bytes: Uint8Array;
+  findings: Findings;
+}): Promise<{ findings: Findings; zoomed: number; corrected: number }> {
+  const targets = opts.findings
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => f.box && f.box.length === 4 && (f.issue === 'unreadable' || f.issue === 'count'));
+  if (!targets.length) {
+    return { findings: opts.findings, zoomed: 0, corrected: 0 };
+  }
+  const meta = await sharp(Buffer.from(opts.bytes)).metadata();
+  const W = meta.width ?? 3840;
+  const H = meta.height ?? 2160;
+  progress(opts.ctx, 'vision_compare_reference', { phase: 'zoom', count: targets.length, regions: targets.map(t => t.f.region) });
+  const out = [...opts.findings];
+  let corrected = 0;
+  for (const { f, i } of targets) {
+    const [bx, by, bw, bh] = f.box as [number, number, number, number];
+    const pad = 0.25;
+    const left = Math.max(0, Math.round((bx - bw * pad) * W));
+    const top = Math.max(0, Math.round((by - bh * pad) * H));
+    const width = Math.min(W - left, Math.round(bw * (1 + 2 * pad) * W));
+    const height = Math.min(H - top, Math.round(bh * (1 + 2 * pad) * H));
+    if (width < 16 || height < 16) {
+      continue;
+    }
+    const scale = Math.max(1, Math.min(4, 1200 / Math.max(width, height)));
+    // Crop → upscale (Lanczos) → light sharpen: the same thing a person does by zooming in.
+    const crop = await sharp(Buffer.from(opts.bytes)).extract({ left, top, width, height }).resize({ width: Math.round(width * scale), kernel: 'lanczos3' }).sharpen({ sigma: 1.0 }).jpeg({ quality: 92 }).toBuffer();
+    const cropKey = `derived/${opts.key.replace(/\.[^.]+$/, '')}/crop-${i + 1}.jpg`;
+    try {
+      await putObject({ bucket: opts.bucket, key: cropKey, body: crop, contentType: 'image/jpeg', region: opts.region, metadata: { source_key: opts.key, region: (f.region ?? '').slice(0, 200) } });
+    } catch { /* crop storage is best-effort */ }
+    const expected = expectedQty(f.region, f.expected);
+    const res = await opts.client.messages.create({
+      model: VISION_MODEL,
+      max_tokens: 200,
+      temperature: 0,
+      system: ZOOM_SYSTEM,
+      messages: [{ role: 'user', content: [
+        { type: 'text', text: `Region label as printed: ${f.region ?? 'unknown'}. Expected quantity: ${expected ?? 'unknown'}. Count the parts in this crop.` },
+        toImageBlock(crop, 'image/jpeg'),
+      ] }],
+    });
+    const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
+    let parsed: { count?: number; confidence?: number; notes?: string } = {};
+    try {
+      parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)) as typeof parsed;
+    } catch { /* leave finding as-is */ }
+    if (typeof parsed.count !== 'number') {
+      continue;
+    }
+    const matches = expected !== null && parsed.count === expected;
+    out[i] = {
+      ...f,
+      issue: expected === null ? 'count' : matches ? 'ok' : 'count',
+      observed: `${parsed.count} counted in a ${scale.toFixed(1)}× crop${expected !== null ? ` (expected ${expected})` : ''}${parsed.notes ? ` — ${parsed.notes}` : ''}`,
+      severity: matches ? 'info' : 'blocking',
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : f.confidence,
+      crop_key: cropKey,
+      crop_url: appImageUrl(opts.bucket, cropKey),
+      zoom: { count: parsed.count, expected, scale: Number(scale.toFixed(2)), matches },
+    };
+    if (matches) {
+      corrected += 1;
+    }
+  }
+  return { findings: out, zoomed: targets.length, corrected };
 }
 
 /**
@@ -330,6 +435,24 @@ export function kitVisionTools(ctx: RuntimeContext) {
         }
 
         progress(ctx, 'vision_compare_reference', { phase: 'parsed', verdict: verdict.verdict, confidence: verdict.confidence, findings: verdict.findings.length });
+
+        // Crop-before-count: zoom into the fastener boxes the full-frame pass
+        // could not count, count them, and let the result change the verdict.
+        const zoom = await zoomAndCount({ ctx, client, bucket, region, key, bytes: cand!.bytes, findings: verdict.findings });
+        if (zoom.zoomed > 0) {
+          const remaining = zoom.findings.filter(f => f.issue !== 'ok');
+          const blocking = remaining.some(f => f.severity === 'blocking' || f.issue === 'missing' || f.issue === 'wrong_part' || f.issue === 'count' || f.issue === 'orientation');
+          const newVerdict: 'pass' | 'hold' = blocking ? 'hold' : remaining.length ? verdict.verdict : 'pass';
+          const bumped = zoom.corrected === zoom.zoomed && newVerdict === 'pass' ? Math.min(0.95, Math.max(verdict.confidence, 0.85)) : verdict.confidence;
+          verdict = {
+            ...verdict,
+            findings: zoom.findings,
+            verdict: newVerdict,
+            confidence: bumped,
+            explanation: `${verdict.explanation} Zoomed into ${zoom.zoomed} fastener box${zoom.zoomed === 1 ? '' : 'es'} to count: ${zoom.corrected} matched the printed quantity${zoom.zoomed - zoom.corrected ? `, ${zoom.zoomed - zoom.corrected} did not` : ''}.`,
+          };
+          progress(ctx, 'vision_compare_reference', { phase: 'zoomed', zoomed: zoom.zoomed, corrected: zoom.corrected, verdict: verdict.verdict, confidence: verdict.confidence });
+        }
         const pathMeta = src ? metadataFromKey(src.cfg, key) : {};
         const record = await upsertInspection(ctx, {
           imageKey: key,
