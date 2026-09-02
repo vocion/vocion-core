@@ -4,11 +4,9 @@ import type { LeadDossier } from './LeadContext';
 import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import { ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import { StatusPill } from '@/components/ui/status-pill';
 import { ReviewActionCard } from '@/features/review/ReviewActionCard';
 import { Link } from '@/libs/I18nNavigation';
-import { client } from '@/libs/Orpc';
 import { confidenceLevel } from './confidence';
 import { entranceLabel, LANE_PILL, LeadContext, shortDate } from './LeadContext';
 
@@ -18,8 +16,10 @@ import { entranceLabel, LANE_PILL, LeadContext, shortDate } from './LeadContext'
  * confidence, timeline) are constant; only the top of the main column
  * changes. A lead with a pending personalization.enroll run leads with the
  * SAME decidable card the review queue shows, deciding the SAME run through
- * the shared decide path. A lead with no decision waiting leads with the
- * outreach record: what was drafted, what was decided, by whom.
+ * the shared decide path (the server resolves the run by the row's back-link,
+ * under the same pending predicate the queue's feed applies). A lead with no
+ * decision waiting leads with the outreach record: what was drafted, what was
+ * decided, by whom.
  */
 
 /** The full lead row, dates already ISO across the server/client boundary. */
@@ -41,6 +41,16 @@ export type LeadRow = LeadDossier & {
   briefedAt: string | null;
   decidedAt: string | null;
   decidedBy: string | null;
+};
+
+/** What the server resolved the lead's back-linked run into. */
+export type LeadRunState = {
+  /** The pending run, card built — present exactly when a decision is waiting. */
+  run: ReviewCardRun | null;
+  /** Set when the run is pending but snoozed away — the date it returns. */
+  snoozedUntil: string | null;
+  /** True when the approved run failed in execution, so the lane never flipped. */
+  runFailed: boolean;
 };
 
 /** Fixed locale + UTC so the server render and the client render agree. */
@@ -74,13 +84,11 @@ function referenceArticles(claims: LeadDossier['claims']): Array<{ href: string;
 }
 
 /**
- * What happened to this lead, as one line above the read-only sends. The
- * snoozed case is derived: a pending back-link whose run the feed hides is
- * exactly a snooze (the same predicate hides it on the review queue).
+ * What happened to this lead, as one line above the read-only sends.
  * @param lead
- * @param snoozed
+ * @param state
  */
-function decisionLine(lead: LeadRow, snoozed: boolean): string | null {
+function decisionLine(lead: LeadRow, state: LeadRunState): string | null {
   const by = lead.decidedBy ? ` by ${lead.decidedBy}` : '';
   const on = lead.decidedAt ? ` · ${fullDate(lead.decidedAt)}` : '';
   if (lead.status === 'handed_off') {
@@ -93,8 +101,11 @@ function decisionLine(lead: LeadRow, snoozed: boolean): string | null {
   if (lead.status === 'sent') {
     return `Sent${by ? ` · enrolled${by}` : ''}${on}`;
   }
-  if (snoozed) {
-    return 'Snoozed · the card returns here and on the review queue on its date';
+  if (state.snoozedUntil) {
+    return `Snoozed · the card returns ${fullDate(state.snoozedUntil)}`;
+  }
+  if (state.runFailed) {
+    return 'The approved enrollment failed to execute · the error is in the review history';
   }
   return null;
 }
@@ -130,33 +141,26 @@ const Timeline = ({ lead }: { lead: LeadRow }) => {
 };
 
 /**
- * The presentational page: everything but the pending-run fetch, so stories
- * and tests can put the page in either state directly.
+ * The presentational page, so stories and tests can put it in either state
+ * directly.
  * @param props
  * @param props.lead
- * @param props.contactHref
- * @param props.run
- * @param props.pendingResolved
+ * @param props.contactHref - HubSpot deep link, when the portal id resolves.
+ * @param props.runState
  * @param props.onDecided
  */
 export const LeadView = (props: {
   lead: LeadRow;
-  /** HubSpot deep link, when the portal id resolves. */
   contactHref: string | null;
-  /** The lead's pending enroll run — absent when decided or snoozed away. */
-  run: ReviewCardRun | undefined;
-  /** True once the pending feed has answered, so "snoozed" is never a loading flash. */
-  pendingResolved: boolean;
+  runState: LeadRunState;
   onDecided: () => void;
 }) => {
-  const { lead, run } = props;
+  const { lead, runState } = props;
+  const run = runState.run;
   const level = confidenceLevel(lead.confidence);
   const pill = LANE_PILL[lead.status] ?? { status: 'pending' as const, label: lead.status };
   const articles = referenceArticles(lead.claims);
-  // The back-link may point at a decided or snoozed run; only an id the feed
-  // COULD still answer for makes the zone wait.
-  const awaitingFeed = !props.pendingResolved && lead.reviewActionRunId != null && lead.status === 'ready_for_review';
-  const line = decisionLine(lead, props.pendingResolved && lead.reviewActionRunId != null && lead.status === 'ready_for_review');
+  const line = decisionLine(lead, runState);
 
   const chips = [
     lead.entranceSource ? entranceLabel(lead.entranceSource) : null,
@@ -221,34 +225,32 @@ export const LeadView = (props: {
               <ReviewActionCard run={run} onDecided={props.onDecided} />
             </div>
           )
-        : awaitingFeed
-          ? null
-          : (lead.draftSequence.length > 0 || line || lead.draftError) && (
-              <div className="max-w-3xl rounded-md border border-border bg-muted/30 p-3">
-                <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Outreach
-                  {lead.recommendedSequence ? ` · ${lead.recommendedSequence.name}` : lead.draftSequence.length > 0 ? ' · drafted' : ''}
-                </div>
-                {line && <p className="text-sm font-medium">{line}</p>}
-                {lead.draftSequence.map(send => (
-                  <div key={send.step} className="border-t border-border/60 py-2 text-sm first:border-t-0">
-                    <div className="font-semibold">
-                      {send.day !== undefined ? `Day ${send.day}` : `Send ${send.step}`}
-                      {' · '}
-                      {send.subject}
-                    </div>
-                    <p className="mt-1 whitespace-pre-line text-muted-foreground">{send.body}</p>
-                  </div>
-                ))}
-                {lead.draftSequence.length === 0 && lead.draftError && (
-                  <p className="text-[13px] text-muted-foreground">
-                    Drafting has not produced sends yet:
-                    {' '}
-                    {lead.draftError}
-                  </p>
-                )}
+        : (lead.draftSequence.length > 0 || line || lead.draftError) && (
+            <div className="max-w-3xl rounded-md border border-border bg-muted/30 p-3">
+              <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                Outreach
+                {lead.recommendedSequence ? ` · ${lead.recommendedSequence.name}` : lead.draftSequence.length > 0 ? ' · drafted' : ''}
               </div>
-            )}
+              {line && <p className="text-sm font-medium">{line}</p>}
+              {lead.draftSequence.map(send => (
+                <div key={send.step} className="border-t border-border/60 py-2 text-sm first:border-t-0">
+                  <div className="font-semibold">
+                    {send.day !== undefined ? `Day ${send.day}` : `Send ${send.step}`}
+                    {' · '}
+                    {send.subject}
+                  </div>
+                  <p className="mt-1 whitespace-pre-line text-muted-foreground">{send.body}</p>
+                </div>
+              ))}
+              {lead.draftSequence.length === 0 && lead.draftError && (
+                <p className="text-[13px] text-muted-foreground">
+                  Drafting has not produced sends yet:
+                  {' '}
+                  {lead.draftError}
+                </p>
+              )}
+            </div>
+          )}
 
       <LeadContext
         row={lead}
@@ -282,51 +284,25 @@ export const LeadView = (props: {
 };
 
 /**
- * The live page: reads the SAME pending feed the review queue reads.
+ * The live page: the server resolved the run; deciding refreshes the route so
+ * the lane flip renders.
  * @param props
  * @param props.lead
- * @param props.contactHref
+ * @param props.contactHref - HubSpot deep link, when the portal id resolves.
+ * @param props.runState
  */
-export const LeadDetail = (props: { lead: LeadRow; contactHref: string | null }) => {
+export const LeadDetail = (props: {
+  lead: LeadRow;
+  contactHref: string | null;
+  runState: LeadRunState;
+}) => {
   const router = useRouter();
-  const [run, setRun] = useState<ReviewCardRun | undefined>(undefined);
-  const [resolved, setResolved] = useState(props.lead.reviewActionRunId == null);
-
-  useEffect(() => {
-    const runId = props.lead.reviewActionRunId;
-    // No back-link → nothing to fetch; `resolved` started true in that case,
-    // and a run id that goes null keeps the zone unblocked via `awaitingFeed`.
-    if (runId == null) {
-      return;
-    }
-    let cancelled = false;
-    void client.review.listPendingActions()
-      .then((pending) => {
-        if (cancelled) {
-          return;
-        }
-        const match = (pending as unknown as ReviewCardRun[])
-          .find(r => r.id === runId && r.actionId === 'personalization.enroll' && r.card);
-        setRun(match);
-        setResolved(true);
-      })
-      .catch(() => setResolved(true));
-    return () => {
-      cancelled = true;
-    };
-  }, [props.lead.reviewActionRunId]);
-
   return (
     <LeadView
       lead={props.lead}
       contactHref={props.contactHref}
-      run={run}
-      pendingResolved={resolved}
-      onDecided={() => {
-        // The lane flip happened server-side; re-render the page.
-        setRun(undefined);
-        router.refresh();
-      }}
+      runState={props.runState}
+      onDecided={() => router.refresh()}
     />
   );
 };

@@ -1,12 +1,14 @@
-import type { LeadRow } from '@/features/personalization/LeadDetail';
+import type { LeadRow, LeadRunState } from '@/features/personalization/LeadDetail';
+import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import { and, eq } from 'drizzle-orm';
 import { UserSearch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LeadDetail } from '@/features/personalization/LeadDetail';
+import { getAction } from '@/libs/actions/registry';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
-import { knowledgeSourceSchema, leadBriefSchema } from '@/models/Schema';
+import { actionRunSchema, knowledgeSourceSchema, leadBriefSchema, reviewAssignmentSchema } from '@/models/Schema';
 
 /**
  * The lead page — one URL per lead, `/gtm/lead/{hubspot_id}`. The review
@@ -66,6 +68,55 @@ export default async function LeadPage(props: {
     );
   }
 
+  // The back-linked run, resolved under the SAME predicate the review queue's
+  // pending feed applies: pending and not snoozed shows the card (deciding it
+  // here decides it everywhere); pending but snoozed shows when it returns; a
+  // failed execution is named rather than read as still waiting.
+  const runState: LeadRunState = { run: null, snoozedUntil: null, runFailed: false };
+  if (row.reviewActionRunId != null) {
+    const now = new Date();
+    const [found] = await db
+      .select({ run: actionRunSchema, snoozedUntil: reviewAssignmentSchema.snoozedUntil })
+      .from(actionRunSchema)
+      .leftJoin(reviewAssignmentSchema, and(
+        eq(reviewAssignmentSchema.orgId, orgId),
+        eq(reviewAssignmentSchema.kind, 'action'),
+        eq(reviewAssignmentSchema.runId, actionRunSchema.id),
+      ))
+      .where(and(
+        eq(actionRunSchema.orgId, orgId),
+        eq(actionRunSchema.id, row.reviewActionRunId),
+      ))
+      .limit(1);
+    if (found?.run.status === 'pending') {
+      const snoozed = found.snoozedUntil != null && found.snoozedUntil > now;
+      const expired = found.run.expiresAt != null && found.run.expiresAt <= now;
+      if (snoozed) {
+        runState.snoozedUntil = found.snoozedUntil!.toISOString();
+      } else if (!expired) {
+        // Best-effort, like the feed: a presenter error means no card, never
+        // a broken page.
+        const presenter = getAction(found.run.actionId)?.reviewCard;
+        const card = presenter
+          ? await presenter({ orgId }, found.run.input as never).catch(() => undefined)
+          : undefined;
+        if (card) {
+          runState.run = {
+            id: found.run.id,
+            actionId: found.run.actionId,
+            status: found.run.status,
+            input: found.run.input as Record<string, unknown>,
+            invokedBy: found.run.invokedBy,
+            proposal: found.run.proposal,
+            card,
+          } satisfies ReviewCardRun;
+        }
+      }
+    } else if (found?.run.status === 'failed') {
+      runState.runFailed = true;
+    }
+  }
+
   // Dates cross the server/client boundary as ISO strings.
   const lead: LeadRow = {
     id: row.id,
@@ -96,5 +147,5 @@ export default async function LeadPage(props: {
     decidedBy: row.decidedBy,
   };
 
-  return <LeadDetail lead={lead} contactHref={contactHref} />;
+  return <LeadDetail lead={lead} contactHref={contactHref} runState={runState} />;
 }

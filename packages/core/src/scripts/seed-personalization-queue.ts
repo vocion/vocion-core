@@ -44,9 +44,9 @@ const LEADS: Seed[] = [
     status: 'ready_for_review',
     confidence: 0.88,
     claims: [
-      { text: 'Runs a 14-person MSP serving mid-market legal and healthcare clients.', kind: 'company', source: 'redpointit.com/about', date: '2026-08-24' },
+      { text: 'Runs a 14-person MSP serving mid-market legal and healthcare clients.', kind: 'company', source: 'https://redpointit.com/about', date: '2026-08-24' },
       { text: 'Downloaded the MSP triage ebook, then opened both follow-ups within a day.', kind: 'engagement', source: 'hubspot:contacts/88201', date: '2026-08-25' },
-      { text: 'Posted twice this month about ticket volume outpacing headcount.', kind: 'signal', source: 'linkedin.com/in/jamiesmith-msp', date: '2026-08-19' },
+      { text: 'Posted twice this month about ticket volume outpacing headcount.', kind: 'signal', source: 'https://www.linkedin.com/in/jamiesmith-msp', date: '2026-08-19' },
     ],
     missing: [],
     draftSequence: [
@@ -70,7 +70,7 @@ const LEADS: Seed[] = [
     status: 'ready_for_review',
     confidence: 0.86,
     claims: [
-      { text: 'Co-founded GLR, a commercial construction firm with roughly 60 field staff.', kind: 'company', source: 'glrinc.com', date: '2026-08-22' },
+      { text: 'Co-founded GLR, a commercial construction firm with roughly 60 field staff.', kind: 'company', source: 'https://glrinc.com', date: '2026-08-22' },
       { text: 'Entered through the AI-in-construction ebook and opened both sends.', kind: 'engagement', source: 'hubspot:contacts/88202', date: '2026-08-25' },
     ],
     missing: ['No recent public statements on technology plans.'],
@@ -92,7 +92,7 @@ const LEADS: Seed[] = [
     status: 'ready_for_review',
     confidence: 0.82,
     claims: [
-      { text: 'COO at Civic Grid, a municipal infrastructure contractor.', kind: 'company', source: 'civicgrid.com/leadership', date: '2026-08-20' },
+      { text: 'COO at Civic Grid, a municipal infrastructure contractor.', kind: 'company', source: 'https://civicgrid.com/leadership', date: '2026-08-20' },
       { text: 'Opened the first send, not the second.', kind: 'engagement', source: 'hubspot:contacts/88203', date: '2026-08-24' },
     ],
     missing: ['Company size not published.'],
@@ -158,7 +158,13 @@ const LEADS: Seed[] = [
       { text: 'Attended the agent workforce webinar and asked two questions about rollout.', kind: 'engagement', source: 'hubspot:contacts/88206', date: '2026-08-21' },
     ],
     missing: [],
-    draftSequence: [],
+    // The decided case the lead page shows read-only: the approved sends and
+    // the sequence they rode to.
+    draftSequence: [
+      { step: 1, day: 0, subject: 'Your rollout questions', body: 'Priya, your two questions from the webinar were the right ones. The short answers, and one longer one worth a call.' },
+      { step: 2, day: 5, subject: 'The rollout doc', body: 'The rollout sequencing doc we mentioned, if useful.' },
+    ],
+    recommendedSequence: { id: 'seq-demo-2', name: 'Agent Workforce Nurture', reason: 'Webinar attendees convert through this nurture.', verified: false },
     briefedAt: new Date(Date.now() - 50 * HOURS),
     decidedAt: new Date(Date.now() - 48 * HOURS),
     decidedBy: 'andrew@metacto.com',
@@ -195,7 +201,7 @@ const LEADS: Seed[] = [
     status: 'sent',
     confidence: 0.84,
     claims: [
-      { text: 'Chief of Staff at a 300-bed regional health system.', kind: 'company', source: 'orlinhealth.org/leadership', date: '2026-08-12' },
+      { text: 'Chief of Staff at a 300-bed regional health system.', kind: 'company', source: 'https://orlinhealth.org/leadership', date: '2026-08-12' },
     ],
     missing: [],
     draftSequence: [
@@ -204,6 +210,55 @@ const LEADS: Seed[] = [
     briefedAt: new Date(Date.now() - 96 * HOURS),
     decidedAt: new Date(Date.now() - 94 * HOURS),
     decidedBy: 'andrew@metacto.com',
+  },
+  {
+    // Briefing ran out of tries: the lead surfaces carrying the error, and
+    // its page renders it where the brief would be, with Regenerate at hand.
+    contactRef: 'contacts:88209',
+    contactName: 'Dee Nakamura',
+    contactTitle: 'Operations Lead',
+    companyName: 'Kestrel Freight',
+    triggerType: 'new',
+    entranceSource: 'ad',
+    utmCampaign: 'agent-workforce',
+    engagementSent: 1,
+    engagementOpened: 0,
+    status: 'ready_for_review',
+    confidence: null,
+    claims: [],
+    missing: [],
+    sections: [],
+    briefAttempts: 3,
+    briefError: 'web_search returned "search provider unconfigured" on every query.',
+    draftSequence: [],
+    briefedAt: new Date(Date.now() - 12 * HOURS),
+  },
+  {
+    // Drafting failed after the brief landed: the page's outreach zone
+    // carries the drafting error instead of sends.
+    contactRef: 'contacts:88210',
+    contactName: 'Malik Osei',
+    contactTitle: 'Head of RevOps',
+    companyName: 'Tidewater Analytics',
+    triggerType: 'new',
+    entranceSource: 'ebook',
+    utmCampaign: 'msp-triage',
+    engagementSent: 2,
+    engagementOpened: 1,
+    status: 'ready_for_review',
+    confidence: 0.74,
+    claims: [
+      { text: 'Heads revenue operations at a 40-person analytics consultancy.', kind: 'company', source: 'https://tidewateranalytics.com/team', date: '2026-08-28' },
+    ],
+    missing: ['No stated tooling stack.'],
+    sections: [
+      { heading: 'Prospect', body: 'Malik Osei, Head of RevOps at Tidewater Analytics.' },
+      { heading: 'Recommended Angle', body: 'Ask how lead routing is handled today.' },
+    ],
+    draftSequence: [],
+    draftAttempts: 3,
+    draftError: 'The sequence library returned no match for the recommended id.',
+    briefedAt: new Date(Date.now() - 10 * HOURS),
   },
 ];
 
