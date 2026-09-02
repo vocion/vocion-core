@@ -34,6 +34,14 @@ vi.mock('openai', async (importOriginal) => {
  */
 const recordedSteps: Array<{ name: string; endedWith?: { level?: string } }> = [];
 
+// The embedder now asks the credential vault whether this org supplied its own
+// OpenAI key. These tests are about the retry loop, not about credentials, so
+// the answer is always "no key of its own" — which sends it to the environment,
+// exactly as before.
+vi.mock('@/libs/llm/orgKey', () => ({
+  resolveOrgProviderKey: vi.fn(async () => null),
+}));
+
 vi.mock('@/libs/Langfuse', () => ({
   langfuse: { flushAsync: vi.fn(async () => {}) },
   traceFor: () => ({

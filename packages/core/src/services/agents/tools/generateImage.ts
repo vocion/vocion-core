@@ -17,7 +17,7 @@ export function generateImageTool(ctx: RuntimeContext) {
       const { prompt, size } = args;
       try {
         const provider = getImageProvider();
-        const { png } = await provider.generate(prompt, { size });
+        const { png } = await provider.generate(prompt, { size, orgId: ctx.orgId });
         const artifact = await saveArtifact({
           orgId: ctx.orgId,
           data: png,
