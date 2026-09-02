@@ -1,4 +1,5 @@
 public/artifacts/
+vitest-test-results/
 
 # session temp/secret leftovers
 .env.local.metacto.bak
