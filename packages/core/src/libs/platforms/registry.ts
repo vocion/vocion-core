@@ -164,15 +164,17 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     id: 'aws',
     label: 'AWS',
     keySource: 'supplied',
-    // Not an LLM provider in its own right — Bedrock is reached through the
-    // AWS SDK, not through the `LLMProviderName` adapters — so nothing in the
-    // model path picks this up implicitly. That is deliberate; see
-    // `resolveAwsCredentials` for why AWS does not get the automatic env
+    // Null for now, not forever: Bedrock is reached through the AWS SDK rather
+    // than the `LLMProviderName` adapters, so there is no provider to map to
+    // until a `bedrock` adapter exists. Storing the pair today is what lets
+    // that ticket be a routing change rather than a routing change plus a new
+    // credential surface. Until then nothing in the model path reads it. See
+    // `resolveAwsCredentials` for why AWS also skips the automatic env
     // fallback the model providers get.
     llmProvider: null,
     keyPattern: null,
     keyShapeHint: 'an access key id (starting AKIA or ASIA) plus its secret access key',
-    helpText: 'An IAM access key pair, used for AWS services like Bedrock. Scope it to only what you want Vocion to reach.',
+    helpText: 'An IAM access key pair for AWS services like Bedrock. Scope it to only what you want Vocion to reach. Stored now; model calls through Bedrock arrive in a later release.',
     fields: [
       {
         name: 'accessKeyId',
