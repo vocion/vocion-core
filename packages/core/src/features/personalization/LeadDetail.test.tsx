@@ -1,4 +1,5 @@
-import type { LeadRow } from './LeadDetail';
+import type { LeadRow, LeadRunState } from './LeadDetail';
+import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
@@ -16,38 +17,6 @@ vi.mock('@/libs/I18nNavigation', () => ({
   Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }));
 
-// The page reads the SAME pending-run feed the review queue reads, and shows
-// the card only for the run its lead back-links to. One pending enroll run.
-vi.mock('@/libs/Orpc', () => ({
-  client: {
-    review: {
-      listPendingActions: vi.fn(async () => [{
-        id: 501,
-        actionId: 'personalization.enroll',
-        status: 'pending',
-        input: {},
-        invokedBy: 'agent:revenue-lead',
-        proposal: { confidence: 0.84 },
-        card: {
-          title: 'New MQL ready to enroll',
-          system: 'Personalization',
-          subject: { name: 'Pete Laverick', role: 'CEO', company: 'Incline Gaming Marketing Inc' },
-          recommendation: { headline: 'Enroll in: LinkedIn Ebook Inbound Sequence · 2 sends' },
-          content: [
-            { kind: 'email', id: 'send-1', label: 'Day 0', subject: 'The ebook you pulled', body: 'Pete, following up on the ebook.' },
-            { kind: 'email', id: 'send-2', label: 'Day 4', subject: 'One level deeper', body: 'The section most teams skip.' },
-          ],
-          fields: [],
-          verbs: { approve: 'Enroll', reject: 'Decline' },
-        },
-      }]),
-      decideAction: vi.fn(async () => ({ ok: true })),
-      snoozeAction: vi.fn(async () => ({ ok: true })),
-      rewriteDraft: vi.fn(async () => ({ body: '' })),
-    },
-  },
-}));
-
 /**
  * The lead page is the lead's record: identity and provenance up top, the
  * decision (or what was decided) leading the main column, the brief and the
@@ -59,6 +28,30 @@ const SECTIONS = [
   { heading: 'Prospect', body: 'Pete Laverick, CEO at Incline Gaming Marketing Inc.' },
   { heading: 'Recommended Angle', body: 'Ask about the affiliate compliance workload.' },
 ];
+
+const NO_RUN: LeadRunState = { run: null, snoozedUntil: null, runFailed: false };
+
+/** The pending enroll run the review queue would show — the SAME run object. */
+const PENDING_RUN: ReviewCardRun = {
+  id: 501,
+  actionId: 'personalization.enroll',
+  status: 'pending',
+  input: {},
+  invokedBy: 'agent:revenue-lead',
+  proposal: { confidence: 0.84 },
+  card: {
+    title: 'New MQL ready to enroll',
+    system: 'Personalization',
+    subject: { name: 'Pete Laverick', role: 'CEO', company: 'Incline Gaming Marketing Inc' },
+    recommendation: { headline: 'Enroll in: LinkedIn Ebook Inbound Sequence · 2 sends' },
+    content: [
+      { kind: 'email', id: 'send-1', label: 'Day 0', subject: 'The ebook you pulled', body: 'Pete, following up on the ebook.' },
+      { kind: 'email', id: 'send-2', label: 'Day 4', subject: 'One level deeper', body: 'The section most teams skip.' },
+    ],
+    fields: [],
+    verbs: { approve: 'Enroll', reject: 'Decline' },
+  },
+};
 
 function lead(over: Partial<LeadRow> & Pick<LeadRow, 'id' | 'contactName'>): LeadRow {
   return {
@@ -97,7 +90,7 @@ const HUBSPOT = 'https://app.hubspot.com/contacts/12345/record/0-1/88201';
 
 describe('LeadDetail', () => {
   it('renders the full record: identity, chips, brief, reference articles, claims, missing, confidence, timeline', async () => {
-    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Pete Laverick' })} contactHref={HUBSPOT} />);
+    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Pete Laverick' })} contactHref={HUBSPOT} runState={NO_RUN} />);
 
     // Header: who, where they work, the CRM door, provenance chips, the lane.
     await expect.element(page.getByRole('heading', { name: 'Pete Laverick' })).toBeVisible();
@@ -128,7 +121,7 @@ describe('LeadDetail', () => {
   });
 
   it('lists each reference article once, however many claims cite it', async () => {
-    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Pete Laverick' })} contactHref={null} />);
+    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Pete Laverick' })} contactHref={null} runState={NO_RUN} />);
 
     expect(page.getByRole('link', { name: 'incline.bet/about ↗' }).elements()).toHaveLength(1);
   });
@@ -138,6 +131,7 @@ describe('LeadDetail', () => {
       <LeadDetail
         lead={lead({ id: 88201, contactName: 'Pete Laverick', reviewActionRunId: 501 })}
         contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: PENDING_RUN }}
       />,
     );
 
@@ -163,6 +157,7 @@ describe('LeadDetail', () => {
           decidedBy: 'jamie@metacto.com',
         })}
         contactHref={HUBSPOT}
+        runState={NO_RUN}
       />,
     );
 
@@ -182,6 +177,7 @@ describe('LeadDetail', () => {
           decidedBy: 'jamie@metacto.com',
         })}
         contactHref={null}
+        runState={NO_RUN}
       />,
     );
 
@@ -189,9 +185,7 @@ describe('LeadDetail', () => {
     expect(page.getByTestId('review-action-card').elements()).toHaveLength(0);
   });
 
-  it('reads a hidden pending run as snoozed, never as decided', async () => {
-    // Run 777 back-links this lead but the feed does not return it — which is
-    // exactly what a snooze looks like from this page.
+  it('shows a snoozed run as snoozed, with the date the card returns', async () => {
     await render(
       <LeadDetail
         lead={lead({
@@ -201,10 +195,29 @@ describe('LeadDetail', () => {
           draftSequence: [{ step: 1, subject: 'The ebook you pulled', body: 'Pete, following up.' }],
         })}
         contactHref={null}
+        runState={{ ...NO_RUN, snoozedUntil: '2026-09-08T09:00:00.000Z' }}
       />,
     );
 
-    await expect.element(page.getByText(/Snoozed · the card returns/)).toBeVisible();
+    await expect.element(page.getByText('Snoozed · the card returns Sep 8, 2026')).toBeVisible();
+    expect(page.getByTestId('review-action-card').elements()).toHaveLength(0);
+  });
+
+  it('names a failed enrollment rather than reading it as still waiting', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({
+          id: 88201,
+          contactName: 'Pete Laverick',
+          reviewActionRunId: 777,
+          draftSequence: [{ step: 1, subject: 'The ebook you pulled', body: 'Pete, following up.' }],
+        })}
+        contactHref={null}
+        runState={{ ...NO_RUN, runFailed: true }}
+      />,
+    );
+
+    await expect.element(page.getByText(/The approved enrollment failed to execute/)).toBeVisible();
     expect(page.getByTestId('review-action-card').elements()).toHaveLength(0);
   });
 
@@ -222,6 +235,7 @@ describe('LeadDetail', () => {
           briefError: 'web_search returned "search provider unconfigured" on every query.',
         })}
         contactHref={null}
+        runState={NO_RUN}
       />,
     );
 
@@ -239,6 +253,7 @@ describe('LeadDetail', () => {
           draftError: 'The sequence library returned no match for the recommended id.',
         })}
         contactHref={null}
+        runState={NO_RUN}
       />,
     );
 
