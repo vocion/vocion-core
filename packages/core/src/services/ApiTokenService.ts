@@ -338,6 +338,83 @@ export async function resolvePlatformCredential(
   return JSON.parse(plaintext.toString('utf8')) as CredentialValues;
 }
 
+/**
+ * The answer to a reveal request: the decrypted values, or the reason there is
+ * nothing to hand back.
+ *
+ * A union rather than `null` because the two refusals are not interchangeable
+ * to the person who clicked the button. "This credential is a Vocion token, so
+ * its plaintext no longer exists anywhere" and "no such row" call for different
+ * sentences on screen, and neither is an error the caller did something wrong
+ * to cause.
+ */
+export type RevealedCredential
+  = | { status: 'ok'; values: CredentialValues }
+  /** No row with that id belongs to this org. */
+    | { status: 'not-found' }
+  /** A `vocion` row. Only the SHA-256 was ever stored, so nothing can open it. */
+    | { status: 'minted' };
+
+/**
+ * Decrypt one supplied credential so an admin can read it back on screen.
+ *
+ * This is the only path in the service that hands a stored third-party key to
+ * a person, so it is deliberately narrow: a single row, named by id, scoped to
+ * the caller's org.
+ *
+ * A revoked or expired row still opens. Revoking stops Vocion using a key; it
+ * does not erase the key, which still exists at the vendor and is still the
+ * thing an admin has to go and rotate there. Refusing to show it would hide a
+ * secret the org already owns from the only people who can retire it.
+ *
+ * A `vocion` row can never be revealed here, and not because of a rule we
+ * chose: those rows hold a SHA-256 of the secret and no ciphertext at all, so
+ * there is genuinely nothing to decrypt.
+ *
+ * Decryption failure throws, matching {@link resolvePlatformCredential} — a
+ * ciphertext that will not open means the DEK and the data have diverged, and
+ * that is worth surfacing rather than reporting as "no key here".
+ * @param orgId - The org the caller is acting in. Rows outside it are invisible.
+ * @param tokenId - The credential row to open.
+ */
+export async function revealPlatformCredential(
+  orgId: string,
+  tokenId: string,
+): Promise<RevealedCredential> {
+  const [row] = await db
+    .select({
+      platform: apiTokenSchema.platform,
+      dekId: apiTokenSchema.dekId,
+      ciphertext: apiTokenSchema.ciphertext,
+      nonce: apiTokenSchema.nonce,
+      authTag: apiTokenSchema.authTag,
+    })
+    .from(apiTokenSchema)
+    .where(and(eq(apiTokenSchema.orgId, orgId), eq(apiTokenSchema.id, tokenId)))
+    .limit(1);
+
+  if (!row) {
+    return { status: 'not-found' };
+  }
+  if (row.platform === DEFAULT_PLATFORM_ID) {
+    return { status: 'minted' };
+  }
+  if (!row.ciphertext || !row.nonce || !row.authTag || row.dekId === null) {
+    // The `api_token_shape_ck` constraint is supposed to make this impossible,
+    // so reaching it means a row was written around the schema. Log it and
+    // answer the caller the same way a missing row would.
+    console.error('[ApiTokenService.revealPlatformCredential] supplied row has no ciphertext', {
+      tokenId,
+      platform: row.platform,
+    });
+    return { status: 'not-found' };
+  }
+
+  const vault = buildCredentialVault();
+  const plaintext = await vault.decrypt(orgId, row.ciphertext, row.nonce, row.authTag, row.dekId);
+  return { status: 'ok', values: JSON.parse(plaintext.toString('utf8')) as CredentialValues };
+}
+
 /** An IAM access key pair, as AWS SDK clients expect it. */
 export type AwsCredentials = { accessKeyId: string; secretAccessKey: string };
 

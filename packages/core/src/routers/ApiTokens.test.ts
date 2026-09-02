@@ -6,6 +6,8 @@
  * not a nicety. `guardAuth` is mocked because the session itself is not what is
  * under test; what the routes do with the role it reports is.
  */
+import { Buffer } from 'node:buffer';
+import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -22,7 +24,7 @@ const { db } = await import('@/libs/DB');
 const { apiTokenSchema } = await import('@/models/Schema');
 const { guardAuth } = await import('./AuthGuards');
 const { sourceDekSchema } = await import('@/models/Schema');
-const { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revokeTokenRoute } = await import('./ApiTokens');
+const { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } = await import('./ApiTokens');
 const { issueToken } = await import('@/services/ApiTokenService');
 
 const ORG = 'org_router_test';
@@ -313,5 +315,106 @@ describe('platform key routes', () => {
     const [row] = await db.select().from(apiTokenSchema);
 
     expect(row!.expiresAt).toBeNull();
+  });
+});
+
+describe('revealPlatformKey', () => {
+  const OPENAI_KEY = 'sk-abcdefghijklmnop1234';
+
+  it('hands a live supplied key back to an admin', async () => {
+    signedInAs('admin');
+    const saved = await call<{ id: string }>(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+    });
+
+    const revealed = await call(revealPlatformKeyRoute, { tokenId: saved.id });
+
+    expect(revealed).toEqual({ status: 'ok', values: { apiKey: OPENAI_KEY } });
+  });
+
+  it('refuses a member', async () => {
+    signedInAs('admin');
+    const saved = await call<{ id: string }>(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+    });
+    signedInAs('member');
+
+    await expect(call(revealPlatformKeyRoute, { tokenId: saved.id })).rejects.toThrow(/forbidden/i);
+  });
+
+  it('will not open a credential belonging to another org', async () => {
+    signedInAs('admin');
+    const saved = await call<{ id: string }>(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+    });
+    // The same admin, now acting in a different workspace.
+    vi.mocked(guardAuth).mockResolvedValue({
+      userId: 'usr-1',
+      orgId: 'org_someone_else',
+      accountId: 'acct-2',
+      projectId: 'org_someone_else',
+      role: 'admin',
+      has: () => true,
+    } as unknown as Awaited<ReturnType<typeof guardAuth>>);
+
+    const revealed = await call(revealPlatformKeyRoute, { tokenId: saved.id });
+
+    expect(revealed).toEqual({ status: 'not-found' });
+    expect(JSON.stringify(revealed)).not.toContain(OPENAI_KEY);
+  });
+
+  it('reports a Vocion token as having nothing to reveal', async () => {
+    signedInAs('admin');
+    const created = await call<{ id: string }>(createTokenRoute, { name: 'panel', expiresAt: null });
+
+    const revealed = await call(revealPlatformKeyRoute, { tokenId: created.id });
+
+    expect(revealed).toEqual({ status: 'minted' });
+  });
+
+  it('still opens a revoked key', async () => {
+    signedInAs('admin');
+    const saved = await call<{ id: string }>(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+    });
+    await call(revokeTokenRoute, { tokenId: saved.id });
+
+    const revealed = await call(revealPlatformKeyRoute, { tokenId: saved.id });
+
+    expect(revealed).toEqual({ status: 'ok', values: { apiKey: OPENAI_KEY } });
+  });
+
+  it('says nothing about the vault when decryption fails', async () => {
+    signedInAs('admin');
+    const saved = await call<{ id: string }>(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+    });
+    // A ciphertext that will not open — what a DEK and its data diverging
+    // looks like from here.
+    await db
+      .update(apiTokenSchema)
+      .set({ authTag: Buffer.alloc(16).toString('base64') })
+      .where(eq(apiTokenSchema.id, saved.id));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      await expect(call(revealPlatformKeyRoute, { tokenId: saved.id }))
+        .rejects
+        .toThrow(/could not read that key/i);
+
+      expect(logged).toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+    }
   });
 });

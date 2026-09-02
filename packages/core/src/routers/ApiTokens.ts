@@ -10,8 +10,9 @@
  *     prerequisite for integrating anything.
  *   - **Supplied platform keys** — the org's own OpenAI or Anthropic key,
  *     stored encrypted so their model spend bills their account instead of
- *     ours. Nothing reads these back out to a client; the only thing that ever
- *     leaves is the masked hint.
+ *     ours. The list only ever carries the masked hint; the full key leaves the
+ *     server on one route, `revealPlatformKey`, and only when an admin asks for
+ *     it by row.
  *
  * Two rules shape every handler here:
  *
@@ -26,7 +27,7 @@ import type { CredentialPlatformId } from '@/libs/platforms/registry';
 import { os } from '@orpc/server';
 import { z } from 'zod';
 import { CredentialValidationError, DEFAULT_PLATFORM_ID, isCredentialPlatformId, listPlatforms } from '@/libs/platforms/registry';
-import { issueToken, listTokens, revokeToken, storePlatformKey } from '@/services/ApiTokenService';
+import { issueToken, listTokens, revealPlatformCredential, revokeToken, storePlatformKey } from '@/services/ApiTokenService';
 import { ORG_ROLE } from '@/types/Auth';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -193,4 +194,47 @@ export const createPlatformKeyRoute = os
       });
       throw ApiError.badRequest(isSafeToShow ? error.message : 'Could not save the key.');
     }
+  });
+
+/**
+ * Decrypt one supplied platform key so the admin who owns it can read it back.
+ *
+ * The dashboard masks every key by default and calls this only when someone
+ * asks to see one, so the plaintext crosses the wire on a deliberate click
+ * rather than on every page load. Admin-only and session-only like the rest of
+ * this router, and the reveal is logged — without the value — so an audit can
+ * answer who looked at which credential.
+ *
+ * The three refusals come back as ordinary results rather than errors, because
+ * none of them means the caller did anything wrong: a Vocion token has no
+ * plaintext left to show, a revoked key is deliberately dead, and a missing row
+ * is usually a stale tab.
+ */
+export const revealPlatformKeyRoute = os
+  .input(z.object({ tokenId: z.string().min(1) }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardTokenAdmin();
+    let revealed;
+    try {
+      revealed = await revealPlatformCredential(orgId, input.tokenId);
+    } catch (error) {
+      // A ciphertext that will not open. The message can carry KMS detail, so
+      // it is logged and replaced with one that says nothing.
+      console.error('[apiTokens.revealPlatformKey] could not decrypt key', {
+        tokenId: input.tokenId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw ApiError.badRequest('Could not read that key.');
+    }
+    if (revealed.status === 'ok') {
+      // `warn` rather than `info` because the lint rule allows only warn and
+      // error through, and an audit line that never ships is worse than one
+      // logged a level louder than it deserves.
+      console.warn('[apiTokens.revealPlatformKey] credential revealed', {
+        orgId,
+        userId,
+        tokenId: input.tokenId,
+      });
+    }
+    return revealed;
   });
