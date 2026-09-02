@@ -32,6 +32,9 @@ export default async function ApiTokensPage() {
       />
 
       <DashboardSection
+        // The credentials table carries seven columns plus a revoke action, which
+        // does not fit the default reading-width cap.
+        fullWidthContent
         title="Credentials"
         description="A Vocion token lets a caller into this workspace — send it as a bearer token to /api/v1 or /api/mcp, and copy it now, because it is shown only once. A key for any other platform goes the other way: Vocion calls that platform for you, so models, embeddings, reranking and image tools bill your account. Store none and those calls stay on ours."
       >
