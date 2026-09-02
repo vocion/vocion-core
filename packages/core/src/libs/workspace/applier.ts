@@ -2,7 +2,7 @@ import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningSt
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -866,6 +866,26 @@ async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean): 
   return 'updated';
 }
 
+/**
+ * Workspace-shipped seed rules → `learning` rows, keyed on source
+ * `workspace:<id>` so re-applying is idempotent and text edits update in place.
+ * @param orgId
+ * @param stepId
+ * @param rules
+ */
+async function seedLearningRules(orgId: string, stepId: number, rules: Array<{ id: string; text: string }>): Promise<void> {
+  for (const r of rules) {
+    const source = `workspace:${r.id}`;
+    const text = r.text.trim();
+    const [existing] = await db.select().from(learningSchema).where(and(eq(learningSchema.orgId, orgId), eq(learningSchema.stepId, stepId), eq(learningSchema.source, source)));
+    if (!existing) {
+      await db.insert(learningSchema).values({ orgId, stepId, ruleText: text, source, createdBy: 'workspace:apply' });
+    } else if (existing.ruleText !== text) {
+      await db.update(learningSchema).set({ ruleText: text, updatedAt: new Date() }).where(eq(learningSchema.id, existing.id));
+    }
+  }
+}
+
 async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRun: boolean): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
@@ -883,9 +903,15 @@ async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRu
 
   if (!existing) {
     if (!dryRun) {
-      await db.insert(learningStepSchema).values(payload);
+      const [row] = await db.insert(learningStepSchema).values(payload).returning();
+      if (row) {
+        await seedLearningRules(orgId, row.id, step.rules ?? []);
+      }
     }
     return 'created';
+  }
+  if (!dryRun) {
+    await seedLearningRules(orgId, existing.id, step.rules ?? []);
   }
 
   if (
