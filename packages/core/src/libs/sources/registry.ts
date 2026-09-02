@@ -18,7 +18,9 @@ import { granolaConnector } from './granola';
 import { hubspotConnector } from './hubspot';
 import { jiraConnector } from './jira';
 import { localFilesConnector } from './localFiles';
+import { s3Connector } from './s3';
 import { slackConnector } from './slack';
+import { strapiConnector } from './strapi';
 import { webConnector } from './web';
 import { zoomConnector } from './zoom';
 
@@ -36,11 +38,13 @@ export function listConnectors(): SourceConnector[] {
   return Array.from(registry.values());
 }
 
-// Built-ins. Order matters for the picker tile layout.
+// Built-ins, in the order they shipped. The picker sorts its tiles A–Z, so
+// this order is not what an operator sees — append new connectors at the end.
 registerConnector(webConnector);
 registerConnector(localFilesConnector);
 registerConnector(fileImportConnector);
 registerConnector(hubspotConnector);
+registerConnector(strapiConnector);
 registerConnector(jiraConnector);
 registerConnector(googleAdsConnector);
 registerConnector(ga4Connector);
@@ -50,3 +54,4 @@ registerConnector(granolaConnector);
 registerConnector(slackConnector);
 registerConnector(driveConnector);
 registerConnector(zoomConnector);
+registerConnector(s3Connector);

@@ -1,6 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { skillRunSchema, skillSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
+import { workflowRunSchema, workflowSchema } from '@/models/Schema';
 
 /**
  * Aggregate run counts for a primitive drilldown's "Recent activity"
@@ -15,25 +15,6 @@ type ActivitySummary = {
   down: number;
   lastRunAt: Date | null;
 };
-
-export async function getSkillActivity(orgId: string, slug: string): Promise<ActivitySummary> {
-  const [skill] = await db.select({ id: skillSchema.id }).from(skillSchema).where(and(eq(skillSchema.orgId, orgId), eq(skillSchema.slug, slug))).limit(1);
-  if (!skill) {
-    return { total: 0, approved: 0, up: 0, down: 0, lastRunAt: null };
-  }
-  const rows = await db
-    .select({
-      status: skillRunSchema.status,
-      rating: skillRunSchema.rating,
-      createdAt: skillRunSchema.createdAt,
-    })
-    .from(skillRunSchema)
-    .where(and(eq(skillRunSchema.orgId, orgId), eq(skillRunSchema.skillId, skill.id)))
-    .orderBy(desc(skillRunSchema.createdAt))
-    .limit(500);
-
-  return summarize(rows);
-}
 
 export async function getWorkflowActivity(orgId: string, slug: string): Promise<ActivitySummary> {
   const [wf] = await db.select({ id: workflowSchema.id }).from(workflowSchema).where(and(eq(workflowSchema.orgId, orgId), eq(workflowSchema.slug, slug))).limit(1);

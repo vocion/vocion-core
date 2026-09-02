@@ -7,7 +7,11 @@ import { getMemberProfile } from '@/services/adoption/AdoptionService';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
 
-/** Per-user adoption drill-down — admin-only, same gating as the overview. */
+/**
+ * Per-user adoption drill-down — admin-only, same gating as the overview.
+ * @param props
+ * @param props.params
+ */
 export default async function AdoptionUserPage(props: {
   params: Promise<{ locale: string; userId: string }>;
 }) {

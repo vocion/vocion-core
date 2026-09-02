@@ -178,7 +178,7 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
           historyOpen={historyOpen}
           onToggleHistory={() => setHistoryOpen(open => !open)}
           onNewChat={() => {
-            session.startNewConversation();
+            session.handleNewChat();
             setHistoryOpen(false);
           }}
           maximized={visualState === 'maximized'}
@@ -191,7 +191,7 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
             agentSlug={session.agent.slug}
             activeConversationId={session.conversationId}
             onSelect={(id) => {
-              void session.loadConversation(id);
+              void session.handlePickConversation(id);
               setHistoryOpen(false);
             }}
           />
@@ -200,8 +200,23 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {session.messages.length === 0
-          ? <EmptyState agentName={session.agent.name} suggestions={session.agentSuggestions} onPick={session.handlePickSuggestion} disabled={!session.hydrated} />
-          : <MessageList messages={session.messages} agentName={session.agent.name} streaming={session.isStreaming} activity={session.activity} />}
+          ? (
+              <EmptyState
+                greeting={session.emptyGreeting}
+                suggestions={session.emptyChips}
+                suggestionsLoading={session.emptyChipsLoading}
+                onPick={session.handlePickSuggestion}
+                disabled={!session.booted}
+              />
+            )
+          : (
+              <MessageList
+                messages={session.messages}
+                agentName={session.agent.name}
+                streaming={session.isStreaming}
+                activity={session.activity}
+              />
+            )}
 
         {session.pendingHitl && (
           <HitlGate
@@ -216,8 +231,9 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
           value={session.composerValue}
           onChange={session.setComposerValue}
           onSubmit={() => session.sendMessage(session.composerValue)}
-          onClearConversation={session.messages.length > 0 ? session.startNewConversation : undefined}
-          disabled={session.isStreaming || !session.hydrated}
+          disabled={session.isStreaming || !session.booted}
+          streaming={session.isStreaming}
+          onStop={session.handleStop}
           placeholder={session.agent.placeholder}
         />
       </div>

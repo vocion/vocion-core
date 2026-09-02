@@ -1,31 +1,16 @@
 import { setRequestLocale } from 'next-intl/server';
-import { ActionProposals } from '@/features/dashboard/ActionProposals';
+import { ReviewFocus } from '@/features/dashboard/ReviewFocus';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { listSkillRuns } from '@/services/SkillService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
 
-type ConfidenceLevel = 'confident' | 'uncertain' | 'speculative';
-type SkillRunSummary = {
-  id: number;
-  skillId: number;
-  status: string | null;
-  input: Record<string, unknown> | null;
-  output: string | null;
-  truncated: boolean;
-  workspaceSha: string | null;
-  langfuseTraceId: string | null;
-  confidence: ConfidenceLevel | null;
-  createdBy: string | null;
-  createdAt: Date | string;
-  reviewedBy: string | null;
-  reviewedAt: Date | string | null;
-};
-
-function asConfidence(v: string | null): ConfidenceLevel | null {
-  return (v === 'confident' || v === 'uncertain' || v === 'speculative') ? v : null;
-}
+/**
+ * Review — ONE primary flow: focus mode over the agent-proposed action queue
+ * (one item at a time, decide and move on; up-next rail instead of a long
+ * list; no popups). Paused workflows are internal mechanics, not the
+ * operator's main job — they're demoted to a collapsed section below.
+ */
 
 export default async function ReviewPage(props: {
   params: Promise<{ locale: string }>;
@@ -37,7 +22,7 @@ export default async function ReviewPage(props: {
   if (!orgId) {
     return (
       <>
-        <TitleBar title="Reviews" description="Pending drafts and paused workflows that need a decision." />
+        <TitleBar title="Review" description="Agent-proposed actions that need your decision." />
         <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">
           Sign in to an organization to see the review queue.
         </div>
@@ -45,38 +30,28 @@ export default async function ReviewPage(props: {
     );
   }
 
-  const [skillRunsRaw, workflowRuns] = await Promise.all([
-    listSkillRuns({ orgId, status: 'pending', limit: 50 }),
-    listWorkflowRuns(orgId, { status: 'paused', limit: 50 }),
-  ]);
+  const workflowRuns = await listWorkflowRuns(orgId, { status: 'paused', limit: 50 });
 
-  const skillRuns: SkillRunSummary[] = skillRunsRaw.map(r => ({
-    id: r.id,
-    skillId: r.skillId,
-    status: r.status,
-    input: r.input as Record<string, unknown> | null,
-    output: r.output ? r.output.slice(0, 4000) : null,
-    truncated: !!(r.output && r.output.length > 4000),
-    workspaceSha: r.workspaceSha,
-    langfuseTraceId: r.langfuseTraceId,
-    confidence: asConfidence(r.confidence),
-    createdBy: r.createdBy,
-    createdAt: r.createdAt,
-    reviewedBy: r.reviewedBy,
-    reviewedAt: r.reviewedAt,
-  }));
-
-  const total = skillRuns.length + workflowRuns.length;
   return (
     <>
       <TitleBar
-        title="Reviews"
-        description={total === 0
-          ? 'No items need attention — pending skill drafts and paused workflow runs will surface here.'
-          : `${total} ${total === 1 ? 'item needs' : 'items need'} attention — pending skill drafts and paused workflow runs.`}
+        title="Review"
+        description="One thing at a time — decide it and the next one loads. Nothing sends without you."
       />
-      <ReviewQueue initialSkillRuns={skillRuns} initialWorkflowRuns={workflowRuns} />
-      <ActionProposals />
+      <ReviewFocus />
+
+      {workflowRuns.length > 0 && (
+        <details className="mt-8">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground transition hover:text-foreground">
+            Other approvals (
+            {workflowRuns.length}
+            ) — paused workflows
+          </summary>
+          <div className="mt-3">
+            <ReviewQueue initialWorkflowRuns={workflowRuns} />
+          </div>
+        </details>
+      )}
     </>
   );
 }

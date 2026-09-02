@@ -34,4 +34,32 @@ describe('gmailSendAction', () => {
   it('refuses without credentials', async () => {
     await expect(gmailSendAction.execute({ orgId: 'o' }, parse({ to: 'a@b.com', body: 'hi' }))).rejects.toThrow(/credentials/);
   });
+
+  it('presents the email as typed card content with per-object verbs', async () => {
+    const card = await gmailSendAction.reviewCard!({ orgId: 'o' }, parse({ to: 'a@b.com', subject: 'Hi', body: 'hello' }));
+
+    expect(card.content).toEqual([{ kind: 'email', id: 'message', label: 'Send 1', subject: 'Hi', body: 'hello' }]);
+    expect(card.verbs).toEqual({ approve: 'Approve & send', reject: 'Reject' });
+  });
+
+  it('maps content edits back onto subject/body and nothing else', () => {
+    const input = parse({ to: 'a@b.com', subject: 'Hi', body: 'hello', cc: 'c@b.com' });
+
+    const edited = gmailSendAction.applyContentEdits!(input, [{ id: 'message', body: 'rewritten' }]);
+
+    expect(edited).toMatchObject({ to: 'a@b.com', cc: 'c@b.com', subject: 'Hi', body: 'rewritten' });
+    // An edit against an id the card never issued changes nothing.
+    expect(gmailSendAction.applyContentEdits!(input, [{ id: 'other', body: 'x' }])).toEqual(input);
+  });
+
+  it('dedups on the recipient, not the wording, so a re-firing automation cannot stack drafts', () => {
+    // The model rewrites the subject every pass; the recipient is the identity.
+    const a = gmailSendAction.dedupKeyFor!(parse({ to: 'hilhow@amazon.com', subject: 'AWS reconnect — next steps', body: 'x' }));
+    const b = gmailSendAction.dedupKeyFor!(parse({ to: ' HilHow@Amazon.com ', subject: 'DaGen + CloudSmart intros', body: 'y', draft: true }));
+
+    expect(a).toBe('gmail.send:hilhow@amazon.com');
+    expect(b).toBe(a);
+    // A different recipient is a different queue item.
+    expect(gmailSendAction.dedupKeyFor!(parse({ to: 'other@b.com', subject: 'Hi', body: 'x' }))).not.toBe(a);
+  });
 });

@@ -1,3 +1,4 @@
+import type { Finding } from '@/features/dashboard/InspectionPhoto';
 import {
   ArrowLeft,
   Calendar,
@@ -13,8 +14,12 @@ import {
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { InspectionPhoto } from '@/features/dashboard/InspectionPhoto';
+import { ObjectAgentActivity } from '@/features/dashboard/ObjectAgentActivity';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { VisionEngineControl } from '@/features/dashboard/VisionEngineControl';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { appImageUrl } from '@/libs/aws/s3';
 import { Link } from '@/libs/I18nNavigation';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 
@@ -96,9 +101,31 @@ export default async function ObjectDetailPage(props: {
         )}
       />
 
+      <div className="mb-6 space-y-4">
+        {typeof meta.image_url === 'string' && <VisionEngineControl compact />}
+        {typeof meta.image_url === 'string' && (
+          <InspectionPhoto
+            objectId={obj.id}
+            title={obj.title}
+            imageUrl={meta.image_url}
+            verdict={typeof meta.verdict === 'string' ? meta.verdict : null}
+            confidence={typeof meta.confidence === 'number' ? meta.confidence : null}
+            explanation={typeof meta.explanation === 'string' ? meta.explanation : null}
+            findings={Array.isArray(meta.findings) ? (meta.findings as Finding[]) : []}
+            regions={Array.isArray(meta.regions) ? (meta.regions as Finding[]) : []}
+            regionsChecked={typeof meta.regions_checked === 'number' ? meta.regions_checked : null}
+            checks={(meta.checks as React.ComponentProps<typeof InspectionPhoto>['checks']) ?? null}
+            engines={(meta.engines as React.ComponentProps<typeof InspectionPhoto>['engines']) ?? null}
+            referenceUrls={Array.isArray(meta.reference_keys) && typeof meta.bucket === 'string' ? (meta.reference_keys as string[]).map(k => appImageUrl(meta.bucket as string, k)) : []}
+            knownLabel={typeof meta.known_label === 'string' ? meta.known_label : null}
+          />
+        )}
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Main content — left 2 cols */}
         <div className="space-y-6 lg:col-span-2">
+          {/* Image-backed objects (inspections, scans): the picture first, then what was found. */}
           {/* Summary */}
           <div className="rounded-lg border border-border p-5">
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
@@ -285,6 +312,15 @@ export default async function ObjectDetailPage(props: {
           </div>
         </div>
       </div>
+
+      <ObjectAgentActivity
+        orgId={orgId}
+        externalRef={String(
+          (obj.metadata as Record<string, unknown> | null)?.external_id
+          ?? (obj.metadata as Record<string, unknown> | null)?.externalId
+          ?? '',
+        ) || null}
+      />
     </>
   );
 }

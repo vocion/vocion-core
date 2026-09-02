@@ -1,0 +1,22 @@
+# The autonomy growth ladder. Every rule ships DISABLED: the team earns
+# Execute per action, channel by channel, by a human flipping the switch -
+# and each flip is itself content ("week 6: blog PRs moved to Execute").
+rules:
+  - action: github.issue
+    autoApproveAbove: 0.95
+    enabled: false
+  - action: github.pr
+    autoApproveAbove: 0.97
+    enabled: false
+  - action: devto.post
+    autoApproveAbove: 0.95
+    enabled: false
+  - action: linkedin.post
+    autoApproveAbove: 0.99
+    enabled: false
+  - action: x.post
+    autoApproveAbove: 0.99
+    enabled: false
+  - action: youtube.upload
+    autoApproveAbove: 0.99
+    enabled: false

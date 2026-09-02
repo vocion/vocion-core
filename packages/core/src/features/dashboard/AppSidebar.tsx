@@ -1,20 +1,25 @@
 'use client';
 
+import type { SurfaceId } from '@/features/navigation/surfaces';
 import {
   Activity,
+  ArrowLeft,
   BarChart3,
   BookOpen,
   CalendarClock,
   CheckSquare,
   Compass,
+  Cpu,
   Database,
   FileText,
   GitBranch,
+  KeyRound,
   LineChart,
   MessageSquare,
+  Network,
   Newspaper,
+  PanelsTopLeft,
   Plug,
-  ScrollText,
   ShieldCheck,
   Sparkles,
   TestTube,
@@ -24,34 +29,71 @@ import {
   Zap,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useEffect, useState } from 'react';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { AppSidebarNavGroup } from '@/features/dashboard/AppSidebarNavGroup';
-import { ProjectSwitcher } from '@/features/dashboard/ProjectSwitcher';
+import { WorkspaceMenu } from '@/features/dashboard/WorkspaceMenu';
+import { SurfaceNav } from '@/features/navigation/SurfaceNav';
 import { VocionLogo } from '@/templates/VocionLogo';
 
 /**
- * Dashboard left sidebar — v0.5 IA reorg.
+ * Dashboard left sidebar — two views, Linear-settings style:
  *
- * Four sections, in order:
- *   1. Workspace — chat, review, search (day-to-day work)
- *   2. Capabilities — sources, objects, operations, workflows, agents,
- *      playbooks, learnings, evals (order matches the /solve marketing
- *      page so the dashboard nav reads as a guided tour of the primitives)
- *   3. Observability — logs + observability traces (promoted from
- *      Workspace; this is "look at what happened" not daily-work)
- *   4. Settings — billing, admin, docs, roadmap (settings + reference;
- *      orphan routes get a home)
+ *   WORK (default) — the daily surface only: chat, briefings, review,
+ *                    activity, search. Pure navigation, no chrome.
+ *   MANAGE         — entered via the quiet "Manage workspace" item at the
+ *                    BOTTOM of the work view; swaps the sidebar into the
+ *                    configuration sections with "Back to work" at top.
  *
- * Active-state styling is driven by `--sidebar-accent` +
- * `--sidebar-accent-foreground` in styles/global.css.
+ * The view persists per browser (reloading mid-manage keeps you managing).
+ * Nav sweep 2026-07-24: every route has a real page (no dead links, no
+ * stubs). Active-state styling via `--sidebar-accent`.
+ * @param props.isAdmin
  * @param props
  */
-export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<typeof Sidebar> & {
+
+const NAV_VIEW_KEY = 'vocion:nav:view';
+type NavView = 'work' | 'manage';
+
+/** Workspace-defined pages (libs/workspace/pages.ts), grouped for the nav. */
+export type WorkspaceNavPage = {
+  title: string;
+  url: string;
+  section: string;
+};
+
+export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePages = [], ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
+  /** Optional surfaces the workspace switched on — see `features/navigation/surfaces.ts`. */
+  enabledSurfaces?: SurfaceId[];
+  /** Tenant pages from the workspace's pages/ dir — rendered as their own WORK sections. */
+  workspacePages?: WorkspaceNavPage[];
 }) => {
   const t = useTranslations('DashboardLayout');
+  const [view, setView] = useState<NavView>('work');
+
+  // Restore the persisted view after mount (SSR renders the default).
+  // localStorage cannot be read while rendering on the server, so a lazy
+  // useState initializer would hydrate with a mismatched value — the setState
+  // here is the intended hydration pattern, not a cascading render.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(NAV_VIEW_KEY);
+      if (stored === 'manage') {
+        // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- pre-existing SSR-safe restore; hydration must render the default first
+        setView('manage');
+      }
+    } catch { /* private mode */ }
+  }, []);
+
+  const pick = (v: NavView) => {
+    setView(v);
+    try {
+      localStorage.setItem(NAV_VIEW_KEY, v);
+    } catch { /* ignore */ }
+  };
 
   return (
     <Sidebar {...props}>
@@ -60,87 +102,113 @@ export const AppSidebar = ({ isAdmin = false, ...props }: React.ComponentProps<t
           <VocionLogo size="sm" />
         </div>
 
-        {/* ProjectSwitcher renders only when there's more than one workspace;
-            a single-workspace deployment would just repeat the "Workspace"
-            section header below it, so it stays hidden. */}
-        <ProjectSwitcher />
       </SidebarHeader>
 
       <SidebarContent>
-        {/* 1. Workspace — where a USER lives day to day: talk to the team,
-            approve its work, find things. Everything else is configuration
-            or monitoring. */}
-        <AppSidebarNav
-          label={t('main_section_label')}
-          items={[
-            { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
-            { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
-            { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
-            { title: 'Activity', url: '/dashboard/activity', icon: Activity },
-            { title: t('search'), url: '/dashboard/search', icon: BookOpen },
-          ]}
-        />
+        {view === 'work'
+          ? (
+              // WORK — the daily surface; the only door to config is the
+              // quiet Manage entry at the bottom.
+              <>
+                <AppSidebarNav
+                  label={t('main_section_label')}
+                  items={[
+                    { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
+                    { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
+                    { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
+                    { title: 'Activity', url: '/dashboard/activity', icon: Activity },
+                    { title: t('search'), url: '/dashboard/search', icon: BookOpen },
+                  ]}
+                />
+                {/* Workspace-enabled surfaces (workspace.yaml `surfaces:`).
+                    Renders nothing when none are on. */}
+                <SurfaceNav enabled={enabledSurfaces} />
+                {[...new Set(workspacePages.map(p => p.section))].map(section => (
+                  <AppSidebarNav
+                    key={section}
+                    label={section}
+                    items={workspacePages
+                      .filter(p => p.section === section)
+                      .map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft }))}
+                  />
+                ))}
+                {/* Bottom cluster: which workspace you're in + the door to
+                    its configuration. Both are context, not daily nav. */}
+                <div className="mt-auto px-2 pb-1">
+                  <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
+                </div>
+              </>
+            )
+          : (
+              <>
+                <div className="px-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => pick('work')}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-[13px] font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  >
+                    <ArrowLeft className="size-4" aria-hidden />
+                    Back to work
+                  </button>
+                </div>
+                {/* MANAGE — who works for you + the shapes their work takes. */}
+                <AppSidebarNav
+                  label="Team"
+                  items={[
+                    { title: t('teams'), url: '/dashboard/teams', icon: Network },
+                    { title: t('agents'), url: '/dashboard/agents', icon: Users },
+                    { title: 'Missions', url: '/dashboard/missions', icon: Compass },
+                    { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
+                    { title: 'Automation', url: '/dashboard/automation', icon: CalendarClock },
+                  ]}
+                />
 
-        {/* 2. Team — who works for you and the shapes their work takes:
-            open-ended goals (missions), fixed procedures (workflows), and
-            the clocks/triggers that start them (automation). */}
-        <AppSidebarNav
-          label="Team"
-          items={[
-            { title: t('agents'), url: '/dashboard/agents', icon: Users },
-            { title: 'Missions', url: '/dashboard/missions', icon: Compass },
-            { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
-            { title: 'Automation', url: '/dashboard/automation', icon: CalendarClock },
-          ]}
-        />
+                {/* What the team knows. Playbooks folded into Skills. */}
+                <AppSidebarNav
+                  label="Knowledge"
+                  items={[
+                    { title: t('sources'), url: '/dashboard/sources', icon: Plug },
+                    { title: t('objects'), url: '/dashboard/objects', icon: Database },
+                    { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
+                  ]}
+                />
 
-        {/* 3. Knowledge — what the team knows: data in (sources), the
-            entities it models (objects), procedural know-how (playbooks),
-            and the rules it has learned (learnings). */}
-        <AppSidebarNav
-          label="Knowledge"
-          items={[
-            { title: t('sources'), url: '/dashboard/sources', icon: Plug },
-            { title: t('objects'), url: '/dashboard/objects', icon: Database },
-            { title: t('playbooks'), url: '/dashboard/playbooks', icon: ScrollText },
-            { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
-          ]}
-        />
+                {/* How capabilities are made and proven. */}
+                <AppSidebarNav
+                  label="Build"
+                  items={[
+                    { title: t('skills'), url: '/dashboard/skills', icon: Zap },
+                    { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
+                    { title: 'Vision models', url: '/dashboard/models', icon: Cpu },
+                    { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
+                  ]}
+                />
 
-        {/* 4. Build — how capabilities are made and proven: typed LLM calls
-            (skills), the built-in tool belt, and regression checks (evals). */}
-        <AppSidebarNav
-          label="Build"
-          items={[
-            { title: t('skills'), url: '/dashboard/skills', icon: Zap },
-            { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
-            { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
-          ]}
-        />
+                {/* See what happened. Logs folded into Activity. */}
+                <AppSidebarNav
+                  label={t('observability_section_label')}
+                  items={[
+                    { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
+                  ]}
+                />
 
-        {/* 3. Observability — see what happened */}
-        <AppSidebarNav
-          label={t('observability_section_label')}
-          items={[
-            { title: t('logs'), url: '/dashboard/logs', icon: Activity },
-            { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
-          ]}
-        />
+                {/* The account itself. Adoption is admin-gated server-side too. */}
+                <AppSidebarNavGroup
+                  label={t('organization_section_label')}
+                  items={[
+                    ...(isAdmin ? [{ title: t('adoption'), url: '/dashboard/adoption', icon: BarChart3 }] : []),
+                    { title: 'Members', url: '/dashboard/members', icon: UserPlus },
+                    ...(isAdmin ? [{ title: 'API tokens', url: '/dashboard/api-tokens', icon: KeyRound }] : []),
+                    { title: 'System', url: '/dashboard/admin', icon: ShieldCheck },
+                    { title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText },
+                  ]}
+                />
 
-        {/* 6. Organization — the account itself: who's adopting the
-            platform (admins only), who's in it, system status, docs.
-            Formerly "Settings"; now an expandable group. Adoption is
-            hidden for members here AND 403-gated at the router — the
-            nav is convenience, not the security boundary. */}
-        <AppSidebarNavGroup
-          label={t('organization_section_label')}
-          items={[
-            ...(isAdmin ? [{ title: t('adoption'), url: '/dashboard/adoption', icon: BarChart3 }] : []),
-            { title: 'Members', url: '/dashboard/members', icon: UserPlus },
-            { title: 'System', url: '/dashboard/admin', icon: ShieldCheck },
-            { title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText },
-          ]}
-        />
+                <div className="mt-auto px-2 pb-1">
+                  <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
+                </div>
+              </>
+            )}
       </SidebarContent>
 
       <SidebarFooter className="px-4 pb-3 text-[11px] text-muted-foreground/70">

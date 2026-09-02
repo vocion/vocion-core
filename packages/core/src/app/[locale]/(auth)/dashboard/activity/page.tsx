@@ -1,20 +1,21 @@
 import type { ActivityItem, ActivityKind } from '@/services/ActivityService';
-import { Activity as ActivityIcon, AlertTriangle, CalendarClock, Compass, Database, GitBranch, Zap } from 'lucide-react';
+import { Activity as ActivityIcon, AlertTriangle, CalendarClock, Compass, Database, GitBranch, Wrench, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
-import { activityFeed, ATTENTION_STATUSES } from '@/services/ActivityService';
+import { activityFeed, ATTENTION_STATUSES, toolCallFacets } from '@/services/ActivityService';
 
 /**
  * Activity — the OBSERVE surface of the daily-driver hierarchy:
  * Chat (talk) · Review (decide) · Activity (observe) · Search (find).
  *
  * One reverse-chron stream of everything the team did — mission checks,
- * workflow runs, event fires, source syncs — with needs-attention pinned
- * on top and filter chips per kind. Definitions live in the Team catalogs;
- * this page answers "what did my team do overnight?"
+ * workflow runs, event fires, source syncs, and (drill-down) every tool
+ * call any agent made — with needs-attention pinned on top and filter
+ * chips per kind. The former Logs page folded in here: run history is a
+ * kind of activity, not a separate surface.
  */
 
 const KIND_META: Record<ActivityKind, { label: string; icon: typeof Compass }> = {
@@ -22,6 +23,7 @@ const KIND_META: Record<ActivityKind, { label: string; icon: typeof Compass }> =
   workflow: { label: 'Workflows', icon: GitBranch },
   event: { label: 'Events', icon: Zap },
   sync: { label: 'Syncs', icon: Database },
+  tool: { label: 'Tool calls', icon: Wrench },
 };
 
 function statusTone(status: string): string {
@@ -62,10 +64,10 @@ function Row({ item }: { item: ActivityItem }) {
 
 export default async function ActivityPage(props: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ kind?: string; slug?: string }>;
+  searchParams: Promise<{ kind?: string; slug?: string; agent?: string; tool?: string }>;
 }) {
   const { locale } = await props.params;
-  const { kind, slug } = await props.searchParams;
+  const { kind, slug, agent, tool } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
@@ -75,22 +77,34 @@ export default async function ActivityPage(props: {
   const activeKind = (kind && kind in KIND_META ? kind : null) as ActivityKind | null;
   // If narrowing to a specific definition, the DB does the filter (cheaper).
   // The unfiltered feed still fills the tab-chip counts.
-  const [feed, all] = await Promise.all([
-    activityFeed(orgId, { kind: activeKind ?? undefined, slug, limit: 50 }),
-    slug ? activityFeed(orgId, { limit: 50 }) : Promise.resolve(null),
+  const [feed, all, facets] = await Promise.all([
+    activityFeed(orgId, { kind: activeKind ?? undefined, slug, agent, tool, limit: 50 }),
+    slug || activeKind === 'tool' ? activityFeed(orgId, { limit: 50 }) : Promise.resolve(null),
+    toolCallFacets(orgId),
   ]);
   const chipSource = all ?? feed;
   const attention = feed.filter(i => ATTENTION_STATUSES.has(i.status));
   const counts = Object.fromEntries(
-    (Object.keys(KIND_META) as ActivityKind[]).map(k => [k, chipSource.filter(i => i.kind === k).length]),
+    (Object.keys(KIND_META) as ActivityKind[]).map(k => [k, k === 'tool' ? facets.total : chipSource.filter(i => i.kind === k).length]),
   ) as Record<ActivityKind, number>;
   const scopedTo = slug ? `${activeKind ? KIND_META[activeKind].label.replace(/s$/, '') : ''} “${slug}”`.trim() : null;
+
+  const toolQuery = (params: { agent?: string; tool?: string }): string => {
+    const q = new URLSearchParams({ kind: 'tool' });
+    if (params.agent) {
+      q.set('agent', params.agent);
+    }
+    if (params.tool) {
+      q.set('tool', params.tool);
+    }
+    return `/dashboard/activity?${q.toString()}`;
+  };
 
   return (
     <>
       <TitleBar
         title="Activity"
-        description="Everything the team did — checks, runs, fires, and syncs — newest first. Decisions that need you live in Review."
+        description="Everything the team did — checks, runs, fires, syncs, and every tool call — newest first. Decisions that need you live in Review."
       />
 
       {scopedTo && (
@@ -135,12 +149,53 @@ export default async function ActivityPage(props: {
         ))}
       </div>
 
+      {activeKind === 'tool' && (facets.agents.length > 0 || facets.tools.length > 0) && (
+        <div className="mb-4 space-y-2">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="mr-1 text-muted-foreground">Agent:</span>
+            <Link
+              href={toolQuery({ tool })}
+              className={`rounded-full border px-2.5 py-0.5 font-medium transition ${!agent ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+            >
+              all
+            </Link>
+            {facets.agents.map(a => (
+              <Link
+                key={a}
+                href={toolQuery({ agent: a, tool })}
+                className={`rounded-full border px-2.5 py-0.5 font-mono transition ${agent === a ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              >
+                {a}
+              </Link>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="mr-1 text-muted-foreground">Tool:</span>
+            <Link
+              href={toolQuery({ agent })}
+              className={`rounded-full border px-2.5 py-0.5 font-medium transition ${!tool ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+            >
+              all
+            </Link>
+            {facets.tools.map(t => (
+              <Link
+                key={t}
+                href={toolQuery({ agent, tool: t })}
+                className={`rounded-full border px-2.5 py-0.5 font-mono transition ${tool === t ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              >
+                {t}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {feed.length === 0
         ? (
             <EmptyState
               icon={ActivityIcon}
               title="Nothing yet"
-              description="Runs, checks, event fires, and syncs will appear here as your team works — on its automations or on your briefs."
+              description="Runs, checks, event fires, syncs, and tool calls will appear here as your team works — on its automations or on your briefs."
             />
           )
         : (

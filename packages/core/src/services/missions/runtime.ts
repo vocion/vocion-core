@@ -93,6 +93,7 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
         message: taskMessage({ brief: run.brief, goal: run.goal, task, priorOutputs }),
         userId: run.createdBy ?? 'mission',
         missionSlug: missionSlug ?? undefined,
+        missionRunId: runId,
       });
       task.status = 'completed';
       task.output = result.response;

@@ -4,6 +4,14 @@ import { formatDelta } from './format';
 /**
  * Headline metric card with an optional vs-previous-period delta and a
  * definition tooltip (metric credibility: every number says what it means).
+ * @param props
+ * @param props.label
+ * @param props.value
+ * @param props.hint
+ * @param props.delta
+ * @param props.delta.current
+ * @param props.delta.previous
+ * @param props.definition
  */
 export function StatCard(props: {
   label: string;

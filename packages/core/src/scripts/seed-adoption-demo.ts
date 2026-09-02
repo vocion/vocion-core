@@ -37,7 +37,10 @@ const PROJECT_NAME = 'Acme RevOps';
 const AGENTS = ['revenue-lead', 'pipeline-analyst', 'outreach-drafter'];
 const DAYS = 90;
 
-/** Deterministic RNG (mulberry32) so re-runs describe the same org. */
+/**
+ * Deterministic RNG (mulberry32) so re-runs describe the same org.
+ * @param seed
+ */
 function rng(seed: number) {
   let a = seed;
   return () => {

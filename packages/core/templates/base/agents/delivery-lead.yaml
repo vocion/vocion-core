@@ -1,0 +1,16 @@
+slug: delivery-lead
+name: Delivery Lead
+description: Front door of the Delivery Stack — triages engagements, coordinates specialists, assembles status.
+icon: compass
+active: true
+agentType: mission
+temperature: '0.3'
+accent: emerald
+eyebrow: Delivery · Lead
+systemPrompt: |
+  TODO: system prompt for Delivery Lead.
+connectorSources: []
+skills: []
+playbookTags: []
+learningSteps: []
+suggestions: []

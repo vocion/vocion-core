@@ -1,18 +1,63 @@
 /**
+ * GET  /rpc/sources/[id]/credentials — read back the stored credential so the
+ *      Edit form can load it. Admin-only, and the ONLY place plaintext leaves
+ *      the vault for the browser: everything else works from
+ *      `credentialStatusForOrg`, which reports connected/not without the value.
+ *      This exists because an Edit form that cannot show the token it is about
+ *      to keep reads as if it deleted it.
+ *
  * POST /rpc/sources/[id]/credentials — store connector credentials in the vault.
  *
- * Body: `{ credentials: { token: string, ... } }` — connector-specific keys
- * (all RevOps connectors read `credentials.token`; googleAds also takes a
- * `developerToken`, ga4/drive/gmail take an OAuth access `token`). The plaintext
- * is AES-GCM encrypted at rest; only ciphertext + dek id hit the DB.
+ * Body: `{ credentials: { ... } }` — connector-specific keys. Most connectors
+ * read a single `token`; googleAds adds a `developerToken`; zoom takes a full
+ * Server-to-Server OAuth set ({ accountId, clientId, clientSecret }) and no
+ * token at all. At least one non-empty value is required. The plaintext is
+ * AES-GCM encrypted at rest; only ciphertext + dek id hit the DB.
  *
  * Resolves the source slug from the knowledge_source id, ensures a
  * `source_install` exists, and stores the credential against it. Admin-only.
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
-import { storeCredentialForSource } from '@/services/SourceCredentialService';
+import { getCredentialsForSource, storeCredentialForSource } from '@/services/SourceCredentialService';
 import { getSourceById } from '@/services/SourceSyncService';
+
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ id: string; locale: string }> },
+) {
+  const { orgId, role } = await auth();
+  if (!orgId) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  // Same gate as writing one: an operator who can replace the token is the only
+  // one who has any reason to read it.
+  if (role !== 'admin') {
+    return Response.json({ error: 'Only admins can read source credentials' }, { status: 403 });
+  }
+  const { id } = await ctx.params;
+  const sourceId = Number.parseInt(id, 10);
+  if (!Number.isInteger(sourceId)) {
+    return Response.json({ error: 'Bad source id' }, { status: 400 });
+  }
+  const source = await getSourceById(orgId, sourceId);
+  if (!source) {
+    return Response.json({ error: 'Source not found' }, { status: 404 });
+  }
+  const connectorSlug = (source.config?._connector as string | undefined) ?? source.slug;
+  try {
+    const credentials = await getCredentialsForSource(orgId, connectorSlug);
+    return Response.json({ credentials: credentials ?? null });
+  } catch (err) {
+    // A credential that will not decrypt is the vault-key case, and its message
+    // says what to do about it. Report it rather than pretending there is none,
+    // or the form would silently offer to keep something unusable.
+    return Response.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
+}
 
 export async function POST(
   req: Request,
@@ -39,10 +84,14 @@ export async function POST(
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const creds = body.credentials ?? {};
-  const token = typeof creds.token === 'string' ? creds.token.trim() : '';
-  if (!token) {
-    return Response.json({ error: 'A token is required' }, { status: 400 });
+  const raw: Record<string, string> = {};
+  for (const [key, value] of Object.entries(body.credentials ?? {})) {
+    if (typeof value === 'string' && value.trim() !== '') {
+      raw[key] = value.trim();
+    }
+  }
+  if (Object.keys(raw).length === 0) {
+    return Response.json({ error: 'At least one credential value is required' }, { status: 400 });
   }
 
   const source = await getSourceById(orgId, sourceId);
@@ -55,7 +104,7 @@ export async function POST(
     const { credentialId } = await storeCredentialForSource({
       orgId,
       sourceSlug: connectorSlug,
-      raw: { ...creds, token },
+      raw,
       displayName: body.displayName,
       userId,
       projectId: orgId,

@@ -2,9 +2,17 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["docker-compose.yml", "infra/**/*.{yml,yaml,sh,tf}"],
-      "ignore": ["infra/terraform/**"],
-      "ignoreDependencies": ["conventional-changelog-conventionalcommits", "@commitlint/types"]
+      "entry": [
+        "docker-compose.yml",
+        "infra/**/*.{yml,yaml,sh,tf}"
+      ],
+      "ignore": [
+        "infra/terraform/**"
+      ],
+      "ignoreDependencies": [
+        "conventional-changelog-conventionalcommits",
+        "@commitlint/types"
+      ]
     },
     "packages/core": {
       "entry": [
@@ -21,9 +29,13 @@
         "vitest.config.mts",
         "playwright.config.ts",
         "checkly.config.ts",
-        "postcss.config.mjs"
+        "postcss.config.mjs",
+        "src/libs/workspace/ext-stub/registry.tsx"
       ],
-      "project": ["src/**/*.{ts,tsx}", "!src/**/*.test.{ts,tsx}"],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "!src/**/*.test.{ts,tsx}"
+      ],
       "ignore": [
         "src/components/ui/**",
         "src/features/dashboard/chat/**",
@@ -60,21 +72,41 @@
         "tw-animate-css",
         "@clerk/types",
         "@clerk/nextjs",
-        "vite"
+        "vite",
+        "@wsx/registry"
       ],
       "includeEntryExports": false
     },
     "packages/sdk": {
-      "entry": ["src/index.ts"],
-      "project": ["src/**/*.ts"],
-      "ignoreDependencies": ["react"]
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "react"
+      ]
     },
     "packages/plugins/*": {
-      "entry": ["src/index.ts"],
-      "project": ["src/**/*.ts"]
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
     }
   },
-  "ignoreBinaries": ["dotenv", "tofu", "tsx", "playwright", "production", "checkly", "stripe"],
+  "ignoreBinaries": [
+    "dotenv",
+    "tofu",
+    "tsx",
+    "playwright",
+    "production",
+    "checkly",
+    "stripe",
+    "vitest"
+  ],
   "rules": {
     "exports": "off",
     "types": "off",

@@ -4,7 +4,8 @@ import { renderHook } from 'vitest-browser-react';
 vi.mock('@/libs/Orpc', () => ({
   client: {
     chatWidget: { getState: vi.fn(), setState: vi.fn() },
-    conversations: { get: vi.fn(), create: vi.fn() },
+    chat: { suggestions: vi.fn() },
+    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn() },
   },
 }));
 
@@ -18,10 +19,13 @@ const AGENTS = [
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   vi.mocked(client.chatWidget.getState).mockReset();
   vi.mocked(client.chatWidget.setState).mockReset().mockResolvedValue({ agentSlug: 'orchestrator', conversationId: null });
+  vi.mocked(client.chat.suggestions).mockReset().mockResolvedValue([]);
   vi.mocked(client.conversations.get).mockReset();
   vi.mocked(client.conversations.create).mockReset();
+  vi.mocked(client.conversations.list).mockReset().mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -36,14 +40,14 @@ describe('useChatSession', () => {
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
-    await vi.waitFor(() => expect(result.current.hydrated).toBe(true));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
     expect(result.current.agent.slug).toBe('orchestrator');
     expect(result.current.messages).toEqual([]);
     expect(result.current.conversationId).toBeNull();
   });
 
-  it('hydrates the last-viewed agent and replays its persisted messages', async () => {
+  it('adopts the server-side pointer on a browser that has no local one, and replays its messages', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'specialist', conversationId: 5, updatedAt: new Date() });
     vi.mocked(client.conversations.get).mockResolvedValue({
       id: 5,
@@ -59,7 +63,7 @@ describe('useChatSession', () => {
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
-    await vi.waitFor(() => expect(result.current.hydrated).toBe(true));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
     await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
 
     expect(result.current.agent.slug).toBe('specialist');
@@ -76,7 +80,7 @@ describe('useChatSession', () => {
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
-    await vi.waitFor(() => expect(result.current.hydrated).toBe(true));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
     expect(result.current.agent.slug).toBe('specialist');
     expect(result.current.conversationId).toBeNull();
@@ -89,16 +93,27 @@ describe('useChatSession', () => {
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
-    await vi.waitFor(() => expect(result.current.hydrated).toBe(true));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
     expect(result.current.agent.slug).toBe('orchestrator');
     expect(client.conversations.get).not.toHaveBeenCalled();
   });
 
+  it('prefers this browser\'s own remembered agent over the server-side pointer', async () => {
+    localStorage.setItem('vocion:chat:agent', 'specialist');
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: null, updatedAt: new Date() });
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
+
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
+
+    expect(result.current.agent.slug).toBe('specialist');
+  });
+
   it('handleSwitchAgent clears messages, resets the conversation, and persists the new pointer', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
     const { result, act } = await renderHook(() => useChatSession({ agents: AGENTS }));
-    await vi.waitFor(() => expect(result.current.hydrated).toBe(true));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
     act(() => {
       result.current.handleSwitchAgent('specialist');
@@ -111,7 +126,7 @@ describe('useChatSession', () => {
     await vi.waitFor(() => expect(client.chatWidget.setState).toHaveBeenCalledWith({ agentSlug: 'specialist', conversationId: null }));
   });
 
-  it('startNewConversation clears the view and persists a null conversation pointer', async () => {
+  it('handleNewChat clears the view and persists a null conversation pointer', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date() });
     vi.mocked(client.conversations.get).mockResolvedValue({
       id: 5,
@@ -125,7 +140,7 @@ describe('useChatSession', () => {
     await vi.waitFor(() => expect(result.current.messages).toHaveLength(1));
 
     act(() => {
-      result.current.startNewConversation();
+      result.current.handleNewChat();
     });
 
     expect(result.current.messages).toEqual([]);
@@ -134,7 +149,7 @@ describe('useChatSession', () => {
     await vi.waitFor(() => expect(client.chatWidget.setState).toHaveBeenCalledWith({ agentSlug: 'orchestrator', conversationId: null }));
   });
 
-  it('loadConversation switches agent + messages to the selected conversation and persists it', async () => {
+  it('handlePickConversation switches agent + messages to the selected conversation and persists it', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
     vi.mocked(client.conversations.get).mockResolvedValue({
       id: 8,
@@ -145,10 +160,10 @@ describe('useChatSession', () => {
       messages: [{ id: 3, conversationId: 8, role: 'assistant', content: 'from history', runsJson: null, createdAt: new Date() }],
     } as never);
     const { result, act } = await renderHook(() => useChatSession({ agents: AGENTS }));
-    await vi.waitFor(() => expect(result.current.hydrated).toBe(true));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
     await act(async () => {
-      await result.current.loadConversation(8);
+      await result.current.handlePickConversation(8);
     });
 
     expect(result.current.agent.slug).toBe('specialist');
@@ -158,10 +173,12 @@ describe('useChatSession', () => {
     await vi.waitFor(() => expect(client.chatWidget.setState).toHaveBeenCalledWith({ agentSlug: 'specialist', conversationId: 8 }));
   });
 
-  it('does not let an early handoff sendMessage get stomped by the still-in-flight hydration conversation fetch', async () => {
-    // A stash left by another page (e.g. Briefings) — the handoff effect
+  it('starts a hand-off from another page in a FRESH transcript instead of resuming saved history', async () => {
+    // A stash left by another page (e.g. Briefings) — the hand-off effect
     // fires this as soon as an agent slug is resolved. Seeded BEFORE
-    // rendering so it's present the instant the hook mounts.
+    // rendering so it's present the instant the hook mounts. A hand-off
+    // carries its own context, so resuming an old thread underneath it would
+    // answer the new question against unrelated history.
     sessionStorage.setItem('vocion_chat_handoff', JSON.stringify({
       question: 'What about Q3?',
       contextTitle: 'Q3 Plan',
@@ -169,19 +186,9 @@ describe('useChatSession', () => {
     }));
 
     vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date() });
-    vi.mocked(client.conversations.get).mockResolvedValue({
-      id: 5,
-      orgId: 'org_1',
-      agentSlug: 'orchestrator',
-      title: 'Prior thread',
-      messageCount: 2,
-      messages: [
-        { id: 1, conversationId: 5, role: 'user', content: 'hi', runsJson: null, createdAt: new Date() },
-        { id: 2, conversationId: 5, role: 'assistant', content: 'hello', runsJson: null, createdAt: new Date() },
-      ],
-    } as never);
+    vi.mocked(client.conversations.create).mockResolvedValue({ id: 9 } as never);
 
-    // Minimal valid SSE response so the handoff's sendMessage resolves
+    // Minimal valid SSE response so the hand-off's sendMessage resolves
     // instead of throwing — a single `done` event is enough to close out
     // the stream.
     const encoder = new TextEncoder();
@@ -195,21 +202,15 @@ describe('useChatSession', () => {
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
-    await vi.waitFor(() => expect(result.current.hydrated).toBe(true));
-    // The handoff's sendMessage only fires once hydration's own
-    // conversations.get() has landed — wait for its two turns to show up.
-    await vi.waitFor(() => expect(result.current.messages.length).toBeGreaterThanOrEqual(4));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
+    await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-    // The hydrated conversation's original history is still there, in
-    // order, untouched — proving the later-resolving conversations.get()
-    // never got a chance to wholesale-replace `messages` out from under the
-    // handoff turn that started after it.
-    expect(result.current.messages[0]).toMatchObject({ role: 'user', content: 'hi' });
-    expect(result.current.messages[1]).toMatchObject({ role: 'assistant', content: 'hello' });
-    // The handoff-triggered turn is appended AFTER the hydrated history,
-    // not starting over from an empty array.
-    expect(result.current.messages[2]).toMatchObject({ role: 'user' });
-    expect(result.current.messages[2]!.content).toContain('What about Q3?');
-    expect(result.current.messages[3]).toMatchObject({ role: 'assistant' });
+    // The saved thread was never fetched — the hand-off turn is the whole
+    // transcript, in order, with the carried-over question first.
+    expect(client.conversations.get).not.toHaveBeenCalled();
+    expect(result.current.messages[0]).toMatchObject({ role: 'user' });
+    expect(result.current.messages[0]!.content).toContain('What about Q3?');
+    expect(result.current.messages[0]!.content).toContain('Some carried-over context.');
+    expect(result.current.messages[1]).toMatchObject({ role: 'assistant' });
   });
 });

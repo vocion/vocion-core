@@ -1,0 +1,17 @@
+slug: solutions-architect
+name: Solutions Architect
+description: Designs the technical solution shape — architecture, integrations, tradeoffs — and reviews build plans.
+icon: layers
+active: true
+parent: delivery-lead
+agentType: mission
+temperature: '0.3'
+accent: emerald
+eyebrow: Delivery · Architecture
+systemPrompt: |
+  TODO: system prompt for Solutions Architect.
+connectorSources: []
+skills: []
+playbookTags: []
+learningSteps: []
+suggestions: []

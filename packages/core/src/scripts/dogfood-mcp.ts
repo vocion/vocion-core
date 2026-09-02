@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   }
   console.log();
 
-  const server = buildServer(config);
+  const server = await buildServer(config, { userId: 'mcp' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'dogfood-client', version: '0.0.0' });
 

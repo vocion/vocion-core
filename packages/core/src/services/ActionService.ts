@@ -51,6 +51,8 @@ export type ProposeResult = {
  * @param input.proposal.confidence
  * @param input.proposal.rationale
  * @param input.proposal.evidence
+ * @param input.dedupKey
+ * @param input.expiresAt
  */
 export async function proposeAction(input: {
   orgId: string;
@@ -60,12 +62,50 @@ export async function proposeAction(input: {
   invokedBy?: string;
   /** Agent-proposal envelope — confidence (0–1), rationale, evidence uris. */
   proposal?: { confidence?: number; rationale?: string; evidence?: string[] };
+  /**
+   * Upsert key for agent-suggested actions — (object type + id + action slug).
+   * If a PENDING action_run already exists for (orgId, dedupKey), it is
+   * UPDATED in place (input/proposal/expiry refreshed) instead of duplicated.
+   */
+  dedupKey?: string;
+  /** When this suggestion goes stale (drops from the queue/brief). */
+  expiresAt?: Date;
 }): Promise<ProposeResult> {
   const action = getAction(input.actionId);
   if (!action) {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${input.actionId}`);
   }
   const parsed = action.inputSchema.parse(input.input);
+  // Canonical dedup: when the proposer passes no key, the action derives one
+  // from the parsed input — so an agent proposing the same call twice collapses
+  // into the deterministic job's old behaviour instead of stacking queue items.
+  const dedupKey = input.dedupKey ?? action.dedupKeyFor?.(parsed);
+
+  // Upsert-by-key: a re-surfaced owed action updates its existing PENDING row
+  // rather than stacking duplicates in the queue. Only PENDING rows dedupe —
+  // a decided (done/rejected) action can be proposed fresh later.
+  if (dedupKey) {
+    const [existing] = await db
+      .select({ id: actionRunSchema.id })
+      .from(actionRunSchema)
+      .where(and(
+        eq(actionRunSchema.orgId, input.orgId),
+        eq(actionRunSchema.dedupKey, dedupKey),
+        eq(actionRunSchema.status, 'pending'),
+      ))
+      .limit(1);
+    if (existing) {
+      await db
+        .update(actionRunSchema)
+        .set({
+          input: parsed as Record<string, unknown>,
+          proposal: input.proposal ?? null,
+          expiresAt: input.expiresAt ?? null,
+        })
+        .where(eq(actionRunSchema.id, existing.id));
+      return { runId: existing.id, status: 'pending' };
+    }
+  }
 
   let decision;
   try {
@@ -92,10 +132,39 @@ export async function proposeAction(input: {
       invokedBy: input.invokedBy ?? input.principal.id,
       sourceSlug: action.sourceSlug ?? null,
       proposal: input.proposal ?? null,
+      dedupKey: dedupKey ?? null,
+      expiresAt: input.expiresAt ?? null,
     })
     .returning({ id: actionRunSchema.id });
 
+  // Back-link the fresh run onto the domain record it reviews. Runs before the
+  // gate resolves so the link exists whether the run stays pending or executes.
+  await action.onProposed?.(
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id },
+    parsed,
+    run!.id,
+  );
+
   if (gated) {
+    // Never-auto guard (safety invariant): these ALWAYS require an explicit
+    // human approve, no matter what trust rules exist.
+    //   - an outbound send to a real person (gmail.send, or any external action
+    //     carrying the send_email grant) — a misconfigured or over-eager
+    //     threshold must never be able to fire an email on its own;
+    //   - discovery.review_proposal — approving it starts the follow-up
+    //     workflow, which drafts an email in the seller's voice. Supervised v1
+    //     means a human confirms every detected discovery call, and that is the
+    //     calibration data 020 is built on; auto-approving would both skip the
+    //     human and poison the feedback signal.
+    //   - personalization.enroll — approving it enrolls a real lead into a
+    //     HubSpot sequence that sends real email. No trust rule can release
+    //     an enrollment without a human.
+    // Deliberately not configurable; revisit only once UC5 trust reporting
+    // exists and a human opts in explicitly. Fails safe — it can only keep the
+    // item in the review queue, never release it.
+    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll') {
+      return { runId: run!.id, status: 'pending' };
+    }
     // Trust ladder: an ENABLED rule whose threshold this proposal's
     // confidence clears executes it now — audited, never silent. The
     // default (no rule) keeps every external action in the review queue.
@@ -124,8 +193,10 @@ export async function proposeAction(input: {
  * Resolves the source's vault credentials, runs the action, records the result.
  * @param runId
  * @param orgId
+ * @param opts
+ * @param opts.reviewedBy - The human who approved, when it came through review.
  */
-export async function executeAction(runId: number, orgId: string): Promise<ProposeResult> {
+export async function executeAction(runId: number, orgId: string, opts?: { reviewedBy?: string }): Promise<ProposeResult> {
   const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, runId)).limit(1);
   if (!run || run.orgId !== orgId) {
     throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);
@@ -139,7 +210,7 @@ export async function executeAction(runId: number, orgId: string): Promise<Propo
   const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
 
   try {
-    const result = await action.execute({ orgId, credentials, invokedBy: run.invokedBy ?? undefined }, run.input);
+    const result = await action.execute({ orgId, credentials, invokedBy: run.invokedBy ?? undefined, reviewedBy: opts?.reviewedBy }, run.input);
     await db
       .update(actionRunSchema)
       .set({ status: 'done', result, executedAt: new Date() })
@@ -156,14 +227,57 @@ export async function executeAction(runId: number, orgId: string): Promise<Propo
 }
 
 /**
- * Reject a pending action (from the review queue) — never executes.
+ * Overwrite a PENDING action's input — the operator edited the draft in the
+ * review queue before approving (edit-then-approve). Re-validates against the
+ * action's own input schema so an edit can never smuggle a malformed payload
+ * into execution. No-op-safe: only touches rows still `pending` for this org.
+ * @param runId
+ * @param orgId
+ * @param input - The edited payload (same shape the action expects).
+ */
+export async function updateActionInput(runId: number, orgId: string, input: Record<string, unknown>): Promise<void> {
+  const [run] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId))).limit(1);
+  if (!run) {
+    throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);
+  }
+  if (run.status !== 'pending') {
+    throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status}, not pending — cannot edit`);
+  }
+  const action = getAction(run.actionId);
+  const parsed = action ? action.inputSchema.parse(input) : input;
+  await db
+    .update(actionRunSchema)
+    .set({ input: parsed as Record<string, unknown> })
+    .where(eq(actionRunSchema.id, runId));
+}
+
+/**
+ * Reject a pending action (from the review queue) — never executes. The
+ * action's `onRejected` hook runs after the flip so the domain record it
+ * back-links can move lanes with the decision (fail-soft: the rejection
+ * stands even if the hook fails).
  * @param runId
  * @param orgId
  * @param reason
+ * @param opts
+ * @param opts.reviewedBy - The human who declined, when it came through review.
  */
-export async function rejectAction(runId: number, orgId: string, reason?: string): Promise<void> {
-  await db
+export async function rejectAction(runId: number, orgId: string, reason?: string, opts?: { reviewedBy?: string }): Promise<void> {
+  const [run] = await db
     .update(actionRunSchema)
     .set({ status: 'rejected', error: reason ?? null, executedAt: new Date() })
-    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)));
+    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+    .returning({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy });
+  if (!run) {
+    return;
+  }
+  const action = getAction(run.actionId);
+  await action?.onRejected?.(
+    { orgId, invokedBy: run.invokedBy ?? undefined, reviewedBy: opts?.reviewedBy },
+    run.input,
+    runId,
+    reason,
+  ).catch((err) => {
+    console.error(`[ActionService] onRejected hook for "${run.actionId}" failed`, err);
+  });
 }

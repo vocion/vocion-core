@@ -55,6 +55,7 @@ beforeEach(async () => {
 describe('countSessions', () => {
   it('splits sessions at the idle gap', () => {
     const ts = [0, 5, 10, 60, 65, 200].map(m => new Date(m * 60_000));
+
     // gaps: 5,5,50,5,135 → new sessions at 0, 60, 200
     expect(countSessions(ts, 30)).toBe(3);
   });
@@ -66,6 +67,7 @@ describe('countSessions', () => {
 
   it('a gap of exactly the timeout stays in the same session', () => {
     const ts = [0, 30].map(m => new Date(m * 60_000));
+
     expect(countSessions(ts, 30)).toBe(1);
   });
 });
@@ -97,6 +99,7 @@ describe('track', () => {
       resource: ['conversation_message', 42],
     });
     const rows = await db.select().from(userActivityEventSchema);
+
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       orgId: ORG_A,
@@ -112,6 +115,7 @@ describe('track', () => {
     for (const userId of ['web', 'review-service', 'agent:helper', 'token:abc']) {
       await track({ orgId: ORG_A, userId }, 'review.decided', { meta: { kind: 'skill', decision: 'approved' } });
     }
+
     expect(await db.select().from(userActivityEventSchema)).toHaveLength(0);
   });
 
@@ -119,6 +123,7 @@ describe('track', () => {
     for (let i = 0; i < 2; i++) {
       await track({ orgId: ORG_A, userId: 'usr-a1' }, 'learning.added', { resource: ['learning', 7] });
     }
+
     expect(await db.select().from(userActivityEventSchema)).toHaveLength(1);
   });
 
@@ -127,6 +132,7 @@ describe('track', () => {
       // @ts-expect-error — deliberately malformed
       meta: { kind: 'skill', decision: 'maybe' },
     });
+
     expect(await db.select().from(userActivityEventSchema)).toHaveLength(0);
   });
 });
@@ -150,10 +156,12 @@ describe('session derivation (SQL)', () => {
     })));
 
     const overview = await getOverview(ORG_A, ACCT_A, 7);
+
     expect(overview.sessions).toBe(3);
     expect(overview.activeUsers).toBe(2);
 
     const users = await getUserRows(ORG_A, ACCT_A, 7);
+
     expect(users.find(u => u.userId === 'usr-a1')?.sessions).toBe(2);
     expect(users.find(u => u.userId === 'usr-a2')?.sessions).toBe(1);
   });
@@ -169,6 +177,7 @@ describe('multi-tenant isolation', () => {
 
   it('overview counts only the caller org', async () => {
     const a = await getOverview(ORG_A, ACCT_A, 30);
+
     expect(a.activeUsers).toBe(1);
     expect(a.chatMessages).toBe(1);
     expect(a.totalMembers).toBe(2);
@@ -176,20 +185,24 @@ describe('multi-tenant isolation', () => {
 
   it('user rows never include another account\'s members or events', async () => {
     const rowsA = await getUserRows(ORG_A, ACCT_A, 30);
+
     expect(rowsA.map(r => r.userId).sort()).toEqual(['usr-a1', 'usr-a2']);
     expect(rowsA.find(r => r.userId === 'usr-a1')?.messages).toBe(1);
 
     const rowsB = await getUserRows(ORG_B, ACCT_B, 30);
+
     expect(rowsB.map(r => r.userId)).toEqual(['usr-b1']);
   });
 
   it('agent rows are org-scoped', async () => {
     const agentsA = await getAgentRows(ORG_A, 30);
+
     expect(agentsA.map(a => a.agentSlug)).toEqual(['helper-a']);
   });
 
   it('members with no events classify as never', async () => {
     const rowsA = await getUserRows(ORG_A, ACCT_A, 30);
+
     expect(rowsA.find(r => r.userId === 'usr-a2')?.status).toBe('never');
   });
 });
@@ -220,10 +233,12 @@ describe('adoption router gating', () => {
     });
 
     vi.mocked(auth as any).mockResolvedValue(session('member'));
+
     await expect(call(adoptionUsersRoute, { days: 30 })).rejects.toMatchObject({ status: 403 });
 
     vi.mocked(auth as any).mockResolvedValue(session('admin'));
     const rows = await call(adoptionUsersRoute, { days: 30 });
+
     expect(rows.map(r => r.userId).sort()).toEqual(['usr-a1', 'usr-a2']);
   });
 });

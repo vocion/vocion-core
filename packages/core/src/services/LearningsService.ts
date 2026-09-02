@@ -213,16 +213,23 @@ export async function addLearning(opts: {
     })
     .returning();
   if (opts.createdBy && row) {
+    // Deliberately not awaited — adoption tracking must never slow down or fail
+    // the write. It does need its own catch: an unhandled rejection out here
+    // has no caller left to surface it.
     void (async () => {
-      const [{ track }, { agentSlugFromPrincipal }] = await Promise.all([
-        import('@/services/adoption/track'),
-        import('@/services/adoption/attribution'),
-      ]);
-      await track({ orgId: opts.orgId, userId: opts.createdBy! }, 'learning.added', {
-        // Learnings targeted at an agent carry an 'agent:<slug>' source.
-        agentSlug: agentSlugFromPrincipal(opts.source),
-        resource: ['learning', row.id],
-      });
+      try {
+        const [{ track }, { agentSlugFromPrincipal }] = await Promise.all([
+          import('@/services/adoption/track'),
+          import('@/services/adoption/attribution'),
+        ]);
+        await track({ orgId: opts.orgId, userId: opts.createdBy! }, 'learning.added', {
+          // Learnings targeted at an agent carry an 'agent:<slug>' source.
+          agentSlug: agentSlugFromPrincipal(opts.source),
+          resource: ['learning', row.id],
+        });
+      } catch (error) {
+        console.error(`[LearningsService] could not track learning.added for rule ${row.id}`, error);
+      }
     })();
   }
   return { ok: true as const, rule: row };

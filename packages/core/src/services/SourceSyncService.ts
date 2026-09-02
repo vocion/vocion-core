@@ -90,6 +90,118 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
 }
 
 /**
+ * Tell a run in progress to stop, because the source it is reading changed.
+ *
+ * Cooperative, not a kill: the run notices at its next check and unwinds
+ * cleanly, leaving the watermark where it was and deleting nothing. Nothing
+ * here waits for that to happen — the caller is free to start the replacement
+ * run, because `beginSync` can claim a checkpoint that is no longer `running`.
+ * @param orgId - Org that owns the source.
+ * @param sourceId - Source whose run should stop.
+ * @param reason - What to record on the checkpoint, shown in the UI.
+ * @returns Whether a running sync was found to stop.
+ */
+export async function supersedeRunningSync(
+  orgId: string,
+  sourceId: number,
+  reason: string,
+): Promise<boolean> {
+  const stopped = await db
+    .update(sourceSyncCheckpointSchema)
+    .set({ status: 'superseded', completedAt: new Date(), error: reason })
+    .where(and(
+      eq(sourceSyncCheckpointSchema.sourceId, sourceId),
+      eq(sourceSyncCheckpointSchema.orgId, orgId),
+      eq(sourceSyncCheckpointSchema.status, 'running'),
+    ))
+    .returning({ id: sourceSyncCheckpointSchema.id });
+  return stopped.length > 0;
+}
+
+/**
+ * Replace one source's configuration.
+ *
+ * The connector is NOT changeable: a source's documents were ingested by one
+ * connector's rules and its stored credential belongs to that connector, so
+ * pointing an existing row at a different one would leave both behind. Change
+ * the URL, the collections, the page size — not what kind of thing this is.
+ * @param input - Org, source and the replacement config.
+ * @param input.orgId - Org that owns the source.
+ * @param input.sourceId - Source to update.
+ * @param input.configJson - The new config, without the internal `_connector` key.
+ */
+export async function updateSourceConfig(input: {
+  orgId: string;
+  sourceId: number;
+  configJson: Record<string, unknown>;
+}): Promise<{ id: number; slug: string }> {
+  const [row] = await db
+    .select({
+      id: knowledgeSourceSchema.id,
+      slug: knowledgeSourceSchema.slug,
+      configJson: knowledgeSourceSchema.configJson,
+    })
+    .from(knowledgeSourceSchema)
+    .where(and(
+      eq(knowledgeSourceSchema.id, input.sourceId),
+      eq(knowledgeSourceSchema.orgId, input.orgId),
+    ))
+    .limit(1);
+  if (!row) {
+    throw new Error(`No source ${input.sourceId} in this workspace`);
+  }
+  const existing = row.configJson as Record<string, unknown>;
+  const connectorSlug = (existing._connector as string | undefined) ?? row.slug;
+  const connector = getConnector(connectorSlug);
+  if (!connector) {
+    throw new Error(`Unknown source connector: ${connectorSlug}`);
+  }
+  // Same validation the add path runs, so an edit cannot store a config that a
+  // fresh source would have refused.
+  connector.configSchema.parse(input.configJson);
+  await db
+    .update(knowledgeSourceSchema)
+    .set({ configJson: { ...input.configJson, _connector: connectorSlug } })
+    .where(and(
+      eq(knowledgeSourceSchema.id, input.sourceId),
+      eq(knowledgeSourceSchema.orgId, input.orgId),
+    ));
+  return { id: row.id, slug: row.slug };
+}
+
+/**
+ * Delete one source and everything ingested from it.
+ *
+ * The documents, their chunks and the sync checkpoint go with it through the
+ * schema's cascades — this is not recoverable, and the caller is expected to
+ * have confirmed with the operator first. The stored CREDENTIAL is left alone
+ * on purpose: it belongs to the connector, not to this source, so deleting one
+ * HubSpot source must not disconnect its siblings.
+ * @param orgId - Org that owns the source.
+ * @param sourceId - Source to delete.
+ */
+export async function deleteSource(orgId: string, sourceId: number): Promise<{ documentsDeleted: number }> {
+  const [documents] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(knowledgeDocumentSchema)
+    .where(and(
+      eq(knowledgeDocumentSchema.orgId, orgId),
+      eq(knowledgeDocumentSchema.sourceId, sourceId),
+    ));
+  const deleted = await db
+    .delete(knowledgeSourceSchema)
+    .where(and(
+      eq(knowledgeSourceSchema.id, sourceId),
+      eq(knowledgeSourceSchema.orgId, orgId),
+    ))
+    .returning({ id: knowledgeSourceSchema.id });
+  if (deleted.length === 0) {
+    throw new Error(`No source ${sourceId} in this workspace`);
+  }
+  return { documentsDeleted: Number(documents?.count ?? 0) };
+}
+
+/**
  * How many documents `runSync` ingests at the same time.
  *
  * Ingesting a document is almost entirely spent waiting on one OpenAI
@@ -107,13 +219,56 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
  */
 export const MAX_CONCURRENT_INGESTS = 8;
 
+/**
+ * Which layer reported a failure.
+ *
+ * The distinction matters for what we keep when a run produces more failures
+ * than we store. `connector` means a whole slice of the source never arrived —
+ * a Strapi collection that would not load, a Drive folder that 403'd. `document`
+ * means one item failed to save, usually a rate-limited embedding call. A
+ * thousand document failures are one story told a thousand times; a single
+ * connector failure is the one nobody can reconstruct afterwards.
+ */
+export type FailureScope = 'connector' | 'document';
+
+/**
+ * One thing that went wrong during a sync without ending it. Stored on the
+ * checkpoint so the source detail page can name what was skipped.
+ */
+export type RecordedFailure = {
+  scope: FailureScope;
+  /** What failed, when the reporter knew: a document externalId or a collection URL. */
+  uri?: string;
+  message: string;
+  /** ISO timestamp, so the UI can order failures without a separate column. */
+  at: string;
+};
+
+/**
+ * How many failures of each scope one run records.
+ *
+ * Two separate caps rather than one shared budget, so a source failing to embed
+ * hundreds of documents cannot crowd out the record of the collection that
+ * never loaded at all. `counts.errors` still reports the true total of both.
+ */
+const RECORDED_CONNECTOR_FAILURE_LIMIT = 25;
+const RECORDED_DOCUMENT_FAILURE_LIMIT = 25;
+
 export type SyncResult = {
   sourceId: number;
   created: number;
   updated: number;
   unchanged: number;
+  /** Subset of `unchanged`: content identical, metadata rewritten. */
+  metadataRefreshed: number;
   tombstoned: number;
   errors: number;
+  /**
+   * The first failure this run hit, verbatim. A count alone ("43 errors") does
+   * not tell an operator whether to fix a token, a key or a document, and the
+   * reason is otherwise only in the server log.
+   */
+  firstError: string | null;
 };
 
 /**
@@ -131,6 +286,54 @@ export class SyncAlreadyRunningError extends Error {
   constructor(sourceId: number) {
     super(`a sync is already running for source ${sourceId}`);
     this.name = 'SyncAlreadyRunningError';
+  }
+}
+
+/**
+ * The source's settings changed while this run was going, so it stopped.
+ *
+ * A run reads the config once, at the start. Carrying on after an edit means
+ * writing documents from collections the operator just removed, or from an
+ * instance they just repointed — and then advancing the watermark as if that
+ * were the current picture. Stopping and starting again is both cheaper to
+ * reason about and what the operator asked for by saving.
+ */
+export class SyncSupersededError extends Error {
+  constructor(sourceId: number) {
+    super(`the settings for source ${sourceId} changed, so this sync stopped`);
+    this.name = 'SyncSupersededError';
+  }
+}
+
+/**
+ * How often a running sync checks whether it has been superseded.
+ *
+ * The check is one indexed read of the checkpoint row, and the loop can run
+ * thousands of times, so it is time-based rather than per-document: two seconds
+ * is far shorter than a run the operator would sit and wait through, and adds
+ * at most one query every two seconds.
+ */
+const SUPERSEDE_CHECK_INTERVAL_MS = 2000;
+
+/**
+ * Every document failed, so the run achieved nothing.
+ *
+ * A single bad document is deliberately survivable — it is counted and the run
+ * carries on. But when NOTHING was saved, the cause is almost never the
+ * documents: it is a missing key, a rejected credential, a misconfigured
+ * environment. Reporting that as a successful sync is how an operator ends up
+ * staring at "no documents yet" after a run that looked fine, which is exactly
+ * what happened with an unset OPENAI_API_KEY on 2026-08-31.
+ */
+export class SyncSavedNothingError extends Error {
+  constructor(
+    public readonly failureCount: number,
+    public readonly firstError: string,
+  ) {
+    super(
+      `all ${failureCount} document(s) failed, so nothing was saved. First failure: ${firstError}`,
+    );
+    this.name = 'SyncSavedNothingError';
   }
 }
 
@@ -238,14 +441,22 @@ export async function beginSync(
  * @param args
  * @param args.status
  * @param args.counts
- * @param args.watermark
+ * @param args.watermark - New incremental watermark. Omit to leave the stored one unchanged.
  * @param args.cursor
  * @param args.error
+ * @param args.failures
  */
 export async function finishSync(
   sourceId: number,
   orgId: string,
-  args: { status: 'completed' | 'failed'; counts?: Record<string, number>; watermark?: Date; cursor?: string | null; error?: string },
+  args: {
+    status: 'completed' | 'failed';
+    counts?: Record<string, number>;
+    watermark?: Date;
+    cursor?: string | null;
+    error?: string;
+    failures?: RecordedFailure[];
+  },
 ): Promise<void> {
   await db
     .update(sourceSyncCheckpointSchema)
@@ -255,7 +466,16 @@ export async function finishSync(
       counts: args.counts ?? {},
       cursor: args.cursor ?? null,
       error: args.error ?? null,
-      ...(args.status === 'completed' ? { since: args.watermark ?? null } : {}),
+      failures: args.failures ?? [],
+      // An omitted watermark leaves the stored one untouched. That matters for
+      // a run that completed without reading the whole source: it must neither
+      // advance the watermark (skipping what it missed) nor clear it (throwing
+      // away a good incremental position). Note a full, non-incremental run
+      // reads `since` as null by design, so "keep what is stored" cannot be
+      // expressed by passing the value back in.
+      ...(args.status === 'completed' && args.watermark !== undefined
+        ? { since: args.watermark }
+        : {}),
     })
     .where(and(
       eq(sourceSyncCheckpointSchema.orgId, orgId),
@@ -305,14 +525,17 @@ export async function runSync(opts: {
     created: 0,
     updated: 0,
     unchanged: 0,
+    metadataRefreshed: 0,
     tombstoned: 0,
     errors: 0,
+    firstError: null,
   };
   /** What this run managed to do, as stored on the checkpoint row. */
   const countsForCheckpoint = () => ({
     created: result.created,
     updated: result.updated,
     unchanged: result.unchanged,
+    metadataRefreshed: result.metadataRefreshed,
     tombstoned: result.tombstoned,
     errors: result.errors,
   });
@@ -330,11 +553,38 @@ export async function runSync(opts: {
    * @param event.uri
    * @param event.message
    */
+  // What went wrong without stopping the run, persisted to the checkpoint at
+  // the end so the source detail page can name it. Kept in two buckets so the
+  // caps apply per scope — see FailureScope.
+  const connectorFailures: RecordedFailure[] = [];
+  const documentFailures: RecordedFailure[] = [];
+
+  /** Connector failures first: they are the ones a reader cannot reconstruct. */
+  const failuresForCheckpoint = (): RecordedFailure[] => [...connectorFailures, ...documentFailures];
+
   const reportProgress = (event: {
     kind: 'fetched' | 'skipped' | 'error';
     uri?: string;
     message?: string;
-  }): void => {
+  }, scope: FailureScope = 'document'): void => {
+    // Every error the run survives funnels through here — the connector's own
+    // (a collection it could not read) and ingestion's (a document that would
+    // not save). Recording in this one place keeps the checkpoint's failure
+    // list in step with `counts.errors` no matter which side reported it.
+    if (event.kind === 'error') {
+      const bucket = scope === 'connector' ? connectorFailures : documentFailures;
+      const limit = scope === 'connector'
+        ? RECORDED_CONNECTOR_FAILURE_LIMIT
+        : RECORDED_DOCUMENT_FAILURE_LIMIT;
+      if (bucket.length < limit) {
+        bucket.push({
+          scope,
+          uri: event.uri,
+          message: event.message ?? 'no message reported',
+          at: new Date().toISOString(),
+        });
+      }
+    }
     try {
       opts.onProgress?.(event);
     } catch (error) {
@@ -381,6 +631,28 @@ export async function runSync(opts: {
    * ignored, so one bad document never stops the rest of the sync.
    * @param doc - A document yielded by the connector.
    */
+  let lastSupersedeCheck = Date.now();
+  /**
+   * Throw if this source's settings changed since the run started.
+   *
+   * Time-boxed rather than per-document: one indexed read every couple of
+   * seconds, which is nothing beside the embedding call each document makes.
+   */
+  const stopIfSuperseded = async (): Promise<void> => {
+    if (Date.now() - lastSupersedeCheck < SUPERSEDE_CHECK_INTERVAL_MS) {
+      return;
+    }
+    lastSupersedeCheck = Date.now();
+    const [checkpoint] = await db
+      .select({ status: sourceSyncCheckpointSchema.status })
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, opts.sourceId))
+      .limit(1);
+    if (checkpoint && checkpoint.status !== 'running') {
+      throw new SyncSupersededError(opts.sourceId);
+    }
+  };
+
   const beginIngesting = (doc: IngestDoc): void => {
     const ingesting = ingestDocument(
       { orgId: opts.orgId, sourceId: opts.sourceId, sourceSlug: row.slug },
@@ -395,11 +667,18 @@ export async function runSync(opts: {
           result.updated += 1;
         } else {
           result.unchanged += 1;
+          // Content identical but metadata rewritten — the shape a connector
+          // field-widening backfill takes. Counted separately so such a run
+          // is visible rather than reading as "nothing happened".
+          if (outcome.metadataRefreshed) {
+            result.metadataRefreshed += 1;
+          }
         }
       })
       .catch((error) => {
         result.errors += 1;
         seenButNotSavedExternalIds.add(doc.externalId);
+        result.firstError ??= error instanceof Error ? error.message : String(error);
         // The counter alone loses the reason. Log it — a run full of rate-limit
         // failures and a run full of malformed documents need different fixes.
         log('warn', 'could not save a document during sync', {
@@ -434,10 +713,16 @@ export async function runSync(opts: {
         if (e.kind === 'error') {
           result.errors += 1;
           connectorFailureCount += 1;
+          result.firstError ??= e.message ?? 'the connector reported a failure';
+          reportProgress(e, 'connector');
+          return;
         }
         reportProgress(e);
       },
     })) {
+      // An edit to this source stops the run here rather than letting it write
+      // documents the new settings no longer ask for.
+      await stopIfSuperseded();
       if (handledExternalIds.has(doc.externalId)) {
         // Already ingested this document in this run — see handledExternalIds.
         reportProgress({
@@ -465,6 +750,16 @@ export async function runSync(opts: {
     // allSettled, not all: `all` stops waiting the moment one document fails.
     // We want to wait for all of them either way.
     await Promise.allSettled(activeIngests);
+
+    // Nothing saved and something failed: fail the run rather than reporting a
+    // success with zero documents. Thrown here, before the steps below, so the
+    // watermark stays put and nothing gets deleted on the strength of a run
+    // that read nothing. Note the ordering — a source that is genuinely empty
+    // has no errors, so it still completes.
+    const savedSomething = result.created + result.updated + result.unchanged > 0;
+    if (result.errors > 0 && !savedSomething) {
+      throw new SyncSavedNothingError(result.errors, result.firstError ?? 'no reason was reported');
+    }
 
     // Delete the documents the source no longer has.
     //
@@ -497,10 +792,30 @@ export async function runSync(opts: {
       }
     }
     await markSourceSynced(opts.sourceId);
+    // Only move the incremental watermark when the whole source was read.
+    //
+    // The watermark is one marker for the source, and advancing it asserts
+    // "everything up to here has been seen". A connector that lost a slice and
+    // carried on has not earned that claim: anything changed in this window
+    // inside the failed slice would fall behind the new watermark and never be
+    // requested again, because the next incremental run only asks for what is
+    // newer. Holding the old watermark costs a re-walk; advancing it loses
+    // those documents until a full reconcile.
+    //
+    // Same condition that guards deletion above, for the same reason: a slice
+    // we could not read is a slice we know nothing about.
+    const wholeSourceWasRead = connectorFailureCount === 0;
+    if (!wholeSourceWasRead) {
+      reportProgress({
+        kind: 'skipped',
+        message: `the source reported ${connectorFailureCount} failure(s), so the incremental watermark was left where it was`,
+      });
+    }
     await finishSync(opts.sourceId, opts.orgId, {
       status: 'completed',
       counts: countsForCheckpoint(),
-      watermark: cutoff,
+      watermark: wholeSourceWasRead ? cutoff : undefined,
+      failures: failuresForCheckpoint(),
     });
     return result;
   } catch (err) {
@@ -511,6 +826,18 @@ export async function runSync(opts: {
     // above. Without this, documents would carry on writing to the database
     // after the sync has been marked failed and the request has ended.
     await Promise.allSettled(activeIngests);
+    // The checkpoint already says why this run stopped, and the replacement run
+    // may have claimed the row by now — writing `failed` over that would blame
+    // the edit for a failure and hide the run that is actually going.
+    if (err instanceof SyncSupersededError) {
+      log('warn', 'sync stopped because the source changed', {
+        sourceId: opts.sourceId,
+        orgId: opts.orgId,
+        connectorSlug,
+        counts: countsForCheckpoint(),
+      });
+      throw err;
+    }
     log('error', 'sync failed', {
       sourceId: opts.sourceId,
       orgId: opts.orgId,
@@ -527,6 +854,7 @@ export async function runSync(opts: {
       status: 'failed',
       counts: countsForCheckpoint(),
       error: err instanceof Error ? err.message : String(err),
+      failures: failuresForCheckpoint(),
     });
     throw err;
   }
@@ -638,6 +966,67 @@ export async function documentCountsForOrg(orgId: string): Promise<Record<number
     map[r.sourceId] = Number(r.count);
   }
   return map;
+}
+
+/** What the last (or current) sync run of one source is doing, for the UI. */
+export type SourceSyncState = {
+  /**
+   * `running` while a run holds the source, `completed` / `failed` afterwards,
+   * `superseded` for a run stopped because the source's settings changed, and
+   * `abandoned` for a run still marked running past the takeover window — its
+   * process died, so the UI must not show it as busy for ever.
+   */
+  status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
+  startedAt: Date;
+  completedAt: Date | null;
+  /** The fatal error that ended a failed run. */
+  error: string | null;
+  /** What the run managed to do: created / updated / unchanged / tombstoned / errors. */
+  counts: Record<string, number>;
+};
+
+/**
+ * The sync run per source, so the Sources page can show a run it did not start
+ * itself. One row per source — a run updates the source's checkpoint rather
+ * than adding another, and a unique index enforces it.
+ *
+ * Without this the page only knows about syncs from its own tab: a run started
+ * in another tab, by the scheduler, or one still going after a page reload was
+ * invisible, and the only sign of it was a 409 "already syncing" when the
+ * operator pressed Sync now.
+ * @param orgId - Org whose sources to report on.
+ */
+export async function latestSyncStateForOrg(orgId: string): Promise<Record<number, SourceSyncState>> {
+  const rows = await db
+    .select({
+      sourceId: sourceSyncCheckpointSchema.sourceId,
+      status: sourceSyncCheckpointSchema.status,
+      startedAt: sourceSyncCheckpointSchema.startedAt,
+      completedAt: sourceSyncCheckpointSchema.completedAt,
+      error: sourceSyncCheckpointSchema.error,
+      counts: sourceSyncCheckpointSchema.counts,
+    })
+    .from(sourceSyncCheckpointSchema)
+    .where(eq(sourceSyncCheckpointSchema.orgId, orgId));
+
+  const takeoverCutoff = Date.now() - ABANDONED_SYNC_AFTER_MS;
+  // One row per source: `source_sync_checkpoint_source_idx` is unique on
+  // source_id, and each run updates that row rather than adding one. So there is
+  // no "pick the newest" to do here.
+  const latestPerSource: Record<number, SourceSyncState> = {};
+  for (const row of rows) {
+    // Same rule beginSync uses to take a stuck run over, so the page and the
+    // service never disagree about whether a source is busy.
+    const isStuck = row.status === 'running' && row.startedAt.getTime() < takeoverCutoff;
+    latestPerSource[row.sourceId] = {
+      status: isStuck ? 'abandoned' : (row.status as SourceSyncState['status']),
+      startedAt: row.startedAt,
+      completedAt: row.completedAt,
+      error: row.error,
+      counts: row.counts,
+    };
+  }
+  return latestPerSource;
 }
 
 /**

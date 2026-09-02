@@ -6,6 +6,8 @@ import {
   adoptionUserDetailRoute,
   adoptionUsersRoute,
 } from './Analytics';
+import { createTokenRoute, listTokensRoute, revokeTokenRoute } from './ApiTokens';
+import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
   addLink,
@@ -19,6 +21,7 @@ import {
   remove as removeObject,
   update as updateObject,
 } from './BusinessObject';
+import { suggestions as chatSuggestions } from './Chat';
 import { getState as getChatWidgetState, setState as setChatWidgetState } from './ChatWidget';
 import {
   append as appendConvMessage,
@@ -67,19 +70,20 @@ import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
 import {
-  approve,
   cancel,
   decideActionRoute,
-  getRun,
   getWorkflowRunRoute,
   listAutoExecutedRoute,
   listPendingActionsRoute,
-  listPendingSkillRuns,
   listWorkflowRunsRoute,
-  reject,
+  proposeFromRecommendationRoute,
+  recordSignalRoute,
   resume,
+  rewriteDraftRoute,
+  snoozeActionRoute,
   submitFeedback,
 } from './Review';
+import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
 import { applyNow as applyWorkspaceNow, readPrimitive, driftStatus as workspaceDriftStatus, writeFile } from './Workspace';
 
 export const router = {
@@ -134,6 +138,15 @@ export const router = {
     list: listProjects,
     setActive: setActiveProject,
   },
+  teams: {
+    list: listTeamsRoute,
+    seedSample: seedSampleTeamsRoute,
+  },
+  apiTokens: {
+    list: listTokensRoute,
+    create: createTokenRoute,
+    revoke: revokeTokenRoute,
+  },
   members: {
     list: listMembersRoute,
     invites: listInvitesRoute,
@@ -141,6 +154,9 @@ export const router = {
     revokeInvite: revokeInviteRoute,
     changeRole: changeRoleRoute,
     remove: removeMemberRoute,
+  },
+  chat: {
+    suggestions: chatSuggestions,
   },
   conversations: {
     list: listConvs,
@@ -173,14 +189,18 @@ export const router = {
     getState: getChatWidgetState,
     setState: setChatWidgetState,
   },
+  briefings: {
+    regenerate: briefingsRegenerateRoute,
+    latest: briefingsLatestRoute,
+  },
   review: {
-    listSkillRuns: listPendingSkillRuns,
     listPendingActions: listPendingActionsRoute,
     listAutoExecuted: listAutoExecutedRoute,
     decideAction: decideActionRoute,
-    getSkillRun: getRun,
-    approveSkillRun: approve,
-    rejectSkillRun: reject,
+    snoozeAction: snoozeActionRoute,
+    propose: proposeFromRecommendationRoute,
+    recordSignal: recordSignalRoute,
+    rewriteDraft: rewriteDraftRoute,
     submitFeedback,
     listWorkflowRuns: listWorkflowRunsRoute,
     getWorkflowRun: getWorkflowRunRoute,

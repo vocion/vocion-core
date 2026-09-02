@@ -1,139 +1,145 @@
 /**
- * Playbook mount helper — produces the `initialFiles` map an agent's
- * deepagents runtime seeds into its virtual filesystem on each turn.
+ * Skill and playbook mount helper — produces the `initialFiles` map an
+ * agent's deepagents runtime seeds into its virtual filesystem on each
+ * turn.
  *
- * The deepagents `createSkillsMiddleware` looks for files named
- * `SKILL.md` under any path passed in its `skills` option. We mount
- * every playbook the calling agent has access to at
- * `/playbooks/<slug>/SKILL.md` plus every sibling resource at
- * `/playbooks/<slug>/<resource-path>`. Bodies are read from disk on
- * demand (not cached in the DB row) so edits flow through immediately
- * in dev.
+ * Skills mount at `/skills/<slug>/SKILL.md`, playbooks at
+ * `/playbooks/<slug>/SKILL.md`, each plus sibling resources. Mounting
+ * is BY NAME, never by tag:
+ *   - an agent mounts the skills its `skills:` list names,
+ *   - plus the playbooks its `playbooks:` list names,
+ *   - plus every playbook attached to a mounted skill (the skill's own
+ *     `playbooks:` frontmatter) — the playbook travels with the skill.
  *
- * An agent selects which playbooks to mount via its `playbookTags`
- * field on the `agent` table:
- *   - `null` or empty array: mount every playbook in the org.
- *   - non-empty array: mount only playbooks whose `tags` intersect.
+ * File bodies are read from disk on demand. Where they are read FROM
+ * depends on the row's origin:
+ *   - workspace: the workspace directory (skills/ or playbooks/).
+ *   - core: the base pack shipped inside vocion-core
+ *     (packages/core/templates/base/...).
+ *   - override: SKILL.md from the workspace; each sibling from the
+ *     workspace when present, else from the base pack (merged by path).
  *
- * Per-tenant isolation is enforced by `orgId`-scoped DB queries; the
- * caller passes the resolved orgId.
+ * Per-tenant isolation is enforced by `orgId`-scoped DB queries.
  */
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import process from 'node:process';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { fromRepoRoot } from '@/libs/repo-root';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { playbookSchema } from '@/models/Schema';
 
-export type PlaybookMountFile = {
-  /** Virtual-FS path (e.g. `/playbooks/discovery-followup/SKILL.md`). */
-  path: string;
-  /** File body text. */
-  content: string;
+const PACK_ROOT = 'packages/core/templates/base';
+
+export type MountSkillsOptions = {
+  orgId: string;
+  /** Skill slugs from the agent's `skills:` list. */
+  skillSlugs: string[];
+  /** Playbook slugs from the agent's `playbooks:` list. */
+  playbookSlugs: string[];
 };
 
-export type MountPlaybooksOptions = {
-  orgId: string;
-  /**
-   * Tag filter from `agent.playbookTags`. `null` or empty array means
-   * "mount everything." Otherwise the agent only sees playbooks
-   * whose tag list intersects this set.
-   */
-  agentTags?: string[] | null;
-};
+type CatalogRow = typeof playbookSchema.$inferSelect;
 
 /**
- * Load playbook bodies + sibling resources from disk and return the
- * `initialFiles` map for deepagents `StateBackend`.
- *
- * Returned shape matches deepagents's expected `FilesRecord` —
- * `{ [path: string]: string }` — so it can be spread directly into the
- * agent's input `files`.
+ * Load the named skills + playbooks (and skill-attached playbooks) from
+ * disk and return the `initialFiles` map for deepagents `StateBackend`:
+ * `{ [path: string]: string }`.
  * @param opts
  */
-export async function mountPlaybooks(opts: MountPlaybooksOptions): Promise<Record<string, string>> {
+export async function mountSkills(opts: MountSkillsOptions): Promise<Record<string, string>> {
+  const wanted = new Set([...opts.skillSlugs, ...opts.playbookSlugs]);
+  if (wanted.size === 0) {
+    return {};
+  }
+
   const rows = await db
     .select()
     .from(playbookSchema)
-    .where(eq(playbookSchema.orgId, opts.orgId));
+    .where(and(eq(playbookSchema.orgId, opts.orgId), inArray(playbookSchema.slug, [...wanted])));
 
-  const selected = filterByTags(rows, opts.agentTags ?? null);
-
-  const out: Record<string, string> = {};
-  for (const row of selected) {
-    const skillMdAbsPath = locateSkillMdFromContext(row.orgId, row.slug);
-    if (!skillMdAbsPath) {
-      // Playbook row exists but the on-disk file is gone (renamed?).
-      // Skip silently — workspace:apply should be re-run to clean up.
-      continue;
-    }
-    const playbookFolder = dirname(skillMdAbsPath);
-    try {
-      out[`/playbooks/${row.slug}/SKILL.md`] = readFileSync(skillMdAbsPath, 'utf8');
-    } catch {
-      continue;
-    }
-    for (const rel of row.sourceFiles ?? []) {
-      const abs = join(playbookFolder, rel);
-      try {
-        out[`/playbooks/${row.slug}/${rel}`] = readFileSync(abs, 'utf8');
-      } catch {
-        // Missing sibling resource — log via caller if needed.
+  // Skill-attached playbooks travel with the skill. One extra fetch —
+  // attachment is one level deep by design (playbooks attach nothing).
+  const attached = new Set<string>();
+  for (const row of rows) {
+    if (row.kind === 'skill') {
+      for (const pb of row.attachedPlaybooks ?? []) {
+        if (!wanted.has(pb)) {
+          attached.add(pb);
+        }
       }
     }
+  }
+  if (attached.size > 0) {
+    const extra = await db
+      .select()
+      .from(playbookSchema)
+      .where(and(eq(playbookSchema.orgId, opts.orgId), inArray(playbookSchema.slug, [...attached])));
+    rows.push(...extra.filter(r => r.kind === 'playbook'));
+  }
+
+  const out: Record<string, string> = {};
+  for (const row of rows) {
+    // A slug can name a skill and only mounts as what it is: the agent's
+    // skills list can't pull a playbook row and vice versa.
+    const requestedAsSkill = opts.skillSlugs.includes(row.slug);
+    const requestedAsPlaybook = opts.playbookSlugs.includes(row.slug) || attached.has(row.slug);
+    if ((row.kind === 'skill' && !requestedAsSkill) || (row.kind === 'playbook' && !requestedAsPlaybook)) {
+      continue;
+    }
+    mountRow(row, out);
   }
   return out;
 }
 
-/**
- * Determine whether a playbook is mounted for a given agent tag filter.
- * Pure function, exposed for tests and the catalog UI.
- * @param playbookTags
- * @param agentTags
- */
-export function isPlaybookMounted(playbookTags: string[], agentTags: string[] | null): boolean {
-  if (agentTags === null || agentTags.length === 0) {
-    return true;
+function mountRow(row: CatalogRow, out: Record<string, string>): void {
+  const mountBase = row.kind === 'skill' ? `/skills/${row.slug}` : `/playbooks/${row.slug}`;
+  const body = readByOrigin(row, 'SKILL.md');
+  if (body === null) {
+    // Row exists but the on-disk file is gone (renamed?). Skip silently —
+    // workspace:apply should be re-run to clean up.
+    return;
   }
-  if (playbookTags.length === 0) {
-    return false;
+  out[`${mountBase}/SKILL.md`] = body;
+  for (const rel of row.sourceFiles ?? []) {
+    const content = readByOrigin(row, rel);
+    if (content !== null) {
+      out[`${mountBase}/${rel}`] = content;
+    }
   }
-  return playbookTags.some(t => agentTags.includes(t));
-}
-
-function filterByTags<T extends { tags: string[] }>(rows: T[], agentTags: string[] | null): T[] {
-  if (agentTags === null || agentTags.length === 0) {
-    return rows;
-  }
-  return rows.filter(r => isPlaybookMounted(r.tags ?? [], agentTags));
 }
 
 /**
- * Resolve the on-disk path of a playbook's SKILL.md from the org's
- * workspace directory. Resolution rule: `workspace/<org-slug>/playbooks/<slug>/SKILL.md`
- * where `<org-slug>` is the directory under `workspace/` that owns this
- * org. For multi-tenant deployments where one org maps to one folder,
- * we read the path from the `WORKSPACE_PATH` env; when it is unset no
- * workspace is configured and the playbook mounts without SKILL.md.
- *
- * This is a v0.2 simplification — a future phase will write the file
- * path onto the `playbook` row at apply time so we don't have to
- * recompute it.
- * @param _orgId
- * @param slug
+ * Read one file of a cataloged folder, resolving the on-disk location
+ * from the row's origin. Overrides read workspace-first with base-pack
+ * fallback per file (sibling resources merged by path). Exported for
+ * the catalog read paths (MCP playbook_get, detail pages).
+ * @param row
+ * @param rel
  */
-function locateSkillMdFromContext(_orgId: string, slug: string): string | null {
-  const contextPath = getWorkspacePath();
-  if (!contextPath) {
-    return null;
+export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, rel: string): string | null {
+  const dirName = row.kind === 'skill' ? 'skills' : 'playbooks';
+  const workspaceFile = (): string | null => {
+    const ws = getWorkspacePath();
+    return ws ? fromRepoRoot(ws, dirName, row.slug, rel) : null;
+  };
+  const packFile = (): string => fromRepoRoot(PACK_ROOT, dirName, row.slug, rel);
+
+  const candidates = row.origin === 'core'
+    ? [packFile()]
+    : row.origin === 'override'
+      ? [workspaceFile(), packFile()]
+      : [workspaceFile()];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    try {
+      return readFileSync(candidate, 'utf8');
+    } catch {
+      continue;
+    }
   }
-  const candidate = join(process.cwd(), contextPath, 'playbooks', slug, 'SKILL.md');
-  try {
-    readFileSync(candidate, 'utf8');
-    return candidate;
-  } catch {
-    return null;
-  }
+  return null;
 }

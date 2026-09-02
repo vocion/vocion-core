@@ -33,11 +33,19 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: vocion_core
+      # ONE canonical database name: `vocion`, matching .env.example and every
+      # deployment. The old `vocion_core` name (dev-compose only) caused two
+      # prod incidents: a fresh-volume boot with no `vocion` database, and the
+      # temporal worker silently inheriting this URL through compose merge and
+      # pointing at a database that didn't exist (no scheduled automation fired
+      # for nine days). A dev volume that predates the rename keeps its old
+      # database; run `docker exec vocion-postgres createdb -U postgres vocion`
+      # once, then re-run migrations + workspace:apply.
+      POSTGRES_DB: vocion
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, pg_isready -U postgres -d vocion_core]
+      test: [CMD-SHELL, pg_isready -U postgres -d vocion]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -59,7 +67,7 @@ services:
       - ./:/app
     environment:
       ENABLE_FEEDBACK_WORKER: '1'
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vocion_core
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vocion
     command: [sh, -c, 'cd packages/core && npm run worker:serve']
 
   # Temporal worker (Phase H.1). Runs vocionWorkflow Workflows +
@@ -80,7 +88,10 @@ services:
       - ./:/app
     environment:
       ENABLE_TEMPORAL_WORKER: '1'
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vocion_core
+      # Dev URL. Deployments MUST re-set DATABASE_URL in their own overlay's
+      # `environment:` — compose merge lets this value outrank any env_file,
+      # so an overlay that only supplies an env_file still runs on this URL.
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/vocion
       VOCION_TEMPORAL_ADDRESS: temporal:7233
       VOCION_TEMPORAL_NAMESPACE: default
     command: [sh, -c, 'cd packages/core && npm run temporal:worker']

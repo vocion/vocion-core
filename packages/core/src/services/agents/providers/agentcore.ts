@@ -12,8 +12,7 @@
  *     as an `inline_function`, so when the agent calls one the harness
  *     pauses and hands the call BACK to this process. We execute it
  *     with the SAME tool implementations the local provider uses
- *     (searchKnowledgeTool, runOperationTool — including the
- *     harness-interrupt HITL gate) and resume with the result.
+ *     (searchKnowledgeTool) and resume with the result.
  *
  * Provisioning (`syncAgentCoreHarness`) is idempotent per agent slug:
  * create-or-update, then poll READY. Invocation
@@ -26,7 +25,7 @@
  *     provider). Enabling memory + a stable per-conversation session id
  *     is the phase-2 upgrade.
  *   - Loop observability lives in CloudWatch GenAI (AWS side);
- *     operations still trace to Langfuse via SkillService.
+ *     tool calls land in the tool_call activity record.
  */
 
 import type { HarnessMessage, HarnessContentBlock as SdkContentBlock } from '@aws-sdk/client-bedrock-agentcore';
@@ -42,10 +41,10 @@ import {
   UpdateHarnessCommand,
 } from '@aws-sdk/client-bedrock-agentcore-control';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { agentSchema, skillSchema } from '@/models/Schema';
-import { runOperationTool } from '../tools/runOperation';
+import { agentSchema } from '@/models/Schema';
+import { withToolCallRecord } from '../toolCallRecord';
 import { searchKnowledgeTool } from '../tools/searchKnowledge';
 
 /* ------------------------------------------------------------------ */
@@ -103,17 +102,12 @@ type AgentRow = typeof agentSchema.$inferSelect;
 /**
  * The vocion tool surface, declared as harness inline functions. The
  * harness never executes these — it pauses and returns the call to us.
- * Schemas mirror the local tools (tools/searchKnowledge.ts,
- * tools/runOperation.ts) so both providers behave identically.
+ * Schemas mirror the local tools (tools/searchKnowledge.ts) so both
+ * providers behave identically.
  * @param row
- * @param skillRows
  */
-function buildInlineTools(row: AgentRow, skillRows: Array<typeof skillSchema.$inferSelect>): HarnessTool[] {
+function buildInlineTools(row: AgentRow): HarnessTool[] {
   const sources = (row.connectorSources ?? []).join(', ');
-  const interrupts = row.harnessConfig?.interrupts ?? [];
-  const opCatalog = skillRows
-    .map(s => `- ${s.slug}: ${s.description ?? s.name}`)
-    .join('\n');
 
   return [
     {
@@ -130,24 +124,6 @@ function buildInlineTools(row: AgentRow, skillRows: Array<typeof skillSchema.$in
               metadata_filters: { type: 'object', additionalProperties: { type: 'string' }, description: 'Optional: filter by document metadata key-value pairs.' },
             },
             required: ['query'],
-          },
-        },
-      },
-    },
-    {
-      type: 'inline_function',
-      name: 'run_operation',
-      config: {
-        inlineFunction: {
-          description: `Invoke a typed operation (a single LLM call + plugin code).${opCatalog ? ` Available operations:\n${opCatalog}` : ' No operations are in scope for this agent.'}${interrupts.length > 0 ? `\nOperations requiring human approval before execution: ${interrupts.join(', ')}. Calling one emits an approval gate; wait for the user's decision, then re-call with approved: true only if they approved.` : ''}`,
-          inputSchema: {
-            type: 'object',
-            properties: {
-              slug: { type: 'string', description: 'operation slug to invoke' },
-              input: { type: 'object', description: 'arguments matching the operation\'s declared inputSchema' },
-              approved: { type: 'boolean', description: 'for interrupt-gated operations ONLY: set true after — and only after — the user has explicitly approved this exact operation in a later turn' },
-            },
-            required: ['slug', 'input'],
           },
         },
       },
@@ -171,13 +147,8 @@ export async function syncAgentCoreHarness(orgId: string, agentSlug: string): Pr
     throw new Error(`agentcore: agent ${agentSlug} not found for org ${orgId}`);
   }
 
-  const skillSlugs = row.skillSlugs ?? [];
-  const skillRows = skillSlugs.length > 0
-    ? await db.select().from(skillSchema).where(and(eq(skillSchema.orgId, orgId), inArray(skillSchema.slug, skillSlugs)))
-    : [];
-
   const hc = row.harnessConfig ?? {};
-  const tools = buildInlineTools(row, skillRows);
+  const tools = buildInlineTools(row);
   const shared = {
     executionRoleArn: await resolveExecutionRoleArn(),
     model: {
@@ -275,25 +246,23 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
   const ctx: RuntimeContext = {
     orgId: opts.orgId,
     userId: opts.userId,
+    citationSeq: { current: 0 },
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     allowedSourceSlugs: opts.allowedSourceSlugs,
     objectTypeSlugs: row.objectTypeSlugs ?? [],
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    operationSlugs: row.skillSlugs ?? [],
     harnessConfig: row.harnessConfig ?? {},
+    provider: 'agentcore',
     emit,
   };
   // The SAME LangChain tool objects the local provider wires into its
   // graph — invoked directly here with the harness's inline-call args.
-  const searchTool = searchKnowledgeTool(ctx);
-  const opTool = runOperationTool(ctx);
+  // Wrapped so each invocation writes a tool_call row, like the others.
+  const searchTool = withToolCallRecord(searchKnowledgeTool(ctx), ctx);
   const invokeInlineTool = async (name: string, input: Record<string, unknown>): Promise<string | null> => {
     if (name === 'search_knowledge') {
       return String(await searchTool.invoke(input as Parameters<typeof searchTool.invoke>[0]));
-    }
-    if (name === 'run_operation') {
-      return String(await opTool.invoke(input as Parameters<typeof opTool.invoke>[0]));
     }
     return null;
   };

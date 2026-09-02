@@ -5,12 +5,17 @@ import { ChevronRight } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
+import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
 import { Link } from '@/libs/I18nNavigation';
 
 /**
  * Collapsible variant of `AppSidebarNav` — the group label becomes a
  * toggle (shadcn sidebar Collapsible pattern). Used by the Organization
  * group; reusable for any section that earns sub-navigation.
+ * @param props
+ * @param props.label
+ * @param props.defaultOpen
+ * @param props.items
  */
 export const AppSidebarNavGroup = (props: {
   label: string;
@@ -56,7 +61,7 @@ export const AppSidebarNavGroup = (props: {
                         )
                       : (
                           <Link href={item.url}>
-                            <item.icon />
+                            <NavPendingIcon icon={item.icon} />
                             <span>{item.title}</span>
                           </Link>
                         )}
