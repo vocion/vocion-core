@@ -113,6 +113,7 @@ export default async function ObjectDetailPage(props: {
               explanation={typeof meta.explanation === 'string' ? meta.explanation : null}
               findings={Array.isArray(meta.findings) ? (meta.findings as Finding[]) : []}
               regionsChecked={typeof meta.regions_checked === 'number' ? meta.regions_checked : null}
+              checks={(meta.checks as React.ComponentProps<typeof InspectionPhoto>['checks']) ?? null}
             />
           )}
           {/* Summary */}
