@@ -44,6 +44,13 @@ export const gmailSendAction: Action<typeof gmailSendInput> = {
   grant: 'send_email',
   external: true,
   sourceSlug: 'gmail',
+  // One PENDING email per recipient: a re-firing automation refreshes its
+  // draft in place instead of stacking the queue. The recipient is the
+  // identity because the model rewrites the subject on every pass (observed
+  // in prod: 16 stacked drafts to one address, every subject different).
+  // Pending-only dedup, so a fresh email to the same person proposes cleanly
+  // once the last one is decided.
+  dedupKeyFor: input => `gmail.send:${input.to.trim().toLowerCase()}`,
   // The card template, email kind: one send, reviewed and edited inline.
   async reviewCard(_ctx, input) {
     return {
