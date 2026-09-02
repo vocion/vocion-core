@@ -89,6 +89,60 @@ async function ensureInspectionType(orgId: string): Promise<boolean> {
 }
 
 /**
+ * The two engines side by side, derived from `metadata.checks` so pages and
+ * the record can compare them without re-reading raw tool output.
+ *
+ * Hybrid rule (demo default): when both ran and agree → that verdict, at the
+ * higher confidence; when they disagree → HOLD, flagged so a person looks;
+ * when only one ran → its verdict. Claude Vision is the primary because it
+ * names the region; the classifier is a whole-image second opinion.
+ * @param checks
+ * @param template
+ */
+export function summarizeEngines(checks: Record<string, unknown> | undefined, template: string | null): Record<string, unknown> {
+  const ref = (checks?.reference ?? null) as { verdict?: string; confidence?: number; model?: string; at?: string } | null;
+  const cls = (checks?.classifier ?? null) as { top?: { name: string; confidence: number } | null; labels?: Array<{ name: string; confidence: number }>; at?: string } | null;
+  const claude = ref?.verdict
+    ? { engine: 'Claude Vision', model: ref.model ?? null, verdict: ref.verdict, confidence: ref.confidence ?? null, at: ref.at ?? null }
+    : null;
+  let rekognition: Record<string, unknown> | null = null;
+  if (cls?.top) {
+    const good = cls.labels?.find(l => l.name.endsWith('_good') && (!template || l.name.startsWith(template)));
+    const bad = cls.labels?.find(l => l.name.endsWith('_bad') && (!template || l.name.startsWith(template)));
+    const verdict = cls.top.name.endsWith('_bad') ? 'hold' : cls.top.name.endsWith('_good') ? 'pass' : null;
+    rekognition = { engine: 'Amazon Rekognition Custom Labels', label: cls.top.name, verdict, confidence: cls.top.confidence, good: good?.confidence ?? null, bad: bad?.confidence ?? null, at: cls.at ?? null };
+  }
+  let agreement: 'agree' | 'disagree' | 'one-engine' | 'none' = 'none';
+  let hybrid: string | null = null;
+  let hybridConfidence: number | null = null;
+  let hybridReason = '';
+  if (claude && rekognition?.verdict) {
+    if (claude.verdict === rekognition.verdict) {
+      agreement = 'agree';
+      hybrid = claude.verdict;
+      hybridConfidence = Math.max(claude.confidence ?? 0, Number(rekognition.confidence) || 0);
+      hybridReason = 'Both engines agree.';
+    } else {
+      agreement = 'disagree';
+      hybrid = 'hold';
+      hybridConfidence = null;
+      hybridReason = `Engines disagree (Claude Vision ${claude.verdict}, Rekognition ${String(rekognition.verdict)}) — held for a person.`;
+    }
+  } else if (claude) {
+    agreement = 'one-engine';
+    hybrid = claude.verdict;
+    hybridConfidence = claude.confidence ?? null;
+    hybridReason = 'Claude Vision only; the classifier did not run.';
+  } else if (rekognition?.verdict) {
+    agreement = 'one-engine';
+    hybrid = String(rekognition.verdict);
+    hybridConfidence = Number(rekognition.confidence) || null;
+    hybridReason = 'Rekognition only; no reference comparison yet.';
+  }
+  return { claude, rekognition, agreement, hybrid_verdict: hybrid, hybrid_confidence: hybridConfidence, hybrid_reason: hybridReason };
+}
+
+/**
  * Create or update the inspection record for an image. Status follows the
  * verdict (`passed` | `held`); a person's later decision (qc.release, rework)
  * overrides it and is never clobbered by a re-check.
@@ -126,6 +180,7 @@ async function upsertInspection(ctx: RuntimeContext, args: {
     ...args.patch,
     last_checked_at: new Date().toISOString(),
   };
+  metadata.engines = summarizeEngines(metadata.checks as Record<string, unknown> | undefined, (metadata.template_id as string | null) ?? args.template);
   const title = `${args.template ?? 'kit'} · ${String(metadata.production_order ?? path.basename(args.imageKey, path.extname(args.imageKey)))}`;
   if (existing) {
     await updateBusinessObject({ id: existing.id, status: status ?? 'pending', metadata, title }, ctx.orgId);
