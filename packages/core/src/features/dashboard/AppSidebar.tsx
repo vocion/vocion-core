@@ -9,6 +9,7 @@ import {
   CalendarClock,
   CheckSquare,
   Compass,
+  Cpu,
   Database,
   FileText,
   GitBranch,
@@ -178,6 +179,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   items={[
                     { title: t('skills'), url: '/dashboard/skills', icon: Zap },
                     { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
+                    { title: 'Vision models', url: '/dashboard/models', icon: Cpu },
                     { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
                   ]}
                 />

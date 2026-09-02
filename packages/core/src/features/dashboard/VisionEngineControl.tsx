@@ -104,6 +104,7 @@ export function VisionEngineControl({ compact = false }: { compact?: boolean }) 
           {(error || actionError) && <p className="mt-1 text-xs text-red-600">{actionError ?? error}</p>}
         </div>
         <div className="flex items-center gap-2">
+          <a href="/dashboard/models" className="text-xs underline-offset-2 hover:underline">Model details</a>
           {running || status === 'STARTING'
             ? (
                 <button type="button" disabled={busy || status === 'STARTING'} onClick={() => flip('stop')} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium transition hover:bg-red-500/10 hover:text-red-600 disabled:opacity-50">
