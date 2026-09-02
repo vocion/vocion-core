@@ -1,7 +1,35 @@
 'use client';
 
-import { CheckCircle2, Globe, KeyRound, Loader2, Plus, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  BarChart3,
+  Calendar,
+  CheckCircle2,
+  CircleAlert,
+  Contact,
+  Database,
+  Eye,
+  EyeOff,
+  FileJson,
+  FileText,
+  FolderOpen,
+  Globe,
+  KeyRound,
+  Loader2,
+  Mail,
+  Megaphone,
+  MessageSquare,
+  NotebookPen,
+  Pencil,
+  Plug,
+  Plus,
+  RefreshCw,
+  Search,
+  SquareKanban,
+  Trash2,
+  Video,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Link } from '@/libs/I18nNavigation';
@@ -19,6 +47,14 @@ type Source = {
   documentCount: number;
   credentialConnected: boolean;
   credentialUpdatedAt: string | null;
+  /** The latest sync run for this source, whoever started it. Null if never synced. */
+  sync: {
+    status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
+    startedAt: string;
+    completedAt: string | null;
+    error: string | null;
+    counts: Record<string, number>;
+  } | null;
 };
 
 type ConnectorTile = {
@@ -29,6 +65,59 @@ type ConnectorTile = {
   authKind: 'none' | 'apikey' | 'oauth';
 };
 
+/** How often to re-read the list while a sync is running somewhere. */
+const RUNNING_SYNC_POLL_MS = 5000;
+
+/** What a finished sync run reported back, as the panel states it. */
+type SyncOutcome = { message: string; hadErrors: boolean };
+
+/** The counts a sync run returns. Mirrors SyncResult on the server. */
+type SyncResult = {
+  created: number;
+  updated: number;
+  unchanged: number;
+  tombstoned: number;
+  errors: number;
+  firstError: string | null;
+};
+
+/**
+ * Turn a sync run's counts into one plain sentence.
+ *
+ * The counts are the only thing that says a run did nothing useful — a sync
+ * that fetched 43 documents and failed to save all 43 still answers 200, and
+ * the panel would otherwise show an unchanged document count and no reason.
+ * @param result - Counts the sync route returned, if it returned any.
+ */
+export function describeSyncResult(result: SyncResult | undefined): SyncOutcome {
+  if (!result) {
+    return { message: 'Sync finished, but the server did not say what it did.', hadErrors: true };
+  }
+  const saved = result.created + result.updated;
+  const parts: string[] = [];
+  if (result.created > 0) {
+    parts.push(`${result.created} added`);
+  }
+  if (result.updated > 0) {
+    parts.push(`${result.updated} updated`);
+  }
+  if (result.unchanged > 0) {
+    parts.push(`${result.unchanged} unchanged`);
+  }
+  if (result.tombstoned > 0) {
+    parts.push(`${result.tombstoned} removed`);
+  }
+  const summary = parts.length > 0 ? parts.join(', ') : 'nothing changed';
+  if (result.errors === 0) {
+    return { message: `Sync finished: ${summary}.`, hadErrors: false };
+  }
+  const reason = result.firstError ? ` First failure: ${result.firstError}` : '';
+  return {
+    message: `Sync finished with ${result.errors} document(s) it could not save (${saved} saved, ${summary}).${reason}`,
+    hadErrors: true,
+  };
+}
+
 export function SourcesPanel() {
   const [sources, setSources] = useState<Source[]>([]);
   const [connectors, setConnectors] = useState<ConnectorTile[]>([]);
@@ -37,7 +126,10 @@ export function SourcesPanel() {
   const [addingKind, setAddingKind] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [connectingSource, setConnectingSource] = useState<Source | null>(null);
+  const [editingSource, setEditingSource] = useState<Source | null>(null);
+  const [deletingSource, setDeletingSource] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncOutcome, setSyncOutcome] = useState<SyncOutcome | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -51,19 +143,46 @@ export function SourcesPanel() {
     }
   }, []);
 
+  /** Re-read the list without blanking the page — used by the while-syncing poll. */
+  const refreshQuietly = useCallback(async () => {
+    const res = await fetch('/rpc/sources');
+    const data = await res.json();
+    setSources(data.sources ?? []);
+    setConnectors(data.connectors ?? []);
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
+  // A run in another tab (or one still going after a reload) finishes without
+  // this tab doing anything, so poll while one is in flight — and only while,
+  // since an idle Sources page has nothing to watch for.
+  const someoneIsSyncing = sources.some(source => source.sync?.status === 'running');
+  useEffect(() => {
+    if (!someoneIsSyncing) {
+      return;
+    }
+    const timer = setInterval(() => {
+      void refreshQuietly();
+    }, RUNNING_SYNC_POLL_MS);
+    return () => clearInterval(timer);
+  }, [someoneIsSyncing, refreshQuietly]);
+
   const handleSync = useCallback(async (id: number) => {
     setSyncingId(id);
     setError(null);
+    setSyncOutcome(null);
     try {
       const res = await fetch(`/rpc/sources/${id}/sync`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? 'Sync failed');
       } else {
+        // A sync that saved some documents and dropped others returns 200, so
+        // without this the dropped ones are invisible and the source just looks
+        // short. Always report what the run actually did.
+        setSyncOutcome(describeSyncResult(data.result as SyncResult | undefined));
         await refresh();
       }
     } catch (err) {
@@ -91,8 +210,22 @@ export function SourcesPanel() {
 
       {error
         ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            <div className="flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <CircleAlert className="mt-0.5 size-4 shrink-0" />
               {error}
+            </div>
+          )
+        : null}
+
+      {syncOutcome
+        ? (
+            <div
+              className={syncOutcome.hadErrors
+                ? 'flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-500'
+                : 'flex items-start gap-1.5 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground'}
+            >
+              {syncOutcome.hadErrors ? <CircleAlert className="mt-0.5 size-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}
+              {syncOutcome.message}
             </div>
           )
         : null}
@@ -121,6 +254,8 @@ export function SourcesPanel() {
                     source={s}
                     syncing={syncingId === s.id}
                     onSync={() => handleSync(s.id)}
+                    onEdit={() => setEditingSource(s)}
+                    onDelete={() => setDeletingSource(s)}
                     onConnect={() => setConnectingSource(s)}
                   />
                 ))}
@@ -152,6 +287,37 @@ export function SourcesPanel() {
             />
           )
         : null}
+      {editingSource
+        ? (
+            <AddSourceDialog
+              kind={connectorSlugFor(editingSource)}
+              connector={connectors.find(c => c.slug === connectorSlugFor(editingSource)) ?? null}
+              existing={editingSource}
+              onClose={() => setEditingSource(null)}
+              onAdded={async () => {
+                const editedId = editingSource.id;
+                setEditingSource(null);
+                await refresh();
+                // New settings, new picture: the saved edit already stopped any
+                // run reading the old config, so read the source again now
+                // rather than leaving stale documents until someone notices.
+                await handleSync(editedId);
+              }}
+            />
+          )
+        : null}
+      {deletingSource
+        ? (
+            <DeleteSourceDialog
+              source={deletingSource}
+              onClose={() => setDeletingSource(null)}
+              onDeleted={async () => {
+                setDeletingSource(null);
+                await refresh();
+              }}
+            />
+          )
+        : null}
       {connectingSource
         ? (
             <ConnectCredentialDialog
@@ -168,14 +334,18 @@ export function SourcesPanel() {
   );
 }
 
-/** Connector-specific credential fields. All read `token`; a couple take extras. */
-const CRED_FIELDS: Record<string, { label: string; help: string; extra?: { key: string; label: string } }> = {
-  hubspot: { label: 'Private-app token', help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).' },
-  slack: { label: 'Bot / user token', help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).' },
-  gmail: { label: 'OAuth access token', help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)' },
-  drive: { label: 'OAuth access token', help: 'A Google OAuth access token with drive.readonly.' },
-  ga4: { label: 'OAuth access token', help: 'A Google OAuth access token with analytics.readonly.' },
-  googleAds: { label: 'OAuth access token', help: 'A Google Ads OAuth access token.', extra: { key: 'developerToken', label: 'Developer token' } },
+/** Connector-specific credential fields. Most read a single `token`; some take a full key set. */
+type CredField = { key: string; label: string; optional?: boolean };
+const TOKEN_FIELD: CredField = { key: 'token', label: 'Token' };
+const CRED_FIELDS: Record<string, { help: string; fields: CredField[] }> = {
+  hubspot: { help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).', fields: [{ key: 'token', label: 'Private-app token' }] },
+  slack: { help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).', fields: [{ key: 'token', label: 'Bot / user token' }] },
+  gmail: { help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)', fields: [{ key: 'token', label: 'OAuth access token' }] },
+  drive: { help: 'A Google OAuth access token with drive.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
+  ga4: { help: 'A Google OAuth access token with analytics.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
+  googleAds: { help: 'A Google Ads OAuth access token.', fields: [{ key: 'token', label: 'OAuth access token' }, { key: 'developerToken', label: 'Developer token', optional: true }] },
+  strapi: { help: 'Strapi admin → Settings → API Tokens → Create new API Token. Read-only is enough — this connector never writes back.', fields: [{ key: 'token', label: 'API token' }] },
+  zoom: { help: 'Zoom App Marketplace → Develop → Build App → Server-to-Server OAuth. Needs scopes user:read:admin + cloud_recording:read:admin. All three values are on the app\'s Credentials page.', fields: [{ key: 'accountId', label: 'Account ID' }, { key: 'clientId', label: 'Client ID' }, { key: 'clientSecret', label: 'Client secret' }] },
 };
 
 function ConnectCredentialDialog({ source, onClose, onConnected }: {
@@ -184,20 +354,23 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   onConnected: () => Promise<void> | void;
 }) {
   const connectorSlug = ((source.config?._connector as string | undefined) ?? source.slug);
-  const spec = CRED_FIELDS[connectorSlug] ?? { label: 'Token', help: 'Paste the connector access token.' };
-  const [token, setToken] = useState('');
-  const [extra, setExtra] = useState('');
+  const spec = CRED_FIELDS[connectorSlug] ?? { help: 'Paste the connector access token.', fields: [TOKEN_FIELD] };
+  const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const complete = spec.fields.every(f => f.optional || (values[f.key] ?? '').trim() !== '');
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const credentials: Record<string, string> = { token: token.trim() };
-      if (spec.extra && extra.trim()) {
-        credentials[spec.extra.key] = extra.trim();
+      const credentials: Record<string, string> = {};
+      for (const f of spec.fields) {
+        const v = (values[f.key] ?? '').trim();
+        if (v) {
+          credentials[f.key] = v;
+        }
       }
       const res = await fetch(`/rpc/sources/${source.id}/credentials`, {
         method: 'POST',
@@ -219,7 +392,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
+      <div className="w-full max-w-xl rounded-xl border bg-background shadow-xl">
         <form onSubmit={submit}>
           <div className="flex items-center gap-2 border-b px-4 py-3">
             <KeyRound className="size-4 text-muted-foreground" />
@@ -231,31 +404,20 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
           </div>
           <div className="space-y-4 p-4">
             <p className="text-xs text-muted-foreground">{spec.help}</p>
-            <label className="block">
-              <span className="text-sm font-medium text-foreground/80">{spec.label}</span>
-              <input
-                type="password"
-                required
-                autoComplete="off"
-                value={token}
-                onChange={e => setToken(e.target.value)}
-                placeholder="••••••••••••••••"
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-              />
-            </label>
-            {spec.extra
-              ? (
-                  <label className="block">
-                    <span className="text-sm font-medium text-foreground/80">{spec.extra.label}</span>
-                    <input
-                      type="text"
-                      value={extra}
-                      onChange={e => setExtra(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                    />
-                  </label>
-                )
-              : null}
+            {spec.fields.map(field => (
+              <label key={field.key} className="block">
+                <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+                <input
+                  type="password"
+                  required={!field.optional}
+                  autoComplete="off"
+                  value={values[field.key] ?? ''}
+                  onChange={e => setValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                  placeholder="••••••••••••••••"
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                />
+              </label>
+            ))}
             <p className="text-[11px] text-muted-foreground">Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.</p>
             {error
               ? (
@@ -271,7 +433,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
             </button>
             <button
               type="submit"
-              disabled={submitting || !token.trim()}
+              disabled={submitting || !complete}
               className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
@@ -284,15 +446,22 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   );
 }
 
-function SourceRow({ source, syncing, onSync, onConnect }: {
+function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
   source: Source;
   syncing: boolean;
   onSync: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
   onConnect: () => void;
 }) {
   const last = source.lastSyncedAt ? new Date(source.lastSyncedAt) : null;
   const lastLabel = last ? formatRelative(last) : 'never';
   const needsCreds = source.authKind !== 'none' && !source.credentialConnected;
+  // A run this tab did not start still holds the source — another tab, the
+  // scheduler, or one still going after a reload. Pressing Sync now would only
+  // earn a 409, so show it as busy instead of letting the operator find out.
+  const runningElsewhere = source.sync?.status === 'running';
+  const busy = syncing || runningElsewhere;
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="flex items-start gap-3">
@@ -312,6 +481,7 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
               ? `${source.documentCount.toLocaleString()} document${source.documentCount === 1 ? '' : 's'} ingested`
               : 'No documents yet'}
           </p>
+          <SyncRunLine sync={source.sync} />
           <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
             {describeSourceConfig(source.config)}
           </p>
@@ -341,7 +511,11 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
           {lastLabel}
         </Badge>
         <div className="flex items-center gap-2">
-          {source.authKind !== 'none'
+          {/* Connect is only for a source with nothing stored yet — that is a
+              call to action. Once a credential exists, Edit changes it along
+              with everything else, so a separate "Update key" was one more
+              button doing a job the edit form already does. */}
+          {needsCreds
             ? (
                 <button
                   type="button"
@@ -349,18 +523,38 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
                   className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
                 >
                   <KeyRound className="size-3" />
-                  {source.credentialConnected ? 'Update key' : 'Connect'}
+                  Connect
                 </button>
               )
             : null}
           <button
             type="button"
+            onClick={onEdit}
+            title="Edit this source's settings"
+            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
+          >
+            <Pencil className="size-3" />
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            title="Delete this source and everything ingested from it"
+            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/5"
+          >
+            <Trash2 className="size-3" />
+            Delete
+          </button>
+          <button
+            type="button"
             onClick={onSync}
-            disabled={syncing || needsCreds}
-            title={needsCreds ? 'Connect credentials first' : undefined}
+            disabled={busy || needsCreds}
+            title={needsCreds
+              ? 'Connect credentials first'
+              : (runningElsewhere ? 'This source is already syncing. Wait for it to finish, then try again.' : undefined)}
             className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
           >
-            {syncing
+            {busy
               ? (
                   <>
                     <Loader2 className="size-3 animate-spin" />
@@ -380,6 +574,192 @@ function SourceRow({ source, syncing, onSync, onConnect }: {
   );
 }
 
+/**
+ * One line about this source's latest sync run — busy, failed, or finished with
+ * documents it could not save.
+ *
+ * This is the only place a run started somewhere else shows up, and the only
+ * place a failure survives a page reload: the panel's own banner is gone as
+ * soon as the operator navigates away.
+ * @param root0 - Props.
+ * @param root0.sync - The latest run for this source, or null if it never ran.
+ */
+function SyncRunLine({ sync }: { sync: Source['sync'] }) {
+  if (!sync) {
+    return null;
+  }
+  if (sync.status === 'running') {
+    return (
+      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="size-3 animate-spin" />
+        Syncing now — started
+        {' '}
+        {formatRelative(new Date(sync.startedAt))}
+      </p>
+    );
+  }
+  if (sync.status === 'abandoned') {
+    return (
+      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+        A sync started
+        {' '}
+        {formatRelative(new Date(sync.startedAt))}
+        {' '}
+        never finished — its process stopped. Sync now will take over.
+      </p>
+    );
+  }
+  if (sync.status === 'superseded') {
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">
+        A sync stopped when the settings changed; a fresh one runs with the new settings.
+      </p>
+    );
+  }
+  if (sync.status === 'failed') {
+    return (
+      <p className="mt-1 flex items-start gap-1.5 text-xs text-destructive">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+        Last sync failed:
+        {' '}
+        {sync.error ?? 'no reason was recorded'}
+      </p>
+    );
+  }
+  const errorCount = sync.counts.errors ?? 0;
+  if (errorCount > 0) {
+    return (
+      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+        Last sync could not save
+        {' '}
+        {errorCount}
+        {' '}
+        document
+        {errorCount === 1 ? '' : 's'}
+        .
+      </p>
+    );
+  }
+  return null;
+}
+
+/**
+ * Which connector a configured source belongs to.
+ *
+ * Sources are all stored with kind `plugin`; the connector is in the config as
+ * `_connector`, falling back to the slug for rows written before that key.
+ * @param source - The configured source row.
+ */
+function connectorSlugFor(source: Source): string {
+  return (source.config?._connector as string | undefined) ?? source.kind ?? source.slug;
+}
+
+/**
+ * Confirm deleting a source, saying exactly what goes with it.
+ *
+ * Deleting cascades to every document ingested from the source and their
+ * embeddings, and there is no undo — so the count is stated up front and the
+ * confirm button is the destructive-coloured one.
+ * @param root0 - Props.
+ * @param root0.source - The source to delete.
+ * @param root0.onClose - Close without deleting.
+ * @param root0.onDeleted - Called after a successful delete.
+ */
+function DeleteSourceDialog({ source, onClose, onDeleted }: {
+  source: Source;
+  onClose: () => void;
+  onDeleted: () => Promise<void> | void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const confirm = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      const message = await deleteSourceById(source.id);
+      if (message) {
+        setError(message);
+        return;
+      }
+      await onDeleted();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-xl rounded-xl border bg-background shadow-xl">
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <Trash2 className="size-4 text-destructive" />
+          <h3 className="font-display text-lg">
+            Delete
+            {' '}
+            {source.slug}
+            ?
+          </h3>
+        </div>
+        <div className="space-y-3 p-4 text-sm">
+          <p>
+            This removes the source and the
+            {' '}
+            {source.documentCount.toLocaleString()}
+            {' '}
+            document
+            {source.documentCount === 1 ? '' : 's'}
+            {' '}
+            ingested from it, so they stop appearing in search. It cannot be undone.
+          </p>
+          <p className="text-muted-foreground">
+            Nothing changes in
+            {' '}
+            {source.kind}
+            {' '}
+            itself, and the stored credential stays — other sources on the same connector keep working.
+          </p>
+        </div>
+        <div className="border-t px-4 py-3">
+          {error
+            ? (
+                <div role="alert" className="mb-3 flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                  {error}
+                </div>
+              )
+            : null}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirm}
+              disabled={deleting}
+              className="inline-flex items-center gap-1.5 rounded-full bg-destructive px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-50"
+            >
+              {deleting
+                ? (
+                    <>
+                      <Loader2 className="size-3 animate-spin" />
+                      Deleting…
+                    </>
+                  )
+                : 'Delete source'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function describeSourceConfig(config: Record<string, unknown>): string {
   const c = config as { urls?: string[]; crawl?: { startUrl?: string; maxPages?: number } };
   if (c.crawl?.startUrl) {
@@ -391,6 +771,75 @@ function describeSourceConfig(config: Record<string, unknown>): string {
   return 'Configured source';
 }
 
+/**
+ * How many connector cards render before the picker asks for a click to show
+ * more. The registry is small today but grows with every connector shipped, and
+ * a modal that paints a hundred cards on open is the cost nobody notices until
+ * it is slow. Rendering a page at a time keeps the open instant without pulling
+ * in a virtual-list dependency; the search box is what makes a long list usable.
+ */
+const CONNECTOR_PAGE_SIZE = 25;
+
+/**
+ * The Lucide icons connectors name in their `icon` field (`libs/sources/*.ts`).
+ * Listed explicitly rather than looked up off the whole Lucide namespace, which
+ * would pull every icon in the library into the client bundle. A connector whose
+ * icon is missing here gets the generic plug rather than nothing.
+ */
+const CONNECTOR_ICONS: Record<string, LucideIcon> = {
+  BarChart3,
+  Calendar,
+  Contact,
+  Database,
+  FileJson,
+  FileText,
+  FolderOpen,
+  Globe,
+  Mail,
+  Megaphone,
+  MessageSquare,
+  NotebookPen,
+  Pencil,
+  SquareKanban,
+  Video,
+};
+
+/**
+ * A connector's icon. The `icon` field carries a Lucide icon NAME, so rendering
+ * it as text used to print its first letter — "D" on the Strapi tile, from
+ * `Database`, which reads like a shortcut key and means nothing.
+ * @param props.name - The Lucide icon name from the connector's tile data.
+ * @param root0
+ * @param root0.name
+ */
+function ConnectorIcon({ name }: { name: string }) {
+  const Icon = CONNECTOR_ICONS[name] ?? Plug;
+  return <Icon className="size-4" aria-hidden="true" />;
+}
+
+/**
+ * Connectors whose name, slug or description contains every word in the query,
+ * sorted A–Z by name. Word-at-a-time (rather than one substring match) so
+ * "google ads" finds the Google Ads tile whichever order the words are typed.
+ * An empty query matches everything, which is what the picker shows on open.
+ *
+ * Alphabetical rather than registry order: the registry is append-ordered by
+ * when each connector shipped, which tells an operator scanning the list
+ * nothing, and the order shifts under them every time one is added.
+ * @param connectors - Every connector the server offers as a tile.
+ * @param query - What the operator typed in the picker's search box.
+ */
+export function filterConnectors(connectors: ConnectorTile[], query: string): ConnectorTile[] {
+  const words = query.toLowerCase().split(/\s+/).filter(word => word.length > 0);
+  const matches = words.length === 0
+    ? [...connectors]
+    : connectors.filter((connector) => {
+        const haystack = `${connector.name} ${connector.slug} ${connector.description}`.toLowerCase();
+        return words.every(word => haystack.includes(word));
+      });
+  return matches.sort((left, right) => left.name.localeCompare(right.name));
+}
+
 function ConnectorPicker({
   connectors,
   onClose,
@@ -400,17 +849,62 @@ function ConnectorPicker({
   onClose: () => void;
   onPick: (slug: string) => void;
 }) {
+  const [query, setQuery] = useState('');
+  const [visibleCount, setVisibleCount] = useState(CONNECTOR_PAGE_SIZE);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // The picker opens for this input — typing straight away is the point. Done
+  // with a ref rather than `autoFocus`, which the a11y lint rules bar.
+  useEffect(() => {
+    searchInputRef.current?.focus();
+  }, []);
+
+  const matches = useMemo(() => filterConnectors(connectors, query), [connectors, query]);
+  const visible = matches.slice(0, visibleCount);
+  const hiddenCount = matches.length - visible.length;
+
+  // A new query starts a fresh page — otherwise a search run after "Show more"
+  // would keep the taller list height for a two-result match.
+  const changeQuery = (next: string) => {
+    setQuery(next);
+    setVisibleCount(CONNECTOR_PAGE_SIZE);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-2xl rounded-xl border bg-background shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border bg-background shadow-xl">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="font-display text-lg">Pick a source type</h3>
           <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
             Cancel
           </button>
         </div>
-        <div className="grid gap-2 p-4 sm:grid-cols-2">
-          {connectors.map(c => (
+        <div className="border-b px-4 py-3">
+          <label className="relative block">
+            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              onChange={e => changeQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  onClose();
+                }
+              }}
+              placeholder="Search source types — name or what it ingests"
+              aria-label="Search source types"
+              className="w-full rounded-md border border-input bg-background py-2 pr-3 pl-9 text-sm"
+            />
+          </label>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {matches.length === connectors.length
+              ? `${connectors.length} source types`
+              : `${matches.length} of ${connectors.length} source types`}
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 overflow-y-auto p-4">
+          {visible.map(c => (
             <button
               type="button"
               key={c.slug}
@@ -418,41 +912,333 @@ function ConnectorPicker({
               className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
             >
               <div className="flex items-center gap-2">
-                <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-                  {c.icon.slice(0, 1)}
+                <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+                  <ConnectorIcon name={c.icon} />
                 </span>
                 <span className="font-medium">{c.name}</span>
+                {c.authKind !== 'none'
+                  ? (
+                      <Badge variant="outline" className="ml-auto text-[10px]">
+                        {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
+                      </Badge>
+                    )
+                  : null}
               </div>
               <p className="mt-2 text-xs text-muted-foreground">{c.description}</p>
-              {c.authKind !== 'none'
-                ? (
-                    <Badge variant="outline" className="mt-2 text-[10px]">
-                      {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
-                    </Badge>
-                  )
-                : null}
             </button>
           ))}
+          {matches.length === 0
+            ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No source type matches “
+                  {query}
+                  ”.
+                </p>
+              )
+            : null}
+          {hiddenCount > 0
+            ? (
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(count => count + CONNECTOR_PAGE_SIZE)}
+                  className="rounded-lg border border-dashed py-2 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Show
+                  {' '}
+                  {Math.min(hiddenCount, CONNECTOR_PAGE_SIZE)}
+                  {' '}
+                  more (
+                  {hiddenCount}
+                  {' '}
+                  hidden)
+                </button>
+              )
+            : null}
         </div>
       </div>
     </div>
   );
 }
 
-function AddSourceDialog({
-  kind,
-  connector,
+/**
+ * Split a typed collection list into the array the Strapi connector's config
+ * schema wants. Commas and newlines both separate, so a pasted list works, and
+ * blanks from a trailing comma are dropped rather than failing validation.
+ * @param raw
+ */
+export function parseStrapiCollections(raw: string): string[] {
+  return raw
+    .split(/[,\n]/)
+    .map(entry => entry.trim())
+    .filter(entry => entry.length > 0);
+}
+
+/**
+ * POST a new source row, reporting the new id so a caller can keep working with
+ * it — storing a token, say. `error` carries the server's message on failure.
+ * @param kind - Connector slug.
+ * @param configJson - The connector's own config blob.
+ */
+async function createSourceReturningId(
+  kind: string,
+  configJson: Record<string, unknown>,
+): Promise<{ id: number | null; error: string | null }> {
+  const res = await fetch('/rpc/sources', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, configJson }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return { id: null, error: data.error ?? 'Failed to create source' };
+  }
+  const newId = data.source?.id;
+  return { id: typeof newId === 'number' ? newId : null, error: null };
+}
+
+/**
+ * PATCH one source's config. Returns the server's message on failure, null on success.
+ * @param sourceId - Source to update.
+ * @param configJson - The connector's own config blob, replacing the stored one.
+ */
+async function updateSourceConfig(sourceId: number, configJson: Record<string, unknown>): Promise<string | null> {
+  const res = await fetch(`/rpc/sources/${sourceId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ configJson }),
+  });
+  const data = await res.json();
+  return res.ok ? null : (data.error ?? 'Failed to save the source');
+}
+
+/**
+ * DELETE one source, along with everything ingested from it.
+ * @param sourceId - Source to remove.
+ */
+async function deleteSourceById(sourceId: number): Promise<string | null> {
+  const res = await fetch(`/rpc/sources/${sourceId}`, { method: 'DELETE' });
+  const data = await res.json();
+  return res.ok ? null : (data.error ?? 'Failed to delete the source');
+}
+
+/**
+ * POST a new source row. Returns the server's message on failure, null on success.
+ * @param kind - Connector slug.
+ * @param configJson - The connector's own config blob.
+ */
+async function createSource(kind: string, configJson: Record<string, unknown>): Promise<string | null> {
+  const { error } = await createSourceReturningId(kind, configJson);
+  return error;
+}
+
+/**
+ * The chrome every add-source form shares: title, error strip, Cancel and the
+ * submit button's pending state. The fields themselves differ per connector —
+ * a web crawl needs a start URL, Strapi needs an instance and its collections —
+ * so each form owns its own state and hands its config to `onSubmit`.
+ * @param root0
+ * @param root0.title
+ * @param root0.error
+ * @param root0.submitting
+ * @param root0.canSubmit
+ * @param root0.onClose
+ * @param root0.onSubmit
+ * @param root0.children
+ */
+function AddSourceDialogFrame({
+  title,
+  error,
+  requirement,
+  notice,
+  submitLabel,
+  submitting,
+  canSubmit,
   onClose,
-  onAdded,
+  onSubmit,
+  children,
 }: {
+  title: string;
+  error: string | null;
+  requirement: string | null;
+  /** A standing note about what saving will do, shown above the fields. */
+  notice: string | null;
+  /** Wording for the submit button — "Add source" when adding, "Save changes" when editing. */
+  submitLabel: string;
+  submitting: boolean;
+  canSubmit: boolean;
+  onClose: () => void;
+  onSubmit: (e: React.FormEvent) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      {/* Header and footer are pinned and only the fields scroll, so a validation
+          error — which lands in the footer, next to the button that triggered it —
+          is visible wherever the operator has scrolled to. */}
+      <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border bg-background shadow-xl">
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <h3 className="font-display text-lg">{title}</h3>
+          </div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+            {notice
+              ? (
+                  <p className="rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    {notice}
+                  </p>
+                )
+              : null}
+            {children}
+          </div>
+          <div className="border-t px-4 py-3">
+            {error
+              ? (
+                  <div
+                    role="alert"
+                    className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+                  >
+                    {error}
+                  </div>
+                )
+              : null}
+            <div className="flex items-center justify-between gap-3">
+              {/* What is still missing, said out loud rather than left for the
+                  operator to infer from a greyed-out button. */}
+              {requirement
+                ? (
+                    <p className="flex items-start gap-1.5 text-sm text-destructive">
+                      <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                      {`Still needed: ${requirement}`}
+                    </p>
+                  )
+                : <span />}
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                {/* The title rides the wrapper, not the button: a disabled button
+                    swallows its own hover events, so its tooltip never opens. */}
+                <span title={canSubmit ? undefined : (requirement ?? undefined)}>
+                  <button
+                    type="submit"
+                    disabled={submitting || !canSubmit}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
+                  >
+                    {submitting
+                      ? (
+                          <>
+                            <Loader2 className="size-3 animate-spin" />
+                            Saving…
+                          </>
+                        )
+                      : submitLabel}
+                  </button>
+                </span>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+const FIELD_CLASS = 'mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
+
+/** Ties the Strapi token label to its input without nesting the eye button inside the label. */
+const TOKEN_INPUT_ID = 'strapi-api-token';
+
+/** How long the URL and token must sit unchanged before collections load on their own. */
+const AUTO_LOAD_DEBOUNCE_MS = 700;
+
+/**
+ * One key for a URL plus token, so an instance already read is not read again.
+ * The separator is a NUL because it cannot appear in either value.
+ * @param baseUrl - Instance URL as typed, trimmed.
+ * @param token - API token as typed, trimmed.
+ */
+function credentialPairKey(baseUrl: string, token: string): string {
+  return `${baseUrl}\u0000${token}`;
+}
+
+/**
+ * True when a check ran and the instance would not hand over the collection.
+ * An absent check means nothing was verified yet, which is not a failure.
+ * @param check - Verdict for one collection, or undefined when unchecked.
+ */
+function isUnreadable(check: CollectionCheck | undefined): check is CollectionCheck {
+  return check !== undefined && check.status !== 'ok';
+}
+
+/** Row-sized wording for a failed collection check; the full message goes in the title. */
+const COLLECTION_STATUS_LABELS: Record<CollectionCheck['status'], string> = {
+  'ok': 'reads',
+  'not-found': 'No such collection',
+  'unauthorized': 'Token rejected',
+  'forbidden': 'No read permission',
+  'error': 'Check failed',
+};
+
+/**
+ * Plain-English name for whatever is still missing before a Strapi source can be
+ * added, in the order the form is filled. Null once nothing is missing.
+ *
+ * This is the disabled Add source button's explanation — both as a line in the
+ * footer and as its hover tooltip — so it has to read like an instruction, not
+ * like a validation code.
+ * @param state - What the form holds right now.
+ * @param state.baseUrl - Instance URL as typed.
+ * @param state.token - API token as typed.
+ * @param state.chosenCount - How many collections are ticked or typed.
+ * @param state.hasCatalogue - Whether the instance listed its collections, so they are ticked rather than typed.
+ * @param state.failedChecks - Chosen collections this instance would not read.
+ */
+function describeMissingPiece(state: {
+  baseUrl: string;
+  token: string;
+  chosenCount: number;
+  hasCatalogue: boolean;
+  failedChecks: CollectionCheck[];
+}): string | null {
+  if (state.baseUrl.trim() === '') {
+    return 'the Strapi instance URL';
+  }
+  if (state.token.trim() === '') {
+    return 'an API token';
+  }
+  if (state.chosenCount === 0) {
+    return state.hasCatalogue
+      ? 'at least one collection ticked in the list above'
+      : 'at least one collection — type its plural api id above';
+  }
+  if (state.failedChecks.length > 0) {
+    const named = state.failedChecks
+      .map(check => `${check.collection} (${COLLECTION_STATUS_LABELS[check.status].toLowerCase()})`)
+      .join(', ');
+    return `a fix for ${named} — this instance won't read it, so syncing it would store nothing`;
+  }
+  return null;
+}
+
+function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
   kind: string;
-  connector: ConnectorTile | null;
+  title: string;
+  /** The source being edited, or null when adding a new one. */
+  existing: Source | null;
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
-  const [url, setUrl] = useState('');
-  const [crawl, setCrawl] = useState(true);
-  const [maxPages, setMaxPages] = useState(20);
+  const existingConfig = (existing?.config ?? {}) as {
+    urls?: string[];
+    crawl?: { startUrl?: string; maxPages?: number };
+  };
+  const [url, setUrl] = useState(existingConfig.crawl?.startUrl ?? existingConfig.urls?.[0] ?? '');
+  const [crawl, setCrawl] = useState(existing ? existingConfig.crawl !== undefined : true);
+  const [maxPages, setMaxPages] = useState(existingConfig.crawl?.maxPages ?? 20);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -464,14 +1250,11 @@ function AddSourceDialog({
       const configJson = crawl
         ? { crawl: { startUrl: url, maxDepth: 1, maxPages } }
         : { urls: [url] };
-      const res = await fetch('/rpc/sources', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind, configJson }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? 'Failed to create source');
+      const message = existing
+        ? await updateSourceConfig(existing.id, configJson)
+        : await createSource(kind, configJson);
+      if (message) {
+        setError(message);
         return;
       }
       await onAdded();
@@ -481,84 +1264,668 @@ function AddSourceDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl border bg-background shadow-xl">
-        <form onSubmit={submit}>
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <h3 className="font-display text-lg">
-              Add
-              {' '}
-              {connector?.name ?? kind}
-              {' '}
-              source
-            </h3>
-          </div>
-          <div className="space-y-4 p-4">
+    <AddSourceDialogFrame
+      title={title}
+      error={error}
+      requirement={url.trim().length > 0 ? null : 'a URL to read'}
+      submitLabel={existing ? 'Save changes' : 'Add source'}
+      notice={existing ? 'Saving restarts this source\'s sync: a run in progress stops, and a fresh one reads the source with the new settings.' : null}
+      submitting={submitting}
+      canSubmit={url.trim().length > 0}
+      onClose={onClose}
+      onSubmit={submit}
+    >
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">URL</span>
+        <input
+          type="url"
+          required
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          placeholder="https://example.com/docs"
+          className={FIELD_CLASS}
+        />
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={crawl} onChange={e => setCrawl(e.target.checked)} />
+        Crawl linked pages on the same origin
+      </label>
+      {crawl
+        ? (
             <label className="block">
-              <span className="text-sm font-medium text-foreground/80">URL</span>
+              <span className="text-sm font-medium text-foreground/80">Max pages</span>
               <input
-                type="url"
-                required
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-                placeholder="https://example.com/docs"
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                type="number"
+                min={1}
+                max={200}
+                value={maxPages}
+                onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
+                className={FIELD_CLASS}
               />
             </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={crawl} onChange={e => setCrawl(e.target.checked)} />
-              Crawl linked pages on the same origin
-            </label>
-            {crawl
-              ? (
-                  <label className="block">
-                    <span className="text-sm font-medium text-foreground/80">Max pages</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={200}
-                      value={maxPages}
-                      onChange={e => setMaxPages(Math.max(1, Math.min(200, Number.parseInt(e.target.value, 10) || 1)))}
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    />
-                  </label>
-                )
-              : null}
-            {error
-              ? (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                    {error}
-                  </div>
-                )
-              : null}
-          </div>
-          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || !url}
-              className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
-            >
-              {submitting
-                ? (
-                    <>
-                      <Loader2 className="size-3 animate-spin" />
-                      Adding…
-                    </>
-                  )
-                : 'Add source'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+          )
+        : null}
+    </AddSourceDialogFrame>
   );
+}
+
+/** One collection's verdict from the inspect call. Mirrors `StrapiCollectionCheck`. */
+type CollectionCheck = {
+  collection: string;
+  status: 'ok' | 'not-found' | 'forbidden' | 'unauthorized' | 'error';
+  entryCount: number | null;
+  message: string | null;
+  /** True when the collection reads without any credential, so the read proves nothing about the token. */
+  publiclyReadable?: boolean;
+};
+
+/** What the inspect route reported about an instance. */
+type StrapiInspection = {
+  reachable: boolean;
+  authorized: boolean;
+  detectedVersion: 4 | 5 | null;
+  collections: string[] | null;
+  enumerationNote: string | null;
+  checks: CollectionCheck[];
+  error: string | null;
+};
+
+/**
+ * Ask the server to look at a Strapi instance with these details. The call goes
+ * through our own API rather than the browser because a partner's Strapi will
+ * not allow a cross-origin request, and the token should not leave our origin.
+ * @param baseUrl - Instance root as typed.
+ * @param token - The API token as typed.
+ * @param collections - Names to verify; empty asks only for the catalogue.
+ */
+async function inspectStrapi(
+  baseUrl: string,
+  token: string,
+  collections: string[],
+): Promise<{ inspection: StrapiInspection | null; error: string | null }> {
+  const res = await fetch('/rpc/connectors/strapi/inspect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config: { baseUrl }, credentials: { token }, collections }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return { inspection: null, error: data.error ?? 'Could not reach that Strapi instance' };
+  }
+  return { inspection: data.inspection as StrapiInspection, error: null };
+}
+
+/**
+ * Store the API token against a freshly created source, so adding a Strapi
+ * source is one pass instead of add-then-Connect.
+ * @param sourceId - The id returned by the create call.
+ * @param token - The API token to store in the vault.
+ */
+/**
+ * Read back a source's stored credential so an Edit form can load it.
+ *
+ * Returns null when there is nothing stored, and the server's message when the
+ * read failed — a credential that will not decrypt must not look like an empty
+ * field, or the operator would save an edit believing the old token still works.
+ * @param sourceId - Source whose credential to read.
+ */
+async function loadSourceToken(sourceId: number): Promise<{ token: string | null; error: string | null }> {
+  const res = await fetch(`/rpc/sources/${sourceId}/credentials`);
+  const data = await res.json();
+  if (!res.ok) {
+    return { token: null, error: data.error ?? 'Could not read the stored token' };
+  }
+  const stored = data.credentials as { token?: string } | null;
+  return { token: stored?.token ?? null, error: null };
+}
+
+async function storeSourceToken(sourceId: number, token: string): Promise<string | null> {
+  const res = await fetch(`/rpc/sources/${sourceId}/credentials`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credentials: { token } }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return data.error ?? 'The source was created but its token could not be stored';
+  }
+  return null;
+}
+
+/**
+ * What one collection's check says, rendered beside the collection's own name:
+ * an entry count when it reads, the reason when it doesn't.
+ * @param root0 - Component props.
+ * @param root0.check - The verdict for this collection, or undefined before any check ran.
+ */
+function CollectionVerdict({ check }: { check: CollectionCheck | undefined }) {
+  if (!check) {
+    return null;
+  }
+  if (check.status === 'ok') {
+    return (
+      <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+        <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+        {check.entryCount ?? 0}
+        {check.entryCount === 1 ? ' entry' : ' entries'}
+      </span>
+    );
+  }
+  // Short label on the row, full sentence on hover — the panel's own note above
+  // carries the long version, so a row does not need to wrap to three lines.
+  return (
+    <span
+      title={check.message ?? check.status}
+      className="ml-auto flex items-center gap-1 text-right text-xs text-destructive"
+    >
+      <CircleAlert className="size-3.5 shrink-0" />
+      {COLLECTION_STATUS_LABELS[check.status]}
+    </span>
+  );
+}
+
+/**
+ * Strapi's own fields. The operator gives the instance URL and an API token
+ * first; the server then looks the instance up and, where the instance allows
+ * it, hands back a list of collections to tick rather than plural api ids to
+ * type from memory. Instances that keep their content-type list behind the admin
+ * API cannot be enumerated with an API token, so the typed list stays available
+ * and each name typed there is verified against the instance.
+ *
+ * One source covers every collection on one instance — `ensureSource` keys a row
+ * on (org, connector slug), so a second Strapi source would resolve back to the
+ * first (see `libs/sources/strapi.ts`). That is why collections are a list here
+ * rather than a source each.
+ * @param root0 - Component props.
+ * @param root0.kind - Connector slug, always `strapi` here.
+ * @param root0.title - Dialog heading.
+ * @param root0.onClose - Dismiss without creating anything.
+ * @param root0.onAdded - Called after the source and its token are stored.
+ */
+function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
+  kind: string;
+  title: string;
+  /** The source being edited, or null when adding a new one. */
+  existing: Source | null;
+  onClose: () => void;
+  onAdded: () => Promise<void> | void;
+}) {
+  const existingConfig = (existing?.config ?? {}) as {
+    baseUrl?: string;
+    collections?: string[];
+    populate?: string;
+    pageSize?: number;
+  };
+  // The token is never sent back to the browser, so an edit starts with the
+  // field empty and keeps whatever is stored unless something is typed.
+  const tokenAlreadyStored = existing?.credentialConnected ?? false;
+  const [baseUrl, setBaseUrl] = useState(existingConfig.baseUrl ?? '');
+  const [token, setToken] = useState('');
+  /** The token as stored, so saving an untouched field writes no new credential. */
+  const [storedToken, setStoredToken] = useState<string | null>(null);
+  const [tokenVisible, setTokenVisible] = useState(false);
+  const [collectionsText, setCollectionsText] = useState((existingConfig.collections ?? []).join(', '));
+  const [selected, setSelected] = useState<string[]>(existingConfig.collections ?? []);
+  const [inspection, setInspection] = useState<StrapiInspection | null>(null);
+  const [inspecting, setInspecting] = useState(false);
+  const [populate, setPopulate] = useState(existingConfig.populate ?? '*');
+  const [pageSize, setPageSize] = useState(existingConfig.pageSize ?? 100);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const inspectRequestRef = useRef(0);
+  const lastLoadedPairRef = useRef<string | null>(null);
+
+  // Load the stored token when editing, so the field shows what will be used
+  // rather than an empty box that reads as if the token had been dropped. Once
+  // it lands, the URL and token are both present and the collections re-check
+  // themselves, which is exactly what an operator opening Edit wants to see.
+  const editingSourceId = existing?.id ?? null;
+  useEffect(() => {
+    if (editingSourceId === null) {
+      return;
+    }
+    let stillOpen = true;
+    const load = async () => {
+      const { token: stored, error: message } = await loadSourceToken(editingSourceId);
+      if (!stillOpen) {
+        return;
+      }
+      if (message) {
+        setError(message);
+        return;
+      }
+      if (stored) {
+        setStoredToken(stored);
+        setToken(stored);
+      }
+    };
+    void load();
+    return () => {
+      stillOpen = false;
+    };
+  }, [editingSourceId]);
+
+  const typedCollections = parseStrapiCollections(collectionsText);
+  const catalogue = inspection?.collections ?? null;
+  const hasCatalogue = catalogue !== null;
+  const chosen = catalogue ? selected : typedCollections;
+  const connectionReady = baseUrl.trim().length > 0 && (token.trim().length > 0 || tokenAlreadyStored);
+
+  /**
+   * This collection's verdict from the last check, so a count can sit beside the
+   * collection's own name instead of in a list of its own.
+   * @param collection - Plural api id to look up.
+   */
+  function checkFor(collection: string): CollectionCheck | undefined {
+    return inspection?.checks.find(check => check.collection === collection);
+  }
+
+  // A collection the instance could not read is not worth saving: the sync would
+  // hit the same 404 or 403 on every run. Only a check that actually ran counts,
+  // so typed ids that have never been checked still submit.
+  const failedChecks = chosen
+    .map(collection => checkFor(collection))
+    .filter(isUnreadable);
+
+  const requirement = describeMissingPiece({
+    baseUrl,
+    token: token.trim() === '' && tokenAlreadyStored ? 'stored' : token,
+    chosenCount: chosen.length,
+    hasCatalogue,
+    failedChecks,
+  });
+
+  /**
+   * Reads the instance and replaces the catalogue. Safe to call again while an
+   * earlier read is still in flight: each call takes the next request number and
+   * only the newest one is allowed to write state, so a slow first answer can't
+   * land on top of a fresh refresh.
+   */
+  const runInspect = useCallback(async () => {
+    const instanceUrl = baseUrl.trim();
+    const apiToken = token.trim();
+    // Claim this pair before awaiting, so the auto-load effect does not queue a
+    // second identical read behind this one.
+    lastLoadedPairRef.current = credentialPairKey(instanceUrl, apiToken);
+    const requestNumber = inspectRequestRef.current + 1;
+    inspectRequestRef.current = requestNumber;
+    setInspecting(true);
+    setError(null);
+    const { inspection: found, error: message } = await inspectStrapi(
+      instanceUrl,
+      apiToken,
+      hasCatalogue ? [] : parseStrapiCollections(collectionsText),
+    );
+    if (inspectRequestRef.current !== requestNumber) {
+      return;
+    }
+    setInspecting(false);
+    if (message) {
+      setError(message);
+      setInspection(null);
+      return;
+    }
+    setInspection(found);
+    // A reload can turn a collection that read fine into one that no longer
+    // does — a revoked permission, a renamed type. Untick those rather than
+    // leaving a dead choice ticked and the submit button mysteriously off.
+    const rejected = (found?.checks ?? []).filter(isUnreadable).map(check => check.collection);
+    if (rejected.length > 0) {
+      setSelected(current => current.filter(collection => !rejected.includes(collection)));
+    }
+    // A reachable instance with a caveat — a rejected token, or collections
+    // that are public so the token stays unproven — belongs in the panel's own
+    // note, not the dialog's red failure strip.
+    setError(found && !found.reachable ? found.error : null);
+  }, [baseUrl, token, collectionsText, hasCatalogue]);
+
+  // Pasting a URL and a token is the whole instruction, so read the instance as
+  // soon as both are present rather than waiting for a button. Debounced because
+  // typing a URL by hand would otherwise fire a read per keystroke, and skipped
+  // once a pair has been read so a manual refresh isn't immediately repeated.
+  useEffect(() => {
+    if (baseUrl.trim() === '' || token.trim() === '') {
+      return;
+    }
+    if (lastLoadedPairRef.current === credentialPairKey(baseUrl.trim(), token.trim())) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void runInspect();
+    }, AUTO_LOAD_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [baseUrl, token, runInspect]);
+
+  const toggleCollection = (collection: string) => {
+    setSelected(current => (
+      current.includes(collection)
+        ? current.filter(entry => entry !== collection)
+        : [...current, collection]
+    ));
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const configJson = {
+        baseUrl: baseUrl.trim().replace(/\/+$/, ''),
+        collections: chosen,
+        populate: populate.trim() === '' ? '*' : populate.trim(),
+        pageSize,
+      };
+      let sourceId = existing?.id ?? null;
+      if (existing) {
+        const message = await updateSourceConfig(existing.id, configJson);
+        if (message) {
+          setError(message);
+          return;
+        }
+      } else {
+        const created = await createSourceReturningId(kind, configJson);
+        if (created.error || created.id === null) {
+          setError(created.error ?? 'Failed to create source');
+          return;
+        }
+        sourceId = created.id;
+      }
+      // Write a credential only when this is a token the vault does not already
+      // hold: an empty field means "keep what is stored", and re-saving the
+      // value we just loaded would add a credential row that changes nothing.
+      const tokenIsNew = token.trim() !== '' && token.trim() !== storedToken;
+      if (sourceId !== null && tokenIsNew) {
+        const tokenError = await storeSourceToken(sourceId, token.trim());
+        if (tokenError) {
+          setError(tokenError);
+          return;
+        }
+      }
+      await onAdded();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <AddSourceDialogFrame
+      title={title}
+      error={error}
+      requirement={requirement}
+      submitLabel={existing ? 'Save changes' : 'Add source'}
+      notice={existing ? 'Saving restarts this source\'s sync: a run in progress stops, and a fresh one reads the source with the new settings.' : null}
+      submitting={submitting}
+      canSubmit={connectionReady && chosen.length > 0 && failedChecks.length === 0}
+      onClose={onClose}
+      onSubmit={submit}
+    >
+      <p className="rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground/80">How this works:</span>
+        {' '}
+        fill in the instance URL and an API token and this reads the instance on its own — both are needed, the token
+        says you're allowed in and the URL says which instance to ask.
+        {' '}
+        <span className="font-medium">Reload collections</span>
+        {' '}
+        reads it again whenever you want a fresh look. Most instances won't hand out their list of collections (Strapi
+        keeps that behind its admin API), so you'll usually type the plural ids yourself and each one gets checked
+        against the instance — that check is the part worth watching.
+      </p>
+
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">Strapi URL</span>
+        <input
+          type="url"
+          required
+          value={baseUrl}
+          onChange={(e) => {
+            setBaseUrl(e.target.value);
+            setInspection(null);
+          }}
+          placeholder="https://cms.partner.org"
+          className={FIELD_CLASS}
+        />
+        <span className="mt-1 block text-xs text-muted-foreground">
+          The instance root, not the /api path. Works with Strapi v4 and v5 — the version is detected from the response.
+        </span>
+      </label>
+
+      {/* The token field is labelled by `htmlFor` rather than by nesting, so the
+          eye button and the help text below stay out of the input's accessible
+          name — a nested label folds every word inside it into that name. */}
+      <div className="block">
+        <label htmlFor={TOKEN_INPUT_ID} className="text-sm font-medium text-foreground/80">API token</label>
+        <div className="relative mt-1">
+          <input
+            id={TOKEN_INPUT_ID}
+            type={tokenVisible ? 'text' : 'password'}
+            // Required only when there is nothing stored: on an edit an empty
+            // field means "keep the token you already have", and marking it
+            // required would block the form with no visible reason.
+            required={!tokenAlreadyStored}
+            autoComplete="off"
+            value={token}
+            onChange={(e) => {
+              setToken(e.target.value);
+              setInspection(null);
+            }}
+            placeholder={tokenAlreadyStored
+              ? 'Stored — type a new token to replace it'
+              : 'Strapi admin → Settings → API Tokens'}
+            className="w-full rounded-md border border-input bg-background py-2 pr-10 pl-3 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => setTokenVisible(visible => !visible)}
+            aria-label={tokenVisible ? 'Hide token' : 'Show token'}
+            title={tokenVisible ? 'Hide token' : 'Show token'}
+            className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+          >
+            {tokenVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Read-only is enough — it only ever reads the collections you pick. A full-access token gets you nothing extra
+          here: no API token can list an instance's collections, so scope won't change that. Show it with the eye to
+          check a paste. Stored encrypted against this source, so there is no separate Connect step.
+          {tokenAlreadyStored ? ' Leave it empty to keep the token already stored.' : ''}
+        </p>
+      </div>
+
+      <div className="rounded-lg border p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-medium text-foreground/80">Collections</span>
+          {/* Stays clickable while a read is in flight — it is a refresh, not a
+              pending state, and the newest click is the one that wins. */}
+          <button
+            type="button"
+            onClick={runInspect}
+            disabled={!connectionReady}
+            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
+          >
+            {inspecting
+              ? <Loader2 className="size-3 animate-spin" />
+              : <RefreshCw className="size-3" />}
+            {catalogue ? 'Reload collections' : 'Load collections'}
+          </button>
+        </div>
+
+        {inspection?.authorized && inspection.detectedVersion
+          ? (
+              <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
+                Connected — Strapi v
+                {inspection.detectedVersion}
+                , token accepted.
+              </p>
+            )
+          : null}
+
+        {inspection?.reachable && inspection.error
+          ? (
+              <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
+                <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+                {inspection.error}
+              </p>
+            )
+          : null}
+
+        {!inspection && !connectionReady
+          ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Add the instance URL and an API token above and the collections load themselves.
+              </p>
+            )
+          : null}
+
+        {!inspection && connectionReady
+          ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {inspecting
+                  ? 'Reading this instance…'
+                  : 'Ready — reading this instance, or type the plural ids below yourself.'}
+              </p>
+            )
+          : null}
+
+        {catalogue
+          ? (
+              <>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {catalogue.length}
+                  {' '}
+                  collections on this instance, with how many entries each holds. Tick the ones to sync.
+                </p>
+                <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+                  {catalogue.map(collection => (
+                    <li key={collection}>
+                      <label className="flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/60 has-[input:disabled]:text-muted-foreground">
+                        {/* A collection the instance would not read stays listed —
+                            that is the answer to "where is my collection?" — but
+                            it cannot be ticked, so nothing unreadable is synced. */}
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(collection)}
+                          disabled={isUnreadable(checkFor(collection))}
+                          onChange={() => toggleCollection(collection)}
+                        />
+                        {collection}
+                        <CollectionVerdict check={checkFor(collection)} />
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )
+          : (
+              <>
+                {/* Skipped when the note above already says the same thing — a
+                    rejected token surfaces through both. */}
+                {inspection?.enumerationNote && !inspection.error
+                  ? <p className="mt-2 text-xs text-muted-foreground">{inspection.enumerationNote}</p>
+                  : null}
+                <textarea
+                  required
+                  rows={2}
+                  value={collectionsText}
+                  onChange={e => setCollectionsText(e.target.value)}
+                  placeholder="events, venues"
+                  aria-label="Collections"
+                  className={FIELD_CLASS}
+                />
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Plural API ids, comma separated — find them in Strapi under Content-Type Builder. Reload collections
+                  checks each name against the instance and shows how many entries it holds.
+                </span>
+                {typedCollections.length > 0
+                  ? (
+                      <ul className="mt-2 space-y-1">
+                        {typedCollections.map(collection => (
+                          <li
+                            key={collection}
+                            className="flex items-center gap-2 rounded-md px-1 py-1 text-sm"
+                          >
+                            {collection}
+                            <CollectionVerdict check={checkFor(collection)} />
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  : null}
+              </>
+            )}
+      </div>
+
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">Include linked records</span>
+        <input
+          type="text"
+          value={populate}
+          onChange={e => setPopulate(e.target.value)}
+          placeholder="*"
+          className={FIELD_CLASS}
+        />
+        <span className="mt-1 block text-xs text-muted-foreground">
+          Strapi calls this “populate”. An entry's links to other records — an event's venue, its category, its images —
+          come back as bare id numbers unless you ask for them. Leave it as
+          {' '}
+          <span className="font-mono">*</span>
+          {' '}
+          to pull one level of links, so a synced event reads “at The Fillmore” instead of “venue 42”. Name specific
+          links instead (
+          <span className="font-mono">venue,category</span>
+          ) to keep the documents smaller, or clear it to store ids only.
+        </span>
+      </label>
+      <label className="block">
+        <span className="text-sm font-medium text-foreground/80">Entries per page</span>
+        <input
+          type="number"
+          min={1}
+          max={100}
+          value={pageSize}
+          onChange={e => setPageSize(Math.max(1, Math.min(100, Number.parseInt(e.target.value, 10) || 1)))}
+          className={FIELD_CLASS}
+        />
+        <span className="mt-1 block text-xs text-muted-foreground">
+          Strapi caps a page at 100 by default. The sync walks every page until the collection is exhausted.
+        </span>
+      </label>
+    </AddSourceDialogFrame>
+  );
+}
+
+/**
+ * Route each connector to the form its config schema actually needs.
+ * @param root0
+ * @param root0.kind
+ * @param root0.connector
+ * @param root0.onClose
+ * @param root0.onAdded
+ */
+function AddSourceDialog({
+  kind,
+  connector,
+  existing,
+  onClose,
+  onAdded,
+}: {
+  kind: string;
+  connector: ConnectorTile | null;
+  /** The source being edited, or null when adding a new one. */
+  existing?: Source | null;
+  onClose: () => void;
+  onAdded: () => Promise<void> | void;
+}) {
+  const connectorName = connector?.name ?? kind;
+  const source = existing ?? null;
+  // One form per connector, used for both jobs: an edit that could not offer the
+  // same fields as the add would be a second place for the config to drift.
+  const title = source ? `Edit ${connectorName} source` : `Add ${connectorName} source`;
+  if (kind === 'strapi') {
+    return <AddStrapiSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
+  }
+  return <AddWebSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
 }
 
 function formatRelative(date: Date): string {

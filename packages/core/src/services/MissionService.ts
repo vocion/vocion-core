@@ -10,9 +10,10 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
-import { agentSchema, missionRunSchema, missionSchema, workflowSchema } from '@/models/Schema';
+import { missionRunSchema, missionSchema, workflowSchema } from '@/models/Schema';
 import { clampAutonomyLevel } from './missions/autonomy';
 import { planMission } from './missions/planner';
+import { leadlessTeamsNote, resolveMissionRoster } from './missions/roster';
 import { executeMissionRun } from './missions/runtime';
 
 export type MissionRunSummary = typeof missionRunSchema.$inferSelect;
@@ -78,6 +79,7 @@ export async function startMission(opts: {
   let missionId: number | undefined;
   let autonomyLevel = opts.autonomyLevel;
   let charter: { successCriteria: string[]; name?: string } | undefined;
+  let rosterNote: string | null = null;
 
   if (opts.missionSlug) {
     const template = await getMission(opts.orgId, opts.missionSlug);
@@ -85,16 +87,15 @@ export async function startMission(opts: {
       throw new Error(`mission template "${opts.missionSlug}" not found`);
     }
     missionId = template.id;
-    // Missions now own one agent (template.agentSlug). If that agent is a
-    // lead, the team is the specialists that report to it via
-    // agent.parent_agent_slug (see 0041). If it's a specialist, the team is
-    // just that one agent.
+    // Missions own one agent (template.agentSlug). Member resolution is
+    // roster.ts (F1): the workspace lead consults the TEAM LEADS from the
+    // team table; any other lead keeps the parent_agent_slug reverse-lookup
+    // (see 0041); a specialist works alone. Lead-less teams come back by
+    // name and ride the brief as a "no lead yet" note (acceptance #5).
     if (!team) {
-      const specialists = await db
-        .select({ slug: agentSchema.slug })
-        .from(agentSchema)
-        .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.parentAgentSlug, template.agentSlug)));
-      team = { lead: template.agentSlug, members: specialists.map(s => s.slug) };
+      const roster = await resolveMissionRoster(opts.orgId, template.agentSlug);
+      team = roster.team;
+      rosterNote = leadlessTeamsNote(roster.leadlessTeams);
     }
     goal = template.goal;
     autonomyLevel = autonomyLevel ?? (template.autonomyPolicy as { level?: number } | null)?.level;
@@ -105,12 +106,17 @@ export async function startMission(opts: {
   }
   const level = clampAutonomyLevel(autonomyLevel);
   const workspaceSha = await getCurrentWorkspaceSha(opts.orgId).catch(() => null);
+  // The note travels ON the brief: the planner prompt and every task
+  // message — including the lead's synthesis — embed the brief verbatim
+  // (planner.ts planningPrompt, missions/runtime.ts taskMessage), so the
+  // final answer can name each lead-less team instead of dropping it.
+  const brief = rosterNote ? `${opts.brief}\n\n${rosterNote}` : opts.brief;
 
   const [run] = await db.insert(missionRunSchema).values({
     orgId: opts.orgId,
     missionId,
     title: opts.title ?? opts.brief.slice(0, 80),
-    brief: opts.brief,
+    brief,
     goal,
     status: 'planning',
     team,
@@ -131,7 +137,7 @@ export async function startMission(opts: {
         status: 'pending' as const,
         dependsOn: [],
       }]
-    : await planMission({ orgId: opts.orgId, brief: opts.brief, goal, team, userId: opts.invokedBy });
+    : await planMission({ orgId: opts.orgId, brief, goal, team, userId: opts.invokedBy });
   await db.update(missionRunSchema).set({ plan: { tasks }, status: 'running' }).where(eq(missionRunSchema.id, run!.id));
   await executeMissionRun(run!.id, opts.orgId);
 
@@ -141,13 +147,23 @@ export async function startMission(opts: {
 /**
  * The standing brief a scheduled check carries — built from the mission
  * charter so the lead knows this is a periodic check, not a fresh project.
+ *
+ * `executionPrompt` (authored on the automation as `do.prompt`) replaces the
+ * generic "review current state, do what's needed" instruction with the
+ * automation's marching orders for this cadence. The mission stays attached
+ * as standing context either way: charter, responsibilities, working notes,
+ * and the notes-update contract all still travel on the brief.
  * @param template
  * @param template.name
  * @param template.goal
  * @param template.successCriteria
  * @param template.workingNotes
+ * @param executionPrompt
  */
-export function scheduledCheckBrief(template: { name: string; goal: string; successCriteria?: string[] | null; workingNotes?: string | null }): string {
+export function scheduledCheckBrief(
+  template: { name: string; goal: string; successCriteria?: string[] | null; workingNotes?: string | null },
+  executionPrompt?: string,
+): string {
   return [
     `Scheduled check of your standing mission "${template.name}".`,
     `Charter: ${template.goal}`,
@@ -157,7 +173,9 @@ export function scheduledCheckBrief(template: { name: string; goal: string; succ
     template.workingNotes
       ? `WORKING NOTES from your previous checks (your memory — trust it):\n${template.workingNotes}`
       : 'WORKING NOTES: none yet — this is your first tracked check.',
-    `This is a periodic check, not a fresh project. Review the current state against your working notes, do ONLY what is needed right now (use your skills, propose actions for anything touching external systems), and finish with a short report. If nothing needs doing, say so in one paragraph and stop.`,
+    executionPrompt
+      ? `YOUR ORDERS FOR THIS CHECK:\n${executionPrompt}`
+      : `This is a periodic check, not a fresh project. Review the current state against your working notes, do ONLY what is needed right now (use your skills, propose actions for anything touching external systems), and finish with a short report. If nothing needs doing, say so in one paragraph and stop.`,
     `BEFORE you finish: call update_mission_notes with your REWRITTEN working notes — carry forward every still-open thread (and say how many consecutive checks it has been open, escalating language as it ages), every commitment with its due date, and DROP anything resolved. Keep it under ~40 lines.`,
   ].filter(Boolean).join('\n\n');
 }

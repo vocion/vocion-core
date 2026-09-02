@@ -1,4 +1,4 @@
-import { GitBranch } from 'lucide-react';
+import { Compass, GitBranch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
@@ -6,6 +6,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { TriggerBadge } from '@/features/dashboard/TriggerBadge';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { listAgents } from '@/services/AgentService';
 import { listWorkflows } from '@/services/WorkflowService';
 import { isEntityStatus } from '@/types/Status';
 
@@ -17,6 +18,8 @@ export default async function WorkflowsPage(props: {
   const { orgId } = await auth();
 
   const workflows = orgId ? await listWorkflows(orgId) : [];
+  const agents = orgId ? await listAgents(orgId) : [];
+  const agentNameBySlug = new Map(agents.map(ag => [ag.slug, ag.name]));
   const active = workflows.filter(w => w.status === 'active');
 
   return (
@@ -69,6 +72,12 @@ export default async function WorkflowsPage(props: {
                         {' · v'}
                         {w.version ?? 1}
                       </span>
+                      {w.ownerAgentSlug && (
+                        <span className="inline-flex items-center gap-1" title="Owning agent">
+                          <Compass className="size-3" />
+                          {agentNameBySlug.get(w.ownerAgentSlug) ?? w.ownerAgentSlug}
+                        </span>
+                      )}
                     </div>
                   </Link>
                 );

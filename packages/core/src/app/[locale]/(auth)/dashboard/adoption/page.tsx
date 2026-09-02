@@ -8,6 +8,8 @@ import { requireOrganization } from '@/utils/Auth';
  * Adoption overview — admin-only. Members see a plain notice; the real
  * enforcement is the 403 on every `router.adoption.*` procedure, this
  * page-level check just keeps the UI honest.
+ * @param props
+ * @param props.params
  */
 export default async function AdoptionPage(props: { params: Promise<{ locale: string }> }) {
   const { locale } = await props.params;

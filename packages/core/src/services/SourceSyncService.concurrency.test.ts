@@ -104,7 +104,7 @@ const { eq } = await import('drizzle-orm');
 const { db } = await import('@/libs/DB');
 const { knowledgeSourceSchema, sourceSyncCheckpointSchema } = await import('@/models/Schema');
 const { registerConnector } = await import('@/libs/sources/registry');
-const { MAX_CONCURRENT_INGESTS, runSync, SyncAlreadyRunningError } = await import('@/services/SourceSyncService');
+const { MAX_CONCURRENT_INGESTS, runSync, supersedeRunningSync, SyncAlreadyRunningError, SyncSavedNothingError, SyncSupersededError } = await import('@/services/SourceSyncService');
 const { z } = await import('zod');
 
 const ORG_ID = 'org_concurrency_test';
@@ -157,6 +157,43 @@ function registerFixtureConnector(slug: string, documentCount: number, throwAfte
       for (let index = 0; index < documentCount; index++) {
         if (index === throwAfter) {
           throw new Error('upstream API failed mid-crawl');
+        }
+        yield {
+          externalId: `doc-${index}`,
+          uri: `https://example.test/doc-${index}`,
+          title: `Doc ${index}`,
+          content: `body ${index}`,
+        };
+      }
+    },
+  });
+}
+
+/**
+ * Register a connector that reports a non-fatal failure partway through and
+ * keeps yielding — the shape the Strapi connector uses when one collection
+ * fails and its siblings still have documents to give.
+ * @param slug - Connector slug to register under.
+ * @param documentCount - How many documents to yield in total.
+ * @param reportErrorAfter - Index at which to report the failure.
+ */
+function registerReportingFixtureConnector(slug: string, documentCount: number, reportErrorAfter: number) {
+  registerConnector({
+    slug,
+    name: 'Reporting fixture',
+    description: 'test',
+    icon: 'File',
+    authKind: 'none',
+    configSchema: z.object({}).passthrough(),
+    async* sync(ctx) {
+      for (let index = 0; index < documentCount; index++) {
+        if (index === reportErrorAfter) {
+          ctx.onProgress?.({
+            kind: 'error',
+            uri: 'https://cms.partner.test/api/venues',
+            message: 'Strapi venues fetch failed: 500',
+          });
+          continue;
         }
         yield {
           externalId: `doc-${index}`,
@@ -483,5 +520,253 @@ describe('runSync concurrent ingestion', () => {
 
     expect(checkpoint?.status).toBe('failed');
     expect(checkpoint?.counts).toMatchObject({ created: 12, errors: 0 });
+  });
+
+  it('records a survivable failure on the checkpoint and still completes', async () => {
+    // A connector that loses one collection but delivers the rest must leave a
+    // trace of what was skipped — a lower document count alone tells nobody
+    // which collection went missing.
+    registerReportingFixtureConnector('fixture-reported-failure', 5, 2);
+    const sourceId = await createSource('fixture-reported-failure');
+
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(result.created).toBe(4);
+    expect(result.errors).toBe(1);
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    // The run finished, so status is completed and `error` — the fatal one —
+    // stays empty. The survivable failure lives in `failures`.
+    expect(checkpoint?.status).toBe('completed');
+    expect(checkpoint?.error).toBeNull();
+    expect(checkpoint?.failures).toHaveLength(1);
+    expect(checkpoint?.failures?.[0]).toMatchObject({
+      scope: 'connector',
+      uri: 'https://cms.partner.test/api/venues',
+      message: 'Strapi venues fetch failed: 500',
+    });
+    expect(typeof checkpoint?.failures?.[0]?.at).toBe('string');
+  });
+
+  it('keeps the connector failure when documents fail in bulk', async () => {
+    // The failure a reader most needs — a whole slice of the source missing —
+    // must not be pushed out of the stored sample by a flood of per-document
+    // errors, which are the same story told many times over.
+    registerReportingFixtureConnector('fixture-crowded-failures', 35, 0);
+    const sourceId = await createSource('fixture-crowded-failures');
+    schedulingLog.shouldFail = new Set(
+      Array.from({ length: 30 }, (_unused, index) => `doc-${index + 1}`),
+    );
+
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    // One reported by the connector, thirty by ingestion.
+    expect(result.errors).toBe(31);
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    const failures = checkpoint?.failures ?? [];
+    const connectorFailures = failures.filter(failure => failure.scope === 'connector');
+
+    expect(connectorFailures).toHaveLength(1);
+    // Connector failures are listed first, and documents are capped at 25 —
+    // so the stored sample is 26 of the 31 that actually happened.
+    expect(failures[0]?.scope).toBe('connector');
+    expect(failures).toHaveLength(26);
+  });
+
+  it('advances the incremental watermark on a clean run', async () => {
+    registerFixtureConnector('fixture-clean-watermark', 3);
+    const sourceId = await createSource('fixture-clean-watermark');
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    expect(checkpoint?.since).toBeInstanceOf(Date);
+  });
+
+  it('holds the watermark when part of the source could not be read', async () => {
+    // The watermark asserts "everything up to here has been seen". A run that
+    // lost a slice and carried on has not earned that: anything changed in this
+    // window inside the lost slice would fall behind a new watermark and never
+    // be requested again, since the next incremental run only asks for newer.
+    registerFixtureConnector('fixture-watermark-hold', 3);
+    const sourceId = await createSource('fixture-watermark-hold');
+
+    await runSync({ orgId: ORG_ID, sourceId });
+    const [afterCleanRun] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+    const establishedWatermark = afterCleanRun?.since;
+
+    expect(establishedWatermark).toBeInstanceOf(Date);
+
+    // Second run over the same source, this time losing a slice.
+    // Re-register the same slug, now losing a slice, so the source is unchanged.
+    registerReportingFixtureConnector('fixture-watermark-hold', 3, 1);
+    await runSync({ orgId: ORG_ID, sourceId, incremental: true });
+
+    const [afterFailedSlice] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    // Completed, but the watermark stayed exactly where the clean run left it.
+    expect(afterFailedSlice?.status).toBe('completed');
+    expect(afterFailedSlice?.failures).toHaveLength(1);
+    expect(afterFailedSlice?.since?.getTime()).toBe(establishedWatermark?.getTime());
+  });
+
+  it('leaves failures empty on a clean run', async () => {
+    registerFixtureConnector('fixture-no-failures', 3);
+    const sourceId = await createSource('fixture-no-failures');
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    expect(checkpoint?.failures).toEqual([]);
+  });
+});
+
+/**
+ * A run where every document fails is not a successful run.
+ *
+ * An unset OPENAI_API_KEY on 2026-08-31 fetched 43 Strapi entries, failed to
+ * embed all 43, and still answered 200 with a source that read "no documents
+ * yet" — no way for the operator to tell a misconfigured environment from an
+ * empty CMS. One failed document stays survivable; all of them does not.
+ */
+describe('a sync that saves nothing fails loudly', () => {
+  it('throws with the first reason instead of reporting success', async () => {
+    registerFixtureConnector('fixture-all-fail', 3);
+    schedulingLog.shouldFail = new Set(['doc-0', 'doc-1', 'doc-2']);
+    const sourceId = await createSource('fixture-all-fail');
+
+    await expect(runSync({ orgId: ORG_ID, sourceId })).rejects.toThrow(SyncSavedNothingError);
+    await expect(runSync({ orgId: ORG_ID, sourceId })).rejects.toThrow(/embed failed for doc-0/);
+  });
+
+  it('records the run as failed and does not delete anything', async () => {
+    registerFixtureConnector('fixture-all-fail-checkpoint', 2);
+    schedulingLog.shouldFail = new Set(['doc-0', 'doc-1']);
+    const sourceId = await createSource('fixture-all-fail-checkpoint');
+
+    await expect(runSync({ orgId: ORG_ID, sourceId })).rejects.toThrow(SyncSavedNothingError);
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    expect(checkpoint?.status).toBe('failed');
+    expect(checkpoint?.error).toContain('nothing was saved');
+    // Deleting on the strength of a run that read nothing is how a source's
+    // whole corpus disappears.
+    expect(schedulingLog.deleteWasCalled).toBe(false);
+  });
+
+  it('still completes when one document of several fails, and reports the reason', async () => {
+    registerFixtureConnector('fixture-one-fails', 3);
+    schedulingLog.shouldFail = new Set(['doc-1']);
+    const sourceId = await createSource('fixture-one-fails');
+
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(result.created).toBe(2);
+    expect(result.errors).toBe(1);
+    expect(result.firstError).toContain('embed failed for doc-1');
+  });
+
+  it('completes quietly when the source is genuinely empty', async () => {
+    registerFixtureConnector('fixture-empty', 0);
+    const sourceId = await createSource('fixture-empty');
+
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(result.errors).toBe(0);
+    expect(result.created).toBe(0);
+  });
+});
+
+/**
+ * Editing a source stops the run that is reading the old settings.
+ *
+ * The run reads the config once, at the start, so carrying on would write
+ * documents from collections the operator just removed and then advance the
+ * watermark as if that were the current picture.
+ */
+describe('a sync superseded by an edit', () => {
+  it('stops partway and does not delete or advance the watermark', async () => {
+    registerFixtureConnector('fixture-superseded', 200);
+    const sourceId = await createSource('fixture-superseded');
+    // Enough documents, slow enough, that the run is still going when the edit
+    // lands two seconds in — the run's own check interval is two seconds, and
+    // eight ingests run at once, so 200 × 400ms is about ten seconds of work.
+    schedulingLog.durationFor = () => 400;
+
+    const run = runSync({ orgId: ORG_ID, sourceId });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 2200);
+    });
+    const stopped = await supersedeRunningSync(ORG_ID, sourceId, 'settings changed');
+
+    expect(stopped).toBe(true);
+    await expect(run).rejects.toThrow(SyncSupersededError);
+    // Deleting on the strength of a half-read source is how a corpus vanishes.
+    expect(schedulingLog.deleteWasCalled).toBe(false);
+
+    const [checkpoint] = await db
+      .select()
+      .from(sourceSyncCheckpointSchema)
+      .where(eq(sourceSyncCheckpointSchema.sourceId, sourceId))
+      .limit(1);
+
+    // The reason the edit recorded stands — the stopped run must not write
+    // `failed` over it and blame itself.
+    expect(checkpoint?.status).toBe('superseded');
+    expect(checkpoint?.error).toBe('settings changed');
+    expect(checkpoint?.since).toBeNull();
+  }, 30_000);
+
+  it('lets the replacement run claim the source straight away', async () => {
+    registerFixtureConnector('fixture-supersede-then-run', 2);
+    const sourceId = await createSource('fixture-supersede-then-run');
+    await supersedeRunningSync(ORG_ID, sourceId, 'settings changed');
+
+    // No sync was running, so there was nothing to stop — and a fresh run must
+    // still be free to start.
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(result.created).toBe(2);
+  });
+
+  it('reports nothing to stop when no run is going', async () => {
+    registerFixtureConnector('fixture-nothing-to-stop', 1);
+    const sourceId = await createSource('fixture-nothing-to-stop');
+
+    expect(await supersedeRunningSync(ORG_ID, sourceId, 'settings changed')).toBe(false);
   });
 });

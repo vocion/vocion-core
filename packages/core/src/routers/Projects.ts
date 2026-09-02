@@ -48,7 +48,7 @@ export const setActive = os
     if (!proj) {
       throw ApiError.notFound();
     }
-    // Note: cookie is set client-side (see ProjectSwitcher). oRPC's fetch
+    // Note: cookie is set client-side (see WorkspaceMenu). oRPC's fetch
     // response bypasses Next's cookie-writing machinery so cookies().set()
     // here would be silently dropped.
     return { ok: true, projectId: proj.id };

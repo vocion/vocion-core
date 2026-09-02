@@ -314,7 +314,161 @@
       "idx": 44,
       "version": "7",
       "when": 1782002100000,
-      "tag": "0044_chat_widget_state",
+      "tag": "0044_team",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1782002200000,
+      "tag": "0045_conversation_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1782002300000,
+      "tag": "0046_action_dedup_expiry",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1782002400000,
+      "tag": "0047_activity_event_decision_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1782002500000,
+      "tag": "0048_briefing_team",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1782002600000,
+      "tag": "0049_discovery_candidate",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1782002700000,
+      "tag": "0050_automation_workflow_owner",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1782002800000,
+      "tag": "0051_automation_run",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1782002900000,
+      "tag": "0052_calendar_zoom_id_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1782089300000,
+      "tag": "0053_discovery_audit_trail",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1782175700000,
+      "tag": "0054_crm_records_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1782262100000,
+      "tag": "0055_crm_created_at_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1782348500000,
+      "tag": "0056_lead_brief_and_surfaces",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1782434900000,
+      "tag": "0057_lead_brief_queued_lane",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1782521300000,
+      "tag": "0058_lead_brief_generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1787200000000,
+      "tag": "0059_tool_call",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1787200100000,
+      "tag": "0060_skills_playbooks_compose",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1787200200000,
+      "tag": "0061_drop_operations_layer",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1787200300000,
+      "tag": "0062_learning_candidate",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1787286600000,
+      "tag": "0063_sync_checkpoint_failures",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1787286700000,
+      "tag": "0064_api_token_expiry",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1787286800000,
+      "tag": "0065_lead_brief_drafting",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1787286900000,
+      "tag": "0066_chat_widget_state",
       "breakpoints": true
     }
   ]

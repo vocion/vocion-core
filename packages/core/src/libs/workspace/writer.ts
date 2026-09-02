@@ -1,11 +1,11 @@
-import type { AgentManifest, ObjectTypeManifest, SkillManifest } from './schemas';
+import type { AgentManifest, ObjectTypeManifest, PlaybookManifest } from './schemas';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
 import {
   AgentManifestSchema,
   ObjectTypeManifestSchema,
-  SkillManifestSchema,
+  PlaybookManifestSchema,
 } from './schemas';
 
 /**
@@ -21,8 +21,11 @@ import {
 
 export type WriteSkillInput = {
   contextPath: string;
-  manifest: SkillManifest;
+  manifest: PlaybookManifest;
+  /** The SKILL.md markdown body (below the frontmatter). */
   promptMd: string;
+  /** skills/ (default) or playbooks/. */
+  kind?: 'skill' | 'playbook';
 };
 
 export type WriteAgentInput = {
@@ -52,18 +55,14 @@ export function slugToDirname(slug: string): string {
 }
 
 export function writeSkill(input: WriteSkillInput): WrittenResource {
-  const validated = SkillManifestSchema.parse({
-    ...input.manifest,
-    promptFile: 'prompt.md',
-    promptTemplate: undefined,
-  });
-  const dir = resolve(input.contextPath, 'skills', slugToDirname(validated.slug));
+  const validated = PlaybookManifestSchema.parse(input.manifest);
+  const dirName = input.kind === 'playbook' ? 'playbooks' : 'skills';
+  const dir = resolve(input.contextPath, dirName, slugToDirname(validated.slug));
   ensureDir(dir);
-  const promptPath = join(dir, 'prompt.md');
-  const yamlPath = join(dir, 'skill.yaml');
-  writeText(promptPath, input.promptMd);
-  writeText(yamlPath, stringifyYaml(stripDefaults(validated), { lineWidth: 0 }));
-  return { kind: 'skill', slug: validated.slug, files: [yamlPath, promptPath] };
+  const skillMdPath = join(dir, 'SKILL.md');
+  const frontmatter = stringifyYaml(stripDefaults(validated), { lineWidth: 0 }).trimEnd();
+  writeText(skillMdPath, `---\n${frontmatter}\n---\n\n${input.promptMd}`);
+  return { kind: 'skill', slug: validated.slug, files: [skillMdPath] };
 }
 
 export function writeAgent(input: WriteAgentInput): WrittenResource {

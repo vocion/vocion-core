@@ -18,6 +18,14 @@ export type SearchDocument = {
   blurb: string;
   metadata?: Record<string, unknown>;
   updated_at?: string;
+  /**
+   * Global 1-based citation number for THIS turn — matches the `[n]` marker
+   * the model is instructed to cite inline, so the UI can map a tapped marker
+   * to this source. Stable across multiple searches in one turn.
+   */
+  citationIndex?: number;
+  /** Display name of the specialist that surfaced this source (set only when a delegate's search found it). */
+  foundBy?: string;
 };
 
 export type SkillResultEventPayload = {
@@ -28,6 +36,93 @@ export type SkillResultEventPayload = {
   status: 'pending' | 'auto';
   prospectName?: string;
   prospectCompany?: string;
+};
+
+/**
+ * A2UI: an actionable recommendation rendered as a clickable card in the chat
+ * answer. NO side effect on emit — the gated review item (action_run) is
+ * JIT-created only when the user taps the card (review.propose), reusing the
+ * agent's authority so it lands `pending` for approval like any agent proposal.
+ */
+export type RecommendedActionPayload = {
+  /** Registered action to propose on click, e.g. 'gmail.send'. */
+  actionId: string;
+  /** Pre-filled payload for that action (draft to/subject/body, CRM props, …). */
+  input: Record<string, unknown>;
+  /** Short button label, e.g. "Draft the note to Carlo Marcelino". */
+  label: string;
+  /** One-line why. */
+  rationale?: string;
+  /** Agent confidence 0–1 from grounding quality. */
+  confidence?: number;
+  /** Recommending agent — reconstructs the propose principal on click. */
+  agentSlug?: string;
+};
+
+/* ------------------------------------------------------------------ */
+/* Typed hierarchical trace — reasoning / tools / skills / delegation  */
+/* / citations, attributed to an actor (lead or a specialist) and      */
+/* nested via parentId. Consumed by the chat WorkTimeline renderer.    */
+/* ------------------------------------------------------------------ */
+
+export type TraceActor = {
+  /** Stable actor id — 'lead' for the front-door agent, or the delegation node id for a specialist. */
+  id: string;
+  kind: 'lead' | 'specialist';
+  /** Human display name (agent/subagent). */
+  name: string;
+};
+
+export type TraceCitation = {
+  /** Source system, e.g. 'granola' | 'hubspot' | 'gmail' | 'web'. */
+  sourceType: string;
+  /** Human title/identifier of the cited doc. */
+  title: string;
+  link?: string;
+  snippet?: string;
+  /** Which actor surfaced it (lead or a specialist) — so the UI can attribute delegate citations. */
+  actorId: string;
+};
+
+/**
+ * What a trace node represents. `reason` = model chain-of-thought;
+ * `tool` = a generic tool call; `skill` = a skill read; `search` = retrieval
+ * (produces citations); `delegate` = a `task` dispatch to a specialist
+ * (children hang under it via parentId); `draft` = a proposed action.
+ */
+export type TraceNodeKind = 'reason' | 'tool' | 'skill' | 'search' | 'delegate' | 'draft';
+
+/**
+ * One node in the hierarchical activity trace. Emitted repeatedly as it
+ * progresses — the renderer keys on `id` and folds `start → progress* →
+ * done`. `label` tense is a pure function of `status`, so a node reads
+ * "Searching…" while active and "Searched" only when done (no more
+ * past-tense-while-running bug). `parentId` nests delegate work.
+ */
+export type TraceNodeEvent = {
+  type: 'trace_node';
+  id: string;
+  parentId?: string;
+  actor: TraceActor;
+  kind: TraceNodeKind;
+  status: 'start' | 'progress' | 'done' | 'error';
+  label: string;
+  /** Input summary — the query, the record type, the delegate brief. Never a raw dump. */
+  detail?: string;
+  /** Raw tool name (e.g. `lookup_objects`) — shown in the call-detail drill. */
+  tool?: string;
+  /** Compact input args for the call-detail drill (e.g. `{"type_slug":"follow-up"}`). Never a raw dump. */
+  args?: string;
+  /** Curated result preview for the drill — record names / hit titles, never raw JSON. */
+  resultDetail?: string;
+  /** Incremental text for `reason`/`progress` nodes; the renderer appends. */
+  delta?: string;
+  /** Output summary — a count or short synopsis. Never a raw dump. */
+  result?: string;
+  /** For skills / drafts / delegates. */
+  confidence?: number;
+  /** Sources this node surfaced — bubbles up to the message-level "Grounded in". */
+  citations?: TraceCitation[];
 };
 
 export type HitlGatePayload = {
@@ -59,6 +154,8 @@ export type AgentEvent
     | { type: 'documents'; documents: SearchDocument[] }
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
+    | { type: 'recommended_action'; recommendation: RecommendedActionPayload }
+    | TraceNodeEvent
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
@@ -96,12 +193,24 @@ export type RuntimeContext = {
   allowedSourceSlugs?: string[];
   /** The mission this run belongs to (check/brief runs) — for mission-scoped tools. */
   missionSlug?: string;
+  /** The mission_run driving this turn — audit trails (`assessed_by`) point back to it. */
+  missionRunId?: number;
+  /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
+  conversationId?: number;
+  /** Which harness runs the loop — stamped on tool_call rows. */
+  provider?: 'local' | 'agentcore' | 'runtime';
+  /** Langfuse trace id of the current turn — links tool_call rows to cost/latency. */
+  traceId?: string;
+  /**
+   * Per-request map of delegation taskId → specialist agent name, populated
+   * as `task` calls start. The tool-call record uses it to attribute a
+   * nested call to the specialist that made it rather than the lead.
+   */
+  delegations?: Map<string, string>;
   /** Object type slugs this agent can read. */
   objectTypeSlugs: string[];
   /** Per-agent retrieval tuning. */
   searchConfig: SearchConfig;
-  /** Operation slugs this agent can invoke via the `run_operation` tool. */
-  operationSlugs: string[];
   /**
    * Per-agent harness knobs (`agent.harness_config`, authored as the
    * `harness:` block in workspace YAML). `interrupts` lists operation
@@ -113,7 +222,11 @@ export type RuntimeContext = {
     interrupts?: string[];
     maxTokens?: number;
     excludeTools?: string[];
+    /** Granted-only tools this agent receives (gated tools are absent unless named here). */
+    grantTools?: string[];
     model?: string;
+    /** Run the zero-card backstop pass after turns that emit no recommend_action (see workspace schema doc). */
+    recommendActionBackstop?: boolean;
   };
   /**
    * Side-channel for emitting structured events the LLM stream can't
@@ -121,4 +234,11 @@ export type RuntimeContext = {
    * implementations call this; the runtime forwards to the SSE client.
    */
   emit: (event: AgentEvent) => void;
+  /**
+   * Per-turn global citation counter. `search_knowledge` allocates a
+   * contiguous block for each call so the `[n]` numbers the model sees (and
+   * is instructed to cite inline) stay unique + stable across multiple
+   * searches in one turn. Reset per request in `bindRequestEmit`.
+   */
+  citationSeq: { current: number };
 };

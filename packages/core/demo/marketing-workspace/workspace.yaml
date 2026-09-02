@@ -1,0 +1,13 @@
+version: 1
+# Placeholder - resolved to the live project id at apply time via --project.
+orgId: proj_vocion_marketing
+name: vocion-marketing
+description: >
+  The team that markets Vocion, running on Vocion. A lead owns strategy,
+  analytics, reporting, and execution; specialists run the showcase loop
+  (pick a use case, build the demo, write, amplify, show, feed back).
+  Everything outbound rides the review queue; autonomy is earned through
+  trust.yaml, never assumed.
+defaults:
+  model: claude-sonnet-4-6
+  temperature: '0.3'

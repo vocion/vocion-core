@@ -1,0 +1,7 @@
+slug: content_writer
+name: Content Writer
+description: Writes the blog post and docs for each showcase run - grounded in the demo's actual runs and traces, in the Vocion voice, ending with the feature-request vote link.
+active: true
+parent: marketing_lead
+systemPromptFile: content-writer.system-prompt.md
+skills: []

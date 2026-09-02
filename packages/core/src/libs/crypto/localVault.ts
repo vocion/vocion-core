@@ -95,12 +95,26 @@ export function localVault(): CredentialVault {
     },
     async decrypt(orgId, ciphertext, nonce, authTag, dekId) {
       const key = await getDek(orgId, dekId);
-      return aesDecrypt(
-        key,
-        Buffer.from(ciphertext, 'base64'),
-        Buffer.from(nonce, 'base64'),
-        Buffer.from(authTag, 'base64'),
-      );
+      try {
+        return aesDecrypt(
+          key,
+          Buffer.from(ciphertext, 'base64'),
+          Buffer.from(nonce, 'base64'),
+          Buffer.from(authTag, 'base64'),
+        );
+      } catch (error) {
+        // Node says "Unsupported state or unable to authenticate data", which
+        // tells the reader nothing. With no VOCION_CREDENTIAL_VAULT_KEY set,
+        // every restart mints a new ephemeral key, so credentials saved before
+        // the restart cannot be read — the one cause worth naming, since the
+        // fix (set the key, then reconnect) is not guessable from the original.
+        throw new Error(
+          'The stored credential could not be decrypted with the current vault key. '
+          + 'If VOCION_CREDENTIAL_VAULT_KEY is unset, each restart generates a new key and '
+          + 'credentials saved earlier become unreadable: set it in .env.local, then reconnect '
+          + `this source's credential. (${error instanceof Error ? error.message : String(error)})`,
+        );
+      }
     },
     async rotateDek(orgId: string): Promise<number> {
       // In localVault all DEKs resolve to the same master key; we

@@ -52,6 +52,7 @@ export async function mcpConfigForBearer(
     autoApply: false,
     serverName: 'vocion',
     serverVersion: '0.1.0',
+    agentSlug: process.env.VOCION_MCP_AGENT_SLUG || undefined,
   };
   return { config, identity };
 }
@@ -65,5 +66,7 @@ export async function buildServerForBearer(
   authHeader: string | null | undefined,
 ): Promise<{ server: McpServer; identity: TokenIdentity }> {
   const { config, identity } = await mcpConfigForBearer(authHeader);
-  return { server: buildServer(config), identity };
+  // The bridged domain tools run as the token, auditable per token id.
+  const server = await buildServer(config, { userId: `token:${identity.tokenId}` });
+  return { server, identity };
 }

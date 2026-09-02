@@ -1,0 +1,31 @@
+slug: showcase_loop
+name: The Showcase Loop
+description: Pick a use case, build or update its demo, document it, draft the blog + social + video script, and file the one feature request the run surfaced.
+status: active
+goal: >
+  Each run: choose the next use case (per the showcase-loop playbook and the
+  tracker records), have Showcase Builder produce or refresh the demo with
+  captured runs, have Content Writer draft the blog + docs PRs, have Social
+  Producer draft LinkedIn/X/dev.to and the video script, and file exactly one
+  GitHub feature request for the capability gap the build surfaced. Every
+  outbound artifact lands in the review queue as a proposal - nothing
+  publishes itself.
+agent: marketing_lead
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - A demo workspace exists (or is updated) for the chosen use case, with at least 3 captured runs
+  - Blog + docs drafts reference actual runs and traces, and link the filed feature request
+  - Social drafts (LinkedIn, X, dev.to) and a 90-second video script are queued for review
+  - Exactly one feature request is drafted, written for community voting
+  - The tracker record for this run is complete (use case, assets, cost)
+desiredArtifacts:
+  - demo workspace config + sample prompts
+  - blog post draft (PR)
+  - docs update draft (PR)
+  - LinkedIn post, X thread, dev.to syndication drafts
+  - video script
+  - GitHub feature-request draft
+  - tracker record
+# Mon / Wed / Fri, 14:00 UTC - cadence is earned, not assumed; raise later.
+schedule: '0 14 * * 1,3,5'

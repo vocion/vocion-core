@@ -1,45 +1,71 @@
-import { ArrowLeft, FileText, Search, Send, Zap } from 'lucide-react';
+import { and, eq } from 'drizzle-orm';
+import { ArrowLeft, ScrollText, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
-import { PrimitiveActivity } from '@/features/dashboard/PrimitiveActivity';
-import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
+import { DocViewer } from '@/features/dashboard/DocViewer';
 import { TitleBar } from '@/features/dashboard/TitleBar';
-import { getSkillActivity } from '@/libs/activity';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
-import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
-import { readPrimitiveFiles } from '@/libs/workspace/reader';
-import { getSkill } from '@/services/SkillService';
+import { agentSchema, playbookSchema } from '@/models/Schema';
+import { skillUsageCounts } from '@/services/ActivityService';
+import { readByOrigin } from '@/services/playbooks/mount';
 
-const categoryIcons: Record<string, React.ReactNode> = {
-  query: <Search className="size-5" />,
-  mutation: <Send className="size-5" />,
-  composite: <Zap className="size-5" />,
+type Props = {
+  params: Promise<{ locale: string; slug: string }>;
 };
 
-export default async function SkillDetailPage(props: {
-  params: Promise<{ locale: string; slug: string }>;
-}) {
+/**
+ * Skill / playbook detail — the SKILL.md body plus provenance: whether
+ * the workspace runs the base version or its own override, which agents
+ * mount it, and how often it has been read.
+ * @param props
+ */
+export default async function SkillDetailPage(props: Props) {
   const { locale, slug } = await props.params;
   setRequestLocale(locale);
   const { orgId } = await auth();
-
   if (!orgId) {
-    return notFound();
-  }
-  const skill = await getSkill(orgId, slug);
-  if (!skill) {
-    return notFound();
+    notFound();
   }
 
-  const sourceFiles = readPrimitiveFiles('skill', slug);
-  const dirtyState = getWorkspaceDirtyState();
-  const activity = await getSkillActivity(orgId, slug);
+  const [row] = await db
+    .select()
+    .from(playbookSchema)
+    .where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.slug, slug)));
+  if (!row) {
+    notFound();
+  }
 
-  const inputSchema = skill.inputSchema as Record<string, unknown> | null;
-  const properties = (inputSchema?.properties ?? {}) as Record<string, { type?: string; description?: string }>;
-  const required = (inputSchema?.required ?? []) as string[];
+  const [agents, usage, attachingSkills] = await Promise.all([
+    db
+      .select({ slug: agentSchema.slug, skillSlugs: agentSchema.skillSlugs, playbookSlugs: agentSchema.playbookSlugs })
+      .from(agentSchema)
+      .where(eq(agentSchema.orgId, orgId)),
+    skillUsageCounts(orgId),
+    row.kind === 'playbook'
+      ? db
+          .select({ slug: playbookSchema.slug, attachedPlaybooks: playbookSchema.attachedPlaybooks })
+          .from(playbookSchema)
+          .where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.kind, 'skill')))
+      : Promise.resolve([]),
+  ]);
+  // Direct naming plus, for a playbook, every agent whose mounted skill attaches it.
+  const attachers = new Set(attachingSkills.filter(sk => (sk.attachedPlaybooks ?? []).includes(slug)).map(sk => sk.slug));
+  const mountedBy = [...new Set(agents
+    .filter(a => row.kind === 'skill'
+      ? (a.skillSlugs ?? []).includes(slug)
+      : (a.playbookSlugs ?? []).includes(slug) || (a.skillSlugs ?? []).some(sk => attachers.has(sk)))
+    .map(a => a.slug))].sort();
+
+  const raw = readByOrigin(row, 'SKILL.md') ?? '';
+  const { content: markdownBody } = stripFrontmatter(raw);
+  const originLabel = row.origin === 'core'
+    ? 'Base — the core pack\'s version, no workspace copy.'
+    : row.origin === 'override'
+      ? 'Override — the workspace replaced the base version by slug.'
+      : 'Workspace — authored in this workspace only.';
 
   return (
     <>
@@ -57,95 +83,127 @@ export default async function SkillDetailPage(props: {
         title={(
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              {categoryIcons[skill.category ?? 'query']}
+              {row.kind === 'skill' ? <Zap className="size-5" /> : <ScrollText className="size-5" />}
             </div>
             <div>
-              <div>{skill.name}</div>
+              <div>{row.name}</div>
               <div className="flex items-center gap-2 text-sm font-normal">
-                <Badge variant={skill.status === 'active' ? 'default' : 'outline'}>{skill.status}</Badge>
-                {skill.requiresApproval === 'true' && <Badge variant="outline">HITL</Badge>}
-                <span className="font-mono text-xs text-muted-foreground">{skill.slug}</span>
+                <Badge variant="outline">{row.kind}</Badge>
+                <Badge variant={row.origin === 'override' ? 'default' : 'secondary'}>
+                  {row.origin === 'core' ? 'base' : row.origin}
+                </Badge>
+                <span className="font-mono text-xs text-muted-foreground">{row.slug}</span>
               </div>
             </div>
           </div>
         )}
-        description={skill.description}
+        description={row.description}
       />
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Config label="Model" value={skill.model ?? '—'} mono />
-        <Config label="Temp" value={skill.temperature ?? '—'} />
-        <Config label="Category" value={skill.category ?? 'query'} />
-        <Config label="Approval" value={skill.requiresApproval === 'true' ? 'Human (HITL)' : 'Automatic'} />
-        <Config label="Version" value={`v${skill.version}`} />
-      </div>
+      <div className="grid gap-8 lg:grid-cols-[1fr_18rem]">
+        <article>
+          {markdownBody.trim().length === 0
+            ? (
+                <p className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+                  Body not found on disk. The catalog row exists; the file may have been removed since the last workspace:apply.
+                </p>
+              )
+            : (
+                <DocViewer
+                  currentPath={`skills/${slug}/SKILL.md`}
+                  content={markdownBody}
+                  linkBase="/dashboard/docs"
+                />
+              )}
+        </article>
 
-      <section className="mb-6 rounded-md border border-border p-5">
-        <h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
-          <FileText className="size-4 text-primary" />
-          Prompt template
-        </h2>
-        <pre className="max-h-[32rem] overflow-auto rounded-md bg-muted/40 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">{skill.promptTemplate}</pre>
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          {'{{variable}}'}
-          {' '}
-          placeholders are interpolated from the input at run time.
-        </p>
-      </section>
+        <aside className="space-y-6 text-sm">
+          <section>
+            <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Provenance</h2>
+            <p className="text-muted-foreground">{originLabel}</p>
+          </section>
 
-      <PrimitiveActivity kind="skill" slug={slug} {...activity} />
-
-      {Object.keys(properties).length > 0 && (
-        <section className="mb-6 rounded-lg border border-border bg-background p-4">
-          <div className="mb-3 text-sm font-semibold">Input variables</div>
-          <div className="space-y-2">
-            {Object.entries(properties).map(([key, val]) => (
-              <div key={key} className="flex items-start gap-3">
-                <code className="shrink-0 rounded bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary">
-                  {'{{'}
-                  {key}
-                  {'}}'}
-                </code>
-                <div className="min-w-0 flex-1 text-xs">
-                  <div>{val.description ?? key}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {val.type ?? 'string'}
-                    {required.includes(key) && <span className="ml-1">· required</span>}
+          <section>
+            <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Mounted by</h2>
+            {mountedBy.length === 0
+              ? <p className="text-muted-foreground italic">No agent names it yet.</p>
+              : (
+                  <div className="flex flex-wrap gap-1">
+                    {mountedBy.map(a => (
+                      <Link key={a} href={`/dashboard/agents/${a}`}>
+                        <Badge variant="secondary">{a}</Badge>
+                      </Link>
+                    ))}
                   </div>
-                </div>
+                )}
+          </section>
+
+          {row.kind === 'skill' && (row.attachedPlaybooks ?? []).length > 0 && (
+            <section>
+              <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Attached playbooks</h2>
+              <div className="flex flex-wrap gap-1">
+                {(row.attachedPlaybooks ?? []).map(p => (
+                  <Link key={p} href={`/dashboard/skills/${p}`}>
+                    <Badge variant="outline">{p}</Badge>
+                  </Link>
+                ))}
               </div>
-            ))}
-          </div>
-        </section>
-      )}
+            </section>
+          )}
 
-      {inputSchema && (
-        <details className="mb-6 rounded-md border border-border p-5">
-          <summary className="cursor-pointer text-sm font-semibold">Input schema (JSON)</summary>
-          <pre className="mt-3 overflow-x-auto rounded-md bg-muted/40 p-4 font-mono text-xs leading-relaxed">{JSON.stringify(inputSchema, null, 2)}</pre>
-        </details>
-      )}
+          <section>
+            <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Usage</h2>
+            <p className="text-muted-foreground">
+              {usage[slug] ?? 0}
+              {' '}
+              read
+              {(usage[slug] ?? 0) === 1 ? '' : 's'}
+              {' — '}
+              <Link href="/dashboard/activity?kind=tool&tool=skill_read" className="underline">
+                see Activity
+              </Link>
+            </p>
+          </section>
 
-      {sourceFiles && (
-        <section>
-          <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Source files</h2>
-          <PrimitiveFiles
-            files={sourceFiles.files}
-            editInGitPath={sourceFiles.editInGitPath}
-            dirty={dirtyState.dirty}
-            dirtyFiles={dirtyState.changedFiles}
-          />
-        </section>
-      )}
+          <section>
+            <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Catalog</h2>
+            <dl className="space-y-1">
+              <div className="flex justify-between gap-2">
+                <dt className="text-muted-foreground">Version</dt>
+                <dd className="font-mono">
+                  v
+                  {row.version}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-2">
+                <dt className="text-muted-foreground">Files</dt>
+                <dd className="font-mono">{row.sourceFiles.length}</dd>
+              </div>
+              <div className="flex justify-between gap-2">
+                <dt className="text-muted-foreground">Updated</dt>
+                <dd>{new Date(row.updatedAt).toLocaleDateString()}</dd>
+              </div>
+              {row.license && (
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">License</dt>
+                  <dd className="font-mono text-xs">{row.license}</dd>
+                </div>
+              )}
+            </dl>
+          </section>
+        </aside>
+      </div>
     </>
   );
 }
 
-function Config({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className={`mt-0.5 text-sm ${mono ? 'font-mono' : ''}`}>{value}</div>
-    </div>
-  );
+function stripFrontmatter(raw: string): { content: string } {
+  if (!raw.startsWith('---')) {
+    return { content: raw };
+  }
+  const end = raw.indexOf('\n---', 3);
+  if (end === -1) {
+    return { content: raw };
+  }
+  return { content: raw.slice(end + 4).replace(/^\n+/, '') };
 }

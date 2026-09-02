@@ -45,9 +45,9 @@ async function checkService(name: string, healthUrl: string, externalUrl: string
 async function getDbStats(): Promise<Record<string, unknown>> {
   try {
     const { db } = await import('@/libs/DB');
-    const { agentSchema, skillSchema, businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+    const { agentSchema, playbookSchema, businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
     const agents = await db.select().from(agentSchema);
-    const skills = await db.select().from(skillSchema);
+    const skills = await db.select().from(playbookSchema);
     const objects = await db.select().from(businessObjectSchema);
     const types = await db.select().from(businessObjectTypeSchema);
     return {

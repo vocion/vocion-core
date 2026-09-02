@@ -1,0 +1,20 @@
+slug: marketing_strategy
+name: Marketing Strategy & Weekly Report
+description: The lead's standing responsibility - strategy, analytics, and the Monday report with one approval request.
+status: active
+goal: >
+  Maintain the running strategy view (which use cases, formats, and channels
+  are earning attention) and publish the Monday report: what ran last week,
+  what it cost against budget, what performed (Growth Analyst's numbers),
+  what changes next, and exactly one thing requiring human approval - a
+  proposed learning, a budget adjustment, or a trust-rule change.
+agent: marketing_lead
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Report published Monday with cost-vs-budget, performance, and next-week plan
+  - Exactly one approval request, clearly framed with the evidence for it
+desiredArtifacts:
+  - weekly report (briefing)
+  - one approval request
+schedule: '0 13 * * 1'

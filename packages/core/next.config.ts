@@ -1,21 +1,53 @@
 import type { NextConfig } from 'next';
+import { cpSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import withBundleAnalyzer from '@next/bundle-analyzer';
 import { withSentryConfig } from '@sentry/nextjs';
 import createNextIntlPlugin from 'next-intl/plugin';
 import './src/libs/Env';
 
+// Workspace component registry (workspace pages, docs/workspace-pages.md):
+// if the running workspace ships pages/components/registry.tsx, alias
+// `@wsx/registry` at it so tenant React widgets compile into the app;
+// otherwise fall back to the empty in-repo stub.
+//
+// Turbopack only compiles files under the project root and refuses both
+// absolute alias paths and symlinks that escape the root, so the tenant
+// components are SNAPSHOTTED into the gitignored src/wsx-ext/ at config
+// load. Restart dev after editing a workspace registry.
+const wsxCandidate = process.env.WORKSPACE_PATH
+  ? join(process.env.WORKSPACE_PATH, 'pages/components')
+  : null;
+const wsxDir = join(__dirname, 'src/wsx-ext');
+rmSync(wsxDir, { recursive: true, force: true });
+// Alias values must be project-relative specifiers.
+let wsxRegistry = './src/libs/workspace/ext-stub/registry.tsx';
+if (wsxCandidate && existsSync(join(wsxCandidate, 'registry.tsx'))) {
+  cpSync(wsxCandidate, wsxDir, { recursive: true, dereference: true });
+  wsxRegistry = './src/wsx-ext/registry.tsx';
+}
+
 // Define the base Next.js configuration
 const baseConfig: NextConfig = {
+  turbopack: {
+    resolveAlias: {
+      '@wsx/registry': wsxRegistry,
+    },
+  },
+  webpack: (config) => {
+    config.resolve.alias['@wsx/registry'] = join(__dirname, wsxRegistry);
+    return config;
+  },
   // Standalone output for Docker — produces .next/standalone/ with only
   // the runtime deps the server needs (cuts image size ~1.5GB → ~250MB).
   // Required by the production Dockerfile in this same directory.
   output: 'standalone',
   // Capture monorepo root one level up so node_modules tracing works.
   outputFileTracingRoot: join(__dirname, '../..'),
-  devIndicators: {
-    position: 'bottom-right',
-  },
+  // Hide the floating Next.js dev indicator ("N" FAB) — it overlaps the
+  // chat composer's thumb zone on a 390px viewport. `false` disables it
+  // entirely in Next 16 (the object form only repositions it).
+  devIndicators: false,
   poweredByHeader: false,
   reactStrictMode: true,
   // Temporal's client can't be webpack-bundled: its gRPC/proto data files
@@ -23,10 +55,16 @@ const baseConfig: NextConfig = {
   // (the dashboard then shows "not scheduled yet" for every schedule).
   // Externalizing keeps it a real node_modules dependency, which `output:
   // standalone` traces into the runtime image.
-  serverExternalPackages: ['@temporalio/client', '@temporalio/common', '@temporalio/proto'],
+  serverExternalPackages: ['@temporalio/client', '@temporalio/common', '@temporalio/proto', '@electric-sql/pglite'],
   reactCompiler: process.env.NODE_ENV === 'production', // Keep the development environment fast
   outputFileTracingIncludes: {
-    '/': ['./migrations/**/*'],
+    // demo/**: the hosted demo sandbox's baked PGlite seed, recorded LLM
+    // fixtures, and workspace — inert unless VOCION_LLM_MODE/pglite:// are set.
+    // Keyed broadly: the DB (and thus the seed copy) boots in every function.
+    // The pglite wasm bundle + extensions load via computed fs paths the
+    // tracer cannot see; include them explicitly (hoisted at the repo root).
+    '/': ['./migrations/**/*', './demo/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
+    '/**': ['./migrations/**/*', './demo/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
   },
 };
 
