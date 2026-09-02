@@ -4,15 +4,13 @@ import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import { ArrowDown, ArrowUp, ChevronRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Input } from '@/components/ui/input';
 import { StatusPill } from '@/components/ui/status-pill';
 import { ReviewActionCard } from '@/features/review/ReviewActionCard';
 import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
 import { confidenceLevel } from './confidence';
-import { RegenerateBriefControl } from './RegenerateBriefControl';
+import { entranceLabel, LANE_PILL, LeadContext, shortDate } from './LeadContext';
 
 /**
  * The personalization review queue — one lead per row, four lanes across the
@@ -79,22 +77,6 @@ const LANES = [
 /** The page opens where the work is. */
 const DEFAULT_LANE: string = 'ready_for_review';
 
-const PILL: Record<string, { status: 'pending' | 'approved' | 'paused' | 'completed'; label: string }> = {
-  queued: { status: 'paused', label: 'Queued' },
-  ready_for_review: { status: 'pending', label: 'Review' },
-  handed_off: { status: 'approved', label: 'Handed off' },
-  held: { status: 'paused', label: 'Held' },
-  sent: { status: 'completed', label: 'Sent' },
-};
-
-/**
- * A source that opens is a source a reviewer can check.
- * @param source
- */
-function isUrl(source: string): boolean {
-  return /^https?:\/\//i.test(source);
-}
-
 type SortKey = 'arrived' | 'confidence' | 'name';
 
 /**
@@ -108,28 +90,6 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: 'name', label: 'Name' },
 ];
 
-/** Fixed locale + UTC so the server render and the client render agree. */
-const ARRIVED_FORMAT = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric',
-  timeZone: 'UTC',
-});
-
-function arrivedLabel(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : ARRIVED_FORMAT.format(d);
-}
-
-/**
- * The entrance path is a CRM enum (`PAID_SOCIAL`, `ORGANIC_SEARCH`). Shown
- * raw it reads as a database value rather than how someone found us.
- * @param value
- */
-function entranceLabel(value: string): string {
-  const words = value.replaceAll('_', ' ').toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
 const BriefListRow = (props: {
   row: BriefRow;
   /** The pending enroll run this row decides through — absent when decided or snoozed. */
@@ -142,7 +102,7 @@ const BriefListRow = (props: {
 }) => {
   const { row } = props;
   const level = confidenceLevel(row.confidence);
-  const pill = PILL[row.status] ?? { status: 'pending' as const, label: row.status };
+  const pill = LANE_PILL[row.status] ?? { status: 'pending' as const, label: row.status };
 
   // The one-line "why this lead": who they are, when and how they arrived,
   // how warm. Anything the CRM does not carry is left out rather than shown
@@ -152,7 +112,7 @@ const BriefListRow = (props: {
     row.companyName,
     // The true stage-entry date wins; the create date is labeled as arrival,
     // never as when they became an MQL.
-    row.mqlAt ? `MQL ${arrivedLabel(row.mqlAt)}` : row.arrivedAt ? `arrived ${arrivedLabel(row.arrivedAt)}` : null,
+    row.mqlAt ? `MQL ${shortDate(row.mqlAt)}` : row.arrivedAt ? `arrived ${shortDate(row.arrivedAt)}` : null,
     row.entranceSource ? entranceLabel(row.entranceSource) : null,
     // "via", not "utm=": what the CRM carries is the source detail (the ad
     // network, the keyword), which is only sometimes a campaign tag.
@@ -230,129 +190,7 @@ const BriefListRow = (props: {
               {row.draftError}
             </p>
           )}
-          <div className="grid gap-6 text-sm @2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-            <div>
-              {row.regenerateNote && (
-                <div className="mb-4 rounded-md border border-border bg-muted/40 p-3">
-                  <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Rewritten on your instruction
-                  </div>
-                  <p className="whitespace-pre-line">{row.regenerateNote}</p>
-                </div>
-              )}
-
-              {/* The error stands where the brief would be, so a lead that ran
-                out of tries reads as a failure rather than a thin brief. */}
-              {row.sections.length === 0 && row.briefError
-                ? (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
-                      <h3 className="mb-1 text-xs font-semibold tracking-wide text-destructive uppercase">
-                        No brief. Briefing failed
-                        {' '}
-                        {row.briefAttempts}
-                        {row.briefAttempts === 1 ? ' time' : ' times'}
-                      </h3>
-                      <p className="whitespace-pre-line">{row.briefError}</p>
-                      <p className="mt-2 text-[13px] text-muted-foreground">
-                        The retries have stopped. Regenerate to put this lead back in line for another pass.
-                      </p>
-                    </div>
-                  )
-                : row.sections.length === 0
-                  ? <p className="text-muted-foreground">No brief recorded.</p>
-                  : (
-                      <div className="flex flex-col gap-4">
-                        {row.sections.map(section => (
-                          <section key={section.heading}>
-                            <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                              {section.heading}
-                            </h3>
-                            {/* The skill writes markdown, so render it. Raw
-                              `**Name:**` on the page is the reviewer reading
-                              the syntax instead of the brief. `pre-line` keeps
-                              the single newlines the brief writes one field
-                              per line; markdown would otherwise run them into
-                              one paragraph. */}
-                            <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:whitespace-pre-line">
-                              <Markdown remarkPlugins={[remarkGfm]}>{section.body}</Markdown>
-                            </div>
-                          </section>
-                        ))}
-                      </div>
-                    )}
-
-              <div className="mt-4">
-                <RegenerateBriefControl briefId={row.id} contactName={row.contactName} />
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-4">
-              <div>
-                <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  Claims
-                </h3>
-                {row.claims.length === 0
-                  ? <p className="text-muted-foreground">No claims recorded.</p>
-                  : (
-                      <ul className="flex flex-col gap-2">
-                        {row.claims.map(claim => (
-                          <li key={`${claim.kind}-${claim.source}-${claim.text}`}>
-                            <div>{claim.text}</div>
-                            {/* Every claim carries its kind and where it came
-                              from — an unsourced claim is not a claim, and a
-                              fact and an inference are not the same thing. */}
-                            <div className="text-[11px] text-muted-foreground">
-                              {claim.kind}
-                              {' · '}
-                              {isUrl(claim.source)
-                                ? (
-                                    <a
-                                      href={claim.source}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="underline underline-offset-2 hover:text-foreground"
-                                    >
-                                      {claim.source}
-                                    </a>
-                                  )
-                                : claim.source}
-                              {claim.date ? ` · ${claim.date}` : ''}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-              </div>
-
-              {row.missing.length > 0 && (
-                <div>
-                  <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                    Missing
-                  </h3>
-                  <ul className="list-inside list-disc text-muted-foreground">
-                    {row.missing.map(m => <li key={m}>{m}</li>)}
-                  </ul>
-                </div>
-              )}
-
-              {level && (
-                <div>
-                  <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                    Confidence
-                  </h3>
-                  <p>
-                    {row.confidence?.toFixed(2)}
-                    {' · '}
-                    {level}
-                  </p>
-                  <p className="mt-1 text-[13px] text-muted-foreground">
-                    How well the evidence supports this brief and its angle, not a prediction that the
-                    lead replies. The reason is in the brief's own confidence section.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
+          <LeadContext row={row} />
         </div>
       )}
     </div>
