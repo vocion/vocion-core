@@ -5,7 +5,7 @@ import type { PageField, PageManifest, PageRow } from '@/libs/workspace/pages';
 import { components as wsxComponents } from '@wsx/registry';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Badge } from '@/components/ui/badge';
@@ -248,7 +248,10 @@ export default async function WorkspacePage(props: {
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
-    return notFound();
+    // A valid session with no organization here — typically a cookie from a
+    // sibling localhost app (shared AUTH_SECRET). A bare 404 hides the cause;
+    // sign the session out so the next visit lands on this app's sign-in.
+    redirect('/api/auth/signout?callbackUrl=/sign-in');
   }
 
   const manifest = readWorkspacePage(slug);
