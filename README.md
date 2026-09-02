@@ -4,6 +4,8 @@
 
 Context as code. Skills as plugins. Review surfaces built in.
 
+**New here?** [**Getting started — build an agent workforce from zero**](./docs/getting-started.md) walks you from an empty directory to a working workforce, one file type at a time. No code required.
+
 ## What this is
 
 Vocion is a Next.js app + Postgres schema + MCP server + workflow runner. You author your work — **Sources, Objects, Skills, Playbooks, Workflows, Missions, Automations, Agents, and Teams** — as YAML + markdown in git, apply it to the database, and get a typed runtime with a unified human-review queue, observability, and a plugin ecosystem.
@@ -191,6 +193,7 @@ grant trademark rights.
 
 ## Docs
 
+- [`docs/getting-started.md`](./docs/getting-started.md) — **start here**: zero to a working agent workforce, with an example of every entity type
 - [`docs/README.md`](./docs/README.md) — docs index
 - [`docs/workspace.md`](./docs/workspace.md) — workspace-as-code: create, author, apply, base packs, commands
 - [`docs/entities/`](./docs/entities/) — one page per authored entity type, field by field

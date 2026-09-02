@@ -14,6 +14,10 @@ Workspaces live **outside this repo**, at the peer level of the vocion-core chec
 
 The app finds the active workspace via the `WORKSPACE_PATH` env var (absolute or repo-root-relative). With `WORKSPACE_PATH` unset, no workspace is configured: reads show empty state, and `workspace:apply` / file writes fail with an explicit error.
 
+New to Vocion? Read [**Getting started**](./getting-started.md) first — it builds a complete workforce
+step by step and explains how the file types fit together. This page is the reference for authoring and
+applying once you know the shape.
+
 ## Creating a workspace
 
 ```bash
