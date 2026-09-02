@@ -33,7 +33,7 @@ export default async function ApiTokensPage() {
 
       <DashboardSection
         title="Credentials"
-        description="A Vocion token authenticates a caller into this workspace — send it as a bearer token to /api/v1 or /api/mcp, and copy it when you create it because it is shown only once. A key for any other platform goes the other way: Vocion uses it to call that platform on your behalf, so the run bills your account instead of ours. That covers everything this workspace sends to that platform — chat models, embeddings, search reranking, and image and vision tools. Store nothing here and those calls keep running on our key, exactly as they do today."
+        description="A Vocion token lets a caller into this workspace — send it as a bearer token to /api/v1 or /api/mcp, and copy it now, because it is shown only once. A key for any other platform goes the other way: Vocion calls that platform for you, so models, embeddings, reranking and image tools bill your account. Store none and those calls stay on ours."
       >
         <ApiTokensPanel />
       </DashboardSection>
