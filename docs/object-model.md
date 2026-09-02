@@ -22,7 +22,7 @@ sweep. Field-by-field reference for each authored type:
 | [Automation](./entities/automation.md) | `automations/<slug>.yaml` | `AutomationManifestSchema` | `automation` | Temporal schedule or event match → `dispatchDo` (workflow, checkMission, job) | `/dashboard/automation` |
 | [Source](./entities/source.md) | `sources/<slug>.yaml` | `SourceManifestSchema` | `knowledge_source` | `SourceSyncService.runSync` via connector registry | `/dashboard/sources` |
 | [Learning step](./entities/learning-step.md) | `learnings/<step>.yaml` | `LearningStepManifestSchema` | `learning_step` (+ `learning` rows) | rendered to `/learnings/<step>.md` in the agent FS | `/dashboard/learnings` |
-| [Eval dataset](./entities/eval-dataset.md) | `evals/<slug>.yaml` | `EvalDatasetManifestSchema` | `eval_dataset` | `npm run eval:run` | `/api/v1/evals` |
+| [Eval dataset](./entities/eval-dataset.md) | `evals/<slug>.yaml` | `EvalDatasetManifestSchema` | `eval_dataset` | `npm run eval:run --workspace @vocion/core` | `/api/v1/evals` |
 | [Trust rule](./entities/trust.md) | `trust.yaml` | `TrustManifestSchema` | `trust_rule` | auto-approval threshold check in `ActionService` | `/dashboard/review` (auto-executed list) |
 | [Workspace page](./workspace-pages.md) | `pages/<slug>.yaml` (+ optional sibling `.md`) | `PageManifestSchema` | none — file-only | `readWorkspacePages()` at render; `workspace:apply` does not touch pages | `/dashboard/p/<slug>` |
 

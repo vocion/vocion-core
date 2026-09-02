@@ -58,7 +58,7 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 │       └── classification-prompt.md
 ├── sources/                      # YAML — connector definitions (no credentials!)
 ├── learnings/                    # whitelisted rule-step buckets
-├── evals/                        # YAML — per-agent test cases for `npm run eval:run`
+├── evals/                        # YAML — per-agent test cases (npm run eval:run)
 └── pages/                        # optional tenant dashboard pages (file-only, see below)
 ```
 

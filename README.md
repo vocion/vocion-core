@@ -48,7 +48,7 @@ Everything you author lives in a **workspace** — a git-backed directory of YAM
 | **[Source](./docs/entities/source.md)** | `sources/<slug>.yaml` | Connector kind, config, sync + reconcile cadence, per-source access (no credentials) |
 | **[Trust rules](./docs/entities/trust.md)** | `trust.yaml` | Which actions may auto-execute, and above what confidence |
 | **[Learning step](./docs/entities/learning-step.md)** | `learnings/<name>.yaml` | Named bucket of accumulated rules an agent reads |
-| **[Eval dataset](./docs/entities/eval-dataset.md)** | `evals/<slug>.yaml` | Per-agent test cases for `npm run eval:run` |
+| **[Eval dataset](./docs/entities/eval-dataset.md)** | `evals/<slug>.yaml` | Per-agent test cases for `npm run eval:run --workspace @vocion/core` |
 | **[Workspace page](./docs/workspace-pages.md)** | `pages/<slug>.yaml` | Tenant-defined dashboard page, derived from a core archetype (file-only) |
 
 A **[base pack](./docs/entities/base-pack.md)** ships inside core at `packages/core/templates/base/` and layers *underneath* a workspace: pin it with `extends: core@<version>`, activate the agents you want with `use:`, and override any default with a same-slug file marked `extends: core`.

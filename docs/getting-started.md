@@ -15,25 +15,27 @@ page. That is every authored entity type in the framework.
 
 1. [The one idea: configuration, not API calls](#1-the-one-idea-configuration-not-api-calls)
 2. [The mental model](#2-the-mental-model)
-3. [Setup](#3-setup)
-4. [Step 1 — the workspace manifest](#step-1--the-workspace-manifest)
-5. [Step 2 — your first agent](#step-2--your-first-agent)
-6. [Step 3 — check, apply, talk to it](#step-3--check-apply-talk-to-it)
-7. [Step 4 — teams and specialists](#step-4--teams-and-specialists)
-8. [Step 5 — a skill](#step-5--a-skill)
-9. [Step 6 — a playbook](#step-6--a-playbook)
-10. [Step 7 — a source](#step-7--a-source)
-11. [Step 8 — an object type](#step-8--an-object-type)
-12. [Step 9 — a mission](#step-9--a-mission)
-13. [Step 10 — an automation](#step-10--an-automation)
-14. [Step 11 — a workflow](#step-11--a-workflow)
-15. [Step 12 — trust rules](#step-12--trust-rules)
-16. [Step 13 — learnings, evals, and a page](#step-13--learnings-evals-and-a-page)
-17. [The finished workspace](#the-finished-workspace)
-18. [Which entity do I use?](#which-entity-do-i-use)
-19. [Reuse across tenants: base packs](#reuse-across-tenants-base-packs)
-20. [Common mistakes](#common-mistakes)
-21. [Where to go next](#where-to-go-next)
+3. [How a run actually happens](#3-how-a-run-actually-happens)
+4. [Setup](#4-setup)
+5. [Step 1 — the workspace manifest](#step-1--the-workspace-manifest)
+6. [Step 2 — your first agent](#step-2--your-first-agent)
+7. [Step 3 — check, apply, talk to it](#step-3--check-apply-talk-to-it)
+8. [Step 4 — teams and specialists](#step-4--teams-and-specialists)
+9. [Step 5 — a skill](#step-5--a-skill)
+10. [Step 6 — a playbook](#step-6--a-playbook)
+11. [Step 7 — a source](#step-7--a-source)
+12. [Step 8 — an object type](#step-8--an-object-type)
+13. [Step 9 — a mission](#step-9--a-mission)
+14. [Step 10 — an automation](#step-10--an-automation)
+15. [Step 11 — a workflow](#step-11--a-workflow)
+16. [Step 12 — trust rules](#step-12--trust-rules)
+17. [Step 13 — learnings, evals, and a page](#step-13--learnings-evals-and-a-page)
+18. [The finished workspace](#the-finished-workspace)
+19. [Which entity do I use?](#which-entity-do-i-use)
+20. [Reuse across tenants: base packs](#reuse-across-tenants-base-packs)
+21. [Common mistakes](#common-mistakes)
+22. [Glossary](#glossary)
+23. [Where to go next](#where-to-go-next)
 
 ---
 
@@ -106,9 +108,11 @@ get it approved, send it"). If you can write the steps down and they never
 change, it is a workflow. If the right move depends on what the agent finds,
 it is a mission.
 
-**Neither one knows when it runs.** Missions and workflows carry no trigger
-logic. Timing lives only in automations. That separation is deliberate: you can
-read every scheduled thing in your workspace by listing one directory.
+**Neither one knows when it runs — almost.** Workflows carry no trigger logic
+at all, and a mission carries no procedure. Timing lives in automations, with
+one exception: a mission may set its own `schedule`, which makes its owning
+agent re-read the charter on that cadence (a *charter check*). So "what runs on
+a timer?" is `automations/` plus any mission with a `schedule:`.
 
 **Skill vs. playbook.** A skill is *something you do* and the agent picks it up
 when the model judges it relevant. A playbook is *context that is always
@@ -118,14 +122,58 @@ in decides which they are.
 
 ---
 
-## 3. Setup
+## 3. How a run actually happens
+
+Three things start work, and everything else is downstream of them:
+
+```mermaid
+flowchart TD
+    H["A person, in the dashboard<br/>/dashboard/agents → chat"] --> A
+    S["An automation<br/>cron or event match"] --> M["Mission check<br/>(agent decides what to do)"]
+    S --> W["Workflow run<br/>(fixed steps)"]
+    C["An API call<br/>POST /api/v1/workflows/&lt;slug&gt;<br/>POST /api/v1/automations/&lt;slug&gt;/run"] --> W
+    M --> A
+    A["Agent turn<br/>prompt + mounted skills + playbooks"] --> R["Reads sources,<br/>looks up objects"]
+    A --> P["Proposes an action<br/>(anything leaving the building)"]
+    W --> P
+    P --> Q{"Trust rule<br/>allows it?"}
+    Q -- "no" --> V["/dashboard/review<br/>human decides"]
+    Q -- "yes, above threshold" --> X["Executes, audited"]
+    V -- "approved" --> X
+```
+
+Where the output lands:
+
+| Started by | Read the result at |
+|---|---|
+| A person chatting | The chat itself, and `/dashboard/activity` for the tool calls behind it |
+| A mission check | `/dashboard/missions/runs` — one row per check, with the brief it produced |
+| A workflow run | `/dashboard/workflows/<slug>/runs` |
+| Anything that proposed an action | `/dashboard/review`, or its auto-executed list when a trust rule let it through |
+
+Two mechanics worth knowing before you start, because they explain why there is
+no code to write:
+
+- **Skills are not registered tools.** They are Markdown files mounted into the agent's filesystem. The agent sees each skill's `description` and reads the body when it judges the skill relevant. There is no decorator, no schema, no tool registration step — the "activation" is the model choosing to read a file.
+- **Actions are the only things with side-effects.** An agent proposes; a human (or a trust rule) disposes. That split is why an agent can be given a lot of context safely: the dangerous verbs live behind the review queue, not in the prompt.
+
+---
+
+## 4. Setup
+
+Already run the README's [Getting started](../README.md#getting-started)
+steps? Skip to the scaffold command.
 
 ```bash
 git clone <repo-url> && cd vocion-core
 npm install
 
-# Configure — at minimum DATABASE_URL, Clerk keys, and one LLM provider key
+# Configure — copy the example and fill in the required keys
 cp packages/core/.env.example packages/core/.env.local
+#   DATABASE_URL
+#   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY + CLERK_SECRET_KEY   (auth)
+#   OPENAI_API_KEY and/or ANTHROPIC_API_KEY                (models + embeddings)
+# Everything else in .env.example is optional and commented.
 
 npm run dev:up          # Postgres + Langfuse + Temporal in Docker
 npm run db:migrate      # apply the schema
@@ -242,11 +290,32 @@ npm run workspace:check -- ../workspace/harbor-supply
 npm run workspace:apply -- ../workspace/harbor-supply --project harbor-supply
 ```
 
-Then open `http://localhost:3000/dashboard/agents`, pick the Revenue Director,
-and ask it something. You have a working agent with two files and no code.
+`check` prints what would change and writes nothing. `apply` writes it and
+records a `workspace_version` audit row. Applies are idempotent and atomic per
+resource: a validation failure in one file does not block the rest.
 
-Get in the habit of stopping here after every step: apply, then look. The
-dashboard is the fastest way to see whether a file did what you meant.
+**About `--project`.** `orgId` in the manifest is a placeholder for the tenant
+the workspace belongs to; `--project <id|slug>` tells apply which live project
+to write under, so you do not have to re-key the file per environment. Passing
+`--project` is the recommended path — the manifest's `orgId` matters only if you
+apply without it.
+
+**What you should see.** On first visit you land on the Clerk sign-in screen;
+sign in, then open `http://localhost:3000/dashboard/agents`. The Revenue
+Director is listed with the icon, accent and eyebrow you set. Open it, ask
+"how's the quarter?", and you get an answer with no data behind it yet — that is
+correct at this stage; sources come in Step 7.
+
+**When check fails**, it names the file and the reason. Real example:
+
+```
+agent hierarchy invalid:
+  agents/pipeline-analyst.yaml: agent "pipeline-analyst" has unknown parent
+  "revenue-led" — no agent with that slug in this workspace
+```
+
+Get in the habit of stopping after every step: apply, then look. The dashboard
+is the fastest way to see whether a file did what you meant.
 
 ---
 
@@ -335,8 +404,11 @@ Never invent a deal, an amount, or a date. When the data does not cover
 something above, say which part is missing.
 ```
 
-The folder name is the slug, and the file must be named `SKILL.md` exactly —
-that is what the agent runtime looks for when it loads a skill on demand.
+The slug is the `slug:` field in the frontmatter — naming the folder after it
+is convention, not a rule the loader enforces (though base-pack overrides do
+match by slug, so keeping them equal saves confusion). The file itself must be
+named `SKILL.md` exactly: that is what the agent runtime looks for when it
+loads a skill on demand.
 
 Attach it to the agents that should have it:
 
@@ -349,6 +421,14 @@ skills:
 A skill activates on the model's judgement. Where the work must happen *every*
 time, name the skill outright in the mission or automation prompt that drives
 the run.
+
+**What it looks like when it fires.** You ask the Pipeline Analyst "what's
+stalling?"; the model sees a skill whose description matches, reads
+`/skills/pipeline-health/SKILL.md` out of its filesystem, and answers in the
+shape the skill prescribes. The read is recorded as a `skill_read` row, so
+`/dashboard/skills` shows which skills are actually being used and
+`/dashboard/activity` shows the turn that used them. If a skill never appears
+there, the description is the first thing to rewrite.
 
 Reference: [skill](./entities/skill.md).
 
@@ -409,16 +489,22 @@ source after apply.
 ```yaml
 # sources/hubspot.yaml
 slug: hubspot
-name: HubSpot CRM
-description: Deals, contacts, and companies for the revenue org.
+name: HubSpot Deals
+description: HubSpot deals for the revenue org.
 kind: hubspot
 config:
-  portalId: '48210773'
-  objects: [deals, contacts, companies]
+  objectType: deals # one object type per source
+  portalId: '48210773' # enables record deep links on review cards
 schedule: '*/30 * * * *' # incremental sync every 30 minutes
 reconcileSchedule: '0 4 * * 0' # weekly full pass to catch upstream deletions
 enabled: true
 ```
+
+Each connector defines its own `config` shape, validated at apply — the HubSpot
+connector syncs one `objectType` per source, so deals and contacts are two
+source files, not one. Check the connector in
+`packages/core/src/libs/sources/` for the fields it accepts; an unknown key is
+silently dropped rather than rejected.
 
 Then let agents search it:
 
@@ -426,6 +512,19 @@ Then let agents search it:
 # in agents/pipeline-analyst.yaml
 connectorSources: [hubspot]
 ```
+
+**Where the credentials go.** Apply the file first, then either press Connect
+on `/dashboard/sources/<slug>`, or use the headless equivalent:
+
+```bash
+npm run creds:set --workspace @vocion/core -- \
+  --project harbor-supply --source hubspot --token pat-na1-...
+```
+
+Extra connector fields go through repeated `--field key=value` flags. Either
+path AES-GCM encrypts the secret into the vault (`source_credential`); the UI
+redacts config keys that look like secrets, and stored credentials never leave
+the server. A source with no credentials applies fine and simply syncs nothing.
 
 Why the second schedule: an incremental sync sees new and changed records but
 cannot see a record that was *deleted* upstream. The reconcile pass is a
@@ -447,8 +546,9 @@ Reference: [source](./entities/source.md).
 
 An object type is the *definition* of a business record — Deal, Account,
 Discovery Call. You author the definition; the individual records are runtime
-data, created through the UI and the classifier. It gives the agent a shape to
-reason about and a way to sort incoming material into it.
+data. It gives the agent a shape to reason about, weights retrieval toward the
+sources that matter for that shape, and records the rule for what belongs in
+the type.
 
 ```yaml
 # objects/discovery_call/type.yaml
@@ -472,8 +572,16 @@ fewShotExamples:
     label: Clear first substantive conversation.
 ```
 
-The filename must be `type.yaml`. Anything else in the folder is treated as a
-resource — which is how `classification-prompt.md` sits beside it.
+The filename must be `type.yaml`. `classification-prompt.md` is picked up only
+because `classificationPromptFile` names it — unlike a skill folder, an object
+folder has no sibling auto-discovery, so any file nothing references is simply
+ignored.
+
+Records themselves are created through the dashboard and by agent tools; agents
+read them back with the built-in `lookup_objects` tool. The classification
+prompt is stored on the type and shown as configured in `/dashboard/objects`;
+feature-specific detection paths (discovery detection, for one) apply their own
+logic on top.
 
 Reference: [object type](./entities/object-type.md).
 
@@ -508,8 +616,22 @@ desiredArtifacts:
 team the runtime can hand off to — so this mission has the Pipeline Analyst
 available without naming it.
 
-`autonomyPolicy.level` (1–5) is how much rope: 1 is "propose everything", 5 is
-"act freely within the rules". Start at 1 or 2.
+`autonomyPolicy.level` is how much rope the mission gets. Autonomy is a
+property of the mission, not the agent — the same agent can run one mission at
+level 1 and another at level 3:
+
+| Level | Label | Effect |
+|---|---|---|
+| 1 | Draft only | Every action that touches the outside world is gated for approval |
+| 2 | Ask before action | Same gate; the difference is intent, not permission |
+| 3 | Act within rules | External actions run unless the task itself flags approval |
+| 4 | Manage a goal | As level 3, with broader latitude over the goal |
+| 5 | Improve itself | As level 3, plus self-improvement |
+
+Analysis, drafting, and synthesis are never gated at any level — they produce
+drafts, not side-effects. Start at 1 or 2.
+
+(`packages/core/src/services/missions/autonomy.ts`)
 
 Reference: [mission](./entities/mission.md).
 
@@ -559,6 +681,12 @@ do:
 slug that does not exist — fails `workspace:check` rather than dying on its
 first fire.
 
+Three practical notes:
+
+- **Do not wait for Monday.** Fire it on demand from the automation's page in `/dashboard/automation`, or with `POST /api/v1/automations/<slug>/run`. That is also how you test a schedule before trusting it.
+- **Event names are not a fixed list.** An event type is any string; emitting one (`POST /api/v1/events`) fans it out to every workflow and automation subscribed to that type whose `filter` matches. Names like `prospect.reply` are conventions, not enum values — which also means a typo just never fires.
+- **`job` is a seam, not a menu.** It runs a deterministic server-side function rather than an agent, and the built-in registry ships empty today (`packages/core/src/services/jobs/registry.ts`); an unknown job name throws when it fires. Use `checkMission` or `workflow` unless you have added a job in core.
+
 Reference: [automation](./entities/automation.md).
 
 ---
@@ -590,7 +718,7 @@ steps:
     reviews: transcript
   - name: send
     type: action
-    action: gmail.send_email
+    action: gmail.send
     input:
       body: '{{steps.review-draft.output.body}}'
 ```
@@ -602,13 +730,19 @@ Four step types, and that is the whole vocabulary:
 | `sync` | Refresh named sources first, so later steps read live data instead of a stale index |
 | `ask` | Pause until a human supplies text — unless `default` already resolves to something, in which case it does not pause at all |
 | `approve` | Pause in the review queue for a human decision |
-| `action` | Run a registered connector action, e.g. `gmail.send_email` |
+| `action` | Run a registered connector action, e.g. `gmail.send` |
 
 That `default` on the `ask` step is the trick that lets one workflow serve both
 an automation that already has the transcript and a person starting it by hand.
 
 Steps interpolate each other: `{{input.x}}`, `{{steps.<name>.output.y}}`,
 `{{trigger.y}}`.
+
+Start this one by hand with `POST /api/v1/workflows/discovery-followup` (the
+body becomes the run's `input`, so `{{input.transcript}}` is how the `ask` step
+skips its pause), or from `/dashboard/workflows`. Runs and their pauses show up
+under `/dashboard/workflows/<slug>/runs`; anything waiting on a person appears
+in `/dashboard/review`.
 
 Note there is no "call a skill" step. Skills are read by the agent on its own
 judgement, not sequenced by the runtime — the deliberate split between missions
@@ -630,10 +764,12 @@ rules:
   - action: hubspot.update
     autoApproveAbove: 0.95
     enabled: true
-  - action: gmail.send_email
+  - action: gmail.send
     autoApproveAbove: 0.99
     enabled: false
 ```
+
+The registered action ids are listed in the [trust rules reference](./entities/trust.md); the source of truth is `packages/core/src/libs/actions/`.
 
 A proposal for `hubspot.update` at 0.95 confidence or higher now executes
 without waiting — still audited, still listed in the review queue's
@@ -670,7 +806,7 @@ agents: [revenue-lead, pipeline-analyst]
 ```
 
 **Evals** are test cases for one agent, graded on substance rather than exact
-wording. Run them with `npm run eval:run`.
+wording. Run them with `npm run eval:run --workspace @vocion/core` (the script lives in the core package, not at the repo root).
 
 ```yaml
 # evals/pipeline-analyst-basics.yaml
@@ -689,6 +825,11 @@ items:
     expectedOutput: Raw and weighted totals, then the biggest risk.
     tags: [summary]
 ```
+
+Results land in `eval_dataset`-linked runs, readable at
+`/api/v1/evals/<slug>/runs`. Grading is a judge model comparing substance
+against `expectedOutput` and the per-case `rubric`, so wording may differ
+without failing.
 
 **Pages** give humans a purpose-built view. They are file-only — nothing is
 written to the database, `apply` does not know about them, and deleting the
@@ -738,7 +879,7 @@ References: [learning step](./entities/learning-step.md) ·
     └── pipeline-analyst-basics.yaml
 ```
 
-Twenty files, no application code, and every one of them reviewable in a pull
+Nineteen files, no application code, and every one of them reviewable in a pull
 request. Apply it:
 
 ```bash
@@ -833,10 +974,31 @@ Reference: [base pack](./entities/base-pack.md) · deeper walkthrough in
 
 ---
 
+## Glossary
+
+Terms this repo uses that are not obvious from the outside.
+
+| Term | What it means |
+|---|---|
+| **apply** | `workspace:apply` — reading the workspace files and writing them to the database. Nothing you edit takes effect until this runs. |
+| **`workspace_sha`** | The fingerprint of the workspace an output was produced under: the git commit when clean, `<sha>-dirty-<hash>` with uncommitted changes, `local-<hash>` outside git, plus `+core@<version>` when a base pack is pinned. Stamped on every tool call. |
+| **harness** | The machinery that actually runs an agent turn. `harness.provider` on an agent picks where that happens: `local` (in this app's process), `agentcore` (AWS AgentCore managed), `runtime` (the out-of-process `packages/agent-runtime` artifact). Leave it `local` until you have a reason. |
+| **deepagents** | The agent-loop library underneath (see ADR 0001). Its skills middleware is what lazy-loads a `SKILL.md` when the model decides to read it — which is why skills are files, not registered tools. |
+| **subagent / the `task` tool** | Helpers defined inline on an agent (`subagents:`). The parent hands work to one by calling its `task` tool. Not the same as a specialist, which is a full agent with its own file. |
+| **`propose_action`** | The built-in tool an agent uses to say "this should happen" for anything with an outside effect. It creates a pending row for `/dashboard/review` instead of doing the thing. |
+| **`recommend_action`** | The tool that renders an action card in the chat UI. Cosmetic sibling of `propose_action` — it suggests, it does not queue. |
+| **confidence** | A 0–1 number the proposing agent attaches to a proposal. [Trust rules](./entities/trust.md) compare it against `autoApproveAbove`. It is the agent's own estimate, not a calibrated model score — which is why thresholds should be high. |
+| **charter check** | One run of a mission on its cadence: re-read the goal, look at the current state, do only what is needed now, report. Set by `schedule` on the mission, or by an automation's `checkMission`. |
+| **`job`** | A deterministic server-side function an automation can call instead of an agent. The seam exists; the built-in registry is empty today. |
+| **`agentType`** | Descriptive metadata (`mission`, `workflow`, `operational`) stored on the agent row for humans and the UI. No runtime behavior branches on it today. |
+| **surface** | An optional dashboard page that ships in core but is off unless a workspace lists it in `surfaces:`. Today: `personalization`, `discovery`. |
+| **base pack** | A versioned layer of default agents, skills and playbooks shipped inside core, which a workspace pins and opts into. |
+
 ## Where to go next
 
 - [`docs/workspace.md`](./workspace.md) — the authoring guide: commands and flags, base packs in depth, the audit trail, what does *not* belong in a workspace.
 - [`docs/entities/`](./entities/) — every field of every file type, with defaults and the rules the loader enforces.
 - [`docs/object-model.md`](./object-model.md) — where each object is authored, stored, executed and displayed, including the runtime-only ones (tool calls, runs, events).
 - [`docs/workspace-pages.md`](./workspace-pages.md) — custom dashboard pages.
+- **Langfuse**, at `http://localhost:3000` alongside the app once `npm run dev:up` is running — every agent turn, prompt and tool call is traced there. Pair it with the `workspace_sha` on a tool call and you can reconstruct exactly what ran and under which files.
 - `packages/core/templates/workspaces/meridian-revenue/` — a full sample workspace in this repo: four teams, fourteen agents, real prompts. Read it after this guide.
