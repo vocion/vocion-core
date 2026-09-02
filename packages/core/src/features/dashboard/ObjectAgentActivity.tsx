@@ -1,34 +1,27 @@
 import type React from 'react';
-import { desc, eq, sql } from 'drizzle-orm';
-import { Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import { Sparkles } from 'lucide-react';
 import { StatusPill } from '@/components/ui/status-pill';
-import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
-import { agentSchema, skillRunSchema, skillSchema } from '@/models/Schema';
+import { actionRunSchema, agentSchema, toolCallSchema } from '@/models/Schema';
 
 /**
  * Agent activity + review for one business object — the provenance panel on
  * `/dashboard/objects/[id]`.
  *
- * Object-level decisions ARE skill-run decisions: an agent's proposed action
- * on a record (route it, follow up on it) is a `skill_run` referencing the
- * object, so "review the applicant" and "review the run" are the same row,
- * the same status transition, the same audit trail as `/dashboard/review`.
- * Pending runs render through the core ReviewQueue — approving here is
- * indistinguishable from approving there.
+ * Object-level decisions ARE review-queue decisions: an agent's proposed
+ * action on a record (route it, follow up on it) is an `action_run`
+ * referencing the object, so "review the applicant" and "review the action"
+ * are the same row, the same status transition, the same audit trail as
+ * `/dashboard/review`. What agents already did to the record is the
+ * `tool_call` log, filtered to this object. No new tables, no new queue.
  *
- * Linkage convention: a run references an object via `input.objectRef`
+ * Linkage convention: a row references an object via `input.objectRef`
  * (preferred) or by carrying the object's external id anywhere in its input
- * (legacy/tenant keys like `input.applicant`). No new tables, no new queue.
+ * (legacy/tenant keys like `input.applicant`). Pending actions also match on
+ * the review-card dedup key, `<slug>:<object id>:<action id>`.
  */
-
-type ConfidenceLevel = 'confident' | 'uncertain' | 'speculative';
-
-function asConfidence(v: string | null): ConfidenceLevel | null {
-  return (v === 'confident' || v === 'uncertain' || v === 'speculative') ? v : null;
-}
 
 function outputWhy(output: string | null): string | null {
   if (!output) {
@@ -56,57 +49,46 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
     return null;
   }
 
-  // objectRef convention first; fall back to the ref appearing as any JSON
-  // string value in the run input (tenant keys like `applicant`).
-  const runs = await db
-    .select({
-      run: skillRunSchema,
-      skillSlug: skillSchema.slug,
-      skillName: skillSchema.name,
-    })
-    .from(skillRunSchema)
-    .innerJoin(skillSchema, eq(skillRunSchema.skillId, skillSchema.id))
-    .where(sql`${skillRunSchema.orgId} = ${orgId} AND (
-      ${skillRunSchema.input} ->> 'objectRef' = ${externalRef}
-      OR ${skillRunSchema.input}::text LIKE ${`%"${externalRef}"%`}
+  const refLike = `%"${externalRef}"%`;
+
+  // What agents did to this record — objectRef convention first; fall back to
+  // the ref appearing as any JSON string value in the call input.
+  const calls = await db
+    .select()
+    .from(toolCallSchema)
+    .where(sql`${toolCallSchema.orgId} = ${orgId} AND (
+      ${toolCallSchema.input} ->> 'objectRef' = ${externalRef}
+      OR ${toolCallSchema.input}::text LIKE ${refLike}
     )`)
-    .orderBy(desc(skillRunSchema.createdAt))
+    .orderBy(desc(toolCallSchema.createdAt))
     .limit(25);
 
-  if (runs.length === 0) {
+  // What agents proposed and a person has not decided yet.
+  const pending = await db
+    .select()
+    .from(actionRunSchema)
+    .where(and(
+      eq(actionRunSchema.orgId, orgId),
+      eq(actionRunSchema.status, 'pending'),
+      sql`(
+        ${actionRunSchema.input} ->> 'objectRef' = ${externalRef}
+        OR ${actionRunSchema.input}::text LIKE ${refLike}
+        OR ${actionRunSchema.dedupKey} LIKE ${`%:${externalRef}:%`}
+      )`,
+    ))
+    .orderBy(desc(actionRunSchema.createdAt))
+    .limit(25);
+
+  if (calls.length === 0 && pending.length === 0) {
     return null;
   }
 
-  // Which agents own these skills — the "who did this" linkage.
-  const slugs = [...new Set(runs.map(r => r.skillSlug))];
+  // Display names for the agents that acted — the "who did this" linkage.
   const agents = await db.query.agentSchema.findMany({
     where: eq(agentSchema.orgId, orgId),
+    columns: { slug: true, name: true },
   });
-  const agentBySkill = new Map<string, { slug: string; name: string }>();
-  for (const a of agents) {
-    for (const s of (a.skillSlugs ?? [])) {
-      if (slugs.includes(s) && !agentBySkill.has(s)) {
-        agentBySkill.set(s, { slug: a.slug, name: a.name });
-      }
-    }
-  }
-
-  const pending = runs.filter(r => r.run.status === 'pending').map(({ run: r }) => ({
-    id: r.id,
-    skillId: r.skillId,
-    status: r.status,
-    input: r.input as Record<string, unknown> | null,
-    output: r.output ? r.output.slice(0, 4000) : null,
-    truncated: !!(r.output && r.output.length > 4000),
-    workspaceSha: r.workspaceSha,
-    langfuseTraceId: r.langfuseTraceId,
-    confidence: asConfidence(r.confidence),
-    createdBy: r.createdBy,
-    createdAt: r.createdAt ?? new Date(),
-    reviewedBy: r.reviewedBy,
-    reviewedAt: r.reviewedAt,
-  }));
-  const done = runs.filter(r => r.run.status !== 'pending');
+  const agentName = new Map(agents.map(a => [a.slug, a.name]));
 
   return (
     <section className="mt-6 rounded-lg border border-border p-5">
@@ -122,48 +104,57 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
       </p>
 
       {pending.length > 0 && (
-        <div className="mb-5">
-          <ReviewQueue initialSkillRuns={pending} initialWorkflowRuns={[]} />
+        <div className="mb-5 space-y-2">
+          {pending.map((a) => {
+            const who = a.invokedBy?.startsWith('agent:') ? agentName.get(a.invokedBy.slice(6)) ?? a.invokedBy.slice(6) : a.invokedBy;
+            return (
+              <div key={a.id} className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium">{a.actionId}</span>
+                  <StatusPill status="pending" size="sm" />
+                  {who && (
+                    <span className="text-xs text-muted-foreground">
+                      proposed by
+                      {' '}
+                      {who}
+                    </span>
+                  )}
+                  {typeof a.proposal?.confidence === 'number' && (
+                    <span className="text-xs text-muted-foreground">
+                      {Math.round(a.proposal.confidence * 100)}
+                      % confident
+                    </span>
+                  )}
+                  <Link href="/dashboard/review" className="ml-auto text-xs underline">Decide in Review</Link>
+                </div>
+                {a.proposal?.rationale && <p className="mt-1.5 text-sm text-muted-foreground">{a.proposal.rationale}</p>}
+              </div>
+            );
+          })}
         </div>
       )}
 
       <div className="space-y-3">
-        {done.map(({ run: r, skillSlug, skillName }) => {
-          const agent = agentBySkill.get(skillSlug);
-          const why = outputWhy(r.output);
+        {calls.map((c) => {
+          const why = outputWhy(c.output);
+          const status: React.ComponentProps<typeof StatusPill>['status'] = c.error ? 'failed' : 'completed';
           return (
-            <div key={r.id} className="rounded-md border border-border/70 p-3">
+            <div key={c.id} className="rounded-md border border-border/70 p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">{skillName ?? skillSlug}</span>
-                <StatusPill status={(r.status ?? 'completed') as React.ComponentProps<typeof StatusPill>['status']} size="sm" />
-                {agent && (
-                  <Link href={`/dashboard/agents/${agent.slug}` as never} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
-                    by
-                    {' '}
-                    {agent.name}
-                  </Link>
-                )}
-                {r.rating === 'up' && <Badge variant="outline" className="gap-1 text-emerald-600"><ThumbsUp className="size-3" /></Badge>}
-                {r.rating === 'down' && <Badge variant="outline" className="gap-1 text-red-500"><ThumbsDown className="size-3" /></Badge>}
+                <span className="text-sm font-medium">{c.tool}</span>
+                <StatusPill status={status} size="sm" />
+                <Link href={`/dashboard/agents/${c.agentSlug}` as never} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+                  by
+                  {' '}
+                  {agentName.get(c.agentSlug) ?? c.agentSlug}
+                </Link>
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}
+                  {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : ''}
                 </span>
               </div>
               {why && <p className="mt-1.5 text-sm text-muted-foreground">{why}</p>}
-              {r.feedbackNote && (
-                <p className="mt-1.5 border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
-                  “
-                  {r.feedbackNote}
-                  ”
-                  {r.feedbackBy && (
-                    <span className="not-italic">
-                      {' '}
-                      —
-                      {' '}
-                      {r.feedbackBy}
-                    </span>
-                  )}
-                </p>
+              {c.error && (
+                <p className="mt-1.5 border-l-2 border-red-500/50 pl-2 text-xs text-red-600">{c.error}</p>
               )}
             </div>
           );

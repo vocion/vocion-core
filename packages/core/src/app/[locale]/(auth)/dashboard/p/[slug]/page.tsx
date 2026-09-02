@@ -28,10 +28,9 @@ import {
   businessObjectTypeSchema,
   knowledgeDocumentSchema,
   knowledgeSourceSchema,
-  skillRunSchema,
-  skillSchema,
+  toolCallSchema,
 } from '@/models/Schema';
-import { listSkillRuns } from '@/services/SkillService';
+import { listPending } from '@/services/ReviewService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
 
 /**
@@ -39,7 +38,7 @@ import { listWorkflowRuns } from '@/services/WorkflowService';
  *
  * Renders tenant-defined pages (see libs/workspace/pages.ts) as derivatives
  * of core page archetypes. The page never gets its own tables or services:
- * `list`/`queue` query data core already owns (business objects, skill runs,
+ * `list`/`queue` query data core already owns (business objects, tool calls,
  * knowledge documents), `markdown` renders prose, and custom widgets come
  * from the workspace's own component registry via the `@wsx/registry` alias.
  */
@@ -70,39 +69,36 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
   }
 
   if (src.kind === 'skillRuns') {
-    let skillIds: number[] | null = null;
+    // The operations layer is gone (core@2.0): what an agent DID is the
+    // tool_call log. `skills` scopes to tool names; status is done/failed.
+    const conds = [eq(toolCallSchema.orgId, orgId)];
     if (src.skills?.length) {
-      const skills = await db.query.skillSchema.findMany({
-        where: and(inArray(skillSchema.slug, src.skills), eq(skillSchema.orgId, orgId)),
-      });
-      skillIds = skills.map(s => s.id);
-      if (!skillIds.length) {
-        return [];
-      }
+      conds.push(inArray(toolCallSchema.tool, src.skills));
     }
-    const runs = await db.query.skillRunSchema.findMany({
-      where: skillIds ? inArray(skillRunSchema.skillId, skillIds) : eq(skillRunSchema.orgId, orgId),
-      orderBy: desc(skillRunSchema.createdAt),
+    const calls = await db.query.toolCallSchema.findMany({
+      where: and(...conds),
+      orderBy: desc(toolCallSchema.createdAt),
       limit: src.limit,
     });
-    return runs
-      .filter(r => r.orgId === orgId && (!src.status?.length || (r.status != null && src.status.includes(r.status))))
-      .map((r) => {
+    return calls
+      .map(c => ({ ...c, status: c.error ? 'failed' : 'completed' }))
+      .filter(c => !src.status?.length || src.status.includes(c.status))
+      .map((c) => {
         let parsed: Record<string, unknown> = {};
-        if (r.output) {
+        if (c.output) {
           try {
-            const j = JSON.parse(r.output);
+            const j = JSON.parse(c.output);
             if (j && typeof j === 'object') {
               parsed = j as Record<string, unknown>;
             }
           } catch { /* output is prose — leave meta empty */ }
         }
         return {
-          id: r.id,
-          title: String((r.input as Record<string, unknown> | null)?.title ?? `run ${r.id}`),
-          status: r.status,
-          createdAt: r.createdAt ?? null,
-          meta: { ...parsed, confidence: r.confidence, rating: r.rating, feedbackNote: r.feedbackNote, input: r.input },
+          id: c.id,
+          title: String((c.input as Record<string, unknown> | null)?.title ?? `${c.tool} · ${c.agentSlug}`),
+          status: c.status,
+          createdAt: c.createdAt ?? null,
+          meta: { ...parsed, tool: c.tool, agent: c.agentSlug, error: c.error, input: c.input },
         };
       });
   }
@@ -151,32 +147,11 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
 
 type PillStatus = React.ComponentProps<typeof StatusPill>['status'];
 
-async function loadPendingRuns(orgId: string, skillSlugs?: string[]) {
-  const runs = await listSkillRuns({ orgId, status: 'pending', limit: 50 });
-  let allowed: Set<number> | null = null;
-  if (skillSlugs?.length) {
-    const skills = await db.query.skillSchema.findMany({
-      where: and(inArray(skillSchema.slug, skillSlugs), eq(skillSchema.orgId, orgId)),
-    });
-    allowed = new Set(skills.map(s => s.id));
-  }
-  return runs
-    .filter(r => !allowed || allowed.has(r.skillId))
-    .map(r => ({
-      id: r.id,
-      skillId: r.skillId,
-      status: r.status,
-      input: r.input as Record<string, unknown> | null,
-      output: r.output ? r.output.slice(0, 4000) : null,
-      truncated: !!(r.output && r.output.length > 4000),
-      workspaceSha: r.workspaceSha,
-      langfuseTraceId: r.langfuseTraceId,
-      confidence: ((r.confidence === 'confident' || r.confidence === 'uncertain' || r.confidence === 'speculative') ? r.confidence : null) as 'confident' | 'uncertain' | 'speculative' | null,
-      createdBy: r.createdBy,
-      createdAt: r.createdAt ?? new Date(),
-      reviewedBy: r.reviewedBy,
-      reviewedAt: r.reviewedAt,
-    }));
+async function loadPendingActions(orgId: string, actionIds?: string[]) {
+  // Agent-proposed actions awaiting a person — the same rows /dashboard/review
+  // decides. `skills` on the review config scopes to action ids (gmail.send…).
+  const items = await listPending(orgId, { kind: 'action' });
+  return items.filter(i => !actionIds?.length || actionIds.some(a => i.title.includes(a) || String(i.id) === a));
 }
 
 function toneToStatus(tone: string): PillStatus {
@@ -304,10 +279,10 @@ export default async function WorkspacePage(props: {
     ?? (manifest.archetype === 'queue' && manifest.source?.kind === 'skillRuns'
       ? { skills: manifest.source.skills, workflows: false, heading: 'Waiting on a person' }
       : null);
-  let pendingRuns: Awaited<ReturnType<typeof loadPendingRuns>> = [];
+  let pendingActions: Awaited<ReturnType<typeof loadPendingActions>> = [];
   let pausedWorkflowRuns: Awaited<ReturnType<typeof listWorkflowRuns>> = [];
   if (reviewCfg) {
-    pendingRuns = await loadPendingRuns(orgId, reviewCfg.skills);
+    pendingActions = await loadPendingActions(orgId, reviewCfg.skills);
     if (reviewCfg.workflows) {
       pausedWorkflowRuns = await listWorkflowRuns(orgId, { status: 'paused', limit: 50 });
     }
@@ -417,7 +392,22 @@ export default async function WorkspacePage(props: {
             {' '}
             — the core approval queue, scoped to this page. Approve or decline here or there; it is one queue.
           </p>
-          <ReviewQueue initialSkillRuns={pendingRuns} initialWorkflowRuns={pausedWorkflowRuns as never} />
+          {pendingActions.length > 0
+            ? (
+                <ul className="mb-4 divide-y divide-border rounded-md border border-border">
+                  {pendingActions.map(a => (
+                    <li key={`${a.kind}-${a.id}`} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                      <span className="font-medium">{a.title}</span>
+                      <StatusPill status="pending" size="sm" />
+                      <Link href="/dashboard/review" className="ml-auto text-xs underline">Decide in Review</Link>
+                    </li>
+                  ))}
+                </ul>
+              )
+            : (
+                <p className="mb-4 text-sm text-muted-foreground">Nothing is waiting on a person right now.</p>
+              )}
+          {pausedWorkflowRuns.length > 0 && <ReviewQueue initialWorkflowRuns={pausedWorkflowRuns} />}
         </section>
       )}
 
