@@ -23,9 +23,10 @@ import { ORG_ROLE } from '@/types/Auth';
  * Unbriefed rows are filtered out HERE rather than hidden by the lane picker,
  * so no filter, search or "All" tab can surface a lead with nothing behind it.
  *
- * Nothing here has been sent. Deciding a lead here is the SAME operation on
- * the SAME run as deciding it on the review queue (the card fetches the
- * pending run by the row's back-link and rides the shared decide path).
+ * Nothing here has been sent. The queue is a pure list: each row links to the
+ * lead's own page (`/gtm/lead/{hubspot_id}`), where the brief, the evidence
+ * and the decision live. Deciding there is the SAME operation on the SAME run
+ * as deciding on the review queue.
  *
  * Optional surface at `/gtm/personalization`. Linked only where
  * `workspace.yaml` lists `surfaces: [personalization]` (see
@@ -66,6 +67,7 @@ export default async function PersonalizationPage(props: {
     ));
   const waitingCount = waiting?.n ?? 0;
 
+  // The list needs the row line only — the dossier lives on the lead page.
   // Dates cross the server/client boundary as ISO strings.
   const briefs: BriefRow[] = rows.map(r => ({
     id: r.id,
@@ -73,23 +75,12 @@ export default async function PersonalizationPage(props: {
     contactName: r.contactName,
     contactTitle: r.contactTitle,
     companyName: r.companyName,
-    triggerType: r.triggerType,
     entranceSource: r.entranceSource,
     utmCampaign: r.utmCampaign,
     engagementSent: r.engagementSent,
     engagementOpened: r.engagementOpened,
     status: r.status,
     confidence: r.confidence,
-    sections: r.sections,
-    claims: r.claims,
-    missing: r.missing,
-    briefError: r.briefError,
-    briefAttempts: r.briefAttempts,
-    regenerateNote: r.regenerateNote,
-    draftSequence: r.draftSequence,
-    recommendedSequence: r.recommendedSequence,
-    reviewActionRunId: r.reviewActionRunId,
-    draftError: r.draftError,
     mqlAt: r.mqlAt?.toISOString() ?? null,
     arrivedAt: r.arrivedAt?.toISOString() ?? null,
     briefedAt: r.briefedAt?.toISOString() ?? null,
@@ -102,7 +93,7 @@ export default async function PersonalizationPage(props: {
     <>
       <TitleBar
         title="Personalization"
-        description="Researched leads waiting on your decision. Each one arrives with a brief: what is known, what is inferred, what could not be reached, and the one question worth asking. Nothing here has been sent."
+        description="Researched leads waiting on your decision. Each row opens the lead's page: the brief, the evidence, and the decision. Nothing here has been sent."
       />
 
       {canReset && (

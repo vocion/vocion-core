@@ -155,7 +155,8 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
         body: s.body,
       })),
       fields: [],
-      links: [{ label: 'View Research', href: '/gtm/personalization' }],
+      // The lead's own page — the card and the research land on one URL.
+      links: [{ label: 'View Research', href: hubspotId ? `/gtm/lead/${hubspotId}` : '/gtm/personalization' }],
       verbs: { approve: 'Enroll', reject: 'Decline' },
     };
   },

@@ -1,61 +1,41 @@
 'use client';
 
-import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
-import { ArrowDown, ArrowUp, ChevronRight } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { StatusPill } from '@/components/ui/status-pill';
-import { ReviewActionCard } from '@/features/review/ReviewActionCard';
-import { client } from '@/libs/Orpc';
+import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 import { confidenceLevel } from './confidence';
-import { entranceLabel, LANE_PILL, LeadContext, shortDate } from './LeadContext';
+import { entranceLabel, LANE_PILL, shortDate } from './LeadContext';
 
 /**
- * The personalization review queue — one lead per row, four lanes across the
- * top. A row expands to the brief that justifies it and, when the lead has a
- * pending personalization.enroll item, the SAME review card the review queue
- * shows, deciding the SAME run through the shared decide path (Decline /
- * Snooze / Enroll). A snoozed item's card is hidden here exactly as it is
- * hidden there, until its date.
+ * The personalization queue — a pure list. One lead per row, four lanes
+ * across the top; a row is a link to the lead's own page
+ * (`/gtm/lead/{hubspot_id}`), where the brief, the evidence and the decision
+ * live. Nothing expands here and nothing decides here: the queue's one job is
+ * finding the right lead.
  *
  * Nothing reaches this screen without a brief. A lead the sweep has picked up
  * but not yet researched, and a lead part-way through its retries, are both
  * absent by construction: the page is handed only rows that carry one. When
- * the tries run out the lead arrives anyway, carrying the error where the
- * brief would be, because a reviewer needs to see what failed.
+ * the tries run out the lead arrives anyway (its page carries the error),
+ * because a reviewer needs to see what failed.
  */
 
 export type BriefRow = {
   id: number;
+  /** CRM mirror ref, `contacts:{hubspot_id}` — what the row links through. */
   contactRef: string;
   contactName: string;
   contactTitle: string | null;
   companyName: string | null;
-  triggerType: string;
   entranceSource: string | null;
   utmCampaign: string | null;
   engagementSent: number;
   engagementOpened: number;
   status: string;
   confidence: number | null;
-  sections: Array<{ heading: string; body: string }>;
-  claims: Array<{ text: string; kind: string; source: string; date?: string }>;
-  missing: string[];
-  /** Set when the tries ran out. Rendered where the brief would be. */
-  briefError: string | null;
-  briefAttempts: number;
-  /** The instruction behind the last rewrite, kept so the brief has a why. */
-  regenerateNote: string | null;
-  /** The drafted, numbered sends (empty until the drafting pass runs). */
-  draftSequence: Array<{ step: number; day?: number; subject: string; body: string }>;
-  /** The EXISTING sequence the agent recommends enrolling into. */
-  recommendedSequence: { id: string; name: string; reason?: string } | null;
-  /** The pending review run this lead decides through, when one exists. */
-  reviewActionRunId: number | null;
-  /** Why the last drafting try produced nothing. */
-  draftError: string | null;
   /** HubSpot's stage-entry date; null falls back to arrival, labeled as such. */
   mqlAt: string | null;
   arrivedAt: string | null;
@@ -90,19 +70,10 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: 'name', label: 'Name' },
 ];
 
-const BriefListRow = (props: {
-  row: BriefRow;
-  /** The pending enroll run this row decides through — absent when decided or snoozed. */
-  run: ReviewCardRun | undefined;
-  onDecided: () => void;
-  selected: boolean;
-  expanded: boolean;
-  onSelect: () => void;
-  onExpand: () => void;
-}) => {
-  const { row } = props;
+const BriefListRow = ({ row }: { row: BriefRow }) => {
   const level = confidenceLevel(row.confidence);
   const pill = LANE_PILL[row.status] ?? { status: 'pending' as const, label: row.status };
+  const hubspotId = row.contactRef.split(':')[1];
 
   // The one-line "why this lead": who they are, when and how they arrived,
   // how warm. Anything the CRM does not carry is left out rather than shown
@@ -122,78 +93,23 @@ const BriefListRow = (props: {
   ].filter(Boolean).join(' · ');
 
   return (
-    <div className="border-b border-border">
-      <div className="flex items-center gap-3 py-3">
-        <input
-          type="checkbox"
-          checked={props.selected}
-          onChange={props.onSelect}
-          aria-label={`Select ${row.contactName}`}
-          className="size-4 accent-[var(--brand-borderline)]"
-        />
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">{row.contactName}</div>
-          <div className="truncate text-[13px] text-muted-foreground">{meta}</div>
-        </div>
-        {level && (
-          <span className="hidden text-[13px] text-muted-foreground sm:inline">
-            {level}
-            {' '}
-            {row.confidence?.toFixed(2)}
-          </span>
-        )}
-        <StatusPill status={pill.status} label={pill.label} size="sm" />
-        <button
-          type="button"
-          onClick={props.onExpand}
-          aria-expanded={props.expanded}
-          aria-label={`${props.expanded ? 'Hide' : 'Show'} brief for ${row.contactName}`}
-          className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
-        >
-          <ChevronRight className={cn('size-4 transition-transform', props.expanded && 'rotate-90')} />
-        </button>
+    <Link
+      href={`/gtm/lead/${hubspotId}`}
+      className="flex items-center gap-3 border-b border-border py-3 transition hover:bg-muted/40"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold">{row.contactName}</div>
+        <div className="truncate text-[13px] text-muted-foreground">{meta}</div>
       </div>
-
-      {props.expanded && (
-        <div className="pb-5 pl-7">
-          {/* The decidable card — the SAME run the review queue decides. A
-              snoozed or already-decided lead has no pending run, so the sends
-              render read-only below instead. */}
-          {props.run && (
-            <div className="mb-6 max-w-3xl">
-              <ReviewActionCard run={props.run} onDecided={props.onDecided} />
-            </div>
-          )}
-          {!props.run && row.draftSequence.length > 0 && (
-            <div className="mb-6 max-w-3xl rounded-md border border-border bg-muted/30 p-3">
-              <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                Outreach content ·
-                {' '}
-                {row.recommendedSequence ? `for ${row.recommendedSequence.name}` : 'drafted'}
-              </div>
-              {row.draftSequence.map(send => (
-                <div key={send.step} className="border-t border-border/60 py-2 text-sm first:border-t-0">
-                  <div className="font-semibold">
-                    {send.day !== undefined ? `Day ${send.day}` : `Send ${send.step}`}
-                    {' · '}
-                    {send.subject}
-                  </div>
-                  <p className="mt-1 whitespace-pre-line text-muted-foreground">{send.body}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          {!props.run && row.draftSequence.length === 0 && row.draftError && (
-            <p className="mb-4 max-w-3xl text-[13px] text-muted-foreground">
-              Drafting has not produced sends yet:
-              {' '}
-              {row.draftError}
-            </p>
-          )}
-          <LeadContext row={row} />
-        </div>
+      {level && (
+        <span className="hidden text-[13px] text-muted-foreground sm:inline">
+          {level}
+          {' '}
+          {row.confidence?.toFixed(2)}
+        </span>
       )}
-    </div>
+      <StatusPill status={pill.status} label={pill.label} size="sm" />
+    </Link>
   );
 };
 
@@ -205,48 +121,10 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
     () => props.briefs.filter(b => b.status !== 'queued'),
     [props.briefs],
   );
-  const router = useRouter();
   const [lane, setLane] = useState<string>(DEFAULT_LANE);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortKey>('arrived');
   const [descending, setDescending] = useState(true);
-  const [selected, setSelected] = useState(() => new Set<number>());
-  const [expanded, setExpanded] = useState<number | null>(null);
-  // The pending enroll runs, keyed by run id: the SAME feed the review queue
-  // reads, so snoozing there hides the card here and vice versa. A brief row
-  // reaches its run through the reviewActionRunId back-link.
-  const [runs, setRuns] = useState<Map<number, ReviewCardRun>>(() => new Map());
-
-  useEffect(() => {
-    let cancelled = false;
-    void client.review.listPendingActions()
-      .then((pending) => {
-        if (cancelled) {
-          return;
-        }
-        const next = new Map<number, ReviewCardRun>();
-        for (const run of pending as unknown as Array<ReviewCardRun & { card?: ReviewCardRun['card'] }>) {
-          if (run.actionId === 'personalization.enroll' && run.card) {
-            next.set(run.id, run as ReviewCardRun);
-          }
-        }
-        setRuns(next);
-      })
-      .catch(() => setRuns(new Map()));
-    return () => {
-      cancelled = true;
-    };
-  }, [briefs]);
-
-  const onDecided = (runId: number) => {
-    setRuns((prev) => {
-      const next = new Map(prev);
-      next.delete(runId);
-      return next;
-    });
-    // The lane flip happened server-side; re-render the page's rows.
-    router.refresh();
-  };
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: briefs.length };
@@ -282,22 +160,6 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
       return ((a.confidence ?? 0) - (b.confidence ?? 0)) * direction;
     });
   }, [briefs, lane, query, sort, descending]);
-
-  const allSelected = rows.length > 0 && rows.every(r => selected.has(r.id));
-
-  const toggleAll = () => {
-    setSelected(allSelected ? new Set() : new Set(rows.map(r => r.id)));
-  };
-
-  const toggleOne = (id: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) {
-        next.add(id);
-      }
-      return next;
-    });
-  };
 
   return (
     <div className="flex flex-col">
@@ -355,44 +217,7 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
               {query ? 'No lead matches that search.' : 'Nothing in this lane.'}
             </p>
           )
-        : (
-            <>
-              <div className="flex items-center gap-3 border-b border-border py-2.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  aria-label="Select all"
-                  className="size-4 accent-[var(--brand-borderline)]"
-                />
-                {selected.size === 0
-                  ? <span className="text-muted-foreground">Select all</span>
-                  : (
-                      <span className="font-medium">
-                        {selected.size}
-                        {' '}
-                        selected
-                        <span className="ml-2 font-normal text-muted-foreground">
-                          Decisions are per lead: expand a row to Decline, Snooze or Enroll on its card.
-                        </span>
-                      </span>
-                    )}
-              </div>
-
-              {rows.map(row => (
-                <BriefListRow
-                  key={row.id}
-                  row={row}
-                  run={row.reviewActionRunId != null ? runs.get(row.reviewActionRunId) : undefined}
-                  onDecided={() => row.reviewActionRunId != null && onDecided(row.reviewActionRunId)}
-                  selected={selected.has(row.id)}
-                  expanded={expanded === row.id}
-                  onSelect={() => toggleOne(row.id)}
-                  onExpand={() => setExpanded(expanded === row.id ? null : row.id)}
-                />
-              ))}
-            </>
-          )}
+        : rows.map(row => <BriefListRow key={row.id} row={row} />)}
     </div>
   );
 };

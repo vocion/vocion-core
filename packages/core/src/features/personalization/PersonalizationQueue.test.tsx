@@ -4,78 +4,30 @@ import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { PersonalizationQueue } from './PersonalizationQueue';
 
-// The regenerate control refreshes the route after a successful write. There
-// is no router outside the app shell, so the hook is stubbed.
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: () => {} }),
-}));
-
-// The queue reads the SAME pending-run feed the review queue reads, keyed to
-// rows by reviewActionRunId. One pending enroll run for Jamie Smith.
-vi.mock('@/libs/Orpc', () => ({
-  client: {
-    review: {
-      listPendingActions: vi.fn(async () => [{
-        id: 501,
-        actionId: 'personalization.enroll',
-        status: 'pending',
-        input: {},
-        invokedBy: 'agent:revenue-lead',
-        proposal: { confidence: 0.84 },
-        card: {
-          title: 'New MQL ready to enroll',
-          system: 'Personalization',
-          subject: { name: 'Jamie Smith', role: 'COO', company: 'Redpoint IT' },
-          recommendation: { headline: 'Enroll in: AI-Readiness Nurture · 2 sends' },
-          content: [
-            { kind: 'email', id: 'send-1', label: 'Day 0', subject: 'Ticket triage', body: 'Jamie, how do tickets get triaged out of hours?' },
-            { kind: 'email', id: 'send-2', label: 'Day 4', subject: 'One level deeper', body: 'The triage doc, if useful.' },
-          ],
-          fields: [],
-          verbs: { approve: 'Enroll', reject: 'Decline' },
-        },
-      }]),
-      decideAction: vi.fn(async () => ({ ok: true })),
-      snoozeAction: vi.fn(async () => ({ ok: true })),
-      rewriteDraft: vi.fn(async () => ({ body: '' })),
-    },
-  },
+// The rows render through the locale-aware Link; the tests only need anchors
+// with the right hrefs.
+vi.mock('@/libs/I18nNavigation', () => ({
+  Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }));
 
 /**
- * The queue's job is to be trustworthy at a glance: every row carries a brief,
- * the count matches the rows, and the brief behind a row is readable without
- * leaving the page. These cover the parts a reviewer would notice being wrong.
+ * The queue's job is to be trustworthy at a glance and to hand off: every row
+ * carries a brief, the count matches the rows, and clicking a row opens the
+ * lead's own page. Nothing expands and nothing decides here — the dossier and
+ * the card live on `/gtm/lead/{id}` (covered in LeadDetail.test.tsx).
  */
-
-const SECTIONS = [
-  { heading: 'Prospect', body: 'Jamie Smith, COO at Redpoint IT.' },
-  { heading: 'Recommended Angle', body: 'Ask how tickets get triaged out of hours.' },
-  { heading: 'Brief Confidence', body: 'Score: 0.88. Reason: the role and the company are both confirmed.' },
-];
 
 function brief(over: Partial<BriefRow> & Pick<BriefRow, 'id' | 'contactName'>): BriefRow {
   return {
     contactRef: `contacts:${over.id}`,
     contactTitle: 'COO',
     companyName: 'Civic Grid',
-    triggerType: 'new',
     entranceSource: 'PAID_SOCIAL',
     utmCampaign: 'LinkedIn',
     engagementSent: 2,
     engagementOpened: 1,
     status: 'ready_for_review',
     confidence: 0.82,
-    sections: SECTIONS,
-    claims: [],
-    missing: [],
-    briefError: null,
-    briefAttempts: 1,
-    regenerateNote: null,
-    draftSequence: [],
-    recommendedSequence: null,
-    reviewActionRunId: null,
-    draftError: null,
     mqlAt: null,
     arrivedAt: '2026-08-24T09:00:00.000Z',
     briefedAt: '2026-08-25T10:00:00.000Z',
@@ -84,32 +36,16 @@ function brief(over: Partial<BriefRow> & Pick<BriefRow, 'id' | 'contactName'>): 
 }
 
 const BRIEFS: BriefRow[] = [
-  brief({
-    id: 1,
-    contactName: 'Jamie Smith',
-    companyName: 'Redpoint IT',
-    confidence: 0.88,
-    claims: [{ text: 'Runs a 14-person MSP.', kind: 'Fact', source: 'https://redpointit.com/about', date: '2026-08-24' }],
-  }),
-  brief({ id: 2, contactName: 'Rosa Lindqvist', companyName: 'Meridian Group', confidence: 0.64, missing: ['No engagement beyond the form fill.'] }),
+  brief({ id: 1, contactName: 'Jamie Smith', companyName: 'Redpoint IT', confidence: 0.88 }),
+  brief({ id: 2, contactName: 'Rosa Lindqvist', companyName: 'Meridian Group', confidence: 0.64 }),
   brief({ id: 3, contactName: 'Marta Kovac', companyName: 'Orlin Health', status: 'sent', confidence: 0.84 }),
 ];
 
 /** A lead the sweep recorded but has not researched. Never on this screen. */
 const UNBRIEFED: BriefRow[] = [
-  brief({ id: 10, contactName: 'Anya Petrov', status: 'queued', confidence: null, sections: [], briefAttempts: 1 }),
-  brief({ id: 11, contactName: 'Bo Ferreira', status: 'queued', confidence: null, sections: [], briefAttempts: 2 }),
+  brief({ id: 10, contactName: 'Anya Petrov', status: 'queued', confidence: null }),
+  brief({ id: 11, contactName: 'Bo Ferreira', status: 'queued', confidence: null }),
 ];
-
-/** A lead that used all three tries. It surfaces carrying the error. */
-const FAILED = brief({
-  id: 20,
-  contactName: 'Dee Nakamura',
-  confidence: null,
-  sections: [],
-  briefAttempts: 3,
-  briefError: 'web_search returned "search provider unconfigured" on every query.',
-});
 
 describe('PersonalizationQueue', () => {
   it('opens on Review, and has no lane for unbriefed leads', async () => {
@@ -171,106 +107,21 @@ describe('PersonalizationQueue', () => {
     await expect.element(page.getByText('COO · Civic Grid · arrived Aug 24')).toBeVisible();
   });
 
-  it('expands a row to the written sections, the claims with kind and source, and the confidence', async () => {
+  it('links each row to the lead page, addressed by the HubSpot id', async () => {
     await render(<PersonalizationQueue briefs={BRIEFS} />);
 
-    await userEvent.click(page.getByRole('button', { name: 'Show brief for Jamie Smith' }));
+    const row = page.getByRole('link', { name: /Jamie Smith/ });
 
-    await expect.element(page.getByText('Jamie Smith, COO at Redpoint IT.')).toBeVisible();
-    await expect.element(page.getByText('Ask how tickets get triaged out of hours.')).toBeVisible();
-    await expect.element(page.getByText('Score: 0.88. Reason: the role and the company are both confirmed.')).toBeVisible();
-    await expect.element(page.getByText('Runs a 14-person MSP.')).toBeVisible();
-    // The kind separates a fact from an inference, and the source opens.
-    await expect.element(page.getByText(/Fact · https:\/\/redpointit\.com\/about · 2026-08-24/)).toBeVisible();
-    await expect.element(page.getByRole('link', { name: 'https://redpointit.com/about' })).toBeVisible();
+    await expect.element(row).toBeVisible();
+    await expect.element(row).toHaveAttribute('href', '/gtm/lead/1');
   });
 
-  it('shows what research could not reach rather than reading as complete', async () => {
+  it('keeps the queue a pure list: nothing expands, nothing selects, nothing decides', async () => {
     await render(<PersonalizationQueue briefs={BRIEFS} />);
 
-    await userEvent.click(page.getByRole('button', { name: 'Show brief for Rosa Lindqvist' }));
-
-    await expect.element(page.getByText('Missing')).toBeVisible();
-    await expect.element(page.getByText('No engagement beyond the form fill.')).toBeVisible();
-  });
-
-  it('renders the error where the brief would be once the tries run out', async () => {
-    await render(<PersonalizationQueue briefs={[FAILED]} />);
-
-    await userEvent.click(page.getByRole('button', { name: 'Show brief for Dee Nakamura' }));
-
-    await expect.element(page.getByText('No brief. Briefing failed 3 times')).toBeVisible();
-    await expect.element(page.getByText('web_search returned "search provider unconfigured" on every query.')).toBeVisible();
-  });
-
-  it('shows the instruction behind a rewrite above the brief it produced', async () => {
-    await render(<PersonalizationQueue briefs={[brief({ id: 30, contactName: 'Ines Duarte', regenerateNote: 'The angle is generic. Find something specific to them.' })]} />);
-
-    await userEvent.click(page.getByRole('button', { name: 'Show brief for Ines Duarte' }));
-
-    await expect.element(page.getByText('Rewritten on your instruction')).toBeVisible();
-    await expect.element(page.getByText('The angle is generic. Find something specific to them.')).toBeVisible();
-  });
-
-  it('will not regenerate without an instruction', async () => {
-    await render(<PersonalizationQueue briefs={BRIEFS} />);
-
-    await userEvent.click(page.getByRole('button', { name: 'Show brief for Jamie Smith' }));
-    await userEvent.click(page.getByRole('button', { name: 'Regenerate' }));
-
-    const box = page.getByRole('textbox', { name: 'Regenerate instruction for Jamie Smith' });
-
-    await expect.element(box).toBeVisible();
-    // A rewrite with no reason gives the next pass nothing the last one lacked.
-    await expect.element(page.getByRole('button', { name: 'Regenerate' })).toBeDisabled();
-
-    await userEvent.fill(box, 'Lead with the ticket-triage angle.');
-
-    await expect.element(page.getByRole('button', { name: 'Regenerate' })).toBeEnabled();
-  });
-
-  it('decides per lead: selection points at the card, no bulk lane buttons', async () => {
-    await render(<PersonalizationQueue briefs={BRIEFS} />);
-
-    await userEvent.click(page.getByRole('checkbox', { name: 'Select Jamie Smith' }));
-
-    await expect.element(page.getByText('1 selected')).toBeVisible();
-    await expect.element(page.getByText(/Decisions are per lead/)).toBeVisible();
-    expect(page.getByRole('button', { name: /Hand off \d+ selected/ }).elements()).toHaveLength(0);
-  });
-
-  it('renders the shared review card on a row with a pending enroll run — the same run, same verbs', async () => {
-    const withRun = [
-      { ...BRIEFS[0]!, reviewActionRunId: 501, draftSequence: [{ step: 1, day: 0, subject: 'Ticket triage', body: 'Jamie, how do tickets get triaged out of hours?' }] },
-      ...BRIEFS.slice(1),
-    ];
-    await render(<PersonalizationQueue briefs={withRun} />);
-
-    await userEvent.click(page.getByRole('button', { name: 'Show brief for Jamie Smith' }));
-
-    await expect.element(page.getByTestId('review-action-card')).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Enroll' })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Decline' })).toBeVisible();
-    await expect.element(page.getByRole('button', { name: 'Snooze' })).toBeVisible();
-    // Decline requires a reason on this object type.
-    await expect.element(page.getByRole('button', { name: 'Decline' })).toBeDisabled();
-  });
-
-  it('shows drafted sends read-only when the run is decided or snoozed away', async () => {
-    const decided = [{
-      ...BRIEFS[0]!,
-      status: 'handed_off',
-      reviewActionRunId: 999,
-      recommendedSequence: { id: 'seq-1', name: 'AI-Readiness Nurture' },
-      draftSequence: [{ step: 1, day: 0, subject: 'Ticket triage', body: 'Jamie, how do tickets get triaged out of hours?' }],
-    }];
-    await render(<PersonalizationQueue briefs={decided} />);
-
-    await userEvent.click(page.getByRole('button', { name: 'Hand off' }));
-    await userEvent.click(page.getByRole('button', { name: 'Show brief for Jamie Smith' }));
-
-    await expect.element(page.getByText(/Outreach content/)).toBeVisible();
-    await expect.element(page.getByText(/Day 0 · Ticket triage/)).toBeVisible();
-    expect(page.getByTestId('review-action-card').elements()).toHaveLength(0);
+    expect(page.getByRole('checkbox').elements()).toHaveLength(0);
+    expect(page.getByRole('button', { name: /Show brief/ }).elements()).toHaveLength(0);
+    expect(page.getByRole('button', { name: 'Enroll' }).elements()).toHaveLength(0);
+    expect(page.getByRole('button', { name: 'Regenerate' }).elements()).toHaveLength(0);
   });
 });
