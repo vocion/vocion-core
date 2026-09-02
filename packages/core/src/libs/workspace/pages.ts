@@ -71,6 +71,9 @@ const WidgetSchema = z.object({
 
 const ListSourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('objects'), objectType: SlugSchema }),
+  // What agents DID — tool_call rows (the operations layer is gone in
+  // core@2.0; the kind keeps its name so existing workspaces load).
+  // `skills` scopes to tool names; `status` is completed | failed.
   z.object({
     kind: z.literal('skillRuns'),
     skills: z.array(z.string()).optional(),
@@ -106,10 +109,11 @@ export const PageManifestSchema = z.object({
 
   // ---- review embed (any archetype) ----
   /**
-   * Embed the core review queue on this page, scoped to these skills (and
-   * optionally paused workflow runs). Same skill_run/workflow_run items,
-   * same approve/decline services as /dashboard/review — one queue. The
-   * `queue` archetype gets this implicitly from its source when omitted.
+   * Embed the core review queue on this page: agent-proposed actions
+   * (action_run rows, optionally scoped by `skills` = action ids) and,
+   * optionally, paused workflow runs. Same items, same approve/decline
+   * services as /dashboard/review — one queue. The `queue` archetype gets
+   * this implicitly from its source when omitted.
    */
   review: z.object({
     skills: z.array(z.string()).optional(),
