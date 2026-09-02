@@ -49,7 +49,7 @@ export const MqlEnrollment: Story = {
           { kind: 'email', id: 'send-3', label: 'Day 9', subject: 'A 20-minute working session', body: 'If the build-vs-buy question is live, a 20-minute working session with our team usually settles it. Worth a slot next week?' },
         ],
         fields: [],
-        links: [{ label: 'View Research', href: '/gtm/personalization' }],
+        links: [{ label: 'View Research', href: '/gtm/lead/9412' }],
         verbs: { approve: 'Enroll', reject: 'Decline' },
       },
     },
