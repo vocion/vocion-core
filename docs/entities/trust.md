@@ -19,7 +19,7 @@ per workspace, not one per rule.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `action` | string | required | Registered action id, e.g. `hubspot.update`. |
+| `action` | string | required | Registered action id, e.g. `hubspot.update`. Ids today: `gmail.send`, `hubspot.update`, `discovery.review_proposal`, `personalization.enroll`, `qc.hold`, `qc.release`, `qc.request_rework`, `dataset.add_example` (`packages/core/src/libs/actions/`). |
 | `autoApproveAbove` | number 0–1 | required | A pending proposal for this action with confidence at or above this value executes without review. Still audited. |
 | `enabled` | boolean | `false` | Off by default. Flipping it to `false` reverts the rule without deleting it. |
 
@@ -33,7 +33,7 @@ rules:
   - action: hubspot.update
     autoApproveAbove: 0.95
     enabled: true
-  - action: gmail.send_email
+  - action: gmail.send
     autoApproveAbove: 0.99
     enabled: false
 ```

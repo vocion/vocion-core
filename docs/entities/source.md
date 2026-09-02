@@ -29,6 +29,9 @@ go in the runtime's encrypted vault, attached to the source after apply.
 | `access.users` | email[] | `[]` | The members allowed when `visibility: restricted`. |
 | `enabled` | boolean | `true` | Set `false` to keep the file but stop syncing. |
 
+Each connector owns its `config` shape (see `packages/core/src/libs/sources/`), so two object types from
+the same system are two source files. An unknown config key is dropped rather than rejected.
+
 A `kind` may be a *labelled* connector — e.g. `zendesk` — that routes through a
 built-in connector at the registry level while no live implementation is wired
 yet. That is the pattern behind the demo sources.
@@ -37,12 +40,12 @@ yet. That is the pattern behind the demo sources.
 
 ```yaml
 slug: hubspot
-name: HubSpot CRM
-description: Deals, contacts, and companies for the revenue org.
+name: HubSpot Deals
+description: HubSpot deals for the revenue org.
 kind: hubspot
-config:
-  portalId: '12345678'
-  objects: [deals, contacts, companies]
+config: # shape defined by the connector, validated at apply
+  objectType: deals # the HubSpot connector syncs one object type per source
+  portalId: '12345678' # enables record deep links on review cards
 schedule: '*/30 * * * *'
 reconcileSchedule: '0 4 * * 0'
 access:
