@@ -89,6 +89,7 @@ export default async function ToolsPage(props: {
                                 <span>·</span>
                                 <span className="font-mono text-amber-600 dark:text-amber-400">
                                   set
+                                  {' '}
                                   {status.missingEnv.join(', ')}
                                 </span>
                               </>
