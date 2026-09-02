@@ -6,7 +6,7 @@ export type {
 } from './langchain';
 export { buildChatModel, buildChatModelForOrg, resolvedModelId, withPromptCache } from './langchain';
 export { openaiClient } from './openai';
-export { getLLMClient, getLLMClientForOrg, resetLLMClients, resolveOrgProviderKey } from './registry';
+export { getLLMClient, getLLMClientForOrg, resolveOrgProviderKey } from './registry';
 export type {
   LLMClient,
   LLMMessage,
