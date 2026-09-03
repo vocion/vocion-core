@@ -2,11 +2,20 @@
  * ApiTokenService — an org's API credentials, in both directions.
  *
  * **Inbound (`platform: 'vocion'`).** An app (FirstHQ) or a client integration
- * authenticates with a Bearer token `vcn_live_<id>_<secret>`. We store only the
- * SHA-256 of the secret; the plaintext is shown once, at issue. A verified
- * token resolves to an **authz Principal**, so every mutation a token makes
- * routes through the same permission model + review queue as everything else
+ * authenticates with a Bearer token `vcn_live_<id>_<secret>`. A verified token
+ * resolves to an **authz Principal**, so every mutation a token makes routes
+ * through the same permission model + review queue as everything else
  * (platform-plan §5).
+ *
+ * A minted token is stored twice over: the SHA-256 of its secret half, which is
+ * what `verifyToken` compares against on every request, and the whole token
+ * encrypted under the org's DEK, which is what lets the dashboard show it again
+ * later. The hash is kept so the hot authentication path stays one comparison
+ * with no decryption in it. Storing the ciphertext is a deliberate tradeoff:
+ * a token is now only as strong as the DEK protecting it, in exchange for an
+ * admin being able to read their own token back instead of having to revoke and
+ * re-issue it — the same bargain the supplied third-party keys already make.
+ * Tokens issued before this existed have no ciphertext and stay unreadable.
  *
  * **Outbound (every other platform).** The org supplies a key for a third party
  * — OpenAI, Anthropic, Azure — and Vocion stores it encrypted under the same
@@ -23,13 +32,23 @@ import type { Principal, WorkspaceRole } from '@/services/authz';
 import { Buffer } from 'node:buffer';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import process from 'node:process';
-import { and, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
 import { DEFAULT_PLATFORM_ID, getPlatform, hintField, keyHint, validatePlatformCredential } from '@/libs/platforms/registry';
 import { apiTokenSchema } from '@/models/Schema';
 
 const PREFIX = 'vcn_live';
+
+/**
+ * The field name a revealed Vocion token comes back under.
+ *
+ * Supplied credentials are stored as a document keyed by the platform's field
+ * names, and a minted token uses the same shape with a single entry so that one
+ * decrypt path, one ciphertext column set and one dashboard component serve
+ * both kinds of credential.
+ */
+export const MINTED_TOKEN_FIELD = 'token';
 
 function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex');
@@ -38,7 +57,9 @@ function sha256(s: string): string {
 export type IssuedToken = { token: string; id: string };
 
 /**
- * Issue a token. Returns the plaintext ONCE — only the hash is stored.
+ * Issue a token. Returns the plaintext, and also keeps it: the secret's SHA-256
+ * for verification and the whole token encrypted under the org's DEK so an
+ * admin can read it back from the dashboard later.
  * @param input
  * @param input.orgId
  * @param input.name
@@ -58,18 +79,33 @@ export async function issueToken(input: {
 }): Promise<IssuedToken> {
   const id = randomUUID().replace(/-/g, '').slice(0, 16);
   const secret = randomBytes(24).toString('hex'); // hex → no '_', safe to split
+  const token = `${PREFIX}_${id}_${secret}`;
+
+  // The whole token, not just the secret half, because that is what someone
+  // copies out of the dashboard and pastes into an integration.
+  const vault = buildCredentialVault();
+  const { ciphertext, nonce, authTag, dekId } = await vault.encrypt(
+    input.orgId,
+    Buffer.from(JSON.stringify({ [MINTED_TOKEN_FIELD]: token }), 'utf8'),
+  );
+
   await db.insert(apiTokenSchema).values({
     id,
     orgId: input.orgId,
     name: input.name,
     platform: DEFAULT_PLATFORM_ID,
     secretHash: sha256(secret),
+    dekId,
+    ciphertext,
+    nonce,
+    authTag,
+    keyHint: keyHint(token),
     role: input.role ?? 'owner',
     grants: input.grants ?? [],
     createdBy: input.createdBy ?? null,
     expiresAt: input.expiresAt ?? null,
   });
-  return { token: `${PREFIX}_${id}_${secret}`, id };
+  return { token, id };
 }
 
 export type TokenIdentity = { orgId: string; tokenId: string; principal: Principal };
@@ -137,7 +173,7 @@ export async function revokeToken(orgId: string, id: string): Promise<void> {
 /**
  * One row of the credential list — metadata only. Never the Vocion secret, its
  * hash, or a supplied key's plaintext or ciphertext. `keyHint` is the only
- * trace of a supplied key that leaves the service.
+ * trace of a credential's value that leaves the service.
  */
 export type TokenSummary = {
   id: string;
@@ -148,6 +184,14 @@ export type TokenSummary = {
   revokedAt: Date | null;
   expiresAt: Date | null;
   keyHint: string | null;
+  /**
+   * Whether this row still holds something the reveal route can decrypt.
+   *
+   * False for a Vocion token issued before minted tokens were kept encrypted:
+   * only its hash was ever stored, so the dashboard must not offer a show
+   * button that could never produce anything.
+   */
+  revealable: boolean;
 };
 
 /**
@@ -167,6 +211,9 @@ export async function listTokens(orgId: string): Promise<TokenSummary[]> {
       revokedAt: apiTokenSchema.revokedAt,
       expiresAt: apiTokenSchema.expiresAt,
       keyHint: apiTokenSchema.keyHint,
+      // Asked as a boolean rather than by selecting the ciphertext, so no part
+      // of an encrypted credential travels with a list that is only metadata.
+      revealable: sql<boolean>`(${apiTokenSchema.ciphertext} is not null)`.mapWith(Boolean),
     })
     .from(apiTokenSchema)
     .where(eq(apiTokenSchema.orgId, orgId))
@@ -352,14 +399,18 @@ export type RevealedCredential
   = | { status: 'ok'; values: CredentialValues }
   /** No row with that id belongs to this org. */
     | { status: 'not-found' }
-  /** A `vocion` row. Only the SHA-256 was ever stored, so nothing can open it. */
+  /**
+   * A `vocion` row issued before minted tokens were kept encrypted. Only the
+   * SHA-256 was ever stored, so there is nothing left to open.
+   */
     | { status: 'minted' };
 
 /**
- * Decrypt one supplied credential so an admin can read it back on screen.
+ * Decrypt one stored credential so an admin can read it back on screen — a
+ * supplied third-party key, or a Vocion token the org was issued.
  *
- * This is the only path in the service that hands a stored third-party key to
- * a person, so it is deliberately narrow: a single row, named by id, scoped to
+ * This is the only path in the service that hands a stored credential back to a
+ * person, so it is deliberately narrow: a single row, named by id, scoped to
  * the caller's org.
  *
  * A revoked or expired row still opens. Revoking stops Vocion using a key; it
@@ -367,9 +418,10 @@ export type RevealedCredential
  * thing an admin has to go and rotate there. Refusing to show it would hide a
  * secret the org already owns from the only people who can retire it.
  *
- * A `vocion` row can never be revealed here, and not because of a rule we
- * chose: those rows hold a SHA-256 of the secret and no ciphertext at all, so
- * there is genuinely nothing to decrypt.
+ * A `vocion` row opens like any other, because a minted token is now stored
+ * encrypted alongside its hash. The one exception is a token issued before that
+ * was true: it holds a hash and no ciphertext, so there is genuinely nothing to
+ * decrypt and the answer is `'minted'`.
  *
  * Decryption failure throws, matching {@link resolvePlatformCredential} — a
  * ciphertext that will not open means the DEK and the data have diverged, and
@@ -396,13 +448,16 @@ export async function revealPlatformCredential(
   if (!row) {
     return { status: 'not-found' };
   }
-  if (row.platform === DEFAULT_PLATFORM_ID) {
-    return { status: 'minted' };
-  }
   if (!row.ciphertext || !row.nonce || !row.authTag || row.dekId === null) {
-    // The `api_token_shape_ck` constraint is supposed to make this impossible,
-    // so reaching it means a row was written around the schema. Log it and
-    // answer the caller the same way a missing row would.
+    // A Vocion token issued before minted tokens were stored encrypted. Its
+    // plaintext is genuinely gone, which is a different sentence on screen from
+    // a failure, so it gets its own status rather than an error.
+    if (row.platform === DEFAULT_PLATFORM_ID) {
+      return { status: 'minted' };
+    }
+    // For a supplied key the `api_token_shape_ck` constraint is supposed to
+    // make this impossible, so reaching it means a row was written around the
+    // schema. Log it and answer the caller the same way a missing row would.
     console.error('[ApiTokenService.revealPlatformCredential] supplied row has no ciphertext', {
       tokenId,
       platform: row.platform,

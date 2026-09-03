@@ -168,22 +168,26 @@ describe('the two credential shapes never cross', () => {
     expect(await verifyToken(`vcn_live_${id}_${OPENAI_KEY}`)).toBeNull();
   });
 
-  it('will not let a live Vocion token be rewritten into a platform row at all', async () => {
-    const { token, id } = await issueToken({ orgId: ORG, name: 'legit' });
+  it('will not let a stored platform key be given a secret hash', async () => {
+    const { id } = await storePlatformKey({ orgId: ORG, name: 'oai', platform: 'openai', apiKey: OPENAI_KEY });
 
-    expect(await verifyToken(token)).not.toBeNull();
-
-    // Re-badging a minted token as a platform credential is the write that
-    // would blur the two shapes. The CHECK constraint refuses it outright, so
-    // `verifyToken`'s own platform guard is a second line rather than the only
-    // one — and the token is left untouched and still working.
+    // This is the direction that matters: a supplied key acquiring the one
+    // column that could make it authenticate somebody into Vocion. The CHECK
+    // constraint refuses it outright, so `verifyToken`'s platform guard is a
+    // second line rather than the only one.
+    //
+    // The opposite direction — re-badging a minted token as a platform row —
+    // is no longer refused by the constraint, because a minted token now
+    // carries ciphertext of its own and so already has a platform row's shape.
+    // Nothing is lost by that: such a row stops authenticating the moment its
+    // platform changes, which is the property the guard exists to protect.
     await expect(
       db.update(apiTokenSchema)
-        .set({ platform: 'custom', secretHash: null })
+        .set({ secretHash: 'deadbeef' })
         .where(eq(apiTokenSchema.id, id)),
     ).rejects.toThrow(); // api_token_shape_ck; drizzle wraps the constraint name in `cause`.
 
-    expect(await verifyToken(token)).not.toBeNull();
+    expect(await verifyToken(OPENAI_KEY)).toBeNull();
   });
 
   it('lets a Vocion token keep working alongside stored platform keys', async () => {
@@ -223,10 +227,48 @@ describe('revealPlatformCredential', () => {
     expect(await revealPlatformCredential(ORG, id)).toEqual({ status: 'ok', values: pair });
   });
 
-  it('refuses a Vocion token, whose plaintext was never stored', async () => {
+  it('returns the whole token for a Vocion-issued credential', async () => {
+    const { token, id } = await issueToken({ orgId: ORG, name: 'a vocion token' });
+
+    expect(await revealPlatformCredential(ORG, id)).toEqual({
+      status: 'ok',
+      values: { token },
+    });
+  });
+
+  it('hands back a Vocion token that still authenticates', async () => {
     const { id } = await issueToken({ orgId: ORG, name: 'a vocion token' });
 
+    const revealed = await revealPlatformCredential(ORG, id);
+    const shown = revealed.status === 'ok' ? revealed.values.token! : '';
+
+    // The point of revealing a token is that the string on screen is the one an
+    // integration can go on using, not a lookalike.
+    expect((await verifyToken(shown))?.tokenId).toBe(id);
+  });
+
+  it('refuses a Vocion token issued before tokens were stored encrypted', async () => {
+    const { id } = await issueToken({ orgId: ORG, name: 'an old vocion token' });
+    // The shape those rows have: a hash, and nothing to decrypt.
+    await db
+      .update(apiTokenSchema)
+      .set({ ciphertext: null, nonce: null, authTag: null, dekId: null })
+      .where(eq(apiTokenSchema.id, id));
+
     expect(await revealPlatformCredential(ORG, id)).toEqual({ status: 'minted' });
+  });
+
+  it('still opens a revoked Vocion token', async () => {
+    const { token, id } = await issueToken({ orgId: ORG, name: 'a vocion token' });
+    await revokeToken(ORG, id);
+
+    expect(await revealPlatformCredential(ORG, id)).toEqual({ status: 'ok', values: { token } });
+  });
+
+  it('hides a Vocion token belonging to another org', async () => {
+    const { id } = await issueToken({ orgId: OTHER_ORG, name: 'theirs' });
+
+    expect(await revealPlatformCredential(ORG, id)).toEqual({ status: 'not-found' });
   });
 
   it('still opens a revoked key, which the vendor has not forgotten', async () => {
@@ -384,11 +426,39 @@ describe('listTokens', () => {
     expect(Object.keys(row!)).not.toContain('secretHash');
   });
 
-  it('reports a vocion token with no key hint', async () => {
+  it('reports a vocion token with the masked tail of its own token', async () => {
+    const { token } = await issueToken({ orgId: ORG, name: 'app' });
+    const [row] = await listTokens(ORG);
+
+    expect(row).toMatchObject({ platform: 'vocion', keyHint: `…${token.slice(-4)}` });
+    expect(JSON.stringify(row)).not.toContain(token);
+  });
+
+  it('marks a freshly issued vocion token as revealable', async () => {
     await issueToken({ orgId: ORG, name: 'app' });
     const [row] = await listTokens(ORG);
 
-    expect(row).toMatchObject({ platform: 'vocion', keyHint: null });
+    expect(row?.revealable).toBe(true);
+  });
+
+  it('marks a supplied key as revealable', async () => {
+    await storePlatformKey({ orgId: ORG, name: 'Acme OpenAI', platform: 'openai', apiKey: OPENAI_KEY });
+    const [row] = await listTokens(ORG);
+
+    expect(row?.revealable).toBe(true);
+  });
+
+  it('marks a token issued before tokens were stored encrypted as not revealable', async () => {
+    const { id } = await issueToken({ orgId: ORG, name: 'app' });
+    await db
+      .update(apiTokenSchema)
+      .set({ ciphertext: null, nonce: null, authTag: null, dekId: null })
+      .where(eq(apiTokenSchema.id, id));
+    const [row] = await listTokens(ORG);
+
+    // The dashboard hangs a show button off this flag, and a button that can
+    // only ever fail is worse than the sentence explaining why there is none.
+    expect(row?.revealable).toBe(false);
   });
 });
 
@@ -403,17 +473,20 @@ describe('the database refuses a half-written credential', () => {
     })).rejects.toThrow();
   });
 
-  it('rejects a vocion row carrying ciphertext', async () => {
+  it('rejects a vocion row carrying only part of its encryption columns', async () => {
+    // A vocion row may now carry ciphertext, but only a complete set of it. A
+    // row with a ciphertext and no nonce is a token that cannot be shown again
+    // and does not say so until someone clicks.
     await expect(db.insert(apiTokenSchema).values({
       id: 'broken2',
       orgId: ORG,
-      name: 'mixed shape',
+      name: 'half encrypted',
       platform: 'vocion',
       secretHash: 'a'.repeat(64),
       ciphertext: 'ZmFrZQ==',
-      nonce: 'ZmFrZQ==',
-      authTag: 'ZmFrZQ==',
-      dekId: 1,
+      nonce: null,
+      authTag: null,
+      dekId: null,
     })).rejects.toThrow();
   });
 
