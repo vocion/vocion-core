@@ -19,9 +19,10 @@ This is the deployment side only. What gets traced is a code concern:
   `LANGFUSE_SELF_HOSTED_REPLICAS=0` plus three keys. Cheaper in
   engineering time, and worth taking when the client is fine with
   prompt text leaving their infrastructure.
-- Self-hosted needs a hostname, six secrets, an S3 bucket and a
-  retention period. All of it is listed in
-  `infra/aws/.env.production.example`.
+- Self-hosted needs a hostname, six secrets and an S3 bucket. All of it
+  is listed in `infra/aws/.env.production.example`.
+- **Traces are kept for a year by default** and deleted after that by a
+  daily job, which needs the Temporal worker running.
 - Set `LANGFUSE_ENABLED` explicitly either way, so "no traces" is
   always something someone chose.
 
@@ -182,10 +183,11 @@ to go bigger.
    S3, and disables sign-up. It also moves Docker's `data-root` onto the
    mounted data volume, so ClickHouse stops growing on the root disk.
 
-7. **Set retention.** `LANGFUSE_RETENTION_DAYS=90` — see the section
-   below. Do it on the first deploy: ClickHouse growth tracks LLM call
-   volume, an ingestion agent generates a lot of it, and this volume is
-   shared with the application database.
+7. **Check retention.** It defaults to one year, so there is nothing to
+   set unless this deployment wants a different window — see the section
+   below. What does need checking is that the Temporal worker runs
+   (`ENABLE_TEMPORAL_WORKER=1`), because that is what executes the
+   deletion; without it the default is just a number.
 
 8. **Verify.** In order, because each step rules out the one before:
 
@@ -216,12 +218,21 @@ decision nobody has made yet.
 
 ## Retention
 
-`LANGFUSE_RETENTION_DAYS` sets how many days of traces to keep. Unset or
-`0` keeps everything. The minimum is 3.
+`LANGFUSE_RETENTION_DAYS` sets how many days of traces to keep. **It
+defaults to 365** — one year — so a deployment that configures nothing
+still has a bound. An explicit `0` keeps everything forever; the minimum
+otherwise is 3.
 
 ```bash
-LANGFUSE_RETENTION_DAYS=90
+LANGFUSE_RETENTION_DAYS=365   # the default; shorten for a chatty deployment
+LANGFUSE_RETENTION_DAYS=0     # keep everything, and own the disk growth
 ```
+
+A year is the default because the unbounded version is what fills the
+disk ClickHouse shares with the application database, and it fills it
+slowly enough that nobody is watching when it happens. A year also
+covers year-over-year cost comparisons and any realistic "what did this
+agent do in March" question.
 
 **Vocion enforces this, not Langfuse.** Langfuse has no environment
 variable for retention, and its own project-level retention is an
@@ -291,7 +302,7 @@ Two more variables sit alongside those:
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `LANGFUSE_RETENTION_DAYS` | unset — keep everything | Days of traces to keep. Minimum 3 |
+| `LANGFUSE_RETENTION_DAYS` | `365` — one year | Days of traces to keep. `0` keeps everything; minimum otherwise 3 |
 | `LANGFUSE_SELF_HOSTED_REPLICAS` | `1` — self-hosted | Set to `0` for Langfuse Cloud, or for no Langfuse at all |
 
 The throw is deliberate. Tracing that has been asked for and silently

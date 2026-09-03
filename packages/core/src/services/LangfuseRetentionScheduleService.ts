@@ -2,9 +2,11 @@
  * LangfuseRetentionScheduleService — keeps the daily Temporal Schedule
  * that prunes expired Langfuse traces in step with the environment.
  *
- * The schedule is created when `LANGFUSE_RETENTION_DAYS` is set and
- * removed when it is not, so turning retention off actually stops the
- * job rather than leaving a schedule that fires into a no-op forever.
+ * The schedule exists whenever a retention period does — which is by
+ * default, since `LANGFUSE_RETENTION_DAYS` defaults to a year — and is
+ * removed when someone sets it to 0, so turning retention off actually
+ * stops the job rather than leaving a schedule that fires into a no-op
+ * forever.
  * Called from the Temporal worker on start, which makes it self-healing:
  * a rebuilt Temporal cluster gets its schedule back on the next boot.
  */
@@ -75,7 +77,7 @@ async function removeSchedule(): Promise<void> {
   const client = await getTemporalClient();
   try {
     await client.schedule.getHandle(LANGFUSE_RETENTION_SCHEDULE_ID).delete();
-    logger.info('Langfuse retention schedule removed: no retention period is configured');
+    logger.info('Langfuse retention schedule removed: retention is turned off (LANGFUSE_RETENTION_DAYS=0)');
   } catch (error) {
     if (!isNotFound(error)) {
       throw error;
