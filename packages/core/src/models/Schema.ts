@@ -1,3 +1,4 @@
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 import { bigint, boolean, check, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
@@ -1366,6 +1367,33 @@ export const sourceInstallSchema = pgTable(
     disabled: text('disabled').default('false').notNull(),
     /** Per-install configuration (validated against Source.configSchema). */
     config: jsonb('config').$type<Record<string, unknown>>().default({}),
+    /**
+     * The stored API credential this install authenticates with, or `null`
+     * when it does not use one.
+     *
+     * Null for every OAuth connector, which keeps its grant in
+     * `source_credential`: an OAuth grant is issued to one installation,
+     * carries a refresh token, and is not a value a person pastes, so there is
+     * nothing to share between installs. Null too for the connectors needing
+     * no auth at all, and for an API-key install created before this column
+     * existed and not yet migrated.
+     *
+     * Set for an API-key connector — Jira, Strapi, HubSpot, Granola — where
+     * the credential is a value the workspace typed once and any number of
+     * installs may point at. Rotating that credential is an update in place,
+     * so the next sync picks up the new value with no edit here.
+     *
+     * `restrict` on delete because a credential an install is using must not
+     * vanish underneath it. Retiring one means revoking the row, which leaves
+     * the install pointing at a revoked credential and lets the connector
+     * report a broken credential rather than failing its next sync for no
+     * stated reason.
+     */
+    // `api_token` is declared further down this file, and drizzle only calls
+    // this back when it builds the table metadata — which is what the
+    // `AnyPgColumn` return type documents.
+    // eslint-disable-next-line ts/no-use-before-define
+    apiTokenId: text('api_token_id').references((): AnyPgColumn => apiTokenSchema.id, { onDelete: 'restrict' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1373,6 +1401,7 @@ export const sourceInstallSchema = pgTable(
   },
   table => [
     uniqueIndex('source_install_org_slug_idx').on(table.orgId, table.sourceSlug),
+    index('source_install_api_token_idx').on(table.apiTokenId),
   ],
 );
 
@@ -1745,6 +1774,15 @@ export const sourceSyncCheckpointSchema = pgTable(
  *     so the org's own account is billed. These rows never authenticate anybody
  *     into* Vocion; `verifyToken` refuses them outright.
  *
+ * A supplied key is found one of two ways, decided per platform by
+ * `credentialsPerOrg` in the registry. An LLM platform has at most one live row
+ * per org and callers resolve it implicitly — "the org's Anthropic key". A
+ * connector platform (`jira`, `strapi`, `hubspot`, `granola`) may hold as many
+ * live rows as the workspace wants, told apart by `name`, and a
+ * `source_install.api_token_id` names the one that install uses.
+ * `api_token_org_platform_live_idx` enforces the cap for the first kind and
+ * exempts the second.
+ *
  * The `api_token_shape_ck` constraint keeps the two shapes from mixing, and the
  * `api_token_platform_immutable_tg` trigger (migration 0069) stops a row
  * crossing from one to the other after it is written. The trigger is needed
@@ -1800,14 +1838,22 @@ export const apiTokenSchema = pgTable(
   },
   table => [
     index('api_token_org_idx').on(table.orgId),
-    // One live credential per third-party platform per org, so resolving "the
-    // org's OpenAI key" is a single deterministic row rather than a guess.
-    // Revoked rows are excluded, which is what makes rotation possible: revoke
-    // the old key, store a new one. `vocion` rows are excluded too — an org is
-    // meant to hold as many Vocion tokens as it has integrations.
+    // One live credential per platform per org, for the platforms a caller
+    // resolves implicitly: "the org's OpenAI key" has to be a single
+    // deterministic row rather than a guess. Revoked rows are excluded, which
+    // is what makes rotation possible: revoke the old key, store a new one.
+    //
+    // The excluded platforms are the ones a caller names by row id instead.
+    // `vocion` — an org holds as many API tokens as it has integrations — and
+    // the connector platforms, where "Strapi — staging" and "Strapi — prod"
+    // are both live at once and each connector install points at the one it
+    // wants. The list is spelled out because a partial index cannot call into
+    // TypeScript; `MANY_CREDENTIAL_PLATFORM_IDS` in
+    // `src/libs/platforms/registry.ts` is the copy application code reads, and
+    // `registry.test.ts` fails if the two drift.
     uniqueIndex('api_token_org_platform_live_idx')
       .on(table.orgId, table.platform)
-      .where(sql`${table.revokedAt} is null and ${table.platform} <> 'vocion'`),
+      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi')`),
     // The two credential shapes must never mix. A `vocion` row carries a secret
     // hash, and either a complete set of encryption columns or none of them —
     // none being a token issued before minted tokens were stored encrypted.

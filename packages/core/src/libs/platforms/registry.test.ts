@@ -8,16 +8,23 @@
  * ones that refuse.
  */
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import process from 'node:process';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_PLATFORM_ID,
   getPlatform,
+  holdsManyCredentials,
   isCredentialPlatformId,
   keyHint,
   listPlatforms,
+  MANY_CREDENTIAL_PLATFORM_IDS,
+  platformForConnectorSlug,
   platformForLLMProvider,
   validatePlatformCredential,
   validatePlatformKey,
+  visibleFields,
 } from './registry';
 
 describe('platform table', () => {
@@ -215,5 +222,111 @@ describe('keyHint', () => {
   it('masks a key too short to hint at safely', () => {
     expect(keyHint('abcd')).toBe('…');
     expect(keyHint('a')).toBe('…');
+  });
+});
+
+describe('connector platforms', () => {
+  /** The four connectors that authenticate with a key a person pastes. */
+  const CONNECTOR_SLUGS = ['granola', 'hubspot', 'jira', 'strapi'] as const;
+
+  it('gives every API-key connector a platform of its own', () => {
+    for (const slug of CONNECTOR_SLUGS) {
+      expect(platformForConnectorSlug(slug)?.id).toBe(slug);
+    }
+  });
+
+  it('does not claim a connector that authenticates some other way', () => {
+    // OAuth grants stay in `source_credential`, and these need no auth at all.
+    for (const slug of ['drive', 'slack', 'zoom', 'web', 's3', 'localFiles']) {
+      expect(platformForConnectorSlug(slug)).toBeNull();
+    }
+  });
+
+  it('lets a workspace hold as many connector credentials as it wants', () => {
+    for (const slug of CONNECTOR_SLUGS) {
+      expect(holdsManyCredentials(slug)).toBe(true);
+    }
+  });
+
+  it('still caps every implicitly-resolved platform at one live credential', () => {
+    // The invariant the carve-out must not loosen: "the org's OpenAI key" has
+    // to stay a single deterministic row.
+    for (const id of ['openai', 'anthropic', 'vertex', 'azure-openai', 'aws', 'custom'] as const) {
+      expect(holdsManyCredentials(id)).toBe(false);
+    }
+  });
+
+  it('holds many Vocion tokens, one per integration', () => {
+    expect(holdsManyCredentials('vocion')).toBe(true);
+  });
+
+  it('keeps the instance URL with the Strapi token, and shows it in full', () => {
+    // A Strapi token is worthless against any other instance, so the URL is
+    // part of the credential rather than configuration sitting next to it.
+    const strapi = getPlatform('strapi');
+
+    expect(strapi.fields.map(field => field.name)).toEqual(['baseUrl', 'token']);
+    expect(visibleFields(strapi).map(field => field.name)).toEqual(['baseUrl']);
+  });
+
+  it('rejects a Strapi credential whose instance URL is not a URL', () => {
+    expect(() => validatePlatformCredential('strapi', { baseUrl: 'cms.example.com', token: 'tok' }))
+      .toThrow(/Instance URL/);
+  });
+
+  it('accepts a Strapi credential with a URL and a token', () => {
+    expect(validatePlatformCredential('strapi', {
+      baseUrl: ' https://cms.example.com ',
+      token: ' strapi-token ',
+    })).toEqual({ baseUrl: 'https://cms.example.com', token: 'strapi-token' });
+  });
+
+  it('pairs the Jira token with the email it was issued to', () => {
+    const jira = getPlatform('jira');
+
+    expect(jira.fields.map(field => field.name)).toEqual(['email', 'apiToken']);
+    expect(visibleFields(jira).map(field => field.name)).toEqual(['email']);
+  });
+
+  it('rejects a Jira credential whose email is not an email', () => {
+    expect(() => validatePlatformCredential('jira', { email: 'not-an-email', apiToken: 'tok' }))
+      .toThrow(/Atlassian account email/);
+  });
+
+  it('needs no URL for a Jira credential, because the token works site-wide', () => {
+    expect(getPlatform('jira').fields.some(field => field.name === 'baseUrl')).toBe(false);
+  });
+
+  it('hints at the secret half of a two-field connector credential', () => {
+    // The list view masks the token, not the email or the URL beside it.
+    const stored = validatePlatformCredential('jira', { email: 'ops@example.com', apiToken: 'abcd1234wxyz' });
+
+    expect(keyHint(stored.apiToken!)).toBe('…wxyz');
+  });
+});
+
+describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
+  it('names every platform an org may hold several live credentials for', () => {
+    expect([...MANY_CREDENTIAL_PLATFORM_IDS].sort()).toEqual(
+      ['granola', 'hubspot', 'jira', 'strapi', 'vocion'],
+    );
+  });
+
+  it('matches the list the partial unique index carves out', () => {
+    // A partial index cannot call into TypeScript, so migration 0070 spells the
+    // same platform ids out in SQL. If the two ever drift, an org either loses
+    // the one-live cap on an LLM key or cannot hold a second connector
+    // credential — and neither shows up until someone tries it.
+    const migration = readFileSync(
+      path.join(process.cwd(), 'migrations', '0070_connector_credentials.sql'),
+      'utf8',
+    );
+    const carveOut = /platform"?\s+NOT IN \(([^)]*)\)/i.exec(migration);
+    const idsInSql = (carveOut?.[1] ?? '')
+      .split(',')
+      .map(entry => entry.trim().replace(/^'|'$/g, ''))
+      .filter(entry => entry.length > 0);
+
+    expect(idsInSql.sort()).toEqual([...MANY_CREDENTIAL_PLATFORM_IDS].sort());
   });
 });
