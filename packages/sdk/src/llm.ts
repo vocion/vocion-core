@@ -8,7 +8,15 @@
  * for now — plugins that need it reach for `ctx.openai` directly.
  */
 
-export type LLMProviderName = 'openai' | 'anthropic' | 'vertex' | 'azure-openai';
+/**
+ * Every model provider a call site may ask for.
+ *
+ * `bedrock` is Amazon Bedrock. It is the one entry that is not authenticated by
+ * a single pasted API key: the credential is an AWS access key pair (or, on a
+ * deployed host, the instance's own IAM role), which is why the `aws` platform
+ * in `libs/platforms/registry.ts` carries two fields rather than one.
+ */
+export type LLMProviderName = 'openai' | 'anthropic' | 'bedrock' | 'vertex' | 'azure-openai';
 
 export type LLMMessage
   = | { role: 'system'; content: string }
