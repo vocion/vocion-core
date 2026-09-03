@@ -24,6 +24,7 @@ import {
   LOCAL_DEVELOPMENT_PROJECT_ID,
   LOCAL_DEVELOPMENT_PUBLIC_KEY,
   LOCAL_DEVELOPMENT_SECRET_KEY,
+  MINIMUM_RETENTION_DAYS,
   resolveLangfuseConfig,
 } from './config';
 
@@ -42,6 +43,7 @@ const LANGFUSE_VARIABLES = [
   'LANGFUSE_SECRET_KEY',
   'NEXT_PUBLIC_LANGFUSE_BASE_URL',
   'NEXT_PUBLIC_LANGFUSE_PROJECT_ID',
+  'LANGFUSE_RETENTION_DAYS',
   'NODE_ENV',
 ] as const;
 
@@ -164,6 +166,7 @@ describe('LANGFUSE_ENABLED=true — tracing demanded, so gaps are errors', () =>
       baseUrl: 'https://cloud.langfuse.com',
       projectId: 'veerio',
       browserBaseUrl: 'https://cloud.langfuse.com',
+      retentionDays: null,
     });
   });
 
@@ -214,6 +217,7 @@ describe('LANGFUSE_ENABLED unset — credentials decide', () => {
       baseUrl: LOCAL_DEVELOPMENT_BASE_URL,
       projectId: LOCAL_DEVELOPMENT_PROJECT_ID,
       browserBaseUrl: LOCAL_DEVELOPMENT_BASE_URL,
+      retentionDays: null,
     });
   });
 
@@ -307,5 +311,79 @@ describe('browser-facing URL and project — the self-hosted split', () => {
     }
 
     expect(browserProjectId(config)).toBe('veerio-public');
+  });
+});
+
+describe('LANGFUSE_RETENTION_DAYS — how long traces are kept', () => {
+  it('keeps everything when unset, which is what Langfuse itself does', () => {
+    runAsProduction();
+    setRealCredentials();
+
+    expect(resolveLangfuseConfig()).toMatchObject({ retentionDays: null });
+  });
+
+  it('reads 0 as keep everything rather than delete everything', () => {
+    runAsProduction();
+    setRealCredentials();
+    setEnv('LANGFUSE_RETENTION_DAYS', '0');
+
+    expect(resolveLangfuseConfig()).toMatchObject({ retentionDays: null });
+  });
+
+  it('accepts a period at or above the floor', () => {
+    runAsProduction();
+    setRealCredentials();
+    setEnv('LANGFUSE_RETENTION_DAYS', '90');
+
+    expect(resolveLangfuseConfig()).toMatchObject({ retentionDays: 90 });
+  });
+
+  it('accepts exactly the floor', () => {
+    runAsProduction();
+    setRealCredentials();
+    setEnv('LANGFUSE_RETENTION_DAYS', String(MINIMUM_RETENTION_DAYS));
+
+    expect(resolveLangfuseConfig()).toMatchObject({ retentionDays: MINIMUM_RETENTION_DAYS });
+  });
+
+  it('rejects a period under the floor instead of silently raising it', () => {
+    runAsProduction();
+    setRealCredentials();
+    setEnv('LANGFUSE_RETENTION_DAYS', '1');
+
+    expect(() => resolveLangfuseConfig()).toThrow(
+      new RegExp(`must be 0 or at least ${MINIMUM_RETENTION_DAYS}`),
+    );
+  });
+
+  it('rejects a negative period', () => {
+    runAsProduction();
+    setRealCredentials();
+    setEnv('LANGFUSE_RETENTION_DAYS', '-7');
+
+    expect(() => resolveLangfuseConfig()).toThrow(/whole number of days/);
+  });
+
+  it('rejects a fractional period, because half a day of traces is not a policy', () => {
+    runAsProduction();
+    setRealCredentials();
+    setEnv('LANGFUSE_RETENTION_DAYS', '7.5');
+
+    expect(() => resolveLangfuseConfig()).toThrow(/whole number of days/);
+  });
+
+  it('rejects something that is not a number at all', () => {
+    runAsProduction();
+    setRealCredentials();
+    setEnv('LANGFUSE_RETENTION_DAYS', '90 days');
+
+    expect(() => resolveLangfuseConfig()).toThrow(/whole number of days/);
+  });
+
+  it('is not read at all when tracing is off', () => {
+    setEnv('LANGFUSE_ENABLED', 'false');
+    setEnv('LANGFUSE_RETENTION_DAYS', 'nonsense');
+
+    expect(resolveLangfuseConfig().enabled).toBe(false);
   });
 });

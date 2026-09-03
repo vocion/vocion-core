@@ -41,6 +41,13 @@ export const LOCAL_DEVELOPMENT_PUBLIC_KEY = 'pk-lf-vocion-demo';
 export const LOCAL_DEVELOPMENT_SECRET_KEY = 'sk-lf-vocion-demo';
 export const LOCAL_DEVELOPMENT_PROJECT_ID = 'demo';
 
+/**
+ * Langfuse itself refuses a retention period under three days, so the
+ * pruner uses the same floor. It also stops someone typing `1` and
+ * deleting the traces from the run they are currently debugging.
+ */
+export const MINIMUM_RETENTION_DAYS = 3;
+
 export type LangfuseDisabled = {
   enabled: false;
   /** Why tracing is off, for the one-time startup log. */
@@ -61,6 +68,17 @@ export type LangfuseEnabled = {
    * person needs the public hostname.
    */
   browserBaseUrl: string;
+  /**
+   * Days of traces to keep, or null to keep everything.
+   *
+   * Langfuse has no environment variable for this, and its own
+   * project-level retention is an Enterprise feature on self-hosted
+   * instances (langfuse.com/pricing-self-host, checked 2026-09-03). So
+   * Vocion enforces it: `services/LangfuseRetentionService.ts` deletes
+   * traces past this age through the public API, on a daily Temporal
+   * schedule, using nothing but the project keys already configured.
+   */
+  retentionDays: number | null;
 };
 
 export type LangfuseConfig = LangfuseDisabled | LangfuseEnabled;
@@ -102,6 +120,38 @@ function readEnabledFlag(): boolean | undefined {
   throw new Error(
     `LANGFUSE_ENABLED must be one of true/false/1/0/yes/no, got "${raw}".`,
   );
+}
+
+/**
+ * Parse `LANGFUSE_RETENTION_DAYS`.
+ *
+ * Unset or 0 means keep everything, which is Langfuse's own default and
+ * the only safe reading of "not configured". Anything else must be a
+ * whole number of days at or above the floor — a typo here deletes
+ * data, so it fails loudly rather than rounding to something plausible.
+ */
+function readRetentionDays(): number | null {
+  const raw = readOptionalEnv('LANGFUSE_RETENTION_DAYS');
+  if (raw === undefined) {
+    return null;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(
+      `LANGFUSE_RETENTION_DAYS must be a whole number of days (0 to keep everything), got "${raw}".`,
+    );
+  }
+  if (parsed === 0) {
+    return null;
+  }
+  if (parsed < MINIMUM_RETENTION_DAYS) {
+    throw new Error(
+      `LANGFUSE_RETENTION_DAYS must be 0 or at least ${MINIMUM_RETENTION_DAYS}, got ${parsed}. `
+      + 'Langfuse applies the same floor to its own retention settings.',
+    );
+  }
+  return parsed;
 }
 
 function isProduction(): boolean {
@@ -167,6 +217,7 @@ function buildEnabledConfig(
     // the externally reachable mirror; fall back to baseUrl for Cloud
     // and for local development, where the two are the same.
     browserBaseUrl: readOptionalEnv('NEXT_PUBLIC_LANGFUSE_BASE_URL') ?? baseUrl,
+    retentionDays: readRetentionDays(),
   };
 }
 
