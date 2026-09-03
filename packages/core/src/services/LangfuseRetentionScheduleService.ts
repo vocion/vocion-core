@@ -13,13 +13,36 @@
 
 import type { ScheduleOptions } from '@temporalio/client';
 import { langfuseConfig } from '@/libs/Langfuse';
-import { logger } from '@/libs/Logger';
 import {
   getTemporalClient,
   LANGFUSE_RETENTION_SCHEDULE_ID,
   LANGFUSE_RETENTION_WORKFLOW,
   VOCION_WORKFLOWS_TASK_QUEUE,
 } from '@/libs/temporal/client';
+
+/**
+ * Log through a dynamic import.
+ *
+ * `libs/Logger` has a top-level await, and this module sits in the
+ * import chain of the Temporal worker, which tsx compiles as CommonJS —
+ * where a top-level await is fatal. Importing the logger normally stops
+ * the worker from starting at all, which is the one process that runs
+ * this job. Same approach as `libs/Langfuse.ts` and
+ * `libs/retrieval/embedder.ts`.
+ * @param level - Which logger method to call.
+ * @param message - What happened, in plain words.
+ * @param properties - Identifiers and context worth keeping.
+ */
+function log(
+  level: 'info' | 'warn',
+  message: string,
+  properties: Record<string, unknown> = {},
+): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger[level](message, properties))
+    // Nothing useful left to do if logging itself is broken.
+    .catch(() => {});
+}
 
 /**
  * 03:20 UTC daily — after the 07:00 UTC EBS snapshot window would be
@@ -60,7 +83,7 @@ export async function applyLangfuseRetentionSchedule(): Promise<void> {
   const client = await getTemporalClient();
   try {
     await client.schedule.create(options);
-    logger.info('Langfuse retention schedule created', {
+    log('info', 'Langfuse retention schedule created', {
       cron: RETENTION_CRON,
       retentionDays: config.enabled ? config.retentionDays : null,
     });
@@ -77,7 +100,7 @@ async function removeSchedule(): Promise<void> {
   const client = await getTemporalClient();
   try {
     await client.schedule.getHandle(LANGFUSE_RETENTION_SCHEDULE_ID).delete();
-    logger.info('Langfuse retention schedule removed: retention is turned off (LANGFUSE_RETENTION_DAYS=0)');
+    log('info', 'Langfuse retention schedule removed: retention is turned off (LANGFUSE_RETENTION_DAYS=0)');
   } catch (error) {
     if (!isNotFound(error)) {
       throw error;

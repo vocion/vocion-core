@@ -29,7 +29,30 @@
 import type { LangfuseEnabled } from '@/libs/Langfuse/config';
 import { Buffer } from 'node:buffer';
 import { langfuseConfig } from '@/libs/Langfuse';
-import { logger } from '@/libs/Logger';
+
+/**
+ * Log through a dynamic import.
+ *
+ * `libs/Logger` has a top-level await, and this module sits in the
+ * import chain of the Temporal worker, which tsx compiles as CommonJS —
+ * where a top-level await is fatal. Importing the logger normally stops
+ * the worker from starting at all, which is the one process that runs
+ * this job. Same approach as `libs/Langfuse.ts` and
+ * `libs/retrieval/embedder.ts`.
+ * @param level - Which logger method to call.
+ * @param message - What happened, in plain words.
+ * @param properties - Identifiers and context worth keeping.
+ */
+function log(
+  level: 'info' | 'warn',
+  message: string,
+  properties: Record<string, unknown> = {},
+): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger[level](message, properties))
+    // Nothing useful left to do if logging itself is broken.
+    .catch(() => {});
+}
 
 /** Traces per list request. Langfuse's own docs suggest lowering this if a page times out. */
 const TRACES_PER_PAGE = 100;
@@ -158,11 +181,11 @@ export async function pruneExpiredTraces(now: Date = new Date()): Promise<PruneR
   const config = langfuseConfig();
 
   if (!config.enabled) {
-    logger.info('Langfuse retention skipped: tracing is off', { reason: config.reason });
+    log('info', 'Langfuse retention skipped: tracing is off', { reason: config.reason });
     return null;
   }
   if (config.retentionDays === null) {
-    logger.info('Langfuse retention skipped: LANGFUSE_RETENTION_DAYS is 0, so traces are kept indefinitely by request');
+    log('info', 'Langfuse retention skipped: LANGFUSE_RETENTION_DAYS is 0, so traces are kept indefinitely by request');
     return null;
   }
 
@@ -172,7 +195,7 @@ export async function pruneExpiredTraces(now: Date = new Date()): Promise<PruneR
   for (let page = 0; page < MAX_PAGES_PER_RUN; page += 1) {
     const expiredTraceIds = await fetchExpiredTraceIds(config, cutoff);
     if (expiredTraceIds.length === 0) {
-      logger.info('Langfuse retention complete', {
+      log('info', 'Langfuse retention complete', {
         deleted,
         cutoff,
         retentionDays: config.retentionDays,
@@ -187,7 +210,7 @@ export async function pruneExpiredTraces(now: Date = new Date()): Promise<PruneR
   }
 
   // Hit the page cap. Not an error: tomorrow's run continues from here.
-  logger.info('Langfuse retention stopped at the per-run page limit; the rest is deleted on the next run', {
+  log('info', 'Langfuse retention stopped at the per-run page limit; the rest is deleted on the next run', {
     deleted,
     cutoff,
     retentionDays: config.retentionDays,
