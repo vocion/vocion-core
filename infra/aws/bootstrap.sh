@@ -104,15 +104,24 @@ if [ ! -f "${ENV_FILE}" ]; then
 fi
 
 # ----- 3b. Self-hosted Langfuse preconditions -----
-# The Langfuse containers are held at zero replicas unless this is set,
-# because most deployments use Langfuse Cloud and the root compose file
-# pulls the platform stack in regardless. When it IS set, every secret
-# below has to be present: the compose overlay cannot demand them
-# itself, since Compose checks ${VAR:?...} guards even for services it
-# is not going to start.
-if [ "${LANGFUSE_SELF_HOSTED_REPLICAS:-0}" != "0" ] \
-  || grep -qE '^LANGFUSE_SELF_HOSTED_REPLICAS=[^0]' "${ENV_FILE}" 2>/dev/null; then
-  log "self-hosted Langfuse is on; checking its configuration"
+# Langfuse self-hosts by DEFAULT — one instance of each container — so
+# every deployment comes up with somewhere for traces and cost data to
+# land. A deployment on Langfuse Cloud sets
+# LANGFUSE_SELF_HOSTED_REPLICAS=0 in .env.production to turn the local
+# stack off.
+#
+# When self-hosting (the default), every secret listed below has to be
+# present. The compose overlay cannot demand them itself: Compose checks
+# ${VAR:?...} guards even for services it is not going to start, so a
+# Cloud deployment that legitimately sets none of them could not bring
+# the stack up at all.
+# `|| true` matters: the script runs under `set -e`, and grep exits 1
+# when the variable is absent — which is the common case, since the
+# default is to self-host. Without it bootstrap would abort here
+# silently instead of running the check below.
+LANGFUSE_REPLICAS=$(grep -E '^LANGFUSE_SELF_HOSTED_REPLICAS=' "${ENV_FILE}" | tail -1 | cut -d= -f2- | tr -d '[:space:]' || true)
+if [ "${LANGFUSE_REPLICAS:-1}" != "0" ]; then
+  log "self-hosted Langfuse is on (the default); checking its configuration"
   missing=''
   for name in \
     LANGFUSE_PUBLIC_URL \
@@ -138,8 +147,18 @@ if [ "${LANGFUSE_SELF_HOSTED_REPLICAS:-0}" != "0" ] \
   done
   if [ -n "${missing}" ]; then
     log "ERROR: self-hosted Langfuse is missing:${missing}"
-    log "Fill them in ${ENV_FILE} (see infra/aws/.env.production.example),"
-    log "or set LANGFUSE_SELF_HOSTED_REPLICAS=0 to use Langfuse Cloud instead."
+    log ""
+    log "Vocion self-hosts Langfuse by default, so a deployment has to either"
+    log "configure it or opt out. Pick one:"
+    log ""
+    log "  1. Self-host: fill the values above in ${ENV_FILE}."
+    log "     See infra/aws/.env.production.example for each one and how to"
+    log "     generate it."
+    log "  2. Langfuse Cloud: set LANGFUSE_SELF_HOSTED_REPLICAS=0 plus"
+    log "     LANGFUSE_BASE_URL / LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY."
+    log "  3. No tracing at all: set LANGFUSE_SELF_HOSTED_REPLICAS=0 and"
+    log "     LANGFUSE_ENABLED=false. You get no cost or trace data."
+    log ""
     log "Walkthrough: docs/deployment/observability.md"
     exit 1
   fi

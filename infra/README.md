@@ -72,6 +72,6 @@ docker compose -f infra/docker-compose.platform.yml -p vocion-platform down -v
 ## Hardware Requirements
 
 - Postgres: 1GB RAM (small demo datasets); scales with chunk count
-- Langfuse: 4GB RAM (ClickHouse + PostgreSQL). Same appetite on a deployed box, where it shares the instance with the app — see [`docs/deployment/observability.md`](../docs/deployment/observability.md) for sizing and for the Langfuse Cloud alternative, which removes these containers entirely.
+- Langfuse: 4GB RAM (ClickHouse + PostgreSQL). Same appetite on a deployed box, where it self-hosts by default and shares the instance with the app — see [`docs/deployment/observability.md`](../docs/deployment/observability.md) for sizing, and for opting out to Langfuse Cloud, which removes these containers entirely.
 - Temporal: 2GB RAM (PostgreSQL)
 - Total recommended: 8GB+ RAM for full stack

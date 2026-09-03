@@ -11,12 +11,18 @@ This is the deployment side only. What gets traced is a code concern:
 
 ## TL;DR
 
-- **Pick Cloud unless the client cannot let prompt text leave their
-  infrastructure.** $29/month against a day of hardening plus owning
-  six containers, their backups and their upgrades forever.
-- Cloud is three environment variables. Self-hosted is a hostname, six
-  secrets, an S3 bucket, a disk decision, and a retention setting.
-- Either way, set `LANGFUSE_ENABLED` explicitly, so "no traces" is
+- **Core self-hosts Langfuse by default.** Every deployment comes up
+  with somewhere for traces and per-client spend to land, rather than
+  waiting on someone to buy a plan. `bootstrap.sh` refuses to deploy
+  until it is configured or explicitly opted out of.
+- **Langfuse Cloud is a one-line opt-out** —
+  `LANGFUSE_SELF_HOSTED_REPLICAS=0` plus three keys. Cheaper in
+  engineering time, and worth taking when the client is fine with
+  prompt text leaving their infrastructure.
+- Self-hosted needs a hostname, six secrets, an S3 bucket and a
+  retention period. All of it is listed in
+  `infra/aws/.env.production.example`.
+- Set `LANGFUSE_ENABLED` explicitly either way, so "no traces" is
   always something someone chose.
 
 ## What Langfuse is, and why a deployment needs one
@@ -39,14 +45,23 @@ all. One invoice line becomes per-client, per-agent spend.
 
 ## Choosing a path
 
-| | Langfuse Cloud | Self-hosted on the Vocion box |
+| | Self-hosted on the Vocion box | Langfuse Cloud |
 | --- | --- | --- |
-| Deploy work | Three environment variables | Hostname, DNS, six secrets, S3 bucket, disk move, retention |
-| Containers added to the box | None | Six |
-| Ongoing burden | None | Upgrades, disk growth, backups, ClickHouse |
-| Cost | $29/month on Core; free tier exists | Instance size and EBS, plus the engineering time |
-| Prompt and completion content | Leaves client infrastructure | Stays on the client's box |
-| Recommendation | **Default.** | Only when data residency requires it, or volume makes overage worse than a bigger instance |
+| Which is the default | **Yes** — containers run unless turned off | Opt out with `LANGFUSE_SELF_HOSTED_REPLICAS=0` |
+| Deploy work | Hostname, DNS, six secrets, S3 bucket, retention | Three environment variables |
+| Containers added to the box | Six | None |
+| Ongoing burden | Upgrades, disk growth, backups, ClickHouse | None |
+| Cost | Instance size and EBS, plus the engineering time | $29/month on Core; free tier exists |
+| Prompt and completion content | Stays on the client's box | Leaves client infrastructure |
+
+Self-hosted is the default because a deployment with no observability is
+worse than one that costs an extra hour to stand up: nobody notices the
+gap until a client asks what they are being billed for. Cloud is the
+better trade whenever the client is comfortable with prompt content
+leaving their infrastructure — it removes six containers and their
+backups from the box for $29/month, which is less than the engineering
+time to look after them. Make that call per client, not per deployment
+habit.
 
 Cloud pricing, verified at
 [langfuse.com/pricing](https://langfuse.com/pricing) on 2026-09-03:
@@ -61,7 +76,7 @@ Overage is $8 per 100k units, falling to $7 above 1M. Single sign-on and
 role-based access is a $300/month add-on on Pro. Check the page again
 before quoting these to a client — they move.
 
-## Path A — Langfuse Cloud
+## Path A — Langfuse Cloud (opting out of self-hosting)
 
 1. Create an organisation and project at
    [cloud.langfuse.com](https://cloud.langfuse.com).
@@ -70,26 +85,30 @@ before quoting these to a client — they move.
    Manager, never committed):
 
    ```bash
+   LANGFUSE_SELF_HOSTED_REPLICAS=0   # turn the local containers off
    LANGFUSE_ENABLED=true
    LANGFUSE_BASE_URL=https://cloud.langfuse.com
    LANGFUSE_PUBLIC_KEY=pk-lf-...
    LANGFUSE_SECRET_KEY=sk-lf-...
-   LANGFUSE_PROJECT_ID=...        # for the in-app deep links
+   LANGFUSE_PROJECT_ID=...            # for the in-app deep links
    ```
+
+   Leave every self-hosted value blank — `LANGFUSE_SITE_ADDRESS`, the
+   secrets, the S3 bucket, the `LANGFUSE_INIT_*` seeds. Without the
+   `_REPLICAS=0` line `bootstrap.sh` will stop and tell you they are
+   missing, because self-hosting is the default.
 
 4. Re-run `infra/aws/bootstrap.sh`.
 5. Confirm with `npm run langfuse:smoke`, which sends one trace and
    polls the public API until it appears.
 
-Leave `LANGFUSE_SITE_ADDRESS` unset, and the Caddy site block for
-self-hosted Langfuse never binds.
+With `LANGFUSE_SITE_ADDRESS` unset the Caddy site block never binds, and
+the six containers stay at zero replicas. The root
+`docker-compose.yml` `include:`s the platform file regardless, so the
+production overlay holds them off rather than removing them — Compose
+has no way to un-declare a service.
 
-The six self-hosted containers stay at zero replicas, which is the
-default. The root `docker-compose.yml` `include:`s the platform file
-regardless, so the production overlay holds them off rather than trying
-to remove them — Compose has no way to un-declare a service.
-
-## Path B — self-hosted
+## Path B — self-hosted (the default)
 
 ### What you are taking on
 
@@ -149,13 +168,13 @@ to go bigger.
      authenticates against a project that does not exist and traces
      stop landing silently.
 
-5. **Turn the containers on.** `LANGFUSE_SELF_HOSTED_REPLICAS=1`. They
-   sit at zero replicas by default, so without this the stack comes up
-   with no Langfuse in it and the app posts traces to a hostname that
-   resolves to nothing. `bootstrap.sh` checks the rest of the
-   configuration is present as soon as it sees this set, and refuses to
-   deploy half-configured rather than starting a Langfuse with blank
-   secrets.
+5. **Nothing to switch on.** The containers run by default. What
+   `bootstrap.sh` does check, before it will deploy, is that every value
+   above is actually present — it lists the missing ones and names the
+   three ways forward (fill them in, use Cloud, or turn tracing off)
+   rather than starting a Langfuse with blank secrets. It also catches
+   the `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_INIT_PROJECT_PUBLIC_KEY`
+   mismatch that otherwise makes traces vanish with no error.
 
 6. **Deploy.** `infra/aws/bootstrap.sh` composes
    `infra/docker-compose.langfuse.prod.yml` last, which is what strips
@@ -273,7 +292,7 @@ Two more variables sit alongside those:
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `LANGFUSE_RETENTION_DAYS` | unset — keep everything | Days of traces to keep. Minimum 3 |
-| `LANGFUSE_SELF_HOSTED_REPLICAS` | `0` — containers off | Set to `1` to run the six self-hosted containers |
+| `LANGFUSE_SELF_HOSTED_REPLICAS` | `1` — self-hosted | Set to `0` for Langfuse Cloud, or for no Langfuse at all |
 
 The throw is deliberate. Tracing that has been asked for and silently
 does not happen is worse than a deployment that refuses to start, which
