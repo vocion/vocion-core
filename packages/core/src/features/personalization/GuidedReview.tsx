@@ -2,13 +2,14 @@
 
 import type { GuidedSend, GuidedState } from './guidedFlow';
 import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { client } from '@/libs/Orpc';
 import {
   applyRevision,
   canDecide,
   contentEditsFor,
   currentBody,
+  hydrateGuidedState,
   initialGuidedState,
   isRevisionAsk,
   markRead,
@@ -17,6 +18,21 @@ import {
   targetOf,
   versionOf,
 } from './guidedFlow';
+
+/**
+ * Where one record's position lives, so closing the page does not restart the walk.
+ * @param runId
+ */
+const stateKey = (runId: number) => `vocion_guided_${runId}`;
+
+const readSaved = (runId: number, sends: GuidedSend[]): GuidedState | null => {
+  try {
+    const raw = localStorage.getItem(stateKey(runId));
+    return raw ? hydrateGuidedState(JSON.parse(raw), sends) : null;
+  } catch {
+    return null;
+  }
+};
 
 /**
  * Guided review: the decision walked one send at a time, in the conversation
@@ -58,11 +74,61 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
   // decision waiting has nothing to press before reviewing starts. Derived
   // from the run rather than set by an effect, so there is no frame where the
   // flow exists but has not begun.
+  // A saved position resumes the walk where it left off; a save that no
+  // longer fits this card's content starts fresh (hydrateGuidedState).
   const [state, setState] = useState<GuidedState>(() => (
-    sends.length > 0 ? { ...initialGuidedState, step: 0 } : initialGuidedState
+    readSaved(run.id, sends)
+    ?? (sends.length > 0 ? { ...initialGuidedState, step: 0 } : initialGuidedState)
   ));
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<{ decision: string; detail: string } | null>(null);
+
+  // The position persists per record. A decided flow clears its save — the
+  // outcome re-derives from the run, not from a stale walk.
+  useEffect(() => {
+    try {
+      if (state.decided) {
+        localStorage.removeItem(stateKey(run.id));
+      } else {
+        localStorage.setItem(stateKey(run.id), JSON.stringify(state));
+      }
+    } catch {
+      /* a full or blocked store never breaks the review */
+    }
+  }, [run.id, state]);
+
+  // The run can be decided somewhere else while this window reads it. Checked
+  // when the window regains focus, and once on mount, so the flow resolves to
+  // the outcome — naming who and when — instead of offering a decision that
+  // no longer exists.
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await client.review.actionStatus({ id: run.id });
+        if (cancelled || res.status === 'pending' || res.status === 'executing') {
+          return;
+        }
+        const verb = res.status === 'rejected' ? 'declined' : res.status === 'failed' ? 'approved (the execution failed)' : 'approved';
+        const who = res.decidedBy ?? 'someone else';
+        const when = res.decidedAt ? ` on ${new Date(res.decidedAt).toLocaleString()}` : '';
+        setOutcome(current => current ?? {
+          decision: 'Decided elsewhere',
+          detail: `This lead was ${verb} by ${who}${when}. Reload the page for its record.`,
+        });
+        setState(s => (s.decided ? s : { ...s, decided: true }));
+      } catch {
+        /* a failed check never interrupts the review; the decide path still guards */
+      }
+    };
+    void check();
+    const onFocus = () => void check();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [run.id]);
 
   const advance = useCallback(() => setState(s => ({ ...s, step: s.step + 1 })), []);
   const reread = useCallback((contentId: string) => setState(s => markRead(s, contentId)), []);
@@ -91,7 +157,12 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
       if (res.body.trim() === currentBody(target, state).trim()) {
         return { kind: 'unchanged', send: target };
       }
-      setState(s => applyRevision(s, sends, target.id, res.body, text));
+      // The before is the copy the reviewer was looking at. When that copy was
+      // itself a revision, this rewrite regenerated over it from the original
+      // draft — the earlier change is discarded and the card says so.
+      const prior = currentBody(target, state);
+      const discarded = versionOf(target, state) > 1 ? prior : undefined;
+      setState(s => applyRevision(s, sends, target.id, res.body, text, prior, discarded));
       return { kind: 'revised', send: target };
     } catch (error) {
       // The ask still reaches the agent as a message, so nothing is lost;
@@ -109,15 +180,16 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
    * the reviewer read.
    * @param decision - Enroll, decline, or snooze.
    * @param note - Required for a decline.
+   * @param until - When a snooze resurfaces; tomorrow when not given.
    * @returns Nothing; the outcome card renders the result.
    */
-  const decide = useCallback(async (decision: 'approve' | 'reject' | 'snooze', note?: string) => {
+  const decide = useCallback(async (decision: 'approve' | 'reject' | 'snooze', note?: string, until?: Date) => {
     setBusy(true);
     try {
       if (decision === 'snooze') {
-        const until = new Date(Date.now() + 86_400_000);
-        await client.review.snoozeAction({ id: run.id, until: until.toISOString(), ...(note ? { note } : {}) });
-        setOutcome({ decision: 'Snoozed', detail: `The card returns ${until.toLocaleDateString()}. The lead stays ready for review.` });
+        const resurfaces = until ?? new Date(Date.now() + 86_400_000);
+        await client.review.snoozeAction({ id: run.id, until: resurfaces.toISOString(), ...(note ? { note } : {}) });
+        setOutcome({ decision: 'Snoozed', detail: `The card returns ${resurfaces.toLocaleDateString()}. The lead stays ready for review.` });
       } else {
         const edits = contentEditsFor(state, sends);
         await client.review.decideAction({
@@ -137,7 +209,20 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
       // being read. The flow ends with what happened rather than pretending
       // the decision is still open.
       console.warn('guided review: decide failed', error);
-      setOutcome({ decision: 'Already decided', detail: 'This lead was decided elsewhere. Reload the page for its record.' });
+      // Name who and when where the run can say: the refusal is almost always
+      // that someone else already decided this lead.
+      let detail = 'This lead was decided elsewhere. Reload the page for its record.';
+      try {
+        const res = await client.review.actionStatus({ id: run.id });
+        if (res.status !== 'pending' && res.decidedBy) {
+          const verb = res.status === 'rejected' ? 'declined' : 'approved';
+          const when = res.decidedAt ? ` on ${new Date(res.decidedAt).toLocaleString()}` : '';
+          detail = `This lead was ${verb} by ${res.decidedBy}${when}. Reload the page for its record.`;
+        }
+      } catch {
+        /* the generic line stands */
+      }
+      setOutcome({ decision: 'Already decided', detail });
       setState(s => ({ ...s, decided: true }));
     } finally {
       setBusy(false);

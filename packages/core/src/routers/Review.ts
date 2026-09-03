@@ -147,6 +147,41 @@ export const recordSignalRoute = os
     return { ok: true };
   });
 
+/**
+ * Where a run stands, for a surface that must not go stale: still pending, or
+ * decided — and if decided, by whom (resolved to a name) and when. A guided
+ * review open in one window polls this on focus so a lead decided in another
+ * resolves to the outcome instead of offering a decision that no longer exists.
+ */
+export const actionStatusRoute = os
+  .input(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const { db } = await import('@/libs/DB');
+    const { actionRunSchema, userSchema } = await import('@/models/Schema');
+    const { and, eq } = await import('drizzle-orm');
+    const [row] = await db
+      .select({
+        status: actionRunSchema.status,
+        decidedBy: actionRunSchema.decidedBy,
+        decidedAt: actionRunSchema.decidedAt,
+        name: userSchema.name,
+        email: userSchema.email,
+      })
+      .from(actionRunSchema)
+      .leftJoin(userSchema, eq(userSchema.id, actionRunSchema.decidedBy))
+      .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
+      .limit(1);
+    if (!row) {
+      throw ApiError.notFound(`no action ${input.id}`);
+    }
+    return {
+      status: row.status,
+      decidedBy: row.name ?? row.email ?? row.decidedBy,
+      decidedAt: row.decidedAt?.toISOString() ?? null,
+    };
+  });
+
 /** Rewrite-with-AI on a pending draft — returns the rewrite (unsaved) + records a `rewrite` signal. */
 export const rewriteDraftRoute = os
   .input(z.object({

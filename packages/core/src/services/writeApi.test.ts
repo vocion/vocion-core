@@ -319,7 +319,7 @@ describe('apiRecordSignal', () => {
 
 describe('apiRewriteDraft', () => {
   it('returns the rewrite without saving it', async () => {
-    mockRewrite.mockResolvedValue({ input: { body: 'new' }, body: 'new' });
+    mockRewrite.mockResolvedValue({ input: { body: 'new' }, body: 'new', prior: 'old' });
 
     const out = await apiRewriteDraft(owner, { id: 5, hint: 'shorter' });
 
