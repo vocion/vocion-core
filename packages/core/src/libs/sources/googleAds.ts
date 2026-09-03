@@ -39,6 +39,13 @@ export const googleAdsConnector: SourceConnector<typeof googleAdsConfigSchema> =
   icon: 'Megaphone',
   authKind: 'oauth',
   configSchema: googleAdsConfigSchema,
+  bulkImport: {
+    columns: [
+      { column: 'customer_id', type: 'text', required: true, configPath: 'customerId', example: '1234567890' },
+      { column: 'login_customer_id', type: 'text', required: false, configPath: 'loginCustomerId', example: '' },
+    ],
+    identityColumns: ['customer_id'],
+  },
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = googleAdsConfigSchema.parse(ctx.config);
     const token = ctx.credentials?.token as string | undefined;

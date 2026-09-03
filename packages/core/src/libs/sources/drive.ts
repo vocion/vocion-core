@@ -46,6 +46,12 @@ export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
   icon: 'FileText',
   authKind: 'oauth',
   configSchema: driveConfigSchema,
+  bulkImport: {
+    columns: [
+      { column: 'query', type: 'text', required: true, configPath: 'query', example: '"1AbCdEfGhIjKlMnOp" in parents and trashed = false' },
+    ],
+    identityColumns: ['query'],
+  },
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = driveConfigSchema.parse(ctx.config);
     // Durable path: refresh-token exchange (see googleAuth); legacy fallback
