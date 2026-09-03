@@ -4,6 +4,8 @@ import { and, eq } from 'drizzle-orm';
 import { UserSearch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
+import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
+import { ChatDock } from '@/features/dashboard/chat/ChatDock';
 import { LeadDetail } from '@/features/personalization/LeadDetail';
 import { getAction } from '@/libs/actions/registry';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -147,5 +149,21 @@ export default async function LeadPage(props: {
     decidedBy: row.decidedBy,
   };
 
-  return <LeadDetail lead={lead} contactHref={contactHref} runState={runState} />;
+  // The dock: the agent conversation as a third column, scoped to this lead
+  // and open by default (agent-chat-surface.md §3, decided 2026-09-02). The
+  // floating bubble bails on this route, so this is the page's one surface.
+  const { agents } = await loadChatAgentContext(orgId);
+
+  return (
+    <div className="flex min-w-0 items-start">
+      <div className="min-w-0 flex-1">
+        <LeadDetail lead={lead} contactHref={contactHref} runState={runState} />
+      </div>
+      <ChatDock
+        agents={agents}
+        scopeRef={row.contactRef}
+        scopeLabel={row.contactName}
+      />
+    </div>
+  );
 }
