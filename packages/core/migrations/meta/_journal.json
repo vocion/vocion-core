@@ -475,14 +475,42 @@
       "idx": 67,
       "version": "7",
       "when": 1787287000000,
-      "tag": "0067_business_object_candidate_link",
+      "tag": "0067_api_token_platforms",
       "breakpoints": true
     },
     {
       "idx": 68,
       "version": "7",
       "when": 1787287100000,
-      "tag": "0068_business_object_candidate_corrections",
+      "tag": "0068_api_token_minted_reveal",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1787287200000,
+      "tag": "0069_api_token_platform_immutable",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1787287300000,
+      "tag": "0070_project_embedding_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1787287400000,
+      "tag": "0071_business_object_candidate_link",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1787287500000,
+      "tag": "0072_business_object_candidate_corrections",
       "breakpoints": true
     }
   ]
