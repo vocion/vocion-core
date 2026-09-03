@@ -4,6 +4,7 @@ import type { AgentOption } from './types';
 import { MessageCircle } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
 import { ChatBubbleHeader } from './ChatBubbleHeader';
 import { ChatBubbleHistoryPanel } from './ChatBubbleHistoryPanel';
 import { ChatComposer } from './ChatComposer';
@@ -114,6 +115,19 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
     setHistoryOpen(false);
     setVisual('hidden');
   };
+
+  // The bubble is this page's agent surface where no dock or shell is: claim
+  // any entry-point request by opening and taking focus (032 §6).
+  useEffect(() => {
+    function onRequest(e: Event) {
+      e.preventDefault();
+      setVisual('normal');
+      focusAgentComposer(null);
+    }
+    window.addEventListener(AGENT_SURFACE_EVENT, onRequest);
+    return () => window.removeEventListener(AGENT_SURFACE_EVENT, onRequest);
+    // setVisual wraps setState + localStorage only — safe to bind once.
+  }, []);
 
   useEffect(() => {
     if (visualState === 'hidden') {
@@ -239,6 +253,9 @@ function ChatBubbleInner({ agents }: ChatBubbleInnerProps) {
           streaming={session.isStreaming}
           onStop={session.handleStop}
           placeholder={session.agent.placeholder}
+          pastedText={session.pastedText}
+          onPasteText={session.setPastedText}
+          onClearPasted={() => session.setPastedText(null)}
         />
       </div>
     </div>
