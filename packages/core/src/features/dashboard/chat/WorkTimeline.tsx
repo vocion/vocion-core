@@ -344,120 +344,178 @@ export function WorkTimeline({ runs, streaming, activity, thinkingText, document
 }
 
 function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[] }) {
-  const [open, setOpen] = useState(false);
+  // Level-1 lines expand independently; one control recollapses everything
+  // (agent-chat-surface.md §2.1 rule 1).
+  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
   const [openDrill, setOpenDrill] = useState<string | null>(null);
-  // Steps vs Sources as TABS — a long "Grounded in" list used to run on
-  // forever beneath the steps, burying the trace.
-  const [tab, setTab] = useState<'steps' | 'sources'>('steps');
   const elapsed = useElapsed(streaming);
 
   const roots = trace.filter(n => !n.parentId);
+  const actions = roots.filter(n => n.kind !== 'reason');
+  const reasons = roots.filter(n => n.kind === 'reason');
   const childrenOf = (id: string) => trace.filter(n => n.parentId === id);
   const steps = trace.filter(n => n.kind !== 'reason').length;
-  const specialists = new Set(trace.filter(n => n.actor.kind === 'specialist').map(n => n.actor.id)).size;
-  const sources = documents.length || trace.flatMap(n => n.citations ?? []).length;
-  const errors = trace.filter(n => n.status === 'error').length;
-  const hasDetail = trace.length > 0;
+  const sources = documents.length;
+  const anyOpen = openIds.size > 0;
 
-  // Not every message needs an Activity card. A completed turn where the agent
-  // took no real action (no tools/search/delegation/draft — just a quick
-  // reply) has nothing worth surfacing; hide the "Worked it out · 0 steps"
-  // noise. Keep it while streaming (live status) and whenever there were steps.
-  if (!streaming && steps === 0) {
+  // A completed turn with no real actions and no sources has nothing worth
+  // surfacing; keep the line while streaming (live status).
+  if (!streaming && steps === 0 && sources === 0) {
     return null;
   }
 
-  const summary = [
-    `${steps} step${steps === 1 ? '' : 's'}`,
-    specialists > 0 ? `${specialists} specialist${specialists === 1 ? '' : 's'}` : null,
-    sources > 0 ? `${sources} source${sources === 1 ? '' : 's'}` : null,
-    errors > 0 ? `${errors} error${errors === 1 ? '' : 's'}` : null,
-  ].filter(Boolean).join(' · ');
-  const headerText = streaming ? (activity ?? 'Working…') : `Worked it out · ${summary}`;
+  // While the agent runs: one line stating what it is doing NOW, as a verb,
+  // never a progress bar (§2.1 rule 4). Completed claims accumulate below it
+  // once the turn lands.
+  if (streaming) {
+    return (
+      <div className="my-2">
+        <div className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
+          <span className="min-w-0 flex-1 truncate font-medium">{activity ?? 'Working…'}</span>
+          {elapsed >= 3 && (
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
+              {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const toggle = (id: string) => setOpenIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    return next;
+  });
+  const collapseAll = () => {
+    setOpenIds(new Set());
+    setOpenDrill(null);
+  };
 
   return (
     <div className="my-2">
-      <button
-        type="button"
-        onClick={() => hasDetail && setOpen(v => !v)}
-        aria-expanded={open}
-        disabled={!hasDetail}
-        className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground transition enabled:hover:text-foreground"
-      >
-        {streaming
-          ? <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
-          : <Brain className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />}
-        <span className="min-w-0 flex-1 truncate font-medium">{headerText}</span>
-        {streaming && elapsed >= 3 && (
-          <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
-            {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
-          </span>
-        )}
-        {hasDetail && <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${open ? 'rotate-180' : ''}`} aria-hidden />}
-      </button>
-
-      {open && hasDetail && (
-        <>
-          <button type="button" aria-label="Close details" onClick={() => setOpen(false)} className="fixed inset-0 z-40 bg-black/40 sm:hidden" />
-          <div className="fixed inset-x-0 bottom-0 z-50 max-h-[82vh] overflow-y-auto rounded-t-2xl border-t border-border bg-background shadow-2xl sm:static sm:z-auto sm:mt-1 sm:max-h-none sm:rounded-xl sm:border sm:border-border/60 sm:bg-muted/20 sm:shadow-none">
-            <div className="flex items-center justify-between border-b border-border px-4 py-2.5 sm:px-3">
-              <div className="flex gap-1">
-                {([['steps', `Steps${steps > 0 ? ` (${steps})` : ''}`], ['sources', `Sources${sources > 0 ? ` (${sources})` : ''}`]] as const).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setTab(key)}
-                    disabled={key === 'sources' && sources === 0}
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-40 ${tab === key ? 'bg-brand-amber/15 text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
+      {anyOpen && (
+        <div className="mb-1 flex justify-end">
+          <button type="button" onClick={collapseAll} className="text-[11px] font-medium text-muted-foreground transition hover:text-foreground">
+            Collapse all
+          </button>
+        </div>
+      )}
+      <ol className="flex flex-col rounded-lg border border-border/60 bg-muted/10 px-3">
+        {reasons.length > 0 && (
+          <ClaimLine
+            id="__reasoning__"
+            icon={<Brain className="size-3.5 text-brand-amber-deep" aria-hidden />}
+            label="Thought it through"
+            open={openIds.has('__reasoning__')}
+            onToggle={() => toggle('__reasoning__')}
+          >
+            {reasons.map(r => (
+              <div key={r.id} className="max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+                {r.text?.trim() || r.label}
               </div>
-              {streaming
+            ))}
+          </ClaimLine>
+        )}
+        {actions.map((n) => {
+          const kids = childrenOf(n.id);
+          return (
+            <ClaimLine
+              key={n.id}
+              id={n.id}
+              icon={<TraceMarker node={n} />}
+              label={n.label}
+              detail={n.detail}
+              radius={n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined)}
+              error={n.status === 'error'}
+              open={openIds.has(n.id)}
+              onToggle={() => toggle(n.id)}
+            >
+              {kids.length > 0
                 ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-amber-deep">
-                      <span className="relative flex size-2">
-                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-amber-deep/50" />
-                        <span className="relative inline-flex size-2 rounded-full bg-brand-amber-deep" />
-                      </span>
-                      live
-                    </span>
-                  )
-                : (
-                    <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted sm:hidden">
-                      <X className="size-4" aria-hidden />
-                    </button>
-                  )}
-            </div>
-
-            {tab === 'steps' && (
-              <ol className="relative px-4 py-2 sm:px-3">
-                {roots.map((n) => {
-                  const kids = childrenOf(n.id);
-                  return (
-                    <div key={n.id}>
-                      <TraceRow node={n} open={openDrill === n.id} onToggle={() => setOpenDrill(o => (o === n.id ? null : n.id))} />
+                    <ol className="relative">
                       {kids.map(k => (
                         <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
                       ))}
+                    </ol>
+                  )
+                : (
+                    <div>
+                      <CallDetail node={n} />
+                      {(n.citations?.length ?? 0) > 0 && <TraceCitations node={n} />}
                     </div>
-                  );
-                })}
-              </ol>
-            )}
-
-            {tab === 'sources' && documents.length > 0 && (
-              <div className="max-h-[46vh] overflow-y-auto px-4 py-3 sm:px-3">
-                <div className="grid gap-1.5">
-                  {documents.map((d, i) => <Citation key={`${d.document_id}-${i}`} doc={d} />)}
-                </div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
+                  )}
+            </ClaimLine>
+          );
+        })}
+        {sources > 0 && (
+          <ClaimLine
+            id="__sources__"
+            icon={<Search className="size-3.5 text-muted-foreground/70" aria-hidden />}
+            label={`Grounded in ${sources} source${sources === 1 ? '' : 's'}`}
+            open={openIds.has('__sources__')}
+            onToggle={() => toggle('__sources__')}
+          >
+            <div className="grid gap-1.5">
+              {documents.map((d, i) => <Citation key={`${d.document_id}-${i}`} doc={d} />)}
+            </div>
+          </ClaimLine>
+        )}
+      </ol>
     </div>
+  );
+}
+
+/**
+ * One level-1 line: the claim, quiet, with the blast radius priced on the
+ * line so the reader can decide whether the expansion is worth it
+ * (agent-chat-surface.md §2). Expanding reveals level 2 (the steps) or, for
+ * a stepless action, the payload directly.
+ * @param root0 - Component props.
+ * @param root0.id - Stable identity for the open set.
+ * @param root0.icon - The kind marker.
+ * @param root0.label - The claim, in outcome language.
+ * @param root0.detail - Input summary shown beside the claim.
+ * @param root0.radius - The blast radius or compact result on the line.
+ * @param root0.error - Renders the claim in the failure color.
+ * @param root0.open - Whether the line is expanded.
+ * @param root0.onToggle - Expand or collapse this line.
+ * @param root0.children - The level-2 content.
+ */
+function ClaimLine({ id, icon, label, detail, radius, error, open, onToggle, children }: {
+  id: string;
+  icon: React.ReactNode;
+  label: string;
+  detail?: string;
+  radius?: string;
+  error?: boolean;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <li className="border-b border-border/40 last:border-b-0" data-claim={id}>
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-2 py-1.5 text-left text-xs transition hover:text-foreground">
+        <span className="grid size-4 shrink-0 place-items-center">{icon}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px]">
+          <span className={`font-medium ${error ? 'text-[var(--brand-fail)]' : 'text-foreground/85'}`}>{label}</span>
+          {detail && (
+            <span className="text-muted-foreground">
+              {' · '}
+              {detail}
+            </span>
+          )}
+        </span>
+        {radius && <span className="max-w-[38%] shrink-0 truncate font-mono text-[10px] text-muted-foreground/80">{radius}</span>}
+        <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${open ? 'rotate-180' : ''}`} aria-hidden />
+      </button>
+      {open && <div className="mb-2 ml-6">{children}</div>}
+    </li>
   );
 }
 
