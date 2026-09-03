@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
-import { bigint, boolean, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -174,6 +174,28 @@ export const projectSchema = pgTable(
      * sidebar only.
      */
     enabledSurfaces: jsonb('enabled_surfaces').$type<string[]>().default([]).notNull(),
+    /**
+     * Which vendor and model produce this workspace's embeddings. Authored as
+     * `defaults.embeddingProvider` / `defaults.embeddingModel` in
+     * workspace.yaml; NULL keys fall back to `VOCION_EMBEDDING_PROVIDER` /
+     * `VOCION_EMBEDDING_MODEL`, then to OpenAI.
+     *
+     * Deliberately a WORKSPACE setting and never a per-agent one. Every vector
+     * in `knowledge_chunk` was produced by one model, and a query vector is
+     * only comparable to vectors from that same model — cosine similarity
+     * across two embedding spaces returns numbers, just meaningless ones. An
+     * agent that embedded its queries on a different provider from the one that
+     * ingested the documents would degrade search with no error anywhere, which
+     * is the worst possible failure mode for a retrieval bug. Holding it at the
+     * workspace makes ingest and query provably the same model.
+     *
+     * Changing it on a workspace that already has chunks means re-embedding
+     * them; a width change means a schema migration too.
+     */
+    embeddingConfig: jsonb('embedding_config').$type<{
+      provider?: 'openai' | 'bedrock';
+      model?: string;
+    }>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -547,8 +569,21 @@ export const agentSchema = pgTable(
       excludeTools?: string[];
       /** Granted-only tool names to hand this agent (e.g. classify_call). Gated tools are absent unless named here. */
       grantTools?: string[];
-      /** agentcore provider only: Bedrock model id for the managed harness (defaults to the harness service default). */
+      /**
+       * Model id this agent's main role runs on, overriding the per-role env
+       * default. Read by every provider: the agentcore and runtime harnesses
+       * pass it to the managed runtime, and the local loop hands it to
+       * `buildChatModelForOrg`.
+       */
       model?: string;
+      /**
+       * Which vendor serves this agent's chat model. A different axis from
+       * `provider` above, which selects where the agent *loop* executes —
+       * an agent can run on the local loop and still answer on Bedrock.
+       * Unset inherits `VOCION_LLM_PROVIDER`, so this exists to point one
+       * agent at one vendor without moving the whole deployment.
+       */
+      modelProvider?: 'anthropic' | 'openai' | 'bedrock';
     }>().default({}).notNull(),
     /**
      * agentcore provider only: ARN of the provisioned AgentCore harness.
@@ -1761,11 +1796,27 @@ export const sourceSyncCheckpointSchema = pgTable(
 );
 
 /**
- * Tenant API tokens — the control-plane credential. An app (FirstHQ) or a
- * client integration authenticates with `vcn_live_<id>_<secret>`; we store only
- * the SHA-256 of the secret. A token carries an authz role + optional grants, so
- * its mutations route through the same permission model as everything else.
- * See firsthq/docs/platform-plan.md §5.
+ * Tenant API credentials. One table, two shapes, told apart by `platform`
+ * (see `libs/platforms/registry.ts`):
+ *
+ *   - `platform = 'vocion'` — the control-plane credential. An app (FirstHQ) or
+ *     a client integration authenticates with `vcn_live_<id>_<secret>`. We store
+ *     the SHA-256 of the secret, which is what authenticates a request, and the
+ *     whole token encrypted, which is what lets an admin read it back. The token
+ *     carries an authz role + optional grants, so its mutations route through
+ *     the same permission model as everything else. See
+ *     firsthq/docs/platform-plan.md §5.
+ *   - any other platform — a key the org supplied for a third party (OpenAI,
+ *     Anthropic, …), encrypted at rest with the same per-org DEK that protects
+ *     `source_credential`. Vocion decrypts it to call out on the org's behalf,
+ *     so the org's own account is billed. These rows never authenticate anybody
+ *     into* Vocion; `verifyToken` refuses them outright.
+ *
+ * The `api_token_shape_ck` constraint keeps the two shapes from mixing, and the
+ * `api_token_platform_immutable_tg` trigger (migration 0069) stops a row
+ * crossing from one to the other after it is written. The trigger is needed
+ * because a minted row now carries ciphertext too, so a rewritten `platform`
+ * alone would leave a row the constraint happily accepts as a supplied key.
  */
 export const apiTokenSchema = pgTable(
   'api_token',
@@ -1774,8 +1825,30 @@ export const apiTokenSchema = pgTable(
     id: text('id').primaryKey(),
     orgId: text('org_id').notNull(),
     name: text('name').notNull(),
-    /** SHA-256 hex of the secret half. The plaintext is shown once, at issue. */
-    secretHash: text('secret_hash').notNull(),
+    /** Which platform this credential belongs to. See `CredentialPlatformId`. */
+    platform: text('platform').default('vocion').notNull(),
+    /**
+     * SHA-256 hex of the secret half, compared on every authenticated request.
+     * Set only on `vocion` rows — a supplied third-party key never
+     * authenticates into Vocion, so it has nothing to hash.
+     */
+    secretHash: text('secret_hash'),
+    /**
+     * FK to the DEK that encrypted `ciphertext`. Null on a `vocion` row issued
+     * before minted tokens were kept encrypted.
+     */
+    dekId: integer('dek_id').references(() => sourceDekSchema.id, { onDelete: 'restrict' }),
+    /**
+     * AES-256-GCM ciphertext — the supplied key, or the whole minted token so
+     * the dashboard can show it again. Null on older `vocion` rows.
+     */
+    ciphertext: text('ciphertext'),
+    /** AES-256-GCM nonce (12 bytes, base64). */
+    nonce: text('nonce'),
+    /** AES-256-GCM auth tag (16 bytes, base64). */
+    authTag: text('auth_tag'),
+    /** Masked tail of the credential, e.g. `…4a9F`, for display only. */
+    keyHint: text('key_hint'),
     /** authz workspace role the token acts as. */
     role: text('role').default('owner').notNull(),
     /** Explicit authz action grants (empty = the role's defaults). */
@@ -1794,6 +1867,50 @@ export const apiTokenSchema = pgTable(
   },
   table => [
     index('api_token_org_idx').on(table.orgId),
+    // One live credential per third-party platform per org, so resolving "the
+    // org's OpenAI key" is a single deterministic row rather than a guess.
+    // Revoked rows are excluded, which is what makes rotation possible: revoke
+    // the old key, store a new one. `vocion` rows are excluded too — an org is
+    // meant to hold as many Vocion tokens as it has integrations.
+    uniqueIndex('api_token_org_platform_live_idx')
+      .on(table.orgId, table.platform)
+      .where(sql`${table.revokedAt} is null and ${table.platform} <> 'vocion'`),
+    // The two credential shapes must never mix. A `vocion` row carries a secret
+    // hash, and either a complete set of encryption columns or none of them —
+    // none being a token issued before minted tokens were stored encrypted.
+    // Anything else carries ciphertext with everything needed to decrypt it and
+    // no hash. Enforced in the database because a half-written row here is a
+    // credential that can either not be verified or not be decrypted, and
+    // neither failure shows up until someone tries to use it. Declared here as
+    // well as in migrations 0067 and 0068 so that `drizzle-kit generate` can see
+    // it and does not propose dropping it later.
+    check(
+      'api_token_shape_ck',
+      sql`(
+      ${table.platform} = 'vocion'
+      and ${table.secretHash} is not null
+      and (
+        (
+          ${table.ciphertext} is null
+          and ${table.nonce} is null
+          and ${table.authTag} is null
+          and ${table.dekId} is null
+        ) or (
+          ${table.ciphertext} is not null
+          and ${table.nonce} is not null
+          and ${table.authTag} is not null
+          and ${table.dekId} is not null
+        )
+      )
+    ) or (
+      ${table.platform} <> 'vocion'
+      and ${table.secretHash} is null
+      and ${table.ciphertext} is not null
+      and ${table.nonce} is not null
+      and ${table.authTag} is not null
+      and ${table.dekId} is not null
+    )`,
+    ),
   ],
 );
 

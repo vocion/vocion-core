@@ -554,8 +554,32 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
 }
 
 /**
- * Apply workspace.yaml's top-level `lead:` / `accountableUser:` to the
- * project row (the workspace lead is project config, not a special team).
+ * The embedding settings to store on the project row, or null when the
+ * workspace authored none.
+ *
+ * Null rather than an empty object, so "authored nothing" and "authored
+ * something that happens to be empty" cannot be confused at read time — the
+ * embedder treats null as "fall back to the environment".
+ * @param defaults - The manifest's `defaults` block.
+ * @param defaults.embeddingProvider
+ * @param defaults.embeddingModel
+ */
+function embeddingConfigFrom(
+  defaults: { embeddingProvider?: 'openai' | 'bedrock'; embeddingModel?: string },
+): { provider?: 'openai' | 'bedrock'; model?: string } | null {
+  if (!defaults.embeddingProvider && !defaults.embeddingModel) {
+    return null;
+  }
+  return {
+    ...(defaults.embeddingProvider ? { provider: defaults.embeddingProvider } : {}),
+    ...(defaults.embeddingModel ? { model: defaults.embeddingModel } : {}),
+  };
+}
+
+/**
+ * Apply workspace.yaml's top-level `lead:` / `accountableUser:` / `surfaces:`
+ * and its `defaults.embedding*` keys to the project row (all of it is project
+ * config, not a special team).
  * Declarative: authored values are set, omitted keys clear the columns.
  * When no project row matches the resolved orgId (manifest-orgId
  * fallback), warn loudly and skip — never invent a project.
@@ -576,6 +600,7 @@ async function applyWorkspaceLeadConfig(
   // here names a real route. Replaced wholesale: dropping a surface from the
   // YAML turns it off, same declarative rule as `lead:`.
   const enabledSurfaces = loaded.manifest.surfaces;
+  const embeddingConfig = embeddingConfigFrom(loaded.manifest.defaults ?? {});
 
   const [project] = await db
     .select({
@@ -583,14 +608,15 @@ async function applyWorkspaceLeadConfig(
       leadAgentSlug: projectSchema.leadAgentSlug,
       accountableUserId: projectSchema.accountableUserId,
       enabledSurfaces: projectSchema.enabledSurfaces,
+      embeddingConfig: projectSchema.embeddingConfig,
     })
     .from(projectSchema)
     .where(eq(projectSchema.id, orgId))
     .limit(1);
 
   if (!project) {
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0) {
-      console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces NOT applied. Pass --project <id|slug> so they land on a real project.`);
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null) {
+      console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
   }
@@ -598,18 +624,24 @@ async function applyWorkspaceLeadConfig(
   const surfacesUnchanged
     = project.enabledSurfaces.length === enabledSurfaces.length
       && project.enabledSurfaces.every((s, i) => s === enabledSurfaces[i]);
+  // Compared as JSON rather than field by field: the object has two optional
+  // keys, so a shallow equality check would have to enumerate both and would
+  // silently stop covering a third.
+  const embeddingUnchanged
+    = JSON.stringify(project.embeddingConfig ?? null) === JSON.stringify(embeddingConfig);
 
   if (
     (project.leadAgentSlug ?? null) === lead
     && (project.accountableUserId ?? null) === accountableUserId
     && surfacesUnchanged
+    && embeddingUnchanged
   ) {
     return;
   }
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig })
       .where(eq(projectSchema.id, project.id));
   }
 }

@@ -453,9 +453,9 @@ export async function runAgentDeep(opts: {
       const { recommendActionTool } = await import('./agents/tools/recommendAction');
       const internalCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
       const recTool = recommendActionTool(internalCtx);
-      const { buildChatModel } = await import('@/libs/llm');
+      const { buildChatModelForOrg } = await import('@/libs/llm');
       const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-      const base = buildChatModel('main', { temperature: 0, streaming: false, maxTokens: 4000 });
+      const base = await buildChatModelForOrg('main', opts.orgId, { temperature: 0, streaming: false, maxTokens: 4000 });
       if (!base.bindTools) {
         throw new Error('model does not support tools');
       }

@@ -17,5 +17,12 @@
 -- candidate/approved/rejected, and the create API takes a free string so a
 -- plugin can define its own. A global constraint would be wrong; if this ever
 -- needs constraining, it belongs on the object type, not the table.
-ALTER TABLE "business_object" ADD COLUMN "provenance" jsonb;--> statement-breakpoint
-CREATE UNIQUE INDEX "business_object_review_run_idx" ON "business_object" USING btree ("org_id","review_action_run_id");
+--
+-- Every statement is IF NOT EXISTS. These migrations were renumbered when they
+-- met other work on main, and a renumbered file reads as brand new to
+-- drizzle's tracking table — so a database that already ran them under the old
+-- number would fail on the first re-run. Idempotent statements make the re-run
+-- a no-op instead.
+
+ALTER TABLE "business_object" ADD COLUMN IF NOT EXISTS "provenance" jsonb;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "business_object_review_run_idx" ON "business_object" USING btree ("org_id","review_action_run_id");
