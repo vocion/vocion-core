@@ -77,6 +77,15 @@ export default defineConfig<ChromaticConfig>({
       retries: 0,
       use: { ...devices['Desktop Chrome'], video: 'on', trace: 'off' },
     },
+    // The review-queue end-to-end specs. Self-seeding like `tour` (the sign-up
+    // route is invite-only), so no Clerk setup project and no dependencies.
+    // Run with: npx playwright test --project=queue
+    {
+      name: 'queue',
+      testDir: './e2e/queue',
+      timeout: 120 * 1000,
+      use: { ...devices['Desktop Chrome'] },
+    },
     ...(process.env.CI
       ? [
           {

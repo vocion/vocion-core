@@ -222,3 +222,144 @@ export const findObjectsByDocumentIds = async (documentIds: string[], orgId: str
       },
     }));
 };
+
+/* ------------------------------------------------------------------ */
+/* Candidate queues — objects proposed by an agent, decided by a human */
+/* ------------------------------------------------------------------ */
+
+/** One page of objects, plus the real total so a caller can paginate. */
+export type BusinessObjectPage = {
+  items: Array<{
+    id: number;
+    typeSlug: string;
+    typeLabel: string;
+    title: string;
+    status: string | null;
+    metadata: Record<string, unknown>;
+    summary: string | null;
+    externalSystem: string | null;
+    externalId: string | null;
+    reviewActionRunId: number | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>;
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type ListBusinessObjectsOptions = {
+  /** Object type slug, e.g. `event-candidate`. */
+  typeSlug?: string;
+  /** Lifecycle state: `candidate`, `approved`, `rejected`, `active`. */
+  status?: string;
+  /** Only objects already linked to (or still missing) a downstream record. */
+  linked?: boolean;
+  /** Case-insensitive match on the title. */
+  search?: string;
+  limit?: number;
+  offset?: number;
+};
+
+/**
+ * A filtered, ordered, counted page of an org's business objects.
+ *
+ * Every filter, the sort and the count run in the database — a panel showing
+ * a moderation queue must never pull the whole table to count it. Newest
+ * first, with the id as the tie-break so two objects created in the same
+ * millisecond keep a stable order across pages.
+ * @param orgId - The tenant.
+ * @param options - Filters and the page window.
+ */
+export const listBusinessObjectPage = async (
+  orgId: string,
+  options: ListBusinessObjectsOptions = {},
+): Promise<BusinessObjectPage> => {
+  const { and, count, desc, eq, ilike, isNotNull, isNull } = await import('drizzle-orm');
+
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  const offset = Math.max(options.offset ?? 0, 0);
+
+  const conditions = [eq(businessObjectSchema.orgId, orgId)];
+  if (options.typeSlug) {
+    conditions.push(eq(businessObjectTypeSchema.slug, options.typeSlug));
+  }
+  if (options.status) {
+    conditions.push(eq(businessObjectSchema.status, options.status));
+  }
+  if (options.linked === true) {
+    conditions.push(isNotNull(businessObjectSchema.externalId));
+  }
+  if (options.linked === false) {
+    conditions.push(isNull(businessObjectSchema.externalId));
+  }
+  if (options.search) {
+    conditions.push(ilike(businessObjectSchema.title, `%${options.search}%`));
+  }
+  const where = and(...conditions);
+
+  const rows = await db
+    .select({
+      id: businessObjectSchema.id,
+      typeSlug: businessObjectTypeSchema.slug,
+      typeLabel: businessObjectTypeSchema.label,
+      title: businessObjectSchema.title,
+      status: businessObjectSchema.status,
+      metadata: businessObjectSchema.metadata,
+      summary: businessObjectSchema.summary,
+      externalSystem: businessObjectSchema.externalSystem,
+      externalId: businessObjectSchema.externalId,
+      reviewActionRunId: businessObjectSchema.reviewActionRunId,
+      createdAt: businessObjectSchema.createdAt,
+      updatedAt: businessObjectSchema.updatedAt,
+    })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectSchema.typeId, businessObjectTypeSchema.id))
+    .where(where)
+    .orderBy(desc(businessObjectSchema.createdAt), desc(businessObjectSchema.id))
+    .limit(limit)
+    .offset(offset);
+
+  const [totals] = await db
+    .select({ total: count() })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectSchema.typeId, businessObjectTypeSchema.id))
+    .where(where);
+
+  return {
+    items: rows.map(row => ({ ...row, metadata: row.metadata ?? {} })),
+    total: totals?.total ?? 0,
+    limit,
+    offset,
+  };
+};
+
+/**
+ * Point a business object at the record another system now holds for it —
+ * what an admin panel calls after it has published an approved candidate.
+ *
+ * Separate from the approve path on purpose: approving with the id in hand is
+ * one call, but a panel that published first and crashed before approving can
+ * still repair the link with this. Idempotent, and org-scoped.
+ * @param orgId - The tenant.
+ * @param objectId - The business object to link.
+ * @param externalRef - The owning system and its id for the record.
+ * @param externalRef.system
+ * @param externalRef.id
+ */
+export const linkExternalRecord = async (
+  orgId: string,
+  objectId: number,
+  externalRef: { system: string; id: string },
+) => {
+  const [updated] = await db
+    .update(businessObjectSchema)
+    .set({ externalSystem: externalRef.system, externalId: externalRef.id })
+    .where(and(
+      eq(businessObjectSchema.orgId, orgId),
+      eq(businessObjectSchema.id, objectId),
+    ))
+    .returning();
+
+  return updated ?? null;
+};

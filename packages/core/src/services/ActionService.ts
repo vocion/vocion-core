@@ -103,6 +103,15 @@ export async function proposeAction(input: {
           expiresAt: input.expiresAt ?? null,
         })
         .where(eq(actionRunSchema.id, existing.id));
+      // Keep the action's own domain row in step with the refreshed payload.
+      // `onProposed` is documented idempotent precisely so it can run here as
+      // well as on first creation; without this a re-proposed candidate would
+      // show the reviewer a stale record.
+      await action.onProposed?.(
+        { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id },
+        parsed,
+        existing.id,
+      );
       return { runId: existing.id, status: 'pending' };
     }
   }
@@ -159,10 +168,14 @@ export async function proposeAction(input: {
     //   - personalization.enroll — approving it enrolls a real lead into a
     //     HubSpot sequence that sends real email. No trust rule can release
     //     an enrollment without a human.
+    //   - objects.propose_candidate — approving an extracted record is what
+    //     lets it be published outside. The whole moderation loop exists so a
+    //     human sees every candidate; a confidence threshold that cleared them
+    //     automatically would empty the queue without anyone reading it.
     // Deliberately not configurable; revisit only once UC5 trust reporting
     // exists and a human opts in explicitly. Fails safe — it can only keep the
     // item in the review queue, never release it.
-    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll') {
+    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll' || action.id === 'objects.propose_candidate') {
       return { runId: run!.id, status: 'pending' };
     }
     // Trust ladder: an ENABLED rule whose threshold this proposal's
@@ -195,8 +208,19 @@ export async function proposeAction(input: {
  * @param orgId
  * @param opts
  * @param opts.reviewedBy - The human who approved, when it came through review.
+ * @param opts.externalRef
+ * @param opts.externalRef.system
+ * @param opts.externalRef.id
  */
-export async function executeAction(runId: number, orgId: string, opts?: { reviewedBy?: string }): Promise<ProposeResult> {
+export async function executeAction(
+  runId: number,
+  orgId: string,
+  opts?: {
+    reviewedBy?: string;
+    /** The downstream record the approver created, to link to the domain row. */
+    externalRef?: { system: string; id: string };
+  },
+): Promise<ProposeResult> {
   const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, runId)).limit(1);
   if (!run || run.orgId !== orgId) {
     throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);
@@ -210,7 +234,14 @@ export async function executeAction(runId: number, orgId: string, opts?: { revie
   const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
 
   try {
-    const result = await action.execute({ orgId, credentials, invokedBy: run.invokedBy ?? undefined, reviewedBy: opts?.reviewedBy }, run.input);
+    const result = await action.execute({
+      orgId,
+      credentials,
+      invokedBy: run.invokedBy ?? undefined,
+      reviewedBy: opts?.reviewedBy,
+      runId,
+      externalRef: opts?.externalRef,
+    }, run.input);
     await db
       .update(actionRunSchema)
       .set({ status: 'done', result, executedAt: new Date() })

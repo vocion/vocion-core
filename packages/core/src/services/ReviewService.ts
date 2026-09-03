@@ -611,6 +611,9 @@ export async function snooze(
  * @param opts.reviewedBy
  * @param opts.editedInput
  * @param opts.note
+ * @param opts.externalRef
+ * @param opts.externalRef.system
+ * @param opts.externalRef.id
  */
 export async function decide(
   item: { kind: ReviewKind; id: number },
@@ -622,6 +625,11 @@ export async function decide(
     editedInput?: Record<string, unknown>;
     /** Reviewer's note for the agent — stored on the assignment, the triage signal, and the learning capture. */
     note?: string;
+    /**
+     * The record the approver just created in its own system. Passed straight
+     * to the action, which links its domain row to it. Ignored on reject.
+     */
+    externalRef?: { system: string; id: string };
   },
 ): Promise<void> {
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
@@ -646,7 +654,7 @@ export async function decide(
         if (opts?.editedInput) {
           await updateActionInput(item.id, orgId, opts.editedInput);
         }
-        await executeAction(item.id, orgId, { reviewedBy });
+        await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
       } else {
         await rejectAction(item.id, orgId, opts?.reason ?? opts?.note, { reviewedBy });
       }
