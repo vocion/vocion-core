@@ -1367,33 +1367,6 @@ export const sourceInstallSchema = pgTable(
     disabled: text('disabled').default('false').notNull(),
     /** Per-install configuration (validated against Source.configSchema). */
     config: jsonb('config').$type<Record<string, unknown>>().default({}),
-    /**
-     * The stored API credential this install authenticates with, or `null`
-     * when it does not use one.
-     *
-     * Null for every OAuth connector, which keeps its grant in
-     * `source_credential`: an OAuth grant is issued to one installation,
-     * carries a refresh token, and is not a value a person pastes, so there is
-     * nothing to share between installs. Null too for the connectors needing
-     * no auth at all, and for an API-key install created before this column
-     * existed and not yet migrated.
-     *
-     * Set for an API-key connector — Jira, Strapi, HubSpot, Granola — where
-     * the credential is a value the workspace typed once and any number of
-     * installs may point at. Rotating that credential is an update in place,
-     * so the next sync picks up the new value with no edit here.
-     *
-     * `restrict` on delete because a credential an install is using must not
-     * vanish underneath it. Retiring one means revoking the row, which leaves
-     * the install pointing at a revoked credential and lets the connector
-     * report a broken credential rather than failing its next sync for no
-     * stated reason.
-     */
-    // `api_token` is declared further down this file, and drizzle only calls
-    // this back when it builds the table metadata — which is what the
-    // `AnyPgColumn` return type documents.
-    // eslint-disable-next-line ts/no-use-before-define
-    apiTokenId: text('api_token_id').references((): AnyPgColumn => apiTokenSchema.id, { onDelete: 'restrict' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1401,7 +1374,6 @@ export const sourceInstallSchema = pgTable(
   },
   table => [
     uniqueIndex('source_install_org_slug_idx').on(table.orgId, table.sourceSlug),
-    index('source_install_api_token_idx').on(table.apiTokenId),
   ],
 );
 
@@ -1554,6 +1526,34 @@ export const knowledgeSourceSchema = pgTable(
      * with no human in the loop (schedules) keep team access.
      */
     accessPolicy: jsonb('access_policy').$type<{ visibility?: 'org' | 'restricted'; users?: string[] }>(),
+    /**
+     * The stored API credential this connector authenticates with, or `null`
+     * when it does not use one.
+     *
+     * On the connector row rather than on `source_install`, because an install
+     * is unique per (org, connector slug) and a workspace may run several
+     * connectors of the same kind — a Strapi against staging and another
+     * against production. Holding the link here is what lets each of them use
+     * its own credential instead of all of them sharing the install's.
+     *
+     * Null for every OAuth connector, which keeps its grant in
+     * `source_credential`: a grant is issued to one installation, carries a
+     * refresh token, and is not a value a person pastes, so there is nothing to
+     * share. Null too for the connectors that need no auth at all, and for an
+     * API-key connector created before this column existed and not yet
+     * migrated.
+     *
+     * `restrict` on delete because a credential a connector is using must not
+     * vanish underneath it. Retiring one means revoking the row, which leaves
+     * the connector pointing at a revoked credential and lets it report a
+     * broken credential rather than failing its next sync for no stated
+     * reason.
+     */
+    // `api_token` is declared further down this file, and drizzle only calls
+    // this back when it builds the table metadata — which is what the
+    // `AnyPgColumn` return type documents.
+    // eslint-disable-next-line ts/no-use-before-define
+    apiTokenId: text('api_token_id').references((): AnyPgColumn => apiTokenSchema.id, { onDelete: 'restrict' }),
     enabled: text('enabled').default('true').notNull(),
     lastSyncedAt: timestamp('last_synced_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -1564,6 +1564,7 @@ export const knowledgeSourceSchema = pgTable(
   },
   table => [
     uniqueIndex('knowledge_source_org_slug_idx').on(table.orgId, table.slug),
+    index('knowledge_source_api_token_idx').on(table.apiTokenId),
   ],
 );
 
@@ -1779,7 +1780,7 @@ export const sourceSyncCheckpointSchema = pgTable(
  * per org and callers resolve it implicitly — "the org's Anthropic key". A
  * connector platform (`jira`, `strapi`, `hubspot`, `granola`) may hold as many
  * live rows as the workspace wants, told apart by `name`, and a
- * `source_install.api_token_id` names the one that install uses.
+ * `knowledge_source.api_token_id` names the one that connector uses.
  * `api_token_org_platform_live_idx` enforces the cap for the first kind and
  * exempts the second.
  *
