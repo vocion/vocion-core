@@ -1,0 +1,21 @@
+slug: event_candidate
+label: Event candidate
+description: >
+  One event a scout found on a listings page and put forward for review. It
+  exists as a row from the moment it is proposed, so a rejected event is
+  still on file and still countable — it is simply tied to nothing outside.
+icon: calendar
+schema:
+  type: object
+  # The review card renders fields in this order. Postgres does not preserve
+  # key order in jsonb, so without this the card would reorder itself.
+  propertyOrder: [title, start, end, venue, address, price, ticket_url]
+  required: [title, start, venue]
+  properties:
+    title: { type: string, description: The event name as the listing gives it }
+    start: { type: string, description: Local start time, ISO 8601, e.g. 2026-09-19T19:30 }
+    end: { type: string, description: Local end time, ISO 8601. Omit when the listing gives none }
+    venue: { type: string, description: Venue name as written }
+    address: { type: string }
+    price: { type: string, description: As written, e.g. "Free" or "$15 adv / $20 door" }
+    ticket_url: { type: string, description: Where a person buys a ticket }
