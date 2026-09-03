@@ -7,6 +7,7 @@
  * moment it is revoked or expires — and must never be usable as a Vocion
  * credential, no matter how it is presented.
  */
+import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,6 +38,23 @@ async function clearCredentials(): Promise<void> {
   // api_token references source_dek, so credentials go first.
   await db.delete(apiTokenSchema);
   await db.delete(sourceDekSchema);
+}
+
+/**
+ * The database's own reason for refusing a write.
+ *
+ * Drizzle reports every rejected statement as "Failed query: …" and keeps the
+ * server's message on `cause`, so asserting *why* a write was refused — rather
+ * than only that it was — means reading through to it.
+ * @param write - The query expected to be refused.
+ */
+async function refusalReason(write: Promise<unknown>): Promise<string> {
+  try {
+    await write;
+  } catch (error) {
+    return String((error as { cause?: unknown }).cause ?? error);
+  }
+  throw new Error('expected the database to refuse this write, and it did not');
 }
 
 beforeEach(clearCredentials);
@@ -263,6 +281,31 @@ describe('revealPlatformCredential', () => {
     await revokeToken(ORG, id);
 
     expect(await revealPlatformCredential(ORG, id)).toEqual({ status: 'ok', values: { token } });
+  });
+
+  it('still opens an expired Vocion token', async () => {
+    const { token, id } = await issueToken({ orgId: ORG, name: 'a vocion token' });
+    await db
+      .update(apiTokenSchema)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(apiTokenSchema.id, id));
+
+    // An expired token stops authenticating, but whoever is replacing it in an
+    // integration still needs to see which token they are replacing.
+    expect(await revealPlatformCredential(ORG, id)).toEqual({ status: 'ok', values: { token } });
+  });
+
+  it('reports a ciphertext that will not open as a failure, not as an absence', async () => {
+    const { id } = await issueToken({ orgId: ORG, name: 'a vocion token' });
+    // A tampered auth tag is what a DEK and its data having diverged looks
+    // like. Answering 'not-found' here would tell an admin their token is gone
+    // when it is really the vault that is wrong.
+    await db
+      .update(apiTokenSchema)
+      .set({ authTag: Buffer.from('not the right tag').toString('base64') })
+      .where(eq(apiTokenSchema.id, id));
+
+    await expect(revealPlatformCredential(ORG, id)).rejects.toThrow();
   });
 
   it('hides a Vocion token belonging to another org', async () => {
@@ -498,5 +541,65 @@ describe('the database refuses a half-written credential', () => {
       platform: 'vocion',
       secretHash: null,
     })).rejects.toThrow();
+  });
+
+  it('rejects a non-vocion row carrying only part of its encryption columns', async () => {
+    await expect(db.insert(apiTokenSchema).values({
+      id: 'broken4',
+      orgId: ORG,
+      name: 'half encrypted',
+      platform: 'openai',
+      secretHash: null,
+      ciphertext: 'ZmFrZQ==',
+      nonce: null,
+      authTag: null,
+      dekId: null,
+    })).rejects.toThrow();
+  });
+});
+
+describe('a credential cannot change which kind it is', () => {
+  it('refuses to move a minted token onto another platform', async () => {
+    const { token, id } = await issueToken({ orgId: ORG, name: 'legit' });
+
+    // This is the write the shape constraint used to refuse on its own. It no
+    // longer can: a minted row now carries the same encryption columns a
+    // supplied key does, so the rewritten row would satisfy the constraint's
+    // non-vocion branch and the token would be handed to OpenAI as if the org
+    // had pasted it there. The trigger from migration 0069 is what refuses it.
+    const reason = await refusalReason(
+      db.update(apiTokenSchema)
+        .set({ platform: 'openai', secretHash: null })
+        .where(eq(apiTokenSchema.id, id)),
+    );
+
+    expect(reason).toMatch(/immutable/i);
+
+    // And the token is left untouched and still working.
+    expect((await verifyToken(token))?.orgId).toBe(ORG);
+  });
+
+  it('refuses to move a supplied key onto the minted platform', async () => {
+    const { id } = await storePlatformKey({ orgId: ORG, name: 'oai', platform: 'openai', apiKey: OPENAI_KEY });
+
+    const reason = await refusalReason(
+      db.update(apiTokenSchema)
+        .set({ platform: 'vocion', secretHash: 'a'.repeat(64) })
+        .where(eq(apiTokenSchema.id, id)),
+    );
+
+    expect(reason).toMatch(/immutable/i);
+  });
+
+  it('still allows every other column to be updated', async () => {
+    const { id } = await issueToken({ orgId: ORG, name: 'legit' });
+
+    // Revoking, renaming and stamping last-used all have to keep working; the
+    // trigger is about the discriminator only.
+    await revokeToken(ORG, id);
+
+    const [row] = (await listTokens(ORG)).filter(entry => entry.id === id);
+
+    expect(row?.revokedAt).not.toBeNull();
   });
 });
