@@ -1,4 +1,7 @@
 export { anthropicClient } from './anthropic';
+export { bedrockClient, buildBedrockRuntimeClient } from './bedrock';
+export type { BedrockCredentials, BedrockCredentialSource } from './bedrockCredentials';
+export { bedrockRegion, resolveBedrockCredentials } from './bedrockCredentials';
 export type {
   BuildChatModelOptions,
   LangChainProvider,

@@ -159,8 +159,9 @@ describe('AWS, the one platform whose credential is a pair', () => {
     expect(secret?.secret).toBe(true);
   });
 
-  it('is not wired to any LLM provider, so no model call picks it up implicitly', () => {
-    expect(getPlatform('aws').llmProvider).toBeNull();
+  it('is wired to bedrock, so a Bedrock model call spends the org\'s own AWS key', () => {
+    expect(getPlatform('aws').llmProvider).toBe('bedrock');
+    expect(platformForLLMProvider('bedrock')?.id).toBe('aws');
   });
 
   it('accepts a well-formed pair', () => {

@@ -174,6 +174,28 @@ export const projectSchema = pgTable(
      * sidebar only.
      */
     enabledSurfaces: jsonb('enabled_surfaces').$type<string[]>().default([]).notNull(),
+    /**
+     * Which vendor and model produce this workspace's embeddings. Authored as
+     * `defaults.embeddingProvider` / `defaults.embeddingModel` in
+     * workspace.yaml; NULL keys fall back to `VOCION_EMBEDDING_PROVIDER` /
+     * `VOCION_EMBEDDING_MODEL`, then to OpenAI.
+     *
+     * Deliberately a WORKSPACE setting and never a per-agent one. Every vector
+     * in `knowledge_chunk` was produced by one model, and a query vector is
+     * only comparable to vectors from that same model — cosine similarity
+     * across two embedding spaces returns numbers, just meaningless ones. An
+     * agent that embedded its queries on a different provider from the one that
+     * ingested the documents would degrade search with no error anywhere, which
+     * is the worst possible failure mode for a retrieval bug. Holding it at the
+     * workspace makes ingest and query provably the same model.
+     *
+     * Changing it on a workspace that already has chunks means re-embedding
+     * them; a width change means a schema migration too.
+     */
+    embeddingConfig: jsonb('embedding_config').$type<{
+      provider?: 'openai' | 'bedrock';
+      model?: string;
+    }>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -515,8 +537,21 @@ export const agentSchema = pgTable(
       excludeTools?: string[];
       /** Granted-only tool names to hand this agent (e.g. classify_call). Gated tools are absent unless named here. */
       grantTools?: string[];
-      /** agentcore provider only: Bedrock model id for the managed harness (defaults to the harness service default). */
+      /**
+       * Model id this agent's main role runs on, overriding the per-role env
+       * default. Read by every provider: the agentcore and runtime harnesses
+       * pass it to the managed runtime, and the local loop hands it to
+       * `buildChatModelForOrg`.
+       */
       model?: string;
+      /**
+       * Which vendor serves this agent's chat model. A different axis from
+       * `provider` above, which selects where the agent *loop* executes —
+       * an agent can run on the local loop and still answer on Bedrock.
+       * Unset inherits `VOCION_LLM_PROVIDER`, so this exists to point one
+       * agent at one vendor without moving the whole deployment.
+       */
+      modelProvider?: 'anthropic' | 'openai' | 'bedrock';
     }>().default({}).notNull(),
     /**
      * agentcore provider only: ARN of the provisioned AgentCore harness.
