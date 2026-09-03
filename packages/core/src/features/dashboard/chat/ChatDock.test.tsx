@@ -38,6 +38,24 @@ beforeEach(() => {
 
 const { requestAgentSurface } = await import('./agentSurface');
 
+const RUN = {
+  id: 42,
+  actionId: 'personalization.enroll',
+  status: 'pending',
+  input: {},
+  invokedBy: null,
+  proposal: null,
+  card: {
+    title: 'New MQL ready to enroll',
+    fields: [],
+    recommendation: { headline: 'Enroll in: MSP Triage Nurture · 2 sends' },
+    verbs: { approve: 'Enroll', reject: 'Decline' },
+    content: [
+      { kind: 'email', id: 'send-1', label: 'Day 0', subject: 'Ticket volume', body: 'draft one body' },
+    ],
+  },
+} as unknown as import('@/features/review/ReviewActionCard').ReviewCardRun;
+
 describe('ChatDock', () => {
   it('claims the one entry function: a collapsed dock reopens and takes focus', async () => {
     localStorage.setItem(COLLAPSE_KEY, '1');
@@ -50,6 +68,21 @@ describe('ChatDock', () => {
     expect(claimed).toBe(true);
     await expect.element(page.getByRole('complementary', { name: 'Conversation about Pete Laverick' })).toBeInTheDocument();
     await expect.element(page.getByRole('textbox')).toHaveFocus();
+  });
+
+  it('mounts the guided cards under the scope header, above the transcript', async () => {
+    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />);
+
+    const overview = await page.getByText('Enroll in: MSP Triage Nurture · 2 sends').element();
+    const composer = await page.getByRole('textbox').element();
+
+    // The cards sit above the message area and composer in document order —
+    // the work at hand first, the history scrolling beneath it.
+    expect(overview.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const empty = await page.getByRole('heading', { level: 2 }).element();
+
+    expect(overview.compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('renders nothing when there are no agents', async () => {
