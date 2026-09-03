@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
     "node": ">=20"
@@ -60,7 +60,8 @@
     "build-storybook": "storybook build",
     "stripe:listen": "stripe listen --forward-to localhost:3000/webhook/billing",
     "stripe:setup-price": "dotenv -c production -- tsx ./scripts/createStripePrice.ts",
-    "e2e:demo": "dotenv -c -- tsx src/scripts/e2e-demo.ts"
+    "e2e:demo": "dotenv -c -- tsx src/scripts/e2e-demo.ts",
+    "connectors:backfill-credentials": "dotenv -c -- tsx src/scripts/backfill-connector-credentials.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.19",
