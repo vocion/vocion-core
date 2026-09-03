@@ -29,6 +29,7 @@
  * pending item instead of stacking a second copy.
  */
 
+import type { ValidateFunction } from 'ajv';
 import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 
@@ -184,16 +185,12 @@ function displayValue(value: unknown): string {
 }
 
 /**
- * Hostname of a URL, for a readable link label. Falls back to the raw URL.
- * @param url
+ * Hostname of a URL, for a readable link label. Only ever called on the
+ * URL-validated input fields, so there is nothing here that can fail to parse.
+ * @param url - A URL the input schema already accepted.
  */
 function hostLabel(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch (error) {
-    console.warn(`[objects.propose_candidate] could not read the host from "${url}"`, error);
-    return url;
-  }
+  return new URL(url).hostname.replace(/^www\./, '');
 }
 
 type ObjectTypeRow = {
@@ -232,6 +229,50 @@ async function loadObjectType(orgId: string, slug: string): Promise<ObjectTypeRo
 }
 
 /**
+ * Compiled validators, keyed by the schema they were built from.
+ *
+ * Compiling a JSON Schema means generating and evaluating code, and
+ * `reviewCard` runs once per row when a queue page is rendered — without this
+ * a fifty-item page would compile fifty times. Keying on the schema's own text
+ * means a workspace that edits its object type gets a fresh validator with no
+ * invalidation step to forget.
+ */
+const compiledValidators = new Map<string, ValidateFunction | null>();
+
+/** Stop a workspace with many object types from growing the cache without end. */
+const MAX_CACHED_VALIDATORS = 200;
+
+/**
+ * The validator for a schema, compiled once. `null` means the schema itself is
+ * broken — cached too, so a bad object type is not recompiled per row either.
+ * @param schema - The object type's JSON Schema.
+ */
+async function compiledValidatorFor(schema: Record<string, unknown>): Promise<ValidateFunction | null> {
+  const key = JSON.stringify(schema);
+  const cached = compiledValidators.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const { default: Ajv } = await import('ajv');
+  let validate: ValidateFunction | null;
+  try {
+    validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
+  } catch (error) {
+    // A malformed schema is the workspace's bug, not the candidate's; say so
+    // on the card rather than failing the proposal.
+    console.error('[objects.propose_candidate] object type schema could not be compiled', error);
+    validate = null;
+  }
+
+  if (compiledValidators.size >= MAX_CACHED_VALIDATORS) {
+    compiledValidators.clear();
+  }
+  compiledValidators.set(key, validate);
+  return validate;
+}
+
+/**
  * Check the payload against the object type's JSON Schema and return the
  * problems in plain language. An object type with no schema declares no
  * contract, so nothing can fail it.
@@ -249,23 +290,17 @@ export async function describeSchemaProblems(
   if (!schema || Object.keys(schema).length === 0) {
     return [];
   }
-  const { default: Ajv } = await import('ajv');
-  const ajv = new Ajv({ allErrors: true, strict: false });
-  try {
-    const validate = ajv.compile(schema);
-    if (validate(fields)) {
-      return [];
-    }
-    return (validate.errors ?? []).map((error) => {
-      const where = error.instancePath ? error.instancePath.replace(/^\//, '') : 'the payload';
-      return `${where} ${error.message}`;
-    });
-  } catch (error) {
-    // A malformed schema is the workspace's bug, not the candidate's; say so
-    // on the card rather than failing the proposal.
-    console.error('[objects.propose_candidate] object type schema could not be compiled', error);
+  const validate = await compiledValidatorFor(schema);
+  if (validate === null) {
     return ['the object type\'s schema could not be read, so the payload was not checked'];
   }
+  if (validate(fields)) {
+    return [];
+  }
+  return (validate.errors ?? []).map((error) => {
+    const where = error.instancePath ? error.instancePath.replace(/^\//, '') : 'the payload';
+    return `${where} ${error.message}`;
+  });
 }
 
 /**
@@ -426,8 +461,14 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
 
   // Per candidate, never per page. Values are normalised so casing and
   // punctuation drift between two extractions cannot split one thing in two.
+  // With no `dedupOn` there is no identity to key on, and no key: keying every
+  // candidate of a type the same way would collapse them all into one item.
   dedupKeyFor(input) {
-    return dedupKeyFrom(input.objectType, identityValues(input));
+    const values = identityValues(input);
+    if (values.length === 0) {
+      return undefined;
+    }
+    return dedupKeyFrom(input.objectType, values);
   },
 
   // The candidate becomes a real row the moment it is proposed, holding the
@@ -469,17 +510,15 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
       });
     }
 
-    // Neither check may cost the reviewer the card, so both degrade to absent.
-    let problems: string[] = [];
-    try {
-      problems = await describeSchemaProblems(objectType?.schema ?? null, input.fields);
-    } catch (error) {
-      console.error('[objects.propose_candidate] schema check failed', error);
-    }
+    // `describeSchemaProblems` reports a broken schema instead of throwing, so
+    // there is nothing to catch here.
+    const problems = await describeSchemaProblems(objectType?.schema ?? null, input.fields);
     if (problems.length > 0) {
       fields.push({ label: 'Does not match the record type', value: problems.join('; ') });
     }
 
+    // This one is a database round trip, which can genuinely fail. A broken
+    // duplicate check must not cost the reviewer the whole card.
     let similar: string[] = [];
     try {
       similar = await findSimilarCandidates(ctx.orgId, input);
