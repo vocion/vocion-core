@@ -17,7 +17,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 vi.mock('@/services/SourceCredentialService', () => ({
-  getCredentialsForSource: vi.fn(async () => undefined),
+  getCredentialsForConnector: vi.fn(async () => undefined),
 }));
 
 /** Records how ingestion was scheduled, so tests can make assertions about it. */

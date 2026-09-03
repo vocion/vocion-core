@@ -206,7 +206,7 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
       slug: s.sourceSlug,
       status: s.status,
       invokedBy: null,
-      href: `/dashboard/sources/${s.sourceSlug}`,
+      href: `/dashboard/connectors/${s.sourceSlug}`,
       at: s.startedAt,
       detail: s.error
         ?? Object.entries(s.counts ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ')

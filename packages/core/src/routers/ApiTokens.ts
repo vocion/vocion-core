@@ -129,6 +129,10 @@ export const listPlatformsRoute = os.handler(async () => {
     id: platform.id,
     label: platform.label,
     keySource: platform.keySource,
+    // Whether saving a second credential here replaces the first or sits
+    // alongside it. The form's warnings turn on this, and getting it wrong
+    // means either a false alarm or a key replaced without saying so.
+    credentialsPerOrg: platform.credentialsPerOrg,
     keyShapeHint: platform.keyShapeHint,
     helpText: platform.helpText,
     // RegExp does not survive the wire, so the form gets the human hint and

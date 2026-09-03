@@ -4,8 +4,14 @@
  * work (VEERIO-235), where partner organisations publish their event listings
  * from their own Strapi instance rather than a purpose-built feed.
  *
- * Auth: a Strapi API token in `ctx.credentials.token`, sent as a Bearer header.
+ * Auth: a Strapi API token in `ctx.credentials.token`, sent as a Bearer header,
+ * together with the instance URL it was issued for in `ctx.credentials.baseUrl`.
  * Read-only tokens are enough — this connector never writes upstream.
+ *
+ * The URL sits in the credential rather than the install config because a
+ * Strapi token is worthless against any other instance: the two are one fact
+ * and rotate together. Installs created before that keep their `config.baseUrl`
+ * working until the backfill script moves it into the credential.
  *
  * Multiple collections, one source: `ensureSource` keys a knowledge_source row
  * on (orgId, connector slug), so an org gets exactly one `strapi` row and a
@@ -59,8 +65,6 @@ const HOUSEKEEPING_FIELDS = new Set([
 const TITLE_FIELD_CANDIDATES = ['title', 'name', 'heading', 'label', 'slug'];
 
 const strapiConfigSchema = z.object({
-  /** Root of the Strapi instance, e.g. `https://cms.partner.org`. */
-  baseUrl: z.string().url(),
   /** Plural API ids of the collections to sync, e.g. `["events", "venues"]`. */
   collections: z.array(z.string().min(1)).min(1),
   /**
@@ -73,6 +77,17 @@ const strapiConfigSchema = z.object({
 });
 
 type StrapiConfig = z.infer<typeof strapiConfigSchema>;
+
+/**
+ * The instance URL is part of the credential, not the config.
+ *
+ * A Strapi API token only works against the instance that issued it, so the
+ * two are worthless apart and rotate together — which is why `baseUrl` is a
+ * non-secret field of the `strapi` credential platform rather than a config
+ * key sitting next to it. Everything below still wants the two together, so
+ * they are joined back up once, at the top of `sync`.
+ */
+type StrapiSettings = StrapiConfig & { baseUrl: string };
 
 /** One entry as Strapi sends it — v4 nested or v5 flat. */
 type StrapiEntry = {
@@ -189,7 +204,7 @@ function trimTrailingSlash(url: string): string {
  * @param collection - Plural API id of the collection the entry came from.
  * @param entry - One raw entry object straight from the Strapi response.
  */
-function toDoc(config: StrapiConfig, collection: string, entry: StrapiEntry): IngestDoc {
+function toDoc(config: StrapiSettings, collection: string, entry: StrapiEntry): IngestDoc {
   const { id, fields } = normalizeEntry(entry);
   const updatedAt = fields.updatedAt;
   const content = contentFor(fields);
@@ -265,7 +280,7 @@ function parseCursor(cursor: string | null | undefined, collectionCount: number)
  * @yields One IngestDoc per entry in the collection.
  */
 async function* syncOneCollection(
-  config: StrapiConfig,
+  config: StrapiSettings,
   collection: string,
   headers: Record<string, string>,
   since: Date | null | undefined,
@@ -304,11 +319,19 @@ export const strapiConnector: SourceConnector<typeof strapiConfigSchema> = {
   authKind: 'apikey',
   configSchema: strapiConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
-    const config = strapiConfigSchema.parse(ctx.config);
     const token = (ctx.credentials?.token ?? ctx.credentials?.apiToken) as string | undefined;
     if (!token) {
       throw new Error('Strapi connector requires an API token in credentials.token');
     }
+    // The instance URL travels with the token. An install created before that
+    // was true still has it in its config, and stays syncing on that until the
+    // backfill moves it across.
+    const suppliedBaseUrl = ctx.credentials?.baseUrl ?? ctx.config?.baseUrl;
+    const baseUrl = z.string().url().safeParse(suppliedBaseUrl);
+    if (!baseUrl.success) {
+      throw new Error('Strapi connector requires the instance URL the token was issued for, in credentials.baseUrl');
+    }
+    const config: StrapiSettings = { ...strapiConfigSchema.parse(ctx.config), baseUrl: baseUrl.data };
     const headers = { authorization: `Bearer ${token}` };
     const resume = parseCursor(ctx.cursor, config.collections.length);
 

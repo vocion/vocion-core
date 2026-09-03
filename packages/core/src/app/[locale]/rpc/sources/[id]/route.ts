@@ -23,6 +23,7 @@ import { deleteSource, supersedeRunningSync, updateSourceConfig } from '@/servic
  * "7x" as 7, so a typo'd or hand-edited URL would edit or delete source 7
  * while looking like it addressed something else.
  * @param ctx - Route context carrying the dynamic segments.
+ * @param ctx.params
  */
 async function readSourceId(ctx: { params: Promise<{ id: string }> }): Promise<number | null> {
   const params = await ctx.params;

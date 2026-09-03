@@ -212,6 +212,7 @@ const Timeline = ({ lead }: { lead: LeadRow }) => {
  * @param props.contactHref - HubSpot deep link, when the portal id resolves.
  * @param props.runState
  * @param props.onDecided
+ * @param props.guided
  */
 export const LeadView = (props: {
   lead: LeadRow;
@@ -361,6 +362,7 @@ export const LeadView = (props: {
  * @param props.lead
  * @param props.contactHref - HubSpot deep link, when the portal id resolves.
  * @param props.runState
+ * @param props.guided
  */
 export const LeadDetail = (props: {
   lead: LeadRow;

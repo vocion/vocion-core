@@ -71,7 +71,7 @@ export default async function ObjectTypeDetailPage(props: {
 
       {Object.keys(sourceRelevance).length > 0 && (
         <section className="mb-6 rounded-lg border border-border bg-background p-4">
-          <div className="mb-3 text-sm font-semibold">Source relevance</div>
+          <div className="mb-3 text-sm font-semibold">Connector relevance</div>
           <div className="space-y-2">
             {Object.entries(sourceRelevance)
               .sort(([, a], [, b]) => b - a)

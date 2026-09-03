@@ -100,7 +100,9 @@ describe('AnchoredCommentService', () => {
 
     expect(resolved[0]!.range).toBeNull();
     expect(resolved[0]!.status).toBe('open');
+
     const reread = await listComments({ orgId: ORG, targetRef: TARGET, createdBy: 'user_v' });
+
     expect(reread.find(r => r.id === created.id)!.status).toBe('open');
   });
 
