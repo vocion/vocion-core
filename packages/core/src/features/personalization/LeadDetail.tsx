@@ -212,6 +212,7 @@ const Timeline = ({ lead }: { lead: LeadRow }) => {
  * @param props.contactHref - HubSpot deep link, when the portal id resolves.
  * @param props.runState
  * @param props.onDecided
+ * @param props.guided
  */
 export const LeadView = (props: {
   lead: LeadRow;
@@ -325,7 +326,7 @@ export const LeadView = (props: {
 
       <LeadContext
         row={lead}
-        railTop={articles.length > 0 && (
+        railArticles={articles.length > 0 && (
           <div>
             <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
               Reference articles
@@ -348,7 +349,7 @@ export const LeadView = (props: {
             </ul>
           </div>
         )}
-        railBottom={<Timeline lead={lead} />}
+        railTimeline={<Timeline lead={lead} />}
       />
     </div>
   );
@@ -361,6 +362,7 @@ export const LeadView = (props: {
  * @param props.lead
  * @param props.contactHref - HubSpot deep link, when the portal id resolves.
  * @param props.runState
+ * @param props.guided
  */
 export const LeadDetail = (props: {
   lead: LeadRow;
