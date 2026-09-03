@@ -2,8 +2,9 @@
 
 import type { AgentOption } from './types';
 import { MessageCircle, PanelRightClose } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
+import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
 import { ChatComposer } from './ChatComposer';
 import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
@@ -69,6 +70,24 @@ function ChatDockInner({ agents, scopeRef, scopeLabel }: ChatDockProps) {
   // the choice persists per browser like the bubble's visual state does.
   const [collapsed, setCollapsed] = useState(false);
   const session = useChatSession({ agents, scopeRef });
+  const asideRef = useRef<HTMLElement | null>(null);
+
+  // The dock IS this page's agent surface: claim any entry-point request
+  // (hotkey, titlebar, rail) by un-collapsing and taking focus (032 §6).
+  useEffect(() => {
+    function onRequest(e: Event) {
+      e.preventDefault();
+      setCollapsed(false);
+      try {
+        localStorage.setItem(COLLAPSE_KEY, '0');
+      } catch {
+        /* storage unavailable */
+      }
+      focusAgentComposer(asideRef.current);
+    }
+    window.addEventListener(AGENT_SURFACE_EVENT, onRequest);
+    return () => window.removeEventListener(AGENT_SURFACE_EVENT, onRequest);
+  }, []);
 
   useEffect(() => {
     // One-time read of a client-only value (localStorage) on mount — same
@@ -102,6 +121,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel }: ChatDockProps) {
 
   return (
     <aside
+      ref={asideRef}
       aria-label={`Conversation about ${scopeLabel}`}
       className="sticky top-0 z-30 flex h-screen w-96 shrink-0 flex-col border-l border-border bg-background max-[1199px]:fixed max-[1199px]:inset-y-0 max-[1199px]:right-0 max-[1199px]:shadow-2xl"
     >
@@ -166,6 +186,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel }: ChatDockProps) {
           streaming={session.isStreaming}
           onStop={session.handleStop}
           placeholder={session.agent.placeholder}
+          pastedText={session.pastedText}
+          onPasteText={session.setPastedText}
+          onClearPasted={() => session.setPastedText(null)}
         />
       </div>
     </aside>

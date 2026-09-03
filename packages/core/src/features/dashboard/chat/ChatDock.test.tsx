@@ -36,7 +36,22 @@ beforeEach(() => {
   vi.mocked(client.conversations.latestForScope).mockReset().mockResolvedValue(null);
 });
 
+const { requestAgentSurface } = await import('./agentSurface');
+
 describe('ChatDock', () => {
+  it('claims the one entry function: a collapsed dock reopens and takes focus', async () => {
+    localStorage.setItem(COLLAPSE_KEY, '1');
+    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
+
+    await expect.element(page.getByRole('button', { name: 'Open the conversation' })).toBeInTheDocument();
+
+    const claimed = requestAgentSurface();
+
+    expect(claimed).toBe(true);
+    await expect.element(page.getByRole('complementary', { name: 'Conversation about Pete Laverick' })).toBeInTheDocument();
+    await expect.element(page.getByRole('textbox')).toHaveFocus();
+  });
+
   it('renders nothing when there are no agents', async () => {
     await render(<ChatDock agents={[]} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
 

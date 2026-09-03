@@ -250,6 +250,9 @@ export function useChatSession({
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [composerValue, setComposerValue] = useState(initialComposerValue ?? '');
+  // Captured pasted material — a chip beside the composer, not a flood in it
+  // (032 §2.1 rule 5). Travels with the next message, then clears.
+  const [pastedText, setPastedText] = useState<string | null>(null);
   const [phase, setPhase] = useState<StreamingPhase>('idle');
   const [pendingHitl, setPendingHitl] = useState<HitlGatePayload | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
@@ -872,10 +875,16 @@ export function useChatSession({
     };
   }, [agent.slug, isSearchOnly, settleBoot, resumeStream, bootTarget]);
 
-  const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || isStreaming) {
+  const sendMessage = useCallback(async (raw: string) => {
+    if ((!raw.trim() && !pastedText) || isStreaming) {
       return;
     }
+    // Pasted material rides along under the instruction, clearly fenced, so
+    // the instruction stays readable in the transcript and the agent still
+    // receives the full text.
+    const text = pastedText
+      ? `${raw.trim()}\n\n--- pasted ---\n${pastedText}`.trim()
+      : raw;
     // Fresh turn — reset the per-turn trace accumulator.
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;
@@ -885,6 +894,7 @@ export function useChatSession({
       { role: 'assistant', content: '', runs: [] },
     ]);
     setComposerValue('');
+    setPastedText(null);
     setPhase('thinking');
 
     if (conversationIdRef.current === null && agent.slug !== '__search__') {
@@ -1004,7 +1014,7 @@ export function useChatSession({
       // the resume handle. It clears on normal completion / Stop instead.
       abortRef.current = null;
     }
-  }, [agent.slug, messages, isStreaming, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation]);
+  }, [agent.slug, messages, isStreaming, pastedText, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation]);
 
   // Abort the in-flight turn (Stop button). The reader loop throws AbortError,
   // which the catch above treats as a clean finalize (no error breadcrumb).
@@ -1205,6 +1215,9 @@ export function useChatSession({
     messages,
     composerValue,
     setComposerValue,
+    /** Captured pasted material for the composer chip; travels with the next send. */
+    pastedText,
+    setPastedText,
     isStreaming,
     activity,
     pendingHitl,

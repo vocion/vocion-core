@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowUp, Square } from 'lucide-react';
+import { ArrowUp, Square, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 /**
@@ -30,7 +30,16 @@ export type ChatComposerProps = {
   streaming?: boolean;
   /** Abort the in-flight turn (shown as Stop while streaming). */
   onStop?: () => void;
+  /** Captured pasted material, rendered as a chip so the instruction stays readable (032 §2.1 rule 5). */
+  pastedText?: string | null;
+  /** A large paste was intercepted — the session stores it beside the message. */
+  onPasteText?: (text: string) => void;
+  /** The chip's remove control. */
+  onClearPasted?: () => void;
 };
+
+/** Pastes at or above this length become a chip instead of flooding the box. */
+const PASTE_CHIP_THRESHOLD = 400;
 
 export function ChatComposer({
   value,
@@ -40,6 +49,9 @@ export function ChatComposer({
   placeholder,
   streaming = false,
   onStop,
+  pastedText,
+  onPasteText,
+  onClearPasted,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -56,18 +68,43 @@ export function ChatComposer({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && value.trim().length > 0) {
+      if (!disabled && (value.trim().length > 0 || pastedText)) {
         onSubmit();
       }
     }
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!onPasteText) {
+      return;
+    }
+    const text = e.clipboardData.getData('text/plain');
+    if (text.length >= PASTE_CHIP_THRESHOLD && !pastedText) {
+      e.preventDefault();
+      onPasteText(text);
+    }
+  };
+
   const trimmed = value.trim();
-  const sendEnabled = !disabled && trimmed.length > 0;
+  const sendEnabled = !disabled && (trimmed.length > 0 || Boolean(pastedText));
 
   return (
     <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-4 pt-4 pb-4 sm:px-6 sm:pt-6">
       <div className="mx-auto max-w-3xl">
+        {pastedText && (
+          <div className="mb-1.5 flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-1.5 text-xs">
+            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-muted-foreground uppercase">Pasted</span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{pastedText.slice(0, 120)}</span>
+            <button
+              type="button"
+              onClick={() => onClearPasted?.()}
+              aria-label="Remove pasted content"
+              className="shrink-0 rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -79,9 +116,11 @@ export function ChatComposer({
         >
           <textarea
             ref={textareaRef}
+            data-agent-composer
             value={value}
             onChange={e => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={placeholder ?? 'Ask anything…'}
             disabled={disabled}
             rows={1}
