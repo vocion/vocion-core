@@ -242,7 +242,7 @@ describe('strapiConnector', () => {
       credentials: { token: 'strapi-token', baseUrl: 'https://cms.credential.example' },
     })));
 
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('https://cms.credential.example/api/events');
+    expect(String((fetchMock.mock.calls[0] as unknown as [string])[0])).toContain('https://cms.credential.example/api/events');
   });
 
   it('prefers the credential\'s instance URL over a leftover config one', async () => {
@@ -256,7 +256,7 @@ describe('strapiConnector', () => {
       credentials: { token: 'strapi-token', baseUrl: 'https://cms.credential.example' },
     })));
 
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('https://cms.credential.example/api/events');
+    expect(String((fetchMock.mock.calls[0] as unknown as [string])[0])).toContain('https://cms.credential.example/api/events');
   });
 
   it('keeps syncing an install created before the URL moved into the credential', async () => {
@@ -271,7 +271,7 @@ describe('strapiConnector', () => {
     })));
 
     expect(docs).toHaveLength(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('https://cms.partner.org/api/events');
+    expect(String((fetchMock.mock.calls[0] as unknown as [string])[0])).toContain('https://cms.partner.org/api/events');
   });
 
   it('refuses when no instance URL was supplied at all', async () => {

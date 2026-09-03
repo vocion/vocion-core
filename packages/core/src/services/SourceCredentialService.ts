@@ -239,6 +239,28 @@ export async function linkInstallToStoredCredential(input: {
 }
 
 /**
+ * The stored credential this org's install of `sourceSlug` points at, or null
+ * when it points at none — an OAuth connector, a connector needing no auth, or
+ * an API-key install nobody has connected yet.
+ * @param orgId - The org whose install to look at.
+ * @param sourceSlug - Connector slug, e.g. `strapi`.
+ */
+export async function storedCredentialIdForInstall(
+  orgId: string,
+  sourceSlug: string,
+): Promise<string | null> {
+  const [install] = await db
+    .select({ apiTokenId: sourceInstallSchema.apiTokenId })
+    .from(sourceInstallSchema)
+    .where(and(
+      eq(sourceInstallSchema.orgId, orgId),
+      eq(sourceInstallSchema.sourceSlug, sourceSlug),
+    ))
+    .limit(1);
+  return install?.apiTokenId ?? null;
+}
+
+/**
  * Whether a source slug has a live credential, when it was set, and — when it
  * has one that cannot be used — why not.
  *
