@@ -48,6 +48,21 @@ export const LOCAL_DEVELOPMENT_PROJECT_ID = 'demo';
  */
 export const MINIMUM_RETENTION_DAYS = 3;
 
+/**
+ * How long traces are kept when nothing says otherwise: one year.
+ *
+ * A bounded default rather than "keep everything", because the
+ * unbounded version is what fills the disk a self-hosted ClickHouse
+ * shares with the application database — and it fills it slowly enough
+ * that nobody is watching when it happens. A year covers
+ * year-over-year cost comparisons and any realistic "what did this
+ * agent do in March" question.
+ *
+ * `LANGFUSE_RETENTION_DAYS=0` opts back into keeping everything, for a
+ * deployment that has a reason to.
+ */
+export const DEFAULT_RETENTION_DAYS = 365;
+
 export type LangfuseDisabled = {
   enabled: false;
   /** Why tracing is off, for the one-time startup log. */
@@ -70,6 +85,10 @@ export type LangfuseEnabled = {
   browserBaseUrl: string;
   /**
    * Days of traces to keep, or null to keep everything.
+   *
+   * Defaults to `DEFAULT_RETENTION_DAYS` (one year) when
+   * `LANGFUSE_RETENTION_DAYS` is unset; null only when it is explicitly
+   * set to 0.
    *
    * Langfuse has no environment variable for this, and its own
    * project-level retention is an Enterprise feature on self-hosted
@@ -125,15 +144,15 @@ function readEnabledFlag(): boolean | undefined {
 /**
  * Parse `LANGFUSE_RETENTION_DAYS`.
  *
- * Unset or 0 means keep everything, which is Langfuse's own default and
- * the only safe reading of "not configured". Anything else must be a
- * whole number of days at or above the floor — a typo here deletes
- * data, so it fails loudly rather than rounding to something plausible.
+ * Unset means one year — see `DEFAULT_RETENTION_DAYS`. An explicit 0
+ * means keep everything. Anything else must be a whole number of days
+ * at or above the floor; a typo here deletes data, so it fails loudly
+ * rather than rounding to something plausible.
  */
 function readRetentionDays(): number | null {
   const raw = readOptionalEnv('LANGFUSE_RETENTION_DAYS');
   if (raw === undefined) {
-    return null;
+    return DEFAULT_RETENTION_DAYS;
   }
 
   const parsed = Number(raw);
