@@ -37,8 +37,10 @@ import { CredentialValidationError, platformForConnectorSlug } from '@/libs/plat
 import { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } from '@/services/ApiTokenService';
 import {
   ConnectorCredentialError,
+  connectorHoldingCredential,
   credentialIdsInUse,
   CredentialInUseError,
+  credentialInUseMessage,
   getCredentialsForConnector,
   linkSourceToStoredCredential,
   storeCredentialForSource,
@@ -185,6 +187,14 @@ export async function POST(
   // because every install pointing at it resolves through that id — replacing
   // the row instead would leave them all on the old key.
   if (pickedCredentialId !== '' && Object.keys(raw).length > 0) {
+    // Asked before anything is written. Rotating first and linking afterwards
+    // would replace the value of a credential another connector depends on,
+    // and only then refuse to hand it over — leaving that connector on a key
+    // nobody chose for it.
+    const heldBy = await connectorHoldingCredential(orgId, pickedCredentialId, sourceId);
+    if (heldBy !== null) {
+      return Response.json({ error: credentialInUseMessage(heldBy) }, { status: 400 });
+    }
     try {
       const rotated = await rotatePlatformCredential({
         orgId,
