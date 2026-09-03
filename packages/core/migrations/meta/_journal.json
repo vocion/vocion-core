@@ -519,6 +519,13 @@
       "when": 1787373900000,
       "tag": "0073_conversation_scope_trace",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1787460300000,
+      "tag": "0074_anchored_comment",
+      "breakpoints": true
     }
   ]
 }
