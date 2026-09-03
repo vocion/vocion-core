@@ -162,12 +162,15 @@ export default async function LeadPage(props: {
   return (
     <CommentLayerProvider targetRef={`lead_brief:${row.id}`}>
       <div className="min-w-0 flex-1">
-        <LeadDetail lead={lead} contactHref={contactHref} runState={runState} />
+        {/* `guided`: with a decision waiting, the conversation takes it and
+            the page states what is pending — one decision surface per page. */}
+        <LeadDetail lead={lead} contactHref={contactHref} runState={runState} guided={agents.length > 0} />
       </div>
       <ChatDock
         agents={agents}
         scopeRef={row.contactRef}
         scopeLabel={row.contactName}
+        run={runState.run}
       />
     </CommentLayerProvider>
   );

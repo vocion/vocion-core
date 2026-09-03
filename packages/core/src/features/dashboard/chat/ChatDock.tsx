@@ -1,10 +1,13 @@
 'use client';
 
 import type { AgentOption } from './types';
+import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import { MessageCircle, PanelRightClose } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { CommentChips } from '@/features/comments/AnchoredComments';
 import { useCommentLayer } from '@/features/comments/CommentLayer';
+import { useGuidedReview } from '@/features/personalization/GuidedReview';
+import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { Link } from '@/libs/I18nNavigation';
 import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
 import { ChatComposer } from './ChatComposer';
@@ -20,9 +23,31 @@ export type ChatDockProps = {
   scopeRef: string;
   /** Human name of the scope for the header (e.g. the lead's name). */
   scopeLabel: string;
+  /**
+   * A decision waiting on this record. Given one, the dock runs the guided
+   * review: the sends walked one card at a time, decided here (050).
+   */
+  run?: ReviewCardRun | null;
+  /** Fired after a guided decision lands, so the page can re-resolve. */
+  onDecided?: () => void;
 };
 
 const COLLAPSE_KEY = 'vocion_chat_dock_collapsed';
+
+/**
+ * Stands in when no decision is waiting. Hooks cannot be called
+ * conditionally, and a card with no content yields no sends, so the guided
+ * flow simply has nothing to walk.
+ */
+const EMPTY_RUN = {
+  id: 0,
+  actionId: '',
+  status: 'pending',
+  input: {},
+  invokedBy: null,
+  proposal: null,
+  card: { title: '', fields: [] },
+} as unknown as ReviewCardRun;
 
 function readCollapsed(): boolean {
   try {
@@ -50,12 +75,14 @@ function readCollapsed(): boolean {
  * @param root0.agents - Agents available to pick from. Empty array renders nothing.
  * @param root0.scopeRef - The record this dock is scoped to.
  * @param root0.scopeLabel - Human name of the scope for the header.
+ * @param root0.run
+ * @param root0.onDecided
  */
-export function ChatDock({ agents, scopeRef, scopeLabel }: ChatDockProps) {
+export function ChatDock({ agents, scopeRef, scopeLabel, run, onDecided }: ChatDockProps) {
   if (agents.length === 0) {
     return null;
   }
-  return <ChatDockInner agents={agents} scopeRef={scopeRef} scopeLabel={scopeLabel} />;
+  return <ChatDockInner agents={agents} scopeRef={scopeRef} scopeLabel={scopeLabel} run={run} onDecided={onDecided} />;
 }
 
 /**
@@ -66,8 +93,10 @@ export function ChatDock({ agents, scopeRef, scopeLabel }: ChatDockProps) {
  * @param root0.agents - Guaranteed non-empty by the `ChatDock` wrapper.
  * @param root0.scopeRef - The record this dock is scoped to.
  * @param root0.scopeLabel - Human name of the scope for the header.
+ * @param root0.run
+ * @param root0.onDecided
  */
-function ChatDockInner({ agents, scopeRef, scopeLabel }: ChatDockProps) {
+function ChatDockInner({ agents, scopeRef, scopeLabel, run, onDecided }: ChatDockProps) {
   // Default OPEN (the decision), collapsed only by the user's own hand;
   // the choice persists per browser like the bubble's visual state does.
   const [collapsed, setCollapsed] = useState(false);
@@ -76,6 +105,11 @@ function ChatDockInner({ agents, scopeRef, scopeLabel }: ChatDockProps) {
   // The page's comment layer, when it has one: notes taken on the document
   // beside this dock ride out with the next message (043).
   const comments = useCommentLayer();
+  // Guided review, when a decision is waiting on this record (050).
+  const guided = useGuidedReview({
+    run: run ?? EMPTY_RUN,
+    ...(onDecided ? { onDecided } : {}),
+  });
 
   // The dock IS this page's agent surface: claim any entry-point request
   // (hotkey, titlebar, rail) by un-collapsing and taking focus (032 §6).
@@ -111,6 +145,14 @@ function ChatDockInner({ agents, scopeRef, scopeLabel }: ChatDockProps) {
     const pendingNotes = comments?.open ?? [];
     const typed = session.composerValue.trim();
     if (!typed && pendingNotes.length === 0) {
+      return;
+    }
+    // A revision ask goes to the drafting path, which re-presents the send it
+    // changed; a question goes to the agent like any other. Both appear in
+    // the transcript, so the record of the review is one conversation.
+    const asked = run && typed ? await guided.askAbout(typed) : null;
+    if (asked?.kind === 'revised') {
+      session.setComposerValue('');
       return;
     }
     const quoted = pendingNotes
@@ -205,6 +247,15 @@ function ChatDockInner({ agents, scopeRef, scopeLabel }: ChatDockProps) {
             onReject={session.handleRejectHitl}
             disabled={session.isStreaming}
           />
+        )}
+
+        {/* Kept mounted after a decision so the outcome card can state what
+            happened — hiding the flow the moment it is decided would drop the
+            one card that says so. */}
+        {run && (!guided.state.decided || guided.outcome) && (
+          <div className="max-h-[55%] shrink-0 overflow-y-auto border-t border-border bg-muted/20">
+            <GuidedReviewPanel run={run} guided={guided} />
+          </div>
         )}
 
         {comments && (
