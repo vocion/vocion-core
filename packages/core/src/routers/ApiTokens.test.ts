@@ -369,13 +369,53 @@ describe('revealPlatformKey', () => {
     expect(JSON.stringify(revealed)).not.toContain(OPENAI_KEY);
   });
 
-  it('reports a Vocion token as having nothing to reveal', async () => {
+  it('reveals a Vocion token the same way it reveals a platform key', async () => {
+    signedInAs('admin');
+    const created = await call<{ id: string; token: string }>(createTokenRoute, { name: 'panel', expiresAt: null });
+
+    const revealed = await call(revealPlatformKeyRoute, { tokenId: created.id });
+
+    expect(revealed).toEqual({ status: 'ok', values: { token: created.token } });
+  });
+
+  it('reports a token issued before tokens were stored encrypted as having nothing to show', async () => {
     signedInAs('admin');
     const created = await call<{ id: string }>(createTokenRoute, { name: 'panel', expiresAt: null });
+    // The shape those rows have: a hash, and nothing to decrypt.
+    await db
+      .update(apiTokenSchema)
+      .set({ ciphertext: null, nonce: null, authTag: null, dekId: null })
+      .where(eq(apiTokenSchema.id, created.id));
 
     const revealed = await call(revealPlatformKeyRoute, { tokenId: created.id });
 
     expect(revealed).toEqual({ status: 'minted' });
+  });
+
+  it('replaces a ciphertext that will not open with a message that says nothing', async () => {
+    signedInAs('admin');
+    const created = await call<{ id: string; token: string }>(createTokenRoute, { name: 'panel', expiresAt: null });
+    await db
+      .update(apiTokenSchema)
+      .set({ authTag: Buffer.from('not the right tag').toString('base64') })
+      .where(eq(apiTokenSchema.id, created.id));
+
+    // The decrypt error can name the vault and the key, so the admin gets a
+    // flat sentence and the detail goes to the log instead.
+    await expect(call(revealPlatformKeyRoute, { tokenId: created.id }))
+      .rejects
+      .toThrow('Could not read that key.');
+  });
+
+  it('refuses to reveal a token to somebody who is not an admin', async () => {
+    signedInAs('admin');
+    const created = await call<{ id: string }>(createTokenRoute, { name: 'panel', expiresAt: null });
+
+    signedInAs('member');
+
+    // Revealing a Vocion token hands over a credential that acts with the owner
+    // role, so it is gated exactly like every other route in this router.
+    await expect(call(revealPlatformKeyRoute, { tokenId: created.id })).rejects.toThrow();
   });
 
   it('still opens a revoked key', async () => {
