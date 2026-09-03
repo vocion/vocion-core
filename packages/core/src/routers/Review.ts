@@ -149,11 +149,16 @@ export const recordSignalRoute = os
 
 /** Rewrite-with-AI on a pending draft — returns the rewrite (unsaved) + records a `rewrite` signal. */
 export const rewriteDraftRoute = os
-  .input(z.object({ runId: z.number().int().positive(), hint: z.string().max(300).optional() }))
+  .input(z.object({
+    runId: z.number().int().positive(),
+    hint: z.string().max(300).optional(),
+    /** Card content id (e.g. `send-2`) when the run holds several pieces. */
+    contentId: z.string().max(64).optional(),
+  }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
     const { rewriteDraft } = await import('@/services/ReviewService');
-    return rewriteDraft({ orgId, runId: input.runId, hint: input.hint, userId: userId ?? undefined });
+    return rewriteDraft({ orgId, runId: input.runId, hint: input.hint, contentId: input.contentId, userId: userId ?? undefined });
   });
 
 /**
