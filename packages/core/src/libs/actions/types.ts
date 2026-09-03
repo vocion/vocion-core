@@ -137,8 +137,13 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * Canonical dedup key derived from the input. Applied when the proposer
    * passes none, so structurally-identical proposals collapse into one PENDING
    * queue item however the proposal was made (job, agent tool, API).
+   *
+   * Return `undefined` when THIS input carries nothing that identifies it —
+   * every such proposal then stands as its own queue item. Never return a
+   * constant for that case: a shared key would collapse unrelated proposals
+   * into one, and the reviewer would only ever see the last one to arrive.
    */
-  dedupKeyFor?: (input: z.infer<S>) => string;
+  dedupKeyFor?: (input: z.infer<S>) => string | undefined;
   /**
    * Called once per created action_run, right after the row exists (pending or
    * about to execute). For back-linking the run onto the domain record it

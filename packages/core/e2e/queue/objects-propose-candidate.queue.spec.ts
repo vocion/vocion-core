@@ -78,6 +78,17 @@ function openMic(over: Record<string, unknown> = {}) {
 }
 
 /**
+ * Where the seeding script should write, when nothing else says.
+ *
+ * The Playwright `webServer` boots an in-memory PGlite on 5432 and the app
+ * against it, but that server's env does not reach this process, and CI sets
+ * no DATABASE_URL. Locally `.env.local` supplies one and wins over this,
+ * because dotenv never overwrites a variable that is already set. Without the
+ * fallback the seed silently writes nowhere and the sign-in below fails.
+ */
+const PLAYWRIGHT_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:5432/vocion';
+
+/**
  * Creates the account, its default project and the admin user directly in the
  * database — the same command an operator runs on a real box. Re-running the
  * spec against a database that already has the user is fine: the script exits
@@ -103,7 +114,10 @@ function createBootstrapAdmin(): void {
         '--role',
         'admin',
       ],
-      { stdio: 'pipe' },
+      {
+        stdio: 'pipe',
+        env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL ?? PLAYWRIGHT_DATABASE_URL },
+      },
     );
   } catch (error) {
     // Expected on a local database that already has the admin — the script
