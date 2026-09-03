@@ -3,6 +3,8 @@
 import type { AgentOption } from './types';
 import { MessageCircle, PanelRightClose } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { CommentChips } from '@/features/comments/AnchoredComments';
+import { useCommentLayer } from '@/features/comments/CommentLayer';
 import { Link } from '@/libs/I18nNavigation';
 import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
 import { ChatComposer } from './ChatComposer';
@@ -71,6 +73,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel }: ChatDockProps) {
   const [collapsed, setCollapsed] = useState(false);
   const session = useChatSession({ agents, scopeRef });
   const asideRef = useRef<HTMLElement | null>(null);
+  // The page's comment layer, when it has one: notes taken on the document
+  // beside this dock ride out with the next message (043).
+  const comments = useCommentLayer();
 
   // The dock IS this page's agent surface: claim any entry-point request
   // (hotkey, titlebar, rail) by un-collapsing and taking focus (032 §6).
@@ -95,6 +100,30 @@ function ChatDockInner({ agents, scopeRef, scopeLabel }: ChatDockProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
     setCollapsed(readCollapsed());
   }, []);
+
+  /**
+   * Send the message with any anchored notes attached, then mark them
+   * applied — the highlights clear because the change landed, not on a
+   * timer (043). Sending nothing but notes still sends: the notes ARE the
+   * instruction.
+   */
+  const sendWithComments = async () => {
+    const pendingNotes = comments?.open ?? [];
+    const typed = session.composerValue.trim();
+    if (!typed && pendingNotes.length === 0) {
+      return;
+    }
+    const quoted = pendingNotes
+      .map((c, i) => `${i + 1}. “${c.anchor.quote}” — ${c.note}`)
+      .join('\n');
+    const text = pendingNotes.length > 0
+      ? `${typed || 'Apply these changes.'}\n\n--- on the brief ---\n${quoted}`
+      : typed;
+    await session.sendMessage(text);
+    if (pendingNotes.length > 0) {
+      await comments?.applyComments(pendingNotes.map(c => c.id));
+    }
+  };
 
   const setCollapsedPersisted = (next: boolean) => {
     setCollapsed(next);
@@ -178,14 +207,24 @@ function ChatDockInner({ agents, scopeRef, scopeLabel }: ChatDockProps) {
           />
         )}
 
+        {comments && (
+          <CommentChips
+            comments={comments.open}
+            activeId={comments.activeId}
+            onFocus={comments.focusComment}
+            onRemove={id => void comments.removeComment(id)}
+          />
+        )}
+
         <ChatComposer
           value={session.composerValue}
           onChange={session.setComposerValue}
-          onSubmit={() => session.sendMessage(session.composerValue)}
+          onSubmit={() => void sendWithComments()}
           disabled={session.isStreaming || !session.booted}
           streaming={session.isStreaming}
           onStop={session.handleStop}
           placeholder={session.agent.placeholder}
+          armed={(comments?.open.length ?? 0) > 0}
           pastedText={session.pastedText}
           onPasteText={session.setPastedText}
           onClearPasted={() => session.setPastedText(null)}

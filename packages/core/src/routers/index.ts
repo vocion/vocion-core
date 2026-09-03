@@ -6,6 +6,12 @@ import {
   adoptionUserDetailRoute,
   adoptionUsersRoute,
 } from './Analytics';
+import {
+  apply as applyComment,
+  create as createComment,
+  list as listComments,
+  remove as removeComment,
+} from './AnchoredComments';
 import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
 import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
@@ -161,6 +167,12 @@ export const router = {
   },
   chat: {
     suggestions: chatSuggestions,
+  },
+  anchoredComments: {
+    list: listComments,
+    create: createComment,
+    apply: applyComment,
+    delete: removeComment,
   },
   conversations: {
     list: listConvs,
