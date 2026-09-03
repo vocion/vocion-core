@@ -19,6 +19,24 @@ export type ConversationRun
   = | { type: 'text'; text: string }
     | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string };
 
+/** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
+export type ConversationTraceNode = {
+  id: string;
+  parentId?: string;
+  actor: { id: string; kind: string; name: string };
+  kind: string;
+  status: string;
+  label: string;
+  detail?: string;
+  tool?: string;
+  args?: string;
+  resultDetail?: string;
+  text?: string;
+  result?: string;
+  confidence?: number;
+  citations?: Array<{ sourceType: string; title: string; link?: string; snippet?: string; actorId: string }>;
+};
+
 /* ------------------------------------------------------------------ */
 /* CRUD                                                                */
 /* ------------------------------------------------------------------ */
@@ -28,6 +46,8 @@ export async function createConversation(opts: {
   agentSlug: string;
   initialTitle?: string;
   createdBy?: string;
+  /** The record this conversation is scoped to (CRM mirror ref), when opened from a dock. */
+  scopeRef?: string;
 }) {
   const title = (opts.initialTitle ?? DEFAULT_TITLE).trim() || DEFAULT_TITLE;
   const [row] = await db
@@ -37,6 +57,7 @@ export async function createConversation(opts: {
       agentSlug: opts.agentSlug,
       title,
       createdBy: opts.createdBy ?? null,
+      scopeRef: opts.scopeRef ?? null,
     })
     .returning();
   if (opts.createdBy) {
@@ -68,6 +89,34 @@ export async function listConversations(opts: {
     .where(eq(conversationSchema.orgId, opts.orgId))
     .orderBy(desc(conversationSchema.updatedAt))
     .limit(limit);
+}
+
+/**
+ * The current user's most recent conversation for a record — what the dock
+ * resumes on reopen. Scoped conversations are per user and never visible
+ * between users (agent-chat-surface.md §8.6), so `createdBy` is part of the
+ * key, not a display detail.
+ * @param opts - Lookup key.
+ * @param opts.orgId - Tenant.
+ * @param opts.scopeRef - The record's CRM mirror ref.
+ * @param opts.createdBy - The requesting user; scoped threads are theirs alone.
+ */
+export async function latestConversationForScope(opts: {
+  orgId: string;
+  scopeRef: string;
+  createdBy: string;
+}) {
+  const [row] = await db
+    .select()
+    .from(conversationSchema)
+    .where(and(
+      eq(conversationSchema.orgId, opts.orgId),
+      eq(conversationSchema.scopeRef, opts.scopeRef),
+      eq(conversationSchema.createdBy, opts.createdBy),
+    ))
+    .orderBy(desc(conversationSchema.updatedAt))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function getConversation(opts: { orgId: string; id: number }) {
@@ -123,6 +172,8 @@ export async function appendMessage(opts: {
   documents?: Array<{ document_id: string; semantic_identifier: string; link: string; source_type: string; blurb: string; citationIndex?: number; foundBy?: string }> | null;
   /** The person sending a `user` turn — feeds the adoption stream. */
   userId?: string;
+  /** The turn's activity trace, persisted so levels 2 and 3 survive reload. */
+  trace?: ConversationTraceNode[] | null;
 }) {
   const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
   if (!conv) {
@@ -142,6 +193,7 @@ export async function appendMessage(opts: {
       content: opts.content,
       runsJson: opts.runs ?? null,
       documentsJson: opts.documents && opts.documents.length > 0 ? opts.documents : null,
+      traceJson: opts.trace && opts.trace.length > 0 ? opts.trace : null,
     })
     .returning();
 
