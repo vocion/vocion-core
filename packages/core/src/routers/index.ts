@@ -27,6 +27,7 @@ import {
   append as appendConvMessage,
   create as createConv,
   get as getConv,
+  latestForScope as latestConvForScope,
   list as listConvs,
   remove as removeConv,
   rename as renameConv,
@@ -168,6 +169,7 @@ export const router = {
     delete: removeConv,
     rename: renameConv,
     append: appendConvMessage,
+    latestForScope: latestConvForScope,
   },
   learnings: {
     listSteps: listLearningSteps,
