@@ -14,11 +14,14 @@
  *      Body is one of:
  *        `{ apiTokenId }` — point the install at a credential the workspace
  *          already holds. Nothing is pasted and nothing is duplicated.
+ *        `{ apiTokenId, credentials: { ... } }` — replace the values of that
+ *          credential, keeping its id. This is rotation: every install
+ *          pointing at it picks the new value up with no edit of its own.
  *        `{ credentials: { ... }, credentialName? }` — supply the values. For
- *          an API-key connector these are stored as a workspace credential,
- *          so they show up under API credentials and the next connector can
- *          reuse them; for every other connector they are stored against the
- *          install as before.
+ *          an API-key connector these are stored as a new workspace
+ *          credential, so they show up under API credentials and the next
+ *          connector can reuse them; for every other connector they are
+ *          stored against the install as before.
  *
  *      Connector-specific keys: most read a single `token`; Jira takes an
  *      `email` alongside its `apiToken`; Strapi takes the instance `baseUrl`
@@ -31,7 +34,7 @@
 
 import { clerkAuth as auth } from '@/libs/Auth';
 import { CredentialValidationError, platformForConnectorSlug } from '@/libs/platforms/registry';
-import { listPlatformCredentials, storePlatformKey } from '@/services/ApiTokenService';
+import { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } from '@/services/ApiTokenService';
 import {
   ConnectorCredentialError,
   getCredentialsForSource,
@@ -69,6 +72,17 @@ export async function GET(
   // setup offer a key the workspace already typed instead of asking again.
   const available = platform ? await listPlatformCredentials(orgId, platform.id) : [];
   const linkedCredentialId = await storedCredentialIdForInstall(orgId, connectorSlug);
+  // The form's fields come from the platform descriptor rather than a copy kept
+  // in the page, so Strapi's instance URL and Jira's email arrive without the
+  // browser needing to know either connector exists. RegExp does not survive
+  // the wire, so the form gets the human hint and the server stays the only
+  // place a shape is enforced.
+  const fields = (platform?.fields ?? []).map(field => ({
+    name: field.name,
+    label: field.label,
+    shapeHint: field.shapeHint,
+    secret: field.secret,
+  }));
   try {
     const credentials = await getCredentialsForSource(orgId, connectorSlug);
     return Response.json({
@@ -76,6 +90,9 @@ export async function GET(
       available,
       linkedCredentialId,
       platform: platform?.id ?? null,
+      platformLabel: platform?.label ?? null,
+      helpText: platform?.helpText ?? null,
+      fields,
     });
   } catch (err) {
     // Two different failures land here. A credential the install points at but
@@ -90,6 +107,9 @@ export async function GET(
         available,
         linkedCredentialId,
         platform: platform?.id ?? null,
+        platformLabel: platform?.label ?? null,
+        helpText: platform?.helpText ?? null,
+        fields,
         credentialBroken: err.reason,
         error: err.message,
       });
@@ -153,6 +173,47 @@ export async function POST(
   }
   const connectorSlug = (source.config?._connector as string | undefined) ?? source.slug;
   const platform = platformForConnectorSlug(connectorSlug);
+
+  // A named credential plus values is rotation. The row id has to survive,
+  // because every install pointing at it resolves through that id — replacing
+  // the row instead would leave them all on the old key.
+  if (pickedCredentialId !== '' && Object.keys(raw).length > 0) {
+    try {
+      const rotated = await rotatePlatformCredential({
+        orgId,
+        tokenId: pickedCredentialId,
+        values: raw,
+      });
+      if (rotated.status !== 'ok') {
+        return Response.json(
+          { error: rotated.status === 'revoked'
+            ? 'That credential was revoked. Store a new one instead.'
+            : 'That credential no longer exists.' },
+          { status: 400 },
+        );
+      }
+      // Rotation says nothing about which credential this install uses, so a
+      // connector still being connected for the first time gets linked too.
+      await linkInstallToStoredCredential({
+        orgId,
+        sourceSlug: connectorSlug,
+        apiTokenId: pickedCredentialId,
+        userId,
+        projectId: orgId,
+      });
+      return Response.json({ ok: true, apiTokenId: pickedCredentialId, keyHint: rotated.keyHint });
+    } catch (err) {
+      const isSafeToShow = err instanceof CredentialValidationError;
+      console.error('[rpc/sources/credentials] could not rotate stored credential', {
+        connectorSlug,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: isSafeToShow ? err.message : 'Could not save the credential.' },
+        { status: 400 },
+      );
+    }
+  }
 
   // Picking a stored credential: nothing is pasted, nothing is duplicated, and
   // the install simply starts naming the row it should have named all along.

@@ -33,12 +33,13 @@ vi.mock('@/services/SourceCredentialService', () => ({
 }));
 vi.mock('@/services/ApiTokenService', () => ({
   listPlatformCredentials: vi.fn(),
+  rotatePlatformCredential: vi.fn(),
   storePlatformKey: vi.fn(),
 }));
 vi.mock('@/services/SourceSyncService', () => ({ getSourceById: vi.fn() }));
 
 const { clerkAuth } = await import('@/libs/Auth');
-const { listPlatformCredentials, storePlatformKey } = await import('@/services/ApiTokenService');
+const { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } = await import('@/services/ApiTokenService');
 const {
   getCredentialsForSource,
   linkInstallToStoredCredential,
@@ -80,6 +81,7 @@ beforeEach(() => {
   vi.mocked(storedCredentialIdForInstall).mockResolvedValue(null);
   vi.mocked(listPlatformCredentials).mockResolvedValue([]);
   vi.mocked(storePlatformKey).mockResolvedValue({ id: 'cred_new', keyHint: '…aaaa' });
+  vi.mocked(rotatePlatformCredential).mockResolvedValue({ status: 'ok', keyHint: '…bbbb' });
   vi.mocked(linkInstallToStoredCredential).mockResolvedValue(7);
   vi.mocked(storeCredentialForSource).mockResolvedValue({ installId: 7, credentialId: 11 });
 });
@@ -307,5 +309,55 @@ describe('POST /rpc/sources/[id]/credentials', () => {
 
     expect(res.status).toBe(403);
     expect(linkInstallToStoredCredential).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /rpc/sources/[id]/credentials — rotation', () => {
+  it('rotates the named credential in place, keeping its id', async () => {
+    // Every install pointing at this credential resolves through its id, so
+    // storing a replacement row would leave them all on the old key.
+    const res = await POST(post({
+      apiTokenId: 'cred_a',
+      credentials: { baseUrl: 'https://cms.example.com', token: 'rotated' },
+    }), context('1'));
+
+    expect(res.status).toBe(200);
+    expect(rotatePlatformCredential).toHaveBeenCalledWith({
+      orgId: 'org_1',
+      tokenId: 'cred_a',
+      values: { baseUrl: 'https://cms.example.com', token: 'rotated' },
+    });
+    expect(storePlatformKey).not.toHaveBeenCalled();
+  });
+
+  it('links the install as well, so a first connection rotates and connects at once', async () => {
+    await POST(post({ apiTokenId: 'cred_a', credentials: { token: 'rotated' } }), context('1'));
+
+    expect(linkInstallToStoredCredential).toHaveBeenCalledWith(expect.objectContaining({ apiTokenId: 'cred_a' }));
+  });
+
+  it('refuses to rotate a revoked credential back into service', async () => {
+    vi.mocked(rotatePlatformCredential).mockResolvedValue({ status: 'revoked' });
+
+    const res = await POST(post({ apiTokenId: 'cred_a', credentials: { token: 'rotated' } }), context('1'));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('revoked') });
+    expect(linkInstallToStoredCredential).not.toHaveBeenCalled();
+  });
+
+  it('reports a rotation the platform rejected, in the words the person can act on', async () => {
+    const { CredentialValidationError } = await import('@/libs/platforms/registry');
+    vi.mocked(rotatePlatformCredential).mockRejectedValue(
+      new CredentialValidationError('That does not look like a valid Instance URL — it starts with http:// or https://.'),
+    );
+
+    const res = await POST(post({
+      apiTokenId: 'cred_a',
+      credentials: { baseUrl: 'cms.example.com', token: 'rotated' },
+    }), context('1'));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('Instance URL') });
   });
 });
