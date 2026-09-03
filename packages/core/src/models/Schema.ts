@@ -174,6 +174,28 @@ export const projectSchema = pgTable(
      * sidebar only.
      */
     enabledSurfaces: jsonb('enabled_surfaces').$type<string[]>().default([]).notNull(),
+    /**
+     * Which vendor and model produce this workspace's embeddings. Authored as
+     * `defaults.embeddingProvider` / `defaults.embeddingModel` in
+     * workspace.yaml; NULL keys fall back to `VOCION_EMBEDDING_PROVIDER` /
+     * `VOCION_EMBEDDING_MODEL`, then to OpenAI.
+     *
+     * Deliberately a WORKSPACE setting and never a per-agent one. Every vector
+     * in `knowledge_chunk` was produced by one model, and a query vector is
+     * only comparable to vectors from that same model — cosine similarity
+     * across two embedding spaces returns numbers, just meaningless ones. An
+     * agent that embedded its queries on a different provider from the one that
+     * ingested the documents would degrade search with no error anywhere, which
+     * is the worst possible failure mode for a retrieval bug. Holding it at the
+     * workspace makes ingest and query provably the same model.
+     *
+     * Changing it on a workspace that already has chunks means re-embedding
+     * them; a width change means a schema migration too.
+     */
+    embeddingConfig: jsonb('embedding_config').$type<{
+      provider?: 'openai' | 'bedrock';
+      model?: string;
+    }>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -313,6 +335,28 @@ export const businessObjectSchema = pgTable('business_object', {
   status: text('status').default('active'),
   /** Type-specific structured data (e.g. prospect_company, deal_stage, budget) */
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  /**
+   * The system that owns the published record this object mirrors, e.g.
+   * `strapi`. Null until something outside actually exists: a proposed
+   * candidate is a real row here from the moment it is extracted, and the
+   * downstream system stamps its own id back only once it has published.
+   */
+  externalSystem: text('external_system'),
+  /** That system's primary key for the record, as it returns it. */
+  externalId: text('external_id'),
+  /**
+   * The review-queue item this object is waiting on, when it arrived as a
+   * proposed candidate. Keeps "what happened to this extraction" a single
+   * query in both directions.
+   */
+  reviewActionRunId: integer('review_action_run_id'),
+  /**
+   * Where a proposed candidate came from — source links, the raw extract it
+   * was parsed from, what the extractor could not resolve, who proposed it.
+   * Kept out of `metadata` so the domain payload a consumer reads is only the
+   * record's own fields.
+   */
+  provenance: jsonb('provenance').$type<Record<string, unknown>>(),
   /** LLM-generated summary combining linked documents */
   summary: text('summary'),
   summaryGeneratedAt: timestamp('summary_generated_at', { mode: 'date' }),
@@ -322,7 +366,17 @@ export const businessObjectSchema = pgTable('business_object', {
     .$onUpdate(() => new Date())
     .notNull(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-});
+}, table => [
+  // One object per external record: a retried link-back cannot fork the
+  // mapping, and "which object is Strapi id 412?" is an indexed lookup.
+  uniqueIndex('business_object_external_ref_idx').on(table.orgId, table.externalSystem, table.externalId),
+  // The candidate queues: "this org's proposed objects of this type".
+  index('business_object_org_status_idx').on(table.orgId, table.status),
+  // One object per review item. `onProposed` upserts on this, and two
+  // concurrent proposals of the same candidate would otherwise both miss the
+  // lookup and insert.
+  uniqueIndex('business_object_review_run_idx').on(table.orgId, table.reviewActionRunId),
+]);
 
 /** Links a business object to one or more indexed source documents. */
 export const objectDocumentLinkSchema = pgTable(
@@ -515,8 +569,21 @@ export const agentSchema = pgTable(
       excludeTools?: string[];
       /** Granted-only tool names to hand this agent (e.g. classify_call). Gated tools are absent unless named here. */
       grantTools?: string[];
-      /** agentcore provider only: Bedrock model id for the managed harness (defaults to the harness service default). */
+      /**
+       * Model id this agent's main role runs on, overriding the per-role env
+       * default. Read by every provider: the agentcore and runtime harnesses
+       * pass it to the managed runtime, and the local loop hands it to
+       * `buildChatModelForOrg`.
+       */
       model?: string;
+      /**
+       * Which vendor serves this agent's chat model. A different axis from
+       * `provider` above, which selects where the agent *loop* executes —
+       * an agent can run on the local loop and still answer on Bedrock.
+       * Unset inherits `VOCION_LLM_PROVIDER`, so this exists to point one
+       * agent at one vendor without moving the whole deployment.
+       */
+      modelProvider?: 'anthropic' | 'openai' | 'bedrock';
     }>().default({}).notNull(),
     /**
      * agentcore provider only: ARN of the provisioned AgentCore harness.

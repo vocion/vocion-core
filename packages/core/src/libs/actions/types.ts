@@ -21,6 +21,17 @@ export type ActionContext = {
   invokedBy?: string;
   /** The human who decided the run, when it came through the review queue. */
   reviewedBy?: string;
+  /**
+   * The `action_run` being executed. Present on `execute` only — actions that
+   * keep a domain row per run need it to find that row again on approval.
+   */
+  runId?: number;
+  /**
+   * The record the approving caller created in its own system, handed over in
+   * the same decide call. Lets an action link its domain row to a downstream
+   * record without core ever calling that system.
+   */
+  externalRef?: { system: string; id: string };
 };
 
 /**
@@ -126,8 +137,26 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * Canonical dedup key derived from the input. Applied when the proposer
    * passes none, so structurally-identical proposals collapse into one PENDING
    * queue item however the proposal was made (job, agent tool, API).
+   *
+   * Return `undefined` when THIS input carries nothing that identifies it —
+   * every such proposal then stands as its own queue item. Never return a
+   * constant for that case: a shared key would collapse unrelated proposals
+   * into one, and the reviewer would only ever see the last one to arrive.
    */
-  dedupKeyFor?: (input: z.infer<S>) => string;
+  dedupKeyFor?: (input: z.infer<S>) => string | undefined;
+  /**
+   * Last check before anything is written, once the caller is known to be
+   * allowed. For conditions the input schema cannot see because they depend
+   * on tenant state — an object type the org never defined, a source with no
+   * credentials. Return a plain-language reason to refuse the proposal, or
+   * nothing to let it through.
+   *
+   * Refusing here leaves no queue item behind. That matters: an action whose
+   * `onProposed` quietly gives up still reports success to its caller, and an
+   * agent told "queued for approval" will say so to a person, having stored
+   * nothing.
+   */
+  precheck?: (ctx: ActionContext, input: z.infer<S>) => Promise<string | void>;
   /**
    * Called once per created action_run, right after the row exists (pending or
    * about to execute). For back-linking the run onto the domain record it

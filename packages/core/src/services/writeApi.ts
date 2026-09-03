@@ -165,6 +165,12 @@ export type DecideInput = {
    * workflow this is the input the run resumes with.
    */
   editedInput?: Record<string, unknown>;
+  /**
+   * The record the approving caller created in its own system, e.g. the
+   * Strapi entry an admin panel just published. Only applied on `approve`;
+   * the action links its own row to it. Core never calls that system.
+   */
+  externalRef?: { system: string; id: string };
 };
 
 /**
@@ -192,6 +198,7 @@ export async function apiDecideReview(
       reason: input.reason,
       reviewedBy: caller.actorId,
       editedInput: input.action === 'approve' ? input.editedInput : undefined,
+      externalRef: input.action === 'approve' ? input.externalRef : undefined,
     },
   );
 

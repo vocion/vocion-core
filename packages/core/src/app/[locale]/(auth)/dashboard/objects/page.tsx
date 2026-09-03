@@ -29,13 +29,15 @@ export default async function ObjectsPage(props: {
         description="Business entities your tenant cares about, authored in workspace/<org>/objects/. Documents and skill runs link back to an instance."
       />
 
-      <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-4">
+      <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-5">
         <Stat label="Types" value={objectTypes.length} />
         <Stat label="Instances" value={objects.length} />
         <Stat
           label="Configured"
           value={objectTypes.filter(t => !!t.classificationPrompt?.trim()).length}
         />
+        <Stat label="Awaiting review" value={objects.filter(obj => obj.status === 'candidate').length} />
+        <Stat label="Rejected" value={objects.filter(obj => obj.status === 'rejected').length} />
       </div>
 
       <section className="mb-8">
@@ -103,13 +105,22 @@ export default async function ObjectsPage(props: {
                       <Database className="size-4 shrink-0 text-primary" />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium">{obj.title}</div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                           <span className="font-mono">{obj.type.slug}</span>
                           {obj.status && (
-                            <>
-                              <span>·</span>
-                              <span>{obj.status}</span>
-                            </>
+                            <Badge variant={badgeVariantForStatus(obj.status)} className="text-[10px]">
+                              {labelForStatus(obj.status)}
+                            </Badge>
+                          )}
+                          {obj.status === 'approved' && !obj.externalId && (
+                            <span>not published yet</span>
+                          )}
+                          {obj.externalSystem && obj.externalId && (
+                            <span className="font-mono">
+                              {obj.externalSystem}
+                              /
+                              {obj.externalId}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -130,6 +141,37 @@ export default async function ObjectsPage(props: {
       </section>
     </>
   );
+}
+
+/**
+ * A proposed candidate and a curated record are very different things to a
+ * reviewer, so lifecycle state gets colour rather than small grey text: an
+ * unreviewed extraction should not read as a finished record.
+ * @param status - The value stored on the business object.
+ */
+function badgeVariantForStatus(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+  if (status === 'rejected') {
+    return 'destructive';
+  }
+  if (status === 'candidate') {
+    return 'secondary';
+  }
+  if (status === 'approved') {
+    return 'default';
+  }
+  return 'outline';
+}
+
+/**
+ * Plain wording for the states this page cares about. Any other status an
+ * object type defines for itself is shown as it was stored.
+ * @param status - The value stored on the business object.
+ */
+function labelForStatus(status: string): string {
+  if (status === 'candidate') {
+    return 'awaiting review';
+  }
+  return status;
 }
 
 function Stat({ label, value }: { label: string; value: number }) {

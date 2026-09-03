@@ -9,3 +9,5 @@ src/scripts/_tmp_*.ts
 # workspace pages: symlink to the running workspace's component registry
 src/wsx-ext
 demo/seed-db/
+test-results/
+playwright-report/
