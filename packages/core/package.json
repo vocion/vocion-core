@@ -60,7 +60,8 @@
     "build-storybook": "storybook build",
     "stripe:listen": "stripe listen --forward-to localhost:3000/webhook/billing",
     "stripe:setup-price": "dotenv -c production -- tsx ./scripts/createStripePrice.ts",
-    "e2e:demo": "dotenv -c -- tsx src/scripts/e2e-demo.ts"
+    "e2e:demo": "dotenv -c -- tsx src/scripts/e2e-demo.ts",
+    "user:create": "dotenv -c -- tsx src/scripts/create-local-user.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.19",
@@ -102,6 +103,7 @@
     "@uiw/react-codemirror": "^4.25.9",
     "@vocion/sdk": "*",
     "ai": "^7.0.37",
+    "ajv": "^8.17.1",
     "bcrypt": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
