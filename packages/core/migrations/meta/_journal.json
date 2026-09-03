@@ -512,6 +512,13 @@
       "when": 1787287500000,
       "tag": "0072_business_object_candidate_corrections",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1787546700000,
+      "tag": "0075_handoff_brief",
+      "breakpoints": true
     }
   ]
 }

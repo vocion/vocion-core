@@ -632,6 +632,53 @@ export type SaveLeadBriefResult = {
  * @param orgId
  * @param opts
  */
+/** What a handoff brief carries, and why the lead left. */
+export type SaveHandoffBriefOptions = {
+  contactRef: string;
+  sections: Array<{ heading: string; body: string }>;
+  /** Why the lead left the agent's care. */
+  trigger: 'reply' | 'intent' | 'routed';
+  now?: Date;
+};
+
+export type SaveHandoffBriefResult = {
+  saved: boolean;
+  contactRef: string;
+  /** Echoed so the caller can see the review brief was left alone. */
+  reviewSectionCount?: number;
+};
+
+/**
+ * Save the call prep written when a lead leaves the agent.
+ *
+ * Writes ONLY the handoff columns. The review brief, the claims, the
+ * confidence and the lane are left exactly as they were: the two briefs
+ * answer different questions at different moments, and a handoff re-run
+ * that quietly rewrote the review brief would change the record of a
+ * decision that was already taken.
+ * @param orgId - Tenant.
+ * @param opts - The brief, and why the lead left.
+ * @returns Whether a row took it, echoing the untouched review brief's size.
+ */
+export async function saveHandoffBrief(orgId: string, opts: SaveHandoffBriefOptions): Promise<SaveHandoffBriefResult> {
+  const [row] = await db
+    .update(leadBriefSchema)
+    .set({
+      handoffSections: opts.sections,
+      handoffTrigger: opts.trigger,
+      handoffAt: opts.now ?? new Date(),
+    })
+    .where(and(
+      eq(leadBriefSchema.orgId, orgId),
+      eq(leadBriefSchema.contactRef, opts.contactRef),
+    ))
+    .returning({ sections: leadBriefSchema.sections });
+  if (!row) {
+    return { saved: false, contactRef: opts.contactRef };
+  }
+  return { saved: true, contactRef: opts.contactRef, reviewSectionCount: row.sections.length };
+}
+
 export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): Promise<SaveLeadBriefResult> {
   const briefedAt = opts.now ?? new Date();
   const { getCurrentWorkspaceSha } = await import('@/libs/workspace');
