@@ -477,6 +477,13 @@
       "when": 1787287000000,
       "tag": "0067_api_token_platforms",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1787287100000,
+      "tag": "0068_api_token_minted_reveal",
+      "breakpoints": true
     }
   ]
 }

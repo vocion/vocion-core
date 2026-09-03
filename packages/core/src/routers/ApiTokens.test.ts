@@ -369,13 +369,24 @@ describe('revealPlatformKey', () => {
     expect(JSON.stringify(revealed)).not.toContain(OPENAI_KEY);
   });
 
-  it('reports a Vocion token as having nothing to reveal', async () => {
+  it('reveals a Vocion token the same way it reveals a platform key', async () => {
     signedInAs('admin');
-    const created = await call<{ id: string }>(createTokenRoute, { name: 'panel', expiresAt: null });
+    const created = await call<{ id: string; token: string }>(createTokenRoute, { name: 'panel', expiresAt: null });
 
     const revealed = await call(revealPlatformKeyRoute, { tokenId: created.id });
 
-    expect(revealed).toEqual({ status: 'minted' });
+    expect(revealed).toEqual({ status: 'ok', values: { token: created.token } });
+  });
+
+  it('refuses to reveal a token to somebody who is not an admin', async () => {
+    signedInAs('admin');
+    const created = await call<{ id: string }>(createTokenRoute, { name: 'panel', expiresAt: null });
+
+    signedInAs('member');
+
+    // Revealing a Vocion token hands over a credential that acts with the owner
+    // role, so it is gated exactly like every other route in this router.
+    await expect(call(revealPlatformKeyRoute, { tokenId: created.id })).rejects.toThrow();
   });
 
   it('still opens a revoked key', async () => {
