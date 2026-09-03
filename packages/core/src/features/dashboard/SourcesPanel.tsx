@@ -1920,29 +1920,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
     setSubmitting(true);
     setError(null);
     try {
-      // No `baseUrl`: a Strapi token only works against the instance that
-      // issued it, so the URL is part of the credential and rotates with it.
-      const configJson = {
-        collections: chosen,
-        populate: populate.trim() === '' ? '*' : populate.trim(),
-        pageSize,
-      };
       const instanceUrl = baseUrl.trim().replace(/\/+$/, '');
-      let sourceId = existing?.id ?? null;
-      if (existing) {
-        const message = await updateSourceConfig(existing.id, configJson);
-        if (message) {
-          setError(message);
-          return;
-        }
-      } else {
-        const created = await createSourceReturningId(kind, configJson);
-        if (created.error || created.id === null) {
-          setError(created.error ?? 'Failed to create connector');
-          return;
-        }
-        sourceId = created.id;
-      }
       // Write a credential only when something about it actually changed: an
       // empty token field means "keep what is stored", and re-saving the values
       // we just loaded would rotate a credential to itself. The URL counts as a
@@ -1950,15 +1928,61 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
       const tokenIsNew = token.trim() !== '' && token.trim() !== storedToken;
       const urlIsNew = storedBaseUrl !== null && instanceUrl !== storedBaseUrl;
       const credentialIsNew = tokenIsNew || urlIsNew || storedBaseUrl === null;
-      if (sourceId !== null && credentialIsNew && token.trim() !== '') {
-        const credentialError = await storeSourceCredential(
-          sourceId,
-          { baseUrl: instanceUrl, token: token.trim() },
-          linkedCredentialId,
-        );
-        if (credentialError) {
-          setError(credentialError);
+      const willWriteCredential = credentialIsNew && token.trim() !== '';
+
+      // No `baseUrl` in the config: a Strapi token only works against the
+      // instance that issued it, so the URL is part of the credential and
+      // rotates with it.
+      //
+      // Except while no credential holds it. A connector set up before the URL
+      // moved keeps it in the config, and this save replaces the whole config —
+      // so dropping it without putting it anywhere would leave the connector
+      // with an instance URL in neither place and every sync refusing. Keeping
+      // it is also what lets the backfill migrate the connector later.
+      const configJson = {
+        collections: chosen,
+        populate: populate.trim() === '' ? '*' : populate.trim(),
+        pageSize,
+        ...(willWriteCredential || instanceUrl === '' ? {} : { baseUrl: instanceUrl }),
+      };
+
+      if (existing) {
+        // Credential first, config second. The config write is what drops the
+        // legacy `baseUrl`, so a credential write failing after it would strand
+        // a connector that was working a moment ago.
+        if (willWriteCredential) {
+          const credentialError = await storeSourceCredential(
+            existing.id,
+            { baseUrl: instanceUrl, token: token.trim() },
+            linkedCredentialId,
+          );
+          if (credentialError) {
+            setError(credentialError);
+            return;
+          }
+        }
+        const message = await updateSourceConfig(existing.id, configJson);
+        if (message) {
+          setError(message);
           return;
+        }
+      } else {
+        // A new connector has to exist before a credential can name it.
+        const created = await createSourceReturningId(kind, configJson);
+        if (created.error || created.id === null) {
+          setError(created.error ?? 'Failed to create connector');
+          return;
+        }
+        if (willWriteCredential) {
+          const credentialError = await storeSourceCredential(
+            created.id,
+            { baseUrl: instanceUrl, token: token.trim() },
+            linkedCredentialId,
+          );
+          if (credentialError) {
+            setError(credentialError);
+            return;
+          }
         }
       }
       await onAdded();
