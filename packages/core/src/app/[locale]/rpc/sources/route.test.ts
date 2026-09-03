@@ -129,8 +129,10 @@ describe('GET /rpc/sources', () => {
     const body = await (await GET()).json();
 
     expect(body.connectors).toEqual([
-      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey' },
-      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none' },
+      // `credentialPlatform` is how the picker knows to offer the credentials
+      // the workspace already holds instead of asking for the key again.
+      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey', credentialPlatform: 'strapi' },
+      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none', credentialPlatform: null },
     ]);
   });
 

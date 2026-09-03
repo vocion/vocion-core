@@ -1,27 +1,52 @@
 /**
  * Reading a stored credential back, which the Edit form does so its token field
- * shows what the source will actually use.
+ * shows what the source will actually use, and connecting a connector to one.
  *
- * This is the only endpoint that hands vault plaintext to a browser, so the
- * gate is the point of these tests: signed in, admin, and a source that belongs
+ * The GET is the only endpoint that hands vault plaintext to a browser, so the
+ * gate is the point of those tests: signed in, admin, and a source that belongs
  * to the caller's workspace. The other case worth pinning is a credential that
  * will not decrypt — it must report why rather than answering "none stored",
  * which the form would show as an empty field and the operator would read as
  * "the old token still works".
+ *
+ * The POST has three paths and they must not blur together: picking a
+ * credential the workspace already holds, pasting values for an API-key
+ * connector (which stores them as a workspace credential, so the next
+ * connector can reuse them), and storing an OAuth grant against the install as
+ * before.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/services/SourceCredentialService', () => ({
+  ConnectorCredentialError: class ConnectorCredentialError extends Error {
+    reason: string;
+    constructor(reason: string, message: string) {
+      super(message);
+      this.reason = reason;
+    }
+  },
   getCredentialsForSource: vi.fn(),
+  linkInstallToStoredCredential: vi.fn(),
   storeCredentialForSource: vi.fn(),
+  storedCredentialIdForInstall: vi.fn(),
+}));
+vi.mock('@/services/ApiTokenService', () => ({
+  listPlatformCredentials: vi.fn(),
+  storePlatformKey: vi.fn(),
 }));
 vi.mock('@/services/SourceSyncService', () => ({ getSourceById: vi.fn() }));
 
 const { clerkAuth } = await import('@/libs/Auth');
-const { getCredentialsForSource } = await import('@/services/SourceCredentialService');
+const { listPlatformCredentials, storePlatformKey } = await import('@/services/ApiTokenService');
+const {
+  getCredentialsForSource,
+  linkInstallToStoredCredential,
+  storeCredentialForSource,
+  storedCredentialIdForInstall,
+} = await import('@/services/SourceCredentialService');
 const { getSourceById } = await import('@/services/SourceSyncService');
-const { GET } = await import('./route');
+const { GET, POST } = await import('./route');
 
 const admin = {
   userId: 'user_1',
@@ -52,14 +77,31 @@ beforeEach(() => {
     config: { _connector: 'strapi' },
   });
   vi.mocked(getCredentialsForSource).mockResolvedValue({ token: 'stored-tok' });
+  vi.mocked(storedCredentialIdForInstall).mockResolvedValue(null);
+  vi.mocked(listPlatformCredentials).mockResolvedValue([]);
+  vi.mocked(storePlatformKey).mockResolvedValue({ id: 'cred_new', keyHint: '…aaaa' });
+  vi.mocked(linkInstallToStoredCredential).mockResolvedValue(7);
+  vi.mocked(storeCredentialForSource).mockResolvedValue({ installId: 7, credentialId: 11 });
 });
+
+/**
+ * A POST carrying `body` as JSON.
+ * @param body - The request body.
+ */
+function post(body: unknown): Request {
+  return new Request('http://test/rpc/sources/1/credentials', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
 
 describe('GET /rpc/sources/[id]/credentials', () => {
   it('returns the stored credential, looked up by connector', async () => {
     const res = await GET(request, context('1'));
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ credentials: { token: 'stored-tok' } });
+    await expect(res.json()).resolves.toMatchObject({ credentials: { token: 'stored-tok' } });
     // Credentials are per-connector, not per-source: one Strapi token serves
     // every Strapi source, so the lookup must use the connector slug.
     expect(getCredentialsForSource).toHaveBeenCalledWith('org_1', 'strapi');
@@ -79,7 +121,7 @@ describe('GET /rpc/sources/[id]/credentials', () => {
     const res = await GET(request, context('1'));
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ credentials: null });
+    await expect(res.json()).resolves.toMatchObject({ credentials: null });
   });
 
   it('refuses a caller with no workspace', async () => {
@@ -125,5 +167,145 @@ describe('GET /rpc/sources/[id]/credentials', () => {
 
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('could not be decrypted') });
+  });
+});
+
+describe('GET /rpc/sources/[id]/credentials — credentials to pick from', () => {
+  it('offers the credentials the workspace already holds for the platform', async () => {
+    // The point of the ticket: a Jira or Strapi key typed once under API
+    // credentials is offered here rather than asked for again.
+    vi.mocked(listPlatformCredentials).mockResolvedValue([
+      { id: 'cred_a', name: 'Strapi — prod', keyHint: '…aaaa', createdAt: new Date(0), expiresAt: null },
+    ]);
+
+    const body = await (await GET(request, context('1'))).json();
+
+    expect(listPlatformCredentials).toHaveBeenCalledWith('org_1', 'strapi');
+    expect(body.available).toHaveLength(1);
+    expect(body.platform).toBe('strapi');
+  });
+
+  it('says which credential the connector currently points at', async () => {
+    vi.mocked(storedCredentialIdForInstall).mockResolvedValue('cred_a');
+
+    const body = await (await GET(request, context('1'))).json();
+
+    expect(body.linkedCredentialId).toBe('cred_a');
+  });
+
+  it('offers nothing to pick for a connector that uses an OAuth grant', async () => {
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'slack', kind: 'plugin', config: {} });
+
+    const body = await (await GET(request, context('1'))).json();
+
+    expect(listPlatformCredentials).not.toHaveBeenCalled();
+    expect(body.platform).toBeNull();
+    expect(body.available).toEqual([]);
+  });
+
+  it('names a broken credential rather than reporting a plain failure', async () => {
+    const { ConnectorCredentialError } = await import('@/services/SourceCredentialService');
+    vi.mocked(getCredentialsForSource).mockRejectedValue(
+      new ConnectorCredentialError('revoked', 'The Strapi credential this connector uses was revoked.'),
+    );
+
+    const res = await GET(request, context('1'));
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      credentials: null,
+      credentialBroken: 'revoked',
+      error: expect.stringContaining('was revoked'),
+    });
+  });
+});
+
+describe('POST /rpc/sources/[id]/credentials', () => {
+  it('points the install at a credential the workspace already holds', async () => {
+    const res = await POST(post({ apiTokenId: 'cred_a' }), context('1'));
+
+    expect(res.status).toBe(200);
+    expect(linkInstallToStoredCredential).toHaveBeenCalledWith(expect.objectContaining({
+      orgId: 'org_1',
+      sourceSlug: 'strapi',
+      apiTokenId: 'cred_a',
+    }));
+    // Nothing was pasted, so nothing may be stored.
+    expect(storePlatformKey).not.toHaveBeenCalled();
+  });
+
+  it('stores pasted values as a workspace credential, then links the install', async () => {
+    // This is what puts a key pasted during connector setup into the
+    // credentials list, where the next connector can reuse it.
+    const res = await POST(post({
+      credentials: { baseUrl: 'https://cms.example.com', token: 'strapi-token' },
+      credentialName: 'Strapi — prod',
+    }), context('1'));
+
+    expect(res.status).toBe(200);
+    expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({
+      orgId: 'org_1',
+      platform: 'strapi',
+      name: 'Strapi — prod',
+      values: { baseUrl: 'https://cms.example.com', token: 'strapi-token' },
+    }));
+    expect(linkInstallToStoredCredential).toHaveBeenCalledWith(expect.objectContaining({ apiTokenId: 'cred_new' }));
+    expect(storeCredentialForSource).not.toHaveBeenCalled();
+  });
+
+  it('names the credential after its platform when nobody supplied a name', async () => {
+    await POST(post({ credentials: { token: 'strapi-token' } }), context('1'));
+
+    expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ name: 'Strapi — strapi' }));
+  });
+
+  it('still stores an OAuth grant against the install itself', async () => {
+    // A grant is issued to one installation and carries a refresh token, so
+    // there is nothing to share and nothing to point at.
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'slack', kind: 'plugin', config: {} });
+
+    const res = await POST(post({ credentials: { token: 'xoxb-1' } }), context('1'));
+
+    expect(res.status).toBe(200);
+    expect(storeCredentialForSource).toHaveBeenCalledWith(expect.objectContaining({ sourceSlug: 'slack' }));
+    expect(storePlatformKey).not.toHaveBeenCalled();
+  });
+
+  it('refuses a body with neither a picked credential nor any values', async () => {
+    const res = await POST(post({ credentials: {} }), context('1'));
+
+    expect(res.status).toBe(400);
+    expect(linkInstallToStoredCredential).not.toHaveBeenCalled();
+  });
+
+  it('reports why a picked credential could not be used', async () => {
+    const { ConnectorCredentialError } = await import('@/services/SourceCredentialService');
+    vi.mocked(linkInstallToStoredCredential).mockRejectedValue(
+      new ConnectorCredentialError('missing', 'That credential does not exist, or has been revoked.'),
+    );
+
+    const res = await POST(post({ apiTokenId: 'cred_gone' }), context('1'));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('does not exist') });
+  });
+
+  it('hides a failure that is not the caller\'s to fix', async () => {
+    // A constraint detail or a KMS error must not travel to a browser.
+    vi.mocked(storePlatformKey).mockRejectedValue(new Error('kms: AccessDeniedException for key arn:aws:kms:…'));
+
+    const res = await POST(post({ credentials: { token: 'strapi-token' } }), context('1'));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: 'Could not save the credential.' });
+  });
+
+  it('refuses a member: only an admin may set a credential', async () => {
+    vi.mocked(clerkAuth).mockResolvedValue({ ...admin, role: 'member' });
+
+    const res = await POST(post({ apiTokenId: 'cred_a' }), context('1'));
+
+    expect(res.status).toBe(403);
+    expect(linkInstallToStoredCredential).not.toHaveBeenCalled();
   });
 });
