@@ -221,6 +221,17 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, run, onDecided }: ChatDoc
       </div>
 
       <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Kept mounted after a decision so the outcome card can state what
+            happened — hiding the flow the moment it is decided would drop the
+            one card that says so. Sits under the scope header, above the
+            transcript: the cards are the work at hand, the history scrolls
+            beneath them. */}
+        {run && (!guided.state.decided || guided.outcome) && (
+          <div className="max-h-[55%] shrink-0 overflow-y-auto border-b border-border bg-muted/20">
+            <GuidedReviewPanel run={run} guided={guided} />
+          </div>
+        )}
+
         {session.messages.length === 0
           ? (
               <EmptyState
@@ -247,15 +258,6 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, run, onDecided }: ChatDoc
             onReject={session.handleRejectHitl}
             disabled={session.isStreaming}
           />
-        )}
-
-        {/* Kept mounted after a decision so the outcome card can state what
-            happened — hiding the flow the moment it is decided would drop the
-            one card that says so. */}
-        {run && (!guided.state.decided || guided.outcome) && (
-          <div className="max-h-[55%] shrink-0 overflow-y-auto border-t border-border bg-muted/20">
-            <GuidedReviewPanel run={run} guided={guided} />
-          </div>
         )}
 
         {comments && (
