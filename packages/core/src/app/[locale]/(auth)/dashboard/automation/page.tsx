@@ -167,12 +167,12 @@ export default async function AutomationPage(props: {
             <Database className="size-4 text-primary" />
             Source syncs
           </div>
-          <p className="mb-3 text-sm text-muted-foreground">Connector refresh crons — configured on each source, incremental from its checkpoint.</p>
+          <p className="mb-3 text-sm text-muted-foreground">Connector refresh crons — configured on each connector, incremental from its checkpoint.</p>
           {syncing.map((s) => {
             const cfg = s.configJson as { schedule?: string };
             return (
               <div key={s.slug} className="flex items-center gap-3 border-b border-border py-2 text-sm last:border-0">
-                <Link href="/dashboard/sources" className="font-medium hover:underline">{s.slug}</Link>
+                <Link href="/dashboard/connectors" className="font-medium hover:underline">{s.slug}</Link>
                 <span className="text-[11px] text-muted-foreground" title={cfg.schedule}>{cronToText(cfg.schedule ?? '')}</span>
               </div>
             );

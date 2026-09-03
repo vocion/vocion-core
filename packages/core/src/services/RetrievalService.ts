@@ -442,7 +442,7 @@ async function hydrate(
 
 /**
  * Recent ingest activity — drives the source catalog card and the
- * `/dashboard/sources/[slug]` detail page.
+ * `/dashboard/connectors/[slug]` detail page.
  * @param orgId
  * @param sourceId
  * @param limit

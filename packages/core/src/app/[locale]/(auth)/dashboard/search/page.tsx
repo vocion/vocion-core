@@ -87,7 +87,7 @@ export default async function SearchPage(props: {
     <>
       <TitleBar
         title="Search"
-        description="Hybrid retrieval across every connected Source. pgvector + Postgres FTS with reciprocal rank fusion — same pipeline your Agents use."
+        description="Hybrid retrieval across every connected connector. pgvector + Postgres FTS with reciprocal rank fusion — same pipeline your Agents use."
       />
 
       <form method="get" className="mb-3">
@@ -155,7 +155,7 @@ export default async function SearchPage(props: {
           <div className="text-xs text-muted-foreground">
             {query
               ? `${results.length} results · ranked by hybrid score`
-              : `Most recent ${results.length} documents${sourceFilter ? ` · ${sourceFilter}` : ' · all sources'}`}
+              : `Most recent ${results.length} documents${sourceFilter ? ` · ${sourceFilter}` : ' · all connectors'}`}
           </div>
           {results.map((doc, i) => {
             const title = doc.semantic_identifier || doc.document_id || 'Untitled';

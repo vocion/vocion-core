@@ -254,9 +254,9 @@ export function SourcesPanel() {
           ? (
               <EmptyState
                 icon={Globe}
-                title="No sources yet"
+                title="No connectors yet"
                 description="Add a web URL, file upload, or connect a third-party system to populate this org's knowledge base."
-                action={{ label: 'Add source', onClick: () => setPicker(true) }}
+                action={{ label: 'Add connector', onClick: () => setPicker(true) }}
               />
             )
           : (
@@ -711,7 +711,7 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Link href={`/dashboard/sources/${source.slug}`} className="truncate font-display hover:underline">{source.slug}</Link>
+            <Link href={`/dashboard/connectors/${source.slug}`} className="truncate font-display hover:underline">{source.slug}</Link>
             <Badge variant="outline" className="font-mono text-[10px]">{source.kind}</Badge>
             {source.objectType
               ? <Badge variant="outline" className="font-mono text-[10px]">{source.objectType}</Badge>
@@ -757,7 +757,7 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
           <button
             type="button"
             onClick={onEdit}
-            title="Edit this source's settings"
+            title="Edit this connector's settings"
             className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
           >
             <Pencil className="size-3" />
@@ -766,7 +766,7 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
           <button
             type="button"
             onClick={onDelete}
-            title="Delete this source and everything ingested from it"
+            title="Delete this connector and everything ingested from it"
             className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/5"
           >
             <Trash2 className="size-3" />
@@ -778,7 +778,7 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
             disabled={busy || needsCreds}
             title={needsCreds
               ? 'Connect credentials first'
-              : (runningElsewhere ? 'This source is already syncing. Wait for it to finish, then try again.' : undefined)}
+              : (runningElsewhere ? 'This connector is already syncing. Wait for it to finish, then try again.' : undefined)}
             className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
           >
             {busy
@@ -978,7 +978,7 @@ function DeleteSourceDialog({ source, onClose, onDeleted }: {
                       Deleting…
                     </>
                   )
-                : 'Delete source'}
+                : 'Delete connector'}
             </button>
           </div>
         </div>
@@ -995,7 +995,7 @@ function describeSourceConfig(config: Record<string, unknown>): string {
   if (c.urls?.length) {
     return c.urls.length === 1 ? c.urls[0]! : `${c.urls.length} URLs`;
   }
-  return 'Configured source';
+  return 'Configured connector';
 }
 
 /**
@@ -1101,7 +1101,7 @@ function ConnectorPicker({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border bg-background shadow-xl">
         <div className="flex items-center justify-between border-b px-4 py-3">
-          <h3 className="font-display text-lg">Pick a source type</h3>
+          <h3 className="font-display text-lg">Pick a connector</h3>
           <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
             Cancel
           </button>
@@ -1119,15 +1119,15 @@ function ConnectorPicker({
                   onClose();
                 }
               }}
-              placeholder="Search source types — name or what it ingests"
-              aria-label="Search source types"
+              placeholder="Search connectors — name or what it ingests"
+              aria-label="Search connectors"
               className="w-full rounded-md border border-input bg-background py-2 pr-3 pl-9 text-sm"
             />
           </label>
           <p className="mt-2 text-xs text-muted-foreground">
             {matches.length === connectors.length
-              ? `${connectors.length} source types`
-              : `${matches.length} of ${connectors.length} source types`}
+              ? `${connectors.length} connectors`
+              : `${matches.length} of ${connectors.length} connectors`}
           </p>
         </div>
         <div className="flex flex-col gap-2 overflow-y-auto p-4">
@@ -1217,7 +1217,7 @@ async function createSourceReturningId(
   });
   const data = await res.json();
   if (!res.ok) {
-    return { id: null, error: data.error ?? 'Failed to create source' };
+    return { id: null, error: data.error ?? 'Failed to create connector' };
   }
   const newId = data.source?.id;
   return { id: typeof newId === 'number' ? newId : null, error: null };
@@ -1235,7 +1235,7 @@ async function updateSourceConfig(sourceId: number, configJson: Record<string, u
     body: JSON.stringify({ configJson }),
   });
   const data = await res.json();
-  return res.ok ? null : (data.error ?? 'Failed to save the source');
+  return res.ok ? null : (data.error ?? 'Failed to save the connector');
 }
 
 /**
@@ -1245,7 +1245,7 @@ async function updateSourceConfig(sourceId: number, configJson: Record<string, u
 async function deleteSourceById(sourceId: number): Promise<string | null> {
   const res = await fetch(`/rpc/sources/${sourceId}`, { method: 'DELETE' });
   const data = await res.json();
-  return res.ok ? null : (data.error ?? 'Failed to delete the source');
+  return res.ok ? null : (data.error ?? 'Failed to delete the connector');
 }
 
 /**
@@ -1292,7 +1292,7 @@ function AddSourceDialogFrame({
   requirement: string | null;
   /** A standing note about what saving will do, shown above the fields. */
   notice: string | null;
-  /** Wording for the submit button — "Add source" when adding, "Save changes" when editing. */
+  /** Wording for the submit button — "Add connector" when adding, "Save changes" when editing. */
   submitLabel: string;
   submitting: boolean;
   canSubmit: boolean;
@@ -1498,8 +1498,8 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
       title={title}
       error={error}
       requirement={url.trim().length > 0 ? null : 'a URL to read'}
-      submitLabel={existing ? 'Save changes' : 'Add source'}
-      notice={existing ? 'Saving restarts this source\'s sync: a run in progress stops, and a fresh one reads the source with the new settings.' : null}
+      submitLabel={existing ? 'Save changes' : 'Add connector'}
+      notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
       canSubmit={url.trim().length > 0}
       onClose={onClose}
@@ -1648,7 +1648,7 @@ async function storeSourceCredential(
   });
   const data = await res.json();
   if (!res.ok) {
-    return data.error ?? 'The source was created but its credential could not be stored';
+    return data.error ?? 'The connector was created but its credential could not be stored';
   }
   return null;
 }
@@ -1906,7 +1906,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
       } else {
         const created = await createSourceReturningId(kind, configJson);
         if (created.error || created.id === null) {
-          setError(created.error ?? 'Failed to create source');
+          setError(created.error ?? 'Failed to create connector');
           return;
         }
         sourceId = created.id;
@@ -1940,8 +1940,8 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
       title={title}
       error={error}
       requirement={requirement}
-      submitLabel={existing ? 'Save changes' : 'Add source'}
-      notice={existing ? 'Saving restarts this source\'s sync: a run in progress stops, and a fresh one reads the source with the new settings.' : null}
+      submitLabel={existing ? 'Save changes' : 'Add connector'}
+      notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
       canSubmit={connectionReady && chosen.length > 0 && failedChecks.length === 0}
       onClose={onClose}

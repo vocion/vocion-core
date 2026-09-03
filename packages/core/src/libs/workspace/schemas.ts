@@ -563,7 +563,7 @@ export const SourceManifestSchema = z.object({
   config: z.record(z.string(), z.unknown()).default({}),
   /**
    * Sync schedule (cron expression) for Temporal scheduled syncs. When
-   * omitted, the source only syncs on manual trigger via /dashboard/sources.
+   * omitted, the source only syncs on manual trigger via /dashboard/connectors.
    */
   schedule: z.string().optional().describe('Cron expression for scheduled sync. Manual-only when omitted.'),
   /**
