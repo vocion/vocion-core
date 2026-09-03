@@ -230,9 +230,9 @@ async function openStrapiForm() {
 }
 
 async function openPicker() {
-  await page.getByRole('button', { name: 'Add source' }).first().click();
+  await page.getByRole('button', { name: 'Add connector' }).first().click();
 
-  await expect.element(page.getByPlaceholder(/Search source types/)).toBeVisible();
+  await expect.element(page.getByPlaceholder(/Search connectors/)).toBeVisible();
 }
 
 /**
@@ -299,11 +299,11 @@ describe('connector picker', () => {
     render(<SourcesPanel />);
     await openPicker();
 
-    await expect.element(page.getByText('4 source types')).toBeVisible();
+    await expect.element(page.getByText('4 connectors')).toBeVisible();
 
-    await userEvent.fill(page.getByPlaceholder(/Search source types/), 'strapi');
+    await userEvent.fill(page.getByPlaceholder(/Search connectors/), 'strapi');
 
-    await expect.element(page.getByText('1 of 4 source types')).toBeVisible();
+    await expect.element(page.getByText('1 of 4 connectors')).toBeVisible();
     await expect.element(page.getByRole('button', { name: /Strapi/ })).toBeVisible();
     await expect.element(page.getByRole('button', { name: /HubSpot/ })).not.toBeInTheDocument();
   });
@@ -313,7 +313,7 @@ describe('connector picker', () => {
     render(<SourcesPanel />);
     await openPicker();
 
-    await userEvent.fill(page.getByPlaceholder(/Search source types/), 'salesforce');
+    await userEvent.fill(page.getByPlaceholder(/Search connectors/), 'salesforce');
 
     await expect.element(page.getByText(/No source type matches/)).toBeVisible();
   });
@@ -343,7 +343,7 @@ describe('connector picker', () => {
 
     await expect.element(page.getByRole('button', { name: /Connector 29/ })).toBeVisible();
 
-    await userEvent.fill(page.getByPlaceholder(/Search source types/), 'Connector 1');
+    await userEvent.fill(page.getByPlaceholder(/Search connectors/), 'Connector 1');
 
     await expect.element(page.getByRole('button', { name: /Show .* more/ })).not.toBeInTheDocument();
   });
@@ -476,7 +476,7 @@ describe('add Strapi source', () => {
 
     await page.getByRole('checkbox', { name: 'events' }).click();
     await page.getByRole('checkbox', { name: 'organizers' }).click();
-    await page.getByRole('button', { name: 'Add source' }).last().click();
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
 
     await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
 
@@ -552,7 +552,7 @@ describe('add Strapi source', () => {
     await expect.element(page.getByRole('checkbox', { name: /events/ })).toBeVisible();
 
     // A disabled button swallows hover, so the tooltip has to sit on its wrapper.
-    const wrapper = page.getByRole('button', { name: 'Add source' }).last().element().parentElement;
+    const wrapper = page.getByRole('button', { name: 'Add connector' }).last().element().parentElement;
 
     expect(wrapper?.getAttribute('title')).toContain('at least one collection');
 
@@ -576,7 +576,7 @@ describe('add Strapi source', () => {
 
     await expect.element(page.getByText('venueNo such collection')).toBeVisible();
 
-    const submit = page.getByRole('button', { name: 'Add source' }).last();
+    const submit = page.getByRole('button', { name: 'Add connector' }).last();
 
     await expect.element(submit).toBeDisabled();
     await expect.element(page.getByText(/Still needed: a fix for venue \(no such collection\)/)).toBeVisible();
@@ -625,7 +625,7 @@ describe('add Strapi source', () => {
     await userEvent.fill(page.getByLabelText(/API token/), 'tok-123');
     await userEvent.fill(page.getByLabelText('Collections'), 'events');
 
-    await expect.element(page.getByRole('button', { name: 'Add source' }).last()).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeEnabled();
   });
 
   it('keeps submit disabled until the URL, the token and a collection are all given', async () => {
@@ -634,7 +634,7 @@ describe('add Strapi source', () => {
     await openPicker();
     await page.getByRole('button', { name: /Strapi/ }).click();
 
-    const submit = page.getByRole('button', { name: 'Add source' }).last();
+    const submit = page.getByRole('button', { name: 'Add connector' }).last();
 
     await expect.element(submit).toBeDisabled();
 
@@ -680,7 +680,7 @@ describe('add Strapi source', () => {
 
     await expect.element(page.getByText(/could not be confirmed here/)).toBeVisible();
     // Reachable, so submit is still allowed — the operator decides.
-    await expect.element(page.getByRole('button', { name: 'Add source' }).last()).toBeEnabled();
+    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeEnabled();
   });
 
   it('surfaces an unreachable instance instead of closing the dialog', async () => {
@@ -714,7 +714,7 @@ describe('add Strapi source', () => {
     await expect.element(page.getByRole('checkbox', { name: 'events' })).toBeVisible();
 
     await page.getByRole('checkbox', { name: 'events' }).click();
-    await page.getByRole('button', { name: 'Add source' }).last().click();
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
 
     await expect.element(page.getByText('Unreachable host')).toBeVisible();
     expect(posts.filter(post => post.url.endsWith('/credentials'))).toEqual([]);
@@ -727,7 +727,7 @@ describe('add Strapi source', () => {
     await page.getByRole('button', { name: /Web/ }).click();
 
     await userEvent.fill(page.getByLabelText('URL'), 'https://example.com/docs');
-    await page.getByRole('button', { name: 'Add source' }).last().click();
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
 
     await vi.waitFor(() => expect(posts).toHaveLength(1));
 
@@ -821,7 +821,7 @@ describe('a sync started somewhere else', () => {
     await expect.element(syncButton).toBeDisabled();
     await expect.element(syncButton).toHaveAttribute(
       'title',
-      'This source is already syncing. Wait for it to finish, then try again.',
+      'This connector is already syncing. Wait for it to finish, then try again.',
     );
   });
 
@@ -912,7 +912,7 @@ describe('editing and deleting a source', () => {
 
     await page.getByRole('button', { name: 'Edit' }).click();
 
-    await expect.element(page.getByText(/Saving restarts this source's sync/)).toBeVisible();
+    await expect.element(page.getByText(/Saving restarts this connector's sync/)).toBeVisible();
   });
 
   it('says a run stopped because the settings changed', async () => {
@@ -954,7 +954,7 @@ describe('editing and deleting a source', () => {
     expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(0);
 
     await page.getByRole('button', { name: 'Delete' }).click();
-    await page.getByRole('button', { name: 'Delete source' }).click();
+    await page.getByRole('button', { name: 'Delete connector' }).click();
 
     await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1')).toHaveLength(1));
   });
