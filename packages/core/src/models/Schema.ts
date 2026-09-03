@@ -1733,17 +1733,23 @@ export const sourceSyncCheckpointSchema = pgTable(
  * (see `libs/platforms/registry.ts`):
  *
  *   - `platform = 'vocion'` — the control-plane credential. An app (FirstHQ) or
- *     a client integration authenticates with `vcn_live_<id>_<secret>`; we store
- *     only the SHA-256 of the secret. The token carries an authz role + optional
- *     grants, so its mutations route through the same permission model as
- *     everything else. See firsthq/docs/platform-plan.md §5.
+ *     a client integration authenticates with `vcn_live_<id>_<secret>`. We store
+ *     the SHA-256 of the secret, which is what authenticates a request, and the
+ *     whole token encrypted, which is what lets an admin read it back. The token
+ *     carries an authz role + optional grants, so its mutations route through
+ *     the same permission model as everything else. See
+ *     firsthq/docs/platform-plan.md §5.
  *   - any other platform — a key the org supplied for a third party (OpenAI,
  *     Anthropic, …), encrypted at rest with the same per-org DEK that protects
  *     `source_credential`. Vocion decrypts it to call out on the org's behalf,
  *     so the org's own account is billed. These rows never authenticate anybody
  *     into* Vocion; `verifyToken` refuses them outright.
  *
- * The `api_token_shape_ck` constraint keeps the two shapes from mixing.
+ * The `api_token_shape_ck` constraint keeps the two shapes from mixing, and the
+ * `api_token_platform_immutable_tg` trigger (migration 0069) stops a row
+ * crossing from one to the other after it is written. The trigger is needed
+ * because a minted row now carries ciphertext too, so a rewritten `platform`
+ * alone would leave a row the constraint happily accepts as a supplied key.
  */
 export const apiTokenSchema = pgTable(
   'api_token',

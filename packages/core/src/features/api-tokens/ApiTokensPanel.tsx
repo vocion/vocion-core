@@ -261,6 +261,10 @@ function FreshTokenNotice({ fresh, onDismiss }: { fresh: FreshToken; onDismiss: 
  * @param status - The refusal the reveal route returned.
  */
 function revealRefusalMessage(status: 'not-found' | 'minted'): string {
+  // `minted` is a defensive case rather than one a click normally reaches: the
+  // show button only renders for a row the list already said is revealable. It
+  // is still worth a real sentence, because a tab left open while the token was
+  // revoked and re-created elsewhere can get here.
   if (status === 'minted') {
     return 'Issued before tokens were stored encrypted — only a hash exists. Revoke it and create a new one to get a token you can read back.';
   }
@@ -322,9 +326,13 @@ function CredentialKeyCell({
   if (!token.revealable) {
     return (
       <TableCell className="max-w-72 font-mono text-xs text-muted-foreground">
-        <span title="Issued before Vocion stored minted tokens encrypted. Only a hash exists, so it cannot be shown again.">
-          Shown once at creation
-        </span>
+        <p>Shown once at creation</p>
+        {/* The way out has to be readable, not parked in a tooltip: a title
+            attribute never reaches somebody navigating by keyboard, and this
+            row is otherwise a dead end. */}
+        <p className="font-sans">
+          Revoke it and create a new one to get a token you can show again.
+        </p>
       </TableCell>
     );
   }
