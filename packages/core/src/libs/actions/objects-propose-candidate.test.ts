@@ -542,6 +542,30 @@ describe('the queue behaviour', () => {
     expect(proposed.status).toBe('pending');
   });
 
+  it('refuses an ungranted caller even when the item already exists', async () => {
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate(),
+    });
+    const outsider: Principal = { kind: 'agent', id: 'agent:nobody', grants: [], autonomy: 2, scope: { orgId: ORG } };
+
+    // The refresh path writes to the queue item AND the candidate row, so
+    // permission has to be settled before it, not after.
+    await expect(proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: outsider,
+      input: candidate({ title: 'Rewritten by someone with no grant' }),
+    })).rejects.toThrow(/Not allowed to run/);
+
+    const [object] = await objectsFor();
+
+    expect(object!.title).toBe('Open Mic Night');
+    expect(object!.reviewActionRunId).toBe(proposed.runId);
+  });
+
   it('cannot be auto-approved by a trust rule, however confident the agent is', async () => {
     await db.insert(trustRuleSchema).values({
       orgId: ORG,
