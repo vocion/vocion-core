@@ -26,13 +26,22 @@
  */
 
 import type { PricingTier } from '../libs/pricing';
+import { Buffer } from 'node:buffer';
 import process from 'node:process';
+import { resolveLangfuseConfig } from '../libs/Langfuse/config';
 import { knownModels } from '../libs/pricing';
 
-const baseUrl = process.env.LANGFUSE_BASE_URL ?? 'http://localhost:3200';
-const publicKey = process.env.LANGFUSE_PUBLIC_KEY ?? 'pk-lf-vocion-demo';
-const secretKey = process.env.LANGFUSE_SECRET_KEY ?? 'sk-lf-vocion-demo';
+// Configuration comes from `libs/Langfuse/config.ts` — the one place
+// that decides whether tracing is on and with what credentials.
+const config = resolveLangfuseConfig();
+if (!config.enabled) {
+  throw new Error(
+    `Langfuse tracing is off (${config.reason}), so there is no instance to seed model prices into. `
+    + 'Set LANGFUSE_ENABLED=true with credentials, or start the local stack with `npm run dev:up`.',
+  );
+}
 
+const { baseUrl, publicKey, secretKey } = config;
 const auth = Buffer.from(`${publicKey}:${secretKey}`).toString('base64');
 
 const log = (...args: unknown[]) => {
