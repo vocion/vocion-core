@@ -474,6 +474,7 @@
     {
       "idx": 67,
       "version": "7",
+<<<<<<< HEAD
       "when": 1787287000000,
       "tag": "0067_api_token_platforms",
       "breakpoints": true
@@ -511,6 +512,10 @@
       "version": "7",
       "when": 1787287500000,
       "tag": "0072_business_object_candidate_corrections",
+=======
+      "when": 1787373300000,
+      "tag": "0067_conversation_scope_trace",
+>>>>>>> 8f34ed7e (feat(chat): conversation scope_ref + persisted turn trace (schema))
       "breakpoints": true
     }
   ]

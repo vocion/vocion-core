@@ -1143,6 +1143,14 @@ export const conversationSchema = pgTable(
     agentSlug: text('agent_slug').notNull(),
     title: text('title').notNull(),
     createdBy: text('created_by'),
+    /**
+     * The record this conversation is scoped to, when it was opened from a
+     * record page's dock — the CRM mirror ref (e.g. `contacts:9412`). Null
+     * for everything-scoped conversations (the full-page chat, the bubble).
+     * Scoped conversations are per user and never shared: resume filters on
+     * (orgId, scopeRef, createdBy). See agent-chat-surface.md §3.1, §8.6.
+     */
+    scopeRef: text('scope_ref'),
     messageCount: integer('message_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -1152,6 +1160,7 @@ export const conversationSchema = pgTable(
   },
   table => [
     uniqueIndex('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
+    index('conversation_org_scope_idx').on(table.orgId, table.scopeRef, table.updatedAt),
   ],
 );
 
@@ -1186,6 +1195,29 @@ export const conversationMessageSchema = pgTable('conversation_message', {
     blurb: string;
     citationIndex?: number;
     foundBy?: string;
+  }>>(),
+  /**
+   * The turn's typed activity trace (the TraceNode tree the UI folds from
+   * `trace_node` SSE events) persisted with the message, so the transcript's
+   * expanded levels — the steps and their payloads — survive reload and
+   * resume instead of existing only in the live stream. Nullable for user
+   * turns + rows written before this column.
+   */
+  traceJson: jsonb('trace_json').$type<Array<{
+    id: string;
+    parentId?: string;
+    actor: { id: string; kind: string; name: string };
+    kind: string;
+    status: string;
+    label: string;
+    detail?: string;
+    tool?: string;
+    args?: string;
+    resultDetail?: string;
+    text?: string;
+    result?: string;
+    confidence?: number;
+    citations?: Array<{ sourceType: string; title: string; link?: string; snippet?: string; actorId: string }>;
   }>>(),
   /**
    * Per-message Langfuse trace id for the assistant turn that
