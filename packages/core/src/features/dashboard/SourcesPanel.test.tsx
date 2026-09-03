@@ -18,10 +18,11 @@ type ConnectorFixture = {
   description: string;
   icon: string;
   authKind: 'none' | 'apikey' | 'oauth';
+  credentialPlatform: string | null;
 };
 
 function connector(slug: string, name: string, description: string): ConnectorFixture {
-  return { slug, name, description, icon: name, authKind: 'apikey' };
+  return { slug, name, description, icon: name, authKind: 'apikey', credentialPlatform: null };
 }
 
 /**
@@ -87,7 +88,7 @@ function notEnumerable(checks: Inspection['checks']): Inspection {
  * Stand in for the endpoints the panel talks to, recording what it posts.
  * @param connectors - Tiles the picker should offer.
  * @param inspections - Replies for successive /rpc/connectors/strapi/inspect calls; the last repeats.
- * @param options - `inspectRejection` makes every inspect call fail with that message, as the route does for a URL with no scheme; `storedToken` is what the credential read returns.
+ * @param options - `inspectRejection` makes every inspect call fail with that message, as the route does for a URL with no scheme; `storedToken` and `storedBaseUrl` are what the credential read returns; `available` is what the workspace already holds for the platform, and `linkedCredentialId` which of those the install points at.
  * @param options.inspectRejection
  */
 type SourceFixture = {
@@ -103,6 +104,7 @@ type SourceFixture = {
   documentCount: number;
   credentialConnected: boolean;
   credentialUpdatedAt: string | null;
+  credentialBroken: 'revoked' | 'expired' | 'missing' | null;
   sync: {
     status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
     startedAt: string;
@@ -130,6 +132,7 @@ function sourceRow(sync: SourceFixture['sync']): SourceFixture {
     documentCount: 0,
     credentialConnected: true,
     credentialUpdatedAt: '2026-08-01T00:00:00.000Z',
+    credentialBroken: null,
     sync,
   };
 }
@@ -137,7 +140,17 @@ function sourceRow(sync: SourceFixture['sync']): SourceFixture {
 function stubSourcesApi(
   connectors: ConnectorFixture[],
   inspections: Inspection[] = [],
-  options: { inspectRejection?: string; sources?: SourceFixture[]; storedToken?: string } = {},
+  options: {
+    inspectRejection?: string;
+    sources?: SourceFixture[];
+    storedToken?: string;
+    /** Instance URL held in the credential, alongside its token. */
+    storedBaseUrl?: string;
+    /** The stored credential the install points at, when it points at one. */
+    linkedCredentialId?: string;
+    /** Credentials the workspace already holds for this platform. */
+    available?: { id: string; name: string; keyHint: string | null; expiresAt: string | null }[];
+  } = {},
 ) {
   const posts: { url: string; body: Record<string, unknown> }[] = [];
   let inspectCall = 0;
@@ -164,8 +177,25 @@ function stubSourcesApi(
     }
     if (/^\/rpc\/sources\/\d+\/credentials$/.test(url) && (init?.method ?? 'GET') === 'GET') {
       posts.push({ url: `GET ${url}`, body: {} });
+      const stored = options.storedToken === undefined
+        ? null
+        : {
+            token: options.storedToken,
+            ...(options.storedBaseUrl === undefined ? {} : { baseUrl: options.storedBaseUrl }),
+          };
       return new Response(
-        JSON.stringify({ credentials: options.storedToken === undefined ? null : { token: options.storedToken } }),
+        JSON.stringify({
+          credentials: stored,
+          available: options.available ?? [],
+          linkedCredentialId: options.linkedCredentialId ?? null,
+          platform: 'strapi',
+          platformLabel: 'Strapi',
+          helpText: 'A Strapi API token.',
+          fields: [
+            { name: 'baseUrl', label: 'Instance URL', shapeHint: 'starts with http:// or https://', secret: false },
+            { name: 'token', label: 'API token', shapeHint: 'is any non-empty token', secret: true },
+          ],
+        }),
         { status: 200 },
       );
     }
@@ -452,10 +482,11 @@ describe('add Strapi source', () => {
 
     const create = posts.find(post => post.url === '/rpc/sources')!;
 
+    // No `baseUrl` in the config: a Strapi token only works against the
+    // instance that issued it, so the URL is part of the credential.
     expect(create.body).toEqual({
       kind: 'strapi',
       configJson: {
-        baseUrl: 'https://cms.partner.org',
         collections: ['events', 'organizers'],
         populate: '*',
         pageSize: 100,
@@ -464,7 +495,9 @@ describe('add Strapi source', () => {
 
     const credential = posts.find(post => post.url === '/rpc/sources/7/credentials')!;
 
-    expect(credential.body).toEqual({ credentials: { token: 'tok-123' } });
+    expect(credential.body).toEqual({
+      credentials: { baseUrl: 'https://cms.partner.org', token: 'tok-123' },
+    });
   });
 
   it('keeps the typed list and reports on each name when the instance cannot be enumerated', async () => {
@@ -949,10 +982,12 @@ describe('the stored token on an edit', () => {
     await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
   });
 
-  it('writes no new credential when the loaded token is left alone', async () => {
+  it('writes no new credential when the loaded credential is left alone', async () => {
     const posts = stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
       sources: [sourceRow(null)],
       storedToken: 'stored-tok-123',
+      storedBaseUrl: 'https://cms.partner.org',
+      linkedCredentialId: 'cred_a',
     });
     renderPanel();
 
@@ -984,6 +1019,62 @@ describe('the stored token on an edit', () => {
     await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(1));
   });
 
+  it('rotates the credential the install points at instead of adding another', async () => {
+    // The row id has to survive: every install pointing at this credential
+    // resolves through that id, so storing a second row would leave them all
+    // on the old key and pile up a Strapi credential per edit.
+    const posts = stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [sourceRow(null)],
+      storedToken: 'stored-tok-123',
+      storedBaseUrl: 'https://cms.partner.org',
+      linkedCredentialId: 'cred_a',
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
+
+    await userEvent.fill(page.getByLabelText(/API token/), 'replacement-tok');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(1));
+
+    const credential = posts.find(post => post.url === '/rpc/sources/1/credentials')!;
+
+    expect(credential.body).toEqual({
+      apiTokenId: 'cred_a',
+      credentials: { baseUrl: 'https://cms.partner.org', token: 'replacement-tok' },
+    });
+  });
+
+  it('writes the credential when the instance URL changes and the token does not', async () => {
+    // The URL is half of the same credential — a token that moved instance is
+    // a new credential even if the secret is unchanged.
+    const posts = stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [sourceRow(null)],
+      storedToken: 'stored-tok-123',
+      storedBaseUrl: 'https://cms.partner.org',
+      linkedCredentialId: 'cred_a',
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveValue('stored-tok-123');
+
+    await userEvent.fill(page.getByLabelText(/Strapi URL/), 'https://cms.moved.example');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(1));
+
+    const credential = posts.find(post => post.url === '/rpc/sources/1/credentials')!;
+
+    expect(credential.body).toMatchObject({
+      credentials: { baseUrl: 'https://cms.moved.example' },
+    });
+  });
+
   it('says so rather than showing an empty field when the stored token cannot be read', async () => {
     const fetchStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : String(input);
@@ -1004,5 +1095,113 @@ describe('the stored token on an edit', () => {
     await page.getByRole('button', { name: 'Edit' }).click();
 
     await expect.element(page.getByRole('alert')).toHaveTextContent(/could not be decrypted/);
+  });
+});
+
+describe('connecting a connector to a stored credential', () => {
+  /** A source with no credential yet, so the row offers Connect. */
+  function unconnectedSource(): SourceFixture {
+    return { ...sourceRow(null), credentialConnected: false };
+  }
+
+  it('offers the credentials the workspace already holds', async () => {
+    // The point of the ticket: a key typed once under API credentials is
+    // offered here rather than asked for a second time.
+    stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [unconnectedSource()],
+      available: [{ id: 'cred_a', name: 'Strapi — prod', keyHint: '…aaaa', expiresAt: null }],
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Connect' }).click();
+
+    await expect.element(page.getByText('Strapi — prod')).toBeVisible();
+    await expect.element(page.getByText('…aaaa')).toBeVisible();
+  });
+
+  it('links the picked credential without pasting anything', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [unconnectedSource()],
+      available: [{ id: 'cred_a', name: 'Strapi — prod', keyHint: '…aaaa', expiresAt: null }],
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Connect' }).click();
+    await page.getByRole('button', { name: 'Use this credential' }).click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(1));
+
+    const post = posts.find(post => post.url === '/rpc/sources/1/credentials')!;
+
+    expect(post.body).toEqual({ apiTokenId: 'cred_a' });
+  });
+
+  it('stores a supplied credential under a name, so the next connector can reuse it', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [unconnectedSource()],
+      available: [{ id: 'cred_a', name: 'Strapi — prod', keyHint: '…aaaa', expiresAt: null }],
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Connect' }).click();
+    await page.getByRole('radio', { name: 'Add a new credential' }).click();
+
+    await userEvent.fill(page.getByLabelText('Credential name'), 'Strapi — staging');
+    await userEvent.fill(page.getByLabelText('Instance URL'), 'https://cms.staging.example');
+    await userEvent.fill(page.getByLabelText('API token'), 'staging-token');
+    await page.getByRole('button', { name: 'Save credential' }).click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(1));
+
+    const post = posts.find(post => post.url === '/rpc/sources/1/credentials')!;
+
+    expect(post.body).toEqual({
+      credentials: { baseUrl: 'https://cms.staging.example', token: 'staging-token' },
+      credentialName: 'Strapi — staging',
+    });
+  });
+
+  it('leaves a non-secret field readable while it is typed', async () => {
+    // Masking an instance URL only makes a typo harder to see.
+    stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [unconnectedSource()],
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Connect' }).click();
+
+    await expect.element(page.getByLabelText('Instance URL')).toHaveAttribute('type', 'text');
+    await expect.element(page.getByLabelText('API token')).toHaveAttribute('type', 'password');
+  });
+});
+
+describe('a credential that cannot be used', () => {
+  it('says the credential was revoked rather than asking for one', async () => {
+    // Three states, not two: this connector does not need a key pasted, it
+    // needs the key it already names put back in service.
+    stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [{ ...sourceRow(null), credentialConnected: false, credentialBroken: 'revoked' }],
+    });
+    renderPanel();
+
+    await expect.element(page.getByText('Credential revoked')).toBeVisible();
+  });
+
+  it('says expired when that is what happened', async () => {
+    stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [{ ...sourceRow(null), credentialConnected: false, credentialBroken: 'expired' }],
+    });
+    renderPanel();
+
+    await expect.element(page.getByText('Credential expired')).toBeVisible();
+  });
+
+  it('still asks for a credential when nobody has connected the source', async () => {
+    stubSourcesApi(CONNECTORS, [enumerated(['events'])], {
+      sources: [{ ...sourceRow(null), credentialConnected: false, credentialBroken: null }],
+    });
+    renderPanel();
+
+    await expect.element(page.getByText('Needs credentials')).toBeVisible();
   });
 });
