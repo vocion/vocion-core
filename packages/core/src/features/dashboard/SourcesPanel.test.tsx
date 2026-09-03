@@ -1313,3 +1313,113 @@ describe('a connector whose credential was revoked', () => {
     await expect.element(page.getByLabelText('Instance URL')).toBeVisible();
   });
 });
+
+/**
+ * What happens to a Strapi connector that existed before the instance URL
+ * moved out of its config.
+ *
+ * This is the upgrade path, and the only one where a working connector could
+ * be taken offline by the release: its config holds the URL, its token sits in
+ * the vault, and saving an edit replaces the whole config. Dropping the URL
+ * without putting it in a credential would leave it in neither place, and
+ * every sync would refuse.
+ */
+describe('editing a connector set up before the URL moved', () => {
+  /** A Strapi row whose instance URL still lives in its config. */
+  function legacyStrapiRow(): SourceFixture {
+    return {
+      ...sourceRow(null),
+      config: { _connector: 'strapi', baseUrl: 'https://cms.partner.org', collections: ['events'] },
+    };
+  }
+
+  it('stores the credential before replacing the config', async () => {
+    // Order is the whole point. The config write is what drops the legacy
+    // URL, so it must not happen until the credential holding it is safe.
+    const posts = stubSourcesApi(CONNECTORS, [], {
+      sources: [legacyStrapiRow()],
+      storedToken: 'tok-legacy',
+    });
+    renderPanel();
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveValue('tok-legacy');
+
+    await userEvent.fill(page.getByLabelText(/API token/), 'tok-rotated');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await vi.waitFor(() => {
+      const writes = posts.filter(post => !post.url.startsWith('GET '));
+
+      expect(writes.map(post => post.url)).toEqual([
+        '/rpc/sources/1/credentials',
+        '/rpc/sources/1',
+      ]);
+    });
+  });
+
+  it('puts the instance URL in the credential it writes', async () => {
+    const posts = stubSourcesApi(CONNECTORS, [], {
+      sources: [legacyStrapiRow()],
+      storedToken: 'tok-legacy',
+    });
+    renderPanel();
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveValue('tok-legacy');
+
+    await userEvent.fill(page.getByLabelText(/API token/), 'tok-rotated');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await vi.waitFor(() => {
+      const credentialWrite = posts.find(post => post.url === '/rpc/sources/1/credentials' && !post.url.startsWith('GET '));
+
+      expect(credentialWrite?.body).toMatchObject({
+        credentials: { baseUrl: 'https://cms.partner.org', token: 'tok-rotated' },
+      });
+    });
+  });
+
+  it('keeps the URL in the config when no credential is written for it', async () => {
+    // The token could not be read — a vault key problem, say — so the field is
+    // empty and nothing will hold the URL. It has to stay where it is, or a
+    // connector that was syncing stops.
+    const posts = stubSourcesApi(CONNECTORS, [], { sources: [legacyStrapiRow()] });
+    renderPanel();
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByLabelText(/Strapi URL/)).toHaveValue('https://cms.partner.org');
+
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await vi.waitFor(() => {
+      const configWrite = posts.find(post => post.url === '/rpc/sources/1');
+
+      expect(configWrite?.body).toMatchObject({
+        configJson: { baseUrl: 'https://cms.partner.org', collections: ['events'] },
+      });
+    });
+  });
+
+  it('leaves the URL out of the config once a credential holds it', async () => {
+    // The migrated shape: one place claims which instance the token is for.
+    const posts = stubSourcesApi(CONNECTORS, [], {
+      sources: [legacyStrapiRow()],
+      storedToken: 'tok-legacy',
+      storedBaseUrl: 'https://cms.partner.org',
+    });
+    renderPanel();
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect.element(page.getByLabelText(/API token/)).toHaveValue('tok-legacy');
+
+    await userEvent.fill(page.getByLabelText(/API token/), 'tok-rotated');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await vi.waitFor(() => {
+      const configWrite = posts.find(post => post.url === '/rpc/sources/1');
+
+      expect(configWrite?.body.configJson).not.toHaveProperty('baseUrl');
+    });
+  });
+});
