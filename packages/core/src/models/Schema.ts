@@ -1733,17 +1733,23 @@ export const sourceSyncCheckpointSchema = pgTable(
  * (see `libs/platforms/registry.ts`):
  *
  *   - `platform = 'vocion'` — the control-plane credential. An app (FirstHQ) or
- *     a client integration authenticates with `vcn_live_<id>_<secret>`; we store
- *     only the SHA-256 of the secret. The token carries an authz role + optional
- *     grants, so its mutations route through the same permission model as
- *     everything else. See firsthq/docs/platform-plan.md §5.
+ *     a client integration authenticates with `vcn_live_<id>_<secret>`. We store
+ *     the SHA-256 of the secret, which is what authenticates a request, and the
+ *     whole token encrypted, which is what lets an admin read it back. The token
+ *     carries an authz role + optional grants, so its mutations route through
+ *     the same permission model as everything else. See
+ *     firsthq/docs/platform-plan.md §5.
  *   - any other platform — a key the org supplied for a third party (OpenAI,
  *     Anthropic, …), encrypted at rest with the same per-org DEK that protects
  *     `source_credential`. Vocion decrypts it to call out on the org's behalf,
  *     so the org's own account is billed. These rows never authenticate anybody
  *     into* Vocion; `verifyToken` refuses them outright.
  *
- * The `api_token_shape_ck` constraint keeps the two shapes from mixing.
+ * The `api_token_shape_ck` constraint keeps the two shapes from mixing, and the
+ * `api_token_platform_immutable_tg` trigger (migration 0069) stops a row
+ * crossing from one to the other after it is written. The trigger is needed
+ * because a minted row now carries ciphertext too, so a rewritten `platform`
+ * alone would leave a row the constraint happily accepts as a supplied key.
  */
 export const apiTokenSchema = pgTable(
   'api_token',
@@ -1755,20 +1761,26 @@ export const apiTokenSchema = pgTable(
     /** Which platform this credential belongs to. See `CredentialPlatformId`. */
     platform: text('platform').default('vocion').notNull(),
     /**
-     * SHA-256 hex of the secret half. The plaintext is shown once, at issue.
-     * Set only on `vocion` rows — a supplied third-party key is stored
-     * encrypted below instead, because we have to be able to read it back.
+     * SHA-256 hex of the secret half, compared on every authenticated request.
+     * Set only on `vocion` rows — a supplied third-party key never
+     * authenticates into Vocion, so it has nothing to hash.
      */
     secretHash: text('secret_hash'),
-    /** FK to the DEK that encrypted `ciphertext`. Null on `vocion` rows. */
+    /**
+     * FK to the DEK that encrypted `ciphertext`. Null on a `vocion` row issued
+     * before minted tokens were kept encrypted.
+     */
     dekId: integer('dek_id').references(() => sourceDekSchema.id, { onDelete: 'restrict' }),
-    /** AES-256-GCM ciphertext of the supplied key. Null on `vocion` rows. */
+    /**
+     * AES-256-GCM ciphertext — the supplied key, or the whole minted token so
+     * the dashboard can show it again. Null on older `vocion` rows.
+     */
     ciphertext: text('ciphertext'),
     /** AES-256-GCM nonce (12 bytes, base64). */
     nonce: text('nonce'),
     /** AES-256-GCM auth tag (16 bytes, base64). */
     authTag: text('auth_tag'),
-    /** Masked tail of a supplied key, e.g. `…4a9F`, for display only. */
+    /** Masked tail of the credential, e.g. `…4a9F`, for display only. */
     keyHint: text('key_hint'),
     /** authz workspace role the token acts as. */
     role: text('role').default('owner').notNull(),
@@ -1797,19 +1809,32 @@ export const apiTokenSchema = pgTable(
       .on(table.orgId, table.platform)
       .where(sql`${table.revokedAt} is null and ${table.platform} <> 'vocion'`),
     // The two credential shapes must never mix. A `vocion` row carries a secret
-    // hash and no ciphertext; anything else carries ciphertext with everything
-    // needed to decrypt it, and no hash. Enforced in the database because a
-    // half-written row here is a credential that can either not be verified or
-    // not be decrypted, and neither failure shows up until someone tries to use
-    // it. Declared here as well as in migration 0066 so that `drizzle-kit
-    // generate` can see it and does not propose dropping it later.
+    // hash, and either a complete set of encryption columns or none of them —
+    // none being a token issued before minted tokens were stored encrypted.
+    // Anything else carries ciphertext with everything needed to decrypt it and
+    // no hash. Enforced in the database because a half-written row here is a
+    // credential that can either not be verified or not be decrypted, and
+    // neither failure shows up until someone tries to use it. Declared here as
+    // well as in migrations 0067 and 0068 so that `drizzle-kit generate` can see
+    // it and does not propose dropping it later.
     check(
       'api_token_shape_ck',
       sql`(
       ${table.platform} = 'vocion'
       and ${table.secretHash} is not null
-      and ${table.ciphertext} is null
-      and ${table.dekId} is null
+      and (
+        (
+          ${table.ciphertext} is null
+          and ${table.nonce} is null
+          and ${table.authTag} is null
+          and ${table.dekId} is null
+        ) or (
+          ${table.ciphertext} is not null
+          and ${table.nonce} is not null
+          and ${table.authTag} is not null
+          and ${table.dekId} is not null
+        )
+      )
     ) or (
       ${table.platform} <> 'vocion'
       and ${table.secretHash} is null
