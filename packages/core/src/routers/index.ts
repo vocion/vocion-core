@@ -77,6 +77,7 @@ import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
 import {
+  actionStatusRoute,
   cancel,
   decideActionRoute,
   getWorkflowRunRoute,
@@ -218,6 +219,7 @@ export const router = {
     propose: proposeFromRecommendationRoute,
     recordSignal: recordSignalRoute,
     rewriteDraft: rewriteDraftRoute,
+    actionStatus: actionStatusRoute,
     submitFeedback,
     listWorkflowRuns: listWorkflowRunsRoute,
     getWorkflowRun: getWorkflowRunRoute,

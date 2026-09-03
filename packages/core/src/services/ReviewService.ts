@@ -763,6 +763,7 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
  * @param opts.runId
  * @param opts.hint
  * @param opts.userId
+ * @param opts.contentId
  */
 export async function rewriteDraft(opts: {
   orgId: string;
@@ -775,9 +776,9 @@ export async function rewriteDraft(opts: {
    * sequence has several, and a guided review asks about one at a time.
    */
   contentId?: string;
-}): Promise<{ input: Record<string, unknown>; body: string; contentId?: string }> {
+}): Promise<{ input: Record<string, unknown>; body: string; contentId?: string; prior: string; discardedEdit?: string }> {
   const [run] = await db
-    .select({ input: actionRunSchema.input, actionId: actionRunSchema.actionId })
+    .select({ input: actionRunSchema.input, actionId: actionRunSchema.actionId, revisions: actionRunSchema.revisions })
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId), eq(actionRunSchema.status, 'pending')))
     .limit(1);
@@ -817,6 +818,35 @@ export async function rewriteDraft(opts: {
     rewritten = original;
   }
   await recordActionSignal({ orgId: opts.orgId, runId: opts.runId, signal: 'rewrite', userId: opts.userId, hint: opts.hint });
+  // The audit record of the rewrite. The DRAFT is still untouched (the
+  // reviewer carries the copy and passes it back on approve); this records
+  // what was asked and what came back so the recap's before/after is readable
+  // after the fact. A rewrite that changed nothing records nothing — the
+  // recap must never claim a change the reviewer never got. A rewrite always
+  // regenerates from the stored draft, so a prior revision on the same
+  // content is discarded by it: that body is kept as `discardedEdit` and the
+  // caller is told, so the card can say so.
+  let discardedEdit: string | undefined;
+  if (rewritten.trim() !== original.trim()) {
+    const existing = run.revisions ?? [];
+    const priorForContent = existing.filter(r => (opts.contentId ? r.contentId === opts.contentId : r.contentId === undefined));
+    discardedEdit = priorForContent.length > 0 ? priorForContent[priorForContent.length - 1]!.body : undefined;
+    await db
+      .update(actionRunSchema)
+      .set({
+        revisions: [...existing, {
+          ...(opts.contentId ? { contentId: opts.contentId } : {}),
+          ...(targetStep !== null ? { step: targetStep } : {}),
+          version: priorForContent.length + 2,
+          body: rewritten,
+          ...(opts.hint ? { ask: opts.hint } : {}),
+          ...(discardedEdit !== undefined ? { discardedEdit } : {}),
+          at: new Date().toISOString(),
+          ...(opts.userId ? { by: opts.userId } : {}),
+        }],
+      })
+      .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)));
+  }
   if (targetSend && sends) {
     // The caller holds the revision and passes it back on approve, the same
     // edit-then-approve path the card already uses — nothing is persisted
@@ -828,13 +858,15 @@ export async function rewriteDraft(opts: {
       },
       body: rewritten,
       contentId: opts.contentId,
+      prior: original,
+      ...(discardedEdit !== undefined ? { discardedEdit } : {}),
     };
   }
   if (input.body === undefined && input.notes === undefined && props.notes !== undefined) {
-    return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten };
+    return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}) };
   }
   const key = input.body !== undefined ? 'body' : 'notes';
-  return { input: { ...input, [key]: rewritten }, body: rewritten };
+  return { input: { ...input, [key]: rewritten }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}) };
 }
 
 /**

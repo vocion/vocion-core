@@ -12,7 +12,7 @@ vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
 const { actionRunSchema } = await import('@/models/Schema');
 const { registerAction } = await import('@/libs/actions/registry');
-const { proposeAction, executeAction } = await import('@/services/ActionService');
+const { proposeAction, executeAction, rejectAction } = await import('@/services/ActionService');
 const { eq } = await import('drizzle-orm');
 
 // Register a side-effect-free external action for the test.
@@ -81,6 +81,31 @@ describe('ActionService gating', () => {
 
     expect(done.status).toBe('done');
     expect(executed).toBe(1);
+  });
+
+  it('stamps who decided and when, on approve and on reject', async () => {
+    const approved = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'a' }, principal: agent(1) });
+    await executeAction(approved.runId, ORG, { reviewedBy: 'user-jamie' });
+    const [runA] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, approved.runId));
+
+    expect(runA).toMatchObject({ status: 'done', decidedBy: 'user-jamie' });
+    expect(runA!.decidedAt).toBeInstanceOf(Date);
+
+    const rejected = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'b' }, principal: agent(1) });
+    await rejectAction(rejected.runId, ORG, 'wrong angle', { reviewedBy: 'user-lili' });
+    const [runR] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, rejected.runId));
+
+    expect(runR).toMatchObject({ status: 'rejected', decidedBy: 'user-lili' });
+    expect(runR!.decidedAt).toBeInstanceOf(Date);
+  });
+
+  it('a machine execution with no reviewer stamps no decision', async () => {
+    const out = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'auto' }, principal: agent(5) });
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, out.runId));
+
+    expect(out.status).toBe('done');
+    expect(run!.decidedBy).toBeNull();
+    expect(run!.decidedAt).toBeNull();
   });
 
   it('validates input against the action schema', async () => {
