@@ -28,9 +28,11 @@ describe('WorkTimeline three-level transcript', () => {
     await render(<WorkTimeline runs={[]} streaming={false} trace={TRACE} />);
 
     await userEvent.click(page.getByRole('button', { name: /Searched the data room/ }));
+
     await expect.element(page.getByText('Found the precedent table')).toBeInTheDocument();
 
     await userEvent.click(page.getByRole('button', { name: /Edited proposal.md/ }));
+
     await expect.element(page.getByText('section 4 rewritten')).toBeInTheDocument();
   });
 
