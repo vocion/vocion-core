@@ -6,6 +6,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
+import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
 import { ChatBubble } from '@/features/dashboard/chat/ChatBubble';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
@@ -99,6 +100,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         })()}
         <WorkspaceDriftBanner />
         <ChatBubble agents={agents} />
+        <AgentSurfaceHotkey />
       </SidebarInset>
     </SidebarProvider>
   );

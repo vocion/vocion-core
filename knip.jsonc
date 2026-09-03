@@ -1,3 +1,5 @@
+// knip config. JSONC so an exception can say why it exists — a gate whose
+// entries nobody can explain is a gate people learn to bypass (ticket 046).
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "workspaces": {
@@ -5,9 +7,6 @@
       "entry": [
         "docker-compose.yml",
         "infra/**/*.{yml,yaml,sh,tf}"
-      ],
-      "ignore": [
-        "infra/terraform/**"
       ],
       "ignoreDependencies": [
         "conventional-changelog-conventionalcommits",
@@ -17,19 +16,11 @@
     "packages/core": {
       "entry": [
         "src/app/**/{page,layout,route,loading,error,not-found,sitemap,robots,opengraph-image,twitter-image,icon,apple-icon}.{ts,tsx}",
-        "src/middleware.ts",
         "src/instrumentation*.ts",
         "src/scripts/*.ts",
-        "src/interfaces/mcp/bin.ts",
-        "src/{global,sentry.client,sentry.server,sentry.edge}.ts",
         "tests/**/*.{ts,tsx}",
         ".storybook/**/*.{ts,tsx}",
-        "next.config.ts",
-        "drizzle.config.ts",
-        "vitest.config.mts",
-        "playwright.config.ts",
         "checkly.config.ts",
-        "postcss.config.mjs",
         "src/libs/workspace/ext-stub/registry.tsx"
       ],
       "project": [
@@ -44,13 +35,11 @@
         "src/features/dashboard/DraftCard.tsx",
         "src/features/dashboard/EmailDraftCard.tsx",
         "src/features/dashboard/ProposalCard.tsx",
-        "src/templates/**",
         "src/types/**",
         "src/libs/plugins/**",
         "src/libs/retrieval/**",
         "src/libs/llm/**",
         "src/libs/temporal/**",
-        "src/libs/Langfuse/**",
         "src/libs/crypto/**",
         "src/libs/docs/**",
         "src/libs/I18n.ts",
@@ -61,16 +50,13 @@
       ],
       "ignoreDependencies": [
         "@radix-ui/react-accordion",
-        "@radix-ui/react-label",
         "@radix-ui/react-popover",
         "@tanstack/react-table",
-        "radix-ui",
         "react-hook-form",
         "@swc/helpers",
         "@tailwindcss/typography",
         "tailwindcss",
         "tw-animate-css",
-        "@clerk/types",
         "@clerk/nextjs",
         "vite",
         "@wsx/registry"
@@ -78,9 +64,6 @@
       "includeEntryExports": false
     },
     "packages/sdk": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": [
         "src/**/*.ts"
       ],
@@ -89,9 +72,6 @@
       ]
     },
     "packages/plugins/*": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": [
         "src/**/*.ts"
       ]
@@ -100,8 +80,6 @@
   "ignoreBinaries": [
     "dotenv",
     "tofu",
-    "tsx",
-    "playwright",
     "production",
     "checkly",
     "stripe",

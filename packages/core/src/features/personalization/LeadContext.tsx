@@ -113,12 +113,17 @@ const BriefZone = ({ row }: { row: LeadDossier }) => (
                   <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                     {section.heading}
                   </h3>
+                  {/* Commentable region: the comment layer anchors into this
+                      element's text, keyed by the section heading (043). */}
                   {/* The skill writes markdown, so render it. Raw `**Name:**`
                       on the page is the reviewer reading the syntax instead of
                       the brief. `pre-line` keeps the single newlines the brief
                       writes one field per line; markdown would otherwise run
                       them into one paragraph. */}
-                  <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:whitespace-pre-line">
+                  <div
+                    data-comment-field={section.heading}
+                    className="prose prose-sm max-w-none dark:prose-invert [&_p]:whitespace-pre-line"
+                  >
                     <Markdown remarkPlugins={[remarkGfm]}>{section.body}</Markdown>
                   </div>
                 </section>
