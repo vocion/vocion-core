@@ -1536,6 +1536,12 @@ export const knowledgeSourceSchema = pgTable(
      * against production. Holding the link here is what lets each of them use
      * its own credential instead of all of them sharing the install's.
      *
+     * Unique where set (`knowledge_source_api_token_live_idx`): one credential
+     * belongs to one connector. A key is issued for the single instance or
+     * account its connector talks to, so a second connector naming it is
+     * somebody having picked the wrong row — and revoking it would then take
+     * down a connector nobody was looking at.
+     *
      * Null for every OAuth connector, which keeps its grant in
      * `source_credential`: a grant is issued to one installation, carries a
      * refresh token, and is not a value a person pastes, so there is nothing to
@@ -1564,7 +1570,11 @@ export const knowledgeSourceSchema = pgTable(
   },
   table => [
     uniqueIndex('knowledge_source_org_slug_idx').on(table.orgId, table.slug),
-    index('knowledge_source_api_token_idx').on(table.apiTokenId),
+    // Partial, so the many connectors using no stored credential are not all
+    // competing for one null. Doubles as the lookup index for the column.
+    uniqueIndex('knowledge_source_api_token_live_idx')
+      .on(table.apiTokenId)
+      .where(sql`${table.apiTokenId} is not null`),
   ],
 );
 
