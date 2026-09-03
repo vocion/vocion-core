@@ -16,8 +16,16 @@ export const Env = createEnv({
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     BILLING_PLAN_ENV: z.enum(['dev', 'test', 'prod']).default('dev'),
-    LANGFUSE_BASE_URL: z.string().default('http://localhost:3200'),
-    LANGFUSE_PROJECT_ID: z.string().default('demo'),
+    /**
+     * Langfuse. All four are optional here on purpose — whether tracing
+     * is on, and what the defaults are, is decided in one place:
+     * `libs/Langfuse/config.ts`. Declaring defaults here as well is how
+     * a production deployment ended up with a tracer pointed at
+     * localhost. Read them through `langfuseConfig()`, not directly.
+     */
+    LANGFUSE_ENABLED: z.string().optional(),
+    LANGFUSE_BASE_URL: z.string().optional(),
+    LANGFUSE_PROJECT_ID: z.string().optional(),
     LANGFUSE_PUBLIC_KEY: z.string().optional(),
     LANGFUSE_SECRET_KEY: z.string().optional(),
     /**
@@ -41,8 +49,13 @@ export const Env = createEnv({
     NEXT_PUBLIC_LOGGING_LEVEL: z.enum(['error', 'info', 'debug', 'warning', 'trace', 'fatal']).default('info'),
     NEXT_PUBLIC_BETTER_STACK_SOURCE_TOKEN: z.string().optional(),
     NEXT_PUBLIC_BETTER_STACK_INGESTING_HOST: z.string().optional(),
-    NEXT_PUBLIC_LANGFUSE_BASE_URL: z.string().default('http://localhost:3200'),
-    NEXT_PUBLIC_LANGFUSE_PROJECT_ID: z.string().default('demo'),
+    /**
+     * Browser-reachable mirrors of the two above, for "open this trace"
+     * links. Needed only when the app reaches Langfuse over a private
+     * hostname a browser cannot resolve, which is the self-hosted case.
+     */
+    NEXT_PUBLIC_LANGFUSE_BASE_URL: z.string().optional(),
+    NEXT_PUBLIC_LANGFUSE_PROJECT_ID: z.string().optional(),
   },
   shared: {
     NODE_ENV: z.enum(['test', 'development', 'production']).optional(),
@@ -56,6 +69,7 @@ export const Env = createEnv({
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
     BILLING_PLAN_ENV: process.env.BILLING_PLAN_ENV,
+    LANGFUSE_ENABLED: process.env.LANGFUSE_ENABLED,
     LANGFUSE_BASE_URL: process.env.LANGFUSE_BASE_URL,
     LANGFUSE_PROJECT_ID: process.env.LANGFUSE_PROJECT_ID,
     LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY,

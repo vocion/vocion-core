@@ -18,7 +18,7 @@
 
 import process from 'node:process';
 import OpenAI, { APIConnectionError } from 'openai';
-import { langfuse, traceFor } from '@/libs/Langfuse';
+import { flushTraces, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 import { hashKey, llmMode, pseudoVector, readEntry, writeEntry } from '@/libs/llm/replay';
@@ -310,7 +310,7 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
   } finally {
     // Fire-and-forget flush; embed() callers may run many times in
     // succession so we don't await the network round-trip.
-    void langfuse.flushAsync();
+    void flushTraces();
   }
   return out;
 }
