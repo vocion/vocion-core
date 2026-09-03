@@ -65,7 +65,7 @@ const {
   storeCredential,
   storedCredentialIdForSource,
 } = await import('@/services/SourceCredentialService');
-const { rotatePlatformCredential, revokeToken, storePlatformKey } = await import('@/services/ApiTokenService');
+const { listPlatformCredentials, rotatePlatformCredential, revokeToken, storePlatformKey } = await import('@/services/ApiTokenService');
 
 const ORG = 'org_cred_test';
 
@@ -776,5 +776,39 @@ describe('the index refusing a link the pre-check let through', () => {
 
     expect(attempts.filter(attempt => attempt.status === 'fulfilled')).toHaveLength(1);
     expect(holders).toHaveLength(1);
+  });
+});
+
+describe('a credential whose connector is deleted', () => {
+  const STRAPI = { baseUrl: 'https://cms.example.com', token: 'strapi-token-aaaa' };
+
+  it('becomes free for another connector to use', async () => {
+    // Deleting a connector must not strand its credential. Somebody removing
+    // a Strapi and adding it back should be offered the key they already
+    // typed, not told it is in use by a connector that no longer exists.
+    const first = await makeConnector('strapi', 'strapi-old');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi', platform: 'strapi', values: STRAPI });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: first, connectorSlug: 'strapi', apiTokenId: credential.id });
+
+    await db.delete(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.id, first));
+    const replacement = await makeConnector('strapi', 'strapi-new');
+
+    await expect(credentialIdsInUse(ORG)).resolves.toEqual([]);
+    await expect(linkSourceToStoredCredential({
+      orgId: ORG,
+      sourceId: replacement,
+      connectorSlug: 'strapi',
+      apiTokenId: credential.id,
+    })).resolves.toBeUndefined();
+  });
+
+  it('survives the delete, because the credential is the workspace\'s and not the connector\'s', async () => {
+    const sourceId = await makeConnector('strapi');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi', platform: 'strapi', values: STRAPI });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId, connectorSlug: 'strapi', apiTokenId: credential.id });
+
+    await db.delete(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.id, sourceId));
+
+    await expect(listPlatformCredentials(ORG, 'strapi')).resolves.toHaveLength(1);
   });
 });

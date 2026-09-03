@@ -423,6 +423,32 @@ type PlatformField = {
 };
 
 /**
+ * Which credential the dialog opens on.
+ *
+ * The one the connector already names, when the workspace is still offering
+ * it — that is the answer needing no typing. When it is not offered, nothing
+ * is preselected: a connector whose credential was revoked still names it, and
+ * starting on it would show "nothing to change here" above a form with no
+ * fields and a button that fails. Nothing preselected puts the fields on
+ * screen, which is the only thing that fixes a revoked key.
+ *
+ * A connector naming nothing yet starts on the newest credential the
+ * workspace holds, or on the empty form when it holds none.
+ * @param linkedCredentialId - The credential this connector names, or null.
+ * @param offered - The credentials the workspace is offering for this platform.
+ */
+export function initialCredentialChoice(
+  linkedCredentialId: string | null,
+  offered: StoredCredentialOption[],
+): string | null {
+  if (linkedCredentialId !== null) {
+    const stillOffered = offered.some(option => option.id === linkedCredentialId);
+    return stillOffered ? linkedCredentialId : null;
+  }
+  return offered[0]?.id ?? null;
+}
+
+/**
  * The credential dialog: pick a credential the workspace already holds, or
  * supply one.
  *
@@ -473,9 +499,10 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
         setStored(data.available ?? []);
         setPlatformFields(Array.isArray(data.fields) && data.fields.length > 0 ? data.fields : null);
         setPlatformHelp(data.helpText ?? null);
-        // Default to the credential the connector already points at, then to
-        // the newest one the workspace holds — the answer that needs no typing.
-        setPickedCredentialId(data.linkedCredentialId ?? data.available?.[0]?.id ?? null);
+        setPickedCredentialId(initialCredentialChoice(
+          typeof data.linkedCredentialId === 'string' ? data.linkedCredentialId : null,
+          data.available ?? [],
+        ));
       } catch (err) {
         // Not fatal: the form still works by supplying a credential, which is
         // exactly what it did before there was anything to pick.
