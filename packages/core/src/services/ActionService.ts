@@ -81,6 +81,24 @@ export async function proposeAction(input: {
   // into the deterministic job's old behaviour instead of stacking queue items.
   const dedupKey = input.dedupKey ?? action.dedupKeyFor?.(parsed);
 
+  // Authorised BEFORE anything is written. The refresh path below updates a
+  // pending row and calls the action's `onProposed`, which can touch a domain
+  // record — deciding permission after that would let an ungranted caller
+  // rewrite what a reviewer is about to decide on.
+  let decision;
+  try {
+    decision = enforce(
+      input.principal,
+      { kind: 'action', action: action.grant, external: action.external, scope: { orgId: input.orgId } },
+      'mutate',
+    );
+  } catch (e) {
+    if (e instanceof AuthzDeniedError) {
+      throw new ActionError('FORBIDDEN', `Not allowed to run ${action.id}: ${e.decision.reason}`);
+    }
+    throw e;
+  }
+
   // Upsert-by-key: a re-surfaced owed action updates its existing PENDING row
   // rather than stacking duplicates in the queue. Only PENDING rows dedupe —
   // a decided (done/rejected) action can be proposed fresh later.
@@ -114,20 +132,6 @@ export async function proposeAction(input: {
       );
       return { runId: existing.id, status: 'pending' };
     }
-  }
-
-  let decision;
-  try {
-    decision = enforce(
-      input.principal,
-      { kind: 'action', action: action.grant, external: action.external, scope: { orgId: input.orgId } },
-      'mutate',
-    );
-  } catch (e) {
-    if (e instanceof AuthzDeniedError) {
-      throw new ActionError('FORBIDDEN', `Not allowed to run ${action.id}: ${e.decision.reason}`);
-    }
-    throw e;
   }
 
   const gated = decision.gate === 'approve';

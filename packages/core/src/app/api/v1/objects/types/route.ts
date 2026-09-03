@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { AuthzDeniedError, enforce } from '@/services/authz';
 import { createObjectType, getObjectTypeBySlug, listObjectTypes } from '@/services/BusinessObjectService';
 import { CreateObjectTypeValidation } from '@/validations/BusinessObjectValidation';
 import { authApi, isErrorResponse, jsonError, readJsonBody } from '../../_shared';
@@ -43,6 +44,17 @@ export async function POST(req: Request) {
   if (isErrorResponse(body)) {
     return body;
   }
+  // Registering a record shape is a workspace-level write, not a read — the
+  // same capability the queue writes require.
+  try {
+    enforce(auth.principal, { kind: 'action', action: 'approve', scope: { orgId: auth.orgId } }, 'mutate');
+  } catch (error) {
+    if (error instanceof AuthzDeniedError) {
+      return jsonError('FORBIDDEN', `Not allowed to register an object type: ${error.decision.reason}`, 403);
+    }
+    throw error;
+  }
+
   const parsed = CreateObjectTypeValidation.safeParse(body);
   if (!parsed.success) {
     return jsonError('VALIDATION_FAILED', parsed.error.issues.map(issue => issue.message).join('; '), 400);
