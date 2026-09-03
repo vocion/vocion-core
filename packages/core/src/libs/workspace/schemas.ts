@@ -46,6 +46,23 @@ export const WorkspaceManifestSchema = z.object({
   defaults: z.object({
     model: z.string().optional(),
     temperature: z.string().optional(),
+    /**
+     * Which vendor produces this workspace's embeddings, and which model.
+     * Omitted keys fall back to `VOCION_EMBEDDING_PROVIDER` /
+     * `VOCION_EMBEDDING_MODEL`, then to OpenAI.
+     *
+     * Set here — at the workspace — and deliberately not on an agent. A query
+     * vector is only comparable to vectors produced by the same model, so an
+     * agent embedding its queries on a different provider from the one that
+     * ingested the documents would quietly return worse search results with no
+     * error to point at. `harness.modelProvider` covers the per-agent case for
+     * chat models, where no such coupling exists.
+     *
+     * Changing this on a workspace that already holds chunks means re-embedding
+     * them; a model of a different vector width means a schema migration too.
+     */
+    embeddingProvider: z.enum(['openai', 'bedrock']).optional(),
+    embeddingModel: z.string().optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see
@@ -208,8 +225,14 @@ export const AgentManifestSchema = z.object({
    * human approval (via the hitl_gate flow) before executing;
    * `maxTokens` caps the model's output tokens; `excludeTools`
    * withholds built-in tools by name (e.g. `propose_action` for agents
-   * that should have no CRM-write surface at all); `model`
-   * (agentcore/runtime) overrides the model id.
+   * that should have no CRM-write surface at all); `model` overrides the
+   * model id; `modelProvider` overrides which vendor serves it.
+   *
+   * `provider` and `modelProvider` are different axes and are easy to
+   * confuse. `provider` is *where the loop runs*; `modelProvider` is *whose
+   * model answers*. An agent with `provider: local` and
+   * `modelProvider: bedrock` runs the in-process loop and reaches Amazon
+   * Bedrock for inference, spending the org's own stored AWS key.
    */
   harness: z.object({
     provider: z.enum(['local', 'agentcore', 'runtime']).default('local'),
@@ -224,6 +247,7 @@ export const AgentManifestSchema = z.object({
      */
     grantTools: z.array(z.string()).default([]),
     model: z.string().optional(),
+    modelProvider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
     /**
      * Structural guarantee for A2UI action cards: when true and a turn ends
      * with ZERO recommend_action calls, the runtime runs a small follow-up

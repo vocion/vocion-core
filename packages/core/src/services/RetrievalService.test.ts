@@ -34,7 +34,7 @@ vi.mock('@/libs/retrieval/embedder', () => {
 });
 
 vi.mock('@/libs/Langfuse', () => ({
-  langfuse: { flushAsync: vi.fn(async () => {}) },
+  flushTraces: vi.fn(async () => {}),
   traceFor: () => ({
     update: vi.fn(),
     generation: () => ({ end: vi.fn() }),

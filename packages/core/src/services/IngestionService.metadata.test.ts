@@ -18,7 +18,7 @@ const embed = vi.fn(async (texts: string[]) =>
 vi.mock('@/libs/retrieval/embedder', () => ({ embed: (t: string[]) => embed(t) }));
 
 vi.mock('@/libs/Langfuse', () => ({
-  langfuse: { flushAsync: vi.fn(async () => {}) },
+  flushTraces: vi.fn(async () => {}),
   traceFor: () => ({ update: vi.fn(), generation: () => ({ end: vi.fn() }) }),
 }));
 

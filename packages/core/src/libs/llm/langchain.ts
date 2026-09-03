@@ -12,9 +12,12 @@
  */
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { AwsCredentials } from '@/services/ApiTokenService';
 import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
+import { ChatBedrockConverse } from '@langchain/aws';
 import { ChatOpenAI } from '@langchain/openai';
+import { bedrockRegion, resolveBedrockCredentials } from './bedrockCredentials';
 import { resolveOrgProviderKey } from './orgKey';
 import { llmMode } from './replay';
 import { getReplayCache } from './replayCache';
@@ -27,7 +30,10 @@ import { getReplayCache } from './replayCache';
 export type ModelRole = 'main' | 'classifier' | 'embedder';
 
 /** Provider tag — narrow alphabet so the env validation is straightforward. */
-export type LangChainProvider = 'anthropic' | 'openai';
+export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock';
+
+/** Every value `VOCION_LLM_PROVIDER` may be set to, for validation + error text. */
+const PROVIDERS: readonly LangChainProvider[] = ['anthropic', 'openai', 'bedrock'];
 
 /** Defaults if the per-role / per-provider env vars are not set. */
 const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
@@ -44,7 +50,33 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
     classifier: 'gpt-4o-mini',
     embedder: 'text-embedding-3-small',
   },
+  // Bedrock model ids, unlike the other two providers', are not the plain model
+  // names. These are the US cross-region inference profiles (the `us.` prefix),
+  // and they are what the account must have model access granted for. Both
+  // Claude entries match `packages/agent-runtime/src/model.ts`, so an agent
+  // answers on the same model whichever harness ran it.
+  //
+  // Verified against the Bedrock model cards on 2026-09-03: Claude Sonnet 4.6
+  // is offered in us-east-1/us-west-2 only as a cross-region profile — there is
+  // no in-region id to fall back to — and both Claude models support Converse.
+  bedrock: {
+    main: 'us.anthropic.claude-sonnet-4-6',
+    classifier: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+    // Titan Text Embeddings G1. Named here for completeness, but the embedder
+    // role does not build a chat model — `libs/retrieval/embedder.ts` owns the
+    // embedding path and reads its own env var, because Titan speaks
+    // `InvokeModel` rather than Converse.
+    embedder: 'amazon.titan-embed-text-v1',
+  },
 };
+
+/**
+ * Whether a string is a provider we can build.
+ * @param value - The raw env value, already lowercased.
+ */
+function isLangChainProvider(value: string): value is LangChainProvider {
+  return (PROVIDERS as readonly string[]).includes(value);
+}
 
 /**
  * Pick the provider for a given role. Resolution order:
@@ -60,9 +92,9 @@ function resolveProvider(role: ModelRole): LangChainProvider {
   const roleSpecific = process.env[`VOCION_LLM_PROVIDER_${role.toUpperCase()}`];
   const fallback = process.env.VOCION_LLM_PROVIDER;
   const raw = (roleSpecific || fallback || 'anthropic').toLowerCase();
-  if (raw !== 'anthropic' && raw !== 'openai') {
+  if (!isLangChainProvider(raw)) {
     throw new Error(
-      `unknown llm provider "${raw}" for role ${role}; expected 'anthropic' or 'openai'`,
+      `unknown llm provider "${raw}" for role ${role}; expected one of ${PROVIDERS.join(', ')}`,
     );
   }
   return raw;
@@ -137,8 +169,23 @@ export type BuildChatModelOptions = {
    * Provider key to authenticate with. Wins over the env var, and is how an
    * org's own stored key reaches the model. Unset falls back to the server's
    * key, which is the right answer for any org that has not supplied one.
+   *
+   * Bedrock ignores this — its credential is a pair, so it reads
+   * `awsCredentials` instead.
    */
   apiKey?: string;
+  /**
+   * Bedrock only: the AWS key pair to sign with, and how an org's own stored
+   * pair reaches the model. Unset leaves the AWS SDK's credential chain in
+   * charge, which is what lets `AWS_BEARER_TOKEN_BEDROCK` or a host's instance
+   * role authenticate the call.
+   */
+  awsCredentials?: AwsCredentials;
+  /**
+   * Bedrock only: override the region. Defaults to `AWS_REGION`, then
+   * `us-west-2`.
+   */
+  region?: string;
 };
 
 /**
@@ -212,6 +259,24 @@ export function buildChatModel(
         ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
       }));
     }
+    case 'bedrock': {
+      // No key check and no throw for a missing credential, unlike the two
+      // branches above. Bedrock's identity comes from the AWS SDK's credential
+      // chain when `awsCredentials` is unset, and that chain resolves at request
+      // time from four possible sources — a Bedrock API key in
+      // `AWS_BEARER_TOKEN_BEDROCK`, an access key pair in the environment, a
+      // shared profile, or the host's instance role. Refusing here because one
+      // named env var is empty would break every host that authenticates by
+      // instance role, which is how the deployed path already works.
+      return withReplay(new ChatBedrockConverse({
+        model,
+        region: opts.region ?? bedrockRegion(),
+        temperature,
+        streaming,
+        ...(opts.awsCredentials ? { credentials: opts.awsCredentials } : {}),
+        ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+      }));
+    }
   }
 }
 
@@ -239,6 +304,21 @@ export async function buildChatModelForOrg(
     return buildChatModel(role, opts);
   }
   const provider = opts.provider ?? resolveProvider(role);
+  if (provider === 'bedrock') {
+    // Bedrock resolves a pair, not a key, so it cannot go through
+    // `resolveOrgProviderKey` — that helper returns a single string and for the
+    // `aws` platform would hand back the access key id, which authenticates
+    // nothing. An explicit `opts.awsCredentials` still wins, matching how
+    // `opts.apiKey` short-circuits the lookup above.
+    if (opts.awsCredentials) {
+      return buildChatModel(role, { ...opts, provider });
+    }
+    const { keyPair } = await resolveBedrockCredentials(orgId);
+    // `?? undefined` rather than passing null: an org with no stored pair must
+    // fall through to the AWS credential chain, not override it with an empty
+    // value.
+    return buildChatModel(role, { ...opts, provider, awsCredentials: keyPair ?? undefined });
+  }
   const apiKey = await resolveOrgProviderKey(provider, orgId);
   // `?? undefined` rather than passing null: an org with no stored key must
   // fall through to the env var, not override it with an empty value.

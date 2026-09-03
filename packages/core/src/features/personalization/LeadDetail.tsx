@@ -110,6 +110,70 @@ function decisionLine(lead: LeadRow, state: LeadRunState): string | null {
   return null;
 }
 
+/**
+ * What is pending, flat, in the page's own type system — so the reader knows
+ * what they are being asked to support before they read the brief. Carries
+ * the card header's content and nothing else: the sends, the note and the
+ * verbs belong to the conversation running the review.
+ * @param root0 - Component props.
+ * @param root0.run - The pending run whose card supplies the content.
+ */
+const DecisionMasthead = ({ run }: { run: ReviewCardRun }) => {
+  const card = run.card;
+  const percent = typeof run.proposal?.confidence === 'number'
+    ? `${Math.round(run.proposal.confidence * 100)}%`
+    : null;
+  return (
+    <div className="max-w-3xl border-b border-border pb-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {card.system && (
+          <span className="rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
+            {card.system}
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
+          <i className="size-1.5 rounded-full bg-[var(--brand-pass)]" aria-hidden />
+          Ready for review
+        </span>
+        {run.invokedBy && <span className="text-[11px] text-muted-foreground">{`proposed by ${run.invokedBy}`}</span>}
+        {percent && (
+          <span className="ml-auto inline-flex items-baseline gap-1.5">
+            <span className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">Confidence</span>
+            <b className="text-base text-[#d97706]">{percent}</b>
+          </span>
+        )}
+      </div>
+
+      <div className="mt-2.5 text-[17px] leading-snug font-bold">{card.title}</div>
+
+      {(card.provenance?.length ?? 0) > 0 && (
+        <div className="mt-2.5 flex flex-wrap gap-x-10 gap-y-1 text-sm font-semibold">
+          {card.provenance!.map(p => (
+            <span key={p.label}>
+              <span className="block text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+                {p.label}
+              </span>
+              {p.value}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {card.recommendation && (
+        <div className="mt-3.5">
+          <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+            Recommended action
+          </div>
+          <div className="mt-0.5 text-[14.5px] leading-snug font-bold">{card.recommendation.headline}</div>
+          {card.recommendation.detail && (
+            <p className="mt-1 max-w-[640px] text-[13.5px] text-foreground/[0.78]">{card.recommendation.detail}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Timeline = ({ lead }: { lead: LeadRow }) => {
   const steps = [
     lead.arrivedAt && { label: 'Arrived', value: fullDate(lead.arrivedAt) },
@@ -148,12 +212,15 @@ const Timeline = ({ lead }: { lead: LeadRow }) => {
  * @param props.contactHref - HubSpot deep link, when the portal id resolves.
  * @param props.runState
  * @param props.onDecided
+ * @param props.guided
  */
 export const LeadView = (props: {
   lead: LeadRow;
   contactHref: string | null;
   runState: LeadRunState;
   onDecided: () => void;
+  /** True when the guided review is running beside the page and owns the decision. */
+  guided?: boolean;
 }) => {
   const { lead, runState } = props;
   const run = runState.run;
@@ -217,14 +284,19 @@ export const LeadView = (props: {
         </div>
       </div>
 
-      {/* The decision zone — the card when a decision is waiting, the record
-          of the one already made otherwise. */}
+      {/* The decision zone. With a decision waiting AND the guided review
+          running beside the page, the page states what is pending and the
+          conversation takes it: rendering the card here too would give one
+          page two decision surfaces (guided-review-chat.md §7). Without the
+          dock, the card stands as before. */}
       {run
-        ? (
-            <div className="max-w-3xl">
-              <ReviewActionCard run={run} onDecided={props.onDecided} />
-            </div>
-          )
+        ? (props.guided
+            ? <DecisionMasthead run={run} />
+            : (
+                <div className="max-w-3xl">
+                  <ReviewActionCard run={run} onDecided={props.onDecided} />
+                </div>
+              ))
         : (lead.draftSequence.length > 0 || line || lead.draftError) && (
             <div className="max-w-3xl rounded-md border border-border bg-muted/30 p-3">
               <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
@@ -290,11 +362,14 @@ export const LeadView = (props: {
  * @param props.lead
  * @param props.contactHref - HubSpot deep link, when the portal id resolves.
  * @param props.runState
+ * @param props.guided
  */
 export const LeadDetail = (props: {
   lead: LeadRow;
   contactHref: string | null;
   runState: LeadRunState;
+  /** True when the guided review runs beside the page and owns the decision. */
+  guided?: boolean;
 }) => {
   const router = useRouter();
   return (
@@ -302,6 +377,7 @@ export const LeadDetail = (props: {
       lead={props.lead}
       contactHref={props.contactHref}
       runState={props.runState}
+      guided={props.guided}
       onDecided={() => router.refresh()}
     />
   );

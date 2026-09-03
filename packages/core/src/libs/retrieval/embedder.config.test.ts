@@ -20,8 +20,8 @@
  *
  * The model name is read once at module load, so every test re-imports the
  * module with `vi.resetModules()` rather than sharing one instance. OpenAI
- * itself is mocked, as is the credential lookup — no test here makes a network
- * call or touches the database.
+ * itself is mocked, as are the credential lookup and the database — no test
+ * here makes a network call or touches a real database.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -50,7 +50,7 @@ vi.mock('openai', async (importOriginal) => {
 });
 
 vi.mock('@/libs/Langfuse', () => ({
-  langfuse: { flushAsync: vi.fn(async () => {}) },
+  flushTraces: vi.fn(async () => {}),
   traceFor: () => ({
     update: vi.fn(),
     generation: () => ({ end: vi.fn() }),
@@ -69,6 +69,33 @@ const resolveOrgProviderKey = vi.fn<(provider: string, orgId: string) => Promise
 vi.mock('@/libs/llm/orgKey', () => ({
   resolveOrgProviderKey: (provider: string, orgId: string) => resolveOrgProviderKey(provider, orgId),
 }));
+
+/**
+ * The embedder reads the workspace's stored embedding config before it picks
+ * a backend, so choosing a backend now touches the database. That is one read
+ * by primary key in production and unremarkable there, but it made this file
+ * depend on a migrated database being reachable — which is not what any test
+ * here is about, and is why they failed on a local database that was a
+ * migration behind. The in-memory PGlite mock keeps the promise made at the
+ * top of this file: no test in it touches a real database.
+ *
+ * An org with no stored config is also the case these tests want. Every
+ * assertion below is about the ENVIRONMENT supplying the key and the model,
+ * which is the path taken when the workspace has configured neither — so the
+ * stub answers that one query with no rows.
+ *
+ * Deliberately a hand-written stub rather than the shared PGlite mock: these
+ * tests call `vi.resetModules()` before each one, which would re-evaluate that
+ * mock and re-run every migration per test. The first test timed out that way.
+ */
+vi.mock('@/libs/DB', () => {
+  const noRows = {
+    from: () => noRows,
+    where: () => noRows,
+    limit: async () => [] as unknown[],
+  };
+  return { db: { select: () => noRows } };
+});
 
 const EMBED_OPTIONS = { orgId: 'org_embed_config_test', purpose: 'ingest' as const };
 

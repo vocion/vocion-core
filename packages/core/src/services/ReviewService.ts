@@ -611,6 +611,9 @@ export async function snooze(
  * @param opts.reviewedBy
  * @param opts.editedInput
  * @param opts.note
+ * @param opts.externalRef
+ * @param opts.externalRef.system
+ * @param opts.externalRef.id
  */
 export async function decide(
   item: { kind: ReviewKind; id: number },
@@ -622,6 +625,11 @@ export async function decide(
     editedInput?: Record<string, unknown>;
     /** Reviewer's note for the agent — stored on the assignment, the triage signal, and the learning capture. */
     note?: string;
+    /**
+     * The record the approver just created in its own system. Passed straight
+     * to the action, which links its domain row to it. Ignored on reject.
+     */
+    externalRef?: { system: string; id: string };
   },
 ): Promise<void> {
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
@@ -646,7 +654,7 @@ export async function decide(
         if (opts?.editedInput) {
           await updateActionInput(item.id, orgId, opts.editedInput);
         }
-        await executeAction(item.id, orgId, { reviewedBy });
+        await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
       } else {
         await rejectAction(item.id, orgId, opts?.reason ?? opts?.note, { reviewedBy });
       }
@@ -755,8 +763,20 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
  * @param opts.runId
  * @param opts.hint
  * @param opts.userId
+ * @param opts.contentId
  */
-export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: string; userId?: string }): Promise<{ input: Record<string, unknown>; body: string }> {
+export async function rewriteDraft(opts: {
+  orgId: string;
+  runId: number;
+  hint?: string;
+  userId?: string;
+  /**
+   * Which piece of content to rewrite, by the card's content id (e.g.
+   * `send-2`). Without it the run's single body is rewritten, as before — a
+   * sequence has several, and a guided review asks about one at a time.
+   */
+  contentId?: string;
+}): Promise<{ input: Record<string, unknown>; body: string; contentId?: string }> {
   const [run] = await db
     .select({ input: actionRunSchema.input, actionId: actionRunSchema.actionId })
     .from(actionRunSchema)
@@ -767,7 +787,19 @@ export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: 
   }
   const input = (run.input ?? {}) as Record<string, unknown>;
   const props = (input.properties ?? {}) as Record<string, unknown>;
-  const original = String(input.body ?? input.notes ?? props.notes ?? '');
+  // A targeted rewrite reads the addressed send; an untargeted one reads the
+  // run's single body, which is what every non-sequence action has.
+  const sends = Array.isArray(input.sends) ? input.sends as Array<Record<string, unknown>> : null;
+  const targetStep = opts.contentId?.startsWith('send-') ? Number(opts.contentId.slice(5)) : null;
+  const targetSend = sends && targetStep !== null
+    ? sends.find(s => Number(s.step) === targetStep)
+    : null;
+  if (opts.contentId && !targetSend) {
+    throw new Error(`no content ${opts.contentId} on action ${opts.runId}`);
+  }
+  const original = targetSend
+    ? String(targetSend.body ?? '')
+    : String(input.body ?? input.notes ?? props.notes ?? '');
   const { buildChatModelForOrg } = await import('@/libs/llm');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
   const model = await buildChatModelForOrg('main', opts.orgId, { temperature: 0.4, streaming: false, maxTokens: 1200 });
@@ -786,6 +818,19 @@ export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: 
     rewritten = original;
   }
   await recordActionSignal({ orgId: opts.orgId, runId: opts.runId, signal: 'rewrite', userId: opts.userId, hint: opts.hint });
+  if (targetSend && sends) {
+    // The caller holds the revision and passes it back on approve, the same
+    // edit-then-approve path the card already uses — nothing is persisted
+    // behind the reviewer's back.
+    return {
+      input: {
+        ...input,
+        sends: sends.map(s => (Number(s.step) === targetStep ? { ...s, body: rewritten } : s)),
+      },
+      body: rewritten,
+      contentId: opts.contentId,
+    };
+  }
   if (input.body === undefined && input.notes === undefined && props.notes !== undefined) {
     return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten };
   }

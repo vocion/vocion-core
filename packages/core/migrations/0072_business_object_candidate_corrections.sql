@@ -1,0 +1,28 @@
+-- Hand-written, not `drizzle-kit generate`-produced: generation is blocked by
+-- a pre-existing gap between the migration count and the snapshot history
+-- (see 0066 for the same note). The runtime migrator reads this file and
+-- meta/_journal.json only, so it applies cleanly regardless.
+--
+-- Three corrections to the candidate model added in 0067:
+--
+-- 1. One business_object per review item. `onProposed` upserts on
+--    review_action_run_id; without the constraint two concurrent proposals of
+--    the same candidate can both miss the lookup and insert.
+-- 2. Provenance moves out of `metadata`, so the payload a consumer reads is
+--    the record's own fields and nothing else.
+--
+-- No check constraint on `status`, deliberately. It looked like two
+-- vocabularies colliding, but the column is per-object-type by design: a task
+-- type uses open/completed, the vision path uses approved, a candidate uses
+-- candidate/approved/rejected, and the create API takes a free string so a
+-- plugin can define its own. A global constraint would be wrong; if this ever
+-- needs constraining, it belongs on the object type, not the table.
+--
+-- Every statement is IF NOT EXISTS. These migrations were renumbered when they
+-- met other work on main, and a renumbered file reads as brand new to
+-- drizzle's tracking table — so a database that already ran them under the old
+-- number would fail on the first re-run. Idempotent statements make the re-run
+-- a no-op instead.
+
+ALTER TABLE "business_object" ADD COLUMN IF NOT EXISTS "provenance" jsonb;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "business_object_review_run_idx" ON "business_object" USING btree ("org_id","review_action_run_id");

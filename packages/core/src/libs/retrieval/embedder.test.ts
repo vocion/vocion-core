@@ -42,8 +42,16 @@ vi.mock('@/libs/llm/orgKey', () => ({
   resolveOrgProviderKey: vi.fn(async () => null),
 }));
 
+// The embedder also reads the workspace's own embedding settings off the
+// project row. There is no such row here, so the answer is "authored nothing"
+// and the provider resolves from the environment — which is what these tests
+// want. PGlite stands in for the database specifically to keep node-postgres
+// out: its connection timers fire through the `setTimeout` stub below and would
+// be counted as waits the retry loop asked for.
+vi.mock('@/libs/DB');
+
 vi.mock('@/libs/Langfuse', () => ({
-  langfuse: { flushAsync: vi.fn(async () => {}) },
+  flushTraces: vi.fn(async () => {}),
   traceFor: () => ({
     update: vi.fn(),
     generation: ({ name }: { name: string }) => {

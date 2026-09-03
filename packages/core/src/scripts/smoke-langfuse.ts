@@ -6,27 +6,39 @@
  *
  *   npm run langfuse:smoke
  *
- * Defaults to the dev project keys baked into the platform compose
- * (`pk-lf-vocion-demo` / `sk-lf-vocion-demo`,
- * `http://localhost:3200`); override via the standard
- * LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL envs.
+ * Configuration comes from `libs/Langfuse/config.ts`, the one place
+ * that decides whether tracing is on and with what credentials. Outside
+ * production that resolves to the dev keys baked into the platform
+ * compose file, so `npm run langfuse:smoke` works on a fresh checkout
+ * with no environment set up.
  *
  * Exits non-zero on any failure so it's safe to use in CI / dev:up
  * hooks.
  */
 
+import { Buffer } from 'node:buffer';
 import process from 'node:process';
-import { langfuse } from '../libs/Langfuse';
-
-const baseUrl = process.env.LANGFUSE_BASE_URL ?? 'http://localhost:3200';
-const publicKey = process.env.LANGFUSE_PUBLIC_KEY ?? 'pk-lf-vocion-demo';
-const secretKey = process.env.LANGFUSE_SECRET_KEY ?? 'sk-lf-vocion-demo';
+import { flushTraces, getLangfuseClient } from '../libs/Langfuse';
+import { resolveLangfuseConfig } from '../libs/Langfuse/config';
 
 const log = (...args: unknown[]) => {
   console.log('[langfuse:smoke]', ...args);
 };
 
 async function main() {
+  const config = resolveLangfuseConfig();
+  if (!config.enabled) {
+    throw new Error(
+      `Langfuse tracing is off (${config.reason}), so there is nothing to smoke-test. `
+      + 'Set LANGFUSE_ENABLED=true with credentials, or start the local stack with `npm run dev:up`.',
+    );
+  }
+  const { baseUrl, publicKey, secretKey, projectId } = config;
+  const client = getLangfuseClient();
+  if (!client) {
+    throw new Error('Langfuse config reported enabled but no client was created.');
+  }
+
   log(`base: ${baseUrl}`);
 
   // Probe health first — fail fast with a readable message rather than
@@ -39,7 +51,7 @@ async function main() {
   }
   log('health OK');
 
-  const trace = langfuse.trace({
+  const trace = client.trace({
     name: 'smoke:langfuse',
     metadata: { source: 'smoke-langfuse', timestamp: new Date().toISOString() },
     tags: ['smoke'],
@@ -60,7 +72,7 @@ async function main() {
 
   trace.update({ output: { ok: true } });
 
-  await langfuse.flushAsync();
+  await flushTraces();
   log(`flushed trace id=${trace.id}`);
 
   // Confirm the trace is visible via the public API. Langfuse v3 lands
@@ -89,7 +101,7 @@ async function main() {
     throw new Error(`Trace ${trace.id} never appeared in /api/public/traces within 30 s — ingestion pipeline may be stalled.`);
   }
 
-  log(`trace landed: ${baseUrl}/project/demo/traces/${trace.id}`);
+  log(`trace landed: ${baseUrl}/project/${projectId}/traces/${trace.id}`);
 }
 
 main()

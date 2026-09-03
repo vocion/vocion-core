@@ -1,0 +1,227 @@
+# Production overlay for the self-hosted Langfuse stack.
+#
+# `infra/docker-compose.platform.yml` was written for a laptop. It
+# publishes the Langfuse UI on host port 3200, hardcodes every secret
+# (NEXTAUTH_SECRET, SALT, ENCRYPTION_KEY, the ClickHouse and Redis
+# passwords, the MinIO keys), seeds an admin user with a password that
+# is committed to this repository, and pins NEXTAUTH_URL to
+# http://localhost:3200 so the auth callback fails from anywhere else.
+#
+# `bootstrap.sh` used to compose that file straight into production, so
+# a client deployment inherited all of it. This overlay replaces the
+# parts that must not ship.
+#
+# It also decides whether the Langfuse containers run at all. They
+# default to ONE replica each: every client deployment should come up
+# with somewhere for traces and cost data to land, without anyone having
+# to procure a Langfuse Cloud plan first. Observability is not an
+# add-on.
+#
+# A deployment that uses Langfuse Cloud instead sets
+# LANGFUSE_SELF_HOSTED_REPLICAS=0, and bootstrap.sh says so by name if
+# it finds the self-hosted secrets missing.
+#
+# Compose it AFTER the platform file so these values win:
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f infra/docker-compose.platform.yml \
+#     -f infra/aws/docker-compose.prod.yml \
+#     -f infra/docker-compose.langfuse.prod.yml \
+#     -p vocion up -d
+#
+# Every value below comes from infra/aws/.env.production, which the
+# operator writes on the box from Secrets Manager and never commits.
+# See docs/deployment/observability.md for how to generate them and for
+# the Langfuse Cloud alternative, which removes these six containers.
+#
+# None of the variables carry a ${VAR:?...} "you must set this" guard,
+# because Compose evaluates those even for a service held at zero
+# replicas — a Cloud deployment that sets none of them could not bring
+# the stack up at all. bootstrap.sh checks the required set instead,
+# and only when LANGFUSE_SELF_HOSTED_REPLICAS says self-hosting is on.
+
+services:
+  langfuse-web:
+    # One instance by default; LANGFUSE_SELF_HOSTED_REPLICAS=0 turns the
+    # self-hosted stack off for a deployment on Langfuse Cloud. Compose
+    # has no way for an overlay to remove a service the base file
+    # declares, so zero replicas is how a service gets declared but not
+    # started.
+    deploy:
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
+    # No published host port. Caddy reaches this over the compose
+    # network on 3000, the way it reaches `app`. Publishing 3200 put
+    # the trace UI one security-group rule away from the internet.
+    ports: !override []
+    environment:
+      # ----- Where Langfuse lives -----
+      # The public hostname Caddy terminates TLS for. The auth callback
+      # is built from this, so a wrong value breaks sign-in specifically
+      # rather than the whole app.
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-}
+
+      # ----- Secrets -----
+      # openssl rand -base64 32 for the first two, openssl rand -hex 32
+      # for the third. ENCRYPTION_KEY is what Langfuse encrypts stored
+      # LLM API keys with: losing it loses those keys, and changing it
+      # makes the stored ones unreadable.
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-}
+      SALT: ${LANGFUSE_SALT:-}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-}
+
+      # ----- Backing services -----
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD:-}@langfuse-postgres:5432/langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-}
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:-}
+
+      # ----- Object storage -----
+      # Real S3, not the MinIO container. ClickHouse and event payloads
+      # are the two things that grow without bound on this box, and S3
+      # is the one of them that can be moved off it.
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET:-}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_REGION:-}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID:-}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ''
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'false'
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_REGION}
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ''
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'false'
+
+      # ----- Who can get in -----
+      # The instance is on a public hostname, so self-registration has
+      # to be off. Add operators from inside the Langfuse UI.
+      AUTH_DISABLE_SIGNUP: 'true'
+
+      # ----- First-boot seed -----
+      # Langfuse creates these only when the database is empty, so
+      # after the first boot they are inert. They still must not be the
+      # committed demo values, because the first boot is what sets the
+      # admin password and the API keys the app authenticates with.
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Operator}
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_PROJECT_ID:-}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-}
+      # These two become the app's LANGFUSE_PUBLIC_KEY / _SECRET_KEY.
+      # Same values in both places or traces stop landing.
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+
+      # No retention setting here, and none is needed. Langfuse has no
+      # environment variable for it, and its own project-level retention
+      # is an Enterprise feature on self-hosted instances
+      # (langfuse.com/pricing-self-host, checked 2026-09-03). Vocion
+      # enforces retention itself instead: set LANGFUSE_RETENTION_DAYS
+      # in .env.production and a daily Temporal job deletes traces past
+      # that age through the public API. Works on Cloud and on the
+      # open-source build. See docs/deployment/observability.md.
+
+  langfuse-worker:
+    deploy:
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
+    # The worker reads the same configuration as the web container. In
+    # the platform file that is a YAML anchor, which an overlay cannot
+    # extend, so the overridden keys are repeated here. Both lists must
+    # be changed together.
+    environment:
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+      SALT: ${LANGFUSE_SALT}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_REGION}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID:-}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ''
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'false'
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_REGION}
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ''
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'false'
+
+  langfuse-postgres:
+    deploy:
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
+    environment:
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
+
+  langfuse-clickhouse:
+    deploy:
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
+      # Hard ceiling on memory, enforced by the kernel.
+      #
+      # ClickHouse otherwise claims about 90% of the machine's RAM (see
+      # infra/aws/clickhouse-memory.xml), and it shares this box with
+      # the app, Postgres, Temporal, Redis, Caddy and the two Langfuse
+      # containers. Trace storage for one client does not need 57 GB,
+      # and the app going slow because the trace database took the RAM
+      # is a bad trade.
+      #
+      # 4 GB matches the Langfuse budget in infra/README.md and is safe
+      # on the r6i.large (16 GB) box Metacto actually runs, not only on
+      # the r6i.2xlarge (64 GB) the Terraform default asks for. Raise it
+      # on a bigger instance.
+      #
+      # Compose honours this outside swarm mode: a container declared
+      # with a 512M limit reports exactly 536870912 in its cgroup.
+      resources:
+        limits:
+          memory: ${LANGFUSE_CLICKHOUSE_MEMORY_LIMIT:-4g}
+    environment:
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+      # ClickHouse's own limit, in bytes, read by the config file
+      # mounted below. Deliberately lower than the container limit
+      # above: at this number ClickHouse fails one expensive query and
+      # stays up, whereas at the container limit the kernel kills it
+      # and trace ingestion stops until it restarts. Default is 3 GB
+      # against the 4 GB ceiling. Raise both together, this one lower.
+      LANGFUSE_CLICKHOUSE_MAX_SERVER_MEMORY_BYTES: ${LANGFUSE_CLICKHOUSE_MAX_SERVER_MEMORY_BYTES:-3221225472}
+    volumes:
+      # Read-only: nothing in the container should rewrite its own
+      # memory ceiling. config.d/ is merged into ClickHouse's main
+      # config at startup.
+      #
+      # The path is relative to the REPO ROOT, not to this file.
+      # Compose resolves relative paths against the project directory,
+      # which is the directory of the first -f file — and bootstrap.sh
+      # composes from the repo root. Writing ./aws/... here, next to
+      # where this file actually lives, silently resolves to
+      # <repo>/aws/clickhouse-memory.xml and the container starts with
+      # no memory cap.
+      - ./infra/aws/clickhouse-memory.xml:/etc/clickhouse-server/config.d/memory.xml:ro
+
+  langfuse-redis:
+    deploy:
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
+    command: redis-server --requirepass ${LANGFUSE_REDIS_PASSWORD}
+    healthcheck:
+      test: [CMD, redis-cli, -a, '${LANGFUSE_REDIS_PASSWORD}', ping]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  langfuse-minio:
+    # Always off, on both paths. Production uses a real S3 bucket, so
+    # the laptop stack's in-container object store has no job here even
+    # when Langfuse is self-hosted. Not gated on
+    # LANGFUSE_SELF_HOSTED_REPLICAS for that reason.
+    deploy:
+      replicas: 0
+
+  # Temporal and the OTel collector still come from the platform file
+  # with laptop defaults and published host ports (7233, 8233, 4317,
+  # 4318). They are open question 3 on vocion-core#95 and are not
+  # covered here — including the replica default above, since unlike
+  # Langfuse they have no managed alternative to fall back to.
