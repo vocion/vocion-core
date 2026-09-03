@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { AgentSurfaceButton } from '@/features/dashboard/chat/AgentSurfaceButton';
 import { Link } from '@/libs/I18nNavigation';
 import { ShellBarActionsOutlet } from './ShellBarActions';
 
@@ -51,6 +52,10 @@ export const AppSidebarHeader = () => {
       <div className="flex items-center gap-x-1.5 pr-1">
         {/* Page-owned controls (e.g. chat's New chat / Switch agent) land here. */}
         <ShellBarActionsOutlet />
+
+        {/* The titlebar entry point — one function, whichever surface the
+            page carries (agent-chat-surface.md §6). */}
+        <AgentSurfaceButton />
 
         <DropdownMenu>
           <DropdownMenuTrigger
