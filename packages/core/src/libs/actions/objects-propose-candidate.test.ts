@@ -68,7 +68,7 @@ function parse(over: Record<string, unknown> = {}) {
   return objectProposeCandidateAction.inputSchema.parse(candidate(over));
 }
 
-function dedupKey(over: Record<string, unknown> = {}): string {
+function dedupKey(over: Record<string, unknown> = {}): string | undefined {
   return objectProposeCandidateAction.dedupKeyFor!(parse(over));
 }
 
@@ -164,6 +164,13 @@ describe('the dedup key — per candidate, never per page', () => {
     // different candidates into one queue item.
     expect(dedupKey({ fields: { title: 'Open Mic Night', start: '2026-09-12T19:30' } }))
       .toBe('objects.propose_candidate:event-candidate|open-mic-night|2026-09-12t19-30|none');
+  });
+
+  it('has no key at all when nothing identifies the candidate', () => {
+    // The dangerous alternative is a constant key: every candidate of the type
+    // would collapse into one queue item and the reviewer would see only the
+    // last one to arrive.
+    expect(objectProposeCandidateAction.dedupKeyFor!(parse({ dedupOn: [] }))).toBeUndefined();
   });
 
   it('separates object types that happen to share a title', () => {
@@ -296,6 +303,26 @@ describe('the review card', () => {
     expect(card.recommendation?.detail).toMatch(/does not match the record type/);
   });
 
+  it('re-reads an edited schema instead of serving the old verdict', async () => {
+    // The compiled validators are cached by schema text; a workspace that
+    // tightens its object type must not keep passing under the old rules.
+    const loose = await objectProposeCandidateAction.reviewCard!(
+      { orgId: ORG },
+      parse({ fields: { title: 'Open Mic Night', start: '2026-09-12T19:30' } }),
+    );
+
+    expect(fieldValue(loose.fields, 'Does not match the record type')).toBeUndefined();
+
+    await db.delete(businessObjectTypeSchema);
+    await seedObjectType(ORG, { ...EVENT_CANDIDATE_SCHEMA, required: ['title', 'start', 'venue'] });
+    const tightened = await objectProposeCandidateAction.reviewCard!(
+      { orgId: ORG },
+      parse({ fields: { title: 'Open Mic Night', start: '2026-09-12T19:30' } }),
+    );
+
+    expect(fieldValue(tightened.fields, 'Does not match the record type')?.value).toMatch(/venue/);
+  });
+
   it('says nothing about the shape when the object type declares no schema', async () => {
     await db.delete(businessObjectTypeSchema);
     await seedObjectType(ORG, null);
@@ -335,6 +362,70 @@ describe('the review card', () => {
     expect(withoutImage.content).toBeUndefined();
   });
 
+  it('renders a source-less candidate without inventing links', async () => {
+    const card = await objectProposeCandidateAction.reviewCard!(
+      { orgId: ORG },
+      parse({ sourceUrl: undefined, sourceListingUrl: undefined }),
+    );
+
+    expect(fieldValue(card.fields, 'Source')).toBeUndefined();
+    expect(card.links).toBeUndefined();
+    expect(card.subject?.company).toBeUndefined();
+    expect(card.provenance?.[0]).toEqual({ label: 'Found on', value: 'an unnamed source' });
+  });
+
+  it('shows the extractor\'s notes so the reviewer sees what it could not resolve', async () => {
+    const card = await objectProposeCandidateAction.reviewCard!(
+      { orgId: ORG },
+      parse({ extractionNotes: 'No end time on the page.' }),
+    );
+
+    expect(fieldValue(card.fields, 'Extraction notes')?.value).toBe('No end time on the page.');
+  });
+
+  it('flattens a nested value, and skips one the extractor left empty', async () => {
+    const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse({
+      fields: {
+        title: 'Open Mic Night',
+        start: '2026-09-12T19:30',
+        venue: null,
+        organiser: { name: 'Flynn Arts', phone: '802-555-0100' },
+      },
+    }));
+
+    // A null field is absent, not a row reading "null".
+    expect(fieldValue(card.fields, 'Venue')).toBeUndefined();
+    expect(fieldValue(card.fields, 'Organiser')?.value).toBe('{"name":"Flynn Arts","phone":"802-555-0100"}');
+  });
+
+  it('lists a described field that propertyOrder forgot, after the ones it named', async () => {
+    await db.delete(businessObjectTypeSchema);
+    await seedObjectType(ORG, {
+      type: 'object',
+      propertyOrder: ['title'],
+      properties: {
+        title: { type: 'string', title: 'Event' },
+        venue: { type: 'string', title: 'Venue' },
+      },
+    });
+
+    const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
+
+    // `title` first because it was named; `venue` still described, so it comes
+    // before anything the schema never mentions; then the undescribed keys,
+    // alphabetically.
+    expect(card.fields.slice(0, 4).map(field => field.label)).toEqual(['Event', 'Venue', 'Categories', 'Start']);
+  });
+
+  it('reports a schema it cannot compile instead of failing the card', async () => {
+    await db.delete(businessObjectTypeSchema);
+    await seedObjectType(ORG, { type: 'object', properties: { title: { type: 'not-a-json-schema-type' } } });
+
+    const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
+
+    expect(fieldValue(card.fields, 'Does not match the record type')?.value).toMatch(/could not be read/);
+  });
+
   it('leaves confidence to the card shell rather than printing a second copy', async () => {
     const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
 
@@ -370,6 +461,37 @@ describe('the duplicate flag', () => {
     expect(fieldValue(card.fields, 'Possible duplicate')).toBeUndefined();
   });
 
+  it('says nothing when one field is the whole identity — there is no "same but for one value"', async () => {
+    await proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate({ dedupOn: ['title'], fields: { title: 'Open Mic Night', start: '2026-09-19T19:30' } }),
+    });
+
+    const card = await objectProposeCandidateAction.reviewCard!(
+      { orgId: ORG },
+      parse({ dedupOn: ['title'] }),
+    );
+
+    expect(fieldValue(card.fields, 'Possible duplicate')).toBeUndefined();
+  });
+
+  it('ignores a sibling that was already rejected', async () => {
+    const sibling = await proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Flynn' } }),
+    });
+    await rejectAction(sibling.runId, ORG, 'Not a real event');
+
+    const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
+
+    // A decided-against candidate is not something to merge with.
+    expect(fieldValue(card.fields, 'Possible duplicate')).toBeUndefined();
+  });
+
   it('never looks across orgs', async () => {
     await seedObjectType(OTHER_ORG);
     await proposeAction({
@@ -388,6 +510,24 @@ describe('the duplicate flag', () => {
 describe('the queue behaviour', () => {
   it('is registered, so the propose API stops answering "No registered action"', () => {
     expect(listActions().map(action => action.id)).toContain('objects.propose_candidate');
+  });
+
+  it('queues an identity-less candidate as its own item, never merged with the last one', async () => {
+    const first = await proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate({ dedupOn: [], title: 'First find' }),
+    });
+    const second = await proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate({ dedupOn: [], title: 'Second find' }),
+    });
+
+    expect(second.runId).not.toBe(first.runId);
+    expect(await objectsFor()).toHaveLength(2);
   });
 
   it('lands pending — proposing never publishes', async () => {
@@ -490,6 +630,25 @@ describe('deciding a candidate', () => {
     const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, proposed.runId));
 
     expect(run!.error).toMatch(/Apply the workspace object type/);
+  });
+
+  it('stores no author when the proposal named none', async () => {
+    // proposeAction always stamps one; a direct caller of the hook need not.
+    await objectProposeCandidateAction.onProposed!({ orgId: ORG }, parse(), 4242);
+
+    const [object] = await objectsFor();
+
+    expect(object!.createdBy).toBeNull();
+    expect(object!.reviewActionRunId).toBe(4242);
+  });
+
+  it('refuses to approve without knowing which run it is deciding', async () => {
+    await propose();
+
+    // No runId on the context — there is no row this could safely move.
+    await expect(objectProposeCandidateAction.execute({ orgId: ORG }, parse()))
+      .rejects
+      .toThrow(/Apply the workspace object type/);
   });
 
   it('never touches another org\'s candidate', async () => {
