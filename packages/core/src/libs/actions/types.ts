@@ -21,6 +21,17 @@ export type ActionContext = {
   invokedBy?: string;
   /** The human who decided the run, when it came through the review queue. */
   reviewedBy?: string;
+  /**
+   * The `action_run` being executed. Present on `execute` only — actions that
+   * keep a domain row per run need it to find that row again on approval.
+   */
+  runId?: number;
+  /**
+   * The record the approving caller created in its own system, handed over in
+   * the same decide call. Lets an action link its domain row to a downstream
+   * record without core ever calling that system.
+   */
+  externalRef?: { system: string; id: string };
 };
 
 /**
