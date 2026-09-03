@@ -1,9 +1,17 @@
 import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatOpenAI } from '@langchain/openai';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildChatModel, withPromptCache } from './langchain';
-import { getLLMClient, resetLLMClients } from './registry';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Resolving an org's own key reads the `api_token` table, so the registry now
+// reaches the database. PGlite stands in for it.
+vi.mock('@/libs/DB');
+
+const { db } = await import('@/libs/DB');
+const { apiTokenSchema, sourceDekSchema } = await import('@/models/Schema');
+const { storePlatformKey } = await import('@/services/ApiTokenService');
+const { buildChatModel, buildChatModelForOrg, withPromptCache } = await import('./langchain');
+const { getLLMClient, getLLMClientForOrg, resolveOrgProviderKey } = await import('./registry');
 
 /**
  * Provider registry tests — construction + error paths. We don't hit real
@@ -12,10 +20,6 @@ import { getLLMClient, resetLLMClients } from './registry';
 describe('getLLMClient', () => {
   const originalOpenAI = process.env.OPENAI_API_KEY;
   const originalAnthropic = process.env.ANTHROPIC_API_KEY;
-
-  beforeEach(() => {
-    resetLLMClients();
-  });
 
   afterEach(() => {
     if (originalOpenAI === undefined) {
@@ -65,12 +69,135 @@ describe('getLLMClient', () => {
     expect(() => getLLMClient('azure-openai')).toThrow(/not yet implemented/);
   });
 
-  it('reuses the same singleton across calls', () => {
+  it('builds a fresh client per call, so no client is ever shared', () => {
+    // The old per-provider singleton is gone on purpose: it was the thing that
+    // would have handed one tenant's client to another once keys became
+    // per-org. Fresh construction is the guarantee.
     process.env.OPENAI_API_KEY = 'sk-test';
-    const a = getLLMClient('openai');
-    const b = getLLMClient('openai');
 
-    expect(a).toBe(b);
+    expect(getLLMClient('openai')).not.toBe(getLLMClient('openai'));
+  });
+});
+
+/**
+ * Bring-your-own-key resolution. The thing worth proving here is not that a
+ * stored key is found — it is that two orgs with different keys can never end
+ * up sharing a client, which is exactly what a per-provider singleton used to
+ * guarantee they would.
+ */
+describe('getLLMClientForOrg', () => {
+  const ORG_A = 'org_llm_a';
+  const ORG_B = 'org_llm_b';
+  const KEY_A = 'sk-aaaaaaaaaaaaaaaa1111';
+  const KEY_B = 'sk-bbbbbbbbbbbbbbbb2222';
+  const originalOpenAI = process.env.OPENAI_API_KEY;
+
+  beforeEach(async () => {
+    await db.delete(apiTokenSchema);
+    await db.delete(sourceDekSchema);
+    process.env.OPENAI_API_KEY = 'sk-server-key-fallback';
+  });
+
+  afterEach(async () => {
+    await db.delete(apiTokenSchema);
+    await db.delete(sourceDekSchema);
+    if (originalOpenAI === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalOpenAI;
+    }
+  });
+
+  it('falls back to the server key when the org has stored none', async () => {
+    expect(await resolveOrgProviderKey('openai', ORG_A)).toBeNull();
+    expect((await getLLMClientForOrg('openai', ORG_A)).provider).toBe('openai');
+  });
+
+  it('resolves the org own key once it is stored', async () => {
+    await storePlatformKey({ orgId: ORG_A, name: 'a', platform: 'openai', apiKey: KEY_A });
+
+    expect(await resolveOrgProviderKey('openai', ORG_A)).toBe(KEY_A);
+  });
+
+  it('resolves each org to its own key, never the other org key', async () => {
+    await storePlatformKey({ orgId: ORG_A, name: 'a', platform: 'openai', apiKey: KEY_A });
+    await storePlatformKey({ orgId: ORG_B, name: 'b', platform: 'openai', apiKey: KEY_B });
+
+    expect(await resolveOrgProviderKey('openai', ORG_A)).toBe(KEY_A);
+    expect(await resolveOrgProviderKey('openai', ORG_B)).toBe(KEY_B);
+  });
+
+  it('picks up a rotated key on the very next call, with nothing to invalidate', async () => {
+    await storePlatformKey({ orgId: ORG_A, name: 'a', platform: 'openai', apiKey: KEY_A });
+
+    expect(await resolveOrgProviderKey('openai', ORG_A)).toBe(KEY_A);
+
+    await storePlatformKey({ orgId: ORG_A, name: 'a rotated', platform: 'openai', apiKey: KEY_B });
+
+    expect(await resolveOrgProviderKey('openai', ORG_A)).toBe(KEY_B);
+  });
+
+  it('goes back to the server key once the org key is revoked', async () => {
+    const { id } = await storePlatformKey({ orgId: ORG_A, name: 'a', platform: 'openai', apiKey: KEY_A });
+    const { revokeToken } = await import('@/services/ApiTokenService');
+    await revokeToken(ORG_A, id);
+
+    expect(await resolveOrgProviderKey('openai', ORG_A)).toBeNull();
+    expect((await getLLMClientForOrg('openai', ORG_A)).provider).toBe('openai');
+  });
+
+  it('refuses a provider we have no adapter for, even with a key on file', async () => {
+    await storePlatformKey({ orgId: ORG_A, name: 'v', platform: 'vertex', apiKey: 'some-vertex-credential' });
+
+    await expect(getLLMClientForOrg('vertex', ORG_A)).rejects.toThrow(/not yet implemented/);
+  });
+});
+
+describe('buildChatModelForOrg', () => {
+  const ORG = 'org_chat_model';
+  const ORG_KEY = 'sk-ant-cccccccccccccccc3333';
+  const originalAnthropic = process.env.ANTHROPIC_API_KEY;
+
+  beforeEach(async () => {
+    await db.delete(apiTokenSchema);
+    await db.delete(sourceDekSchema);
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-server-fallback';
+  });
+
+  afterEach(async () => {
+    await db.delete(apiTokenSchema);
+    await db.delete(sourceDekSchema);
+    if (originalAnthropic === undefined) {
+      delete process.env.ANTHROPIC_API_KEY;
+    } else {
+      process.env.ANTHROPIC_API_KEY = originalAnthropic;
+    }
+  });
+
+  it('builds the model on the org own key when it has one', async () => {
+    await storePlatformKey({ orgId: ORG, name: 'ant', platform: 'anthropic', apiKey: ORG_KEY });
+    const model = await buildChatModelForOrg('main', ORG);
+
+    expect((model as unknown as { apiKey: string }).apiKey).toBe(ORG_KEY);
+  });
+
+  it('falls back to the server key when the org has none', async () => {
+    const model = await buildChatModelForOrg('main', ORG);
+
+    expect((model as unknown as { apiKey: string }).apiKey).toBe('sk-ant-server-fallback');
+  });
+
+  it('lets an explicit apiKey option win and skips the lookup', async () => {
+    await storePlatformKey({ orgId: ORG, name: 'ant', platform: 'anthropic', apiKey: ORG_KEY });
+    const model = await buildChatModelForOrg('main', ORG, { apiKey: 'sk-ant-explicit-override' });
+
+    expect((model as unknown as { apiKey: string }).apiKey).toBe('sk-ant-explicit-override');
+  });
+
+  it('keeps the role model resolution it inherits from buildChatModel', async () => {
+    const model = await buildChatModelForOrg('classifier', ORG);
+
+    expect((model as unknown as { model: string }).model).toMatch(/^claude-haiku-4-5/);
   });
 });
 

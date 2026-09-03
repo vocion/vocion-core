@@ -22,21 +22,30 @@ import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
+import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 
 const RERANK_MODEL = process.env.VOCION_RERANK_MODEL ?? 'claude-haiku-4-5-20251001';
 const RERANK_MAX_CANDIDATES = 20;
 const RERANK_MAX_KEPT = 8;
 
-let _client: ChatAnthropic | null = null;
-function client(): ChatAnthropic {
-  if (!_client) {
-    _client = new ChatAnthropic({
-      model: RERANK_MODEL,
-      temperature: 0,
-      maxTokens: 512,
-    });
-  }
-  return _client;
+/**
+ * A rerank model for one org, on that org's own Anthropic key when it has
+ * stored one and on the server's key otherwise.
+ *
+ * Built per call rather than cached. A cached model would hold the first org's
+ * key and hand it to every org after it — the same cross-tenant leak the LLM
+ * client cache was removed to avoid — and building one is cheap next to the
+ * model call it precedes.
+ * @param orgId - The org whose search is being reranked.
+ */
+async function modelForOrg(orgId: string): Promise<ChatAnthropic> {
+  const apiKey = await resolveOrgProviderKey('anthropic', orgId) ?? process.env.ANTHROPIC_API_KEY;
+  return new ChatAnthropic({
+    model: RERANK_MODEL,
+    temperature: 0,
+    maxTokens: 512,
+    ...(apiKey ? { apiKey } : {}),
+  });
 }
 
 export type RerankOptions = {
@@ -93,7 +102,8 @@ export async function rerank(
 
   let kept: SearchHit[];
   try {
-    const res = await client().invoke([{ role: 'user', content: prompt }]);
+    const model = await modelForOrg(opts.orgId);
+    const res = await model.invoke([{ role: 'user', content: prompt }]);
     const text = typeof res.content === 'string' ? res.content : JSON.stringify(res.content);
     const match = text.match(/\[[\s\S]*?\]/);
     const order: number[] = match ? JSON.parse(match[0]) : [];

@@ -2,12 +2,17 @@ import type { ImageProvider } from './types';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import OpenAI from 'openai';
+import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 import { ProviderNotConfiguredError } from '../types';
 
 /**
  * OpenAI image generation (gpt-image-1). Returns base64 PNG which we
- * persist as an artifact. Reuses the OPENAI_API_KEY already required for
- * embeddings, so no new key for the default config.
+ * persist as an artifact.
+ *
+ * Uses the org's own OpenAI key when it has stored one, so image spend lands on
+ * the customer's account alongside their model and embedding spend. Falls back
+ * to `OPENAI_API_KEY`, which is the same key embeddings already require, so the
+ * default config still needs no new secret.
  */
 export function openaiImageProvider(): ImageProvider {
   const requiredEnv = ['OPENAI_API_KEY'];
@@ -15,9 +20,13 @@ export function openaiImageProvider(): ImageProvider {
   return {
     name: 'openai',
     requiredEnv,
+    // Reports whether the *server* is configured. An org that supplied its own
+    // key can generate images even when this says no, which is why the check
+    // below asks again with the org in hand rather than trusting this.
     isReady: () => Boolean(process.env.OPENAI_API_KEY),
     async generate(prompt, opts) {
-      const apiKey = process.env.OPENAI_API_KEY;
+      const orgKey = opts?.orgId ? await resolveOrgProviderKey('openai', opts.orgId) : null;
+      const apiKey = orgKey ?? process.env.OPENAI_API_KEY;
       if (!apiKey) {
         throw new ProviderNotConfiguredError('image', 'openai', requiredEnv);
       }

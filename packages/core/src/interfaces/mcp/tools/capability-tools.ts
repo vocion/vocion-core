@@ -68,7 +68,7 @@ export function capabilityTools(config: McpConfig): ToolModule[] {
       },
       handler: async (input) => {
         const { prompt, size } = input as { prompt: string; size?: '1024x1024' | '1536x1024' | '1024x1536' | 'auto' };
-        const { png } = await getImageProvider().generate(prompt, { size });
+        const { png } = await getImageProvider().generate(prompt, { size, orgId: config.orgId });
         return saveArtifact({ orgId: config.orgId, data: png, ext: 'png', contentType: 'image/png' });
       },
     },

@@ -157,6 +157,55 @@ npm run langfuse:bootstrap  # one-time: register Claude 4.6 / 4.7 / Haiku 4.5 pr
 
 `libs/Langfuse.ts` exposes `traceFor({ feature, slug, orgId, userId })` — use it from any new LLM path so traces stay sliceable. See [`docs/guides/observability.md`](./docs/guides/observability.md).
 
+## API credentials and which key an outbound call spends
+
+Two different things share the `api_token` table, told apart by a `platform`
+column and kept from mixing by the `api_token_shape_ck` CHECK constraint:
+
+- **Minted** (`platform = 'vocion'`) — a `vcn_live_<id>_<secret>` Bearer token
+  an outside caller presents *to* Vocion. Only its SHA-256 is stored.
+- **Supplied** (every other platform) — the key a workspace holds *with* a
+  vendor, AES-256-GCM encrypted under that org's DEK so we can read it back and
+  call out with it. One live key per platform per org, enforced by a partial
+  unique index; saving a second revokes the first in the same transaction.
+
+`src/libs/platforms/registry.ts` is the only list of platforms. Adding one is a
+descriptor there — nothing in the service, router or UI enumerates them.
+
+**Every outbound vendor call resolves its key the same way: the org's stored key
+first, the server's env var second.** Reach for the helper, never
+`process.env.<VENDOR>_API_KEY` directly:
+
+- `buildChatModelForOrg(role, orgId, opts)` — LangChain chat models.
+- `getLLMClientForOrg(provider, orgId)` — the provider-neutral `LLMClient`.
+- `resolveOrgProviderKey(provider, orgId)` (`libs/llm/orgKey.ts`) — the raw key,
+  for a call site that constructs its own SDK client. Returns null when the org
+  supplied none; fall back to the env var then, do not fail.
+
+Already wired: the five chat-model call sites, `libs/retrieval/embedder.ts`,
+`libs/retrieval/reranker.ts`, `services/agents/tools/kitVision.ts`, and
+`libs/tools/image/openai.ts`. Deliberately still on the server's key, because no
+org is in scope where they run: `DiscoveryDetectionService` and
+`services/feedback/classifier.ts`.
+
+**Never cache a client keyed on anything less than the exact key in use.** A
+per-provider singleton hands the first org's key to every org after it. Build
+per call — the constructor is nothing next to the HTTP round trip, and a
+rotated or revoked key then takes effect on the next call with nothing to
+invalidate. Any new outbound path gets a test that runs two orgs in sequence and
+asserts each got its own key.
+
+**Only `CredentialValidationError` may reach a client.** Those messages are
+authored in the platform registry and name no secret. Any other failure carries
+whatever text the database or the vault produced; log it and return something
+generic.
+
+Supplied keys never take a Vocion-side expiry — the vendor owns the lifetime.
+
+Encryption at rest is `VOCION_CREDENTIAL_VAULT`: `local` (wrapping key in
+`VOCION_CREDENTIAL_VAULT_KEY`, same database as the wrapped key — development
+only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`).
+
 ## Multi-Tenancy
 
 - Clerk organizations provide multi-tenancy
