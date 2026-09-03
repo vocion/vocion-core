@@ -511,6 +511,18 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
 
   // The candidate becomes a real row the moment it is proposed, holding the
   // whole payload and linked to nothing outside.
+  // An object type the org never defined is the one failure worth stopping
+  // for. Everything downstream — the stored row, the card's labels, the field
+  // order — is built from it, so without it the proposal would become a queue
+  // item a reviewer can open but never approve.
+  async precheck(ctx, input) {
+    const objectType = await loadObjectType(ctx.orgId, input.objectType);
+    if (!objectType) {
+      return `No object type "${input.objectType}" in this workspace. Propose against a type the workspace defines, or have the type added first.`;
+    }
+    return undefined;
+  },
+
   async onProposed(ctx, input, runId) {
     await upsertCandidateObject(ctx, input, runId);
   },

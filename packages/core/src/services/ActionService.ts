@@ -99,6 +99,17 @@ export async function proposeAction(input: {
     throw e;
   }
 
+  // The action's own last word, before any row exists. Tenant state the input
+  // schema cannot check lives here, and refusing costs the caller nothing but
+  // a message it can act on.
+  const refusal = await action.precheck?.(
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id },
+    parsed,
+  );
+  if (refusal) {
+    throw new ActionError('VALIDATION_FAILED', refusal);
+  }
+
   // Upsert-by-key: a re-surfaced owed action updates its existing PENDING row
   // rather than stacking duplicates in the queue. Only PENDING rows dedupe —
   // a decided (done/rejected) action can be proposed fresh later.
