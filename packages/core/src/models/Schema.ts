@@ -1236,6 +1236,54 @@ export const conversationMessageSchema = pgTable('conversation_message', {
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
 
+/**
+ * anchored_comment — the reviewer's notes ON a span of a document, kept
+ * BESIDE the document rather than in it.
+ *
+ * The layer never mutates document text, and that is enforced here rather
+ * than by convention: this table holds only an anchor (the quoted span plus
+ * the text on either side of it) and the note. Nothing in the write path
+ * touches `lead_brief.sections`, `lead_brief.draft_sequence`, or any other
+ * document column, so a comment cannot corrupt the thing it comments on.
+ *
+ * The anchor is content-addressed (a W3C-style quote selector), never a DOM
+ * offset: a re-render, or an agent edit elsewhere in the document, must not
+ * orphan or misplace a highlight. When the quoted text can no longer be
+ * found the row resolves as `orphaned` and says so, instead of pointing at
+ * the wrong words.
+ */
+export const anchoredCommentSchema = pgTable(
+  'anchored_comment',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** What is being commented on, e.g. `lead_brief:412`. */
+    targetRef: text('target_ref').notNull(),
+    /** The field inside the target: a brief section heading, or `send:2:body`. */
+    field: text('field').notNull(),
+    /**
+     * Content-addressed anchor. `quote` is the selected text; `prefix` and
+     * `suffix` are the characters immediately around it, which disambiguate
+     * a quote that appears more than once.
+     */
+    anchor: jsonb('anchor').$type<{ quote: string; prefix: string; suffix: string }>().notNull(),
+    /** What the reviewer wants changed about that span. */
+    note: text('note').notNull(),
+    /** 'open' — waiting; 'applied' — the agent's change landed; 'orphaned' — the span is gone. */
+    status: text('status').default('open').notNull(),
+    /** Per user: another reviewer's notes on the same lead are their own. */
+    createdBy: text('created_by'),
+    /** Set only when an apply verifiably completed — never on a timer. */
+    appliedAt: timestamp('applied_at', { mode: 'date' }),
+    /** The action run that applied it, so the payload can show what changed. */
+    appliedByRunId: integer('applied_by_run_id'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('anchored_comment_org_target_idx').on(table.orgId, table.targetRef, table.status),
+  ],
+);
+
 export const conversationRelations = relations(conversationSchema, ({ many }) => ({
   messages: many(conversationMessageSchema),
 }));
