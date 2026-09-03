@@ -1349,12 +1349,15 @@ describe('editing a connector set up before the URL moved', () => {
     await page.getByRole('button', { name: 'Save changes' }).click();
 
     await vi.waitFor(() => {
-      const writes = posts.filter(post => !post.url.startsWith('GET '));
+      // Relative order, not the exact list. Saving an edit also restarts the
+      // sync, and asserting every call would fail on a request this test is
+      // not about.
+      const writes = posts.filter(post => !post.url.startsWith('GET ')).map(post => post.url);
+      const credentialWrite = writes.indexOf('/rpc/sources/1/credentials');
+      const configWrite = writes.indexOf('/rpc/sources/1');
 
-      expect(writes.map(post => post.url)).toEqual([
-        '/rpc/sources/1/credentials',
-        '/rpc/sources/1',
-      ]);
+      expect(credentialWrite).toBeGreaterThanOrEqual(0);
+      expect(configWrite).toBeGreaterThan(credentialWrite);
     });
   });
 

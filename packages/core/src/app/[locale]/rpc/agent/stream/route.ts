@@ -14,7 +14,7 @@
  */
 
 import type { AgentEvent } from '@/services/agents/types';
-import type { ConversationRun } from '@/services/ConversationService';
+import type { ConversationRun, ConversationTraceNode } from '@/services/ConversationService';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { openStream } from '@/libs/streams/buffer';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
@@ -41,6 +41,32 @@ class RunCollector {
   private currentText: string | null = null;
   private documents: CollectedDoc[] = [];
   private readonly docKeys = new Set<string>();
+  // Merged by id, mirroring the client's fold (start → progress* → done),
+  // so the persisted trace equals what the live surface showed.
+  private readonly trace = new Map<string, ConversationTraceNode>();
+
+  onTraceNode(event: Record<string, unknown>): void {
+    const id = typeof event.id === 'string' ? event.id : null;
+    if (!id) {
+      return;
+    }
+    const prev = this.trace.get(id);
+    const node = event as unknown as ConversationTraceNode & { delta?: string; type?: string };
+    const merged: ConversationTraceNode = {
+      ...prev,
+      ...node,
+      text: (prev?.text ?? '') + (typeof node.delta === 'string' ? node.delta : ''),
+      citations: node.citations ?? prev?.citations,
+      result: node.result ?? prev?.result,
+      resultDetail: node.resultDetail ?? prev?.resultDetail,
+      tool: node.tool ?? prev?.tool,
+      args: node.args ?? prev?.args,
+      detail: node.detail ?? prev?.detail,
+    };
+    delete (merged as { delta?: string }).delta;
+    delete (merged as { type?: string }).type;
+    this.trace.set(id, merged);
+  }
 
   onDocuments(docs: CollectedDoc[]): void {
     for (const d of docs) {
@@ -85,14 +111,14 @@ class RunCollector {
     }
   }
 
-  finalise(): { text: string; runs: ConversationRun[]; documents: CollectedDoc[] } {
+  finalise(): { text: string; runs: ConversationRun[]; documents: CollectedDoc[]; trace: ConversationTraceNode[] } {
     this.flushText();
     const text = this.runs
       .filter((r): r is { type: 'text'; text: string } => r.type === 'text')
       .map(r => r.text)
       .join('\n\n')
       .trim();
-    return { text, runs: this.runs, documents: this.documents };
+    return { text, runs: this.runs, documents: this.documents, trace: [...this.trace.values()] };
   }
 }
 
@@ -200,6 +226,8 @@ export async function POST(request: Request): Promise<Response> {
             collector.onToolEnd(event.tool, event.output);
           } else if (event.type === 'documents') {
             collector.onDocuments(event.documents as CollectedDoc[]);
+          } else if (event.type === 'trace_node') {
+            collector.onTraceNode(event as unknown as Record<string, unknown>);
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -232,7 +260,7 @@ export async function POST(request: Request): Promise<Response> {
         buffered.close();
         // Persist the assistant turn now that the stream is closing.
         if (collector && conversationId !== null) {
-          const { text, runs, documents } = collector.finalise();
+          const { text, runs, documents, trace } = collector.finalise();
           if (text || runs.length > 0) {
             try {
               await appendMessage({
@@ -242,6 +270,7 @@ export async function POST(request: Request): Promise<Response> {
                 content: text,
                 runs,
                 documents,
+                trace,
               });
             } catch {
               /* conversation may have been deleted mid-stream */
