@@ -21,6 +21,13 @@ import { resolvePlatformKey } from '@/services/ApiTokenService';
  * is meant to fall through to the server's own. Callers pass the result
  * straight into a client constructor and let the env var take over when it is
  * null.
+ * Providers whose credential is made of more than one field — Bedrock, whose
+ * `aws` platform stores an access key id alongside its secret — are answered
+ * with null here rather than with their first field. `resolvePlatformKey` hands
+ * back field one, which for AWS is the access key id: an identifier, not a
+ * secret. Returning it would look like a resolved key and authenticate nothing.
+ * Those call sites use `resolveBedrockCredentials` in `./bedrockCredentials`,
+ * which reads the whole document.
  * @param provider - The provider about to be called.
  * @param orgId - The org the call is being made for.
  */
@@ -30,6 +37,9 @@ export async function resolveOrgProviderKey(
 ): Promise<string | null> {
   const platform = platformForLLMProvider(provider);
   if (!platform) {
+    return null;
+  }
+  if (platform.fields.length > 1) {
     return null;
   }
   return resolvePlatformKey(orgId, platform.id);
