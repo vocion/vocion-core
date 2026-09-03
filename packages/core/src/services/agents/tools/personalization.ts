@@ -46,6 +46,7 @@ import {
   recordBriefFailure,
   recordDraftFailure,
   saveDraftSequence,
+  saveHandoffBrief,
   saveLeadBrief,
   UnknownStageError,
 } from '@/services/PersonalizationQueueService';
@@ -58,6 +59,7 @@ export const PERSONALIZATION_TOOL_NAMES = [
   'reconcile_mql_window',
   'next_lead_to_brief',
   'save_lead_brief',
+  'save_handoff_brief',
   'record_brief_failure',
   'next_brief_to_draft',
   'save_draft_sequence',
@@ -229,6 +231,38 @@ export function saveLeadBriefTool(ctx: RuntimeContext) {
   );
 }
 
+export function saveHandoffBriefTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const result = await saveHandoffBrief(ctx.orgId, {
+        contactRef: args.contact_ref,
+        sections: args.sections,
+        trigger: args.trigger,
+      });
+      if (!result.saved) {
+        return JSON.stringify({
+          error: 'not_on_ledger',
+          message: 'NOTHING WAS SAVED. No lead row carries that contact_ref, so the handoff brief was discarded. Use the exact `contactRef` from the lead ledger.',
+          contact_ref: result.contactRef,
+        }, null, 2);
+      }
+      return JSON.stringify(result, null, 2);
+    },
+    {
+      name: 'save_handoff_brief',
+      description: 'Save the call prep for a lead LEAVING your care, at the end of the write-handoff-brief skill. Call it EXACTLY ONCE per handoff. It writes the handoff sections and the trigger and NOTHING else: the review brief, its claims, its confidence and the lead\'s lane are left exactly as they were, because that brief recorded a decision that has already been taken. This is prep for a person about to have a conversation, not a re-review of the copy — write where the thread stands, what the lead actually did, the one or two hypotheses worth testing live, and what to ask first. It does not send anything: the HubSpot note is written when a person ACCEPTS the handoff.',
+      schema: z.object({
+        contact_ref: z.string().min(1).describe('The lead\'s CRM mirror ref, e.g. "contacts:9412".'),
+        trigger: z.enum(['reply', 'intent', 'routed']).describe('Why the lead left: "reply" (they answered), "intent" (pages or files crossed the threshold), "routed" (a reviewer sent it to a person).'),
+        sections: z.array(z.object({
+          heading: z.string().min(1).describe('Section heading, e.g. "Where the thread stands".'),
+          body: z.string().min(1).describe('The written section. Bullet lists where the content is a list — this is read in two minutes before a call.'),
+        })).min(1).describe('The handoff brief\'s sections in the order the skill lists them. Quote a reply verbatim rather than paraphrasing it.'),
+      }),
+    },
+  );
+}
+
 export function recordBriefFailureTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -372,6 +406,7 @@ export function personalizationTools(ctx: RuntimeContext) {
     reconcileMqlWindowTool(ctx),
     nextLeadToBriefTool(ctx),
     saveLeadBriefTool(ctx),
+    saveHandoffBriefTool(ctx),
     recordBriefFailureTool(ctx),
     nextBriefToDraftTool(ctx),
     saveDraftSequenceTool(ctx),
