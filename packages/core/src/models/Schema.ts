@@ -175,6 +175,28 @@ export const projectSchema = pgTable(
      * sidebar only.
      */
     enabledSurfaces: jsonb('enabled_surfaces').$type<string[]>().default([]).notNull(),
+    /**
+     * Which vendor and model produce this workspace's embeddings. Authored as
+     * `defaults.embeddingProvider` / `defaults.embeddingModel` in
+     * workspace.yaml; NULL keys fall back to `VOCION_EMBEDDING_PROVIDER` /
+     * `VOCION_EMBEDDING_MODEL`, then to OpenAI.
+     *
+     * Deliberately a WORKSPACE setting and never a per-agent one. Every vector
+     * in `knowledge_chunk` was produced by one model, and a query vector is
+     * only comparable to vectors from that same model — cosine similarity
+     * across two embedding spaces returns numbers, just meaningless ones. An
+     * agent that embedded its queries on a different provider from the one that
+     * ingested the documents would degrade search with no error anywhere, which
+     * is the worst possible failure mode for a retrieval bug. Holding it at the
+     * workspace makes ingest and query provably the same model.
+     *
+     * Changing it on a workspace that already has chunks means re-embedding
+     * them; a width change means a schema migration too.
+     */
+    embeddingConfig: jsonb('embedding_config').$type<{
+      provider?: 'openai' | 'bedrock';
+      model?: string;
+    }>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -314,6 +336,28 @@ export const businessObjectSchema = pgTable('business_object', {
   status: text('status').default('active'),
   /** Type-specific structured data (e.g. prospect_company, deal_stage, budget) */
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  /**
+   * The system that owns the published record this object mirrors, e.g.
+   * `strapi`. Null until something outside actually exists: a proposed
+   * candidate is a real row here from the moment it is extracted, and the
+   * downstream system stamps its own id back only once it has published.
+   */
+  externalSystem: text('external_system'),
+  /** That system's primary key for the record, as it returns it. */
+  externalId: text('external_id'),
+  /**
+   * The review-queue item this object is waiting on, when it arrived as a
+   * proposed candidate. Keeps "what happened to this extraction" a single
+   * query in both directions.
+   */
+  reviewActionRunId: integer('review_action_run_id'),
+  /**
+   * Where a proposed candidate came from — source links, the raw extract it
+   * was parsed from, what the extractor could not resolve, who proposed it.
+   * Kept out of `metadata` so the domain payload a consumer reads is only the
+   * record's own fields.
+   */
+  provenance: jsonb('provenance').$type<Record<string, unknown>>(),
   /** LLM-generated summary combining linked documents */
   summary: text('summary'),
   summaryGeneratedAt: timestamp('summary_generated_at', { mode: 'date' }),
@@ -323,7 +367,17 @@ export const businessObjectSchema = pgTable('business_object', {
     .$onUpdate(() => new Date())
     .notNull(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-});
+}, table => [
+  // One object per external record: a retried link-back cannot fork the
+  // mapping, and "which object is Strapi id 412?" is an indexed lookup.
+  uniqueIndex('business_object_external_ref_idx').on(table.orgId, table.externalSystem, table.externalId),
+  // The candidate queues: "this org's proposed objects of this type".
+  index('business_object_org_status_idx').on(table.orgId, table.status),
+  // One object per review item. `onProposed` upserts on this, and two
+  // concurrent proposals of the same candidate would otherwise both miss the
+  // lookup and insert.
+  uniqueIndex('business_object_review_run_idx').on(table.orgId, table.reviewActionRunId),
+]);
 
 /** Links a business object to one or more indexed source documents. */
 export const objectDocumentLinkSchema = pgTable(
@@ -516,8 +570,21 @@ export const agentSchema = pgTable(
       excludeTools?: string[];
       /** Granted-only tool names to hand this agent (e.g. classify_call). Gated tools are absent unless named here. */
       grantTools?: string[];
-      /** agentcore provider only: Bedrock model id for the managed harness (defaults to the harness service default). */
+      /**
+       * Model id this agent's main role runs on, overriding the per-role env
+       * default. Read by every provider: the agentcore and runtime harnesses
+       * pass it to the managed runtime, and the local loop hands it to
+       * `buildChatModelForOrg`.
+       */
       model?: string;
+      /**
+       * Which vendor serves this agent's chat model. A different axis from
+       * `provider` above, which selects where the agent *loop* executes —
+       * an agent can run on the local loop and still answer on Bedrock.
+       * Unset inherits `VOCION_LLM_PROVIDER`, so this exists to point one
+       * agent at one vendor without moving the whole deployment.
+       */
+      modelProvider?: 'anthropic' | 'openai' | 'bedrock';
     }>().default({}).notNull(),
     /**
      * agentcore provider only: ARN of the provisioned AgentCore harness.
@@ -1077,6 +1144,14 @@ export const conversationSchema = pgTable(
     agentSlug: text('agent_slug').notNull(),
     title: text('title').notNull(),
     createdBy: text('created_by'),
+    /**
+     * The record this conversation is scoped to, when it was opened from a
+     * record page's dock — the CRM mirror ref (e.g. `contacts:9412`). Null
+     * for everything-scoped conversations (the full-page chat, the bubble).
+     * Scoped conversations are per user and never shared: resume filters on
+     * (orgId, scopeRef, createdBy). See agent-chat-surface.md §3.1, §8.6.
+     */
+    scopeRef: text('scope_ref'),
     messageCount: integer('message_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -1086,6 +1161,7 @@ export const conversationSchema = pgTable(
   },
   table => [
     uniqueIndex('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
+    index('conversation_org_scope_idx').on(table.orgId, table.scopeRef, table.updatedAt),
   ],
 );
 
@@ -1122,6 +1198,29 @@ export const conversationMessageSchema = pgTable('conversation_message', {
     foundBy?: string;
   }>>(),
   /**
+   * The turn's typed activity trace (the TraceNode tree the UI folds from
+   * `trace_node` SSE events) persisted with the message, so the transcript's
+   * expanded levels — the steps and their payloads — survive reload and
+   * resume instead of existing only in the live stream. Nullable for user
+   * turns + rows written before this column.
+   */
+  traceJson: jsonb('trace_json').$type<Array<{
+    id: string;
+    parentId?: string;
+    actor: { id: string; kind: string; name: string };
+    kind: string;
+    status: string;
+    label: string;
+    detail?: string;
+    tool?: string;
+    args?: string;
+    resultDetail?: string;
+    text?: string;
+    result?: string;
+    confidence?: number;
+    citations?: Array<{ sourceType: string; title: string; link?: string; snippet?: string; actorId: string }>;
+  }>>(),
+  /**
    * Per-message Langfuse trace id for the assistant turn that
    * produced this row. Populated by AgentService at write time so the
    * chat UI can deep-link to the trace. Nullable for legacy rows + for
@@ -1137,6 +1236,54 @@ export const conversationMessageSchema = pgTable('conversation_message', {
   confidence: text('confidence'),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
+
+/**
+ * anchored_comment — the reviewer's notes ON a span of a document, kept
+ * BESIDE the document rather than in it.
+ *
+ * The layer never mutates document text, and that is enforced here rather
+ * than by convention: this table holds only an anchor (the quoted span plus
+ * the text on either side of it) and the note. Nothing in the write path
+ * touches `lead_brief.sections`, `lead_brief.draft_sequence`, or any other
+ * document column, so a comment cannot corrupt the thing it comments on.
+ *
+ * The anchor is content-addressed (a W3C-style quote selector), never a DOM
+ * offset: a re-render, or an agent edit elsewhere in the document, must not
+ * orphan or misplace a highlight. When the quoted text can no longer be
+ * found the row resolves as `orphaned` and says so, instead of pointing at
+ * the wrong words.
+ */
+export const anchoredCommentSchema = pgTable(
+  'anchored_comment',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** What is being commented on, e.g. `lead_brief:412`. */
+    targetRef: text('target_ref').notNull(),
+    /** The field inside the target: a brief section heading, or `send:2:body`. */
+    field: text('field').notNull(),
+    /**
+     * Content-addressed anchor. `quote` is the selected text; `prefix` and
+     * `suffix` are the characters immediately around it, which disambiguate
+     * a quote that appears more than once.
+     */
+    anchor: jsonb('anchor').$type<{ quote: string; prefix: string; suffix: string }>().notNull(),
+    /** What the reviewer wants changed about that span. */
+    note: text('note').notNull(),
+    /** 'open' — waiting; 'applied' — the agent's change landed; 'orphaned' — the span is gone. */
+    status: text('status').default('open').notNull(),
+    /** Per user: another reviewer's notes on the same lead are their own. */
+    createdBy: text('created_by'),
+    /** Set only when an apply verifiably completed — never on a timer. */
+    appliedAt: timestamp('applied_at', { mode: 'date' }),
+    /** The action run that applied it, so the payload can show what changed. */
+    appliedByRunId: integer('applied_by_run_id'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('anchored_comment_org_target_idx').on(table.orgId, table.targetRef, table.status),
+  ],
+);
 
 export const conversationRelations = relations(conversationSchema, ({ many }) => ({
   messages: many(conversationMessageSchema),
@@ -2229,6 +2376,22 @@ export const leadBriefSchema = pgTable(
       heading: string;
       body: string;
     }>>().default([]).notNull(),
+    /**
+     * The call prep written when the lead LEAVES the agent — where the thread
+     * stands, what triggered the handoff, what to test live. Deliberately
+     * separate from `sections`: the review brief answers "should we send this
+     * copy" and is written at research time, while this answers "what do I say
+     * now that a person is in the conversation" and is written at handoff
+     * time, when the reply text and the delivery record exist. A handoff
+     * re-run must never touch the review brief.
+     */
+    handoffSections: jsonb('handoff_sections').$type<Array<{
+      heading: string;
+      body: string;
+    }>>().default([]).notNull(),
+    /** Why the lead left: 'reply' | 'intent' | 'routed'. */
+    handoffTrigger: text('handoff_trigger'),
+    handoffAt: timestamp('handoff_at', { mode: 'date' }),
     /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
     regenerateNote: text('regenerate_note'),
     /** Briefing tries so far. Three, then the lead surfaces with its error. */

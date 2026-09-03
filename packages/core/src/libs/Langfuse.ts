@@ -1,22 +1,150 @@
 import type { Serialized } from '@langchain/core/load/serializable';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { ChatGeneration, LLMResult } from '@langchain/core/outputs';
+import type { LangfuseConfig } from './Langfuse/config';
 import type { FeatureName } from './Langfuse/features';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { Langfuse } from 'langfuse';
+import { resolveLangfuseConfig } from './Langfuse/config';
 
-const globalForLangfuse = globalThis as unknown as {
-  langfuse: Langfuse | undefined;
+/* ------------------------------------------------------------------ */
+/* Client — created on first use, never at import time                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Importing this module must not construct a Langfuse client.
+ *
+ * It used to. The client was built at module scope with fallback
+ * credentials, so any process that imported anything downstream of this
+ * file — including a build step or a CLI script — opened a tracer
+ * pointed at whatever `LANGFUSE_BASE_URL` happened to be, usually
+ * `localhost:3200` in a container where nothing listens on that port.
+ * Traces then failed silently for the life of the deployment.
+ *
+ * Now the client appears on the first traced call, and only when
+ * `libs/Langfuse/config.ts` says tracing is on. Same treatment the
+ * OpenAI client got in v0.5.0.
+ */
+const cachedState = globalThis as unknown as {
+  vocionLangfuseClient?: Langfuse | null;
+  vocionLangfuseConfig?: LangfuseConfig;
+  vocionLangfuseLoggedState?: boolean;
 };
 
-export const langfuse = globalForLangfuse.langfuse ?? new Langfuse({
-  publicKey: process.env.LANGFUSE_PUBLIC_KEY || 'pk-lf-vocion-demo',
-  secretKey: process.env.LANGFUSE_SECRET_KEY || 'sk-lf-vocion-demo',
-  baseUrl: process.env.LANGFUSE_BASE_URL || 'http://localhost:3200',
-});
+/**
+ * Log through a dynamic import.
+ *
+ * `libs/Logger` has a top-level await and this file sits in the import
+ * chain of CLI scripts that tsx compiles as CommonJS, where that is
+ * fatal. Same approach as `libs/retrieval/embedder.ts`.
+ * @param level - Which logger method to call.
+ * @param message - What happened, in plain words.
+ * @param properties - Identifiers and context worth keeping.
+ */
+function log(
+  level: 'info' | 'warn',
+  message: string,
+  properties: Record<string, unknown> = {},
+): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger[level](message, properties))
+    // Nothing useful left to do if logging itself is broken.
+    .catch(() => {});
+}
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForLangfuse.langfuse = langfuse;
+/**
+ * The resolved configuration for this process, computed once.
+ *
+ * Cached on `globalThis` so Next.js hot reloads and the several entry
+ * points that import this module share one answer, and so the
+ * "tracing is off" line is logged once rather than per call.
+ */
+export function langfuseConfig(): LangfuseConfig {
+  if (!cachedState.vocionLangfuseConfig) {
+    cachedState.vocionLangfuseConfig = resolveLangfuseConfig();
+  }
+  return cachedState.vocionLangfuseConfig;
+}
+
+/** Whether traced calls will actually reach Langfuse. */
+export function isTracingEnabled(): boolean {
+  return langfuseConfig().enabled;
+}
+
+/**
+ * The Langfuse client, or null when tracing is off.
+ *
+ * Callers inside this module branch on null. Callers outside it should
+ * use `traceFor`, `pushScore` or `flushTraces`, which already handle the
+ * disabled case.
+ */
+export function getLangfuseClient(): Langfuse | null {
+  if (cachedState.vocionLangfuseClient !== undefined) {
+    return cachedState.vocionLangfuseClient;
+  }
+
+  const config = langfuseConfig();
+
+  if (!config.enabled) {
+    if (!cachedState.vocionLangfuseLoggedState) {
+      cachedState.vocionLangfuseLoggedState = true;
+      log('info', 'Langfuse tracing is off', { reason: config.reason });
+    }
+    cachedState.vocionLangfuseClient = null;
+    return null;
+  }
+
+  const client = new Langfuse({
+    publicKey: config.publicKey,
+    secretKey: config.secretKey,
+    baseUrl: config.baseUrl,
+  });
+
+  if (!cachedState.vocionLangfuseLoggedState) {
+    cachedState.vocionLangfuseLoggedState = true;
+    log('info', 'Langfuse tracing is on', {
+      baseUrl: config.baseUrl,
+      projectId: config.projectId,
+    });
+  }
+
+  cachedState.vocionLangfuseClient = client;
+  return client;
+}
+
+/**
+ * Flush queued traces and wait for the send to finish.
+ *
+ * The SDK batches in the background, so a short-lived process (a
+ * serverless request, a script, a Temporal activity) has to flush before
+ * it exits or the traces are lost. A no-op when tracing is off.
+ *
+ * This replaces the old exported `langfuse` singleton — flushing was the
+ * only thing callers outside this module used it for.
+ */
+export async function flushTraces(): Promise<void> {
+  const client = getLangfuseClient();
+  if (!client) {
+    return;
+  }
+  try {
+    await client.flushAsync();
+  } catch (error) {
+    // Losing traces must never fail the work that produced them.
+    log('warn', 'Langfuse flush failed; traces for this run may be missing', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Reset the cached client and config. Tests only — each case needs to
+ * resolve configuration against its own environment variables.
+ */
+export function resetLangfuseForTests(): void {
+  cachedState.vocionLangfuseClient = undefined;
+  cachedState.vocionLangfuseConfig = undefined;
+  cachedState.vocionLangfuseLoggedState = undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -46,12 +174,12 @@ export type TraceFor = {
   metadata?: Record<string, unknown>;
 };
 
-export type TraceLike = ReturnType<typeof langfuse.trace>;
+export type TraceLike = ReturnType<Langfuse['trace']>;
 
 /**
  * Drop undefined values from a usage map; Langfuse's
  * `usageDetails: { [k: string]: number }` schema rejects undefined.
- * @param input
+ * @param input - Token counts, some of which may be undefined.
  */
 export function cleanUsageDetails(input: Record<string, number | undefined>): Record<string, number> {
   const out: Record<string, number> = {};
@@ -76,11 +204,11 @@ export function cleanUsageDetails(input: Record<string, number | undefined>): Re
  * Errors are swallowed by design — observability should never fail a
  * write. Returns true when the call was dispatched (still subject to
  * background flush success), false on a recognized skip.
- * @param opts
- * @param opts.traceId
- * @param opts.name
- * @param opts.value
- * @param opts.comment
+ * @param opts - The score to record.
+ * @param opts.traceId - Trace the score attaches to; null skips the push.
+ * @param opts.name - Which signal this is, by its source.
+ * @param opts.value - 1 for positive, 0 for negative.
+ * @param opts.comment - Free text the reviewer left, if any.
  */
 export function pushScore(opts: {
   traceId: string | null | undefined;
@@ -91,8 +219,12 @@ export function pushScore(opts: {
   if (!opts.traceId) {
     return false;
   }
+  const client = getLangfuseClient();
+  if (!client) {
+    return false;
+  }
   try {
-    langfuse.score({
+    client.score({
       traceId: opts.traceId,
       name: opts.name,
       value: opts.value,
@@ -100,13 +232,63 @@ export function pushScore(opts: {
       comment: opts.comment ?? undefined,
     });
     return true;
-  } catch {
+  } catch (error) {
+    log('warn', 'Langfuse score push failed', {
+      traceId: opts.traceId,
+      scoreName: opts.name,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return false;
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Disabled tracing — a stand-in with the same shape                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A trace that accepts every call and records nothing.
+ *
+ * Callers build spans and generations off whatever `traceFor` returns
+ * and read `trace.id` to store alongside their rows. Handing back this
+ * stand-in when tracing is off keeps all of that code branch-free, at
+ * the cost of one cast: the object implements the members Vocion
+ * actually uses, not the whole SDK surface.
+ *
+ * `id` is a real random identifier rather than a fixed string, so a
+ * `traceId` column filled while tracing was off still has unique
+ * values and does not collide across rows.
+ */
+function createDisabledTrace(): TraceLike {
+  const disabledStep = {
+    id: crypto.randomUUID(),
+    end: () => disabledStep,
+    update: () => disabledStep,
+    generation: () => disabledStep,
+    span: () => disabledStep,
+    event: () => disabledStep,
+    score: () => disabledStep,
+  };
+
+  const disabledTrace = {
+    id: crypto.randomUUID(),
+    update: () => disabledTrace,
+    generation: () => disabledStep,
+    span: () => disabledStep,
+    event: () => disabledStep,
+    score: () => disabledTrace,
+    getTraceUrl: () => '',
+  };
+
+  return disabledTrace as unknown as TraceLike;
+}
+
 export function traceFor(opts: TraceFor): TraceLike {
-  return langfuse.trace({
+  const client = getLangfuseClient();
+  if (!client) {
+    return createDisabledTrace();
+  }
+  return client.trace({
     name: `${opts.feature}:${opts.slug}`,
     input: opts.input,
     userId: opts.userId,

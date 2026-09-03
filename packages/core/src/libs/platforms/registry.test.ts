@@ -166,8 +166,9 @@ describe('AWS, the one platform whose credential is a pair', () => {
     expect(secret?.secret).toBe(true);
   });
 
-  it('is not wired to any LLM provider, so no model call picks it up implicitly', () => {
-    expect(getPlatform('aws').llmProvider).toBeNull();
+  it('is wired to bedrock, so a Bedrock model call spends the org\'s own AWS key', () => {
+    expect(getPlatform('aws').llmProvider).toBe('bedrock');
+    expect(platformForLLMProvider('bedrock')?.id).toBe('aws');
   });
 
   it('accepts a well-formed pair', () => {
@@ -329,7 +330,7 @@ describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
     // the one-live cap on an LLM key or cannot hold a second connector
     // credential — and neither shows up until someone tries it.
     const migration = readFileSync(
-      path.join(process.cwd(), 'migrations', '0070_connector_credentials.sql'),
+      path.join(process.cwd(), 'migrations', '0076_connector_credentials.sql'),
       'utf8',
     );
     const carveOut = /platform"?\s+NOT IN \(([^)]*)\)/i.exec(migration);

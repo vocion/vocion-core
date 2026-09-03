@@ -72,7 +72,14 @@ describe('seedSampleWorkspace on an empty workspace', () => {
     expect(result.counts.teams).toEqual({ created: 4, updated: 0, unchanged: 0 });
     expect(result.counts.agents.created).toBe(14);
     expect(result.counts.skills.created).toBe(2);
-    expect(result.sha).toMatch(/^[0-9a-f]{8,}/);
+    // `computeWorkspaceSha` has three documented shapes: a git sha, a
+    // `<sha>-dirty-<hash>` when the checkout has local edits, and
+    // `local-<hash>` when the path is not inside a git repo at all. CI runs
+    // the bundle from a container where git cannot claim the checkout, so it
+    // legitimately returns the third — asserting only the first made this
+    // test a check on the runner's filesystem rather than on the apply. What
+    // matters here is that the apply recorded a stable, non-empty sha.
+    expect(result.sha).toMatch(/^(?:[0-9a-f]{8,}|local-[0-9a-f]{8,})/);
 
     // The apply is audited like any other apply.
     const versions = await db.select().from(workspaceVersionSchema).where(eq(workspaceVersionSchema.orgId, ORG));

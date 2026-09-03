@@ -63,9 +63,15 @@ variable "root_volume_gb" {
 }
 
 variable "data_volume_gb" {
-  description = "Data EBS size in GB (Postgres + Caddy certs)."
+  description = "Data EBS size in GB (Postgres, Caddy certs, Docker volumes incl. Langfuse ClickHouse)."
   type        = number
   default     = 100
+}
+
+variable "snapshot_retention_count" {
+  description = "How many daily snapshots of the data volume to keep. 7 is a week of restore points; raise it if the client needs a longer window."
+  type        = number
+  default     = 7
 }
 
 variable "key_name" {

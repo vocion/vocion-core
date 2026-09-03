@@ -4,6 +4,9 @@ import { and, eq } from 'drizzle-orm';
 import { UserSearch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
+import { CommentLayerProvider } from '@/features/comments/CommentLayer';
+import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
+import { ChatDock } from '@/features/dashboard/chat/ChatDock';
 import { LeadDetail } from '@/features/personalization/LeadDetail';
 import { getAction } from '@/libs/actions/registry';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -147,5 +150,28 @@ export default async function LeadPage(props: {
     decidedBy: row.decidedBy,
   };
 
-  return <LeadDetail lead={lead} contactHref={contactHref} runState={runState} />;
+  // The dock: the agent conversation as a third column, scoped to this lead
+  // and open by default (agent-chat-surface.md §3, decided 2026-09-02). The
+  // floating bubble bails on this route, so this is the page's one surface.
+  const { agents } = await loadChatAgentContext(orgId);
+
+  // The comment layer spans both: a note taken on the brief becomes a chip in
+  // the dock's composer, and clears from both when the agent applies it (043).
+  // It reads the commentable regions from the rendered page, so an anchor
+  // always points at the words the reviewer actually selected.
+  return (
+    <CommentLayerProvider targetRef={`lead_brief:${row.id}`}>
+      <div className="min-w-0 flex-1">
+        {/* `guided`: with a decision waiting, the conversation takes it and
+            the page states what is pending — one decision surface per page. */}
+        <LeadDetail lead={lead} contactHref={contactHref} runState={runState} guided={agents.length > 0} />
+      </div>
+      <ChatDock
+        agents={agents}
+        scopeRef={row.contactRef}
+        scopeLabel={row.contactName}
+        run={runState.run}
+      />
+    </CommentLayerProvider>
+  );
 }
