@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import { UserSearch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
+import { CommentLayerProvider } from '@/features/comments/CommentLayer';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { ChatDock } from '@/features/dashboard/chat/ChatDock';
 import { LeadDetail } from '@/features/personalization/LeadDetail';
@@ -154,8 +155,12 @@ export default async function LeadPage(props: {
   // floating bubble bails on this route, so this is the page's one surface.
   const { agents } = await loadChatAgentContext(orgId);
 
+  // The comment layer spans both: a note taken on the brief becomes a chip in
+  // the dock's composer, and clears from both when the agent applies it (043).
+  // It reads the commentable regions from the rendered page, so an anchor
+  // always points at the words the reviewer actually selected.
   return (
-    <div className="flex min-w-0 items-start">
+    <CommentLayerProvider targetRef={`lead_brief:${row.id}`}>
       <div className="min-w-0 flex-1">
         <LeadDetail lead={lead} contactHref={contactHref} runState={runState} />
       </div>
@@ -164,6 +169,6 @@ export default async function LeadPage(props: {
         scopeRef={row.contactRef}
         scopeLabel={row.contactName}
       />
-    </div>
+    </CommentLayerProvider>
   );
 }
