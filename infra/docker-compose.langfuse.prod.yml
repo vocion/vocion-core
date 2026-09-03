@@ -1,0 +1,155 @@
+# Production overlay for the self-hosted Langfuse stack.
+#
+# `infra/docker-compose.platform.yml` was written for a laptop. It
+# publishes the Langfuse UI on host port 3200, hardcodes every secret
+# (NEXTAUTH_SECRET, SALT, ENCRYPTION_KEY, the ClickHouse and Redis
+# passwords, the MinIO keys), seeds an admin user with a password that
+# is committed to this repository, and pins NEXTAUTH_URL to
+# http://localhost:3200 so the auth callback fails from anywhere else.
+#
+# `bootstrap.sh` used to compose that file straight into production, so
+# a client deployment inherited all of it. This overlay replaces the
+# parts that must not ship.
+#
+# Compose it AFTER the platform file so these values win:
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f infra/docker-compose.platform.yml \
+#     -f infra/aws/docker-compose.prod.yml \
+#     -f infra/docker-compose.langfuse.prod.yml \
+#     -p vocion up -d
+#
+# Every value below comes from infra/aws/.env.production, which the
+# operator writes on the box from Secrets Manager and never commits.
+# See docs/deployment/observability.md for how to generate them and for
+# the Langfuse Cloud alternative, which removes these six containers.
+
+services:
+  langfuse-web:
+    # No published host port. Caddy reaches this over the compose
+    # network on 3000, the way it reaches `app`. Publishing 3200 put
+    # the trace UI one security-group rule away from the internet.
+    ports: !override []
+    environment:
+      # ----- Where Langfuse lives -----
+      # The public hostname Caddy terminates TLS for. The auth callback
+      # is built from this, so a wrong value breaks sign-in specifically
+      # rather than the whole app.
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:?set LANGFUSE_PUBLIC_URL, e.g. https://traces.example.com}
+
+      # ----- Secrets -----
+      # openssl rand -base64 32 for the first two, openssl rand -hex 32
+      # for the third. ENCRYPTION_KEY is what Langfuse encrypts stored
+      # LLM API keys with: losing it loses those keys, and changing it
+      # makes the stored ones unreadable.
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?set LANGFUSE_NEXTAUTH_SECRET}
+      SALT: ${LANGFUSE_SALT:?set LANGFUSE_SALT}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?set LANGFUSE_ENCRYPTION_KEY}
+
+      # ----- Backing services -----
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD:?set LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:?set LANGFUSE_CLICKHOUSE_PASSWORD}
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:?set LANGFUSE_REDIS_PASSWORD}
+
+      # ----- Object storage -----
+      # Real S3, not the MinIO container. ClickHouse and event payloads
+      # are the two things that grow without bound on this box, and S3
+      # is the one of them that can be moved off it.
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET:?set LANGFUSE_S3_BUCKET}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_REGION:?set LANGFUSE_S3_REGION}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID:-}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ''
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'false'
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_REGION}
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ''
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'false'
+
+      # ----- Who can get in -----
+      # The instance is on a public hostname, so self-registration has
+      # to be off. Add operators from inside the Langfuse UI.
+      AUTH_DISABLE_SIGNUP: 'true'
+
+      # ----- First-boot seed -----
+      # Langfuse creates these only when the database is empty, so
+      # after the first boot they are inert. They still must not be the
+      # committed demo values, because the first boot is what sets the
+      # admin password and the API keys the app authenticates with.
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:?set LANGFUSE_INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:?set LANGFUSE_INIT_USER_PASSWORD}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Operator}
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:?set LANGFUSE_INIT_ORG_ID}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:?set LANGFUSE_INIT_ORG_NAME}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_PROJECT_ID:?set LANGFUSE_PROJECT_ID}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:?set LANGFUSE_INIT_PROJECT_NAME}
+      # These two become the app's LANGFUSE_PUBLIC_KEY / _SECRET_KEY.
+      # Same values in both places or traces stop landing.
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?set LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?set LANGFUSE_SECRET_KEY}
+
+      # Retention is deliberately absent here. Langfuse has no
+      # environment variable for it: a self-hosted instance keeps data
+      # forever until a retention period is set per project, through
+      # Project Settings in the UI or the projects API, with a minimum
+      # of 3 days. Verified at langfuse.com/docs/data-retention on
+      # 2026-09-03. It is a required post-deploy step, not a config
+      # value — see docs/deployment/observability.md.
+
+  langfuse-worker:
+    # The worker reads the same configuration as the web container. In
+    # the platform file that is a YAML anchor, which an overlay cannot
+    # extend, so the overridden keys are repeated here. Both lists must
+    # be changed together.
+    environment:
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+      SALT: ${LANGFUSE_SALT}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_REGION}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID:-}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ''
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'false'
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_REGION}
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ''
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'false'
+
+  langfuse-postgres:
+    environment:
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
+
+  langfuse-clickhouse:
+    environment:
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+
+  langfuse-redis:
+    command: redis-server --requirepass ${LANGFUSE_REDIS_PASSWORD}
+    healthcheck:
+      test: [CMD, redis-cli, -a, '${LANGFUSE_REDIS_PASSWORD}', ping]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  langfuse-minio:
+    # Replaced by S3. Kept in the file with `replicas: 0` rather than
+    # deleted, because an overlay cannot remove a service the platform
+    # file declares — omitting it here would leave the laptop MinIO
+    # container running in production.
+    deploy:
+      replicas: 0
+
+  # Temporal and the OTel collector still come from the platform file
+  # with laptop defaults and published host ports (7233, 8233, 4317,
+  # 4318). They are open question 3 on vocion-core#95 and are not
+  # covered here.
