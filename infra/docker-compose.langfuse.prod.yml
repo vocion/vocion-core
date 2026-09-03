@@ -160,8 +160,47 @@ services:
   langfuse-clickhouse:
     deploy:
       replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
+      # Hard ceiling on memory, enforced by the kernel.
+      #
+      # ClickHouse otherwise claims about 90% of the machine's RAM (see
+      # infra/aws/clickhouse-memory.xml), and it shares this box with
+      # the app, Postgres, Temporal, Redis, Caddy and the two Langfuse
+      # containers. Trace storage for one client does not need 57 GB,
+      # and the app going slow because the trace database took the RAM
+      # is a bad trade.
+      #
+      # 4 GB matches the Langfuse budget in infra/README.md and is safe
+      # on the r6i.large (16 GB) box Metacto actually runs, not only on
+      # the r6i.2xlarge (64 GB) the Terraform default asks for. Raise it
+      # on a bigger instance.
+      #
+      # Compose honours this outside swarm mode: a container declared
+      # with a 512M limit reports exactly 536870912 in its cgroup.
+      resources:
+        limits:
+          memory: ${LANGFUSE_CLICKHOUSE_MEMORY_LIMIT:-4g}
     environment:
       CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+      # ClickHouse's own limit, in bytes, read by the config file
+      # mounted below. Deliberately lower than the container limit
+      # above: at this number ClickHouse fails one expensive query and
+      # stays up, whereas at the container limit the kernel kills it
+      # and trace ingestion stops until it restarts. Default is 3 GB
+      # against the 4 GB ceiling. Raise both together, this one lower.
+      LANGFUSE_CLICKHOUSE_MAX_SERVER_MEMORY_BYTES: ${LANGFUSE_CLICKHOUSE_MAX_SERVER_MEMORY_BYTES:-3221225472}
+    volumes:
+      # Read-only: nothing in the container should rewrite its own
+      # memory ceiling. config.d/ is merged into ClickHouse's main
+      # config at startup.
+      #
+      # The path is relative to the REPO ROOT, not to this file.
+      # Compose resolves relative paths against the project directory,
+      # which is the directory of the first -f file — and bootstrap.sh
+      # composes from the repo root. Writing ./aws/... here, next to
+      # where this file actually lives, silently resolves to
+      # <repo>/aws/clickhouse-memory.xml and the container starts with
+      # no memory cap.
+      - ./infra/aws/clickhouse-memory.xml:/etc/clickhouse-server/config.d/memory.xml:ro
 
   langfuse-redis:
     deploy:

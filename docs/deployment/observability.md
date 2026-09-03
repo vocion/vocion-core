@@ -131,6 +131,40 @@ collector:
 starting point rather than a sizing exercise. ClickHouse is the reason
 to go bigger.
 
+### Keeping ClickHouse in its lane
+
+ClickHouse assumes it owns the machine. Left alone it claims
+`max_server_memory_usage_to_ram_ratio` of total RAM, which defaults to
+**0.9** ([server settings](https://clickhouse.com/docs/operations/server-configuration-parameters/settings),
+checked 2026-09-03) — about 57 GB on a 64 GB box. It shares that RAM
+with the app, Postgres, Temporal, Redis, Caddy and the two other
+Langfuse containers, so an uncapped ClickHouse can starve the thing
+clients actually use.
+
+The production overlay caps it in two places, and the ordering between
+them is the point:
+
+| Setting | Enforced by | Default | What happens at the limit |
+| --- | --- | --- | --- |
+| `LANGFUSE_CLICKHOUSE_MEMORY_LIMIT` | the kernel, via the container | `4g` | ClickHouse is killed and restarts. Trace ingestion stops until it is back. |
+| `LANGFUSE_CLICKHOUSE_MAX_SERVER_MEMORY_BYTES` | ClickHouse itself | `3221225472` (3 GB) | One expensive query fails with a memory-limit error. The server stays up. |
+
+**The second must stay below the first.** That is what makes ClickHouse
+refuse a query rather than get killed. If you raise one, raise both,
+keeping ClickHouse's own number lower — and note it is in bytes, while
+the container limit takes suffixes like `4g`.
+
+The 4 GB default matches the Langfuse budget in `infra/README.md` and is
+safe on the 16 GB box, not only on the 64 GB instance the Terraform
+default asks for. On a bigger instance with real trace volume, raising
+both is the first tuning knob to reach for.
+
+ClickHouse's own limit is set through
+`infra/aws/clickhouse-memory.xml`, mounted read-only into
+`config.d/`, which ClickHouse merges into its main config at startup.
+The file reads the byte count from the environment variable, so the
+compose file stays the single place the number is set.
+
 ### Steps
 
 1. **DNS.** An A record for the Langfuse hostname pointing at the

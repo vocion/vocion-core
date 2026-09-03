@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!--
+  Caps how much memory ClickHouse will claim.
+
+  ClickHouse assumes it owns the machine. Left alone it takes
+  max_server_memory_usage_to_ram_ratio of total RAM, which defaults to
+  0.9 (clickhouse.com/docs/operations/server-configuration-parameters/settings,
+  checked 2026-09-03) — about 57 GB of the 64 GB r6i.2xlarge. On this
+  box it shares that RAM with the app, Postgres, Temporal, Redis, Caddy
+  and the Langfuse web and worker containers, so an unrestricted
+  ClickHouse can starve the thing clients actually use.
+
+  There are two limits and they do different jobs:
+
+    - The container limit in docker-compose.langfuse.prod.yml is
+      enforced by the kernel. Cross it and the process is killed, which
+      means a restart and a gap in trace ingestion.
+
+    - max_server_memory_usage below is enforced by ClickHouse itself.
+      Cross it and ClickHouse fails the one expensive query with a
+      memory-limit error and keeps running.
+
+  So this number is deliberately set BELOW the container limit. That
+  ordering is the whole point: ClickHouse should refuse a query rather
+  than get killed. Raise both together, keeping this one lower, and
+  remember it is bytes.
+
+  Files in config.d/ are merged into the main config before it is
+  applied, so nothing has to edit the image's own config.xml.
+-->
+<clickhouse>
+    <!--
+      Set from LANGFUSE_CLICKHOUSE_MAX_SERVER_MEMORY_BYTES. ClickHouse
+      substitutes the value of that environment variable here; the
+      compose file supplies the default, so there is one place to
+      change it.
+    -->
+    <max_server_memory_usage from_env="LANGFUSE_CLICKHOUSE_MAX_SERVER_MEMORY_BYTES"/>
+</clickhouse>
