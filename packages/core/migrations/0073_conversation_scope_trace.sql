@@ -9,6 +9,10 @@
 -- trace_json: the turn's typed activity trace persisted with the message so
 -- the transcript's expanded levels survive reload instead of living only in
 -- the SSE stream.
-ALTER TABLE "conversation" ADD COLUMN "scope_ref" text;--> statement-breakpoint
-CREATE INDEX "conversation_org_scope_idx" ON "conversation" USING btree ("org_id","scope_ref","updated_at");--> statement-breakpoint
-ALTER TABLE "conversation_message" ADD COLUMN "trace_json" jsonb;
+--
+-- Idempotent (IF NOT EXISTS), matching the convention 0070 already uses: a
+-- renumbered migration, or an environment that applied part of this by hand,
+-- must not wedge the whole chain on "already exists".
+ALTER TABLE "conversation" ADD COLUMN IF NOT EXISTS "scope_ref" text;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "conversation_org_scope_idx" ON "conversation" USING btree ("org_id","scope_ref","updated_at");--> statement-breakpoint
+ALTER TABLE "conversation_message" ADD COLUMN IF NOT EXISTS "trace_json" jsonb;
