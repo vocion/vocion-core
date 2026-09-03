@@ -209,7 +209,7 @@ export function SourcesPanel() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Each source crawls a system and feeds chunks into the org's knowledge base. Native pgvector retrieval — no external services.
+          Each connector crawls a system and feeds chunks into the org's knowledge base. Native pgvector retrieval — no external services.
         </p>
         <button
           type="button"
@@ -217,7 +217,7 @@ export function SourcesPanel() {
           className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
         >
           <Plus className="size-4" />
-          Add source
+          Add connector
         </button>
       </div>
 
@@ -247,7 +247,7 @@ export function SourcesPanel() {
         ? (
             <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
-              Loading sources…
+              Loading connectors…
             </div>
           )
         : sources.length === 0
@@ -936,7 +936,7 @@ function DeleteSourceDialog({ source, onClose, onDeleted }: {
         </div>
         <div className="space-y-3 p-4 text-sm">
           <p>
-            This removes the source and the
+            This removes the connector and the
             {' '}
             {source.documentCount.toLocaleString()}
             {' '}
@@ -1162,7 +1162,7 @@ function ConnectorPicker({
           {matches.length === 0
             ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">
-                  No source type matches “
+                  No connector matches “
                   {query}
                   ”.
                 </p>
@@ -1422,7 +1422,7 @@ const COLLECTION_STATUS_LABELS: Record<CollectionCheck['status'], string> = {
  * Plain-English name for whatever is still missing before a Strapi source can be
  * added, in the order the form is filled. Null once nothing is missing.
  *
- * This is the disabled Add source button's explanation — both as a line in the
+ * This is the disabled Add connector button's explanation — both as a line in the
  * footer and as its hover tooltip — so it has to read like an instruction, not
  * like a validation code.
  * @param state - What the form holds right now.

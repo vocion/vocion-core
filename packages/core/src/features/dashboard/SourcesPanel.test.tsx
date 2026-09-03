@@ -315,7 +315,7 @@ describe('connector picker', () => {
 
     await userEvent.fill(page.getByPlaceholder(/Search connectors/), 'salesforce');
 
-    await expect.element(page.getByText(/No source type matches/)).toBeVisible();
+    await expect.element(page.getByText(/No connector matches/)).toBeVisible();
   });
 
   it('caps the first page at 25 cards and reveals the rest on demand', async () => {
@@ -964,7 +964,7 @@ describe('editing and deleting a source', () => {
     stubSourcesApi(CONNECTORS, [], { sources: [unconnected] });
     renderPanel();
 
-    await expect.element(page.getByRole('button', { name: 'Connect' })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Update key' })).not.toBeInTheDocument();
   });
 });
@@ -1113,7 +1113,7 @@ describe('connecting a connector to a stored credential', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect' }).click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
 
     await expect.element(page.getByText('Strapi — prod')).toBeVisible();
     await expect.element(page.getByText('…aaaa')).toBeVisible();
@@ -1126,7 +1126,7 @@ describe('connecting a connector to a stored credential', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect' }).click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
     await page.getByRole('button', { name: 'Use this credential' }).click();
 
     await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources/1/credentials')).toHaveLength(1));
@@ -1143,7 +1143,7 @@ describe('connecting a connector to a stored credential', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect' }).click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
     await page.getByRole('radio', { name: 'Add a new credential' }).click();
 
     await userEvent.fill(page.getByLabelText('Credential name'), 'Strapi — staging');
@@ -1168,7 +1168,7 @@ describe('connecting a connector to a stored credential', () => {
     });
     renderPanel();
 
-    await page.getByRole('button', { name: 'Connect' }).click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
 
     await expect.element(page.getByLabelText('Instance URL')).toHaveAttribute('type', 'text');
     await expect.element(page.getByLabelText('API token')).toHaveAttribute('type', 'password');
@@ -1203,5 +1203,45 @@ describe('a credential that cannot be used', () => {
     renderPanel();
 
     await expect.element(page.getByText('Needs credentials')).toBeVisible();
+  });
+});
+
+/**
+ * The rename, checked against what a person actually sees rather than against
+ * a list of strings somebody remembered to update.
+ *
+ * Written after a Playwright walkthrough found three survivors this file's
+ * other tests were happy with: the panel's own description, the "Add source"
+ * button and the loading line. Scanning the rendered text is the only version
+ * of this test that cannot go stale as copy is added.
+ */
+describe('the rename, as rendered', () => {
+  it('never shows the word "source" on the panel', async () => {
+    stubSourcesApi(CONNECTORS, [], { sources: [sourceRow(null)] });
+    renderPanel();
+
+    await expect.element(page.getByText('strapi-cms')).toBeVisible();
+
+    // `innerText` rather than `textContent`: it keeps the line breaks a person
+    // sees, and `textContent` would run adjacent nodes together — turning
+    // "connectors" + "Source" into one word with no boundary for the check
+    // below to catch.
+    // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+    const rendered = document.body.innerText;
+    const strays = rendered.match(/\bsources?\b/gi) ?? [];
+
+    expect(strays).toEqual([]);
+  });
+
+  it('never shows it in the connector picker either', async () => {
+    stubSourcesApi(CONNECTORS);
+    render(<SourcesPanel />);
+    await openPicker();
+
+    // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+    const rendered = document.body.innerText;
+    const strays = rendered.match(/\bsources?\b/gi) ?? [];
+
+    expect(strays).toEqual([]);
   });
 });
