@@ -253,7 +253,15 @@ export async function executeAction(
     throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status} — already decided, cannot execute`);
   }
 
-  await db.update(actionRunSchema).set({ status: 'executing' }).where(eq(actionRunSchema.id, runId));
+  await db
+    .update(actionRunSchema)
+    .set({
+      status: 'executing',
+      // Stamped at the decision, not at completion: even a failed execution
+      // was still approved by this person at this moment.
+      ...(opts?.reviewedBy ? { decidedBy: opts.reviewedBy, decidedAt: new Date() } : {}),
+    })
+    .where(eq(actionRunSchema.id, runId));
   const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
 
   try {
@@ -330,7 +338,7 @@ export async function updateActionInput(runId: number, orgId: string, input: Rec
 export async function rejectAction(runId: number, orgId: string, reason?: string, opts?: { reviewedBy?: string }): Promise<void> {
   const [run] = await db
     .update(actionRunSchema)
-    .set({ status: 'rejected', error: reason ?? null, executedAt: new Date() })
+    .set({ status: 'rejected', error: reason ?? null, executedAt: new Date(), decidedBy: opts?.reviewedBy ?? null, decidedAt: new Date() })
     .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
     .returning({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy });
   if (!run) {

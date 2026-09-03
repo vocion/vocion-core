@@ -2118,6 +2118,30 @@ export const actionRunSchema = pgTable(
     expiresAt: timestamp('expires_at', { mode: 'date' }),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     executedAt: timestamp('executed_at', { mode: 'date' }),
+    /**
+     * Who took the human decision (user id) and when. `executedAt` is when the
+     * machine ran; these are when a person said yes or no, so a surface can
+     * tell a second reviewer "decided by X on Y" instead of just "decided".
+     */
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { mode: 'date' }),
+    /**
+     * The audit record of AI rewrites asked during review, newest last. The
+     * DRAFT itself is never touched by a rewrite (the reviewer carries the
+     * copy and passes it back on approve); this is the record of what was
+     * asked and what came back, so a recap and its before/after are readable
+     * after the fact. `discardedEdit` holds the body a regeneration replaced.
+     */
+    revisions: jsonb('revisions').$type<Array<{
+      contentId?: string;
+      step?: number;
+      version: number;
+      body: string;
+      ask?: string;
+      discardedEdit?: string;
+      at: string;
+      by?: string;
+    }>>(),
   },
   table => [
     index('action_run_org_status_idx').on(table.orgId, table.status),
