@@ -1,14 +1,22 @@
 /**
- * embedder — batched OpenAI embeddings client. Owns OpenAI specifics
- * so callers (IngestionService + RetrievalService) can think in terms
- * of `Float32Array[]` without leaking the SDK surface.
+ * embedder — batched embeddings, on whichever provider is configured. Owns the
+ * batching, retry and tracing so callers (IngestionService +
+ * RetrievalService) can think in terms of vectors without knowing which vendor
+ * produced them.
+ *
+ * The vendor specifics — model id, request shape, how many texts fit in one
+ * request — live in `./embeddingBackend.ts`. OpenAI and Amazon Bedrock are both
+ * supported; `VOCION_EMBEDDING_PROVIDER` picks one, and a deployment that set
+ * `VOCION_LLM_PROVIDER=bedrock` gets Bedrock embeddings without a second
+ * variable. OpenAI stays the default, because it is what every already-stored
+ * vector was produced by.
  *
  * Defaults:
- *   - model: text-embedding-3-small (1536-d). Matches Schema.ts
- *     `vector(1536)` column dimension. Override via env if we ever
- *     swap to text-embedding-3-large (3072-d) or a Voyage model.
- *   - batch size: 100. OpenAI accepts up to 2048 inputs per request
- *     but the latency curve flattens around 100; keeps memory bounded.
+ *   - model: per provider, see `DEFAULT_MODELS` in `./embeddingBackend.ts`.
+ *     Every backend checks the width it got back against the `vector(1536)`
+ *     column in Schema.ts and refuses a mismatch rather than failing at insert.
+ *   - batch size: the backend's. OpenAI takes 100 texts per request; Titan on
+ *     Bedrock takes one.
  *
  * Tracing: every batch fires a Langfuse `retrieval.embed` generation
  * span so we can attribute embedding cost per ingest run + per
@@ -16,15 +24,11 @@
  * `/dashboard/observability` page sums against it.
  */
 
-import process from 'node:process';
-import OpenAI, { APIConnectionError } from 'openai';
+import { APIConnectionError } from 'openai';
 import { flushTraces, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
-import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 import { hashKey, llmMode, pseudoVector, readEntry, writeEntry } from '@/libs/llm/replay';
-
-const MODEL = process.env.VOCION_EMBEDDING_MODEL ?? 'text-embedding-3-small';
-const BATCH_SIZE = 100;
+import { embeddingBackendForOrg, resolveEmbeddingModel, resolveEmbeddingProvider } from './embeddingBackend';
 
 /**
  * Log, loading the logger only when it's needed.
@@ -88,13 +92,28 @@ const BASE_RETRY_DELAY_MS = 500;
  * routine. These carry no status code, so they have to be recognised by type —
  * checking merely for "no status" would also retry ordinary programming
  * mistakes five times over.
- * @param error - The error thrown by the OpenAI client.
+ *
+ * Two client libraries reach this. The OpenAI client puts the code on `status`;
+ * the AWS SDK puts it on `$metadata.httpStatusCode` and additionally marks
+ * throttling on `$retryable`. Both are read, because an `AccessDeniedException`
+ * or a `ValidationException` from Bedrock must fail on the first attempt —
+ * retrying a wrong model id or a missing permission five times only delays the
+ * error that tells you what to fix.
+ * @param error - The error thrown by the provider's client.
  */
 function isTemporaryFailure(error: unknown): boolean {
   if (error instanceof APIConnectionError) {
     return true;
   }
-  const status = (error as { status?: number } | null)?.status;
+  const candidate = error as {
+    status?: number;
+    $metadata?: { httpStatusCode?: number };
+    $retryable?: { throttling?: boolean };
+  } | null;
+  if (candidate?.$retryable?.throttling) {
+    return true;
+  }
+  const status = candidate?.status ?? candidate?.$metadata?.httpStatusCode;
   if (typeof status !== 'number') {
     return false;
   }
@@ -107,11 +126,20 @@ function isTemporaryFailure(error: unknown): boolean {
  * A 429 usually carries a `Retry-After` header saying when the allowance
  * resets. That beats guessing, so it wins over our own backoff. Capped, so a
  * strange or hostile value can't park the sync for an hour.
- * @param error - The error thrown by the OpenAI client.
+ *
+ * The two clients expose headers differently: the OpenAI client hands back a
+ * `Headers` object with a `get`, the AWS SDK a plain lowercase-keyed record on
+ * `$response.headers`. Both are read so a throttled Bedrock call honours the
+ * wait AWS asked for instead of falling back to our blind backoff.
+ * @param error - The error thrown by the provider's client.
  */
 function requestedRetryDelayMs(error: unknown): number | null {
-  const headers = (error as { headers?: { get?: (name: string) => string | null } } | null)?.headers;
-  const rawValue = headers?.get?.('retry-after');
+  const candidate = error as {
+    headers?: { get?: (name: string) => string | null };
+    $response?: { headers?: Record<string, string | undefined> };
+  } | null;
+  const rawValue = candidate?.headers?.get?.('retry-after')
+    ?? candidate?.$response?.headers?.['retry-after'];
   if (!rawValue) {
     return null;
   }
@@ -132,12 +160,12 @@ function sleep(milliseconds: number): Promise<void> {
  * Send one embedding request, retrying temporary failures.
  *
  * This is the only place embedding requests are retried. The OpenAI client can
- * do its own retrying, and is switched off in `clientForOrg()` for that reason —
+ * do its own retrying, and the backend switches it off for that reason —
  * otherwise both layers retry the same request without knowing about each
  * other, turning five attempts into fifteen and multiplying the waits between
  * them. That makes a rate limit worse rather than better.
  *
- * When OpenAI says how long to wait, we wait that long. Otherwise the wait
+ * When the provider says how long to wait, we wait that long. Otherwise the wait
  * grows with each attempt and is randomised, because several documents embed at
  * the same time and a rate limit tends to reject all of them at once — a fixed
  * wait would send every retry back together and trip the same limit again.
@@ -167,7 +195,7 @@ async function sendWithRetries<T>(sendRequest: (attempt: number) => Promise<T>):
         attempt,
         maxAttempts: MAX_ATTEMPTS,
         delayMs: Math.round(delayMs),
-        waitAskedForByOpenAi: requestedDelayMs !== null,
+        waitAskedForByProvider: requestedDelayMs !== null,
         error: error instanceof Error ? error.message : String(error),
       });
       await sleep(delayMs);
@@ -180,31 +208,6 @@ async function sendWithRetries<T>(sendRequest: (attempt: number) => Promise<T>):
   throw lastError ?? new Error('embedding retry loop ended without a result');
 }
 
-/**
- * An OpenAI client for one org's embeddings, on that org's own key when it has
- * stored one and on the server's key otherwise.
- *
- * Built per call rather than cached. A cached client would hold one org's key
- * and hand it to the next org that asked, which is the whole reason the LLM
- * client cache was removed; a constructor is cheap next to an HTTP round trip
- * either way, and building fresh means a rotated or revoked key takes effect on
- * the very next batch.
- * @param orgId - The org whose embeddings are being generated.
- */
-async function clientForOrg(orgId: string): Promise<OpenAI> {
-  const apiKey = await resolveOrgProviderKey('openai', orgId) ?? process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('No OpenAI key available — embeddings require one. Store an OpenAI key for this workspace under API credentials, or set OPENAI_API_KEY on the running container or in .env.local.');
-  }
-  // maxRetries: 0 — retrying is handled by sendWithRetries above, and this
-  // client would otherwise retry the same request twice more underneath it.
-  // Two layers that can't see each other multiply: five of our attempts
-  // become fifteen requests, each already carrying the client's own waits.
-  // Ours is the layer to keep, because it logs each retry and honours the
-  // `Retry-After` header rather than only backing off blindly.
-  return new OpenAI({ apiKey, maxRetries: 0 });
-}
-
 export type EmbedOptions = {
   orgId: string;
   /** Tag on the trace: 'ingest' | 'query' | etc. */
@@ -215,7 +218,7 @@ export type EmbedOptions = {
 
 /**
  * Embed a batch of strings. Returns vectors in the same order as the
- * input. Splits into BATCH_SIZE chunks under the hood.
+ * input. Splits into the backend's batch size under the hood.
  * @param texts
  * @param opts
  */
@@ -223,54 +226,63 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
   if (texts.length === 0) {
     return [];
   }
-  // Demo sandbox replay: never call OpenAI. Recorded vectors come back
+  // Demo sandbox replay: never call the provider. Recorded vectors come back
   // exactly; unrecorded text gets a deterministic pseudo-vector so
   // retrieval stays functional (stable, if arbitrary, ranking).
+  //
+  // The model id comes from the environment alone here, not from the
+  // workspace's stored setting, because this path deliberately touches no
+  // database: replay exists for a sandbox that may have no project row and no
+  // credential to decrypt. The consequence is narrow — the model only keys the
+  // cache, so a workspace that pinned a provider through workspace.yaml reads
+  // and writes recordings under the env-resolved model instead. Recorded
+  // vectors still replay exactly; unrecorded text still gets a pseudo-vector.
   if (llmMode() === 'replay') {
+    const replayModel = resolveEmbeddingModel(resolveEmbeddingProvider());
     return texts.map((text) => {
-      const cached = readEntry<number[]>('embeddings', hashKey(MODEL, text));
+      const cached = readEntry<number[]>('embeddings', hashKey(replayModel, text));
       return cached ?? pseudoVector(text);
     });
   }
   // Resolved once for the whole call: every batch below belongs to the same
-  // org, so one key lookup covers them all.
-  const openai = await clientForOrg(opts.orgId);
+  // org, so one credential lookup covers them all.
+  const backend = await embeddingBackendForOrg(opts.orgId);
   const trace = traceFor({
     feature: FEATURES.RETRIEVAL_EMBED,
     slug: opts.sourceSlug ?? opts.purpose,
     orgId: opts.orgId,
     userId: 'system',
-    input: { count: texts.length, model: MODEL },
+    input: { count: texts.length, model: backend.model, provider: backend.provider },
     metadata: { purpose: opts.purpose },
   });
   const out: number[][] = [];
   let totalTokens = 0;
   try {
-    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-      const batch = texts.slice(i, i + BATCH_SIZE);
-      const batchNumber = i / BATCH_SIZE;
+    for (let i = 0; i < texts.length; i += backend.batchSize) {
+      const batch = texts.slice(i, i + backend.batchSize);
+      const batchNumber = i / backend.batchSize;
       // Record each attempt as its own step, rather than wrapping the whole
-      // retry loop in one. Wrapping counted our own waiting as OpenAI's
+      // retry loop in one. Wrapping counted our own waiting as the provider's
       // response time, so a rate-limited batch showed up on
-      // /dashboard/observability as OpenAI having slowed to a minute — sending
-      // you to look at OpenAI when the real problem is being throttled. Per
-      // attempt, the timings are the real request times and the retries are
-      // visible as separate steps instead of hiding inside one slow one.
-      const res = await sendWithRetries(async (attempt) => {
+      // /dashboard/observability as the provider having slowed to a minute —
+      // sending you to look at the provider when the real problem is being
+      // throttled. Per attempt, the timings are the real request times and the
+      // retries are visible as separate steps instead of hiding inside one slow
+      // one.
+      const result = await sendWithRetries(async (attempt) => {
         const generation = trace.generation({
           // The first attempt keeps the original name so existing charts and
           // queries still match; only retries get a suffix.
           name: attempt === 1 ? `embed-batch-${batchNumber}` : `embed-batch-${batchNumber}-retry-${attempt - 1}`,
-          model: MODEL,
+          model: backend.model,
           input: { count: batch.length },
         });
         try {
-          const response = await openai.embeddings.create({ model: MODEL, input: batch });
-          const usage = response.usage ?? { prompt_tokens: 0, total_tokens: 0 };
-          totalTokens += usage.total_tokens;
+          const response = await backend.embedBatch(batch);
+          totalTokens += response.inputTokens;
           generation.end({
             output: `${batch.length} vectors`,
-            usageDetails: { input: usage.prompt_tokens, total: usage.total_tokens },
+            usageDetails: { input: response.inputTokens, total: response.inputTokens },
           });
           return response;
         } catch (error) {
@@ -283,11 +295,19 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
           throw error;
         }
       });
-      for (const item of res.data) {
-        out[i + item.index] = item.embedding;
+      // Placed by position within the batch, which the backend guarantees
+      // matches the order the texts went in. A backend that leaves a hole is
+      // caught by the gap check below.
+      for (let offset = 0; offset < result.vectors.length; offset++) {
+        const vector = result.vectors[offset];
+        const text = batch[offset];
+        if (!vector) {
+          continue;
+        }
+        out[i + offset] = vector;
         // Demo sandbox record: persist per-text vectors for exact replay.
-        if (llmMode() === 'record' && batch[item.index] !== undefined) {
-          writeEntry('embeddings', hashKey(MODEL, batch[item.index]!), item.embedding);
+        if (llmMode() === 'record' && text !== undefined) {
+          writeEntry('embeddings', hashKey(backend.model, text), vector);
         }
       }
       // Check every input in this batch actually came back with a vector.
