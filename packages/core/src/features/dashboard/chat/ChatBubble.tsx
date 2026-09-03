@@ -60,8 +60,12 @@ function readVisualState(): VisualState {
 export function ChatBubble({ agents }: ChatBubbleProps) {
   const pathname = usePathname();
   const onChatPage = pathname === '/dashboard/chat' || pathname.endsWith('/dashboard/chat');
+  // Record pages mount the scoped ChatDock as a third column — one agent
+  // surface per page (agent-chat-surface.md §6), so the bubble bails there
+  // exactly as it does on the full-page chat.
+  const onDockPage = /\/gtm\/lead\//.test(pathname);
 
-  if (agents.length === 0 || onChatPage) {
+  if (agents.length === 0 || onChatPage || onDockPage) {
     return null;
   }
 
