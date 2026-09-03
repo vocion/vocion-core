@@ -33,7 +33,10 @@ export async function GET() {
   const withStatus = sources.map((s) => {
     const connectorSlug = (s.config?._connector as string | undefined) ?? s.slug;
     const authKind = connectorBySlug.get(connectorSlug)?.authKind ?? 'none';
-    const st = credStatus[connectorSlug];
+    // This row's own stored credential first, then the org's OAuth grant for
+    // the connector. A connector naming a credential is the only one whose
+    // status is per-row; a grant's status is the same for every row of a kind.
+    const st = credStatus.bySourceId[s.id] ?? credStatus.byConnectorSlug[connectorSlug];
     return {
       ...s,
       authKind,
