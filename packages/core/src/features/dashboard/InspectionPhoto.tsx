@@ -128,6 +128,11 @@ export function InspectionPhoto(props: Props) {
     setFindings(props.findings);
   }, [props.findings]);
   const [noteFor, setNoteFor] = useState<number | null>(null);
+  const [regionNoteFor, setRegionNoteFor] = useState<number | null>(null);
+  const [regions, setRegions] = useState<Finding[]>(props.regions ?? []);
+  useEffect(() => {
+    setRegions(props.regions ?? []);
+  }, [props.regions]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -327,25 +332,32 @@ export function InspectionPhoto(props: Props) {
     }
   }
 
-  async function send(index: number, signal: 'agree' | 'disagree', text?: string) {
-    setBusy(index);
+  async function send(index: number, signal: 'agree' | 'disagree', text?: string, target: 'finding' | 'region' = 'finding') {
+    setBusy(target === 'region' ? 1000 + index : index);
     setError(null);
     try {
       const res = await fetch(`/api/v1/objects/${props.objectId}/finding-feedback`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ index, signal, note: text || undefined }),
+        body: JSON.stringify({ index, signal, target, note: text || undefined }),
       });
-      const body = (await res.json()) as { findings?: Finding[]; error?: { message?: string } };
+      const body = (await res.json()) as { findings?: Finding[]; regions?: Finding[]; error?: { message?: string } };
       if (!res.ok) {
         throw new Error(body.error?.message ?? `HTTP ${res.status}`);
       }
       if (body.findings) {
         setFindings(body.findings);
       }
+      if (body.regions) {
+        setRegions(body.regions);
+      }
       setNoteFor(null);
+      setRegionNoteFor(null);
       setNote('');
       setHistory(null);
+      if (target === 'region' && signal === 'disagree') {
+        router.refresh();
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -353,7 +365,7 @@ export function InspectionPhoto(props: Props) {
     }
   }
 
-  const okRegions = (props.regions ?? []).filter(r => r.issue === 'ok' || !r.issue).filter(r => !findings.some(f => f.region === r.region && f.issue !== 'ok'));
+  const okRegions = regions.filter(r => r.issue === 'ok' || !r.issue).filter(r => !findings.some(f => f.region === r.region && f.issue !== 'ok'));
   // One index space: findings first (amber, numbered), then ok regions (green).
   const allRegions: Finding[] = [...findings, ...okRegions];
   const highlight = pinned ?? active;
@@ -616,7 +628,7 @@ export function InspectionPhoto(props: Props) {
                         <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-500 text-[11px] font-bold text-white">{i + 1}</span>
                         <span className="font-medium">{f.region ?? 'region'}</span>
                       </button>
-                      <Badge variant="outline" className={`text-[11px] ${f.issue === 'ok' ? 'text-emerald-600' : f.severity === 'blocking' ? 'text-red-600' : f.severity === 'info' ? 'text-muted-foreground' : 'text-amber-600'}`}>{f.issue === 'ok' ? 'ok after zoom' : (f.issue ?? '')}</Badge>
+                      <Badge variant="outline" className={`text-[11px] ${f.issue === 'ok' ? 'text-emerald-600' : f.severity === 'blocking' ? 'text-red-600' : f.severity === 'info' ? 'text-muted-foreground' : 'text-amber-600'}`}>{f.issue === 'ok' ? 'ok after zoom' : f.issue === 'missed' ? 'missed — flagged by reviewer' : (f.issue ?? '')}</Badge>
                       {!f.box && <span className="text-[11px] text-muted-foreground">no region marked</span>}
                       {pct(f.confidence) && <span className="ml-auto font-mono text-xs text-muted-foreground" title="How sure the model is about this specific finding">{`${pct(f.confidence)} sure`}</span>}
                     </div>
@@ -694,19 +706,59 @@ export function InspectionPhoto(props: Props) {
                 {okRegions.map((r, j) => {
                   const i = findings.length + j;
                   const on = highlight === i;
+                  const apiIndex = regions.indexOf(r);
+                  const fb = r.feedback;
                   return (
                     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events -- mouse convenience; the photo's hit areas are buttons
                     <li
                       key={`${r.region}-ok-${j}`}
                       onMouseEnter={() => setActive(i)}
                       onMouseLeave={() => setActive(null)}
-                      onClick={() => setPinned(p => (p === i ? null : i))}
-                      className={`flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-1.5 text-[13px] transition ${r.box ? 'cursor-zoom-in' : ''} ${pinned === i ? 'bg-emerald-500/15' : on ? 'bg-emerald-500/10' : ''}`}
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest('a,button,textarea,input')) {
+                          return;
+                        }
+                        setPinned(p => (p === i ? null : i));
+                      }}
+                      className={`px-3 py-1.5 text-[13px] transition ${r.box ? 'cursor-zoom-in' : ''} ${pinned === i ? 'bg-emerald-500/15' : on ? 'bg-emerald-500/10' : ''}`}
                     >
-                      <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white">✓</span>
-                      <span className="font-medium">{r.region}</span>
-                      {r.observed && <span className="text-muted-foreground">{r.observed}</span>}
-                      {pct(r.confidence) && <span className="ml-auto font-mono text-[11px] text-muted-foreground">{pct(r.confidence)}</span>}
+                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                        <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white">✓</span>
+                        <span className="font-medium">{r.region}</span>
+                        {r.observed && <span className="text-muted-foreground">{r.observed}</span>}
+                        {pct(r.confidence) && <span className="ml-auto font-mono text-[11px] text-muted-foreground">{pct(r.confidence)}</span>}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 pl-7">
+                        {fb
+                          ? (
+                              <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${fb.signal === 'agree' ? 'border-emerald-600/40 text-emerald-700' : 'border-red-500/40 text-red-600'}`}>
+                                {fb.signal === 'agree' ? <ThumbsUp className="size-3" aria-hidden /> : <ThumbsDown className="size-3" aria-hidden />}
+                                {fb.signal === 'agree' ? 'Agreed' : 'Disagreed — flagged as a missed defect'}
+                              </span>
+                            )
+                          : (
+                              <>
+                                <button type="button" disabled={busy !== null} onClick={() => send(apiIndex, 'agree', undefined, 'region')} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] transition hover:bg-emerald-500/10 hover:text-emerald-700 disabled:opacity-50">
+                                  <ThumbsUp className="size-3" aria-hidden />
+                                  Agree
+                                </button>
+                                <button type="button" disabled={busy !== null} onClick={() => setRegionNoteFor(n => (n === apiIndex ? null : apiIndex))} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] transition hover:bg-red-500/10 hover:text-red-600 disabled:opacity-50">
+                                  <ThumbsDown className="size-3" aria-hidden />
+                                  Disagree — it's not OK
+                                </button>
+                              </>
+                            )}
+                      </div>
+                      {regionNoteFor === apiIndex && !fb && (
+                        <div className="mt-2 flex flex-col gap-2 pl-7">
+                          <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="What's wrong here? (e.g. bag 25520 is present but empty — should contain hardware like the references)" className="min-h-16 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-red-500" />
+                          <button type="button" disabled={busy !== null || !note.trim()} onClick={() => send(apiIndex, 'disagree', note.trim(), 'region')} className="inline-flex items-center gap-1 self-start rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background disabled:opacity-50">
+                            <MessageSquareWarning className="size-3" aria-hidden />
+                            Flag as missed defect &amp; hold the kit
+                          </button>
+                          <p className="text-[11px] text-muted-foreground">Promotes this region to a finding, holds the kit as your decision, and proposes a learning so the model checks for it next time.</p>
+                        </div>
+                      )}
                     </li>
                   );
                 })}

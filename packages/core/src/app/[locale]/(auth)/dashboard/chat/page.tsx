@@ -1,24 +1,9 @@
-import { eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
+import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { db } from '@/libs/DB';
-import { projectSchema, tenantAccountSchema } from '@/models/Schema';
-import { groupAgentHierarchy, listAgents } from '@/services/AgentService';
 import { buildWorkspaceChips } from '@/services/chat/suggestions';
 import { workspaceGreeting } from '@/services/chat/workspaceLabel';
-
-/**
- * Built-in virtual agent — corpus search without an LLM in the loop.
- * Always appended to the agent list so users have a fallback path
- * even before any agents are authored.
- */
-const SEARCH_ONLY_AGENT = {
-  slug: '__search__',
-  name: 'Search only',
-  icon: 'search' as const,
-  placeholder: 'Search across your connected systems…',
-};
 
 /**
  * Chat surface. Server-loads the project's agents from the DB so the
@@ -45,62 +30,15 @@ export default async function ChatPage(props: {
   const { agent: requestedSlug, prompt: seededPrompt } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId } = await auth();
-  const dbAgents = orgId ? await listAgents(orgId) : [];
 
-  // Workspace identity — account + project rows power the greeting AND name
-  // the workspace lead. The chat page mounts under the dashboard layout,
-  // which already guarantees the project row exists.
-  const [ws] = orgId
-    ? await db
-        .select({
-          projectName: projectSchema.name,
-          accountName: tenantAccountSchema.name,
-          leadAgentSlug: projectSchema.leadAgentSlug,
-        })
-        .from(projectSchema)
-        .innerJoin(tenantAccountSchema, eq(projectSchema.accountId, tenantAccountSchema.id))
-        .where(eq(projectSchema.id, orgId))
-        .limit(1)
-    : [];
-
-  // Chat defaults to WORKSPACE scope: opening /dashboard/chat lands on the
-  // workspace lead (`project.leadAgentSlug`, F1) — the front-door agent that
-  // runs the whole workspace and consults the team leads — so the user just
-  // starts typing, never has to pick an agent. When no workspace lead is
-  // configured, fall back to `groupAgentHierarchy`'s first primary (a team
-  // lead if one exists, else the first parentless agent). Deterministic and
-  // never a dangling/deleted slug.
-  const hierarchy = groupAgentHierarchy(dbAgents);
-  const workspaceLeadSlug = ws?.leadAgentSlug ?? undefined;
-  const coordinatorSlug = (workspaceLeadSlug && dbAgents.some(a => a.slug === workspaceLeadSlug))
-    ? workspaceLeadSlug
-    : hierarchy[0]?.primary.slug;
-
-  // Order the flat list workspace-lead-first, then each team (lead followed
-  // by its specialists), so both the fallback default (agents[0]) and the
-  // switcher read workspace-first.
-  const orderedHierarchy = [...hierarchy].sort((a, b) =>
-    Number(b.primary.slug === coordinatorSlug) - Number(a.primary.slug === coordinatorSlug));
-  const ordered = orderedHierarchy.flatMap(({ primary, specialists }) => [primary, ...specialists]);
-
-  const agents = [
-    ...ordered.map(a => ({
-      slug: a.slug,
-      name: a.name,
-      icon: 'bot' as const,
-      role: (a.role === 'lead' ? 'lead' : 'specialist') as 'lead' | 'specialist',
-      parentSlug: a.parentAgentSlug ?? undefined,
-      eyebrow: a.eyebrow ?? undefined,
-      description: a.description ?? undefined,
-      suggestions: a.suggestions ?? [],
-      placeholder: `Message ${a.name}…`,
-    })),
-    SEARCH_ONLY_AGENT,
-  ];
+  // Shared with the floating chat bubble — same ordering, same default agent.
+  const { agents, coordinatorSlug, accountName, projectName } = orgId
+    ? await loadChatAgentContext(orgId)
+    : { agents: [], coordinatorSlug: undefined, accountName: undefined, projectName: undefined };
 
   // Workspace-scoped greeting ("Metacto" eyebrow + "Ask Revenue") — a SHORT
   // label composed from the account + project names, never an agent name.
-  const greeting = workspaceGreeting(ws?.accountName, ws?.projectName);
+  const greeting = workspaceGreeting(accountName, projectName);
 
   // Dynamic empty-state chips: urgency (recent brief / review queue) first,
   // then team capabilities across agents. Falls back to capability chips when

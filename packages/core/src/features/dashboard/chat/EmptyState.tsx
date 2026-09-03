@@ -36,6 +36,8 @@ export type EmptyStateProps = {
   onPick: (prompt: string) => void;
   /** Optional interactive title (the agent-switcher caret) replacing the plain name. */
   titleSlot?: ReactNode;
+  /** Disables the suggestion chips — e.g. while the session is still hydrating. */
+  disabled?: boolean;
 };
 
 /**
@@ -50,9 +52,9 @@ const VISIBLE_CHIPS = 2;
  * Staggered 150ms fade-in — subtle, no layout shift (the cloud reserves its
  * height).
  */
-const chipClass = 'min-h-11 max-w-full truncate rounded-full border border-border/70 bg-background px-3.5 py-1.5 text-sm text-muted-foreground transition hover:border-brand-amber hover:bg-brand-amber-tint hover:text-brand-amber-deep animate-in fade-in fill-mode-both duration-150';
+const chipClass = 'min-h-11 max-w-full truncate rounded-full border border-border/70 bg-background px-3.5 py-1.5 text-sm text-muted-foreground transition hover:border-brand-amber hover:bg-brand-amber-tint hover:text-brand-amber-deep animate-in fade-in fill-mode-both duration-150 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border/70 disabled:hover:bg-background disabled:hover:text-muted-foreground';
 
-export function EmptyState({ greeting, suggestions = [], suggestionsLoading = false, onPick, titleSlot }: EmptyStateProps) {
+export function EmptyState({ greeting, suggestions = [], suggestionsLoading = false, onPick, titleSlot, disabled = false }: EmptyStateProps) {
   const [expanded, setExpanded] = useState(false);
   const workspace = greeting?.workspace ?? 'your workspace';
 
@@ -92,6 +94,7 @@ export function EmptyState({ greeting, suggestions = [], suggestionsLoading = fa
                         key={s.prompt}
                         type="button"
                         onClick={() => onPick(s.prompt)}
+                        disabled={disabled}
                         style={{ animationDelay: `${i * 40}ms` }}
                         className={chipClass}
                       >
