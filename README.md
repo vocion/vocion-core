@@ -96,7 +96,9 @@ npm install
 
 # 2. Configure env
 cp packages/core/.env.example packages/core/.env.local
-# Edit .env.local — at minimum set DATABASE_URL, Clerk keys, and one LLM provider key
+# Edit .env.local — at minimum set DATABASE_URL, Clerk keys, and one LLM provider key.
+# That provider key is the fallback: a workspace that stores its own is billed on
+# its own account instead. See "API credentials" below.
 
 # 3. Start the platform (Postgres + Langfuse + Temporal)
 npm run dev:up
@@ -143,9 +145,23 @@ Full tool reference + the HTTP transport: [reference/mcp](https://vocion.ai/docs
 
 For an app or a client integration to drive Vocion — start work, approve, manage scopes — use a tenant **Bearer token** (`vcn_live_…`), which resolves into a permission principal. The **write API** exposes the unified review queue over HTTP (`GET /api/v1/reviews`, `POST /api/v1/reviews/decide`); MCP-over-HTTP exposes the agent/tool plane. Both are multi-tenant and Bearer-scoped, and a token mutation is governed exactly like a human action. See the [API reference](https://vocion.ai/docs/api).
 
+## API credentials
+
+Credentials travel in both directions, and both live under **Dashboard → API credentials**.
+
+**Inbound — tokens Vocion mints.** A `vcn_live_…` Bearer token is what an outside tool presents *to* Vocion, as above. Vocion generates the secret, stores only its SHA-256, and shows the plaintext once. A workspace holds as many as it has integrations.
+
+**Outbound — keys the workspace supplies.** A workspace can paste the key it already holds with a model vendor (OpenAI, Anthropic, Vertex, Azure OpenAI, AWS, or anything else). It is encrypted at rest with AES-256-GCM under a per-org data encryption key, and Vocion uses it when it calls out on that workspace's behalf — so the workspace's own vendor account is billed, not the operator's. One live key per platform per org: saving a second revokes the first.
+
+**Which key a call uses.** Every outbound vendor call resolves the same way — **the workspace's own stored key first, the server's environment variable second.** That covers chat models, embeddings on ingest and on query, the rerank pass, the vision tool and image generation. A workspace that has supplied nothing behaves exactly as it did before, on `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`. Two internal paths stay on the server's key by design, because no workspace is in scope where they run: discovery detection and the feedback classifier.
+
+Supplied keys never carry a Vocion-side expiry — the vendor that issued the key owns its lifetime. Revoking or replacing is how one ends.
+
+Encryption at rest is configured by `VOCION_CREDENTIAL_VAULT`: `local` wraps the per-org key with `VOCION_CREDENTIAL_VAULT_KEY`, which puts the wrapping key and the wrapped key in the same database and is only appropriate for development; `kms` wraps it with AWS KMS under `VOCION_KMS_KEY_ARN`, which is what any install holding real customer keys should run.
+
 ## Retrieval
 
-Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with reciprocal rank fusion across the two arms, optional LLM rerank. No third-party retrieval engine. Embedding and rerank models are environment-level knobs (`VOCION_EMBEDDING_MODEL`, `VOCION_RERANK_MODEL`); per-type and per-agent retrieval weighting is authored in the workspace (`sourceRelevance` on an object type, `searchConfig` on an agent) — no code change needed.
+Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with reciprocal rank fusion across the two arms, optional LLM rerank. No third-party retrieval engine. Embedding and rerank models are environment-level knobs (`VOCION_EMBEDDING_MODEL`, `VOCION_RERANK_MODEL`), though the key each one spends comes from the workspace when it has stored one (see [API credentials](#api-credentials)); per-type and per-agent retrieval weighting is authored in the workspace (`sourceRelevance` on an object type, `searchConfig` on an agent) — no code change needed.
 
 ## Tech stack
 

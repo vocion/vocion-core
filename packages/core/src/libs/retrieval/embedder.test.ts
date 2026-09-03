@@ -34,6 +34,22 @@ vi.mock('openai', async (importOriginal) => {
  */
 const recordedSteps: Array<{ name: string; endedWith?: { level?: string } }> = [];
 
+// The embedder now asks the credential vault whether this org supplied its own
+// OpenAI key. These tests are about the retry loop, not about credentials, so
+// the answer is always "no key of its own" — which sends it to the environment,
+// exactly as before.
+vi.mock('@/libs/llm/orgKey', () => ({
+  resolveOrgProviderKey: vi.fn(async () => null),
+}));
+
+// The embedder also reads the workspace's own embedding settings off the
+// project row. There is no such row here, so the answer is "authored nothing"
+// and the provider resolves from the environment — which is what these tests
+// want. PGlite stands in for the database specifically to keep node-postgres
+// out: its connection timers fire through the `setTimeout` stub below and would
+// be counted as waits the retry loop asked for.
+vi.mock('@/libs/DB');
+
 vi.mock('@/libs/Langfuse', () => ({
   langfuse: { flushAsync: vi.fn(async () => {}) },
   traceFor: () => ({

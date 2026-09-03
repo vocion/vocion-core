@@ -776,9 +776,9 @@ export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: 
   const input = (run.input ?? {}) as Record<string, unknown>;
   const props = (input.properties ?? {}) as Record<string, unknown>;
   const original = String(input.body ?? input.notes ?? props.notes ?? '');
-  const { buildChatModel } = await import('@/libs/llm');
+  const { buildChatModelForOrg } = await import('@/libs/llm');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
-  const model = buildChatModel('main', { temperature: 0.4, streaming: false, maxTokens: 1200 });
+  const model = await buildChatModelForOrg('main', opts.orgId, { temperature: 0.4, streaming: false, maxTokens: 1200 });
   // Generic house-style rewrite — no workspace-specific voice baked into core.
   // (The learned per-user tone prompt, when built, will supply the voice.)
   const sys = 'You rewrite an outbound draft in the sender\'s established voice: concise, specific, no filler or "just checking in". Preserve the core ask and any concrete details/names. It stays a DRAFT for human review. Return ONLY the rewritten text, no preamble.';

@@ -90,6 +90,18 @@ export default defineConfig<ChromaticConfig>({
       timeout: 120 * 1000,
       use: { ...devices['Desktop Chrome'] },
     },
+    // The API credentials matrix (platforms, validation, expiry rules).
+    // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
+    // so no Clerk setup project and no dependencies.
+    // Run with: npx playwright test --project=credentials
+    {
+      name: 'credentials',
+      testDir: './e2e/credentials',
+      // Generous: each test signs in fresh, and the first few pay for cold
+      // Turbopack compiles of the sign-in, dashboard and credentials routes.
+      timeout: 120 * 1000,
+      use: { ...devices['Desktop Chrome'] },
+    },
     ...(process.env.CI
       ? [
           {

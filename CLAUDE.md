@@ -50,7 +50,9 @@ Native — no third-party retrieval engine. Three tables under `models/Schema.ts
 
 Read path: `services/RetrievalService.search(query, { orgId, mode: 'hybrid'|'vector'|'keyword', sourceSlugs?, rerank? })`. Returns ranked `SearchHit[]` (chunkId, documentId, sourceSlug, content, score). Hybrid uses reciprocal rank fusion across vector + keyword arms.
 
-Write path: `services/IngestionService.ingestDocument()` — chunks via `libs/retrieval/chunker.ts` (512 tokens, 64 overlap), embeds via OpenAI `text-embedding-3-small`, upserts into the chunk + document tables in a single transaction.
+Write path: `services/IngestionService.ingestDocument()` — chunks via `libs/retrieval/chunker.ts` (512 tokens, 64 overlap), embeds via `libs/retrieval/embedder.ts`, upserts into the chunk + document tables in a single transaction.
+
+Embeddings run on OpenAI `text-embedding-3-small` by default and on Amazon Bedrock Titan when a workspace or the environment says so — `libs/retrieval/embeddingBackend.ts` owns the vendor specifics, the embedder owns batching, retry and tracing. Provider precedence: `project.embeddingConfig` (authored as `defaults.embeddingProvider` in `workspace.yaml`), then `VOCION_EMBEDDING_PROVIDER`, then `VOCION_LLM_PROVIDER`, then OpenAI. The `embedding` column is `vector(1536)`, fixed in the DDL — every backend checks the width it got back and refuses a mismatch rather than failing at insert, because storing a different width needs a schema migration plus a re-embed of every chunk. Titan G1 (`amazon.titan-embed-text-v1`) does return 1536, verified with a live `InvokeModel` on 2026-09-03; AWS's own docs contradict each other on this, so trust the check, not the docs.
 
 Connectors implement `libs/sources/types.ts` `SourceConnector` interface (`sync(ctx): AsyncIterable<IngestDoc>`). Registry at `libs/sources/registry.ts`. Sync orchestrator: `services/SourceSyncService.runSync(orgId, sourceId, onProgress?)` — synchronous today; Temporal async variant queued.
 
@@ -156,6 +158,87 @@ npm run langfuse:bootstrap  # one-time: register Claude 4.6 / 4.7 / Haiku 4.5 pr
 ```
 
 `libs/Langfuse.ts` exposes `traceFor({ feature, slug, orgId, userId })` — use it from any new LLM path so traces stay sliceable. See [`docs/guides/observability.md`](./docs/guides/observability.md).
+
+## API credentials and which key an outbound call spends
+
+Two different things share the `api_token` table, told apart by a `platform`
+column, kept from mixing by the `api_token_shape_ck` CHECK constraint and kept
+from crossing over afterwards by the `api_token_platform_immutable_tg` trigger
+(`platform` cannot be updated; revoke and re-insert instead):
+
+- **Minted** (`platform = 'vocion'`) — a `vcn_live_<id>_<secret>` Bearer token
+  an outside caller presents *to* Vocion. Its SHA-256 is stored for
+  authentication, plus the whole token AES-256-GCM encrypted under the org's DEK
+  so an admin can show and copy it again from the dashboard. Tokens issued
+  before that landed have the hash only and can never be shown again.
+- **Supplied** (every other platform) — the key a workspace holds *with* a
+  vendor, AES-256-GCM encrypted under that org's DEK so we can read it back and
+  call out with it. One live key per platform per org, enforced by a partial
+  unique index; saving a second revokes the first in the same transaction.
+
+`src/libs/platforms/registry.ts` is the only list of platforms. Adding one is a
+descriptor there — nothing in the service, router or UI enumerates them.
+
+**Every outbound vendor call resolves its key the same way: the org's stored key
+first, the server's env var second.** Reach for the helper, never
+`process.env.<VENDOR>_API_KEY` directly:
+
+- `buildChatModelForOrg(role, orgId, opts)` — LangChain chat models.
+- `getLLMClientForOrg(provider, orgId)` — the provider-neutral `LLMClient`.
+- `resolveOrgProviderKey(provider, orgId)` (`libs/llm/orgKey.ts`) — the raw key,
+  for a call site that constructs its own SDK client. Returns null when the org
+  supplied none; fall back to the env var then, do not fail.
+
+**Amazon Bedrock is the exception to "the key is one string."** Its credential
+is an AWS access key pair, stored under the `aws` platform, so
+`resolveOrgProviderKey('bedrock', …)` deliberately returns null — handing back
+field one would hand back the access key id, which authenticates nothing. Use
+`resolveBedrockCredentials(orgId)` (`libs/llm/bedrockCredentials.ts`), which
+returns `{ source: 'org' | 'environment', keyPair }`. A null `keyPair` means
+"leave the AWS SDK's credential chain in charge" — the only route by which
+`AWS_BEARER_TOKEN_BEDROCK` or a host's instance role can sign the call, so never
+substitute an empty pair for it.
+
+Bedrock is also the one AWS call site allowed the platform-identity fallback
+that `resolveAwsCredentials` refuses by default, and the reason is narrow:
+`InvokeModel` on a foundation model reads and writes no Vocion resource, so the
+blast radius is that we pay for the tokens — the same exposure OpenAI and
+Anthropic already have. Anything touching KMS, AgentCore or a deploy role still
+goes through `resolveAwsCredentials` with the fallback off.
+
+**Per-agent vendor, per-workspace embeddings.** `harness.modelProvider` in agent
+YAML (`anthropic` | `openai` | `bedrock`) picks the vendor for one agent's chat
+model — a different axis from `harness.provider`, which picks where the loop
+executes. Embeddings are **not** per-agent: `defaults.embeddingProvider` /
+`defaults.embeddingModel` in `workspace.yaml` land on `project.embeddingConfig`
+and apply workspace-wide. That asymmetry is deliberate. A query vector is only
+comparable to vectors produced by the same model, so an agent embedding queries
+on a different provider from the one that ingested the documents would degrade
+search with no error anywhere.
+
+Already wired: the five chat-model call sites, `libs/retrieval/embedder.ts`,
+`libs/retrieval/reranker.ts`, `services/agents/tools/kitVision.ts`, and
+`libs/tools/image/openai.ts`. Deliberately still on the server's key, because no
+org is in scope where they run: `DiscoveryDetectionService` and
+`services/feedback/classifier.ts`.
+
+**Never cache a client keyed on anything less than the exact key in use.** A
+per-provider singleton hands the first org's key to every org after it. Build
+per call — the constructor is nothing next to the HTTP round trip, and a
+rotated or revoked key then takes effect on the next call with nothing to
+invalidate. Any new outbound path gets a test that runs two orgs in sequence and
+asserts each got its own key.
+
+**Only `CredentialValidationError` may reach a client.** Those messages are
+authored in the platform registry and name no secret. Any other failure carries
+whatever text the database or the vault produced; log it and return something
+generic.
+
+Supplied keys never take a Vocion-side expiry — the vendor owns the lifetime.
+
+Encryption at rest is `VOCION_CREDENTIAL_VAULT`: `local` (wrapping key in
+`VOCION_CREDENTIAL_VAULT_KEY`, same database as the wrapped key — development
+only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`).
 
 ## Multi-Tenancy
 

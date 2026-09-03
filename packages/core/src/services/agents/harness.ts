@@ -32,7 +32,7 @@ import { createDeepAgent, StateBackend } from 'deepagents';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { buildChatModel } from '@/libs/llm';
+import { buildChatModelForOrg } from '@/libs/llm';
 import { agentSchema, playbookSchema, projectSchema, teamSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
 import { mountSkills } from '@/services/playbooks/mount';
@@ -64,6 +64,55 @@ function lruSet<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): void {
     }
     cache.delete(first);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Model selection                                                     */
+/* ------------------------------------------------------------------ */
+
+/** The subset of `agent.harnessConfig` that decides which chat model is built. */
+export type HarnessModelConfig = {
+  model?: string;
+  modelProvider?: 'anthropic' | 'openai' | 'bedrock';
+  maxTokens?: number;
+};
+
+/**
+ * Turn an agent's harness block into `buildChatModelForOrg` options.
+ *
+ * Each key is omitted when unset, so an agent that names none falls all the way
+ * through to the per-role env defaults and behaves exactly as it did before
+ * this function existed.
+ *
+ * `modelProvider` is the axis that lets one agent answer on a different vendor
+ * from the rest of the deployment: `modelProvider: bedrock` on a
+ * `provider: local` agent runs the in-process loop against Amazon Bedrock, on
+ * the org's own stored AWS key. Passing it explicitly is what makes
+ * `buildChatModelForOrg` resolve that org's credential for the right vendor
+ * rather than for the env-configured one.
+ *
+ * `model` is honoured ONLY alongside `modelProvider`, and that condition is
+ * load-bearing rather than tidiness. The local loop used to ignore `model`
+ * entirely, so every `model:` already written in workspace YAML was authored
+ * for the agentcore or runtime harness and holds a Bedrock id
+ * (`global.anthropic.claude-sonnet-4-6` in Veerio's own agent). Reading it
+ * unconditionally would hand that id to ChatAnthropic the moment an agentcore
+ * agent fell back to the local loop — which `VOCION_DISABLE_AGENTCORE=1` does
+ * routinely in dev — and every turn would fail on an unknown model. Naming the
+ * provider is how an author says which vendor's id this is.
+ * @param harnessConfig - The agent's harness block, or an empty object.
+ */
+export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
+  provider?: 'anthropic' | 'openai' | 'bedrock';
+  model?: string;
+  maxTokens?: number;
+} {
+  const provider = harnessConfig.modelProvider;
+  return {
+    ...(provider ? { provider } : {}),
+    ...(provider && harnessConfig.model ? { model: harnessConfig.model } : {}),
+    ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -224,11 +273,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     });
   }
 
-  // Per-agent output cap from the harness block (falls back to the
-  // langchain provider default when unset).
-  const model = buildChatModel('main', {
-    ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
-  });
+  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsFor(harnessConfig));
 
   // Only mount deepagents' SkillsMiddleware when THIS AGENT actually
   // mounts something. The middleware requires initialized state fields and

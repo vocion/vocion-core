@@ -33,6 +33,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { appImageUrl, getObjectBytes, guessContentType, listKeys, parseS3Ref, putObject } from '@/libs/aws/s3';
 import { db } from '@/libs/DB';
+import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 import { metadataFromKey, parseS3Config } from '@/libs/sources/s3';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { createBusinessObject, updateBusinessObject } from '@/services/BusinessObjectService';
@@ -413,7 +414,11 @@ export function kitVisionTools(ctx: RuntimeContext) {
 
         const [cand, ...refs] = await Promise.all([key, ...refKeys].map(k => getObjectBytes({ bucket, key: k, region })));
         progress(ctx, 'vision_compare_reference', { phase: 'model', model: VISION_MODEL, images: 1 + refs.length, learnings: rules.length });
-        const client = new Anthropic();
+        // On the org's own Anthropic key when it has stored one, on the
+        // server's otherwise. Built here rather than module-wide so one org's
+        // key is never held across into another org's tool call.
+        const visionApiKey = await resolveOrgProviderKey('anthropic', ctx.orgId);
+        const client = new Anthropic(visionApiKey ? { apiKey: visionApiKey } : {});
         const content: Anthropic.ContentBlockParam[] = [
           { type: 'text', text: `CANDIDATE photo (key: ${key}):` },
           toImageBlock(cand!.bytes, cand!.contentType ?? guessContentType(key)),
