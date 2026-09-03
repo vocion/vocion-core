@@ -1005,5 +1005,5 @@ Terms this repo uses that are not obvious from the outside.
 - [`docs/entities/`](./entities/) — every field of every file type, with defaults and the rules the loader enforces.
 - [`docs/object-model.md`](./object-model.md) — where each object is authored, stored, executed and displayed, including the runtime-only ones (tool calls, runs, events).
 - [`docs/workspace-pages.md`](./workspace-pages.md) — custom dashboard pages.
-- **Langfuse**, at `http://localhost:3000` alongside the app once `npm run dev:up` is running — every agent turn, prompt and tool call is traced there. Pair it with the `workspace_sha` on a tool call and you can reconstruct exactly what ran and under which files.
+- **Langfuse**, at `http://localhost:3200` alongside the app once `npm run dev:up` is running — every agent turn, prompt and tool call is traced there. Pair it with the `workspace_sha` on a tool call and you can reconstruct exactly what ran and under which files. Deploying it for a real environment is [`docs/deployment/observability.md`](./deployment/observability.md); locally there is nothing to configure.
 - `packages/core/templates/workspaces/meridian-revenue/` — a full sample workspace in this repo: four teams, fourteen agents, real prompts. Read it after this guide.
