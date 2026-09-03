@@ -297,6 +297,17 @@ describe('connector platforms', () => {
     expect(getPlatform('jira').fields.some(field => field.name === 'baseUrl')).toBe(false);
   });
 
+  it('names each field what the connector reads out of ctx.credentials', () => {
+    // The field name is the storage contract between the credential and the
+    // connector: store a Granola key under `apiKey` and the connector, which
+    // reads `credentials.token`, refuses to sync with a credential that is
+    // sitting right there.
+    expect(getPlatform('granola').fields.map(field => field.name)).toEqual(['token']);
+    expect(getPlatform('hubspot').fields.map(field => field.name)).toEqual(['token']);
+    expect(getPlatform('jira').fields.map(field => field.name)).toEqual(['email', 'apiToken']);
+    expect(getPlatform('strapi').fields.map(field => field.name)).toEqual(['baseUrl', 'token']);
+  });
+
   it('hints at the secret half of a two-field connector credential', () => {
     // The list view masks the token, not the email or the URL beside it.
     const stored = validatePlatformCredential('jira', { email: 'ops@example.com', apiToken: 'abcd1234wxyz' });

@@ -280,7 +280,9 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keyPattern: null,
     keyShapeHint: 'any non-empty API key',
     helpText: 'A Granola API key. The Granola connector reads meeting notes with it.',
-    fields: singleKeyField('API key', null, 'any non-empty API key'),
+    // Named `token` because that is the key the connector reads out of
+    // `ctx.credentials`. The field name is the storage contract between the two.
+    fields: [{ name: 'token', label: 'API key', pattern: null, shapeHint: 'is any non-empty API key', secret: true }],
   },
   {
     id: 'hubspot',
@@ -294,7 +296,8 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     keyPattern: null,
     keyShapeHint: 'any non-empty token',
     helpText: 'A HubSpot private-app token, from Settings → Integrations → Private Apps. Needs CRM object read access.',
-    fields: singleKeyField('Private-app token', null, 'any non-empty token'),
+    // Named `token` to match what the connector reads out of `ctx.credentials`.
+    fields: [{ name: 'token', label: 'Private-app token', pattern: null, shapeHint: 'is any non-empty token', secret: true }],
   },
   {
     id: 'jira',
