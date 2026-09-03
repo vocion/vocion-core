@@ -10,6 +10,7 @@ vi.mock('@/libs/DB');
 const invokeMock = vi.hoisted(() => vi.fn());
 vi.mock('@/libs/llm', () => ({
   buildChatModel: () => ({ invoke: invokeMock }),
+  buildChatModelForOrg: async () => ({ invoke: invokeMock }),
 }));
 vi.mock('@/libs/Langfuse', () => ({
   traceFor: () => ({
