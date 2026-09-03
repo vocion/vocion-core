@@ -2,6 +2,7 @@
 
 import type { LucideIcon } from 'lucide-react';
 import {
+  AlertTriangle,
   BarChart3,
   Calendar,
   CheckCircle2,
@@ -47,6 +48,13 @@ type Source = {
   documentCount: number;
   credentialConnected: boolean;
   credentialUpdatedAt: string | null;
+  /**
+   * Why the credential this connector points at cannot be used, or null when
+   * it can. Distinct from `credentialConnected: false`, which means nobody has
+   * connected the source yet — one needs a key, the other needs the key it
+   * already names put back in service.
+   */
+  credentialBroken: 'revoked' | 'expired' | 'missing' | null;
   /** The latest sync run for this source, whoever started it. Null if never synced. */
   sync: {
     status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
@@ -63,6 +71,11 @@ type ConnectorTile = {
   description: string;
   icon: string;
   authKind: 'none' | 'apikey' | 'oauth';
+  /**
+   * The stored-credential platform this connector authenticates with, or null
+   * when it uses an OAuth grant or needs no credential at all.
+   */
+  credentialPlatform: string | null;
 };
 
 /** How often to re-read the list while a sync is running somewhere. */
@@ -196,7 +209,7 @@ export function SourcesPanel() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Each source crawls a system and feeds chunks into the org's knowledge base. Native pgvector retrieval — no external services.
+          Each connector crawls a system and feeds chunks into the org's knowledge base. Native pgvector retrieval — no external services.
         </p>
         <button
           type="button"
@@ -204,7 +217,7 @@ export function SourcesPanel() {
           className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
         >
           <Plus className="size-4" />
-          Add source
+          Add connector
         </button>
       </div>
 
@@ -234,16 +247,16 @@ export function SourcesPanel() {
         ? (
             <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
-              Loading sources…
+              Loading connectors…
             </div>
           )
         : sources.length === 0
           ? (
               <EmptyState
                 icon={Globe}
-                title="No sources yet"
+                title="No connectors yet"
                 description="Add a web URL, file upload, or connect a third-party system to populate this org's knowledge base."
-                action={{ label: 'Add source', onClick: () => setPicker(true) }}
+                action={{ label: 'Add connector', onClick: () => setPicker(true) }}
               />
             )
           : (
@@ -348,34 +361,179 @@ const CRED_FIELDS: Record<string, { help: string; fields: CredField[] }> = {
   zoom: { help: 'Zoom App Marketplace → Develop → Build App → Server-to-Server OAuth. Needs scopes user:read:admin + cloud_recording:read:admin. All three values are on the app\'s Credentials page.', fields: [{ key: 'accountId', label: 'Account ID' }, { key: 'clientId', label: 'Client ID' }, { key: 'clientSecret', label: 'Client secret' }] },
 };
 
+/**
+ * Whether a form field holds a secret and should therefore be masked.
+ *
+ * The platform descriptor says so outright when there is one. Without it —
+ * every OAuth connector, whose fields come from this file's own table — every
+ * value is a token, so masking everything is right.
+ * @param platformFields - Field descriptions from the server, or null.
+ * @param field - The field being rendered.
+ * @param index - Its position, used to line up with the server's list.
+ */
+function isSecretField(
+  platformFields: PlatformField[] | null,
+  field: CredField,
+  index: number,
+): boolean {
+  if (!platformFields) {
+    return true;
+  }
+  const described = platformFields[index]?.name === field.key
+    ? platformFields[index]
+    : platformFields.find(candidate => candidate.name === field.key);
+  return described?.secret ?? true;
+}
+
+/**
+ * The non-empty values for `fields`, keyed by field name. Blank optional fields
+ * are left out rather than sent as empty strings.
+ * @param fields - The fields the form rendered.
+ * @param values - What was typed into them.
+ */
+function collectCredentialValues(fields: CredField[], values: Record<string, string>): Record<string, string> {
+  const collected: Record<string, string> = {};
+  for (const field of fields) {
+    const value = (values[field.key] ?? '').trim();
+    if (value !== '') {
+      collected[field.key] = value;
+    }
+  }
+  return collected;
+}
+
+/**
+ * A credential the workspace already holds for this connector's platform and
+ * no other connector is using, as the picker shows it. Name and masked hint
+ * only — nothing decrypted.
+ */
+type StoredCredentialOption = {
+  id: string;
+  name: string;
+  keyHint: string | null;
+  expiresAt: string | null;
+};
+
+/** One input a platform's credential is made of, as the server describes it. */
+type PlatformField = {
+  name: string;
+  label: string;
+  shapeHint: string;
+  secret: boolean;
+};
+
+/**
+ * Which credential the dialog opens on.
+ *
+ * The one the connector already names, when the workspace is still offering
+ * it — that is the answer needing no typing. When it is not offered, nothing
+ * is preselected: a connector whose credential was revoked still names it, and
+ * starting on it would show "nothing to change here" above a form with no
+ * fields and a button that fails. Nothing preselected puts the fields on
+ * screen, which is the only thing that fixes a revoked key.
+ *
+ * A connector naming nothing yet starts on the newest credential the
+ * workspace holds, or on the empty form when it holds none.
+ * @param linkedCredentialId - The credential this connector names, or null.
+ * @param offered - The credentials the workspace is offering for this platform.
+ */
+export function initialCredentialChoice(
+  linkedCredentialId: string | null,
+  offered: StoredCredentialOption[],
+): string | null {
+  if (linkedCredentialId !== null) {
+    const stillOffered = offered.some(option => option.id === linkedCredentialId);
+    return stillOffered ? linkedCredentialId : null;
+  }
+  return offered[0]?.id ?? null;
+}
+
+/**
+ * The credential dialog: pick a credential the workspace already holds, or
+ * supply one.
+ *
+ * The picker is the point. A workspace that saved its Jira key under API
+ * credentials should not be asked for it a second time — and a key supplied
+ * here becomes a workspace credential too, listed and rotatable alongside the
+ * rest.
+ *
+ * Only credentials no other connector is using are offered. One credential
+ * belongs to one connector, because a key is issued for the single instance or
+ * account its connector talks to.
+ *
+ * The form's fields come from the server's platform descriptor when the
+ * connector has one (that is how Strapi's instance URL and Jira's email get
+ * asked for), and from this file's own table for the OAuth connectors, whose
+ * grants are still per-install.
+ * @param props - Component props.
+ * @param props.source - The source being connected.
+ * @param props.onClose - Called when the dialog is dismissed.
+ * @param props.onConnected - Called after a credential is stored or picked.
+ */
 function ConnectCredentialDialog({ source, onClose, onConnected }: {
   source: Source;
   onClose: () => void;
   onConnected: () => Promise<void> | void;
 }) {
   const connectorSlug = ((source.config?._connector as string | undefined) ?? source.slug);
-  const spec = CRED_FIELDS[connectorSlug] ?? { help: 'Paste the connector access token.', fields: [TOKEN_FIELD] };
+  const fallbackSpec = CRED_FIELDS[connectorSlug] ?? { help: 'Paste the connector access token.', fields: [TOKEN_FIELD] };
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const complete = spec.fields.every(f => f.optional || (values[f.key] ?? '').trim() !== '');
+  const [stored, setStored] = useState<StoredCredentialOption[]>([]);
+  const [platformFields, setPlatformFields] = useState<PlatformField[] | null>(null);
+  const [platformHelp, setPlatformHelp] = useState<string | null>(null);
+  const [credentialName, setCredentialName] = useState('');
+  // Null means "supply a new credential". An id means "use that stored one".
+  const [pickedCredentialId, setPickedCredentialId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadStoredCredentials = async () => {
+      try {
+        const res = await fetch(`/rpc/sources/${source.id}/credentials`);
+        const data = await res.json();
+        if (cancelled || !res.ok) {
+          return;
+        }
+        setStored(data.available ?? []);
+        setPlatformFields(Array.isArray(data.fields) && data.fields.length > 0 ? data.fields : null);
+        setPlatformHelp(data.helpText ?? null);
+        setPickedCredentialId(initialCredentialChoice(
+          typeof data.linkedCredentialId === 'string' ? data.linkedCredentialId : null,
+          data.available ?? [],
+        ));
+      } catch (err) {
+        // Not fatal: the form still works by supplying a credential, which is
+        // exactly what it did before there was anything to pick.
+        console.error('[ConnectCredentialDialog] could not load stored credentials', err);
+      }
+    };
+    loadStoredCredentials();
+    return () => {
+      cancelled = true;
+    };
+  }, [source.id]);
+
+  const fields: CredField[] = platformFields
+    ? platformFields.map(field => ({ key: field.name, label: field.label }))
+    : fallbackSpec.fields;
+  const help = platformHelp ?? fallbackSpec.help;
+  const usingStored = pickedCredentialId !== null;
+  const complete = usingStored || fields.every(f => f.optional || (values[f.key] ?? '').trim() !== '');
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const credentials: Record<string, string> = {};
-      for (const f of spec.fields) {
-        const v = (values[f.key] ?? '').trim();
-        if (v) {
-          credentials[f.key] = v;
-        }
-      }
+      const body = usingStored
+        ? { apiTokenId: pickedCredentialId }
+        : { credentials: collectCredentialValues(fields, values), credentialName: credentialName.trim() || undefined };
       const res = await fetch(`/rpc/sources/${source.id}/credentials`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentials }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -403,22 +561,89 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
             </h3>
           </div>
           <div className="space-y-4 p-4">
-            <p className="text-xs text-muted-foreground">{spec.help}</p>
-            {spec.fields.map(field => (
-              <label key={field.key} className="block">
-                <span className="text-sm font-medium text-foreground/80">{field.label}</span>
-                <input
-                  type="password"
-                  required={!field.optional}
-                  autoComplete="off"
-                  value={values[field.key] ?? ''}
-                  onChange={e => setValues(prev => ({ ...prev, [field.key]: e.target.value }))}
-                  placeholder="••••••••••••••••"
-                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                />
-              </label>
-            ))}
-            <p className="text-[11px] text-muted-foreground">Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.</p>
+            {stored.length > 0
+              ? (
+                  <fieldset className="space-y-2">
+                    <legend className="text-sm font-medium text-foreground/80">Credential</legend>
+                    <p className="text-xs text-muted-foreground">
+                      This workspace already stores credentials for this platform. Pick one, or add another.
+                    </p>
+                    {stored.map(option => (
+                      <label key={option.id} className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                        <input
+                          type="radio"
+                          name="credential-choice"
+                          checked={pickedCredentialId === option.id}
+                          onChange={() => setPickedCredentialId(option.id)}
+                        />
+                        <span className="truncate font-medium">{option.name}</span>
+                        {option.keyHint
+                          ? <span className="font-mono text-xs text-muted-foreground">{option.keyHint}</span>
+                          : null}
+                      </label>
+                    ))}
+                    <label className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                      <input
+                        type="radio"
+                        name="credential-choice"
+                        checked={pickedCredentialId === null}
+                        onChange={() => setPickedCredentialId(null)}
+                      />
+                      <span className="font-medium">Add a new credential</span>
+                    </label>
+                  </fieldset>
+                )
+              : null}
+            {usingStored
+              ? (
+                  <p className="text-xs text-muted-foreground">
+                    Rotating this credential under API credentials updates this connector — nothing to change here.
+                  </p>
+                )
+              : (
+                  <>
+                    <p className="text-xs text-muted-foreground">{help}</p>
+                    {platformFields
+                      ? (
+                          <label className="block">
+                            <span className="text-sm font-medium text-foreground/80">Credential name</span>
+                            <input
+                              type="text"
+                              value={credentialName}
+                              onChange={e => setCredentialName(e.target.value)}
+                              placeholder="e.g. Strapi — production"
+                              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            />
+                            <span className="mt-1 block text-[11px] text-muted-foreground">
+                              How this credential is listed, and how you tell it apart from the next one.
+                            </span>
+                          </label>
+                        )
+                      : null}
+                    {fields.map((field, index) => (
+                      <label key={field.key} className="block">
+                        <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+                        <input
+                          // A non-secret value — an instance URL, an account
+                          // email — stays readable while it is typed. Masking
+                          // it would only make a typo harder to see.
+                          type={isSecretField(platformFields, field, index) ? 'password' : 'text'}
+                          required={!field.optional}
+                          autoComplete="off"
+                          value={values[field.key] ?? ''}
+                          onChange={e => setValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                          placeholder={isSecretField(platformFields, field, index) ? '••••••••••••••••' : ''}
+                          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                        />
+                      </label>
+                    ))}
+                    <p className="text-[11px] text-muted-foreground">
+                      {platformFields
+                        ? 'Stored AES-GCM encrypted at rest, and listed under API credentials so you can rotate it there.'
+                        : 'Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.'}
+                    </p>
+                  </>
+                )}
             {error
               ? (
                   <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -437,12 +662,60 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
               className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting ? <Loader2 className="size-3 animate-spin" /> : <KeyRound className="size-3" />}
-              Save credential
+              {usingStored ? 'Use this credential' : 'Save credential'}
             </button>
           </div>
         </form>
       </div>
     </div>
+  );
+}
+
+/**
+ * Sentence for a credential that exists but cannot be used.
+ * @param reason - Why it cannot be used.
+ */
+function describeBrokenCredential(reason: 'revoked' | 'expired' | 'missing'): string {
+  if (reason === 'revoked') {
+    return 'Credential revoked';
+  }
+  if (reason === 'expired') {
+    return 'Credential expired';
+  }
+  return 'Credential missing';
+}
+
+/**
+ * The credential state on a connector row.
+ *
+ * Three states, not two. A connector nobody has connected needs a key; one
+ * pointing at a credential somebody revoked needs that key put back in service,
+ * and saying "needs credentials" for it would hide what actually happened.
+ * @param props - Component props.
+ * @param props.source - The source whose credential state is being shown.
+ */
+function CredentialBadge({ source }: { source: Source }) {
+  if (source.credentialBroken) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-destructive">
+        <AlertTriangle className="size-3.5" />
+        {describeBrokenCredential(source.credentialBroken)}
+      </span>
+    );
+  }
+  if (source.credentialConnected) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+        <CheckCircle2 className="size-3.5" />
+        Connected
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+      <KeyRound className="size-3.5" />
+      Needs credentials
+    </span>
   );
 }
 
@@ -470,7 +743,7 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Link href={`/dashboard/sources/${source.slug}`} className="truncate font-display hover:underline">{source.slug}</Link>
+            <Link href={`/dashboard/connectors/${source.slug}`} className="truncate font-display hover:underline">{source.slug}</Link>
             <Badge variant="outline" className="font-mono text-[10px]">{source.kind}</Badge>
             {source.objectType
               ? <Badge variant="outline" className="font-mono text-[10px]">{source.objectType}</Badge>
@@ -487,21 +760,7 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
           </p>
         </div>
         {source.authKind !== 'none'
-          ? (
-              source.credentialConnected
-                ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle2 className="size-3.5" />
-                      Connected
-                    </span>
-                  )
-                : (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                      <KeyRound className="size-3.5" />
-                      Needs credentials
-                    </span>
-                  )
-            )
+          ? <CredentialBadge source={source} />
           : null}
       </div>
       <div className="mt-3 flex items-center justify-between gap-2">
@@ -530,7 +789,7 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
           <button
             type="button"
             onClick={onEdit}
-            title="Edit this source's settings"
+            title="Edit this connector's settings"
             className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
           >
             <Pencil className="size-3" />
@@ -539,7 +798,7 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
           <button
             type="button"
             onClick={onDelete}
-            title="Delete this source and everything ingested from it"
+            title="Delete this connector and everything ingested from it"
             className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/5"
           >
             <Trash2 className="size-3" />
@@ -551,7 +810,7 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
             disabled={busy || needsCreds}
             title={needsCreds
               ? 'Connect credentials first'
-              : (runningElsewhere ? 'This source is already syncing. Wait for it to finish, then try again.' : undefined)}
+              : (runningElsewhere ? 'This connector is already syncing. Wait for it to finish, then try again.' : undefined)}
             className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
           >
             {busy
@@ -704,7 +963,7 @@ function DeleteSourceDialog({ source, onClose, onDeleted }: {
         </div>
         <div className="space-y-3 p-4 text-sm">
           <p>
-            This removes the source and the
+            This removes the connector and the
             {' '}
             {source.documentCount.toLocaleString()}
             {' '}
@@ -751,7 +1010,7 @@ function DeleteSourceDialog({ source, onClose, onDeleted }: {
                       Deleting…
                     </>
                   )
-                : 'Delete source'}
+                : 'Delete connector'}
             </button>
           </div>
         </div>
@@ -768,7 +1027,7 @@ function describeSourceConfig(config: Record<string, unknown>): string {
   if (c.urls?.length) {
     return c.urls.length === 1 ? c.urls[0]! : `${c.urls.length} URLs`;
   }
-  return 'Configured source';
+  return 'Configured connector';
 }
 
 /**
@@ -874,7 +1133,7 @@ function ConnectorPicker({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border bg-background shadow-xl">
         <div className="flex items-center justify-between border-b px-4 py-3">
-          <h3 className="font-display text-lg">Pick a source type</h3>
+          <h3 className="font-display text-lg">Pick a connector</h3>
           <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
             Cancel
           </button>
@@ -892,15 +1151,15 @@ function ConnectorPicker({
                   onClose();
                 }
               }}
-              placeholder="Search source types — name or what it ingests"
-              aria-label="Search source types"
+              placeholder="Search connectors — name or what it ingests"
+              aria-label="Search connectors"
               className="w-full rounded-md border border-input bg-background py-2 pr-3 pl-9 text-sm"
             />
           </label>
           <p className="mt-2 text-xs text-muted-foreground">
             {matches.length === connectors.length
-              ? `${connectors.length} source types`
-              : `${matches.length} of ${connectors.length} source types`}
+              ? `${connectors.length} connectors`
+              : `${matches.length} of ${connectors.length} connectors`}
           </p>
         </div>
         <div className="flex flex-col gap-2 overflow-y-auto p-4">
@@ -930,7 +1189,7 @@ function ConnectorPicker({
           {matches.length === 0
             ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">
-                  No source type matches “
+                  No connector matches “
                   {query}
                   ”.
                 </p>
@@ -990,7 +1249,7 @@ async function createSourceReturningId(
   });
   const data = await res.json();
   if (!res.ok) {
-    return { id: null, error: data.error ?? 'Failed to create source' };
+    return { id: null, error: data.error ?? 'Failed to create connector' };
   }
   const newId = data.source?.id;
   return { id: typeof newId === 'number' ? newId : null, error: null };
@@ -1008,7 +1267,7 @@ async function updateSourceConfig(sourceId: number, configJson: Record<string, u
     body: JSON.stringify({ configJson }),
   });
   const data = await res.json();
-  return res.ok ? null : (data.error ?? 'Failed to save the source');
+  return res.ok ? null : (data.error ?? 'Failed to save the connector');
 }
 
 /**
@@ -1018,7 +1277,7 @@ async function updateSourceConfig(sourceId: number, configJson: Record<string, u
 async function deleteSourceById(sourceId: number): Promise<string | null> {
   const res = await fetch(`/rpc/sources/${sourceId}`, { method: 'DELETE' });
   const data = await res.json();
-  return res.ok ? null : (data.error ?? 'Failed to delete the source');
+  return res.ok ? null : (data.error ?? 'Failed to delete the connector');
 }
 
 /**
@@ -1039,6 +1298,9 @@ async function createSource(kind: string, configJson: Record<string, unknown>): 
  * @param root0
  * @param root0.title
  * @param root0.error
+ * @param root0.requirement
+ * @param root0.notice
+ * @param root0.submitLabel
  * @param root0.submitting
  * @param root0.canSubmit
  * @param root0.onClose
@@ -1062,7 +1324,7 @@ function AddSourceDialogFrame({
   requirement: string | null;
   /** A standing note about what saving will do, shown above the fields. */
   notice: string | null;
-  /** Wording for the submit button — "Add source" when adding, "Save changes" when editing. */
+  /** Wording for the submit button — "Add connector" when adding, "Save changes" when editing. */
   submitLabel: string;
   submitting: boolean;
   canSubmit: boolean;
@@ -1187,7 +1449,7 @@ const COLLECTION_STATUS_LABELS: Record<CollectionCheck['status'], string> = {
  * Plain-English name for whatever is still missing before a Strapi source can be
  * added, in the order the form is filled. Null once nothing is missing.
  *
- * This is the disabled Add source button's explanation — both as a line in the
+ * This is the disabled Add connector button's explanation — both as a line in the
  * footer and as its hover tooltip — so it has to read like an instruction, not
  * like a validation code.
  * @param state - What the form holds right now.
@@ -1268,8 +1530,8 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
       title={title}
       error={error}
       requirement={url.trim().length > 0 ? null : 'a URL to read'}
-      submitLabel={existing ? 'Save changes' : 'Add source'}
-      notice={existing ? 'Saving restarts this source\'s sync: a run in progress stops, and a fresh one reads the source with the new settings.' : null}
+      submitLabel={existing ? 'Save changes' : 'Add connector'}
+      notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
       canSubmit={url.trim().length > 0}
       onClose={onClose}
@@ -1361,33 +1623,64 @@ async function inspectStrapi(
  * @param sourceId - The id returned by the create call.
  * @param token - The API token to store in the vault.
  */
+/** A source's stored credential, as an Edit form needs to see it. */
+type LoadedSourceCredential = {
+  token: string | null;
+  /** Instance URL, for a platform that keeps one with its token (Strapi). */
+  baseUrl: string | null;
+  /** The stored credential the install points at, when it points at one. */
+  apiTokenId: string | null;
+  error: string | null;
+};
+
 /**
  * Read back a source's stored credential so an Edit form can load it.
  *
- * Returns null when there is nothing stored, and the server's message when the
+ * Returns nulls when there is nothing stored, and the server's message when the
  * read failed — a credential that will not decrypt must not look like an empty
  * field, or the operator would save an edit believing the old token still works.
  * @param sourceId - Source whose credential to read.
  */
-async function loadSourceToken(sourceId: number): Promise<{ token: string | null; error: string | null }> {
+async function loadSourceCredential(sourceId: number): Promise<LoadedSourceCredential> {
   const res = await fetch(`/rpc/sources/${sourceId}/credentials`);
   const data = await res.json();
   if (!res.ok) {
-    return { token: null, error: data.error ?? 'Could not read the stored token' };
+    return { token: null, baseUrl: null, apiTokenId: null, error: data.error ?? 'Could not read the stored token' };
   }
-  const stored = data.credentials as { token?: string } | null;
-  return { token: stored?.token ?? null, error: null };
+  const stored = data.credentials as { token?: string; baseUrl?: string } | null;
+  return {
+    token: stored?.token ?? null,
+    baseUrl: stored?.baseUrl ?? null,
+    apiTokenId: (data.linkedCredentialId as string | null) ?? null,
+    // A credential the install names but cannot use comes back with its own
+    // reason, and the form has to show it rather than an empty token field.
+    error: (data.error as string | undefined) ?? null,
+  };
 }
 
-async function storeSourceToken(sourceId: number, token: string): Promise<string | null> {
+/**
+ * Store or rotate the credential a source authenticates with.
+ *
+ * With `apiTokenId` this rotates that credential in place, so every install
+ * pointing at it picks the new value up. Without one it stores a new
+ * workspace credential and points this install at it.
+ * @param sourceId - The source the credential is for.
+ * @param credentials - The values, keyed by the platform's field names.
+ * @param apiTokenId - The credential to rotate, or null to store a new one.
+ */
+async function storeSourceCredential(
+  sourceId: number,
+  credentials: Record<string, string>,
+  apiTokenId: string | null,
+): Promise<string | null> {
   const res = await fetch(`/rpc/sources/${sourceId}/credentials`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ credentials: { token } }),
+    body: JSON.stringify(apiTokenId ? { apiTokenId, credentials } : { credentials }),
   });
   const data = await res.json();
   if (!res.ok) {
-    return data.error ?? 'The source was created but its token could not be stored';
+    return data.error ?? 'The connector was created but its credential could not be stored';
   }
   return null;
 }
@@ -1439,6 +1732,7 @@ function CollectionVerdict({ check }: { check: CollectionCheck | undefined }) {
  * @param root0 - Component props.
  * @param root0.kind - Connector slug, always `strapi` here.
  * @param root0.title - Dialog heading.
+ * @param root0.existing
  * @param root0.onClose - Dismiss without creating anything.
  * @param root0.onAdded - Called after the source and its token are stored.
  */
@@ -1463,6 +1757,14 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
   const [token, setToken] = useState('');
   /** The token as stored, so saving an untouched field writes no new credential. */
   const [storedToken, setStoredToken] = useState<string | null>(null);
+  /** The instance URL as stored, for the same reason — it rotates with the token. */
+  const [storedBaseUrl, setStoredBaseUrl] = useState<string | null>(null);
+  /**
+   * The stored credential this install points at, when it has one. Rotating
+   * that row rather than storing another is what keeps a second Strapi
+   * credential from appearing every time somebody edits the token.
+   */
+  const [linkedCredentialId, setLinkedCredentialId] = useState<string | null>(null);
   const [tokenVisible, setTokenVisible] = useState(false);
   const [collectionsText, setCollectionsText] = useState((existingConfig.collections ?? []).join(', '));
   const [selected, setSelected] = useState<string[]>(existingConfig.collections ?? []);
@@ -1487,17 +1789,25 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
     }
     let stillOpen = true;
     const load = async () => {
-      const { token: stored, error: message } = await loadSourceToken(editingSourceId);
+      const loaded = await loadSourceCredential(editingSourceId);
       if (!stillOpen) {
         return;
       }
-      if (message) {
-        setError(message);
+      setLinkedCredentialId(loaded.apiTokenId);
+      if (loaded.error) {
+        setError(loaded.error);
         return;
       }
-      if (stored) {
-        setStoredToken(stored);
-        setToken(stored);
+      if (loaded.token) {
+        setStoredToken(loaded.token);
+        setToken(loaded.token);
+      }
+      // The instance URL now travels with the token. An install migrated off
+      // its config copy has it here and nowhere else, so this is what fills the
+      // field the operator is about to edit.
+      if (loaded.baseUrl) {
+        setStoredBaseUrl(loaded.baseUrl);
+        setBaseUrl(loaded.baseUrl);
       }
     };
     void load();
@@ -1610,36 +1920,69 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
     setSubmitting(true);
     setError(null);
     try {
+      const instanceUrl = baseUrl.trim().replace(/\/+$/, '');
+      // Write a credential only when something about it actually changed: an
+      // empty token field means "keep what is stored", and re-saving the values
+      // we just loaded would rotate a credential to itself. The URL counts as a
+      // change too, because it is half of the same credential.
+      const tokenIsNew = token.trim() !== '' && token.trim() !== storedToken;
+      const urlIsNew = storedBaseUrl !== null && instanceUrl !== storedBaseUrl;
+      const credentialIsNew = tokenIsNew || urlIsNew || storedBaseUrl === null;
+      const willWriteCredential = credentialIsNew && token.trim() !== '';
+
+      // No `baseUrl` in the config: a Strapi token only works against the
+      // instance that issued it, so the URL is part of the credential and
+      // rotates with it.
+      //
+      // Except while no credential holds it. A connector set up before the URL
+      // moved keeps it in the config, and this save replaces the whole config —
+      // so dropping it without putting it anywhere would leave the connector
+      // with an instance URL in neither place and every sync refusing. Keeping
+      // it is also what lets the backfill migrate the connector later.
       const configJson = {
-        baseUrl: baseUrl.trim().replace(/\/+$/, ''),
         collections: chosen,
         populate: populate.trim() === '' ? '*' : populate.trim(),
         pageSize,
+        ...(willWriteCredential || instanceUrl === '' ? {} : { baseUrl: instanceUrl }),
       };
-      let sourceId = existing?.id ?? null;
+
       if (existing) {
+        // Credential first, config second. The config write is what drops the
+        // legacy `baseUrl`, so a credential write failing after it would strand
+        // a connector that was working a moment ago.
+        if (willWriteCredential) {
+          const credentialError = await storeSourceCredential(
+            existing.id,
+            { baseUrl: instanceUrl, token: token.trim() },
+            linkedCredentialId,
+          );
+          if (credentialError) {
+            setError(credentialError);
+            return;
+          }
+        }
         const message = await updateSourceConfig(existing.id, configJson);
         if (message) {
           setError(message);
           return;
         }
       } else {
+        // A new connector has to exist before a credential can name it.
         const created = await createSourceReturningId(kind, configJson);
         if (created.error || created.id === null) {
-          setError(created.error ?? 'Failed to create source');
+          setError(created.error ?? 'Failed to create connector');
           return;
         }
-        sourceId = created.id;
-      }
-      // Write a credential only when this is a token the vault does not already
-      // hold: an empty field means "keep what is stored", and re-saving the
-      // value we just loaded would add a credential row that changes nothing.
-      const tokenIsNew = token.trim() !== '' && token.trim() !== storedToken;
-      if (sourceId !== null && tokenIsNew) {
-        const tokenError = await storeSourceToken(sourceId, token.trim());
-        if (tokenError) {
-          setError(tokenError);
-          return;
+        if (willWriteCredential) {
+          const credentialError = await storeSourceCredential(
+            created.id,
+            { baseUrl: instanceUrl, token: token.trim() },
+            linkedCredentialId,
+          );
+          if (credentialError) {
+            setError(credentialError);
+            return;
+          }
         }
       }
       await onAdded();
@@ -1653,8 +1996,8 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
       title={title}
       error={error}
       requirement={requirement}
-      submitLabel={existing ? 'Save changes' : 'Add source'}
-      notice={existing ? 'Saving restarts this source\'s sync: a run in progress stops, and a fresh one reads the source with the new settings.' : null}
+      submitLabel={existing ? 'Save changes' : 'Add connector'}
+      notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
       submitting={submitting}
       canSubmit={connectionReady && chosen.length > 0 && failedChecks.length === 0}
       onClose={onClose}
@@ -1900,6 +2243,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
  * @param root0
  * @param root0.kind
  * @param root0.connector
+ * @param root0.existing
  * @param root0.onClose
  * @param root0.onAdded
  */

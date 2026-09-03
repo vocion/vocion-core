@@ -287,6 +287,7 @@ export function useAnchoredComments({ targetRef, root }: CommentTargetProps) {
  * @param root0.pending - The armed selection, or null.
  * @param root0.onAdd - Store the note.
  * @param root0.onCancel - Drop the selection.
+ * @param root0.onBegin
  */
 export function CommentPopover({ pending, onAdd, onCancel, onBegin }: {
   pending: { rect: DOMRect } | null;

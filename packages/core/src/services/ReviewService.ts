@@ -763,6 +763,7 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
  * @param opts.runId
  * @param opts.hint
  * @param opts.userId
+ * @param opts.contentId
  */
 export async function rewriteDraft(opts: {
   orgId: string;
