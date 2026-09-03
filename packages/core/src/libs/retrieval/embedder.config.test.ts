@@ -50,7 +50,7 @@ vi.mock('openai', async (importOriginal) => {
 });
 
 vi.mock('@/libs/Langfuse', () => ({
-  langfuse: { flushAsync: vi.fn(async () => {}) },
+  flushTraces: vi.fn(async () => {}),
   traceFor: () => ({
     update: vi.fn(),
     generation: () => ({ end: vi.fn() }),
