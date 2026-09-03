@@ -632,6 +632,23 @@ describe('deciding a candidate', () => {
     expect(executed.result).toMatchObject({ objectId: object!.id });
   });
 
+  it('carries a reviewer\'s correction onto the stored record, not just the queue item', async () => {
+    const { updateActionInput } = await import('@/services/ActionService');
+    const proposed = await propose();
+
+    // Edit-then-approve: the moderator fixes the venue before approving.
+    await updateActionInput(proposed.runId, ORG, candidate({
+      fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: 'Flynn Center' },
+    }));
+    await executeAction(proposed.runId, ORG, { reviewedBy: 'user_moderator' });
+
+    const [object] = await objectsFor();
+
+    // The published record must be the corrected one, not the extraction.
+    expect(object!.metadata).toMatchObject({ venue: 'Flynn Center' });
+    expect(object!.status).toBe('approved');
+  });
+
   it('rejecting keeps the payload — the row is the record of what went wrong', async () => {
     const proposed = await propose();
 

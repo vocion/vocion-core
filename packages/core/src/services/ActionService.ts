@@ -284,6 +284,17 @@ export async function updateActionInput(runId: number, orgId: string, input: Rec
     .update(actionRunSchema)
     .set({ input: parsed as Record<string, unknown> })
     .where(eq(actionRunSchema.id, runId));
+
+  // The edit has to reach the action's own domain row too. Without this an
+  // edit-then-approve executes on the corrected payload while the record the
+  // reviewer's decision is kept as still holds the original — the same drift
+  // the dedup-refresh path guards against, and `onProposed` is documented
+  // idempotent so it is safe to run again here.
+  await action?.onProposed?.(
+    { orgId, invokedBy: run.invokedBy ?? undefined },
+    parsed,
+    runId,
+  );
 }
 
 /**
