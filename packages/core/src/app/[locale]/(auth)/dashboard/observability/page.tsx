@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { langfuseConfig } from '@/libs/Langfuse';
+import { browserProjectId } from '@/libs/Langfuse/config';
 import { listAgentBudgets } from '@/services/BudgetService';
 import { countRunsLast24h } from '@/services/ObservabilityService';
 
@@ -32,9 +34,16 @@ export default async function ObservabilityPage(props: {
   setRequestLocale(locale);
   const { orgId } = await auth();
 
-  const langfuseBase = process.env.LANGFUSE_BASE_URL ?? 'http://localhost:3200';
-  const langfuseProject = process.env.LANGFUSE_PROJECT_ID ?? 'demo';
-  const langfuseUrl = `${langfuseBase}/project/${langfuseProject}/traces`;
+  // These links open in the operator's browser, so they need the
+  // externally reachable Langfuse URL. On a self-hosted box the app
+  // posts traces to an internal compose hostname
+  // (http://langfuse-web:3000) that no browser can resolve, so reading
+  // LANGFUSE_BASE_URL here produced links that always failed. Null when
+  // tracing is off — there is nothing to link to.
+  const langfuse = langfuseConfig();
+  const langfuseUrl = langfuse.enabled
+    ? `${langfuse.browserBaseUrl}/project/${browserProjectId(langfuse)}/traces`
+    : null;
 
   if (!orgId) {
     return (
@@ -60,7 +69,18 @@ export default async function ObservabilityPage(props: {
     .sort((a, b) => (b.currentCents ?? 0) - (a.currentCents ?? 0))
     .slice(0, 5);
 
-  const filterByOrg = `${langfuseUrl}?${FILTER_ENCODE({ tags: `org:${orgId}` })}`;
+  /**
+   * Build one filtered Langfuse deep link, or null when tracing is off.
+   * @param params - Langfuse trace-list query parameters.
+   */
+  const traceLink = (params: Record<string, string>): string | null => {
+    if (!langfuseUrl) {
+      return null;
+    }
+    return `${langfuseUrl}?${FILTER_ENCODE(params)}`;
+  };
+
+  const filterByOrg = traceLink({ tags: `org:${orgId}` });
 
   return (
     <>
@@ -70,32 +90,46 @@ export default async function ObservabilityPage(props: {
       />
 
       <div className="space-y-6">
-        <div className="flex flex-wrap gap-3">
-          <Button asChild>
-            <a href={filterByOrg} target="_blank" rel="noreferrer">
-              <ExternalLink className="mr-2 h-4 w-4" />
-              Open in Langfuse
-            </a>
-          </Button>
-          <Button asChild variant="outline">
-            <a
-              href={`${langfuseUrl}?${FILTER_ENCODE({ tags: `org:${orgId}`, name: 'agent.chat' })}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              View agent chat traces
-            </a>
-          </Button>
-          <Button asChild variant="outline">
-            <a
-              href={`${langfuseUrl}?${FILTER_ENCODE({ tags: `org:${orgId}`, name: 'operation.run' })}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              View operation traces
-            </a>
-          </Button>
-        </div>
+        {filterByOrg
+          ? (
+              <div className="flex flex-wrap gap-3">
+                <Button asChild>
+                  <a href={filterByOrg} target="_blank" rel="noreferrer">
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Open in Langfuse
+                  </a>
+                </Button>
+                <Button asChild variant="outline">
+                  <a
+                    href={traceLink({ tags: `org:${orgId}`, name: 'agent.chat' }) ?? '#'}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View agent chat traces
+                  </a>
+                </Button>
+                <Button asChild variant="outline">
+                  <a
+                    href={traceLink({ tags: `org:${orgId}`, name: 'operation.run' }) ?? '#'}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View operation traces
+                  </a>
+                </Button>
+              </div>
+            )
+          : (
+              <div className="rounded-md border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                Trace search is unavailable because Langfuse is not configured for this
+                deployment. The spend and run-volume numbers below come from this
+                application's own tables and are unaffected. See
+                {' '}
+                <code className="rounded bg-background px-1 py-0.5">docs/deployment/observability.md</code>
+                {' '}
+                to connect Langfuse Cloud or a self-hosted instance.
+              </div>
+            )}
 
         <div className="grid gap-4 sm:grid-cols-3">
           <StatCard
@@ -131,14 +165,16 @@ export default async function ObservabilityPage(props: {
                       $
                       {((agent.currentCents ?? 0) / 100).toFixed(2)}
                     </span>
-                    <Link
-                      href={`${langfuseUrl}?${FILTER_ENCODE({ tags: `slug:${agent.agentSlug}` })}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-primary hover:underline"
-                    >
-                      View traces ↗
-                    </Link>
+                    {traceLink({ tags: `slug:${agent.agentSlug}` }) && (
+                      <Link
+                        href={traceLink({ tags: `slug:${agent.agentSlug}` }) as string}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-primary hover:underline"
+                      >
+                        View traces ↗
+                      </Link>
+                    )}
                   </div>
                 </div>
               ))}

@@ -1,7 +1,7 @@
 import type { RawStreamEvent } from './agents/traceEmitter';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { langfuse } from '@/libs/Langfuse';
+import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { agentSchema } from '@/models/Schema';
 import { AnswerStreamer } from './agents/answerStream';
@@ -422,7 +422,7 @@ export async function runAgentDeep(opts: {
     const message = (err as Error).message ?? 'agent run failed';
     emit({ type: 'error', message });
     trace.update({ output: { error: message } });
-    await langfuse.flushAsync();
+    await flushTraces();
     throw err;
   }
 
@@ -479,7 +479,7 @@ export async function runAgentDeep(opts: {
   }
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
-  await langfuse.flushAsync();
+  await flushTraces();
 
   emit({ type: 'done', response: finalText, traceId: trace.id });
 

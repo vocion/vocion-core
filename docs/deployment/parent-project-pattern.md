@@ -84,6 +84,12 @@ better name is worth. Rename it in both, or in neither.
 Skip phase 2 and **the site comes up healthy while chat fails**. Any agent with
 `harness.provider: agentcore` has nowhere to execute until the runtime exists.
 
+Langfuse is the one part of phase 1 that needs a decision rather than a
+script: managed Cloud, self-hosted on the box, or off. Make it before
+the first deploy, since the self-hosted path sets the admin password and
+the project API keys on first boot.
+[`observability.md`](./observability.md) covers all three.
+
 ### Call these scripts. Don't copy them.
 
 They read `ENV`, `AWS_PROFILE` and `REGION` from the environment, and each one
