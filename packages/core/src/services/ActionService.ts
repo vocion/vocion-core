@@ -81,6 +81,35 @@ export async function proposeAction(input: {
   // into the deterministic job's old behaviour instead of stacking queue items.
   const dedupKey = input.dedupKey ?? action.dedupKeyFor?.(parsed);
 
+  // Authorised BEFORE anything is written. The refresh path below updates a
+  // pending row and calls the action's `onProposed`, which can touch a domain
+  // record — deciding permission after that would let an ungranted caller
+  // rewrite what a reviewer is about to decide on.
+  let decision;
+  try {
+    decision = enforce(
+      input.principal,
+      { kind: 'action', action: action.grant, external: action.external, scope: { orgId: input.orgId } },
+      'mutate',
+    );
+  } catch (e) {
+    if (e instanceof AuthzDeniedError) {
+      throw new ActionError('FORBIDDEN', `Not allowed to run ${action.id}: ${e.decision.reason}`);
+    }
+    throw e;
+  }
+
+  // The action's own last word, before any row exists. Tenant state the input
+  // schema cannot check lives here, and refusing costs the caller nothing but
+  // a message it can act on.
+  const refusal = await action.precheck?.(
+    { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id },
+    parsed,
+  );
+  if (refusal) {
+    throw new ActionError('VALIDATION_FAILED', refusal);
+  }
+
   // Upsert-by-key: a re-surfaced owed action updates its existing PENDING row
   // rather than stacking duplicates in the queue. Only PENDING rows dedupe —
   // a decided (done/rejected) action can be proposed fresh later.
@@ -103,22 +132,17 @@ export async function proposeAction(input: {
           expiresAt: input.expiresAt ?? null,
         })
         .where(eq(actionRunSchema.id, existing.id));
+      // Keep the action's own domain row in step with the refreshed payload.
+      // `onProposed` is documented idempotent precisely so it can run here as
+      // well as on first creation; without this a re-proposed candidate would
+      // show the reviewer a stale record.
+      await action.onProposed?.(
+        { orgId: input.orgId, invokedBy: input.invokedBy ?? input.principal.id },
+        parsed,
+        existing.id,
+      );
       return { runId: existing.id, status: 'pending' };
     }
-  }
-
-  let decision;
-  try {
-    decision = enforce(
-      input.principal,
-      { kind: 'action', action: action.grant, external: action.external, scope: { orgId: input.orgId } },
-      'mutate',
-    );
-  } catch (e) {
-    if (e instanceof AuthzDeniedError) {
-      throw new ActionError('FORBIDDEN', `Not allowed to run ${action.id}: ${e.decision.reason}`);
-    }
-    throw e;
   }
 
   const gated = decision.gate === 'approve';
@@ -159,10 +183,14 @@ export async function proposeAction(input: {
     //   - personalization.enroll — approving it enrolls a real lead into a
     //     HubSpot sequence that sends real email. No trust rule can release
     //     an enrollment without a human.
+    //   - objects.propose_candidate — approving an extracted record is what
+    //     lets it be published outside. The whole moderation loop exists so a
+    //     human sees every candidate; a confidence threshold that cleared them
+    //     automatically would empty the queue without anyone reading it.
     // Deliberately not configurable; revisit only once UC5 trust reporting
     // exists and a human opts in explicitly. Fails safe — it can only keep the
     // item in the review queue, never release it.
-    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll') {
+    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll' || action.id === 'objects.propose_candidate') {
       return { runId: run!.id, status: 'pending' };
     }
     // Trust ladder: an ENABLED rule whose threshold this proposal's
@@ -195,8 +223,19 @@ export async function proposeAction(input: {
  * @param orgId
  * @param opts
  * @param opts.reviewedBy - The human who approved, when it came through review.
+ * @param opts.externalRef
+ * @param opts.externalRef.system
+ * @param opts.externalRef.id
  */
-export async function executeAction(runId: number, orgId: string, opts?: { reviewedBy?: string }): Promise<ProposeResult> {
+export async function executeAction(
+  runId: number,
+  orgId: string,
+  opts?: {
+    reviewedBy?: string;
+    /** The downstream record the approver created, to link to the domain row. */
+    externalRef?: { system: string; id: string };
+  },
+): Promise<ProposeResult> {
   const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, runId)).limit(1);
   if (!run || run.orgId !== orgId) {
     throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);
@@ -205,12 +244,27 @@ export async function executeAction(runId: number, orgId: string, opts?: { revie
   if (!action) {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${run.actionId}`);
   }
+  // Only a run still awaiting its outcome may execute. `pending` is the review
+  // queue's approve, `approved` is a run the gate let straight through. A run
+  // that is done, failed or rejected has an outcome already, and re-running it
+  // would undo a decision — for an action that keeps a domain record, that
+  // means flipping a rejected record to approved.
+  if (run.status !== 'pending' && run.status !== 'approved') {
+    throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status} — already decided, cannot execute`);
+  }
 
   await db.update(actionRunSchema).set({ status: 'executing' }).where(eq(actionRunSchema.id, runId));
   const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
 
   try {
-    const result = await action.execute({ orgId, credentials, invokedBy: run.invokedBy ?? undefined, reviewedBy: opts?.reviewedBy }, run.input);
+    const result = await action.execute({
+      orgId,
+      credentials,
+      invokedBy: run.invokedBy ?? undefined,
+      reviewedBy: opts?.reviewedBy,
+      runId,
+      externalRef: opts?.externalRef,
+    }, run.input);
     await db
       .update(actionRunSchema)
       .set({ status: 'done', result, executedAt: new Date() })
@@ -249,6 +303,17 @@ export async function updateActionInput(runId: number, orgId: string, input: Rec
     .update(actionRunSchema)
     .set({ input: parsed as Record<string, unknown> })
     .where(eq(actionRunSchema.id, runId));
+
+  // The edit has to reach the action's own domain row too. Without this an
+  // edit-then-approve executes on the corrected payload while the record the
+  // reviewer's decision is kept as still holds the original — the same drift
+  // the dedup-refresh path guards against, and `onProposed` is documented
+  // idempotent so it is safe to run again here.
+  await action?.onProposed?.(
+    { orgId, invokedBy: run.invokedBy ?? undefined },
+    parsed,
+    runId,
+  );
 }
 
 /**

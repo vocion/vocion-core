@@ -335,6 +335,28 @@ export const businessObjectSchema = pgTable('business_object', {
   status: text('status').default('active'),
   /** Type-specific structured data (e.g. prospect_company, deal_stage, budget) */
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  /**
+   * The system that owns the published record this object mirrors, e.g.
+   * `strapi`. Null until something outside actually exists: a proposed
+   * candidate is a real row here from the moment it is extracted, and the
+   * downstream system stamps its own id back only once it has published.
+   */
+  externalSystem: text('external_system'),
+  /** That system's primary key for the record, as it returns it. */
+  externalId: text('external_id'),
+  /**
+   * The review-queue item this object is waiting on, when it arrived as a
+   * proposed candidate. Keeps "what happened to this extraction" a single
+   * query in both directions.
+   */
+  reviewActionRunId: integer('review_action_run_id'),
+  /**
+   * Where a proposed candidate came from — source links, the raw extract it
+   * was parsed from, what the extractor could not resolve, who proposed it.
+   * Kept out of `metadata` so the domain payload a consumer reads is only the
+   * record's own fields.
+   */
+  provenance: jsonb('provenance').$type<Record<string, unknown>>(),
   /** LLM-generated summary combining linked documents */
   summary: text('summary'),
   summaryGeneratedAt: timestamp('summary_generated_at', { mode: 'date' }),
@@ -344,7 +366,17 @@ export const businessObjectSchema = pgTable('business_object', {
     .$onUpdate(() => new Date())
     .notNull(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-});
+}, table => [
+  // One object per external record: a retried link-back cannot fork the
+  // mapping, and "which object is Strapi id 412?" is an indexed lookup.
+  uniqueIndex('business_object_external_ref_idx').on(table.orgId, table.externalSystem, table.externalId),
+  // The candidate queues: "this org's proposed objects of this type".
+  index('business_object_org_status_idx').on(table.orgId, table.status),
+  // One object per review item. `onProposed` upserts on this, and two
+  // concurrent proposals of the same candidate would otherwise both miss the
+  // lookup and insert.
+  uniqueIndex('business_object_review_run_idx').on(table.orgId, table.reviewActionRunId),
+]);
 
 /** Links a business object to one or more indexed source documents. */
 export const objectDocumentLinkSchema = pgTable(
