@@ -160,10 +160,15 @@ npm run langfuse:bootstrap  # one-time: register Claude 4.6 / 4.7 / Haiku 4.5 pr
 ## API credentials and which key an outbound call spends
 
 Two different things share the `api_token` table, told apart by a `platform`
-column and kept from mixing by the `api_token_shape_ck` CHECK constraint:
+column, kept from mixing by the `api_token_shape_ck` CHECK constraint and kept
+from crossing over afterwards by the `api_token_platform_immutable_tg` trigger
+(`platform` cannot be updated; revoke and re-insert instead):
 
 - **Minted** (`platform = 'vocion'`) — a `vcn_live_<id>_<secret>` Bearer token
-  an outside caller presents *to* Vocion. Only its SHA-256 is stored.
+  an outside caller presents *to* Vocion. Its SHA-256 is stored for
+  authentication, plus the whole token AES-256-GCM encrypted under the org's DEK
+  so an admin can show and copy it again from the dashboard. Tokens issued
+  before that landed have the hash only and can never be shown again.
 - **Supplied** (every other platform) — the key a workspace holds *with* a
   vendor, AES-256-GCM encrypted under that org's DEK so we can read it back and
   call out with it. One live key per platform per org, enforced by a partial

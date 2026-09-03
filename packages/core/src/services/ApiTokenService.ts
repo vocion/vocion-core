@@ -22,9 +22,14 @@
  * per-org DEK that protects `source_credential`. Model calls for that org then
  * run on the org's own account instead of the server's env key.
  *
- * The two never cross. `verifyToken` refuses any row that is not `vocion`, so a
- * stored OpenAI key cannot be replayed as a Vocion credential; and a Vocion row
- * has no ciphertext to decrypt, so it can never be handed to a provider.
+ * The two never cross, and both directions are held by an explicit rule rather
+ * than by the shape of the data. `verifyToken` refuses any row that is not
+ * `vocion`, so a stored OpenAI key cannot be replayed as a Vocion credential.
+ * `resolvePlatformCredential` refuses any row that *is* `vocion`, so a minted
+ * token can never be handed to a provider — it no longer suffices that a minted
+ * row has nothing to decrypt, because now it does. Underneath both, the
+ * `api_token_platform_immutable_tg` trigger stops a written row changing which
+ * kind it is.
  */
 
 import type { CredentialPlatformId, CredentialValues } from '@/libs/platforms/registry';
@@ -60,6 +65,13 @@ export type IssuedToken = { token: string; id: string };
  * Issue a token. Returns the plaintext, and also keeps it: the secret's SHA-256
  * for verification and the whole token encrypted under the org's DEK so an
  * admin can read it back from the dashboard later.
+ *
+ * Encrypting means issuing a token now depends on the vault, and in production
+ * that means KMS. A KMS outage therefore blocks new tokens being minted, which
+ * it did not before. Deliberate: a token nobody can read back is worth less
+ * than one that waits for the vault, and the failure is loud rather than a
+ * silently unreadable row. Verifying an existing token is untouched and still
+ * runs without the vault.
  * @param input
  * @param input.orgId
  * @param input.name
