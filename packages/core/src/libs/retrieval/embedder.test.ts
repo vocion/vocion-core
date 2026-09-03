@@ -51,7 +51,7 @@ vi.mock('@/libs/llm/orgKey', () => ({
 vi.mock('@/libs/DB');
 
 vi.mock('@/libs/Langfuse', () => ({
-  langfuse: { flushAsync: vi.fn(async () => {}) },
+  flushTraces: vi.fn(async () => {}),
   traceFor: () => ({
     update: vi.fn(),
     generation: ({ name }: { name: string }) => {
