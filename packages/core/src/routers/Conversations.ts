@@ -5,6 +5,7 @@ import {
   createConversation,
   deleteConversation,
   getConversation,
+  latestConversationForScope,
   listConversations,
   listMessages,
   renameConversation,
@@ -38,6 +39,7 @@ export const create = os
   .input(z.object({
     agentSlug: z.string(),
     initialTitle: z.string().optional(),
+    scopeRef: z.string().max(120).optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
@@ -46,7 +48,23 @@ export const create = os
       agentSlug: input.agentSlug,
       initialTitle: input.initialTitle,
       createdBy: userId,
+      scopeRef: input.scopeRef,
     });
+  });
+
+/**
+ * The current user's most recent conversation for a record — the dock's
+ * resume target. Per user by design: another member's conversations about
+ * the same record are never returned (agent-chat-surface.md §8.6).
+ */
+export const latestForScope = os
+  .input(z.object({ scopeRef: z.string().min(1).max(120) }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    if (!userId) {
+      return null;
+    }
+    return latestConversationForScope({ orgId, scopeRef: input.scopeRef, createdBy: userId });
   });
 
 export const remove = os

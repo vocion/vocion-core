@@ -1,7 +1,9 @@
 'use client';
 
 import type { AgentOption } from './types';
+import { useEffect } from 'react';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
+import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
 import { AgentSwitcher } from './AgentSwitcher';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
@@ -58,6 +60,18 @@ export function ChatShell({
   greeting,
 }: ChatShellProps) {
   const session = useChatSession({ agents, agentSlug, initialComposerValue, suggestions, greeting });
+
+  // The full-page chat IS this page's agent surface: an entry-point request
+  // (the hotkey, a rail control) focuses the composer instead of opening a
+  // second surface (032 §6).
+  useEffect(() => {
+    function onRequest(e: Event) {
+      e.preventDefault();
+      focusAgentComposer(null);
+    }
+    window.addEventListener(AGENT_SURFACE_EVENT, onRequest);
+    return () => window.removeEventListener(AGENT_SURFACE_EVENT, onRequest);
+  }, []);
 
   return (
     <div className="relative flex h-full flex-1 flex-col">
@@ -147,6 +161,9 @@ export function ChatShell({
             streaming={session.isStreaming}
             onStop={session.handleStop}
             placeholder={session.composerPlaceholder}
+            pastedText={session.pastedText}
+            onPasteText={session.setPastedText}
+            onClearPasted={() => session.setPastedText(null)}
           />
         </div>
 

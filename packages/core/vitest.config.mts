@@ -19,6 +19,15 @@ export default defineConfig({
           include: ['src/**/*.test.{js,ts}'],
           exclude: ['src/hooks/**/*.test.ts'],
           environment: 'node',
+          // 65 of these files mock `@/libs/DB`, and that mock stands up its
+          // own in-memory PGlite and applies all 76 migrations to it before
+          // the first test can run. Under parallel load that fixture alone
+          // can outlast vitest's 5s default, and the failure surfaces as a
+          // timeout in whichever file lost the race — a different one each
+          // run, which reads as flakiness rather than as the fixture cost it
+          // actually is. The tests are not slow; the database they need is.
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
         },
       },
       {

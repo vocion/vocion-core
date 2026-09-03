@@ -213,4 +213,40 @@ describe('useChatSession', () => {
     expect(result.current.messages[0]!.content).toContain('Some carried-over context.');
     expect(result.current.messages[1]).toMatchObject({ role: 'assistant' });
   });
+
+  it('pasted material rides under the instruction, fenced, and the chip clears on send', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
+    vi.mocked(client.conversations.create).mockResolvedValue({ id: 12 } as never);
+    const encoder = new TextEncoder();
+    const sseStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"done"}\n\n'));
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, body: sseStream });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
+
+    const pasted = 'From: client@example.com\nSubject: hosting\n(the whole email)';
+    result.current.setPastedText(pasted);
+    await vi.waitFor(() => expect(result.current.pastedText).toBe(pasted));
+
+    await result.current.sendMessage('summarize this');
+
+    await vi.waitFor(() => expect(result.current.messages.length).toBeGreaterThanOrEqual(2));
+    const sent = result.current.messages[0]!.content;
+
+    expect(sent).toContain('summarize this');
+    expect(sent).toContain('--- pasted ---');
+    expect(sent).toContain('(the whole email)');
+    expect(result.current.pastedText).toBeNull();
+
+    // The wire got the composed text too, not just the UI.
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as { body: string }).body);
+
+    expect(body.message).toContain('--- pasted ---');
+  });
 });

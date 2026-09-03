@@ -135,6 +135,7 @@ type PersistedMessageRow = {
   content: string;
   runsJson: unknown;
   documentsJson: unknown;
+  traceJson?: unknown;
   confidence: ChatMessage['confidence'];
 };
 
@@ -155,11 +156,13 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
     if (docs) {
       documents.push(...docs);
     }
+    const trace = Array.isArray(row.traceJson) ? (row.traceJson as TraceNode[]) : undefined;
     return {
       role: row.role,
       content: row.content ?? '',
       ...(runs ? { runs } : {}),
       ...(docs && docs.length > 0 ? { documents: docs } : {}),
+      ...(trace && trace.length > 0 ? { trace } : {}),
       ...(row.confidence ? { confidence: row.confidence } : {}),
     };
   });
@@ -177,6 +180,15 @@ export type UseChatSessionOptions = {
   suggestions?: Array<{ label: string; prompt: string }>;
   /** Empty-state greeting: org eyebrow + "Ask <workspace>". */
   greeting?: { eyebrow?: string; workspace: string };
+  /**
+   * Scopes the session to one record (CRM mirror ref, e.g. `contacts:9412`) —
+   * the dock's mode. Scoped sessions resume the current user's latest
+   * conversation FOR THIS RECORD instead of the global last-viewed pointer,
+   * create conversations carrying the scope, and never write the global
+   * pointers, so the dock and the full-page chat cannot steal each other's
+   * threads.
+   */
+  scopeRef?: string;
 };
 
 /**
@@ -195,6 +207,7 @@ export type UseChatSessionOptions = {
  * @param root0.initialComposerValue - Pre-fills the composer without sending.
  * @param root0.suggestions - Workspace-scoped empty-state chips.
  * @param root0.greeting - Empty-state greeting: org eyebrow + workspace name.
+ * @param root0.scopeRef
  */
 export function useChatSession({
   agents,
@@ -202,11 +215,44 @@ export function useChatSession({
   initialComposerValue,
   suggestions = [],
   greeting,
+  scopeRef,
 }: UseChatSessionOptions) {
   const { state: lastViewed, loading: lastViewedLoading, persist } = useLastViewedConversation();
 
+  // Scoped mode: resolve the user's latest conversation for the record before
+  // boot decides anything. `loading` holds the skeleton exactly like the
+  // last-viewed pointer does for the global surfaces.
+  const [scopedBoot, setScopedBoot] = useState<{ loading: boolean; conv: { id: number; agentSlug: string } | null }>(
+    () => ({ loading: Boolean(scopeRef), conv: null }),
+  );
+  const scopedResumeIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!scopeRef) {
+      return;
+    }
+    let cancelled = false;
+    client.conversations.latestForScope({ scopeRef })
+      .then((conv) => {
+        if (!cancelled) {
+          setScopedBoot({ loading: false, conv: conv ? { id: conv.id, agentSlug: conv.agentSlug } : null });
+        }
+      })
+      .catch((error) => {
+        console.warn('useChatSession: scoped resume lookup failed', error);
+        if (!cancelled) {
+          setScopedBoot({ loading: false, conv: null });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scopeRef]);
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [composerValue, setComposerValue] = useState(initialComposerValue ?? '');
+  // Captured pasted material — a chip beside the composer, not a flood in it
+  // (032 §2.1 rule 5). Travels with the next message, then clears.
+  const [pastedText, setPastedText] = useState<string | null>(null);
   const [phase, setPhase] = useState<StreamingPhase>('idle');
   const [pendingHitl, setPendingHitl] = useState<HitlGatePayload | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
@@ -563,13 +609,19 @@ export function useChatSession({
   const setActiveConversation = useCallback((slug: string, id: number | null) => {
     conversationIdRef.current = id;
     setConversationId(id);
+    if (scopeRef) {
+      // Scoped threads belong to the record, not to the global pointers —
+      // the dock must never steal the full-page chat's resume target.
+      scopedResumeIdRef.current = id;
+      return;
+    }
     if (id === null) {
       clearActiveConversation(slug);
     } else {
       writeActiveConversation(slug, id);
     }
     persist({ agentSlug: slug, conversationId: id });
-  }, [persist]);
+  }, [persist, scopeRef]);
 
   // In-flight turn's abort controller (Stop button).
   const abortRef = useRef<AbortController | null>(null);
@@ -673,7 +725,7 @@ export function useChatSession({
     // Hold the skeleton until the server-side pointer has resolved, so the
     // decision below is made once against both records instead of showing a
     // default view and then swapping.
-    if (lastViewedLoading || restoredAgentRef.current) {
+    if (lastViewedLoading || (scopeRef && scopedBoot.loading) || restoredAgentRef.current) {
       return;
     }
     restoredAgentRef.current = true;
@@ -682,6 +734,26 @@ export function useChatSession({
       handoffPendingAtBootRef.current = sessionStorage.getItem('vocion_chat_handoff') !== null;
     } catch (error) {
       console.warn('useChatSession: could not check for a pending hand-off', error);
+    }
+
+    // Scoped mode: the record's own latest thread decides the boot target;
+    // the global stored-agent and last-viewed pointers are someone else's.
+    if (scopeRef) {
+      const conv = scopedBoot.conv && agents.some(a => a.slug === scopedBoot.conv!.agentSlug)
+        ? scopedBoot.conv
+        : null;
+      const target = conv ? conv.agentSlug : agent.slug;
+      setBootTarget(target);
+      if (target !== agent.slug) {
+        setCurrentSlug(target);
+      }
+      if (conv) {
+        scopedResumeIdRef.current = conv.id;
+        setResuming(true);
+      } else {
+        settleBoot();
+      }
+      return;
     }
 
     const storedAgent = readActiveAgent();
@@ -717,7 +789,7 @@ export function useChatSession({
     } else {
       settleBoot();
     }
-  }, [agents, agent.slug, settleBoot, lastViewedLoading, lastViewed]);
+  }, [agents, agent.slug, settleBoot, lastViewedLoading, lastViewed, scopeRef, scopedBoot]);
 
   // Resume the agent's saved thread on mount / agent-switch, so navigating
   // away and back doesn't start over. __search__ is ephemeral and never
@@ -745,7 +817,7 @@ export function useChatSession({
       settleBoot();
       return;
     }
-    const storedId = readActiveConversation(slug);
+    const storedId = scopeRef ? scopedResumeIdRef.current : readActiveConversation(slug);
     if (storedId === null) {
       // Only reveal the empty state for the agent we're actually booting toward.
       // A hydrate pass for the pre-restore (default) slug must NOT settle — the
@@ -781,6 +853,9 @@ export function useChatSession({
               writeStreamStash(null); // turn already landed
             }
           }
+        } else if (scopeRef) {
+          // Scoped id points at an empty/deleted thread — forget it.
+          scopedResumeIdRef.current = null;
         } else {
           // Stored id points at an empty/deleted thread — forget it.
           clearActiveConversation(slug);
@@ -800,10 +875,16 @@ export function useChatSession({
     };
   }, [agent.slug, isSearchOnly, settleBoot, resumeStream, bootTarget]);
 
-  const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || isStreaming) {
+  const sendMessage = useCallback(async (raw: string) => {
+    if ((!raw.trim() && !pastedText) || isStreaming) {
       return;
     }
+    // Pasted material rides along under the instruction, clearly fenced, so
+    // the instruction stays readable in the transcript and the agent still
+    // receives the full text.
+    const text = pastedText
+      ? `${raw.trim()}\n\n--- pasted ---\n${pastedText}`.trim()
+      : raw;
     // Fresh turn — reset the per-turn trace accumulator.
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;
@@ -813,13 +894,16 @@ export function useChatSession({
       { role: 'assistant', content: '', runs: [] },
     ]);
     setComposerValue('');
+    setPastedText(null);
     setPhase('thinking');
 
     if (conversationIdRef.current === null && agent.slug !== '__search__') {
       try {
-        const conv = await client.conversations.create({ agentSlug: agent.slug });
+        const conv = await client.conversations.create({ agentSlug: agent.slug, ...(scopeRef ? { scopeRef } : {}) });
         setActiveConversation(agent.slug, conv.id);
-        writeActiveAgent(agent.slug);
+        if (!scopeRef) {
+          writeActiveAgent(agent.slug);
+        }
       } catch (error) {
         // persistence is best-effort — chat still works ephemerally
         console.warn('useChatSession: failed to create a persisted conversation', error);
@@ -930,7 +1014,7 @@ export function useChatSession({
       // the resume handle. It clears on normal completion / Stop instead.
       abortRef.current = null;
     }
-  }, [agent.slug, messages, isStreaming, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation]);
+  }, [agent.slug, messages, isStreaming, pastedText, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation]);
 
   // Abort the in-flight turn (Stop button). The reader loop throws AbortError,
   // which the catch above treats as a clean finalize (no error breadcrumb).
@@ -1131,6 +1215,9 @@ export function useChatSession({
     messages,
     composerValue,
     setComposerValue,
+    /** Captured pasted material for the composer chip; travels with the next send. */
+    pastedText,
+    setPastedText,
     isStreaming,
     activity,
     pendingHitl,
