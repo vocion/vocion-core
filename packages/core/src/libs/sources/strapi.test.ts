@@ -223,12 +223,66 @@ describe('strapiConnector', () => {
     }));
   });
 
-  it('rejects a config without a valid base URL', async () => {
+  it('rejects an instance URL that is not a URL, wherever it came from', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => res(page([]))));
 
     await expect(collect(strapiConnector.sync(ctx({ config: { baseUrl: 'not-a-url', collections: ['events'] } }))))
       .rejects
-      .toThrow();
+      .toThrow(/instance URL/);
+  });
+
+  it('takes the instance URL from the credential, where the token lives', async () => {
+    // A Strapi token only works against the instance that issued it, so the
+    // URL travels with the token rather than sitting in the install config.
+    const fetchMock = vi.fn(async () => res(page([{ id: 1, title: 'One' }])));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await collect(strapiConnector.sync(ctx({
+      config: { collections: ['events'] },
+      credentials: { token: 'strapi-token', baseUrl: 'https://cms.credential.example' },
+    })));
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('https://cms.credential.example/api/events');
+  });
+
+  it('prefers the credential\'s instance URL over a leftover config one', async () => {
+    // Both present means a half-migrated install. The credential is the value
+    // that rotates with the token, so it wins.
+    const fetchMock = vi.fn(async () => res(page([])));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await collect(strapiConnector.sync(ctx({
+      config: { baseUrl: 'https://cms.stale.example', collections: ['events'] },
+      credentials: { token: 'strapi-token', baseUrl: 'https://cms.credential.example' },
+    })));
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('https://cms.credential.example/api/events');
+  });
+
+  it('keeps syncing an install created before the URL moved into the credential', async () => {
+    // The backfill has not run yet: the URL is still in `config`, the token is
+    // still the only thing in `credentials`, and ingestion must not stop.
+    const fetchMock = vi.fn(async () => res(page([{ id: 1, title: 'One' }])));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const docs = await collect(strapiConnector.sync(ctx({
+      config: { baseUrl: 'https://cms.partner.org', collections: ['events'] },
+      credentials: { token: 'strapi-token' },
+    })));
+
+    expect(docs).toHaveLength(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('https://cms.partner.org/api/events');
+  });
+
+  it('refuses when no instance URL was supplied at all', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => res(page([]))));
+
+    await expect(collect(strapiConnector.sync(ctx({
+      config: { collections: ['events'] },
+      credentials: { token: 'strapi-token' },
+    }))))
+      .rejects
+      .toThrow(/instance URL/);
   });
 
   it('tolerates a base URL with a trailing slash', async () => {
