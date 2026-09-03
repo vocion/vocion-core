@@ -22,11 +22,16 @@ export const getObjectTypeBySlug = (orgId: string, slug: string) => {
   });
 };
 
-export const createObjectType = (input: CreateObjectTypeInput, orgId: string) => {
-  return db
+export const createObjectType = async (input: CreateObjectTypeInput, orgId: string) => {
+  const created = await db
     .insert(businessObjectTypeSchema)
     .values({ ...input, orgId })
     .returning();
+  // Review cards remember types for a few seconds; a type written now should
+  // be the one the next card renders from.
+  const { forgetCachedObjectTypes } = await import('@/libs/actions/objects-propose-candidate');
+  forgetCachedObjectTypes();
+  return created;
 };
 
 /* ------------------------------------------------------------------ */
@@ -236,6 +241,7 @@ export type BusinessObjectPage = {
     title: string;
     status: string | null;
     metadata: Record<string, unknown>;
+    provenance: Record<string, unknown> | null;
     summary: string | null;
     externalSystem: string | null;
     externalId: string | null;
@@ -260,6 +266,18 @@ export type ListBusinessObjectsOptions = {
   limit?: number;
   offset?: number;
 };
+
+/**
+ * Make a search term mean itself.
+ *
+ * `%` and `_` are wildcards to LIKE, so a moderator searching for `50%` would
+ * otherwise match anything starting `50`. Backslash first, or it would escape
+ * the escapes that follow it.
+ * @param term - What the person typed.
+ */
+function escapeLikeWildcards(term: string): string {
+  return term.replace(/\\/g, '\\\\').replace(/[%_]/g, '\\$&');
+}
 
 /**
  * A filtered, ordered, counted page of an org's business objects.
@@ -294,7 +312,7 @@ export const listBusinessObjectPage = async (
     conditions.push(isNull(businessObjectSchema.externalId));
   }
   if (options.search) {
-    conditions.push(ilike(businessObjectSchema.title, `%${options.search}%`));
+    conditions.push(ilike(businessObjectSchema.title, `%${escapeLikeWildcards(options.search)}%`));
   }
   const where = and(...conditions);
 
@@ -306,6 +324,7 @@ export const listBusinessObjectPage = async (
       title: businessObjectSchema.title,
       status: businessObjectSchema.status,
       metadata: businessObjectSchema.metadata,
+      provenance: businessObjectSchema.provenance,
       summary: businessObjectSchema.summary,
       externalSystem: businessObjectSchema.externalSystem,
       externalId: businessObjectSchema.externalId,

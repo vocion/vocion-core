@@ -18,6 +18,17 @@ import { expect, test } from '@playwright/test';
  *
  * No model key and no agent runtime: proposing is an HTTP call and approval
  * writes nothing outside, so nothing here needs an LLM.
+ *
+ * Running it:
+ *
+ *   npx playwright test --project=queue
+ *
+ * If the checkout serves the app on its own hostname (AUTH_URL in .env.local
+ * pointing at something other than localhost, which worktrees do so their
+ * session cookies stay apart), name that host or every sign-in fails the host
+ * check:
+ *
+ *   PLAYWRIGHT_BASE_URL=http://<host>:<port> npx playwright test --project=queue
  */
 
 const ADMIN = {
@@ -78,17 +89,6 @@ function openMic(over: Record<string, unknown> = {}) {
 }
 
 /**
- * Where the seeding script should write, when nothing else says.
- *
- * The Playwright `webServer` boots an in-memory PGlite on 5432 and the app
- * against it, but that server's env does not reach this process, and CI sets
- * no DATABASE_URL. Locally `.env.local` supplies one and wins over this,
- * because dotenv never overwrites a variable that is already set. Without the
- * fallback the seed silently writes nowhere and the sign-in below fails.
- */
-const PLAYWRIGHT_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:5432/vocion';
-
-/**
  * Creates the account, its default project and the admin user directly in the
  * database — the same command an operator runs on a real box. Re-running the
  * spec against a database that already has the user is fine: the script exits
@@ -114,10 +114,11 @@ function createBootstrapAdmin(): void {
         '--role',
         'admin',
       ],
-      {
-        stdio: 'pipe',
-        env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL ?? PLAYWRIGHT_DATABASE_URL },
-      },
+      // No DATABASE_URL of our own: the script wraps itself in `dotenv -c`, so
+      // it reads the same .env.local the app under test reads. Naming a
+      // database here would seed the admin into one database while the server
+      // signs in against another.
+      { stdio: 'pipe' },
     );
   } catch (error) {
     // Expected on a local database that already has the admin — the script

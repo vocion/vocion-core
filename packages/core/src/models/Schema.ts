@@ -328,6 +328,13 @@ export const businessObjectSchema = pgTable('business_object', {
    * query in both directions.
    */
   reviewActionRunId: integer('review_action_run_id'),
+  /**
+   * Where a proposed candidate came from — source links, the raw extract it
+   * was parsed from, what the extractor could not resolve, who proposed it.
+   * Kept out of `metadata` so the domain payload a consumer reads is only the
+   * record's own fields.
+   */
+  provenance: jsonb('provenance').$type<Record<string, unknown>>(),
   /** LLM-generated summary combining linked documents */
   summary: text('summary'),
   summaryGeneratedAt: timestamp('summary_generated_at', { mode: 'date' }),
@@ -343,6 +350,10 @@ export const businessObjectSchema = pgTable('business_object', {
   uniqueIndex('business_object_external_ref_idx').on(table.orgId, table.externalSystem, table.externalId),
   // The candidate queues: "this org's proposed objects of this type".
   index('business_object_org_status_idx').on(table.orgId, table.status),
+  // One object per review item. `onProposed` upserts on this, and two
+  // concurrent proposals of the same candidate would otherwise both miss the
+  // lookup and insert.
+  uniqueIndex('business_object_review_run_idx').on(table.orgId, table.reviewActionRunId),
 ]);
 
 /** Links a business object to one or more indexed source documents. */
