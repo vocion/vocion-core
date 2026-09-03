@@ -9,13 +9,18 @@
  * source at sync time so the connector can authenticate. Without it,
  * `ctx.credentials` is always empty and every OAuth/token connector refuses.
  *
- * A connector's credentials come from one of two places, and the install says
- * which:
+ * A connector's credentials come from one of two places, and the connector row
+ * says which:
  *
- *   - `source_install.api_token_id` set — an API-key connector (Jira, Strapi,
- *     HubSpot, Granola) pointing at a credential the workspace stores under API
- *     credentials. One value, typed once, shared by every install that wants
- *     it, and rotated in one place.
+ *   - `knowledge_source.api_token_id` set — an API-key connector (Jira,
+ *     Strapi, HubSpot, Granola) pointing at a credential the workspace stores
+ *     under API credentials. One value, typed once, rotated in one place.
+ *
+ *     The link is per connector rather than per install, because a workspace
+ *     runs several connectors of one kind and they point at different places
+ *     when it does — a Strapi against staging and another against production.
+ *     Each names its own credential. Two may name the same one if somebody
+ *     picks it twice; nothing forces them to.
  *   - otherwise — `source_credential`, where every OAuth grant lives. A grant
  *     is issued to one installation and carries a refresh token, so there is
  *     nothing to share and nothing to point at.
@@ -26,7 +31,7 @@ import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
-import { apiTokenSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
+import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { resolveCredentialById } from '@/services/ApiTokenService';
 
 /** Decrypted connector credentials (e.g. `{ token, refreshToken, developerToken }`). */
@@ -182,34 +187,34 @@ function brokenCredentialMessage(reason: BrokenCredentialReason, platformLabel: 
 }
 
 /**
- * Point an API-key connector at a credential the workspace already holds,
- * creating the install if there isn't one yet.
+ * Point one connector at a credential the workspace already holds.
  *
  * This is the "pick a stored credential" half of connector setup — the half
  * that means a Jira key already saved under API credentials does not have to be
- * pasted a second time. Returns the install id.
+ * pasted a second time.
+ *
+ * Scoped to the single connector named by `sourceId`, so a workspace running a
+ * staging Strapi and a production one can point each at its own credential.
  *
  * Refuses a credential belonging to a different platform. A HubSpot token
  * cannot authenticate Jira, and a mismatch here would surface as an
  * unexplainable 401 at the next sync instead of an error at the moment someone
  * chose the wrong thing.
- * @param input - The install and the credential to link.
+ * @param input - The connector and the credential to link.
  * @param input.orgId - The org both belong to.
- * @param input.sourceSlug - Connector slug, e.g. `strapi`.
+ * @param input.sourceId - The `knowledge_source` row to point at the credential.
+ * @param input.connectorSlug - Which connector that row runs, e.g. `strapi`.
  * @param input.apiTokenId - The stored credential row to point at.
- * @param input.userId - Who made the change, for the install's audit trail.
- * @param input.projectId - Project the install belongs to.
  */
-export async function linkInstallToStoredCredential(input: {
+export async function linkSourceToStoredCredential(input: {
   orgId: string;
-  sourceSlug: string;
+  sourceId: number;
+  connectorSlug: string;
   apiTokenId: string;
-  userId?: string | null;
-  projectId?: string | null;
-}): Promise<number> {
-  const platform = platformForConnectorSlug(input.sourceSlug);
+}): Promise<void> {
+  const platform = platformForConnectorSlug(input.connectorSlug);
   if (!platform) {
-    throw new Error(`${input.sourceSlug} does not authenticate with a stored API credential`);
+    throw new Error(`${input.connectorSlug} does not authenticate with a stored API credential`);
   }
 
   const [credential] = await db
@@ -230,44 +235,49 @@ export async function linkInstallToStoredCredential(input: {
     );
   }
 
-  const installId = await ensureInstall(input.orgId, input.sourceSlug, input.userId, input.projectId);
-  await db
-    .update(sourceInstallSchema)
+  const linked = await db
+    .update(knowledgeSourceSchema)
     .set({ apiTokenId: input.apiTokenId })
-    .where(eq(sourceInstallSchema.id, installId));
-  return installId;
+    .where(and(
+      eq(knowledgeSourceSchema.orgId, input.orgId),
+      eq(knowledgeSourceSchema.id, input.sourceId),
+    ))
+    .returning({ id: knowledgeSourceSchema.id });
+  if (linked.length === 0) {
+    throw new Error(`connector ${input.sourceId} not found for org ${input.orgId}`);
+  }
 }
 
 /**
- * The stored credential this org's install of `sourceSlug` points at, or null
- * when it points at none — an OAuth connector, a connector needing no auth, or
- * an API-key install nobody has connected yet.
- * @param orgId - The org whose install to look at.
- * @param sourceSlug - Connector slug, e.g. `strapi`.
+ * The stored credential one connector points at, or null when it points at
+ * none — an OAuth connector, one needing no auth, or an API-key connector
+ * nobody has connected yet.
+ * @param orgId - The org that owns the connector.
+ * @param sourceId - The `knowledge_source` row to read.
  */
-export async function storedCredentialIdForInstall(
+export async function storedCredentialIdForSource(
   orgId: string,
-  sourceSlug: string,
+  sourceId: number,
 ): Promise<string | null> {
-  const [install] = await db
-    .select({ apiTokenId: sourceInstallSchema.apiTokenId })
-    .from(sourceInstallSchema)
+  const [source] = await db
+    .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
+    .from(knowledgeSourceSchema)
     .where(and(
-      eq(sourceInstallSchema.orgId, orgId),
-      eq(sourceInstallSchema.sourceSlug, sourceSlug),
+      eq(knowledgeSourceSchema.orgId, orgId),
+      eq(knowledgeSourceSchema.id, sourceId),
     ))
     .limit(1);
-  return install?.apiTokenId ?? null;
+  return source?.apiTokenId ?? null;
 }
 
 /**
- * Whether a source slug has a live credential, when it was set, and — when it
+ * Whether a connector has a live credential, when it was set, and — when it
  * has one that cannot be used — why not.
  *
- * `broken` is the case worth naming. An install pointing at a credential
- * somebody revoked is not the same as an install nobody has connected yet:
- * one needs a key, the other needs the key it already names put back in
- * service, and offering "Connect" for the second hides what actually happened.
+ * `broken` is the case worth naming. A connector pointing at a credential
+ * somebody revoked is not the same as one nobody has connected yet: one needs
+ * a key, the other needs the key it already names put back in service, and
+ * offering "Connect" for the second hides what actually happened.
  */
 export type CredentialStatus = {
   connected: boolean;
@@ -276,18 +286,36 @@ export type CredentialStatus = {
 };
 
 /**
- * Connection status for every source slug in an org — drives the "Connected /
- * Needs credentials" badge in the connectors UI without decrypting anything.
+ * Connection status for one org, in the two shapes the connectors page needs.
  *
- * An install that names a stored API credential is answered from that
- * credential's own row: live, revoked, or expired. Every other install is
- * answered from `source_credential` as before.
- * @param orgId
+ * Two maps rather than one, because the two kinds of credential are not
+ * addressed the same way. An OAuth grant belongs to the org's single install of
+ * a connector, so its status is the same for every connector row of that kind.
+ * A stored API credential is named by one connector row, so two Strapi
+ * connectors can be connected, revoked or untouched independently and only a
+ * per-row answer can say so.
  */
-export async function credentialStatusForOrg(orgId: string): Promise<Record<string, CredentialStatus>> {
-  const status: Record<string, CredentialStatus> = {};
+export type OrgCredentialStatus = {
+  /** Keyed by connector slug — OAuth grants, and anything still on its own copy. */
+  byConnectorSlug: Record<string, CredentialStatus>;
+  /** Keyed by `knowledge_source.id` — connectors naming a stored credential. */
+  bySourceId: Record<number, CredentialStatus>;
+};
 
-  const rows = await db
+/**
+ * Connection status for an org's connectors — drives the "Connected / Needs
+ * credentials" badge in the connectors UI without decrypting anything.
+ *
+ * A connector row naming a stored API credential is answered from that
+ * credential's own row: live, revoked, or expired. Everything else is answered
+ * from `source_credential` against the install, as before.
+ * @param orgId - The org to report on.
+ */
+export async function credentialStatusForOrg(orgId: string): Promise<OrgCredentialStatus> {
+  const byConnectorSlug: Record<string, CredentialStatus> = {};
+  const bySourceId: Record<number, CredentialStatus> = {};
+
+  const installs = await db
     .select({
       slug: sourceInstallSchema.sourceSlug,
       createdAt: sourceCredentialSchema.createdAt,
@@ -295,18 +323,17 @@ export async function credentialStatusForOrg(orgId: string): Promise<Record<stri
     })
     .from(sourceInstallSchema)
     .leftJoin(sourceCredentialSchema, eq(sourceCredentialSchema.installId, sourceInstallSchema.id))
-    .where(and(
-      eq(sourceInstallSchema.orgId, orgId),
-      isNull(sourceInstallSchema.apiTokenId),
-    ));
+    .where(eq(sourceInstallSchema.orgId, orgId));
 
-  for (const r of rows) {
-    const live = !!r.createdAt && !r.revokedAt;
-    const prev = status[r.slug];
-    if (!prev || (live && !prev.connected)) {
-      status[r.slug] = {
+  for (const install of installs) {
+    const live = !!install.createdAt && !install.revokedAt;
+    const previous = byConnectorSlug[install.slug];
+    // One install can have several credential rows over its life. A live one
+    // wins over a revoked one, so a reconnected connector reads as connected.
+    if (!previous || (live && !previous.connected)) {
+      byConnectorSlug[install.slug] = {
         connected: live,
-        updatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+        updatedAt: install.createdAt ? new Date(install.createdAt).toISOString() : null,
         broken: null,
       };
     }
@@ -314,28 +341,28 @@ export async function credentialStatusForOrg(orgId: string): Promise<Record<stri
 
   const linked = await db
     .select({
-      slug: sourceInstallSchema.sourceSlug,
-      updatedAt: sourceInstallSchema.updatedAt,
+      sourceId: knowledgeSourceSchema.id,
+      updatedAt: knowledgeSourceSchema.updatedAt,
       credentialId: apiTokenSchema.id,
       revokedAt: apiTokenSchema.revokedAt,
       expiresAt: apiTokenSchema.expiresAt,
     })
-    .from(sourceInstallSchema)
-    .leftJoin(apiTokenSchema, eq(apiTokenSchema.id, sourceInstallSchema.apiTokenId))
+    .from(knowledgeSourceSchema)
+    .leftJoin(apiTokenSchema, eq(apiTokenSchema.id, knowledgeSourceSchema.apiTokenId))
     .where(and(
-      eq(sourceInstallSchema.orgId, orgId),
-      isNotNull(sourceInstallSchema.apiTokenId),
+      eq(knowledgeSourceSchema.orgId, orgId),
+      isNotNull(knowledgeSourceSchema.apiTokenId),
     ));
 
-  for (const row of linked) {
-    status[row.slug] = {
-      connected: !!row.credentialId && !row.revokedAt && !isPast(row.expiresAt),
-      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
-      broken: brokenReasonFor(row),
+  for (const source of linked) {
+    bySourceId[source.sourceId] = {
+      connected: !!source.credentialId && !source.revokedAt && !isPast(source.expiresAt),
+      updatedAt: source.updatedAt ? new Date(source.updatedAt).toISOString() : null,
+      broken: brokenReasonFor(source),
     };
   }
 
-  return status;
+  return { byConnectorSlug, bySourceId };
 }
 
 /**
@@ -347,8 +374,8 @@ function isPast(at: Date | null): boolean {
 }
 
 /**
- * Why the credential an install names cannot be used, or null when it can.
- * @param row - The install joined to the credential it points at.
+ * Why the credential a connector names cannot be used, or null when it can.
+ * @param row - The connector row joined to the credential it points at.
  * @param row.credentialId - Credential row id, or null when the join found none.
  * @param row.revokedAt - When the credential was revoked, if it was.
  * @param row.expiresAt - When the credential expires, if it does.
@@ -371,36 +398,28 @@ function brokenReasonFor(row: {
 }
 
 /**
- * Resolve the decrypted credentials for a source in an org, or `undefined` when
- * the source has no install or no live credential (e.g. the `web` connector,
- * which needs none). Picks the most recent non-revoked credential for the
- * org-scoped install.
- * @param orgId
- * @param sourceSlug
+ * The decrypted credentials one connector authenticates with, or `undefined`
+ * when it has none to authenticate with (e.g. the `web` connector, which needs
+ * none).
+ *
+ * `apiTokenId` is the connector row's link to a stored workspace credential.
+ * When it is set that credential is the answer, and the copy `source_credential`
+ * may still hold from before the two were joined up is not read at all. When it
+ * is null the install's most recent non-revoked `source_credential` row is
+ * decrypted instead, which is where every OAuth grant lives.
+ * @param input - Which connector to resolve for.
+ * @param input.orgId - The org that owns it.
+ * @param input.connectorSlug - Connector slug, e.g. `strapi` — names the install.
+ * @param input.apiTokenId - The stored credential this connector names, or null.
  */
-export async function getCredentialsForSource(
-  orgId: string,
-  sourceSlug: string,
-): Promise<RawCredentials | undefined> {
-  const [install] = await db
-    .select({ id: sourceInstallSchema.id, apiTokenId: sourceInstallSchema.apiTokenId })
-    .from(sourceInstallSchema)
-    .where(and(
-      eq(sourceInstallSchema.orgId, orgId),
-      eq(sourceInstallSchema.sourceSlug, sourceSlug),
-      eq(sourceInstallSchema.disabled, 'false'),
-    ))
-    .limit(1);
-  if (!install) {
-    return undefined;
-  }
-
-  if (install.apiTokenId) {
-    // The install names a credential the workspace stores centrally, so that
-    // is the value — not whatever copy `source_credential` may still hold from
-    // before the two were joined up.
-    const platformLabel = platformForConnectorSlug(sourceSlug)?.label ?? sourceSlug;
-    const resolved = await resolveCredentialById(orgId, install.apiTokenId);
+export async function getCredentialsForConnector(input: {
+  orgId: string;
+  connectorSlug: string;
+  apiTokenId: string | null;
+}): Promise<RawCredentials | undefined> {
+  if (input.apiTokenId) {
+    const platformLabel = platformForConnectorSlug(input.connectorSlug)?.label ?? input.connectorSlug;
+    const resolved = await resolveCredentialById(input.orgId, input.apiTokenId);
     if (resolved.status === 'ok') {
       return resolved.values;
     }
@@ -413,7 +432,20 @@ export async function getCredentialsForSource(
     throw new ConnectorCredentialError(reason, brokenCredentialMessage(reason, platformLabel));
   }
 
-  const [cred] = await db
+  const [install] = await db
+    .select({ id: sourceInstallSchema.id })
+    .from(sourceInstallSchema)
+    .where(and(
+      eq(sourceInstallSchema.orgId, input.orgId),
+      eq(sourceInstallSchema.sourceSlug, input.connectorSlug),
+      eq(sourceInstallSchema.disabled, 'false'),
+    ))
+    .limit(1);
+  if (!install) {
+    return undefined;
+  }
+
+  const [credential] = await db
     .select()
     .from(sourceCredentialSchema)
     .where(and(
@@ -422,11 +454,46 @@ export async function getCredentialsForSource(
     ))
     .orderBy(desc(sourceCredentialSchema.createdAt))
     .limit(1);
-  if (!cred) {
+  if (!credential) {
     return undefined;
   }
 
   const vault = buildCredentialVault();
-  const plaintext = await vault.decrypt(orgId, cred.ciphertext, cred.nonce, cred.authTag, cred.dekId);
+  const plaintext = await vault.decrypt(
+    input.orgId,
+    credential.ciphertext,
+    credential.nonce,
+    credential.authTag,
+    credential.dekId,
+  );
   return JSON.parse(plaintext.toString('utf8')) as RawCredentials;
+}
+
+/**
+ * The decrypted credentials for a connector named by slug, for callers holding
+ * a slug and nothing else — the agent tools and the action runner.
+ *
+ * The connector row of that slug says which stored credential to use, if any.
+ * A caller that already has the row should pass its `apiTokenId` to
+ * `getCredentialsForConnector` instead and save the lookup.
+ * @param orgId - The org that owns the connector.
+ * @param sourceSlug - The connector row's slug, which is also its connector slug for a single install.
+ */
+export async function getCredentialsForSource(
+  orgId: string,
+  sourceSlug: string,
+): Promise<RawCredentials | undefined> {
+  const [source] = await db
+    .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
+    .from(knowledgeSourceSchema)
+    .where(and(
+      eq(knowledgeSourceSchema.orgId, orgId),
+      eq(knowledgeSourceSchema.slug, sourceSlug),
+    ))
+    .limit(1);
+  return getCredentialsForConnector({
+    orgId,
+    connectorSlug: sourceSlug,
+    apiTokenId: source?.apiTokenId ?? null,
+  });
 }

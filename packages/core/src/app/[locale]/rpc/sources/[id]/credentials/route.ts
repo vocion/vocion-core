@@ -37,10 +37,10 @@ import { CredentialValidationError, platformForConnectorSlug } from '@/libs/plat
 import { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } from '@/services/ApiTokenService';
 import {
   ConnectorCredentialError,
-  getCredentialsForSource,
-  linkInstallToStoredCredential,
+  getCredentialsForConnector,
+  linkSourceToStoredCredential,
   storeCredentialForSource,
-  storedCredentialIdForInstall,
+  storedCredentialIdForSource,
 } from '@/services/SourceCredentialService';
 import { getSourceById } from '@/services/SourceSyncService';
 
@@ -71,7 +71,7 @@ export async function GET(
   // Metadata only — name and masked hint, nothing decrypted. This is what lets
   // setup offer a key the workspace already typed instead of asking again.
   const available = platform ? await listPlatformCredentials(orgId, platform.id) : [];
-  const linkedCredentialId = await storedCredentialIdForInstall(orgId, connectorSlug);
+  const linkedCredentialId = await storedCredentialIdForSource(orgId, sourceId);
   // The form's fields come from the platform descriptor rather than a copy kept
   // in the page, so Strapi's instance URL and Jira's email arrive without the
   // browser needing to know either connector exists. RegExp does not survive
@@ -84,7 +84,7 @@ export async function GET(
     secret: field.secret,
   }));
   try {
-    const credentials = await getCredentialsForSource(orgId, connectorSlug);
+    const credentials = await getCredentialsForConnector({ orgId, connectorSlug, apiTokenId: linkedCredentialId });
     return Response.json({
       credentials: credentials ?? null,
       available,
@@ -192,14 +192,13 @@ export async function POST(
           { status: 400 },
         );
       }
-      // Rotation says nothing about which credential this install uses, so a
-      // connector still being connected for the first time gets linked too.
-      await linkInstallToStoredCredential({
+      // Rotation says nothing about which credential this connector uses, so
+      // one still being connected for the first time gets linked too.
+      await linkSourceToStoredCredential({
         orgId,
-        sourceSlug: connectorSlug,
+        sourceId,
+        connectorSlug,
         apiTokenId: pickedCredentialId,
-        userId,
-        projectId: orgId,
       });
       return Response.json({ ok: true, apiTokenId: pickedCredentialId, keyHint: rotated.keyHint });
     } catch (err) {
@@ -216,15 +215,14 @@ export async function POST(
   }
 
   // Picking a stored credential: nothing is pasted, nothing is duplicated, and
-  // the install simply starts naming the row it should have named all along.
+  // this connector simply starts naming the row it should have named all along.
   if (pickedCredentialId !== '') {
     try {
-      await linkInstallToStoredCredential({
+      await linkSourceToStoredCredential({
         orgId,
-        sourceSlug: connectorSlug,
+        sourceId,
+        connectorSlug,
         apiTokenId: pickedCredentialId,
-        userId,
-        projectId: orgId,
       });
       return Response.json({ ok: true, apiTokenId: pickedCredentialId });
     } catch (err) {
@@ -247,7 +245,7 @@ export async function POST(
     try {
       const stored = await storePlatformKey({
         orgId,
-        name: body.credentialName?.trim() || `${platform.label} — ${connectorSlug}`,
+        name: body.credentialName?.trim() || `${platform.label} — ${source.slug}`,
         platform: platform.id,
         values: raw,
         createdBy: userId ?? undefined,
@@ -255,12 +253,11 @@ export async function POST(
         // Vocion adds no expiry of its own. Revoking is how one ends.
         expiresAt: null,
       });
-      await linkInstallToStoredCredential({
+      await linkSourceToStoredCredential({
         orgId,
-        sourceSlug: connectorSlug,
+        sourceId,
+        connectorSlug,
         apiTokenId: stored.id,
-        userId,
-        projectId: orgId,
       });
       return Response.json({ ok: true, apiTokenId: stored.id, keyHint: stored.keyHint });
     } catch (err) {

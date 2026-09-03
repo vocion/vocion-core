@@ -13,7 +13,8 @@
  * credential the workspace already holds, pasting values for an API-key
  * connector (which stores them as a workspace credential, so the next
  * connector can reuse them), and storing an OAuth grant against the install as
- * before.
+ * before. The link is per connector row, so a workspace running two Strapis
+ * can point each at its own credential.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,10 +27,10 @@ vi.mock('@/services/SourceCredentialService', () => ({
       this.reason = reason;
     }
   },
-  getCredentialsForSource: vi.fn(),
-  linkInstallToStoredCredential: vi.fn(),
+  getCredentialsForConnector: vi.fn(),
+  linkSourceToStoredCredential: vi.fn(),
   storeCredentialForSource: vi.fn(),
-  storedCredentialIdForInstall: vi.fn(),
+  storedCredentialIdForSource: vi.fn(),
 }));
 vi.mock('@/services/ApiTokenService', () => ({
   listPlatformCredentials: vi.fn(),
@@ -41,10 +42,10 @@ vi.mock('@/services/SourceSyncService', () => ({ getSourceById: vi.fn() }));
 const { clerkAuth } = await import('@/libs/Auth');
 const { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } = await import('@/services/ApiTokenService');
 const {
-  getCredentialsForSource,
-  linkInstallToStoredCredential,
+  getCredentialsForConnector,
+  linkSourceToStoredCredential,
   storeCredentialForSource,
-  storedCredentialIdForInstall,
+  storedCredentialIdForSource,
 } = await import('@/services/SourceCredentialService');
 const { getSourceById } = await import('@/services/SourceSyncService');
 const { GET, POST } = await import('./route');
@@ -77,12 +78,12 @@ beforeEach(() => {
     kind: 'plugin',
     config: { _connector: 'strapi' },
   });
-  vi.mocked(getCredentialsForSource).mockResolvedValue({ token: 'stored-tok' });
-  vi.mocked(storedCredentialIdForInstall).mockResolvedValue(null);
+  vi.mocked(getCredentialsForConnector).mockResolvedValue({ token: 'stored-tok' });
+  vi.mocked(storedCredentialIdForSource).mockResolvedValue(null);
   vi.mocked(listPlatformCredentials).mockResolvedValue([]);
   vi.mocked(storePlatformKey).mockResolvedValue({ id: 'cred_new', keyHint: '…aaaa' });
   vi.mocked(rotatePlatformCredential).mockResolvedValue({ status: 'ok', keyHint: '…bbbb' });
-  vi.mocked(linkInstallToStoredCredential).mockResolvedValue(7);
+  vi.mocked(linkSourceToStoredCredential).mockResolvedValue(undefined);
   vi.mocked(storeCredentialForSource).mockResolvedValue({ installId: 7, credentialId: 11 });
 });
 
@@ -99,14 +100,21 @@ function post(body: unknown): Request {
 }
 
 describe('GET /rpc/sources/[id]/credentials', () => {
-  it('returns the stored credential, looked up by connector', async () => {
+  it('returns the credential this connector points at', async () => {
+    vi.mocked(storedCredentialIdForSource).mockResolvedValue('cred_a');
+
     const res = await GET(request, context('1'));
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ credentials: { token: 'stored-tok' } });
-    // Credentials are per-connector, not per-source: one Strapi token serves
-    // every Strapi source, so the lookup must use the connector slug.
-    expect(getCredentialsForSource).toHaveBeenCalledWith('org_1', 'strapi');
+    // This connector row's own credential, not the org's Strapi credential in
+    // general: a second Strapi connector may name a different one.
+    expect(storedCredentialIdForSource).toHaveBeenCalledWith('org_1', 1);
+    expect(getCredentialsForConnector).toHaveBeenCalledWith({
+      orgId: 'org_1',
+      connectorSlug: 'strapi',
+      apiTokenId: 'cred_a',
+    });
   });
 
   it('falls back to the source slug when the config has no connector key', async () => {
@@ -114,11 +122,11 @@ describe('GET /rpc/sources/[id]/credentials', () => {
 
     await GET(request, context('1'));
 
-    expect(getCredentialsForSource).toHaveBeenCalledWith('org_1', 'hubspot');
+    expect(getCredentialsForConnector).toHaveBeenCalledWith(expect.objectContaining({ connectorSlug: 'hubspot' }));
   });
 
   it('answers null when nothing is stored', async () => {
-    vi.mocked(getCredentialsForSource).mockResolvedValue(undefined);
+    vi.mocked(getCredentialsForConnector).mockResolvedValue(undefined);
 
     const res = await GET(request, context('1'));
 
@@ -132,7 +140,7 @@ describe('GET /rpc/sources/[id]/credentials', () => {
     const res = await GET(request, context('1'));
 
     expect(res.status).toBe(401);
-    expect(getCredentialsForSource).not.toHaveBeenCalled();
+    expect(getCredentialsForConnector).not.toHaveBeenCalled();
   });
 
   it('refuses a member: only someone who can replace the token may read it', async () => {
@@ -141,7 +149,7 @@ describe('GET /rpc/sources/[id]/credentials', () => {
     const res = await GET(request, context('1'));
 
     expect(res.status).toBe(403);
-    expect(getCredentialsForSource).not.toHaveBeenCalled();
+    expect(getCredentialsForConnector).not.toHaveBeenCalled();
   });
 
   it('rejects an id that is not a number', async () => {
@@ -157,11 +165,11 @@ describe('GET /rpc/sources/[id]/credentials', () => {
     const res = await GET(request, context('1'));
 
     expect(res.status).toBe(404);
-    expect(getCredentialsForSource).not.toHaveBeenCalled();
+    expect(getCredentialsForConnector).not.toHaveBeenCalled();
   });
 
   it('reports a credential that will not decrypt instead of saying none is stored', async () => {
-    vi.mocked(getCredentialsForSource).mockRejectedValue(
+    vi.mocked(getCredentialsForConnector).mockRejectedValue(
       new Error('The stored credential could not be decrypted with the current vault key.'),
     );
 
@@ -188,7 +196,7 @@ describe('GET /rpc/sources/[id]/credentials — credentials to pick from', () =>
   });
 
   it('says which credential the connector currently points at', async () => {
-    vi.mocked(storedCredentialIdForInstall).mockResolvedValue('cred_a');
+    vi.mocked(storedCredentialIdForSource).mockResolvedValue('cred_a');
 
     const body = await (await GET(request, context('1'))).json();
 
@@ -207,7 +215,7 @@ describe('GET /rpc/sources/[id]/credentials — credentials to pick from', () =>
 
   it('names a broken credential rather than reporting a plain failure', async () => {
     const { ConnectorCredentialError } = await import('@/services/SourceCredentialService');
-    vi.mocked(getCredentialsForSource).mockRejectedValue(
+    vi.mocked(getCredentialsForConnector).mockRejectedValue(
       new ConnectorCredentialError('revoked', 'The Strapi credential this connector uses was revoked.'),
     );
 
@@ -223,20 +231,23 @@ describe('GET /rpc/sources/[id]/credentials — credentials to pick from', () =>
 });
 
 describe('POST /rpc/sources/[id]/credentials', () => {
-  it('points the install at a credential the workspace already holds', async () => {
+  it('points this connector at a credential the workspace already holds', async () => {
     const res = await POST(post({ apiTokenId: 'cred_a' }), context('1'));
 
     expect(res.status).toBe(200);
-    expect(linkInstallToStoredCredential).toHaveBeenCalledWith(expect.objectContaining({
+    // The connector row, by id — so a second Strapi connector picking another
+    // credential does not move this one.
+    expect(linkSourceToStoredCredential).toHaveBeenCalledWith(expect.objectContaining({
       orgId: 'org_1',
-      sourceSlug: 'strapi',
+      sourceId: 1,
+      connectorSlug: 'strapi',
       apiTokenId: 'cred_a',
     }));
     // Nothing was pasted, so nothing may be stored.
     expect(storePlatformKey).not.toHaveBeenCalled();
   });
 
-  it('stores pasted values as a workspace credential, then links the install', async () => {
+  it('stores pasted values as a workspace credential, then links this connector', async () => {
     // This is what puts a key pasted during connector setup into the
     // credentials list, where the next connector can reuse it.
     const res = await POST(post({
@@ -251,14 +262,14 @@ describe('POST /rpc/sources/[id]/credentials', () => {
       name: 'Strapi — prod',
       values: { baseUrl: 'https://cms.example.com', token: 'strapi-token' },
     }));
-    expect(linkInstallToStoredCredential).toHaveBeenCalledWith(expect.objectContaining({ apiTokenId: 'cred_new' }));
+    expect(linkSourceToStoredCredential).toHaveBeenCalledWith(expect.objectContaining({ apiTokenId: 'cred_new' }));
     expect(storeCredentialForSource).not.toHaveBeenCalled();
   });
 
-  it('names the credential after its platform when nobody supplied a name', async () => {
+  it('names the credential after its platform and connector when nobody supplied a name', async () => {
     await POST(post({ credentials: { token: 'strapi-token' } }), context('1'));
 
-    expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ name: 'Strapi — strapi' }));
+    expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ name: 'Strapi — kb-strapi' }));
   });
 
   it('still stores an OAuth grant against the install itself', async () => {
@@ -277,12 +288,12 @@ describe('POST /rpc/sources/[id]/credentials', () => {
     const res = await POST(post({ credentials: {} }), context('1'));
 
     expect(res.status).toBe(400);
-    expect(linkInstallToStoredCredential).not.toHaveBeenCalled();
+    expect(linkSourceToStoredCredential).not.toHaveBeenCalled();
   });
 
   it('reports why a picked credential could not be used', async () => {
     const { ConnectorCredentialError } = await import('@/services/SourceCredentialService');
-    vi.mocked(linkInstallToStoredCredential).mockRejectedValue(
+    vi.mocked(linkSourceToStoredCredential).mockRejectedValue(
       new ConnectorCredentialError('missing', 'That credential does not exist, or has been revoked.'),
     );
 
@@ -308,13 +319,13 @@ describe('POST /rpc/sources/[id]/credentials', () => {
     const res = await POST(post({ apiTokenId: 'cred_a' }), context('1'));
 
     expect(res.status).toBe(403);
-    expect(linkInstallToStoredCredential).not.toHaveBeenCalled();
+    expect(linkSourceToStoredCredential).not.toHaveBeenCalled();
   });
 });
 
 describe('POST /rpc/sources/[id]/credentials — rotation', () => {
   it('rotates the named credential in place, keeping its id', async () => {
-    // Every install pointing at this credential resolves through its id, so
+    // Every connector pointing at this credential resolves through its id, so
     // storing a replacement row would leave them all on the old key.
     const res = await POST(post({
       apiTokenId: 'cred_a',
@@ -330,10 +341,10 @@ describe('POST /rpc/sources/[id]/credentials — rotation', () => {
     expect(storePlatformKey).not.toHaveBeenCalled();
   });
 
-  it('links the install as well, so a first connection rotates and connects at once', async () => {
+  it('links the connector as well, so a first connection rotates and connects at once', async () => {
     await POST(post({ apiTokenId: 'cred_a', credentials: { token: 'rotated' } }), context('1'));
 
-    expect(linkInstallToStoredCredential).toHaveBeenCalledWith(expect.objectContaining({ apiTokenId: 'cred_a' }));
+    expect(linkSourceToStoredCredential).toHaveBeenCalledWith(expect.objectContaining({ apiTokenId: 'cred_a' }));
   });
 
   it('refuses to rotate a revoked credential back into service', async () => {
@@ -343,7 +354,7 @@ describe('POST /rpc/sources/[id]/credentials — rotation', () => {
 
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('revoked') });
-    expect(linkInstallToStoredCredential).not.toHaveBeenCalled();
+    expect(linkSourceToStoredCredential).not.toHaveBeenCalled();
   });
 
   it('reports a rotation the platform rejected, in the words the person can act on', async () => {
