@@ -1,25 +1,44 @@
 /**
- * GET  /rpc/sources/[id]/credentials — read back the stored credential so the
- *      Edit form can load it. Admin-only, and the ONLY place plaintext leaves
- *      the vault for the browser: everything else works from
- *      `credentialStatusForOrg`, which reports connected/not without the value.
- *      This exists because an Edit form that cannot show the token it is about
- *      to keep reads as if it deleted it.
+ * GET  /rpc/sources/[id]/credentials — what the connector's credential form
+ *      needs to open.
  *
- * POST /rpc/sources/[id]/credentials — store connector credentials in the vault.
+ *      Returns `{ credentials, available, linkedCredentialId, platform }`:
+ *      the values currently in use (admin-only, and the ONLY place plaintext
+ *      leaves the vault for the browser — an Edit form that cannot show the
+ *      token it is about to keep reads as if it deleted it), plus, for an
+ *      API-key connector, the credentials the workspace already holds for that
+ *      platform so setup can offer them instead of asking for the key again.
  *
- * Body: `{ credentials: { ... } }` — connector-specific keys. Most connectors
- * read a single `token`; googleAds adds a `developerToken`; zoom takes a full
- * Server-to-Server OAuth set ({ accountId, clientId, clientSecret }) and no
- * token at all. At least one non-empty value is required. The plaintext is
- * AES-GCM encrypted at rest; only ciphertext + dek id hit the DB.
+ * POST /rpc/sources/[id]/credentials — connect the connector to a credential.
  *
- * Resolves the source slug from the knowledge_source id, ensures a
- * `source_install` exists, and stores the credential against it. Admin-only.
+ *      Body is one of:
+ *        `{ apiTokenId }` — point the install at a credential the workspace
+ *          already holds. Nothing is pasted and nothing is duplicated.
+ *        `{ credentials: { ... }, credentialName? }` — supply the values. For
+ *          an API-key connector these are stored as a workspace credential,
+ *          so they show up under API credentials and the next connector can
+ *          reuse them; for every other connector they are stored against the
+ *          install as before.
+ *
+ *      Connector-specific keys: most read a single `token`; Jira takes an
+ *      `email` alongside its `apiToken`; Strapi takes the instance `baseUrl`
+ *      with its token; googleAds adds a `developerToken`; zoom takes a full
+ *      Server-to-Server OAuth set ({ accountId, clientId, clientSecret }) and
+ *      no token at all. At least one non-empty value is required. The
+ *      plaintext is AES-GCM encrypted at rest; only ciphertext + dek id hit
+ *      the DB. Admin-only.
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
-import { getCredentialsForSource, storeCredentialForSource } from '@/services/SourceCredentialService';
+import { CredentialValidationError, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { listPlatformCredentials, storePlatformKey } from '@/services/ApiTokenService';
+import {
+  ConnectorCredentialError,
+  getCredentialsForSource,
+  linkInstallToStoredCredential,
+  storeCredentialForSource,
+  storedCredentialIdForInstall,
+} from '@/services/SourceCredentialService';
 import { getSourceById } from '@/services/SourceSyncService';
 
 export async function GET(
@@ -45,19 +64,43 @@ export async function GET(
     return Response.json({ error: 'Source not found' }, { status: 404 });
   }
   const connectorSlug = (source.config?._connector as string | undefined) ?? source.slug;
+  const platform = platformForConnectorSlug(connectorSlug);
+  // Metadata only — name and masked hint, nothing decrypted. This is what lets
+  // setup offer a key the workspace already typed instead of asking again.
+  const available = platform ? await listPlatformCredentials(orgId, platform.id) : [];
+  const linkedCredentialId = await storedCredentialIdForInstall(orgId, connectorSlug);
   try {
     const credentials = await getCredentialsForSource(orgId, connectorSlug);
-    return Response.json({ credentials: credentials ?? null });
+    return Response.json({
+      credentials: credentials ?? null,
+      available,
+      linkedCredentialId,
+      platform: platform?.id ?? null,
+    });
   } catch (err) {
-    // A credential that will not decrypt is the vault-key case, and its message
-    // says what to do about it. Report it rather than pretending there is none,
-    // or the form would silently offer to keep something unusable.
+    // Two different failures land here. A credential the install points at but
+    // cannot use is reported with its own reason so the form can say which key
+    // to fix; anything else is the vault-key case, whose message already says
+    // what to do about it. Either way, reporting beats pretending there is no
+    // credential, which would have the form silently offer to keep something
+    // unusable.
+    if (err instanceof ConnectorCredentialError) {
+      return Response.json({
+        credentials: null,
+        available,
+        linkedCredentialId,
+        platform: platform?.id ?? null,
+        credentialBroken: err.reason,
+        error: err.message,
+      });
+    }
     return Response.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 500 },
     );
   }
 }
+
 
 export async function POST(
   req: Request,
@@ -77,7 +120,14 @@ export async function POST(
     return Response.json({ error: 'Bad source id' }, { status: 400 });
   }
 
-  let body: { credentials?: Record<string, unknown>; displayName?: string };
+  let body: {
+    credentials?: Record<string, unknown>;
+    displayName?: string;
+    /** Point the install at a credential the workspace already holds. */
+    apiTokenId?: string;
+    /** Name for a credential stored from values pasted here. */
+    credentialName?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -90,8 +140,12 @@ export async function POST(
       raw[key] = value.trim();
     }
   }
-  if (Object.keys(raw).length === 0) {
-    return Response.json({ error: 'At least one credential value is required' }, { status: 400 });
+  const pickedCredentialId = typeof body.apiTokenId === 'string' ? body.apiTokenId.trim() : '';
+  if (pickedCredentialId === '' && Object.keys(raw).length === 0) {
+    return Response.json(
+      { error: 'Pick a stored credential, or supply at least one credential value' },
+      { status: 400 },
+    );
   }
 
   const source = await getSourceById(orgId, sourceId);
@@ -99,6 +153,73 @@ export async function POST(
     return Response.json({ error: 'Source not found' }, { status: 404 });
   }
   const connectorSlug = (source.config?._connector as string | undefined) ?? source.slug;
+  const platform = platformForConnectorSlug(connectorSlug);
+
+  // Picking a stored credential: nothing is pasted, nothing is duplicated, and
+  // the install simply starts naming the row it should have named all along.
+  if (pickedCredentialId !== '') {
+    try {
+      await linkInstallToStoredCredential({
+        orgId,
+        sourceSlug: connectorSlug,
+        apiTokenId: pickedCredentialId,
+        userId,
+        projectId: orgId,
+      });
+      return Response.json({ ok: true, apiTokenId: pickedCredentialId });
+    } catch (err) {
+      const isSafeToShow = err instanceof ConnectorCredentialError;
+      console.error('[rpc/sources/credentials] could not link stored credential', {
+        connectorSlug,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: isSafeToShow ? err.message : 'Could not use that credential.' },
+        { status: 400 },
+      );
+    }
+  }
+
+  // Values pasted for an API-key connector become a workspace credential, not
+  // a copy hidden inside this install. That is what puts them in the
+  // credentials list and lets the next connector reuse them.
+  if (platform) {
+    try {
+      const stored = await storePlatformKey({
+        orgId,
+        name: body.credentialName?.trim() || `${platform.label} — ${connectorSlug}`,
+        platform: platform.id,
+        values: raw,
+        createdBy: userId ?? undefined,
+        // A supplied key's lifetime belongs to the platform that issued it, so
+        // Vocion adds no expiry of its own. Revoking is how one ends.
+        expiresAt: null,
+      });
+      await linkInstallToStoredCredential({
+        orgId,
+        sourceSlug: connectorSlug,
+        apiTokenId: stored.id,
+        userId,
+        projectId: orgId,
+      });
+      return Response.json({ ok: true, apiTokenId: stored.id, keyHint: stored.keyHint });
+    } catch (err) {
+      // Only the registry's own validation messages are safe to show: each is
+      // written for the person filling the form and names no secret. Anything
+      // else came from the database or the vault and can carry a constraint
+      // detail or a KMS error, so it is logged and replaced.
+      const isSafeToShow = err instanceof CredentialValidationError;
+      console.error('[rpc/sources/credentials] could not store platform credential', {
+        connectorSlug,
+        platform: platform.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { error: isSafeToShow ? err.message : 'Could not save the credential.' },
+        { status: 400 },
+      );
+    }
+  }
 
   try {
     const { credentialId } = await storeCredentialForSource({
@@ -112,6 +233,10 @@ export async function POST(
     return Response.json({ ok: true, credentialId });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    console.error('[rpc/sources/credentials] could not store install credential', {
+      connectorSlug,
+      message,
+    });
     return Response.json({ error: message }, { status: 500 });
   }
 }
