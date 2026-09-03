@@ -11,6 +11,12 @@
 # a client deployment inherited all of it. This overlay replaces the
 # parts that must not ship.
 #
+# It also decides whether the Langfuse containers run at all. They
+# default to ZERO replicas, because most deployments use Langfuse Cloud
+# and the root docker-compose.yml `include:`s the platform file whether
+# they want the containers or not. Self-hosting is opt-in:
+# LANGFUSE_SELF_HOSTED_REPLICAS=1.
+#
 # Compose it AFTER the platform file so these values win:
 #
 #   docker compose \
@@ -24,9 +30,20 @@
 # operator writes on the box from Secrets Manager and never commits.
 # See docs/deployment/observability.md for how to generate them and for
 # the Langfuse Cloud alternative, which removes these six containers.
+#
+# None of the variables carry a ${VAR:?...} "you must set this" guard,
+# because Compose evaluates those even for a service held at zero
+# replicas — a Cloud deployment that sets none of them could not bring
+# the stack up at all. bootstrap.sh checks the required set instead,
+# and only when LANGFUSE_SELF_HOSTED_REPLICAS says self-hosting is on.
 
 services:
   langfuse-web:
+    # Off unless this deployment self-hosts. Compose has no way for an
+    # overlay to remove a service the base file declares, so zero
+    # replicas is how a service gets declared but not started.
+    deploy:
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-0}
     # No published host port. Caddy reaches this over the compose
     # network on 3000, the way it reaches `app`. Publishing 3200 put
     # the trace UI one security-group rule away from the internet.
@@ -36,28 +53,28 @@ services:
       # The public hostname Caddy terminates TLS for. The auth callback
       # is built from this, so a wrong value breaks sign-in specifically
       # rather than the whole app.
-      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:?set LANGFUSE_PUBLIC_URL, e.g. https://traces.example.com}
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-}
 
       # ----- Secrets -----
       # openssl rand -base64 32 for the first two, openssl rand -hex 32
       # for the third. ENCRYPTION_KEY is what Langfuse encrypts stored
       # LLM API keys with: losing it loses those keys, and changing it
       # makes the stored ones unreadable.
-      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?set LANGFUSE_NEXTAUTH_SECRET}
-      SALT: ${LANGFUSE_SALT:?set LANGFUSE_SALT}
-      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?set LANGFUSE_ENCRYPTION_KEY}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-}
+      SALT: ${LANGFUSE_SALT:-}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-}
 
       # ----- Backing services -----
-      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD:?set LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/langfuse
-      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:?set LANGFUSE_CLICKHOUSE_PASSWORD}
-      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:?set LANGFUSE_REDIS_PASSWORD}
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD:-}@langfuse-postgres:5432/langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-}
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:-}
 
       # ----- Object storage -----
       # Real S3, not the MinIO container. ClickHouse and event payloads
       # are the two things that grow without bound on this box, and S3
       # is the one of them that can be moved off it.
-      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET:?set LANGFUSE_S3_BUCKET}
-      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_REGION:?set LANGFUSE_S3_REGION}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_BUCKET:-}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_REGION:-}
       LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_ACCESS_KEY_ID:-}
       LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_SECRET_ACCESS_KEY:-}
       LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ''
@@ -79,27 +96,30 @@ services:
       # after the first boot they are inert. They still must not be the
       # committed demo values, because the first boot is what sets the
       # admin password and the API keys the app authenticates with.
-      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:?set LANGFUSE_INIT_USER_EMAIL}
-      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:?set LANGFUSE_INIT_USER_PASSWORD}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
       LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Operator}
-      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:?set LANGFUSE_INIT_ORG_ID}
-      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:?set LANGFUSE_INIT_ORG_NAME}
-      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_PROJECT_ID:?set LANGFUSE_PROJECT_ID}
-      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:?set LANGFUSE_INIT_PROJECT_NAME}
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_PROJECT_ID:-}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-}
       # These two become the app's LANGFUSE_PUBLIC_KEY / _SECRET_KEY.
       # Same values in both places or traces stop landing.
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?set LANGFUSE_PUBLIC_KEY}
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?set LANGFUSE_SECRET_KEY}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
 
-      # Retention is deliberately absent here. Langfuse has no
-      # environment variable for it: a self-hosted instance keeps data
-      # forever until a retention period is set per project, through
-      # Project Settings in the UI or the projects API, with a minimum
-      # of 3 days. Verified at langfuse.com/docs/data-retention on
-      # 2026-09-03. It is a required post-deploy step, not a config
-      # value — see docs/deployment/observability.md.
+      # No retention setting here, and none is needed. Langfuse has no
+      # environment variable for it, and its own project-level retention
+      # is an Enterprise feature on self-hosted instances
+      # (langfuse.com/pricing-self-host, checked 2026-09-03). Vocion
+      # enforces retention itself instead: set LANGFUSE_RETENTION_DAYS
+      # in .env.production and a daily Temporal job deletes traces past
+      # that age through the public API. Works on Cloud and on the
+      # open-source build. See docs/deployment/observability.md.
 
   langfuse-worker:
+    deploy:
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-0}
     # The worker reads the same configuration as the web container. In
     # the platform file that is a YAML anchor, which an overlay cannot
     # extend, so the overridden keys are repeated here. Both lists must
@@ -126,14 +146,20 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'false'
 
   langfuse-postgres:
+    deploy:
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-0}
     environment:
       POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
 
   langfuse-clickhouse:
+    deploy:
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-0}
     environment:
       CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
 
   langfuse-redis:
+    deploy:
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-0}
     command: redis-server --requirepass ${LANGFUSE_REDIS_PASSWORD}
     healthcheck:
       test: [CMD, redis-cli, -a, '${LANGFUSE_REDIS_PASSWORD}', ping]
@@ -142,14 +168,15 @@ services:
       retries: 5
 
   langfuse-minio:
-    # Replaced by S3. Kept in the file with `replicas: 0` rather than
-    # deleted, because an overlay cannot remove a service the platform
-    # file declares — omitting it here would leave the laptop MinIO
-    # container running in production.
+    # Always off, on both paths. Production uses a real S3 bucket, so
+    # the laptop stack's in-container object store has no job here even
+    # when Langfuse is self-hosted. Not gated on
+    # LANGFUSE_SELF_HOSTED_REPLICAS for that reason.
     deploy:
       replicas: 0
 
   # Temporal and the OTel collector still come from the platform file
   # with laptop defaults and published host ports (7233, 8233, 4317,
   # 4318). They are open question 3 on vocion-core#95 and are not
-  # covered here.
+  # covered here — including the replica default above, since unlike
+  # Langfuse they have no managed alternative to fall back to.

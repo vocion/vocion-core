@@ -103,6 +103,58 @@ if [ ! -f "${ENV_FILE}" ]; then
   exit 1
 fi
 
+# ----- 3b. Self-hosted Langfuse preconditions -----
+# The Langfuse containers are held at zero replicas unless this is set,
+# because most deployments use Langfuse Cloud and the root compose file
+# pulls the platform stack in regardless. When it IS set, every secret
+# below has to be present: the compose overlay cannot demand them
+# itself, since Compose checks ${VAR:?...} guards even for services it
+# is not going to start.
+if [ "${LANGFUSE_SELF_HOSTED_REPLICAS:-0}" != "0" ] \
+  || grep -qE '^LANGFUSE_SELF_HOSTED_REPLICAS=[^0]' "${ENV_FILE}" 2>/dev/null; then
+  log "self-hosted Langfuse is on; checking its configuration"
+  missing=''
+  for name in \
+    LANGFUSE_PUBLIC_URL \
+    LANGFUSE_NEXTAUTH_SECRET \
+    LANGFUSE_SALT \
+    LANGFUSE_ENCRYPTION_KEY \
+    LANGFUSE_POSTGRES_PASSWORD \
+    LANGFUSE_CLICKHOUSE_PASSWORD \
+    LANGFUSE_REDIS_PASSWORD \
+    LANGFUSE_S3_BUCKET \
+    LANGFUSE_S3_REGION \
+    LANGFUSE_INIT_USER_EMAIL \
+    LANGFUSE_INIT_USER_PASSWORD \
+    LANGFUSE_INIT_ORG_ID \
+    LANGFUSE_INIT_ORG_NAME \
+    LANGFUSE_PROJECT_ID \
+    LANGFUSE_INIT_PROJECT_NAME \
+    LANGFUSE_PUBLIC_KEY \
+    LANGFUSE_SECRET_KEY; do
+    if ! grep -qE "^${name}=.+" "${ENV_FILE}"; then
+      missing="${missing} ${name}"
+    fi
+  done
+  if [ -n "${missing}" ]; then
+    log "ERROR: self-hosted Langfuse is missing:${missing}"
+    log "Fill them in ${ENV_FILE} (see infra/aws/.env.production.example),"
+    log "or set LANGFUSE_SELF_HOSTED_REPLICAS=0 to use Langfuse Cloud instead."
+    log "Walkthrough: docs/deployment/observability.md"
+    exit 1
+  fi
+  # The app authenticates against the project these keys seed on first
+  # boot. Mismatched, traces post to a project that does not exist and
+  # nothing says so.
+  if [ "$(grep -E '^LANGFUSE_PUBLIC_KEY=' "${ENV_FILE}" | head -1 | cut -d= -f2-)" \
+     != "$(grep -E '^LANGFUSE_INIT_PROJECT_PUBLIC_KEY=' "${ENV_FILE}" | head -1 | cut -d= -f2-)" ] \
+     && grep -qE '^LANGFUSE_INIT_PROJECT_PUBLIC_KEY=.+' "${ENV_FILE}"; then
+    log "ERROR: LANGFUSE_PUBLIC_KEY and LANGFUSE_INIT_PROJECT_PUBLIC_KEY differ."
+    log "They are the same credential seen from two sides; traces will not land."
+    exit 1
+  fi
+fi
+
 # ----- 4. Data dir (Postgres + Caddy persist here) -----
 mkdir -p "${DATA_DIR}"
 
