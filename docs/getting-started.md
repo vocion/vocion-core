@@ -174,6 +174,11 @@ cp packages/core/.env.example packages/core/.env.local
 #   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY + CLERK_SECRET_KEY   (auth)
 #   OPENAI_API_KEY and/or ANTHROPIC_API_KEY                (models + embeddings)
 # Everything else in .env.example is optional and commented.
+#
+# Those provider keys are the FALLBACK. A workspace can store its own under
+# Dashboard > API credentials, and then every outbound call for that workspace
+# — models, embeddings, rerank, vision, images — bills its account, not yours.
+# You still want one here: it is what covers any workspace that supplies none.
 
 npm run dev:up          # Postgres + Langfuse + Temporal in Docker
 npm run db:migrate      # apply the schema
