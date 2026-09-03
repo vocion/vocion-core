@@ -55,6 +55,7 @@ const {
   tenantAccountSchema,
 } = await import('@/models/Schema');
 const {
+  connectorHoldingCredential,
   credentialIdsInUse,
   credentialStatusForOrg,
   CredentialInUseError,
@@ -62,6 +63,7 @@ const {
   getCredentialsForSource,
   linkSourceToStoredCredential,
   storeCredential,
+  storedCredentialIdForSource,
 } = await import('@/services/SourceCredentialService');
 const { rotatePlatformCredential, revokeToken, storePlatformKey } = await import('@/services/ApiTokenService');
 
@@ -88,7 +90,11 @@ async function makeConnector(connectorSlug: string, sourceSlug: string = connect
   return row!.id;
 }
 
-/** What a connector resolves at sync time, the way `runSync` asks for it. */
+/**
+ * What a connector resolves at sync time, the way `runSync` asks for it.
+ * @param sourceId
+ * @param connectorSlug
+ */
 async function credentialsInUse(sourceId: number, connectorSlug: string): Promise<unknown> {
   const [source] = await db
     .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
@@ -624,5 +630,151 @@ describe('the database rule behind it', () => {
       .where(eq(knowledgeSourceSchema.slug, 'web-blog'));
 
     expect(count?.apiTokenId).toBeNull();
+  });
+});
+
+describe('connectorHoldingCredential', () => {
+  const STRAPI = { baseUrl: 'https://cms.example.com', token: 'strapi-token-aaaa' };
+
+  it('names the connector using a credential, so a caller can refuse before writing', async () => {
+    // What rotation asks. Without it, rotating would replace the value of a
+    // credential another connector depends on and only then refuse.
+    const staging = await makeConnector('strapi', 'strapi-staging');
+    const production = await makeConnector('strapi', 'strapi-production');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi — staging', platform: 'strapi', values: STRAPI });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: staging, connectorSlug: 'strapi', apiTokenId: credential.id });
+
+    await expect(connectorHoldingCredential(ORG, credential.id, production)).resolves.toBe('strapi-staging');
+  });
+
+  it('says nobody holds it when the asking connector is the one holding it', async () => {
+    const sourceId = await makeConnector('strapi');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi — prod', platform: 'strapi', values: STRAPI });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId, connectorSlug: 'strapi', apiTokenId: credential.id });
+
+    await expect(connectorHoldingCredential(ORG, credential.id, sourceId)).resolves.toBeNull();
+  });
+
+  it('says nobody holds a free credential', async () => {
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi — spare', platform: 'strapi', values: STRAPI });
+
+    await expect(connectorHoldingCredential(ORG, credential.id)).resolves.toBeNull();
+  });
+});
+
+describe('resolving by slug, for callers that hold only a slug', () => {
+  const HUBSPOT = { token: 'pat-na1-hubspot' };
+
+  it('finds the credential when the row is named after its connector', async () => {
+    const sourceId = await makeConnector('hubspot');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Acme HubSpot', platform: 'hubspot', values: HUBSPOT });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId, connectorSlug: 'hubspot', apiTokenId: credential.id });
+
+    await expect(getCredentialsForSource(ORG, 'hubspot')).resolves.toEqual(HUBSPOT);
+  });
+
+  it('finds it when the row is named something else and only runs that connector', async () => {
+    // An action declares a connector slug (`hubspot`), not a connector row, so
+    // it asks by a name no row carries. Falling through to the copy in
+    // `source_credential` would have it authenticate with the old key while
+    // every sync used the rotated one.
+    const sourceId = await makeConnector('hubspot', 'hubspot-deals');
+    const installId = await makeInstall('hubspot');
+    await storeCredential({ orgId: ORG, installId, displayName: 'old copy', raw: { token: 'stale-token' } });
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Acme HubSpot', platform: 'hubspot', values: HUBSPOT });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId, connectorSlug: 'hubspot', apiTokenId: credential.id });
+
+    await expect(getCredentialsForSource(ORG, 'hubspot')).resolves.toEqual(HUBSPOT);
+  });
+
+  it('picks the oldest of several rows running that connector, so the answer is stable', async () => {
+    const first = await makeConnector('hubspot', 'hubspot-deals');
+    const second = await makeConnector('hubspot', 'hubspot-contacts');
+    const firstKey = await storePlatformKey({ orgId: ORG, name: 'HubSpot — deals', platform: 'hubspot', values: { token: 'pat-na1-first' } });
+    const secondKey = await storePlatformKey({ orgId: ORG, name: 'HubSpot — contacts', platform: 'hubspot', values: { token: 'pat-na1-second' } });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: second, connectorSlug: 'hubspot', apiTokenId: secondKey.id });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: first, connectorSlug: 'hubspot', apiTokenId: firstKey.id });
+
+    await expect(getCredentialsForSource(ORG, 'hubspot')).resolves.toEqual({ token: 'pat-na1-first' });
+  });
+
+  it('still falls back to the install copy when no row names a credential', async () => {
+    // A connector nobody has migrated yet, and every OAuth connector.
+    await makeConnector('gmail');
+    const installId = await makeInstall('gmail');
+    await storeCredential({ orgId: ORG, installId, displayName: 'inbox', raw: { token: 'grant-token' } });
+
+    await expect(getCredentialsForSource(ORG, 'gmail')).resolves.toEqual({ token: 'grant-token' });
+  });
+
+  it('ignores another org\'s connector running the same connector', async () => {
+    const theirKey = await storePlatformKey({ orgId: 'org_somebody_else', name: 'Their HubSpot', platform: 'hubspot', values: { token: 'pat-na1-theirs' } });
+    await db
+      .insert(knowledgeSourceSchema)
+      .values({ orgId: 'org_somebody_else', slug: 'hubspot-theirs', kind: 'plugin', configJson: { _connector: 'hubspot' }, apiTokenId: theirKey.id });
+
+    await expect(getCredentialsForSource(ORG, 'hubspot')).resolves.toBeUndefined();
+  });
+});
+
+describe('the index refusing a link the pre-check let through', () => {
+  const STRAPI = { baseUrl: 'https://cms.example.com', token: 'strapi-token-aaaa' };
+
+  it('reports it as in use rather than as a database failure', async () => {
+    // The pre-check is org-scoped; the index is not. So a credential this org
+    // owns but another org's connector row holds gets past the check and is
+    // refused by the index — the same path a genuine race takes, and the
+    // reason the refusal is translated rather than rethrown.
+    const sourceId = await makeConnector('strapi');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi — prod', platform: 'strapi', values: STRAPI });
+    await db
+      .insert(knowledgeSourceSchema)
+      .values({
+        orgId: 'org_somebody_else',
+        slug: 'strapi-theirs',
+        kind: 'plugin',
+        configJson: {},
+        apiTokenId: credential.id,
+      });
+
+    await expect(linkSourceToStoredCredential({
+      orgId: ORG,
+      sourceId,
+      connectorSlug: 'strapi',
+      apiTokenId: credential.id,
+    })).rejects.toThrow(CredentialInUseError);
+  });
+
+  it('leaves the connector unlinked when it does', async () => {
+    const sourceId = await makeConnector('strapi');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi — prod', platform: 'strapi', values: STRAPI });
+    await db
+      .insert(knowledgeSourceSchema)
+      .values({ orgId: 'org_somebody_else', slug: 'strapi-theirs', kind: 'plugin', configJson: {}, apiTokenId: credential.id });
+
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId, connectorSlug: 'strapi', apiTokenId: credential.id })
+      .catch(() => undefined);
+
+    await expect(storedCredentialIdForSource(ORG, sourceId)).resolves.toBeNull();
+  });
+
+  it('never lets two connectors end up on one credential, whichever path refuses', async () => {
+    // The outcome both paths exist to guarantee, asserted without caring which
+    // of the two produced it.
+    const staging = await makeConnector('strapi', 'strapi-staging');
+    const production = await makeConnector('strapi', 'strapi-production');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi', platform: 'strapi', values: STRAPI });
+
+    const attempts = await Promise.allSettled([
+      linkSourceToStoredCredential({ orgId: ORG, sourceId: staging, connectorSlug: 'strapi', apiTokenId: credential.id }),
+      linkSourceToStoredCredential({ orgId: ORG, sourceId: production, connectorSlug: 'strapi', apiTokenId: credential.id }),
+    ]);
+    const holders = await db
+      .select({ id: knowledgeSourceSchema.id })
+      .from(knowledgeSourceSchema)
+      .where(eq(knowledgeSourceSchema.apiTokenId, credential.id));
+
+    expect(attempts.filter(attempt => attempt.status === 'fulfilled')).toHaveLength(1);
+    expect(holders).toHaveLength(1);
   });
 });

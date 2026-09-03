@@ -33,7 +33,7 @@
  */
 
 import { Buffer } from 'node:buffer';
-import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
@@ -264,18 +264,9 @@ export async function linkSourceToStoredCredential(input: {
   // The unique index is still the rule — two people picking the same
   // credential at once get past this check, and one of the two writes then
   // fails, which the catch below turns into the same message.
-  const [heldBy] = await db
-    .select({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug })
-    .from(knowledgeSourceSchema)
-    .where(and(
-      eq(knowledgeSourceSchema.orgId, input.orgId),
-      eq(knowledgeSourceSchema.apiTokenId, input.apiTokenId),
-    ))
-    .limit(1);
-  if (heldBy && heldBy.id !== input.sourceId) {
-    throw new CredentialInUseError(
-      `The ${heldBy.slug} connector already uses that credential. Store a separate one for this connector.`,
-    );
+  const heldBy = await connectorHoldingCredential(input.orgId, input.apiTokenId, input.sourceId);
+  if (heldBy !== null) {
+    throw new CredentialInUseError(credentialInUseMessage(heldBy));
   }
 
   let linked: { id: number }[];
@@ -309,17 +300,66 @@ export async function linkSourceToStoredCredential(input: {
 }
 
 /**
+ * The connector already using a credential, or null when none is — so a caller
+ * can refuse before it changes anything.
+ *
+ * Rotation needs this. Rotating first and linking afterwards would let somebody
+ * replace the value of a credential another connector depends on, and only
+ * then be told they could not have it.
+ * @param orgId - The org that owns both.
+ * @param apiTokenId - The credential to ask about.
+ * @param exceptSourceId - A connector that does not count, normally the one asking.
+ */
+export async function connectorHoldingCredential(
+  orgId: string,
+  apiTokenId: string,
+  exceptSourceId?: number,
+): Promise<string | null> {
+  const [holder] = await db
+    .select({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug })
+    .from(knowledgeSourceSchema)
+    .where(and(
+      eq(knowledgeSourceSchema.orgId, orgId),
+      eq(knowledgeSourceSchema.apiTokenId, apiTokenId),
+    ))
+    .limit(1);
+  if (!holder || holder.id === exceptSourceId) {
+    return null;
+  }
+  return holder.slug;
+}
+
+/**
+ * What to tell somebody who picked a credential another connector holds.
+ * @param connectorSlug - The connector already using it.
+ */
+export function credentialInUseMessage(connectorSlug: string): string {
+  return `The ${connectorSlug} connector already uses that credential. Store a separate one for this connector.`;
+}
+
+/**
  * Whether a database error is a unique-constraint violation.
  *
- * Postgres says so with SQLSTATE 23505, which every driver in use here passes
- * through on the error object as `code`.
+ * Postgres says so with SQLSTATE 23505. Drizzle wraps the driver's error in one
+ * of its own carrying the failed query, so the code sits on `cause` — checked
+ * on both, because the wrapping is drizzle's business and not something to
+ * depend on.
  * @param error - Whatever the query threw.
  */
 function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: unknown }).code === '23505';
+  return sqlStateOf(error) === '23505' || sqlStateOf((error as { cause?: unknown })?.cause) === '23505';
+}
+
+/**
+ * The SQLSTATE a database error carries, or undefined for anything else.
+ * @param error - A candidate error object.
+ */
+function sqlStateOf(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return undefined;
+  }
+  const { code } = error as { code?: unknown };
+  return typeof code === 'string' ? code : undefined;
 }
 
 /**
@@ -576,17 +616,31 @@ export async function getCredentialsForConnector(input: {
  * The decrypted credentials for a connector named by slug, for callers holding
  * a slug and nothing else — the agent tools and the action runner.
  *
- * The connector row of that slug says which stored credential to use, if any.
- * A caller that already has the row should pass its `apiTokenId` to
- * `getCredentialsForConnector` instead and save the lookup.
+ * The slug arrives in two shapes, and both have to work:
+ *
+ *   - a connector row's own slug (`strapi-staging`), which the agent tools
+ *     pass straight off the row they just read;
+ *   - a connector slug (`hubspot`), which an action declares once in its
+ *     definition and which may name no row of that name at all.
+ *
+ * So a row is looked for by slug first, then by the connector it runs. Without
+ * the second lookup an action would fall through to the copy in
+ * `source_credential` that the backfill deliberately leaves behind — the old
+ * key, while every sync used the rotated one.
+ *
+ * When several rows run that connector and hold credentials, the oldest wins.
+ * It is arbitrary between equals, but it is stable, and an action naming a
+ * connector rather than a connector row has not said which it meant. A caller
+ * that has the row should pass its `apiTokenId` to
+ * `getCredentialsForConnector` instead and skip the guessing.
  * @param orgId - The org that owns the connector.
- * @param sourceSlug - The connector row's slug, which is also its connector slug for a single install.
+ * @param sourceSlug - A connector row's slug, or the slug of the connector it runs.
  */
 export async function getCredentialsForSource(
   orgId: string,
   sourceSlug: string,
 ): Promise<RawCredentials | undefined> {
-  const [source] = await db
+  const [namedRow] = await db
     .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
     .from(knowledgeSourceSchema)
     .where(and(
@@ -594,9 +648,25 @@ export async function getCredentialsForSource(
       eq(knowledgeSourceSchema.slug, sourceSlug),
     ))
     .limit(1);
+
+  let apiTokenId = namedRow?.apiTokenId ?? null;
+  if (apiTokenId === null) {
+    const [runningRow] = await db
+      .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
+      .from(knowledgeSourceSchema)
+      .where(and(
+        eq(knowledgeSourceSchema.orgId, orgId),
+        isNotNull(knowledgeSourceSchema.apiTokenId),
+        eq(sql`${knowledgeSourceSchema.configJson} ->> '_connector'`, sourceSlug),
+      ))
+      .orderBy(knowledgeSourceSchema.id)
+      .limit(1);
+    apiTokenId = runningRow?.apiTokenId ?? null;
+  }
+
   return getCredentialsForConnector({
     orgId,
     connectorSlug: sourceSlug,
-    apiTokenId: source?.apiTokenId ?? null,
+    apiTokenId,
   });
 }

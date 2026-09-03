@@ -27,8 +27,10 @@ vi.mock('@/services/SourceCredentialService', () => ({
       this.reason = reason;
     }
   },
+  connectorHoldingCredential: vi.fn(),
   CredentialInUseError: class CredentialInUseError extends Error {},
   credentialIdsInUse: vi.fn(),
+  credentialInUseMessage: (slug: string) => `The ${slug} connector already uses that credential. Store a separate one for this connector.`,
   getCredentialsForConnector: vi.fn(),
   linkSourceToStoredCredential: vi.fn(),
   storeCredentialForSource: vi.fn(),
@@ -44,6 +46,7 @@ vi.mock('@/services/SourceSyncService', () => ({ getSourceById: vi.fn() }));
 const { clerkAuth } = await import('@/libs/Auth');
 const { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } = await import('@/services/ApiTokenService');
 const {
+  connectorHoldingCredential,
   credentialIdsInUse,
   getCredentialsForConnector,
   linkSourceToStoredCredential,
@@ -85,6 +88,7 @@ beforeEach(() => {
   vi.mocked(storedCredentialIdForSource).mockResolvedValue(null);
   vi.mocked(listPlatformCredentials).mockResolvedValue([]);
   vi.mocked(credentialIdsInUse).mockResolvedValue([]);
+  vi.mocked(connectorHoldingCredential).mockResolvedValue(null);
   vi.mocked(storePlatformKey).mockResolvedValue({ id: 'cred_new', keyHint: '…aaaa' });
   vi.mocked(rotatePlatformCredential).mockResolvedValue({ status: 'ok', keyHint: '…bbbb' });
   vi.mocked(linkSourceToStoredCredential).mockResolvedValue(undefined);
@@ -378,6 +382,31 @@ describe('POST /rpc/sources/[id]/credentials — rotation', () => {
     await POST(post({ apiTokenId: 'cred_a', credentials: { token: 'rotated' } }), context('1'));
 
     expect(linkSourceToStoredCredential).toHaveBeenCalledWith(expect.objectContaining({ apiTokenId: 'cred_a' }));
+  });
+
+  it('refuses before rotating a credential another connector uses', async () => {
+    // Order matters more than the message here. Rotating first would replace
+    // the value that other connector depends on, and only then refuse to hand
+    // the credential over — leaving it on a key nobody chose for it.
+    vi.mocked(connectorHoldingCredential).mockResolvedValue('strapi-staging');
+
+    const res = await POST(post({
+      apiTokenId: 'cred_taken',
+      credentials: { baseUrl: 'https://cms.example.com', token: 'rotated' },
+    }), context('1'));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('already uses that credential') });
+    expect(rotatePlatformCredential).not.toHaveBeenCalled();
+    expect(linkSourceToStoredCredential).not.toHaveBeenCalled();
+  });
+
+  it('asks about the credential excluding the connector doing the asking', async () => {
+    // Re-saving the form without changing the pick is a rotation, not two
+    // connectors competing.
+    await POST(post({ apiTokenId: 'cred_a', credentials: { token: 'rotated' } }), context('1'));
+
+    expect(connectorHoldingCredential).toHaveBeenCalledWith('org_1', 'cred_a', 1);
   });
 
   it('refuses to rotate a revoked credential back into service', async () => {
