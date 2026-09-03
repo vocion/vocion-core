@@ -12,10 +12,14 @@
 # parts that must not ship.
 #
 # It also decides whether the Langfuse containers run at all. They
-# default to ZERO replicas, because most deployments use Langfuse Cloud
-# and the root docker-compose.yml `include:`s the platform file whether
-# they want the containers or not. Self-hosting is opt-in:
-# LANGFUSE_SELF_HOSTED_REPLICAS=1.
+# default to ONE replica each: every client deployment should come up
+# with somewhere for traces and cost data to land, without anyone having
+# to procure a Langfuse Cloud plan first. Observability is not an
+# add-on.
+#
+# A deployment that uses Langfuse Cloud instead sets
+# LANGFUSE_SELF_HOSTED_REPLICAS=0, and bootstrap.sh says so by name if
+# it finds the self-hosted secrets missing.
 #
 # Compose it AFTER the platform file so these values win:
 #
@@ -39,11 +43,13 @@
 
 services:
   langfuse-web:
-    # Off unless this deployment self-hosts. Compose has no way for an
-    # overlay to remove a service the base file declares, so zero
-    # replicas is how a service gets declared but not started.
+    # One instance by default; LANGFUSE_SELF_HOSTED_REPLICAS=0 turns the
+    # self-hosted stack off for a deployment on Langfuse Cloud. Compose
+    # has no way for an overlay to remove a service the base file
+    # declares, so zero replicas is how a service gets declared but not
+    # started.
     deploy:
-      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-0}
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
     # No published host port. Caddy reaches this over the compose
     # network on 3000, the way it reaches `app`. Publishing 3200 put
     # the trace UI one security-group rule away from the internet.
@@ -119,7 +125,7 @@ services:
 
   langfuse-worker:
     deploy:
-      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-0}
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
     # The worker reads the same configuration as the web container. In
     # the platform file that is a YAML anchor, which an overlay cannot
     # extend, so the overridden keys are repeated here. Both lists must
@@ -147,19 +153,19 @@ services:
 
   langfuse-postgres:
     deploy:
-      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-0}
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
     environment:
       POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
 
   langfuse-clickhouse:
     deploy:
-      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-0}
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
     environment:
       CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
 
   langfuse-redis:
     deploy:
-      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-0}
+      replicas: ${LANGFUSE_SELF_HOSTED_REPLICAS:-1}
     command: redis-server --requirepass ${LANGFUSE_REDIS_PASSWORD}
     healthcheck:
       test: [CMD, redis-cli, -a, '${LANGFUSE_REDIS_PASSWORD}', ping]
