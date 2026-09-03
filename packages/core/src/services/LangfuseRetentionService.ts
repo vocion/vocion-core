@@ -149,9 +149,9 @@ function chunk<T>(items: T[], size: number): T[][] {
 /**
  * Delete every trace older than the configured retention period.
  *
- * A no-op when tracing is off or `LANGFUSE_RETENTION_DAYS` is unset, so
- * the schedule can fire on any deployment without a guard at the call
- * site.
+ * A no-op when tracing is off, or when `LANGFUSE_RETENTION_DAYS` is 0,
+ * so the schedule can fire on any deployment without a guard at the
+ * call site. Unset means one year, not off.
  * @param now - Current time, injectable for tests.
  */
 export async function pruneExpiredTraces(now: Date = new Date()): Promise<PruneResult | null> {
@@ -162,7 +162,7 @@ export async function pruneExpiredTraces(now: Date = new Date()): Promise<PruneR
     return null;
   }
   if (config.retentionDays === null) {
-    logger.info('Langfuse retention skipped: LANGFUSE_RETENTION_DAYS is not set, so traces are kept indefinitely');
+    logger.info('Langfuse retention skipped: LANGFUSE_RETENTION_DAYS is 0, so traces are kept indefinitely by request');
     return null;
   }
 

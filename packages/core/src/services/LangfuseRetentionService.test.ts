@@ -114,16 +114,31 @@ describe('when it must do nothing', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('skips when no retention period is configured, rather than defaulting to one', async () => {
+  it('skips when retention is explicitly turned off with 0', async () => {
     setEnv('NODE_ENV', 'production');
     setEnv('LANGFUSE_PUBLIC_KEY', 'pk-lf-real');
     setEnv('LANGFUSE_SECRET_KEY', 'sk-lf-real');
     setEnv('LANGFUSE_BASE_URL', 'https://traces.example.com');
+    setEnv('LANGFUSE_RETENTION_DAYS', '0');
     mockLangfuseApi([['trace-1']]);
     const { pruneExpiredTraces } = await loadService();
 
     await expect(pruneExpiredTraces(NOW)).resolves.toBeNull();
     expect(calls).toHaveLength(0);
+  });
+
+  it('prunes at one year when nothing configured it, since that is the default', async () => {
+    setEnv('NODE_ENV', 'production');
+    setEnv('LANGFUSE_PUBLIC_KEY', 'pk-lf-real');
+    setEnv('LANGFUSE_SECRET_KEY', 'sk-lf-real');
+    setEnv('LANGFUSE_BASE_URL', 'https://traces.example.com');
+    mockLangfuseApi([[]]);
+    const { pruneExpiredTraces } = await loadService();
+
+    const result = await pruneExpiredTraces(NOW);
+
+    // 365 days before 2026-09-03.
+    expect(result).toMatchObject({ cutoff: '2025-09-03T12:00:00.000Z' });
   });
 
   it('deletes nothing when no trace is old enough', async () => {

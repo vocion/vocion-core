@@ -20,6 +20,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   browserProjectId,
+  DEFAULT_RETENTION_DAYS,
   LOCAL_DEVELOPMENT_BASE_URL,
   LOCAL_DEVELOPMENT_PROJECT_ID,
   LOCAL_DEVELOPMENT_PUBLIC_KEY,
@@ -166,7 +167,7 @@ describe('LANGFUSE_ENABLED=true — tracing demanded, so gaps are errors', () =>
       baseUrl: 'https://cloud.langfuse.com',
       projectId: 'veerio',
       browserBaseUrl: 'https://cloud.langfuse.com',
-      retentionDays: null,
+      retentionDays: DEFAULT_RETENTION_DAYS,
     });
   });
 
@@ -217,7 +218,7 @@ describe('LANGFUSE_ENABLED unset — credentials decide', () => {
       baseUrl: LOCAL_DEVELOPMENT_BASE_URL,
       projectId: LOCAL_DEVELOPMENT_PROJECT_ID,
       browserBaseUrl: LOCAL_DEVELOPMENT_BASE_URL,
-      retentionDays: null,
+      retentionDays: DEFAULT_RETENTION_DAYS,
     });
   });
 
@@ -315,14 +316,15 @@ describe('browser-facing URL and project — the self-hosted split', () => {
 });
 
 describe('LANGFUSE_RETENTION_DAYS — how long traces are kept', () => {
-  it('keeps everything when unset, which is what Langfuse itself does', () => {
+  it('keeps one year when unset, rather than keeping everything forever', () => {
     runAsProduction();
     setRealCredentials();
 
-    expect(resolveLangfuseConfig()).toMatchObject({ retentionDays: null });
+    expect(resolveLangfuseConfig()).toMatchObject({ retentionDays: 365 });
+    expect(DEFAULT_RETENTION_DAYS).toBe(365);
   });
 
-  it('reads 0 as keep everything rather than delete everything', () => {
+  it('reads an explicit 0 as keep everything, the way out of the default', () => {
     runAsProduction();
     setRealCredentials();
     setEnv('LANGFUSE_RETENTION_DAYS', '0');
