@@ -84,9 +84,10 @@ before quoting these to a client — they move.
 Leave `LANGFUSE_SITE_ADDRESS` unset, and the Caddy site block for
 self-hosted Langfuse never binds.
 
-The six self-hosted containers do still start on this path, because the
-root `docker-compose.yml` includes the platform file. They are idle and
-harmless, but they are not free — see the last open decision below.
+The six self-hosted containers stay at zero replicas, which is the
+default. The root `docker-compose.yml` `include:`s the platform file
+regardless, so the production overlay holds them off rather than trying
+to remove them — Compose has no way to un-declare a service.
 
 ## Path B — self-hosted
 
@@ -148,21 +149,26 @@ to go bigger.
      authenticates against a project that does not exist and traces
      stop landing silently.
 
-5. **Deploy.** `infra/aws/bootstrap.sh` composes
+5. **Turn the containers on.** `LANGFUSE_SELF_HOSTED_REPLICAS=1`. They
+   sit at zero replicas by default, so without this the stack comes up
+   with no Langfuse in it and the app posts traces to a hostname that
+   resolves to nothing. `bootstrap.sh` checks the rest of the
+   configuration is present as soon as it sees this set, and refuses to
+   deploy half-configured rather than starting a Langfuse with blank
+   secrets.
+
+6. **Deploy.** `infra/aws/bootstrap.sh` composes
    `infra/docker-compose.langfuse.prod.yml` last, which is what strips
    the published port, replaces the committed secrets, points storage at
    S3, and disables sign-up. It also moves Docker's `data-root` onto the
    mounted data volume, so ClickHouse stops growing on the root disk.
 
-6. **Set retention.** Langfuse has no environment variable for this. A
-   self-hosted instance keeps data forever until a retention period is
-   set per project, in Project Settings or through the projects API,
-   with a minimum of three days
-   ([langfuse.com/docs/data-retention](https://langfuse.com/docs/data-retention),
-   checked 2026-09-03). Do it on the first deploy. ClickHouse growth
-   tracks LLM call volume, and an ingestion agent generates a lot of it.
+7. **Set retention.** `LANGFUSE_RETENTION_DAYS=90` — see the section
+   below. Do it on the first deploy: ClickHouse growth tracks LLM call
+   volume, an ingestion agent generates a lot of it, and this volume is
+   shared with the application database.
 
-7. **Verify.** In order, because each step rules out the one before:
+8. **Verify.** In order, because each step rules out the one before:
 
    ```bash
    # The container is up and not published to the host.
@@ -189,6 +195,55 @@ ClickHouse both recover from the way they recover from a power cut.
 Point-in-time recovery would need WAL archiving, which is a separate
 decision nobody has made yet.
 
+## Retention
+
+`LANGFUSE_RETENTION_DAYS` sets how many days of traces to keep. Unset or
+`0` keeps everything. The minimum is 3.
+
+```bash
+LANGFUSE_RETENTION_DAYS=90
+```
+
+**Vocion enforces this, not Langfuse.** Langfuse has no environment
+variable for retention, and its own project-level retention is an
+Enterprise feature on self-hosted instances
+([langfuse.com/pricing-self-host](https://langfuse.com/pricing-self-host),
+checked 2026-09-03) — an open-source self-hosted instance keeps every
+trace forever with no way to configure otherwise. So
+`services/LangfuseRetentionService.ts` does the pruning through the
+public API, with the project keys already in the environment:
+
+- Lists traces older than the cutoff (`GET /api/public/traces?toTimestamp=…`)
+- Deletes them in batches of 50 (`DELETE /api/public/traces`), which
+  takes their observations and scores with them
+- Repeats until a page comes back empty, capped at 200 pages per run so
+  a first run against a never-pruned instance cannot run for hours. The
+  rest goes on the next run.
+
+It runs on a daily Temporal schedule at 03:20 UTC, created and removed
+by the worker on start to match the variable. **It needs the Temporal
+worker running** (`ENABLE_TEMPORAL_WORKER=1`); without it the schedule
+is never created and nothing is deleted.
+
+This works the same on Langfuse Cloud, where it is usually redundant —
+Cloud plans already enforce a data window (30 days on Hobby, 90 on
+Core). Setting it there is harmless but pointless unless you want a
+shorter window than the plan gives you.
+
+To check what it did:
+
+```bash
+# Did the worker create the schedule on start?
+docker compose -p vocion logs worker | grep 'Langfuse retention schedule'
+
+# What did the last run delete?
+docker compose -p vocion logs worker | grep 'Langfuse retention complete'
+```
+
+The schedule itself is `langfuse-retention` in the Temporal UI
+(`/dashboard/workflows`, or the Temporal web UI on 8233), which also
+shows when it last fired and whether the run failed.
+
 ## Turning tracing off
 
 `LANGFUSE_ENABLED=false` and nothing else is required. `traceFor()`
@@ -212,6 +267,13 @@ One place: `packages/core/src/libs/Langfuse/config.ts`.
 | Unset | Both keys present | On |
 | Unset | Missing, production | Off, logged once with the reason |
 | Unset | Missing, not production | On, against the local compose stack |
+
+Two more variables sit alongside those:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `LANGFUSE_RETENTION_DAYS` | unset — keep everything | Days of traces to keep. Minimum 3 |
+| `LANGFUSE_SELF_HOSTED_REPLICAS` | `0` — containers off | Set to `1` to run the six self-hosted containers |
 
 The throw is deliberate. Tracing that has been asked for and silently
 does not happen is worse than a deployment that refuses to start, which
@@ -240,14 +302,10 @@ Tracked on [vocion-core#95](https://github.com/vocion/vocion-core/issues/95):
   instance can be sliced per client for viewing. Shared would need core
   to route per-org credentials, the way per-org platform API keys work.
   Per-client is the current assumption.
-- **Temporal and the OTel collector have the same problem.** Same dev
-  compose file, same weak defaults, same published host ports (7233,
-  8233, 4317, 4318). Only Langfuse is covered here.
-- **On Path A the six containers still start.** The root
-  `docker-compose.yml` `include:`s `infra/docker-compose.platform.yml`,
-  so dropping the `-f` flag from `bootstrap.sh` changes nothing — the
-  file comes in through the include either way. Keeping them off a
-  Cloud deployment needs either a Compose profile on those services or
-  a `replicas: 0` override like the one MinIO already gets. Worth doing:
-  it is six containers of memory on a box that would rather spend it on
-  the app.
+- **Their weak defaults and published ports** (7233, 8233, 4317, 4318)
+  come from the same dev compose file Langfuse's did. Only Langfuse is
+  covered here.
+- **Temporal and the OTel collector are still on laptop defaults.**
+  Unlike Langfuse they have no managed alternative to fall back to, so
+  they were left out of the replica default as well as the secret
+  handling.
