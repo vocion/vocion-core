@@ -2319,6 +2319,22 @@ export const leadBriefSchema = pgTable(
       heading: string;
       body: string;
     }>>().default([]).notNull(),
+    /**
+     * The call prep written when the lead LEAVES the agent — where the thread
+     * stands, what triggered the handoff, what to test live. Deliberately
+     * separate from `sections`: the review brief answers "should we send this
+     * copy" and is written at research time, while this answers "what do I say
+     * now that a person is in the conversation" and is written at handoff
+     * time, when the reply text and the delivery record exist. A handoff
+     * re-run must never touch the review brief.
+     */
+    handoffSections: jsonb('handoff_sections').$type<Array<{
+      heading: string;
+      body: string;
+    }>>().default([]).notNull(),
+    /** Why the lead left: 'reply' | 'intent' | 'routed'. */
+    handoffTrigger: text('handoff_trigger'),
+    handoffAt: timestamp('handoff_at', { mode: 'date' }),
     /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
     regenerateNote: text('regenerate_note'),
     /** Briefing tries so far. Three, then the lead surfaces with its error. */
