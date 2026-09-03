@@ -40,6 +40,11 @@ npm run dev:next   # or `npm run dev` if you want the embedded PGLite
 |---------|-----|-------------|
 | Vocion | http://localhost:3000 | NextAuth (demo@example.com / demo123 after seed) |
 | Langfuse | http://localhost:3200 | admin@vocion.com / vocion-admin |
+
+Those Langfuse credentials, and every Langfuse secret in
+`infra/docker-compose.platform.yml`, are committed to this repository and
+are for local development only. A deployed environment generates its
+own — see [`docs/deployment/observability.md`](../docs/deployment/observability.md).
 | Temporal | http://localhost:8233 | No auth (dev) |
 
 ## Port Map
@@ -67,6 +72,6 @@ docker compose -f infra/docker-compose.platform.yml -p vocion-platform down -v
 ## Hardware Requirements
 
 - Postgres: 1GB RAM (small demo datasets); scales with chunk count
-- Langfuse: 4GB RAM (ClickHouse + PostgreSQL)
+- Langfuse: 4GB RAM (ClickHouse + PostgreSQL). Same appetite on a deployed box, where it shares the instance with the app — see [`docs/deployment/observability.md`](../docs/deployment/observability.md) for sizing and for the Langfuse Cloud alternative, which removes these containers entirely.
 - Temporal: 2GB RAM (PostgreSQL)
 - Total recommended: 8GB+ RAM for full stack

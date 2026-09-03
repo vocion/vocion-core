@@ -1,7 +1,10 @@
 # Vocion on AWS — single-EC2 + Docker Compose
 
 The simplest path to a public Vocion URL. One VM runs the Next.js app, the
-feedback worker, Caddy (TLS), Postgres (pgvector), and Langfuse. No
+feedback worker, Caddy (TLS), Postgres (pgvector), and Langfuse — six
+containers on its own, configured by
+[`docs/deployment/observability.md`](../../docs/deployment/observability.md),
+which also covers using Langfuse Cloud instead and dropping them. No
 autoscaling, no ALB, no ECS — right for pilot/demo. Graduate to App Runner
 or ECS once traffic justifies it.
 
@@ -30,8 +33,13 @@ pgvector HNSW + Postgres FTS in the app DB itself, served by
 | `r6i.xlarge` | 4 / 32 GB | ~$0.25 | Multiple agents, larger contexts. |
 
 Plus one **100 GB gp3 EBS** volume attached at `/opt/vocion-data` for
-Postgres + Langfuse persistence. Snapshot lifecycle: 1 per day, retain 7
-(set via Data Lifecycle Manager).
+Postgres + Langfuse persistence. `bootstrap.sh` moves Docker's
+`data-root` onto this volume, which is what puts the named volumes —
+including Langfuse's ClickHouse — on it rather than on the root disk.
+
+Snapshot lifecycle: 1 per day, retain 7, created by the Data Lifecycle
+Manager policy in `infra/terraform/snapshots.tf`. It selects the volume
+by its `Name = "vocion-data"` tag.
 
 ## First-time bring-up
 
@@ -116,8 +124,11 @@ The EC2 instance itself does NOT need an IAM role for the app to run
 
 ## Backups
 
-EBS snapshots cover Postgres + Langfuse data. Belt-and-suspenders: cron
-a `pg_dump` to S3:
+EBS snapshots of the data volume cover Postgres and Langfuse data,
+because `bootstrap.sh` puts Docker's volumes there. They are crash
+consistent, not point-in-time: recovery replays like a power cut, and
+anything written since the last snapshot is gone. Belt-and-suspenders,
+cron a `pg_dump` to S3:
 
 ```bash
 # /etc/cron.d/vocion-pgdump
