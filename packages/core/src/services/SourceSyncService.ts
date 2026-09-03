@@ -41,7 +41,7 @@ import {
   ingestDocument,
   markSourceSynced,
 } from './IngestionService';
-import { getCredentialsForSource } from './SourceCredentialService';
+import { getCredentialsForConnector } from './SourceCredentialService';
 
 /**
  * Log, loading the logger only when it's needed.
@@ -512,13 +512,32 @@ export async function runSync(opts: {
     throw new Error(`source ${opts.sourceId} references unknown connector: ${connectorSlug}`);
   }
 
-  const { since, cursor } = await beginSync(opts.sourceId, opts.orgId, !!opts.incremental);
   // Resolve decrypted credentials from the vault so token/OAuth connectors can
-  // authenticate. Credentials are per-CONNECTOR, not per-source — one HubSpot
-  // token serves the deals/contacts/companies sources alike — so look up by the
-  // connector slug (config._connector), not the source slug. Undefined for
-  // connectors that need none (e.g. `web`).
-  const credentials = await getCredentialsForSource(opts.orgId, connectorSlug);
+  // authenticate. Two shapes of answer, and this row says which:
+  //
+  //   - `api_token_id` set — the stored workspace credential this connector
+  //     names. Per connector row, so a Strapi against staging and one against
+  //     production each authenticate with their own key.
+  //   - otherwise — the OAuth grant on the org's install of this connector
+  //     (config._connector), which one grant serves for every source row of
+  //     that kind: one HubSpot grant covers deals, contacts and companies.
+  //
+  // Undefined for connectors that need no credential (e.g. `web`).
+  //
+  // Before `beginSync`, deliberately. A credential that has been revoked or
+  // has expired throws here, and claiming the checkpoint first would leave a
+  // run marked `running` that nothing ever finishes — a spinner on the
+  // connectors page with no failure behind it. Failing before any run is
+  // claimed also keeps a broken credential out of the sync history, where it
+  // would read as an attempt that went wrong rather than one that never
+  // started.
+  const credentials = await getCredentialsForConnector({
+    orgId: opts.orgId,
+    connectorSlug,
+    apiTokenId: row.apiTokenId,
+  });
+
+  const { since, cursor } = await beginSync(opts.sourceId, opts.orgId, !!opts.incremental);
   const cutoff = new Date();
   const result: SyncResult = {
     sourceId: opts.sourceId,

@@ -1,20 +1,12 @@
-import { setRequestLocale } from 'next-intl/server';
-import { SourcesPanel } from '@/features/dashboard/SourcesPanel';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { redirect } from 'next/navigation';
 
-export default async function SourcesPage(props: {
-  params: Promise<{ locale: string }>;
-}) {
-  const { locale } = await props.params;
-  setRequestLocale(locale);
-
-  return (
-    <>
-      <TitleBar
-        title="Sources"
-        description="Connected systems that feed context into agents + retrieval. Hybrid pgvector search runs over every chunk you ingest."
-      />
-      <SourcesPanel />
-    </>
-  );
+/**
+ * "Sources" is now "Connectors" — the word everyone outside the codebase was
+ * already using. Only the front end moved: `source_install`,
+ * `knowledge_source` and `SourceConnector` are unchanged.
+ *
+ * This page stays so existing links and bookmarks keep working.
+ */
+export default function SourcesPage() {
+  redirect('/dashboard/connectors');
 }

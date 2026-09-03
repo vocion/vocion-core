@@ -14,10 +14,16 @@
  * show button that could never produce anything.
  *
  * **Platform keys.** The org's own OpenAI or Anthropic key, pasted here so
- * their model runs bill their account. Exactly one live key per platform: the
- * database enforces it, and this panel says so before you save and again when
- * you are about to replace one, because the replacement takes effect instantly
- * and silently otherwise.
+ * their model runs bill their account. Exactly one live key per platform for
+ * these: the database enforces it, and this panel says so before you save and
+ * again when you are about to replace one, because the replacement takes
+ * effect instantly and silently otherwise.
+ *
+ * **Connector credentials.** A Jira, Strapi, HubSpot or Granola key, which a
+ * connector install points at instead of keeping its own copy. A workspace may
+ * hold several of each, told apart by name — "Strapi — staging" and
+ * "Strapi — prod" both live at once — so saving one here adds to the list
+ * rather than replacing anything, and the panel says that instead.
  *
  * Every credential of either kind is masked in the table and only shown when an
  * admin clicks to see it, so the page can sit open without a secret on
@@ -61,6 +67,12 @@ type PlatformOption = {
   id: string;
   label: string;
   keySource: 'minted' | 'supplied';
+  /**
+   * `one-live` — saving a second credential replaces the first, which the form
+   * has to warn about. `many` — a workspace holds as many as it wants, told
+   * apart by name; the connector platforms work this way, and so does `vocion`.
+   */
+  credentialsPerOrg: 'one-live' | 'many';
   keyShapeHint: string;
   helpText: string;
   fields: PlatformField[];
@@ -499,7 +511,11 @@ export function ApiTokensPanel() {
   const isMinted = (selectedPlatform?.keySource ?? 'minted') === 'minted';
   // Only meaningful for a supplied platform: a Vocion row is allowed to have
   // as many siblings as the org wants.
-  const existingKey = isMinted ? undefined : liveKeyFor(tokens, platformId);
+  // Only a platform capped at one live credential has a key about to be
+  // replaced. On a connector platform a second credential is a second
+  // credential, so warning about a replacement would be a false alarm.
+  const holdsManyCredentials = selectedPlatform?.credentialsPerOrg === 'many';
+  const existingKey = isMinted || holdsManyCredentials ? undefined : liveKeyFor(tokens, platformId);
 
   /**
    * Reset the create form back to its opening state. Called after a successful
@@ -701,7 +717,9 @@ export function ApiTokensPanel() {
                 </p>
                 {!isMinted && !existingKey && (
                   <p className="text-xs text-muted-foreground">
-                    {`A workspace holds one ${selectedPlatform?.label} key at a time.`}
+                    {holdsManyCredentials
+                      ? `A workspace can hold several ${selectedPlatform?.label} credentials. The name is how you tell them apart, and how a connector picks one.`
+                      : `A workspace holds one ${selectedPlatform?.label} key at a time.`}
                   </p>
                 )}
                 {existingKey && (
