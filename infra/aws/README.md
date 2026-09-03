@@ -1,10 +1,10 @@
 # Vocion on AWS — single-EC2 + Docker Compose
 
 The simplest path to a public Vocion URL. One VM runs the Next.js app, the
-feedback worker, Caddy (TLS), Postgres (pgvector), and Langfuse — six
-containers on its own, configured by
+feedback worker, Caddy (TLS), Postgres (pgvector), and Langfuse — which
+self-hosts by default and is six containers on its own. Configured by
 [`docs/deployment/observability.md`](../../docs/deployment/observability.md),
-which also covers using Langfuse Cloud instead and dropping them. No
+which also covers opting out to Langfuse Cloud. No
 autoscaling, no ALB, no ECS — right for pilot/demo. Graduate to App Runner
 or ECS once traffic justifies it.
 
