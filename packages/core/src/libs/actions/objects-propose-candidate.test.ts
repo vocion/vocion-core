@@ -254,19 +254,38 @@ describe('the candidate row', () => {
     expect(objects[0]!.summary).toMatch(/Free\.$/);
   });
 
-  it('still queues when the workspace has not applied the object type, and says so', async () => {
+  it('refuses outright when the workspace has not applied the object type', async () => {
     await db.delete(businessObjectTypeSchema);
+    forgetCachedObjectTypes();
 
-    const proposed = await proposeAction({
+    // Queuing it would leave a reviewer an item they can open but never
+    // approve, and would tell the proposer it succeeded. Refusing costs the
+    // proposer a message it can act on and leaves nothing behind.
+    await expect(proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate(),
+    })).rejects.toThrow(/No object type "event_candidate"/);
+
+    expect(await objectsFor()).toHaveLength(0);
+    expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).toHaveLength(0);
+  });
+
+  it('still labels the card when the type is deleted after the proposal', async () => {
+    await proposeAction({
       orgId: ORG,
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
       input: candidate(),
     });
+    // The type existed when this was proposed and does not now — a workspace
+    // can be re-applied while items sit in the queue.
+    await db.delete(businessObjectTypeSchema);
+    forgetCachedObjectTypes();
+
     const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
 
-    expect(proposed.status).toBe('pending');
-    expect(await objectsFor()).toHaveLength(0);
     expect(fieldValue(card.fields, 'Unknown record type')?.value).toMatch(/event_candidate/);
   });
 });
@@ -691,8 +710,11 @@ describe('deciding a candidate', () => {
   });
 
   it('fails loudly when there is no stored row to approve', async () => {
-    await db.delete(businessObjectTypeSchema);
     const proposed = await propose();
+    // The row a candidate is approved through can be gone by decision time —
+    // deleted by hand, or cleaned up by something else. Approving must say so
+    // rather than report a success that moved nothing.
+    await db.delete(businessObjectSchema);
 
     const executed = await executeAction(proposed.runId, ORG, { reviewedBy: 'user_moderator' });
 

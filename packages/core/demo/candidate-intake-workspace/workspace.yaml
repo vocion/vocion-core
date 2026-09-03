@@ -1,0 +1,14 @@
+version: 1
+# Placeholder — resolved to the live project id at apply time via --project.
+orgId: proj_candidate_intake
+name: candidate-intake
+description: >
+  The smallest workspace that exercises the review queue end to end. One
+  agent reads a listings page, proposes each record it finds as a candidate,
+  and stops. Nothing is published: a candidate is a typed row plus a queue
+  item, and a human decides. The domain here is events, but nothing in the
+  framework knows that — swap the object type and the same agent proposes
+  grants, venues, or job postings.
+defaults:
+  model: claude-sonnet-4-6
+  temperature: '0.2'

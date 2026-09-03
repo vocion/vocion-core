@@ -145,6 +145,19 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   dedupKeyFor?: (input: z.infer<S>) => string | undefined;
   /**
+   * Last check before anything is written, once the caller is known to be
+   * allowed. For conditions the input schema cannot see because they depend
+   * on tenant state — an object type the org never defined, a source with no
+   * credentials. Return a plain-language reason to refuse the proposal, or
+   * nothing to let it through.
+   *
+   * Refusing here leaves no queue item behind. That matters: an action whose
+   * `onProposed` quietly gives up still reports success to its caller, and an
+   * agent told "queued for approval" will say so to a person, having stored
+   * nothing.
+   */
+  precheck?: (ctx: ActionContext, input: z.infer<S>) => Promise<string | void>;
+  /**
    * Called once per created action_run, right after the row exists (pending or
    * about to execute). For back-linking the run onto the domain record it
    * reviews (e.g. discovery_candidate.reviewActionRunId). Must be idempotent.
