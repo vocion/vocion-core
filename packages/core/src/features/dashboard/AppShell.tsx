@@ -5,6 +5,8 @@ import { cookies } from 'next/headers';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
+import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
+import { ChatBubble } from '@/features/dashboard/chat/ChatBubble';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
@@ -70,6 +72,10 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // If the cookie is not set, default to open
   const defaultOpen = cookieStore.get(AppConfig.sidebarCookieName)?.value !== 'false';
 
+  // Agent picker options for the floating chat bubble. Empty outside an org —
+  // the bubble renders nothing rather than a picker with no agents in it.
+  const agents = orgId ? (await loadChatAgentContext(orgId)).agents : [];
+
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <AppSidebar
@@ -92,6 +98,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             : null;
         })()}
         <WorkspaceDriftBanner />
+        <ChatBubble agents={agents} />
       </SidebarInset>
     </SidebarProvider>
   );

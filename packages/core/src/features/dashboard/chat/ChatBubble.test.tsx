@@ -1,0 +1,263 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render } from 'vitest-browser-react';
+import { page, userEvent } from 'vitest/browser';
+import { dispatchClick, dispatchPointerDrag } from './dragTestHelpers';
+
+vi.mock('@/libs/Orpc', () => ({
+  client: {
+    chatWidget: { getState: vi.fn(), setState: vi.fn() },
+    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn() },
+  },
+}));
+
+const mockUsePathname = vi.fn(() => '/dashboard');
+vi.mock('next/navigation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/navigation')>();
+  return {
+    ...actual,
+    usePathname: () => mockUsePathname(),
+  };
+});
+
+const { client } = await import('@/libs/Orpc');
+const { ChatBubble } = await import('./ChatBubble');
+
+const AGENTS = [
+  { slug: 'orchestrator', name: 'GTM Orchestrator', icon: 'bot' as const, placeholder: 'Ask…', role: 'lead' as const },
+  { slug: 'specialist', name: 'Pipeline Analyst', icon: 'bot' as const, placeholder: 'Ask…', role: 'specialist' as const },
+];
+
+const VISUAL_STATE_KEY = 'vocion_chat_bubble_visual_state';
+const POSITION_KEY = 'vocion_chat_bubble_position';
+
+beforeEach(() => {
+  localStorage.clear();
+  mockUsePathname.mockReset().mockReturnValue('/dashboard');
+  vi.mocked(client.chatWidget.getState).mockReset().mockResolvedValue(null);
+  vi.mocked(client.chatWidget.setState).mockReset().mockResolvedValue({ agentSlug: 'orchestrator', conversationId: null });
+  vi.mocked(client.conversations.get).mockReset();
+  vi.mocked(client.conversations.create).mockReset();
+  vi.mocked(client.conversations.list).mockReset().mockResolvedValue([]);
+});
+
+describe('ChatBubble', () => {
+  it('renders only the trigger button when hidden by default', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+
+    await expect.element(page.getByRole('button', { name: 'Open chat' })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+  });
+
+  it('opens to the normal-size panel when the trigger is clicked', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+
+    await expect.element(page.getByRole('button', { name: 'Maximize' })).toBeInTheDocument();
+    // .first(): 'GTM Orchestrator' legitimately renders twice once the panel
+    // is open — once in the header's agent switcher, once inside the
+    // EmptyState heading ("Start a conversation with GTM Orchestrator") —
+    // so an unscoped getByText is a strict-mode violation. Either instance
+    // proves the panel picked up the right agent.
+    await expect.element(page.getByText('GTM Orchestrator').first()).toBeInTheDocument();
+  });
+
+  it('re-opens already-open on remount when the visual state was persisted as normal', async () => {
+    localStorage.setItem(VISUAL_STATE_KEY, 'normal');
+    await render(<ChatBubble agents={AGENTS} />);
+
+    await expect.element(page.getByRole('button', { name: 'Maximize' })).toBeInTheDocument();
+  });
+
+  it('toggling maximize swaps the Maximize button for Restore', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+
+    await userEvent.click(page.getByRole('button', { name: 'Maximize' }));
+
+    await expect.element(page.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+  });
+
+  it('pressing Escape closes the panel and shows the trigger button again', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+
+    await expect.element(page.getByRole('button', { name: 'Open chat' })).toBeInTheDocument();
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).not.toBeInTheDocument();
+  });
+
+  it('pressing Escape while history is open closes history first, then the panel on a second Escape', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+    await userEvent.click(page.getByRole('button', { name: 'Recent conversations' }));
+
+    await expect.element(page.getByRole('button', { name: 'Recent conversations' })).toHaveAttribute('aria-pressed', 'true');
+
+    await userEvent.keyboard('{Escape}');
+
+    // First Escape only dismisses history — the dialog is still open.
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Recent conversations' })).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.keyboard('{Escape}');
+
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).not.toBeInTheDocument();
+  });
+
+  it('closing hides the panel and shows the trigger button again', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+
+    await userEvent.click(page.getByRole('button', { name: 'Close' }));
+
+    await expect.element(page.getByRole('button', { name: 'Open chat' })).toBeInTheDocument();
+    await expect.element(page.getByText('GTM Orchestrator')).not.toBeInTheDocument();
+  });
+
+  it('opening the history panel lists recent conversations and selecting one loads it', async () => {
+    vi.mocked(client.conversations.list).mockResolvedValue([
+      { id: 3, title: 'Prior thread', messageCount: 4, updatedAt: new Date(), orgId: 'o', agentSlug: 'orchestrator', createdBy: null, createdAt: new Date() },
+    ] as never);
+    vi.mocked(client.conversations.get).mockResolvedValue({
+      id: 3,
+      orgId: 'o',
+      agentSlug: 'orchestrator',
+      title: 'Prior thread',
+      messageCount: 1,
+      messages: [{ id: 1, conversationId: 3, role: 'user', content: 'resumed', runsJson: null, createdAt: new Date() }],
+    } as never);
+    await render(<ChatBubble agents={AGENTS} />);
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+
+    await userEvent.click(page.getByRole('button', { name: 'Recent conversations' }));
+
+    await expect.element(page.getByText('Prior thread')).toBeInTheDocument();
+
+    await userEvent.click(page.getByText('Prior thread'));
+
+    await expect.element(page.getByText('resumed')).toBeInTheDocument();
+  });
+
+  it('dragging the trigger button moves it and does not open the panel', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    const trigger = page.getByRole('button', { name: 'Open chat' }).element() as HTMLElement;
+
+    dispatchPointerDrag(trigger, { x: 300, y: 300 }, { x: 250, y: 240 });
+    dispatchClick(trigger);
+
+    await vi.waitFor(() => {
+      expect(trigger.style.right).toBe('66px');
+      expect(trigger.style.bottom).toBe('76px');
+    });
+
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).not.toBeInTheDocument();
+  });
+
+  it('a plain click on the trigger with no movement still opens the panel', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    const trigger = page.getByRole('button', { name: 'Open chat' }).element() as HTMLElement;
+
+    dispatchPointerDrag(trigger, { x: 300, y: 300 }, { x: 300, y: 300 });
+    dispatchClick(trigger);
+
+    await expect.element(page.getByRole('dialog', { name: 'Chat' })).toBeInTheDocument();
+  });
+
+  it('the panel opens at the position the trigger button was last dragged to', async () => {
+    localStorage.setItem(POSITION_KEY, JSON.stringify({ right: 80, bottom: 120 }));
+    await render(<ChatBubble agents={AGENTS} />);
+
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+
+    // The panel is much wider/taller than the trigger button it swapped in
+    // for, so the persisted { right: 80, bottom: 120 } — valid for the
+    // button — may need re-clamping once the bigger panel is what's
+    // actually on screen. Compute the expected bound the same way the hook
+    // does rather than assuming the raw stored value survives unclamped.
+    const panel = page.getByRole('dialog', { name: 'Chat' }).element() as HTMLElement;
+    const maxRight = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
+    const maxBottom = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
+    const expectedRight = Math.min(Math.max(80, 8), maxRight);
+    const expectedBottom = Math.min(Math.max(120, 8), maxBottom);
+
+    await vi.waitFor(() => {
+      expect(panel.style.right).toBe(`${expectedRight}px`);
+      expect(panel.style.bottom).toBe(`${expectedBottom}px`);
+    });
+  });
+
+  it('dragging the open panel by its header moves it and persists the new position', async () => {
+    await render(<ChatBubble agents={AGENTS} />);
+    await userEvent.click(page.getByRole('button', { name: 'Open chat' }));
+
+    const panel = page.getByRole('dialog', { name: 'Chat' }).element() as HTMLElement;
+    const header = panel.querySelector('header') as HTMLElement;
+    // The panel is wide/tall enough that the viewport clamp — same edge
+    // margin the hook enforces — may bind before the full 50/40px move
+    // does, so compute the expected result the same way the hook does
+    // rather than assuming the raw delta lands unclamped.
+    const maxRight = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
+    const maxBottom = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
+    const expectedRight = Math.min(Math.max(16 + 50, 8), maxRight);
+    const expectedBottom = Math.min(Math.max(16 + 40, 8), maxBottom);
+
+    // Pointer moves 50px left and 40px up: right and bottom both grow.
+    dispatchPointerDrag(header, { x: 400, y: 300 }, { x: 350, y: 260 });
+
+    await vi.waitFor(() => {
+      expect(panel.style.right).toBe(`${expectedRight}px`);
+      expect(panel.style.bottom).toBe(`${expectedBottom}px`);
+    });
+    await vi.waitFor(() => {
+      expect(JSON.parse(localStorage.getItem(POSITION_KEY) ?? '{}')).toEqual({ right: expectedRight, bottom: expectedBottom });
+    });
+  });
+
+  it('clamps a stale persisted position instead of rendering the trigger button off-screen', async () => {
+    localStorage.setItem(POSITION_KEY, JSON.stringify({ right: 100000, bottom: 100000 }));
+    await render(<ChatBubble agents={AGENTS} />);
+    const trigger = page.getByRole('button', { name: 'Open chat' }).element() as HTMLElement;
+    const expectedRight = Math.max(8, window.innerWidth - trigger.offsetWidth - 8);
+    const expectedBottom = Math.max(8, window.innerHeight - trigger.offsetHeight - 8);
+
+    await vi.waitFor(() => {
+      expect(trigger.style.right).toBe(`${expectedRight}px`);
+      expect(trigger.style.bottom).toBe(`${expectedBottom}px`);
+    });
+  });
+
+  it('renders nothing when there are no agents, and never mounts the chat session', async () => {
+    const { container } = await render(<ChatBubble agents={[]} />);
+
+    expect(container.textContent).toBe('');
+    // Regression guard: with agents=[], ChatBubble must bail out to null
+    // BEFORE useChatSession (and its useLastViewedConversation call) ever
+    // mounts — otherwise a brand-new org with zero agents would fire a live
+    // chatWidget.getState() on every page load, and a pending Briefings
+    // handoff stash could even trigger a real conversations.create() write
+    // under a bogus agent slug. container.textContent alone can't catch
+    // that leak since it only checks what got rendered, not what ran.
+    expect(client.chatWidget.getState).not.toHaveBeenCalled();
+    expect(client.conversations.create).not.toHaveBeenCalled();
+  });
+
+  it('renders nothing on the /dashboard/chat route, and never mounts the chat session', async () => {
+    mockUsePathname.mockReturnValue('/dashboard/chat');
+
+    const { container } = await render(<ChatBubble agents={AGENTS} />);
+
+    expect(container.textContent).toBe('');
+    // Same regression guard as the empty-agents case above: on the
+    // full-page chat route, ChatBubble must bail out to null BEFORE
+    // useChatSession ever mounts — otherwise the bubble and ChatShell would
+    // both consume the same one-shot sessionStorage handoff stash, and
+    // whichever won the race would swallow a Briefings hand-off meant for
+    // the visible ChatShell.
+    expect(client.chatWidget.getState).not.toHaveBeenCalled();
+    expect(client.conversations.create).not.toHaveBeenCalled();
+  });
+});

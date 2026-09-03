@@ -44,6 +44,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   const index = Number(body.index);
   const signal = body.signal;
+  const target = body.target === 'region' ? 'region' : 'finding';
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 1000) : '';
   if (!Number.isInteger(index) || index < 0 || (signal !== 'agree' && signal !== 'disagree')) {
     return jsonError('BAD_REQUEST', 'index (integer) and signal (agree|disagree) are required', 400);
@@ -61,9 +62,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   const meta = { ...(obj.metadata ?? {}) } as Record<string, unknown>;
   const findings = Array.isArray(meta.findings) ? ([...(meta.findings as Finding[])]) : [];
-  const finding = findings[index];
+  const regions = Array.isArray(meta.regions) ? ([...(meta.regions as Finding[])]) : [];
+  const finding = target === 'region' ? regions[index] : findings[index];
   if (!finding) {
-    return jsonError('NOT_FOUND', `no finding at index ${index}`, 404);
+    return jsonError('NOT_FOUND', `no ${target} at index ${index}`, 404);
   }
 
   let learningCandidateId: number | null = null;
@@ -72,12 +74,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // back to a generic name so the candidate still lands in the queue.
     const step = await db.query.learningStepSchema.findFirst({ where: eq(learningStepSchema.orgId, caller.orgId) });
     const kit = typeof meta.template_id === 'string' ? meta.template_id : 'this kit';
-    const ruleText = [
-      `Reviewer correction on ${kit}, region ${finding.region ?? 'unknown'} (${finding.issue ?? 'issue'}):`,
-      `the model saw "${finding.observed ?? ''}" and expected "${finding.expected ?? ''}", but the reviewer disagreed —`,
-      `${note}`,
-      `Apply this when judging ${finding.region ?? 'that region'} on ${kit}.`,
-    ].join(' ');
+    const ruleText = target === 'region'
+      ? [
+          `Missed defect on ${kit}, region ${finding.region ?? 'unknown'}: the model marked it OK (${finding.observed ?? 'matched the references'}),`,
+          `but the reviewer found a problem — ${note}`,
+          `When judging ${finding.region ?? 'that region'} on ${kit}, check for this before calling it OK.`,
+        ].join(' ')
+      : [
+          `Reviewer correction on ${kit}, region ${finding.region ?? 'unknown'} (${finding.issue ?? 'issue'}):`,
+          `the model saw "${finding.observed ?? ''}" and expected "${finding.expected ?? ''}", but the reviewer disagreed —`,
+          `${note}`,
+          `Apply this when judging ${finding.region ?? 'that region'} on ${kit}.`,
+        ].join(' ');
     const candidate = await createCandidate({
       orgId: caller.orgId,
       stepName: step?.name ?? 'general',
@@ -87,16 +95,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     learningCandidateId = candidate.id;
   }
 
-  findings[index] = {
-    ...finding,
-    feedback: { signal, note: note || null, by: caller.actorId, at: new Date().toISOString(), learningCandidateId },
-  };
-  const agreeCount = findings.filter(f => f.feedback?.signal === 'agree').length;
-  const disagreeCount = findings.filter(f => f.feedback?.signal === 'disagree').length;
+  const stamp = { signal: signal as 'agree' | 'disagree', note: note || null, by: caller.actorId, at: new Date().toISOString(), learningCandidateId };
+  let status: string | undefined;
+  let extra: Record<string, unknown> = {};
+  if (target === 'region') {
+    regions[index] = { ...finding, feedback: stamp };
+    if (signal === 'disagree') {
+      // A missed defect: promote the region to a blocking finding and hold
+      // the kit as a reviewer decision. The model's verdict stays on record.
+      regions[index] = { ...regions[index], issue: 'missed' };
+      findings.push({ ...finding, issue: 'missed', severity: 'blocking', expected: finding.observed ?? 'as in the references', observed: note, confidence: undefined, feedback: stamp });
+      status = 'held';
+      extra = { reviewer_override: { verdict: 'hold', reason: note, by: caller.actorId, at: stamp.at, region: finding.region ?? null } };
+    }
+  } else {
+    findings[index] = { ...finding, feedback: stamp };
+  }
+  const all = [...findings, ...regions];
+  const agreeCount = all.filter(f => f.feedback?.signal === 'agree').length;
+  const disagreeCount = all.filter(f => f.feedback?.signal === 'disagree').length;
   await updateBusinessObject({
     id: obj.id,
-    metadata: { ...meta, findings, finding_feedback: { agree: agreeCount, disagree: disagreeCount, last_at: new Date().toISOString() } },
+    ...(status ? { status } : {}),
+    metadata: { ...meta, ...extra, findings, regions, finding_feedback: { agree: agreeCount, disagree: disagreeCount, last_at: stamp.at } },
   }, caller.orgId);
 
-  return NextResponse.json({ ok: true, findings, learningCandidateId });
+  return NextResponse.json({ ok: true, findings, regions, status: status ?? obj.status, learningCandidateId });
 }

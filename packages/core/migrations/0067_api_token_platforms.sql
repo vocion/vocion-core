@@ -30,32 +30,42 @@ ALTER TABLE "api_token" ADD COLUMN IF NOT EXISTS "key_hint" text;
 ALTER TABLE "api_token" ALTER COLUMN "secret_hash" DROP NOT NULL;
 --> statement-breakpoint
 
-ALTER TABLE "api_token"
-  ADD CONSTRAINT "api_token_dek_id_source_dek_id_fk"
-  FOREIGN KEY ("dek_id") REFERENCES "source_dek"("id") ON DELETE RESTRICT;
+DO $$
+BEGIN
+  ALTER TABLE "api_token"
+    ADD CONSTRAINT "api_token_dek_id_source_dek_id_fk"
+    FOREIGN KEY ("dek_id") REFERENCES "source_dek"("id") ON DELETE RESTRICT;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 
 -- The two shapes must never mix. A 'vocion' row carries a secret hash and no
 -- ciphertext; anything else carries ciphertext (with its nonce, tag and DEK)
 -- and no secret hash. Enforced in the database because a half-written row here
 -- is a credential that either cannot be verified or cannot be decrypted.
-ALTER TABLE "api_token"
-  ADD CONSTRAINT "api_token_shape_ck" CHECK (
-    (
-      "platform" = 'vocion'
-      AND "secret_hash" IS NOT NULL
-      AND "ciphertext" IS NULL
-      AND "dek_id" IS NULL
-    )
-    OR (
-      "platform" <> 'vocion'
-      AND "secret_hash" IS NULL
-      AND "ciphertext" IS NOT NULL
-      AND "nonce" IS NOT NULL
-      AND "auth_tag" IS NOT NULL
-      AND "dek_id" IS NOT NULL
-    )
-  );
+DO $$
+BEGIN
+  ALTER TABLE "api_token"
+    ADD CONSTRAINT "api_token_shape_ck" CHECK (
+      (
+        "platform" = 'vocion'
+        AND "secret_hash" IS NOT NULL
+        AND "ciphertext" IS NULL
+        AND "dek_id" IS NULL
+      )
+      OR (
+        "platform" <> 'vocion'
+        AND "secret_hash" IS NULL
+        AND "ciphertext" IS NOT NULL
+        AND "nonce" IS NOT NULL
+        AND "auth_tag" IS NOT NULL
+        AND "dek_id" IS NOT NULL
+      )
+    );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 --> statement-breakpoint
 
 -- One live credential per third-party platform per org. This is what lets

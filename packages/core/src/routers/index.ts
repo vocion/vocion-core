@@ -22,6 +22,7 @@ import {
   update as updateObject,
 } from './BusinessObject';
 import { suggestions as chatSuggestions } from './Chat';
+import { getState as getChatWidgetState, setState as setChatWidgetState } from './ChatWidget';
 import {
   append as appendConvMessage,
   create as createConv,
@@ -186,6 +187,10 @@ export const router = {
   budgets: {
     get: getBudget,
     upsert: upsertBudget,
+  },
+  chatWidget: {
+    getState: getChatWidgetState,
+    setState: setChatWidgetState,
   },
   briefings: {
     regenerate: briefingsRegenerateRoute,
