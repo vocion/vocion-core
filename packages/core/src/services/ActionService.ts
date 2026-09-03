@@ -233,6 +233,14 @@ export async function executeAction(
   if (!action) {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${run.actionId}`);
   }
+  // Only a run still awaiting its outcome may execute. `pending` is the review
+  // queue's approve, `approved` is a run the gate let straight through. A run
+  // that is done, failed or rejected has an outcome already, and re-running it
+  // would undo a decision — for an action that keeps a domain record, that
+  // means flipping a rejected record to approved.
+  if (run.status !== 'pending' && run.status !== 'approved') {
+    throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status} — already decided, cannot execute`);
+  }
 
   await db.update(actionRunSchema).set({ status: 'executing' }).where(eq(actionRunSchema.id, runId));
   const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;

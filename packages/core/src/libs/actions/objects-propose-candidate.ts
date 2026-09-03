@@ -201,12 +201,46 @@ type ObjectTypeRow = {
 };
 
 /**
+ * Object types, briefly remembered.
+ *
+ * `reviewCard` runs once per row when a queue page is rendered, and every one
+ * of those rows wants the same handful of types. The window is deliberately
+ * short: a workspace apply changes a type, and waiting seconds to see it is
+ * fine where waiting minutes would not be.
+ */
+const objectTypeCache = new Map<string, { row: ObjectTypeRow | null; readAt: number }>();
+
+/** How long a remembered object type stays good. One queue render takes milliseconds. */
+const OBJECT_TYPE_CACHE_MS = 5_000;
+
+/** Forget everything remembered. For tests, and for a caller that just wrote a type. */
+export function forgetCachedObjectTypes(): void {
+  objectTypeCache.clear();
+}
+
+/**
  * The org's definition of this object type, or null when the workspace has
  * not applied one yet.
  * @param orgId - The org the candidate belongs to.
  * @param slug - The object type slug from the input.
  */
 async function loadObjectType(orgId: string, slug: string): Promise<ObjectTypeRow | null> {
+  const cacheKey = `${orgId}:${slug}`;
+  const remembered = objectTypeCache.get(cacheKey);
+  if (remembered && Date.now() - remembered.readAt < OBJECT_TYPE_CACHE_MS) {
+    return remembered.row;
+  }
+  const row = await readObjectType(orgId, slug);
+  objectTypeCache.set(cacheKey, { row, readAt: Date.now() });
+  return row;
+}
+
+/**
+ * Read one object type straight from the database, no cache.
+ * @param orgId - The org the candidate belongs to.
+ * @param slug - The object type slug from the input.
+ */
+async function readObjectType(orgId: string, slug: string): Promise<ObjectTypeRow | null> {
   const { and, eq } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { businessObjectTypeSchema } = await import('@/models/Schema');
@@ -327,15 +361,15 @@ async function upsertCandidateObject(ctx: ActionContext, input: CandidateInput, 
     return;
   }
 
-  const metadata: Record<string, unknown> = {
-    ...input.fields,
-    _provenance: {
-      sourceUrl: input.sourceUrl,
-      sourceListingUrl: input.sourceListingUrl,
-      rawExtractRef: input.rawExtractRef,
-      extractionNotes: input.extractionNotes,
-      proposedBy: ctx.invokedBy,
-    },
+  // The payload a consumer reads is the record's own fields. Where it came
+  // from is bookkeeping and lives in its own column.
+  const metadata: Record<string, unknown> = { ...input.fields };
+  const provenance: Record<string, unknown> = {
+    sourceUrl: input.sourceUrl,
+    sourceListingUrl: input.sourceListingUrl,
+    rawExtractRef: input.rawExtractRef,
+    extractionNotes: input.extractionNotes,
+    proposedBy: ctx.invokedBy,
   };
 
   const [existing] = await db
@@ -350,7 +384,7 @@ async function upsertCandidateObject(ctx: ActionContext, input: CandidateInput, 
   if (existing) {
     await db
       .update(businessObjectSchema)
-      .set({ title: input.title, metadata, summary: input.summary })
+      .set({ title: input.title, metadata, provenance, summary: input.summary })
       .where(eq(businessObjectSchema.id, existing.id));
     return;
   }
@@ -361,6 +395,7 @@ async function upsertCandidateObject(ctx: ActionContext, input: CandidateInput, 
     title: input.title,
     status: CANDIDATE_STATUS.proposed,
     metadata,
+    provenance,
     summary: input.summary,
     reviewActionRunId: runId,
     createdBy: ctx.invokedBy ?? null,
@@ -419,7 +454,7 @@ async function findSimilarCandidates(orgId: string, input: CandidateInput): Prom
     // With one identity field there is no "same but for one value" to find.
     return [];
   }
-  const { and, eq, like, ne } = await import('drizzle-orm');
+  const { and, eq, inArray, like, ne } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { actionRunSchema } = await import('@/models/Schema');
 
@@ -427,23 +462,26 @@ async function findSimilarCandidates(orgId: string, input: CandidateInput): Prom
   // only letters, digits and hyphens, so no `%` or `_` can widen this.
   const prefix = `${CANDIDATE_ACTION_ID}:${normaliseForKey(input.objectType)}|${values[0]}|%`;
 
+  // The status filter belongs in the WHERE, not in a loop after it. Filtering
+  // ten already-fetched rows would report "nothing similar" whenever the ten
+  // newest happened to be rejected, which is exactly when a reviewer most
+  // wants to know the same thing has come round before.
   const rows = await db
-    .select({ status: actionRunSchema.status, dedupKey: actionRunSchema.dedupKey })
+    .select({ dedupKey: actionRunSchema.dedupKey })
     .from(actionRunSchema)
     .where(and(
       eq(actionRunSchema.orgId, orgId),
       eq(actionRunSchema.actionId, CANDIDATE_ACTION_ID),
       like(actionRunSchema.dedupKey, prefix),
       ne(actionRunSchema.dedupKey, dedupKeyFrom(input.objectType, values)),
+      inArray(actionRunSchema.status, ['pending', 'done']),
     ))
     .limit(10);
 
   const seen: string[] = [];
   for (const row of rows) {
-    if (row.status === 'pending' || row.status === 'done') {
-      const others = (row.dedupKey ?? '').split('|').slice(2).join(' · ');
-      seen.push(others || 'an earlier proposal');
-    }
+    const others = (row.dedupKey ?? '').split('|').slice(2).join(' · ');
+    seen.push(others || 'an earlier proposal');
   }
   return seen;
 }

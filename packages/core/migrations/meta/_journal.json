@@ -477,6 +477,13 @@
       "when": 1787287000000,
       "tag": "0067_business_object_candidate_link",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1787287100000,
+      "tag": "0068_business_object_candidate_corrections",
+      "breakpoints": true
     }
   ]
 }

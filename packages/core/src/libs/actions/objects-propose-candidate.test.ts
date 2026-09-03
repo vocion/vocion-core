@@ -15,7 +15,7 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, businessObjectSchema, businessObjectTypeSchema, trustRuleSchema } = await import('@/models/Schema');
-const { objectProposeCandidateAction } = await import('./objects-propose-candidate');
+const { forgetCachedObjectTypes, objectProposeCandidateAction } = await import('./objects-propose-candidate');
 const { listActions } = await import('./registry');
 const { proposeAction, executeAction, rejectAction } = await import('@/services/ActionService');
 const { and, eq } = await import('drizzle-orm');
@@ -82,6 +82,7 @@ function fieldValue(fields: Array<{ label: string; value: string; href?: string 
  * @param schema
  */
 async function seedObjectType(orgId = ORG, schema: Record<string, unknown> | null = EVENT_CANDIDATE_SCHEMA) {
+  forgetCachedObjectTypes();
   await db.insert(businessObjectTypeSchema).values({
     orgId,
     slug: TYPE_SLUG,
@@ -95,6 +96,9 @@ async function objectsFor(orgId = ORG) {
 }
 
 beforeEach(async () => {
+  // Each case applies its own object type; the card cache must not carry the
+  // previous case's version across.
+  forgetCachedObjectTypes();
   await db.delete(businessObjectSchema);
   await db.delete(businessObjectTypeSchema);
   await db.delete(actionRunSchema);
@@ -216,14 +220,15 @@ describe('the candidate row', () => {
 
     const [object] = await objectsFor();
 
-    expect(object!.metadata).toMatchObject({
-      _provenance: {
-        sourceUrl: 'https://listings.example.org/events/open-mic-night',
-        sourceListingUrl: 'https://listings.example.org/events',
-        rawExtractRef: 's3://extracts/abc.json',
-        extractionNotes: 'End time missing.',
-      },
+    expect(object!.provenance).toMatchObject({
+      sourceUrl: 'https://listings.example.org/events/open-mic-night',
+      sourceListingUrl: 'https://listings.example.org/events',
+      rawExtractRef: 's3://extracts/abc.json',
+      extractionNotes: 'End time missing.',
     });
+    // The payload itself stays the record's own fields, nothing else. Sorted
+    // because jsonb does not return keys in the order they were written.
+    expect(Object.keys(object!.metadata!).sort()).toEqual(['categories', 'start', 'title', 'venue']);
   });
 
   it('refreshes the one row when the same candidate is scraped again', async () => {
@@ -490,6 +495,31 @@ describe('the duplicate flag', () => {
 
     // A decided-against candidate is not something to merge with.
     expect(fieldValue(card.fields, 'Possible duplicate')).toBeUndefined();
+  });
+
+  it('still finds a live sibling hidden behind a pile of rejected ones', async () => {
+    // The status filter runs in the query, not over an already-capped page.
+    // Twelve rejected siblings would otherwise fill the ten-row window and
+    // the one still waiting — the only one worth merging with — would vanish.
+    for (let n = 1; n <= 12; n++) {
+      const rejected = await proposeAction({
+        orgId: ORG,
+        actionId: 'objects.propose_candidate',
+        principal: ingestionAgent(),
+        input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: `Venue ${n}` } }),
+      });
+      await rejectAction(rejected.runId, ORG, 'Duplicate listing');
+    }
+    await proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Flynn' } }),
+    });
+
+    const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
+
+    expect(fieldValue(card.fields, 'Possible duplicate')?.value).toContain('the-flynn');
   });
 
   it('never looks across orgs', async () => {
