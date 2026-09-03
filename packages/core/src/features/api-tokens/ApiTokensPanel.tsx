@@ -4,19 +4,24 @@
  * Admin surface for an org's API credentials, in both directions.
  *
  * **Vocion tokens.** Issuing a credential no longer needs shell access: an
- * admin names a token, picks how long it should live, copies the secret once,
- * and pastes it into whatever outside tool needs to call Vocion. The secret is
- * shown exactly once, right after creation — after a reload only the hash
- * exists, so the row can never show it again. An org may hold as many of these
- * as it has integrations.
+ * admin names a token, picks how long it should live, and pastes it into
+ * whatever outside tool needs to call Vocion. The token is shown in full right
+ * after creation, and can be shown again later from its row — the same way a
+ * platform key can. An org may hold as many of these as it has integrations.
+ *
+ * A token issued before Vocion started storing minted tokens encrypted is the
+ * one exception: only its hash exists, so its row says so instead of offering a
+ * show button that could never produce anything.
  *
  * **Platform keys.** The org's own OpenAI or Anthropic key, pasted here so
  * their model runs bill their account. Exactly one live key per platform: the
  * database enforces it, and this panel says so before you save and again when
  * you are about to replace one, because the replacement takes effect instantly
- * and silently otherwise. A platform key is masked in the table and only shown
- * when an admin clicks to see it, so the page can sit open without a vendor key
- * on display.
+ * and silently otherwise.
+ *
+ * Every credential of either kind is masked in the table and only shown when an
+ * admin clicks to see it, so the page can sit open without a secret on
+ * display.
  */
 
 import type { TokenSummary } from '@/services/ApiTokenService';
@@ -229,9 +234,8 @@ function FreshTokenNotice({ fresh, onDismiss }: { fresh: FreshToken; onDismiss: 
         {`Token “${fresh.name}” created`}
       </p>
       <p className="text-sm text-muted-foreground">
-        Copy it now. This is the only time it will be shown — Vocion stores only a
-        hash, so it cannot be recovered later. Revoke and create a new one if you
-        lose it.
+        Copy it into the tool that needs it. You can also show it again later
+        from its row in the table below.
       </p>
       <div className="flex items-center gap-2">
         <code className="flex-1 overflow-x-auto rounded bg-muted px-3 py-2 font-mono text-xs">
@@ -258,7 +262,7 @@ function FreshTokenNotice({ fresh, onDismiss }: { fresh: FreshToken; onDismiss: 
  */
 function revealRefusalMessage(status: 'not-found' | 'minted'): string {
   if (status === 'minted') {
-    return 'Shown once at creation — only a hash is stored.';
+    return 'Issued before tokens were stored encrypted — only a hash exists. Revoke it and create a new one to get a token you can read back.';
   }
   return 'This credential no longer exists. Reload the page.';
 }
@@ -284,9 +288,10 @@ const MASK = '••••••••';
  * key itself still exists at the vendor, and whoever has to go and delete it
  * there needs to be able to read it.
  *
- * A Vocion-issued row has no reveal button, and that is not a permission
- * decision: only the SHA-256 of those secrets is stored, so the plaintext
- * genuinely no longer exists to show.
+ * A Vocion-issued token opens here like any other credential. The exception is
+ * one issued before minted tokens were stored encrypted: only its SHA-256
+ * exists, so the cell says as much instead of offering a button that could
+ * never produce anything.
  * @param props - Component props.
  * @param props.token - The credential row being rendered.
  * @param props.fields - The platform's fields, for labelling a multi-value
@@ -314,11 +319,11 @@ function CredentialKeyCell({
   onReveal: () => void;
   onHide: () => void;
 }) {
-  if (token.platform === VOCION_PLATFORM_ID) {
+  if (!token.revealable) {
     return (
       <TableCell className="max-w-72 font-mono text-xs text-muted-foreground">
-        <span title="Shown once at creation. Vocion stores only a hash, so it cannot be shown again.">
-          Vocion-issued
+        <span title="Issued before Vocion stored minted tokens encrypted. Only a hash exists, so it cannot be shown again.">
+          Shown once at creation
         </span>
       </TableCell>
     );

@@ -1755,20 +1755,26 @@ export const apiTokenSchema = pgTable(
     /** Which platform this credential belongs to. See `CredentialPlatformId`. */
     platform: text('platform').default('vocion').notNull(),
     /**
-     * SHA-256 hex of the secret half. The plaintext is shown once, at issue.
-     * Set only on `vocion` rows — a supplied third-party key is stored
-     * encrypted below instead, because we have to be able to read it back.
+     * SHA-256 hex of the secret half, compared on every authenticated request.
+     * Set only on `vocion` rows — a supplied third-party key never
+     * authenticates into Vocion, so it has nothing to hash.
      */
     secretHash: text('secret_hash'),
-    /** FK to the DEK that encrypted `ciphertext`. Null on `vocion` rows. */
+    /**
+     * FK to the DEK that encrypted `ciphertext`. Null on a `vocion` row issued
+     * before minted tokens were kept encrypted.
+     */
     dekId: integer('dek_id').references(() => sourceDekSchema.id, { onDelete: 'restrict' }),
-    /** AES-256-GCM ciphertext of the supplied key. Null on `vocion` rows. */
+    /**
+     * AES-256-GCM ciphertext — the supplied key, or the whole minted token so
+     * the dashboard can show it again. Null on older `vocion` rows.
+     */
     ciphertext: text('ciphertext'),
     /** AES-256-GCM nonce (12 bytes, base64). */
     nonce: text('nonce'),
     /** AES-256-GCM auth tag (16 bytes, base64). */
     authTag: text('auth_tag'),
-    /** Masked tail of a supplied key, e.g. `…4a9F`, for display only. */
+    /** Masked tail of the credential, e.g. `…4a9F`, for display only. */
     keyHint: text('key_hint'),
     /** authz workspace role the token acts as. */
     role: text('role').default('owner').notNull(),
@@ -1797,19 +1803,32 @@ export const apiTokenSchema = pgTable(
       .on(table.orgId, table.platform)
       .where(sql`${table.revokedAt} is null and ${table.platform} <> 'vocion'`),
     // The two credential shapes must never mix. A `vocion` row carries a secret
-    // hash and no ciphertext; anything else carries ciphertext with everything
-    // needed to decrypt it, and no hash. Enforced in the database because a
-    // half-written row here is a credential that can either not be verified or
-    // not be decrypted, and neither failure shows up until someone tries to use
-    // it. Declared here as well as in migration 0066 so that `drizzle-kit
-    // generate` can see it and does not propose dropping it later.
+    // hash, and either a complete set of encryption columns or none of them —
+    // none being a token issued before minted tokens were stored encrypted.
+    // Anything else carries ciphertext with everything needed to decrypt it and
+    // no hash. Enforced in the database because a half-written row here is a
+    // credential that can either not be verified or not be decrypted, and
+    // neither failure shows up until someone tries to use it. Declared here as
+    // well as in migrations 0067 and 0068 so that `drizzle-kit generate` can see
+    // it and does not propose dropping it later.
     check(
       'api_token_shape_ck',
       sql`(
       ${table.platform} = 'vocion'
       and ${table.secretHash} is not null
-      and ${table.ciphertext} is null
-      and ${table.dekId} is null
+      and (
+        (
+          ${table.ciphertext} is null
+          and ${table.nonce} is null
+          and ${table.authTag} is null
+          and ${table.dekId} is null
+        ) or (
+          ${table.ciphertext} is not null
+          and ${table.nonce} is not null
+          and ${table.authTag} is not null
+          and ${table.dekId} is not null
+        )
+      )
     ) or (
       ${table.platform} <> 'vocion'
       and ${table.secretHash} is null

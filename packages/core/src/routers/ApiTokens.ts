@@ -10,9 +10,11 @@
  *     prerequisite for integrating anything.
  *   - **Supplied platform keys** — the org's own OpenAI or Anthropic key,
  *     stored encrypted so their model spend bills their account instead of
- *     ours. The list only ever carries the masked hint; the full key leaves the
- *     server on one route, `revealPlatformKey`, and only when an admin asks for
- *     it by row.
+ *     ours.
+ *
+ * Both kinds are stored encrypted and both are readable back the same way: the
+ * list only ever carries the masked hint, and the full value leaves the server
+ * on one route, `revealPlatformKey`, and only when an admin asks for it by row.
  *
  * Two rules shape every handler here:
  *
@@ -89,8 +91,8 @@ export const createTokenRoute = os
     const { orgId, userId } = await guardTokenAdmin();
     const expiresAt = readExpiry(input.expiresAt);
     try {
-      // The plaintext in this response is the only time it exists outside the
-      // caller's clipboard — only its SHA-256 is stored.
+      // The token is returned in full so the panel can show it immediately.
+      // It is also kept, encrypted, so the row can show it again later.
       const { token, id } = await issueToken({
         orgId,
         name: input.name,
@@ -197,18 +199,19 @@ export const createPlatformKeyRoute = os
   });
 
 /**
- * Decrypt one supplied platform key so the admin who owns it can read it back.
+ * Decrypt one stored credential so the admin who owns it can read it back —
+ * either a supplied platform key or a Vocion-issued token.
  *
- * The dashboard masks every key by default and calls this only when someone
- * asks to see one, so the plaintext crosses the wire on a deliberate click
- * rather than on every page load. Admin-only and session-only like the rest of
- * this router, and the reveal is logged — without the value — so an audit can
- * answer who looked at which credential.
+ * The dashboard masks every credential by default and calls this only when
+ * someone asks to see one, so the plaintext crosses the wire on a deliberate
+ * click rather than on every page load. Admin-only and session-only like the
+ * rest of this router, and the reveal is logged — without the value — so an
+ * audit can answer who looked at which credential.
  *
- * The three refusals come back as ordinary results rather than errors, because
- * none of them means the caller did anything wrong: a Vocion token has no
- * plaintext left to show, a revoked key is deliberately dead, and a missing row
- * is usually a stale tab.
+ * The refusals come back as ordinary results rather than errors, because
+ * neither means the caller did anything wrong: a Vocion token issued before
+ * minted tokens were stored encrypted has no plaintext left to show, and a
+ * missing row is usually a stale tab.
  */
 export const revealPlatformKeyRoute = os
   .input(z.object({ tokenId: z.string().min(1) }))
