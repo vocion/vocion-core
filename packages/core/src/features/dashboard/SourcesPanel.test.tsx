@@ -2,7 +2,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
-import { describeSyncResult, filterConnectors, parseStrapiCollections, SourcesPanel } from './SourcesPanel';
+import { describeSyncResult, filterConnectors, initialCredentialChoice, parseStrapiCollections, SourcesPanel } from './SourcesPanel';
 
 /**
  * The Sources panel has two jobs a reviewer would notice being wrong: the
@@ -1243,5 +1243,73 @@ describe('the rename, as rendered', () => {
     const strays = rendered.match(/\bsources?\b/gi) ?? [];
 
     expect(strays).toEqual([]);
+  });
+});
+
+/**
+ * Which credential the dialog opens on.
+ *
+ * The revoked case is the one worth pinning. A connector whose credential was
+ * revoked still names it, and opening on it showed "nothing to change here"
+ * above a form with no fields and a button that fails — a dead end in exactly
+ * the situation the broken-credential work exists for.
+ */
+describe('initialCredentialChoice', () => {
+  const offered = [
+    { id: 'cred_a', name: 'Strapi — prod', keyHint: '…aaaa', expiresAt: null },
+    { id: 'cred_b', name: 'Strapi — staging', keyHint: '…bbbb', expiresAt: null },
+  ];
+
+  it('opens on the credential the connector names', () => {
+    expect(initialCredentialChoice('cred_b', offered)).toBe('cred_b');
+  });
+
+  it('opens on the empty form when the named credential is no longer offered', () => {
+    expect(initialCredentialChoice('cred_revoked', offered)).toBeNull();
+  });
+
+  it('opens on the empty form when the named credential is the only one and it is gone', () => {
+    expect(initialCredentialChoice('cred_revoked', [])).toBeNull();
+  });
+
+  it('opens on the newest credential when the connector names none', () => {
+    expect(initialCredentialChoice(null, offered)).toBe('cred_a');
+  });
+
+  it('opens on the empty form when the workspace holds none', () => {
+    expect(initialCredentialChoice(null, [])).toBeNull();
+  });
+});
+
+describe('a connector whose credential was revoked', () => {
+  it('offers the fields rather than a preselected credential that cannot be used', async () => {
+    // The whole dialog, not just the helper: the person must see somewhere to
+    // type, because supplying a new credential is the only fix.
+    stubSourcesApi(CONNECTORS, [], {
+      // Revoked reads as not connected, which is what puts Connect on the row.
+      sources: [{ ...sourceRow(null), credentialConnected: false, credentialBroken: 'revoked' }],
+      linkedCredentialId: 'cred_revoked',
+      available: [],
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+
+    await expect.element(page.getByLabelText('Instance URL')).toBeVisible();
+    await expect.element(page.getByText(/nothing to change here/)).not.toBeInTheDocument();
+  });
+
+  it('still lets another credential be picked when the workspace holds one', async () => {
+    stubSourcesApi(CONNECTORS, [], {
+      sources: [{ ...sourceRow(null), credentialConnected: false, credentialBroken: 'revoked' }],
+      linkedCredentialId: 'cred_revoked',
+      available: [{ id: 'cred_spare', name: 'Strapi — spare', keyHint: '…cccc', expiresAt: null }],
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+
+    await expect.element(page.getByText('Strapi — spare')).toBeVisible();
+    await expect.element(page.getByLabelText('Instance URL')).toBeVisible();
   });
 });

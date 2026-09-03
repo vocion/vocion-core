@@ -512,7 +512,6 @@ export async function runSync(opts: {
     throw new Error(`source ${opts.sourceId} references unknown connector: ${connectorSlug}`);
   }
 
-  const { since, cursor } = await beginSync(opts.sourceId, opts.orgId, !!opts.incremental);
   // Resolve decrypted credentials from the vault so token/OAuth connectors can
   // authenticate. Two shapes of answer, and this row says which:
   //
@@ -524,11 +523,21 @@ export async function runSync(opts: {
   //     that kind: one HubSpot grant covers deals, contacts and companies.
   //
   // Undefined for connectors that need no credential (e.g. `web`).
+  //
+  // Before `beginSync`, deliberately. A credential that has been revoked or
+  // has expired throws here, and claiming the checkpoint first would leave a
+  // run marked `running` that nothing ever finishes — a spinner on the
+  // connectors page with no failure behind it. Failing before any run is
+  // claimed also keeps a broken credential out of the sync history, where it
+  // would read as an attempt that went wrong rather than one that never
+  // started.
   const credentials = await getCredentialsForConnector({
     orgId: opts.orgId,
     connectorSlug,
     apiTokenId: row.apiTokenId,
   });
+
+  const { since, cursor } = await beginSync(opts.sourceId, opts.orgId, !!opts.incremental);
   const cutoff = new Date();
   const result: SyncResult = {
     sourceId: opts.sourceId,
