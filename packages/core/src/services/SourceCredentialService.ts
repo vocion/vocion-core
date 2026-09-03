@@ -19,8 +19,14 @@
  *     The link is per connector rather than per install, because a workspace
  *     runs several connectors of one kind and they point at different places
  *     when it does — a Strapi against staging and another against production.
- *     Each names its own credential. Two may name the same one if somebody
- *     picks it twice; nothing forces them to.
+ *     Each names its own credential.
+ *
+ *     One credential, one connector: two connectors may never name the same
+ *     one. A credential is issued for the instance or account its connector
+ *     talks to, so a second connector naming it is somebody having picked the
+ *     wrong row, and revoking it would then take down a connector nobody was
+ *     looking at. A partial unique index on `knowledge_source.api_token_id`
+ *     is what actually holds the rule.
  *   - otherwise — `source_credential`, where every OAuth grant lives. A grant
  *     is issued to one installation and carries a refresh token, so there is
  *     nothing to share and nothing to point at.
@@ -187,6 +193,20 @@ function brokenCredentialMessage(reason: BrokenCredentialReason, platformLabel: 
 }
 
 /**
+ * A credential another connector already uses.
+ *
+ * Its own type because the route shows this message to whoever picked it, and
+ * "that credential is already in use" is the whole explanation — unlike a
+ * constraint violation, which says the same thing in words nobody can act on.
+ */
+export class CredentialInUseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CredentialInUseError';
+  }
+}
+
+/**
  * Point one connector at a credential the workspace already holds.
  *
  * This is the "pick a stored credential" half of connector setup — the half
@@ -200,6 +220,11 @@ function brokenCredentialMessage(reason: BrokenCredentialReason, platformLabel: 
  * cannot authenticate Jira, and a mismatch here would surface as an
  * unexplainable 401 at the next sync instead of an error at the moment someone
  * chose the wrong thing.
+ *
+ * Refuses a credential another connector already uses, too. A key is issued
+ * for the one instance or account its connector talks to, so a second
+ * connector naming it is a mis-pick — and revoking it later would take down a
+ * connector nobody was looking at.
  * @param input - The connector and the credential to link.
  * @param input.orgId - The org both belong to.
  * @param input.sourceId - The `knowledge_source` row to point at the credential.
@@ -235,17 +260,95 @@ export async function linkSourceToStoredCredential(input: {
     );
   }
 
-  const linked = await db
-    .update(knowledgeSourceSchema)
-    .set({ apiTokenId: input.apiTokenId })
+  // Checked before writing so the refusal can name the connector holding it.
+  // The unique index is still the rule — two people picking the same
+  // credential at once get past this check, and one of the two writes then
+  // fails, which the catch below turns into the same message.
+  const [heldBy] = await db
+    .select({ id: knowledgeSourceSchema.id, slug: knowledgeSourceSchema.slug })
+    .from(knowledgeSourceSchema)
     .where(and(
       eq(knowledgeSourceSchema.orgId, input.orgId),
-      eq(knowledgeSourceSchema.id, input.sourceId),
+      eq(knowledgeSourceSchema.apiTokenId, input.apiTokenId),
     ))
-    .returning({ id: knowledgeSourceSchema.id });
+    .limit(1);
+  if (heldBy && heldBy.id !== input.sourceId) {
+    throw new CredentialInUseError(
+      `The ${heldBy.slug} connector already uses that credential. Store a separate one for this connector.`,
+    );
+  }
+
+  let linked: { id: number }[];
+  try {
+    linked = await db
+      .update(knowledgeSourceSchema)
+      .set({ apiTokenId: input.apiTokenId })
+      .where(and(
+        eq(knowledgeSourceSchema.orgId, input.orgId),
+        eq(knowledgeSourceSchema.id, input.sourceId),
+      ))
+      .returning({ id: knowledgeSourceSchema.id });
+  } catch (error) {
+    if (!isUniqueViolation(error)) {
+      throw error;
+    }
+    // Two people picked the same credential at the same time. The index
+    // refused the second write, which is the rule doing its job.
+    console.error('[linkSourceToStoredCredential] a concurrent link claimed the credential first', {
+      sourceId: input.sourceId,
+      connectorSlug: input.connectorSlug,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw new CredentialInUseError(
+      'Another connector just claimed that credential. Store a separate one for this connector.',
+    );
+  }
   if (linked.length === 0) {
     throw new Error(`connector ${input.sourceId} not found for org ${input.orgId}`);
   }
+}
+
+/**
+ * Whether a database error is a unique-constraint violation.
+ *
+ * Postgres says so with SQLSTATE 23505, which every driver in use here passes
+ * through on the error object as `code`.
+ * @param error - Whatever the query threw.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === '23505';
+}
+
+/**
+ * The stored credentials this org's connectors already use, so setup can offer
+ * only the ones still free.
+ *
+ * Offering a credential another connector holds would put a choice in front of
+ * somebody that the link then refuses — worse than not offering it at all.
+ * @param orgId - The org whose connectors to read.
+ * @param exceptSourceId - A connector to leave out, so its own credential still shows as its current pick.
+ */
+export async function credentialIdsInUse(
+  orgId: string,
+  exceptSourceId?: number,
+): Promise<string[]> {
+  const rows = await db
+    .select({ sourceId: knowledgeSourceSchema.id, apiTokenId: knowledgeSourceSchema.apiTokenId })
+    .from(knowledgeSourceSchema)
+    .where(and(
+      eq(knowledgeSourceSchema.orgId, orgId),
+      isNotNull(knowledgeSourceSchema.apiTokenId),
+    ));
+  const inUse: string[] = [];
+  for (const row of rows) {
+    if (row.apiTokenId !== null && row.sourceId !== exceptSourceId) {
+      inUse.push(row.apiTokenId);
+    }
+  }
+  return inUse;
 }
 
 /**

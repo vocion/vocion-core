@@ -27,6 +27,8 @@ vi.mock('@/services/SourceCredentialService', () => ({
       this.reason = reason;
     }
   },
+  CredentialInUseError: class CredentialInUseError extends Error {},
+  credentialIdsInUse: vi.fn(),
   getCredentialsForConnector: vi.fn(),
   linkSourceToStoredCredential: vi.fn(),
   storeCredentialForSource: vi.fn(),
@@ -42,6 +44,7 @@ vi.mock('@/services/SourceSyncService', () => ({ getSourceById: vi.fn() }));
 const { clerkAuth } = await import('@/libs/Auth');
 const { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } = await import('@/services/ApiTokenService');
 const {
+  credentialIdsInUse,
   getCredentialsForConnector,
   linkSourceToStoredCredential,
   storeCredentialForSource,
@@ -81,6 +84,7 @@ beforeEach(() => {
   vi.mocked(getCredentialsForConnector).mockResolvedValue({ token: 'stored-tok' });
   vi.mocked(storedCredentialIdForSource).mockResolvedValue(null);
   vi.mocked(listPlatformCredentials).mockResolvedValue([]);
+  vi.mocked(credentialIdsInUse).mockResolvedValue([]);
   vi.mocked(storePlatformKey).mockResolvedValue({ id: 'cred_new', keyHint: '…aaaa' });
   vi.mocked(rotatePlatformCredential).mockResolvedValue({ status: 'ok', keyHint: '…bbbb' });
   vi.mocked(linkSourceToStoredCredential).mockResolvedValue(undefined);
@@ -195,6 +199,21 @@ describe('GET /rpc/sources/[id]/credentials — credentials to pick from', () =>
     expect(body.platform).toBe('strapi');
   });
 
+  it('leaves out a credential another connector already uses', async () => {
+    // One credential, one connector. Offering a taken one would put a choice
+    // in front of somebody that the link then refuses.
+    vi.mocked(listPlatformCredentials).mockResolvedValue([
+      { id: 'cred_free', name: 'Strapi — staging', keyHint: '…aaaa', createdAt: new Date(0), expiresAt: null },
+      { id: 'cred_taken', name: 'Strapi — prod', keyHint: '…bbbb', createdAt: new Date(0), expiresAt: null },
+    ]);
+    vi.mocked(credentialIdsInUse).mockResolvedValue(['cred_taken']);
+
+    const body = await (await GET(request, context('1'))).json();
+
+    expect(credentialIdsInUse).toHaveBeenCalledWith('org_1', 1);
+    expect(body.available.map((credential: { id: string }) => credential.id)).toEqual(['cred_free']);
+  });
+
   it('says which credential the connector currently points at', async () => {
     vi.mocked(storedCredentialIdForSource).mockResolvedValue('cred_a');
 
@@ -301,6 +320,20 @@ describe('POST /rpc/sources/[id]/credentials', () => {
 
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('does not exist') });
+  });
+
+  it('says a credential is already in use rather than failing silently', async () => {
+    const { CredentialInUseError } = await import('@/services/SourceCredentialService');
+    vi.mocked(linkSourceToStoredCredential).mockRejectedValue(
+      new CredentialInUseError('The strapi-staging connector already uses that credential. Store a separate one for this connector.'),
+    );
+
+    const res = await POST(post({ apiTokenId: 'cred_taken' }), context('1'));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringContaining('already uses that credential'),
+    });
   });
 
   it('hides a failure that is not the caller\'s to fix', async () => {

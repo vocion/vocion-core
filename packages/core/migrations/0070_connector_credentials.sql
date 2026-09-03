@@ -19,8 +19,14 @@
 --    different places: a Strapi against staging and another against
 --    production, two partner instances, two Jira sites. Those need different
 --    credentials by definition, so the link belongs on the row a person adds,
---    edits and syncs. Nothing is forbidden by this: two connectors may name
---    the same credential if somebody picks it twice.
+--    edits and syncs.
+--
+--    Unique where set, because one credential belongs to one connector. A key
+--    is issued for the single instance or account its connector talks to, so a
+--    second connector naming it is a mis-pick — and revoking it would then
+--    take down a connector nobody was looking at. Partial, so the many
+--    connectors using no stored credential are not all competing for one
+--    null.
 --
 --    ON DELETE RESTRICT because a credential a connector is using must not
 --    vanish underneath it. Retiring one means revoking the row, which leaves
@@ -66,8 +72,9 @@ ALTER TABLE "knowledge_source"
 
 --> statement-breakpoint
 
-CREATE INDEX IF NOT EXISTS "knowledge_source_api_token_idx"
-  ON "knowledge_source" ("api_token_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "knowledge_source_api_token_live_idx"
+  ON "knowledge_source" ("api_token_id")
+  WHERE "api_token_id" IS NOT NULL;
 
 --> statement-breakpoint
 

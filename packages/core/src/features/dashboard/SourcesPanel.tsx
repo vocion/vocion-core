@@ -403,8 +403,9 @@ function collectCredentialValues(fields: CredField[], values: Record<string, str
 }
 
 /**
- * A credential the workspace already holds for this connector's platform, as
- * the picker shows it. Name and masked hint only — nothing decrypted.
+ * A credential the workspace already holds for this connector's platform and
+ * no other connector is using, as the picker shows it. Name and masked hint
+ * only — nothing decrypted.
  */
 type StoredCredentialOption = {
   id: string;
@@ -427,8 +428,12 @@ type PlatformField = {
  *
  * The picker is the point. A workspace that saved its Jira key under API
  * credentials should not be asked for it a second time — and a key supplied
- * here becomes a workspace credential too, so the next connector on the same
- * platform can reuse it.
+ * here becomes a workspace credential too, listed and rotatable alongside the
+ * rest.
+ *
+ * Only credentials no other connector is using are offered. One credential
+ * belongs to one connector, because a key is issued for the single instance or
+ * account its connector talks to.
  *
  * The form's fields come from the server's platform descriptor when the
  * connector has one (that is how Strapi's instance URL and Jira's email get
@@ -565,7 +570,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
             {usingStored
               ? (
                   <p className="text-xs text-muted-foreground">
-                    Rotating this credential under API credentials updates every connector using it — nothing to change here.
+                    Rotating this credential under API credentials updates this connector — nothing to change here.
                   </p>
                 )
               : (
@@ -607,7 +612,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
                     ))}
                     <p className="text-[11px] text-muted-foreground">
                       {platformFields
-                        ? 'Stored AES-GCM encrypted at rest, and listed under API credentials so your next connector can reuse it.'
+                        ? 'Stored AES-GCM encrypted at rest, and listed under API credentials so you can rotate it there.'
                         : 'Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.'}
                     </p>
                   </>

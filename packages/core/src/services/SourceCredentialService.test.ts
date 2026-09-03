@@ -55,7 +55,9 @@ const {
   tenantAccountSchema,
 } = await import('@/models/Schema');
 const {
+  credentialIdsInUse,
   credentialStatusForOrg,
+  CredentialInUseError,
   getCredentialsForConnector,
   getCredentialsForSource,
   linkSourceToStoredCredential,
@@ -356,6 +358,91 @@ describe('a connector pointing at a stored credential', () => {
     })).rejects.toThrow(/does not exist/);
   });
 
+  it('refuses a credential another connector already uses', async () => {
+    // One credential, one connector. A key is issued for the single instance
+    // or account its connector talks to, so a second connector naming it is a
+    // mis-pick — and revoking it would take down a connector nobody was
+    // looking at.
+    const staging = await makeConnector('strapi', 'strapi-staging');
+    const production = await makeConnector('strapi', 'strapi-production');
+    const credential = await storePlatformKey({
+      orgId: ORG,
+      name: 'Strapi — staging',
+      platform: 'strapi',
+      values: STRAPI,
+    });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: staging, connectorSlug: 'strapi', apiTokenId: credential.id });
+
+    await expect(linkSourceToStoredCredential({
+      orgId: ORG,
+      sourceId: production,
+      connectorSlug: 'strapi',
+      apiTokenId: credential.id,
+    })).rejects.toThrow(CredentialInUseError);
+  });
+
+  it('names the connector holding the credential, so the refusal can be acted on', async () => {
+    const staging = await makeConnector('strapi', 'strapi-staging');
+    const production = await makeConnector('strapi', 'strapi-production');
+    const credential = await storePlatformKey({
+      orgId: ORG,
+      name: 'Strapi — staging',
+      platform: 'strapi',
+      values: STRAPI,
+    });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: staging, connectorSlug: 'strapi', apiTokenId: credential.id });
+
+    await expect(linkSourceToStoredCredential({
+      orgId: ORG,
+      sourceId: production,
+      connectorSlug: 'strapi',
+      apiTokenId: credential.id,
+    })).rejects.toThrow(/strapi-staging connector already uses that credential/);
+  });
+
+  it('lets a connector re-pick the credential it already uses', async () => {
+    // Saving the form again without changing the pick must not read as two
+    // connectors competing for one credential.
+    const sourceId = await makeConnector('strapi');
+    const credential = await storePlatformKey({
+      orgId: ORG,
+      name: 'Strapi — prod',
+      platform: 'strapi',
+      values: STRAPI,
+    });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId, connectorSlug: 'strapi', apiTokenId: credential.id });
+
+    await expect(linkSourceToStoredCredential({
+      orgId: ORG,
+      sourceId,
+      connectorSlug: 'strapi',
+      apiTokenId: credential.id,
+    })).resolves.toBeUndefined();
+  });
+
+  it('refuses a credential another org\'s connector holds only as not existing', async () => {
+    // The credential lookup is org-scoped, so a cross-org id never reaches the
+    // in-use check — and the message must not confirm that somebody else's
+    // connector uses it.
+    const sourceId = await makeConnector('strapi');
+    const theirs = await storePlatformKey({
+      orgId: 'org_somebody_else',
+      name: 'Their Strapi',
+      platform: 'strapi',
+      values: STRAPI,
+    });
+    await db
+      .insert(knowledgeSourceSchema)
+      .values({ orgId: 'org_somebody_else', slug: 'strapi', kind: 'plugin', configJson: {}, apiTokenId: theirs.id });
+
+    await expect(linkSourceToStoredCredential({
+      orgId: ORG,
+      sourceId,
+      connectorSlug: 'strapi',
+      apiTokenId: theirs.id,
+    })).rejects.toThrow(/does not exist/);
+  });
+
   it('refuses to link a connector belonging to another org', async () => {
     const [theirSource] = await db
       .insert(knowledgeSourceSchema)
@@ -461,5 +548,81 @@ describe('credentialStatusForOrg', () => {
 
     expect(status.bySourceId[sourceId]).toBeUndefined();
     expect(status.byConnectorSlug.strapi).toBeUndefined();
+  });
+});
+
+describe('credentialIdsInUse', () => {
+  const STRAPI = { baseUrl: 'https://cms.example.com', token: 'strapi-token-aaaa' };
+
+  it('lists a credential another connector holds, so setup can leave it out', async () => {
+    const staging = await makeConnector('strapi', 'strapi-staging');
+    const production = await makeConnector('strapi', 'strapi-production');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi — staging', platform: 'strapi', values: STRAPI });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: staging, connectorSlug: 'strapi', apiTokenId: credential.id });
+
+    await expect(credentialIdsInUse(ORG, production)).resolves.toEqual([credential.id]);
+  });
+
+  it('leaves out the asking connector\'s own credential, which is its current pick', async () => {
+    const sourceId = await makeConnector('strapi');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi — prod', platform: 'strapi', values: STRAPI });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId, connectorSlug: 'strapi', apiTokenId: credential.id });
+
+    await expect(credentialIdsInUse(ORG, sourceId)).resolves.toEqual([]);
+    await expect(credentialIdsInUse(ORG)).resolves.toEqual([credential.id]);
+  });
+
+  it('says nothing is in use when no connector names a credential', async () => {
+    await makeConnector('strapi');
+
+    await expect(credentialIdsInUse(ORG)).resolves.toEqual([]);
+  });
+
+  it('ignores another org\'s connectors', async () => {
+    const theirs = await storePlatformKey({ orgId: 'org_somebody_else', name: 'Their Strapi', platform: 'strapi', values: STRAPI });
+    await db
+      .insert(knowledgeSourceSchema)
+      .values({ orgId: 'org_somebody_else', slug: 'strapi', kind: 'plugin', configJson: {}, apiTokenId: theirs.id });
+
+    await expect(credentialIdsInUse(ORG)).resolves.toEqual([]);
+  });
+});
+
+describe('the database rule behind it', () => {
+  const STRAPI = { baseUrl: 'https://cms.example.com', token: 'strapi-token-aaaa' };
+
+  it('refuses a second connector on one credential even when the service is bypassed', async () => {
+    // The service's own check is for the message. This is the rule: two people
+    // picking the same credential at once both pass that check, and the index
+    // is what stops the second write.
+    const staging = await makeConnector('strapi', 'strapi-staging');
+    const production = await makeConnector('strapi', 'strapi-production');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi — staging', platform: 'strapi', values: STRAPI });
+    await db.update(knowledgeSourceSchema).set({ apiTokenId: credential.id }).where(eq(knowledgeSourceSchema.id, staging));
+
+    // Asserted on SQLSTATE rather than on the message, because the driver
+    // wraps the message and `isUniqueViolation` reads the code too.
+    const refusal = await db
+      .update(knowledgeSourceSchema)
+      .set({ apiTokenId: credential.id })
+      .where(eq(knowledgeSourceSchema.id, production))
+      .then(() => null, (error: unknown) => error);
+
+    expect(refusal).not.toBeNull();
+    expect((refusal as { cause?: { code?: string } })?.cause?.code ?? (refusal as { code?: string })?.code).toBe('23505');
+  });
+
+  it('lets any number of connectors name no credential at all', async () => {
+    // The index is partial, so the connectors using none are not all
+    // competing for one null.
+    await makeConnector('web', 'web-docs');
+    await makeConnector('web', 'web-blog');
+
+    const [count] = await db
+      .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
+      .from(knowledgeSourceSchema)
+      .where(eq(knowledgeSourceSchema.slug, 'web-blog'));
+
+    expect(count?.apiTokenId).toBeNull();
   });
 });

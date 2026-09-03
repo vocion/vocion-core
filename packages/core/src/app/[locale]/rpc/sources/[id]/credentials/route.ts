@@ -37,6 +37,8 @@ import { CredentialValidationError, platformForConnectorSlug } from '@/libs/plat
 import { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } from '@/services/ApiTokenService';
 import {
   ConnectorCredentialError,
+  credentialIdsInUse,
+  CredentialInUseError,
   getCredentialsForConnector,
   linkSourceToStoredCredential,
   storeCredentialForSource,
@@ -70,8 +72,13 @@ export async function GET(
   const platform = platformForConnectorSlug(connectorSlug);
   // Metadata only — name and masked hint, nothing decrypted. This is what lets
   // setup offer a key the workspace already typed instead of asking again.
-  const available = platform ? await listPlatformCredentials(orgId, platform.id) : [];
+  const storedForPlatform = platform ? await listPlatformCredentials(orgId, platform.id) : [];
   const linkedCredentialId = await storedCredentialIdForSource(orgId, sourceId);
+  // One credential belongs to one connector, so a credential another connector
+  // holds is left out rather than offered and then refused. This connector's
+  // own is kept, since it is the current pick.
+  const takenElsewhere = new Set(await credentialIdsInUse(orgId, sourceId));
+  const available = storedForPlatform.filter(credential => !takenElsewhere.has(credential.id));
   // The form's fields come from the platform descriptor rather than a copy kept
   // in the page, so Strapi's instance URL and Jira's email arrive without the
   // browser needing to know either connector exists. RegExp does not survive
@@ -202,7 +209,7 @@ export async function POST(
       });
       return Response.json({ ok: true, apiTokenId: pickedCredentialId, keyHint: rotated.keyHint });
     } catch (err) {
-      const isSafeToShow = err instanceof CredentialValidationError;
+      const isSafeToShow = err instanceof CredentialValidationError || err instanceof CredentialInUseError;
       console.error('[rpc/sources/credentials] could not rotate stored credential', {
         connectorSlug,
         message: err instanceof Error ? err.message : String(err),
@@ -226,7 +233,7 @@ export async function POST(
       });
       return Response.json({ ok: true, apiTokenId: pickedCredentialId });
     } catch (err) {
-      const isSafeToShow = err instanceof ConnectorCredentialError;
+      const isSafeToShow = err instanceof ConnectorCredentialError || err instanceof CredentialInUseError;
       console.error('[rpc/sources/credentials] could not link stored credential', {
         connectorSlug,
         message: err instanceof Error ? err.message : String(err),
@@ -265,7 +272,7 @@ export async function POST(
       // written for the person filling the form and names no secret. Anything
       // else came from the database or the vault and can carry a constraint
       // detail or a KMS error, so it is logged and replaced.
-      const isSafeToShow = err instanceof CredentialValidationError;
+      const isSafeToShow = err instanceof CredentialValidationError || err instanceof CredentialInUseError;
       console.error('[rpc/sources/credentials] could not store platform credential', {
         connectorSlug,
         platform: platform.id,
