@@ -46,11 +46,13 @@ export async function resolveRunAgentSlug(
       }
       case 'action': {
         const [run] = await db
-          .select({ invokedBy: actionRunSchema.invokedBy })
+          .select({ invokedBy: actionRunSchema.invokedBy, proposal: actionRunSchema.proposal })
           .from(actionRunSchema)
           .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
           .limit(1);
-        return agentSlugFromPrincipal(run?.invokedBy);
+        // A proposal made over the API records its caller in invokedBy, so the
+        // envelope is the only place its agent is named.
+        return agentSlugFromPrincipal(run?.invokedBy) ?? run?.proposal?.agentSlug ?? null;
       }
       case 'workflow':
         return null;

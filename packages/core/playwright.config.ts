@@ -90,6 +90,14 @@ export default defineConfig<ChromaticConfig>({
       timeout: 120 * 1000,
       use: { ...devices['Desktop Chrome'] },
     },
+    // The feedback-to-learning loop end to end. Self-seeding like `queue`.
+    // Run with: npx playwright test --project=learning
+    {
+      name: 'learning',
+      testDir: './e2e/learning',
+      timeout: 120 * 1000,
+      use: { ...devices['Desktop Chrome'] },
+    },
     // The API credentials matrix (platforms, validation, expiry rules).
     // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
     // so no Clerk setup project and no dependencies.
