@@ -95,10 +95,10 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     try {
       const outcome = await upsertAgent(orgId, agent, defaults, dryRun, loaded.teams);
       bump(counts.agents, outcome);
-      // provider: agentcore — provision/refresh the AWS-managed harness
+      // runsOn: aws-managed-harness — provision/refresh AWS's own harness
       // after the row lands, and record the ARN the invoke adapter reads.
       // Skills upserted above, so the inline tool catalog is current.
-      if (!dryRun && agent.harness?.provider === 'agentcore') {
+      if (!dryRun && agent.harness?.runsOn === 'aws-managed-harness') {
         const { syncAgentCoreHarness } = await import('@/services/agents/providers/agentcore');
         const arn = await syncAgentCoreHarness(orgId, agent.slug);
         await db

@@ -2,15 +2,17 @@
  * Which harness an agent gets when its author named none.
  *
  * Choosing Bedrock as the model vendor now also chooses where the loop runs:
- * `modelProvider: bedrock` defaults to the out-of-process runtime artifact,
- * which on a deployed installation is AgentCore Runtime. Before this, the two
- * settings were unrelated — an installation could be entirely on Bedrock and
- * still run every agent in this process, and every agent had to repeat
- * `provider: runtime` by hand to reach AgentCore.
+ * `modelProvider: bedrock` defaults to `agentcore-container` — our own loop, in
+ * our container, hosted on AgentCore Runtime. Before this, the two settings
+ * were unrelated: an installation could be entirely on Bedrock and still run
+ * every agent in this process, and every agent had to name the target by hand
+ * to reach AWS at all.
  *
  * These tests pin the precedence, because the escape hatches are the part that
- * matters in practice: an explicit provider on the agent, the fleet-wide
- * environment override, and the dev-machine kill switch all still win.
+ * matters in practice: an explicit target on the agent, the fleet-wide
+ * environment override, and the dev-machine kill switch all still win. Both
+ * spellings of the target are covered — rows written before the rename carry
+ * `provider: local` / `runtime` / `agentcore` and must keep resolving.
  */
 import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -116,15 +118,15 @@ describe('harness provider defaults', () => {
     expect(runAgentOnRuntime).not.toHaveBeenCalled();
   });
 
-  it('lets an explicit provider on the agent override the default', async () => {
-    await insertAgent('pinned-local', { modelProvider: 'bedrock', provider: 'local' });
+  it('lets an explicit target on the agent override the default', async () => {
+    await insertAgent('pinned-local', { modelProvider: 'bedrock', runsOn: 'in-process' });
 
     await expect(run('pinned-local')).rejects.toThrow('in-process loop reached');
     expect(runAgentOnRuntime).not.toHaveBeenCalled();
   });
 
-  it('lets an explicit agentcore provider on a bedrock agent win', async () => {
-    await insertAgent('pinned-managed', { modelProvider: 'bedrock', provider: 'agentcore' });
+  it('lets an explicit managed-harness target on a bedrock agent win', async () => {
+    await insertAgent('pinned-managed', { modelProvider: 'bedrock', runsOn: 'aws-managed-harness' });
 
     await expect(run('pinned-managed')).resolves.toBe('from the managed harness');
     expect(runAgentOnRuntime).not.toHaveBeenCalled();
@@ -143,5 +145,46 @@ describe('harness provider defaults', () => {
 
     await expect(run('bedrock-agent')).rejects.toThrow('in-process loop reached');
     expect(runAgentOnRuntime).not.toHaveBeenCalled();
+  });
+
+  it('still honours a pre-rename row that named the in-process loop', async () => {
+    await insertAgent('legacy-local', { modelProvider: 'bedrock', provider: 'local' });
+
+    await expect(run('legacy-local')).rejects.toThrow('in-process loop reached');
+    expect(runAgentOnRuntime).not.toHaveBeenCalled();
+  });
+
+  it('still honours a pre-rename row that named the container', async () => {
+    await insertAgent('legacy-runtime', { provider: 'runtime' });
+
+    await expect(run('legacy-runtime')).resolves.toBe('from the artifact');
+  });
+
+  it('still honours a pre-rename row that named the managed harness', async () => {
+    await insertAgent('legacy-managed', { provider: 'agentcore' });
+
+    await expect(run('legacy-managed')).resolves.toBe('from the managed harness');
+    expect(runAgentOnRuntime).not.toHaveBeenCalled();
+  });
+
+  it('still honours a pre-rename value in the fleet-wide override', async () => {
+    process.env.VOCION_AGENT_PROVIDER = 'runtime';
+    await insertAgent('plain-agent', {});
+
+    await expect(run('plain-agent')).resolves.toBe('from the artifact');
+  });
+
+  it('accepts a canonical value in the fleet-wide override', async () => {
+    process.env.VOCION_AGENT_PROVIDER = 'agentcore-container';
+    await insertAgent('plain-agent', {});
+
+    await expect(run('plain-agent')).resolves.toBe('from the artifact');
+  });
+
+  it('ignores an unrecognised fleet-wide override rather than failing the turn', async () => {
+    process.env.VOCION_AGENT_PROVIDER = 'lambda';
+    await insertAgent('plain-agent', {});
+
+    await expect(run('plain-agent')).rejects.toThrow('in-process loop reached');
   });
 });
