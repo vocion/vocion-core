@@ -140,7 +140,7 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       key: 'properties',
       label: 'Properties to fetch',
       type: 'stringArray',
-      help: 'Leave blank to fetch the standard set for the chosen record type.',
+      help: 'Leave blank to fetch the standard set for the chosen record type. Separate with commas — a property name cannot itself contain one.',
       placeholder: 'firstname, lastname, email',
     },
     {
@@ -173,7 +173,7 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       type: 'stringArray',
       required: true,
       placeholder: 'ENG, OPS',
-      help: 'Only these projects sync. Separate with commas.',
+      help: 'Only these projects sync. Separate with commas — a key cannot itself contain one.',
     },
     {
       key: 'doneWindowDays',
@@ -194,7 +194,7 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       label: 'Statuses that do not mean finished',
       type: 'stringArray',
       placeholder: 'Won’t Do',
-      help: 'Jira counts these as done. Listing one here keeps its issues treated as open.',
+      help: 'Jira counts these as done. Listing one here keeps its issues treated as open. Separate with commas — a status name containing a comma cannot be entered here.',
     },
   ],
 
@@ -524,14 +524,23 @@ export type BuiltConfig = {
  * handled deliberately: a required checkbox is satisfied by being unticked (an
  * explicit "no" is an answer), a required list is not satisfied by a list that
  * came out empty, and a box holding only spaces counts as blank.
+ *
+ * Settings the form has no input for survive an edit untouched. A source's
+ * config can hold more than this form asks about — `s3.pathFields` and
+ * `file-import.fieldMapping` are set from the workspace manifest and have no
+ * input yet — and the update replaces the whole config blob, so anything left
+ * out here would be silently deleted the first time somebody opened the source
+ * and pressed Save.
  * @param fields - The fields that were rendered.
  * @param values - What was typed into them, keyed the same way.
+ * @param savedConfig - The source's stored config when editing, empty when adding.
  */
 export function buildConfigFromFields(
   fields: ConfigField[],
   values: Record<string, ConfigFieldValue | undefined>,
+  savedConfig: Record<string, unknown> = {},
 ): BuiltConfig {
-  const config: Record<string, unknown> = {};
+  const config = keysTheFormDoesNotRender(fields, savedConfig);
   const missingLabels: string[] = [];
 
   for (const field of fields) {
@@ -546,6 +555,28 @@ export function buildConfigFromFields(
   }
 
   return { config, missingLabels };
+}
+
+/**
+ * The saved settings this form has no input for, which an edit must carry
+ * through rather than drop. A field the form renders is left out, because the
+ * form's own value — including a blank one meaning "use the default" — is the
+ * answer for it.
+ * @param fields - The fields the form renders.
+ * @param savedConfig - The source's stored config.
+ */
+function keysTheFormDoesNotRender(
+  fields: ConfigField[],
+  savedConfig: Record<string, unknown>,
+): Record<string, unknown> {
+  const renderedKeys = new Set(fields.map(field => field.key.split('.')[0]));
+  const carriedThrough: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(savedConfig)) {
+    if (!renderedKeys.has(key)) {
+      carriedThrough[key] = value;
+    }
+  }
+  return carriedThrough;
 }
 
 /**
@@ -613,6 +644,9 @@ function clampToWholeNumber(value: number, min?: number, max?: number): number {
   return bounded;
 }
 
+/** Path segments that would reach an object's prototype rather than its own data. */
+const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /**
  * Read a possibly-dotted key out of a saved config.
  * @param source - The config object to read from.
@@ -621,7 +655,7 @@ function clampToWholeNumber(value: number, min?: number, max?: number): number {
 function readNestedValue(source: Record<string, unknown>, dottedKey: string): unknown {
   let cursor: unknown = source;
   for (const segment of dottedKey.split('.')) {
-    if (typeof cursor !== 'object' || cursor === null) {
+    if (typeof cursor !== 'object' || cursor === null || UNSAFE_PATH_SEGMENTS.has(segment)) {
       return undefined;
     }
     cursor = (cursor as Record<string, unknown>)[segment];
@@ -640,6 +674,12 @@ function writeNestedValue(target: Record<string, unknown>, dottedKey: string, va
   const segments = dottedKey.split('.');
   const lastSegment = segments.pop();
   if (lastSegment === undefined) {
+    return;
+  }
+  // Every key here comes from this file's own table today, so none of these can
+  // appear. Refused anyway, because the cost is one check and the failure — a
+  // write onto Object.prototype — would be silent and process-wide.
+  if (UNSAFE_PATH_SEGMENTS.has(lastSegment) || segments.some(segment => UNSAFE_PATH_SEGMENTS.has(segment))) {
     return;
   }
   let cursor = target;
@@ -662,10 +702,23 @@ export function describeMissingFields(missingLabels: string[]): string | null {
   if (missingLabels.length === 0) {
     return null;
   }
-  const named = missingLabels.map(label => label.toLowerCase());
+  const named = missingLabels.map(label => withArticle(label.toLowerCase()));
   if (named.length === 1) {
-    return `a ${named[0]}`;
+    return named[0]!;
   }
   const last = named[named.length - 1];
-  return `a ${named.slice(0, -1).join(', a ')} and a ${last}`;
+  return `${named.slice(0, -1).join(', ')} and ${last}`;
+}
+
+/**
+ * A field name with the right article in front, or none where an article would
+ * read wrongly. "Project keys" asks for several, so "a project keys" is not
+ * English; "an AWS region" needs "an" rather than "a".
+ * @param name - The field's label, already lowercased.
+ */
+function withArticle(name: string): string {
+  if (name.endsWith('s') && !name.endsWith('ss')) {
+    return name;
+  }
+  return /^[aeiou]/.test(name) ? `an ${name}` : `a ${name}`;
 }

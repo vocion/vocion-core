@@ -8,6 +8,7 @@
  * ones that refuse.
  */
 
+import type { CredentialPlatformId } from './registry';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -265,6 +266,12 @@ describe('connector platforms', () => {
     for (const id of ['granola', 'hubspot', 'jira', 'strapi'] as const) {
       expect(credentialsAreShareable(id)).toBe(false);
     }
+  });
+
+  it('treats an unknown platform id as a bug rather than answering for it', () => {
+    // Silently returning false would let a typo turn an exclusive credential
+    // shareable, which no test downstream would notice.
+    expect(() => credentialsAreShareable('not-a-platform' as CredentialPlatformId)).toThrow(/unknown credential platform/);
   });
 
   it('accepts a Google credential without the Ads-only developer token', () => {
