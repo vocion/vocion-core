@@ -2240,7 +2240,20 @@ export const actionRunSchema = pgTable(
      * Agent-proposal envelope: confidence (0–1), rationale, evidence doc uris.
      * Surfaced in the review queue + daily brief; feeds the trust ladder.
      */
-    proposal: jsonb('proposal').$type<{ confidence?: number; rationale?: string; evidence?: string[]; autoApproved?: boolean; autoApprovedThreshold?: number }>(),
+    proposal: jsonb('proposal').$type<{
+      confidence?: number;
+      rationale?: string;
+      evidence?: string[];
+      autoApproved?: boolean;
+      autoApprovedThreshold?: number;
+      /**
+       * Which agent's judgement this proposal represents. `invokedBy` cannot
+       * always answer that: a proposal made over the API records the human or
+       * token that called in, so without this the action has no agent and
+       * drops out of every per-agent metric and learning attribution.
+       */
+      agentSlug?: string;
+    }>(),
     /**
      * Idempotency/upsert key for agent-suggested actions — the review-card
      * system keys on (object type + object id + action slug), e.g.

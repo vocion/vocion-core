@@ -364,7 +364,9 @@ export async function apiProposeReview(caller: ApiCaller, input: ProposeInput) {
       input: input.input,
       principal: { kind: 'agent', id: agentId, scope: { orgId: caller.orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: caller.actorId,
-      proposal: { confidence: input.confidence, rationale: input.rationale },
+      // `invokedBy` below is the API caller, so the agent it acted for has to
+      // travel in the envelope or the action ends up attributed to nobody.
+      proposal: { confidence: input.confidence, rationale: input.rationale, agentSlug: input.agentSlug },
       dedupKey: input.dedupKey,
       expiresAt: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * DAY_IN_MS) : undefined,
     });
