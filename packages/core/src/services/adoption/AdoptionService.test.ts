@@ -257,6 +257,61 @@ describe('multi-tenant isolation', () => {
   });
 });
 
+describe('getAgentRows disagreement rate', () => {
+  /**
+   * One review decision on an agent's run, as the stream records it.
+   * @param decisionType
+   */
+  async function decision(decisionType: string) {
+    await db.insert(userActivityEventSchema).values({
+      orgId: ORG_A,
+      userId: 'usr-a1',
+      agentSlug: 'pipeline-analyst',
+      eventType: 'review.decided',
+      metadata: { kind: 'action', decision: decisionType },
+      createdAt: minutesAgo(10),
+    });
+  }
+
+  it('counts an edit and a rewrite against the approval rate', async () => {
+    await decision('approved');
+    await decision('edited');
+    await decision('rewritten');
+    await decision('rejected');
+
+    const [row] = await getAgentRows(ORG_A, 30);
+
+    // One approval out of four judged decisions. Before revisions counted, the
+    // same activity read as 50% — one approval, one rejection.
+    expect(row).toMatchObject({ approvals: 1, rejections: 1, revisions: 2 });
+    expect(row?.approvalRate).toBe(0.25);
+  });
+
+  it('leaves the rate null when nobody has judged anything', async () => {
+    await db.insert(userActivityEventSchema).values({
+      orgId: ORG_A,
+      userId: 'usr-a1',
+      agentSlug: 'pipeline-analyst',
+      eventType: 'chat.message_sent',
+      createdAt: minutesAgo(5),
+    });
+
+    const [row] = await getAgentRows(ORG_A, 30);
+
+    expect(row?.approvalRate).toBeNull();
+    expect(row?.revisions).toBe(0);
+  });
+
+  it('ignores a skip, which is not a judgement', async () => {
+    await decision('approved');
+    await decision('skipped');
+
+    const [row] = await getAgentRows(ORG_A, 30);
+
+    expect(row?.approvalRate).toBe(1);
+  });
+});
+
 describe('getMemberProfile', () => {
   it('returns the profile for a member of the caller\'s account', async () => {
     expect(await getMemberProfile(ACCT_A, 'usr-a1')).toEqual({ name: 'Alice', email: 'alice@a.test' });
