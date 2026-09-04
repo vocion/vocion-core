@@ -46,6 +46,18 @@ describe('ChatShell', () => {
     await expect.element(page.getByText('Pipeline Analyst', { exact: true }).first()).toBeInTheDocument();
   });
 
+  it('shows an empty state instead of crashing when there are no agents', async () => {
+    // `chat/page.tsx` hands over an empty list whenever it cannot resolve a
+    // workspace. `useChatSession` reads `agents[0]!.slug`, so the page used to
+    // throw here rather than render anything.
+    await render(<ChatShell agents={[]} />);
+
+    await expect.element(page.getByText('No agents to chat with')).toBeInTheDocument();
+    // The guard has to sit above the hook: no agent means nothing to fetch
+    // state for, and the mount effect must not run at all.
+    expect(client.chatWidget.getState).not.toHaveBeenCalled();
+  });
+
   it('holds a boot skeleton and a disabled composer until the saved-thread lookup settles', async () => {
     // Control exactly when `useLastViewedConversation`'s server round-trip
     // resolves, so we can assert the pre-boot state mid-flight instead of
