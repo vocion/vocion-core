@@ -52,17 +52,22 @@ docker build \
   --build-arg "NEXT_PUBLIC_LANGFUSE_PROJECT_ID=${NEXT_PUBLIC_LANGFUSE_PROJECT_ID}" \
   -t vocion-app:latest -f packages/core/Dockerfile .
 
+# Migrations run BEFORE the containers roll. The other order gives every
+# deploy a window where new application code serves requests against the
+# old schema. A failure here aborts the deploy (set -e) with the old
+# containers still serving, which is the safe end state.
+log "applying any new migrations"
+# Use the psql-based applier (drizzle-kit isn't in the runtime image —
+# Next.js standalone trims devDeps). Its exit code is deliberately not
+# swallowed: a failed migration must not be reported as a good deploy.
+bash /opt/vocion/infra/aws/apply-migrations.sh
+
 log "rolling app + worker"
 docker compose \
   -f docker-compose.yml \
   -f infra/docker-compose.platform.yml \
   -f infra/aws/docker-compose.prod.yml \
   -p vocion up -d --no-deps app worker
-
-log "applying any new migrations"
-# Use the psql-based applier (drizzle-kit isn't in the runtime image —
-# Next.js standalone trims devDeps).
-bash /opt/vocion/infra/aws/apply-migrations.sh || log "WARN: migrations failed; check above"
 
 log "applying latest context"
 docker compose -p vocion exec -T app sh -c 'cd packages/core && node src/scripts/apply-context.js' || true
