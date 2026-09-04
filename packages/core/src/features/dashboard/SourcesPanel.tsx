@@ -1,6 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
+import type { ConfigField, ConfigFieldValue } from '@/libs/sources/configFields';
 import {
   AlertTriangle,
   BarChart3,
@@ -34,6 +35,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Link } from '@/libs/I18nNavigation';
+import {
+  buildConfigFromFields,
+  configFieldsFor,
+  describeMissingFields,
+  fieldValuesFromConfig,
+  initialFieldValues,
+} from '@/libs/sources/configFields';
 
 type Source = {
   id: number;
@@ -351,14 +359,14 @@ export function SourcesPanel() {
 type CredField = { key: string; label: string; optional?: boolean };
 const TOKEN_FIELD: CredField = { key: 'token', label: 'Token' };
 const CRED_FIELDS: Record<string, { help: string; fields: CredField[] }> = {
-  hubspot: { help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).', fields: [{ key: 'token', label: 'Private-app token' }] },
-  slack: { help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).', fields: [{ key: 'token', label: 'Bot / user token' }] },
-  gmail: { help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)', fields: [{ key: 'token', label: 'OAuth access token' }] },
-  drive: { help: 'A Google OAuth access token with drive.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
-  ga4: { help: 'A Google OAuth access token with analytics.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
-  googleAds: { help: 'A Google Ads OAuth access token.', fields: [{ key: 'token', label: 'OAuth access token' }, { key: 'developerToken', label: 'Developer token', optional: true }] },
-  strapi: { help: 'Strapi admin → Settings → API Tokens → Create new API Token. Read-only is enough — this connector never writes back.', fields: [{ key: 'token', label: 'API token' }] },
-  zoom: { help: 'Zoom App Marketplace → Develop → Build App → Server-to-Server OAuth. Needs scopes user:read:admin + cloud_recording:read:admin. All three values are on the app\'s Credentials page.', fields: [{ key: 'accountId', label: 'Account ID' }, { key: 'clientId', label: 'Client ID' }, { key: 'clientSecret', label: 'Client secret' }] },
+  'hubspot': { help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).', fields: [{ key: 'token', label: 'Private-app token' }] },
+  'slack': { help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).', fields: [{ key: 'token', label: 'Bot / user token' }] },
+  'gmail': { help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)', fields: [{ key: 'token', label: 'OAuth access token' }] },
+  'drive': { help: 'A Google OAuth access token with drive.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
+  'ga4': { help: 'A Google OAuth access token with analytics.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
+  'google-ads': { help: 'A Google Ads OAuth access token.', fields: [{ key: 'token', label: 'OAuth access token' }, { key: 'developerToken', label: 'Developer token', optional: true }] },
+  'strapi': { help: 'Strapi admin → Settings → API Tokens → Create new API Token. Read-only is enough — this connector never writes back.', fields: [{ key: 'token', label: 'API token' }] },
+  'zoom': { help: 'Zoom App Marketplace → Develop → Build App → Server-to-Server OAuth. Needs scopes user:read:admin + cloud_recording:read:admin. All three values are on the app\'s Credentials page.', fields: [{ key: 'accountId', label: 'Account ID' }, { key: 'clientId', label: 'Client ID' }, { key: 'clientSecret', label: 'Client secret' }] },
 };
 
 /**
@@ -1571,6 +1579,242 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
   );
 }
 
+/**
+ * One input on a schema-driven add-source form.
+ *
+ * The shape of the input follows the field's declared type: a checkbox for a
+ * yes/no setting, a dropdown for a fixed set of choices, a bounded number box,
+ * and a comma-separated text box for a list. Required fields carry a marker,
+ * because before this the only sign a field was needed was a submit button
+ * that stayed disabled without saying why.
+ * @param props - Component props.
+ * @param props.field - What to ask for.
+ * @param props.value - What the input currently holds.
+ * @param props.onChange - Called with the new value as it is typed.
+ */
+function SourceConfigInput({ field, value, onChange }: {
+  field: ConfigField;
+  value: ConfigFieldValue | undefined;
+  onChange: (value: ConfigFieldValue) => void;
+}) {
+  const labelText = (
+    <span className="text-sm font-medium text-foreground/80">
+      {field.label}
+      {field.required === true ? <span className="ml-0.5 text-destructive" aria-hidden="true">*</span> : null}
+    </span>
+  );
+  const helpText = field.help ? <span className="mt-1 block text-xs text-muted-foreground">{field.help}</span> : null;
+
+  if (field.type === 'boolean') {
+    return (
+      <label className="block">
+        <span className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={value === true}
+            onChange={e => onChange(e.target.checked)}
+          />
+          {labelText}
+        </span>
+        {helpText}
+      </label>
+    );
+  }
+
+  if (field.type === 'select') {
+    return (
+      <label className="block">
+        {labelText}
+        <select
+          value={String(value ?? '')}
+          onChange={e => onChange(e.target.value)}
+          className={FIELD_CLASS}
+        >
+          {(field.options ?? []).map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        {helpText}
+      </label>
+    );
+  }
+
+  if (field.type === 'number') {
+    return (
+      <label className="block">
+        {labelText}
+        {/* min/step keep the obvious mistakes — 0, a negative, a decimal — from
+            reaching a schema that only accepts whole numbers above zero. */}
+        <input
+          type="number"
+          step={1}
+          min={field.min}
+          max={field.max}
+          value={value === undefined ? '' : String(value)}
+          onChange={e => onChange(e.target.value)}
+          className={FIELD_CLASS}
+        />
+        {helpText}
+      </label>
+    );
+  }
+
+  if (field.type === 'stringArray') {
+    return (
+      <label className="block">
+        {labelText}
+        <input
+          type="text"
+          value={Array.isArray(value) ? value.join(', ') : String(value ?? '')}
+          placeholder={field.placeholder}
+          onChange={e => onChange(e.target.value)}
+          className={FIELD_CLASS}
+        />
+        {helpText}
+      </label>
+    );
+  }
+
+  return (
+    <label className="block">
+      {labelText}
+      <input
+        type={field.type === 'url' ? 'url' : 'text'}
+        value={String(value ?? '')}
+        placeholder={field.placeholder}
+        onChange={e => onChange(e.target.value)}
+        className={FIELD_CLASS}
+      />
+      {helpText}
+    </label>
+  );
+}
+
+/**
+ * The add-source form for every connector whose settings are a plain list of
+ * inputs — which is all of them but `web` and `strapi`.
+ *
+ * What to ask for comes from `configFields.ts`, keyed by connector slug, so
+ * each connector gets the fields its own config schema actually reads. Before
+ * this, every connector but Strapi was handed the web crawler's form, and a
+ * Jira or S3 source was created from a URL the connector never looked at.
+ *
+ * Overrides almost nobody touches — API base URLs pointed at a sandbox or an
+ * EU region — sit behind "Advanced settings" so the form opens on the handful
+ * of settings that matter.
+ * @param props - Component props.
+ * @param props.kind - Connector slug.
+ * @param props.title - Dialog heading.
+ * @param props.fields - The fields this connector asks for.
+ * @param props.existing - The source being edited, or null when adding a new one.
+ * @param props.onClose - Called when the dialog is dismissed.
+ * @param props.onAdded - Called after the source is saved.
+ */
+function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, onAdded }: {
+  kind: string;
+  title: string;
+  fields: ConfigField[];
+  existing: Source | null;
+  onClose: () => void;
+  onAdded: () => Promise<void> | void;
+}) {
+  const [values, setValues] = useState<Record<string, ConfigFieldValue>>(() => (
+    existing
+      ? fieldValuesFromConfig(fields, (existing.config ?? {}) as Record<string, unknown>)
+      : initialFieldValues(fields)
+  ));
+  const [advancedShown, setAdvancedShown] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { config, missingLabels } = buildConfigFromFields(fields, values);
+  const everydayFields = fields.filter(field => field.advanced !== true);
+  const advancedFields = fields.filter(field => field.advanced === true);
+
+  const setFieldValue = (key: string, value: ConfigFieldValue) => {
+    setValues(current => ({ ...current, [key]: value }));
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (missingLabels.length > 0) {
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const message = existing
+        ? await updateSourceConfig(existing.id, config)
+        : await createSource(kind, config);
+      if (message) {
+        setError(message);
+        return;
+      }
+      await onAdded();
+    } catch (err) {
+      // A network failure throws rather than returning a message. Without this
+      // the dialog sat on a spinner that never resolved and said nothing.
+      console.error('[AddConfigurableSourceDialog] could not save the connector', err);
+      setError(err instanceof Error ? err.message : 'Could not reach the server. Check your connection and try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <AddSourceDialogFrame
+      title={title}
+      error={error}
+      requirement={describeMissingFields(missingLabels)}
+      submitLabel={existing ? 'Save changes' : 'Add connector'}
+      notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
+      submitting={submitting}
+      canSubmit={missingLabels.length === 0}
+      onClose={onClose}
+      onSubmit={submit}
+    >
+      {everydayFields.map(field => (
+        <SourceConfigInput
+          key={field.key}
+          field={field}
+          value={values[field.key]}
+          onChange={value => setFieldValue(field.key, value)}
+        />
+      ))}
+
+      {advancedFields.length > 0
+        ? (
+            <div className="rounded-lg border border-dashed">
+              <button
+                type="button"
+                onClick={() => setAdvancedShown(shown => !shown)}
+                aria-expanded={advancedShown}
+                className="flex w-full items-center justify-between px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+              >
+                Advanced settings
+                <span aria-hidden="true">{advancedShown ? '−' : '+'}</span>
+              </button>
+              {advancedShown
+                ? (
+                    <div className="space-y-4 border-t px-3 py-3">
+                      {advancedFields.map(field => (
+                        <SourceConfigInput
+                          key={field.key}
+                          field={field}
+                          value={values[field.key]}
+                          onChange={value => setFieldValue(field.key, value)}
+                        />
+                      ))}
+                    </div>
+                  )
+                : null}
+            </div>
+          )
+        : null}
+    </AddSourceDialogFrame>
+  );
+}
+
 /** One collection's verdict from the inspect call. Mirrors `StrapiCollectionCheck`. */
 type CollectionCheck = {
   collection: string;
@@ -2268,6 +2512,13 @@ function AddSourceDialog({
   const title = source ? `Edit ${connectorName} source` : `Add ${connectorName} source`;
   if (kind === 'strapi') {
     return <AddStrapiSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
+  }
+  // Every other connector describes its own fields, so one form renders them
+  // all. `web` is the only slug left without an entry: its crawl toggle hides
+  // and shows a second field, which a flat field list cannot express.
+  const fields = configFieldsFor(kind);
+  if (fields.length > 0) {
+    return <AddConfigurableSourceDialog kind={kind} title={title} fields={fields} existing={source} onClose={onClose} onAdded={onAdded} />;
   }
   return <AddWebSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
 }
