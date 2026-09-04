@@ -203,8 +203,13 @@ docker compose \
   -p vocion up -d
 
 # ----- 8. One-shot DB migrations + context apply -----
+# The psql-based applier, not `drizzle-kit migrate` inside the app
+# container: drizzle-kit is a devDep that the Next.js standalone build
+# trims out of the runtime image, so that call could only ever fail with
+# MODULE_NOT_FOUND. Its exit code is not swallowed — a box whose schema
+# never migrated must not report a successful bootstrap.
 log "applying database migrations"
-docker compose -p vocion exec -T app sh -c 'cd packages/core && node node_modules/drizzle-kit/bin.cjs migrate' || true
+bash "${REPO_DIR}/infra/aws/apply-migrations.sh"
 
 log "seeding context (sales-assistant agent + operations + playbooks + learnings + evals)"
 docker compose -p vocion exec -T app sh -c 'cd packages/core && node src/scripts/apply-context.js' || true
