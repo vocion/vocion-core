@@ -735,11 +735,20 @@ const SIGNAL_TO_DECISION = {
 export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string }): Promise<void> {
   try {
     const [run] = await db
-      .select({ invokedBy: actionRunSchema.invokedBy, actionId: actionRunSchema.actionId })
+      .select({
+        invokedBy: actionRunSchema.invokedBy,
+        actionId: actionRunSchema.actionId,
+        proposal: actionRunSchema.proposal,
+      })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
       .limit(1);
-    const agentSlug = run?.invokedBy?.startsWith('agent:') ? run.invokedBy.slice('agent:'.length) : undefined;
+    // An in-process agent turn stamps `agent:<slug>` on invokedBy. A proposal
+    // made over the API stamps the caller there instead and puts the agent in
+    // the proposal envelope, so both have to be read.
+    const agentSlug = run?.invokedBy?.startsWith('agent:')
+      ? run.invokedBy.slice('agent:'.length)
+      : run?.proposal?.agentSlug ?? undefined;
     const { track } = await import('@/services/adoption/track');
     // Scope dimensions travel together: userId (individual) + orgId (workspace)
     // on the actor, actionId (action type) in meta.
