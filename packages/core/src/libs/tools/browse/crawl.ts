@@ -1,5 +1,6 @@
 import type { BrowseProvider, Page } from './types';
 import { extractLinks } from '@/libs/sources/web';
+import { ProviderNotConfiguredError } from '../types';
 
 /**
  * Same-origin BFS crawl shared by both browse providers. Uses the
@@ -34,7 +35,16 @@ export async function bfsCrawl(
     let page: Page | null = null;
     try {
       page = await provider.fetchPage(url, { orgId: opts.orgId });
-    } catch {
+    } catch (error) {
+      if (error instanceof ProviderNotConfiguredError) {
+        // Not this page's problem — the provider has no key at all, so every
+        // remaining page would fail the same way. Reporting "no readable
+        // pages" here would read as an empty site rather than as
+        // configuration the workspace can fix, which is what `fetch_url` and
+        // `web_search` say in the same situation.
+        throw error;
+      }
+      console.error('[browse/crawl] skipping a page that could not be read', { url, error });
       continue;
     }
     if (!page) {

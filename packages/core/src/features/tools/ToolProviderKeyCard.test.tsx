@@ -31,6 +31,10 @@ const { ToolProviderKeyCard } = await import('./ToolProviderKeyCard');
 beforeEach(() => {
   createPlatformKey.mockReset();
   refresh.mockReset();
+  // Saving over a live key asks first; every test that is not about the
+  // asking answers yes. `spyOn` hands back the same spy once one is in place,
+  // so its calls have to be cleared or they accumulate across tests.
+  vi.spyOn(window, 'confirm').mockClear().mockReturnValue(true);
 });
 
 const TAVILY_FIELDS = [
@@ -41,8 +45,9 @@ const TAVILY_FIELDS = [
  * Render the card for Tavily, with or without a key already on file.
  * @param storedKeyHint - The masked hint of the key on file, or null for none.
  * @param serverHasKey
+ * @param sharedWithModelCalls
  */
-function renderCard(storedKeyHint: string | null = null, serverHasKey = true) {
+function renderCard(storedKeyHint: string | null = null, serverHasKey = true, sharedWithModelCalls = false) {
   // The card links to API credentials with the locale-aware Link, which reads
   // the intl context, so the provider has to be here even though nothing in
   // these tests is translated.
@@ -55,6 +60,7 @@ function renderCard(storedKeyHint: string | null = null, serverHasKey = true) {
         fields={TAVILY_FIELDS}
         storedKeyHint={storedKeyHint}
         serverHasKey={serverHasKey}
+        sharedWithModelCalls={sharedWithModelCalls}
       />
     </NextIntlClientProvider>,
   );
@@ -127,6 +133,20 @@ describe('what the card says about whose key is in use', () => {
   });
 });
 
+describe('a save that fails without an Error to explain it', () => {
+  it('still says something rather than going quiet', async () => {
+    // oRPC can reject with a plain object, and a card that renders nothing in
+    // that case looks like a save that worked.
+    createPlatformKey.mockRejectedValue({ code: 'BAD_GATEWAY' });
+    renderCard();
+
+    await userEvent.fill(page.getByLabelText('Tavily key'), 'tvly-pasted-key');
+    await userEvent.click(page.getByRole('button', { name: 'Save key' }));
+
+    await expect.element(page.getByText('Could not save the key.')).toBeVisible();
+  });
+});
+
 describe('a tool with a key already on file', () => {
   it('shows the masked hint of the key in use', async () => {
     renderCard('…wxyz');
@@ -139,5 +159,68 @@ describe('a tool with a key already on file', () => {
 
     await expect.element(page.getByRole('button', { name: 'Replace key' })).toBeVisible();
     await expect.element(page.getByText(/replaces the key on file/i)).toBeVisible();
+  });
+});
+
+describe('saving over a key that is already in use', () => {
+  it('asks before replacing it, the way the credentials page does', async () => {
+    const confirmed = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    createPlatformKey.mockResolvedValue({ id: 'tok_2', keyHint: '…newk' });
+    renderCard('…wxyz');
+
+    await userEvent.fill(page.getByLabelText('Tavily key'), 'tvly-replacement-key');
+    await userEvent.click(page.getByRole('button', { name: 'Replace key' }));
+
+    expect(confirmed).toHaveBeenCalled();
+    expect(confirmed.mock.calls[0]?.[0]).toMatch(/replaces/i);
+  });
+
+  it('stores nothing when the answer is no', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderCard('…wxyz');
+
+    await userEvent.fill(page.getByLabelText('Tavily key'), 'tvly-replacement-key');
+    await userEvent.click(page.getByRole('button', { name: 'Replace key' }));
+
+    expect(createPlatformKey).not.toHaveBeenCalled();
+  });
+
+  it('does not ask when there is no key to replace', async () => {
+    const confirmed = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    createPlatformKey.mockResolvedValue({ id: 'tok_1', keyHint: '…abcd' });
+    renderCard(null);
+
+    await userEvent.fill(page.getByLabelText('Tavily key'), 'tvly-first-key');
+    await userEvent.click(page.getByRole('button', { name: 'Save key' }));
+
+    expect(confirmed).not.toHaveBeenCalled();
+  });
+});
+
+describe('after a save that worked', () => {
+  it('says so, rather than leaving the page to explain itself', async () => {
+    createPlatformKey.mockResolvedValue({ id: 'tok_1', keyHint: '…abcd' });
+    renderCard();
+
+    await userEvent.fill(page.getByLabelText('Tavily key'), 'tvly-pasted-key');
+    await userEvent.click(page.getByRole('button', { name: 'Save key' }));
+
+    await expect.element(page.getByText(/key saved/i)).toBeVisible();
+  });
+});
+
+describe('a platform whose key is shared with model calls', () => {
+  it('warns that saving here changes what chat and embeddings spend', async () => {
+    // The image tool resolves through the org's single OpenAI credential, so a
+    // key pasted on that page replaces the one every model call uses.
+    renderCard(null, true, true);
+
+    await expect.element(page.getByText(/model calls/i)).toBeVisible();
+  });
+
+  it('says nothing of the sort for a platform only one tool uses', async () => {
+    renderCard(null, true, false);
+
+    expect(page.getByText(/model calls/i).elements()).toHaveLength(0);
   });
 });

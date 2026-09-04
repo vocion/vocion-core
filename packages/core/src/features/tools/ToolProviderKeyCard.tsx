@@ -43,6 +43,13 @@ type ToolProviderKeyCardProps = {
   /** Masked hint of the key already on file, or null when there is none. */
   storedKeyHint: string | null;
   /**
+   * Whether this platform's key is also what the workspace's model calls
+   * spend — true for OpenAI, whose single credential covers chat, embeddings
+   * and image generation alike. Saving here then changes all of them, which
+   * the card has to say before the click.
+   */
+  sharedWithModelCalls: boolean;
+  /**
    * Whether the deployment itself has a key for this platform.
    *
    * Without it the card cannot tell "you are running on our key" from "nobody
@@ -69,15 +76,41 @@ function everyFieldFilled(
 }
 
 /**
+ * Ask before replacing a key that is already in use.
+ *
+ * These platforms hold one live key per org, so a save is a silent, instant
+ * swap: everything pointing at the old key stops working the moment this one
+ * lands. The credentials page asks the same question before the same action.
+ * @param platformLabel - Platform name, for the question.
+ * @param storedKeyHint - Masked tail of the key about to be replaced.
+ * @param sharedWithModelCalls - Whether model calls spend this key too.
+ */
+function confirmReplacement(
+  platformLabel: string,
+  storedKeyHint: string | null,
+  sharedWithModelCalls: boolean,
+): boolean {
+  const spentElsewhere = sharedWithModelCalls
+    ? `\n\nThis workspace's model calls and embeddings spend the same ${platformLabel} key, so they move to the new one too.`
+    : '';
+  // eslint-disable-next-line no-alert
+  return window.confirm(
+    `${platformLabel} already has a key on file (${storedKeyHint ?? 'saved'}).\n\n`
+    + `Saving this one replaces it. The old key stops being used immediately and cannot be recovered.${spentElsewhere}`,
+  );
+}
+
+/**
  * The provider-key card for one tool.
  * @param props - See {@link ToolProviderKeyCardProps}.
  */
 export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
-  const { platformId, platformLabel, helpText, fields, storedKeyHint, serverHasKey } = props;
+  const { platformId, platformLabel, helpText, fields, storedKeyHint, serverHasKey, sharedWithModelCalls } = props;
   const router = useRouter();
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   const hasStoredKey = storedKeyHint !== null;
   const saveLabel = hasStoredKey ? 'Replace key' : 'Save key';
@@ -88,8 +121,12 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
       setError(`Paste your ${platformLabel} key first.`);
       return;
     }
+    if (hasStoredKey && !confirmReplacement(platformLabel, storedKeyHint, sharedWithModelCalls)) {
+      return;
+    }
     setSaving(true);
     setError(null);
+    setSaved(false);
     try {
       await client.apiTokens.createPlatformKey({
         name: `${platformLabel} — tools`,
@@ -97,6 +134,7 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
         values,
       });
       setValues({});
+      setSaved(true);
       // The readiness badge and the stored-key hint are both rendered on the
       // server, so the page has to be re-fetched for either to change.
       router.refresh();
@@ -123,7 +161,11 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
         ? (
             <p className="mb-3 text-xs text-muted-foreground">
               This workspace is using its own key (
-              <span className="font-mono">{storedKeyHint}</span>
+              <span className="font-mono">
+                ••••••••
+                {' '}
+                {storedKeyHint}
+              </span>
               ). Saving another one replaces the key on file, and the old one stops being used
               immediately.
             </p>
@@ -135,6 +177,17 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
                 : 'Nobody has a key for this yet, so the tool cannot run. Paste yours to turn it on for this workspace.'}
             </p>
           )}
+
+      {sharedWithModelCalls && (
+        <p className="mb-3 text-xs text-amber-600 dark:text-amber-400">
+          This workspace holds one
+          {' '}
+          {platformLabel}
+          {' '}
+          key, and its model calls and embeddings spend it too. A key saved here replaces that one
+          for all of them.
+        </p>
+      )}
 
       <form onSubmit={onSave} className="flex flex-col gap-3">
         {fields.map(field => (
@@ -148,12 +201,26 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
               autoComplete="off"
               placeholder={field.shapeHint}
               value={values[field.name] ?? ''}
-              onChange={event => setValues({ ...values, [field.name]: event.target.value })}
+              onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))}
             />
+            <p className="text-[11px] text-muted-foreground">
+              Expected:
+              {' '}
+              {field.shapeHint}
+            </p>
           </div>
         ))}
 
         {error !== null && <p className="text-xs text-destructive">{error}</p>}
+        {saved && error === null && (
+          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+            Key saved. This workspace now runs
+            {' '}
+            {platformLabel}
+            {' '}
+            calls on its own account.
+          </p>
+        )}
 
         <div className="flex items-center gap-3">
           <Button type="submit" size="sm" disabled={saving}>
