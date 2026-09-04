@@ -596,6 +596,13 @@ export async function snooze(
     assignedBy: byUserId ?? null,
     ...(opts?.note !== undefined ? { note: opts.note } : {}),
   });
+  // The assignment row only ever holds the CURRENT snooze — the next one
+  // overwrites it — so the adoption event is the only record that a deferral
+  // happened at all. Awaited (not fired and forgotten) because
+  // `trackReviewSnooze` cannot reject and the caller is already awaiting a
+  // write; ordering it here means a snooze and its event land together.
+  const { trackReviewSnooze } = await import('@/services/adoption/attribution');
+  await trackReviewSnooze({ orgId, userId: byUserId ?? 'web' }, item, until);
 }
 
 /**

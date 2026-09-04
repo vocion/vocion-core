@@ -2276,9 +2276,12 @@ export const userActivityEventSchema = pgTable(
     // a run legitimately receives multiple review.decided signals (rewritten →
     // skipped → approved) and the narrower index silently dropped all but the
     // first (0047).
+    // `review.snoozed` is exempt entirely: an item can be deferred any number
+    // of times and no metadata field tells one deferral from the next, so
+    // uniqueness here would drop every snooze after the first (0079).
     uniqueIndex('user_activity_event_resource_idx')
       .on(table.orgId, table.eventType, table.resourceType, table.resourceId, sql`(coalesce(${table.metadata}->>'decision',''))`)
-      .where(sql`resource_id IS NOT NULL`),
+      .where(sql`resource_id IS NOT NULL AND event_type <> 'review.snoozed'`),
   ],
 );
 
