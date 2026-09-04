@@ -14,7 +14,9 @@
 
 set -euo pipefail
 
-REPO_DIR="${REPO_DIR:-/opt/vocion}"
+# Exported so apply-migrations.sh resolves its migrations directory
+# against this checkout rather than the hardcoded default.
+export REPO_DIR="${REPO_DIR:-/opt/vocion}"
 GIT_REF="${1:-}"
 
 log() { echo "[update] $*"; }
@@ -93,10 +95,16 @@ docker build \
   --build-arg "NEXT_PUBLIC_LANGFUSE_PROJECT_ID=${NEXT_PUBLIC_LANGFUSE_PROJECT_ID}" \
   -t vocion-app:latest -f packages/core/Dockerfile .
 
-# Migrations run BEFORE the containers roll. The other order gives every
-# deploy a window where new application code serves requests against the
-# old schema. A failure here aborts the deploy (set -e) with the old
-# containers still serving, which is the safe end state.
+# Migrations run BEFORE the containers roll, and a failure here aborts
+# the deploy (set -e) with the old containers still serving.
+#
+# This order does not remove the schema-skew window, it picks which side
+# of it to take: the outgoing release serves against the new schema for
+# the length of the roll. That is the safe half only if migrations stay
+# backward-compatible with the release being replaced — expand now,
+# contract in a later deploy. A `DROP COLUMN` or rename shipped in one
+# step breaks the running app the moment it is applied, and keeps it
+# broken if the roll below then fails.
 log "applying any new migrations"
 # Use the psql-based applier (drizzle-kit isn't in the runtime image —
 # Next.js standalone trims devDeps). Its exit code is deliberately not
