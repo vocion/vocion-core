@@ -119,13 +119,29 @@ Agents run on **LangChain.js + `deepagents@1.10`**. The runtime gives you subage
 
 Opt in by setting `VOCION_AGENT_RUNTIME=deepagents` and pointing the chat at `/rpc/agent/stream`. Default model: `claude-sonnet-4-6` (main) + `claude-haiku-4-5-20251001` (classifier). Override per-role via `VOCION_LLM_MODEL_MAIN` etc.
 
-## BYOA agent runtime (harness provider `runtime`)
+## BYOA agent runtime (`harness.runsOn: agentcore-container`)
 
-The same deepagents loop also ships as a standalone artifact — **`packages/agent-runtime`** — with the BYOA HTTP contract (`POST /invocations` SSE + `GET /ping`), hostable on a laptop or AWS Bedrock AgentCore Runtime (same bundle). Three execution layers now share one event contract, selected per agent via `harness.provider` in workspace YAML (`local` | `agentcore` | `runtime`) or fleet-wide via `VOCION_AGENT_PROVIDER`:
+> Conceptual explanation for humans — the loop vs the model vs the AWS account, what AgentCore actually is, and when `agentcore` is the right choice — lives in `docs/agent-execution.md`. Keep the two in sync when this section changes.
+
+The same deepagents loop also ships as a standalone artifact — **`packages/agent-runtime`** — with the BYOA HTTP contract (`POST /invocations` SSE + `GET /ping`), hostable on a laptop or AWS Bedrock AgentCore Runtime (same bundle). Three execution layers share one event contract, selected per agent via `harness.runsOn` in workspace YAML or fleet-wide via `VOCION_AGENT_PROVIDER`.
+
+**`harness.runsOn` has three values, and two of them are AWS Bedrock AgentCore** — it is a product family, and they are different services inside it. Renamed from `harness.provider` (`local` / `runtime` / `agentcore`) because the old names hid that. Old spellings still parse everywhere — YAML, `VOCION_AGENT_PROVIDER`, and pre-rename `harness_config` rows — via `services/agents/harnessTarget.ts`.
+
+| | `in-process` (was `local`) | `agentcore-container` (was `runtime`) | `aws-managed-harness` (was `agentcore`) |
+|---|---|---|---|
+| Whose loop | ours (deepagents) | ours, same code | **AWS's** |
+| Runs in | this process | our container on AgentCore Runtime | AWS's managed harness |
+| Tools | in-process | ~30, called back to `/api/internal/agent-tools` | one, `search_knowledge`, as an `inline_function` |
+| Subagents / playbooks / HITL gates | yes | yes | none |
+| Default for | everything not on Bedrock | Bedrock agents | nothing — opt in |
+
+Neither AgentCore path is a model gateway: inference is a direct Bedrock Converse call on all three. AgentCore is hosting plus Memory. Do NOT delete `aws-managed-harness` on the grounds that core has no agent on it — `Veerio-Life/veerio-vocion` runs `event-ingestion-lead` there, with `infra/aws/agentcore-harness-role.sh` and an `apply-workspace.sh` that hard-fails without `VOCION_AGENTCORE_REGION`.
 
 - The artifact is **generic**: agent definitions travel in the invocation payload (compiled from the agent row per request), so `workspace:apply` stays a DB sync and agent edits never redeploy anything.
 - **Tools execute in core**, not the artifact: catalog entries POST back to `/api/internal/agent-tools` with a signed `TenantClaim` (`services/agents/claims.ts`) — orgId/user ACLs come only from the verified claim (`services/agents/toolEndpoint.ts`; cross-tenant test suite in `toolEndpoint.test.ts`). Single tool registry: `services/agents/tools/registry.ts`.
 - Core targets the artifact via `VOCION_AGENT_RUNTIME_ARN` (deployed, SigV4) or `VOCION_AGENT_RUNTIME_URL` (local HTTP, default `:8080`). Budget charging rides `usage` events back from the artifact.
+- **Bedrock implies `agentcore-container`**: an agent with `harness.modelProvider: bedrock` and NO `harness.runsOn` is dispatched to the container — `defaultHarnessTargetFor` in `AgentService.ts`. Choosing the vendor also chooses where the loop runs, since on a deployed installation the artifact IS AgentCore Runtime. `runsOn: in-process` next to it opts back out, `VOCION_AGENT_PROVIDER` still overrides fleet-wide, and `VOCION_DISABLE_RUNTIME=1` still forces the in-process loop. `harness.runsOn` is deliberately NOT defaulted in `libs/workspace/schemas.ts` — a stored value would make this default unreachable for every workspace-applied agent, so **agents applied before this change need one `workspace:apply` to pick it up**.
+- **Bedrock credentials cross the transport**: the artifact has no DB and no KMS grant, so core mints a short-lived STS session from the org's stored AWS key (`mintBedrockSessionForRuntime`) and sends it in the payload's `aws` block; the artifact's model client reads it through a per-invocation ref (`packages/agent-runtime/src/model.ts`), so spend lands on the customer's account and the cached graph never signs with a previous caller's credential. No stored key means no block and the artifact falls through to its own chain — the platform's account. A stored key that STS refuses throws rather than falling back, because falling back would silently move that org's spend onto us. `VOCION_BEDROCK_SESSION_SECONDS` tunes the session (default 3600). The graph cache is partitioned by `orgId` for the same reason.
 - **Cutover status**: `sales-assistant` runs on `provider: runtime` (workspace YAML). Dev therefore needs the artifact running — `npm run dev:agent-runtime` (:8080) — or set `VOCION_DISABLE_RUNTIME=1` to force the in-process loop (symmetric to `VOCION_DISABLE_AGENTCORE`).
 - **AgentCore Memory (Phase 5, live)**: when `VOCION_AGENTCORE_MEMORY_ID` is set (core = flag only; the artifact needs it plus AWS creds), runtime-provider conversations with a persisted `conversation_id` get a Memory session (`vocion-conv-<id>-<org>`); the loop loads history from Memory and appends each completed turn (`packages/agent-runtime/src/memory.ts`). Default is belt-and-suspenders — payload history still rides along and the richer source wins; `VOCION_MEMORY_AUTHORITATIVE=1` omits payload history (verified live: turn answered from Memory alone). Postgres stays the system of record for the UI; Memory failures degrade silently to payload history.
 - **Long-term memory (live)**: the store runs two extraction strategies — `vocion_facts` (semantic) + `vocion_preferences` — namespaced `/facts/{actorId}` and `/preferences/{actorId}`. Each turn, the loop retrieves relevant records for the actor and injects them as a context preamble, so recall crosses conversations (verified live: a preference stated in one conversation was recalled in a brand-new one ~50s later, post-extraction). Strategies are provisioned idempotently by `infra/agentcore/provision.sh`.
@@ -229,7 +245,7 @@ goes through `resolveAwsCredentials` with the fallback off.
 
 **Per-agent vendor, per-workspace embeddings.** `harness.modelProvider` in agent
 YAML (`anthropic` | `openai` | `bedrock`) picks the vendor for one agent's chat
-model — a different axis from `harness.provider`, which picks where the loop
+model — a different axis from `harness.runsOn`, which picks where the loop
 executes. Embeddings are **not** per-agent: `defaults.embeddingProvider` /
 `defaults.embeddingModel` in `workspace.yaml` land on `project.embeddingConfig`
 and apply workspace-wide. That asymmetry is deliberate. A query vector is only
