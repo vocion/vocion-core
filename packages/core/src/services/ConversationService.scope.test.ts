@@ -91,3 +91,28 @@ describe('trace persistence', () => {
     expect(row?.traceJson).toBeNull();
   });
 });
+
+/**
+ * `conversation_org_agent_updated_idx` used to be unique over
+ * (org_id, agent_slug, updated_at), so two conversations with one agent could
+ * not share a millisecond. Two people opening a chat at the same moment hit
+ * that, and so did this file's own tests about one run in three.
+ */
+describe('two conversations landing in the same millisecond', () => {
+  it('both save, for one agent in one workspace', async () => {
+    const together = await Promise.all([
+      createConversation({ orgId: ORG, agentSlug: 'revops-lead', createdBy: 'user_v' }),
+      createConversation({ orgId: ORG, agentSlug: 'revops-lead', createdBy: 'user_v' }),
+    ]);
+
+    expect(new Set(together.map(conversation => conversation.id)).size).toBe(2);
+  });
+
+  it('both save when a burst of them arrives at once', async () => {
+    const burst = await Promise.all(
+      Array.from({ length: 8 }, () => createConversation({ orgId: ORG, agentSlug: 'revops-lead', createdBy: 'user_v' })),
+    );
+
+    expect(new Set(burst.map(conversation => conversation.id)).size).toBe(8);
+  });
+});
