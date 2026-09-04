@@ -111,6 +111,7 @@ export default async function ToolDetailPage(props: {
               secret: field.secret,
             }))}
             storedKeyHint={storedKeyHint}
+            serverHasKey={status?.keySource === 'server'}
           />
         </div>
       )}
