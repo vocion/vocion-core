@@ -226,8 +226,8 @@ describe('GET /rpc/sources/[id]/credentials — credentials to pick from', () =>
     expect(body.linkedCredentialId).toBe('cred_a');
   });
 
-  it('offers nothing to pick for a connector that uses an OAuth grant', async () => {
-    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'slack', kind: 'plugin', config: {} });
+  it('offers nothing to pick for a connector with no credential platform', async () => {
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'web', kind: 'plugin', config: {} });
 
     const body = await (await GET(request, context('1'))).json();
 
@@ -295,15 +295,50 @@ describe('POST /rpc/sources/[id]/credentials', () => {
     expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ name: 'Strapi — kb-strapi' }));
   });
 
-  it('still stores an OAuth grant against the install itself', async () => {
-    // A grant is issued to one installation and carries a refresh token, so
-    // there is nothing to share and nothing to point at.
+  it('stores a Slack bot token as a workspace credential, not on the install', async () => {
+    // Slack gained a platform, so its key goes where the other four already do.
     vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'slack', kind: 'plugin', config: {} });
 
     const res = await POST(post({ credentials: { token: 'xoxb-1' } }), context('1'));
 
     expect(res.status).toBe(200);
-    expect(storeCredentialForSource).toHaveBeenCalledWith(expect.objectContaining({ sourceSlug: 'slack' }));
+    expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ platform: 'slack' }));
+    expect(storeCredentialForSource).not.toHaveBeenCalled();
+  });
+
+  it('stores a Gmail credential against the shared Google platform', async () => {
+    // One credential serves every Google connector, so a Gmail source stores a
+    // `google` row rather than a `gmail` one.
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'gmail', kind: 'plugin', config: {} });
+
+    const res = await POST(post({
+      credentials: { clientId: 'client-1', clientSecret: 'secret-1', refreshToken: 'refresh-1' },
+    }), context('1'));
+
+    expect(res.status).toBe(200);
+    expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ platform: 'google' }));
+  });
+
+  it('stores a Zoom app as a workspace credential', async () => {
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'zoom', kind: 'plugin', config: {} });
+
+    const res = await POST(post({
+      credentials: { accountId: 'acct-1', clientId: 'client-1', clientSecret: 'secret-1' },
+    }), context('1'));
+
+    expect(res.status).toBe(200);
+    expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ platform: 'zoom' }));
+  });
+
+  it('stores a credential against the install itself when the connector has no platform', async () => {
+    // A plugin-registered connector the platform registry does not know keeps
+    // its credential on the install, the way every connector used to.
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'web', kind: 'plugin', config: {} });
+
+    const res = await POST(post({ credentials: { token: 'unused-1' } }), context('1'));
+
+    expect(res.status).toBe(200);
+    expect(storeCredentialForSource).toHaveBeenCalledWith(expect.objectContaining({ sourceSlug: 'web' }));
     expect(storePlatformKey).not.toHaveBeenCalled();
   });
 

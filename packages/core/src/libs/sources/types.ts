@@ -53,8 +53,12 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
   authKind: SourceAuthKind;
   /**
    * Zod schema validating the config_json blob the user enters when
-   *  adding the source. The Add-Source form auto-generates inputs from
-   *  the schema's field metadata.
+   * adding the source.
+   *
+   * The Add-Source form does not read this schema directly — a zod schema
+   * carries no wording — so a connector added here also needs an entry in
+   * `configFields.ts` saying how to ask for each setting. A test pairs the two
+   * so neither can drift from the other.
    */
   configSchema: TConfigSchema;
   /**
