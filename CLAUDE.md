@@ -121,6 +121,8 @@ Opt in by setting `VOCION_AGENT_RUNTIME=deepagents` and pointing the chat at `/r
 
 ## BYOA agent runtime (harness provider `runtime`)
 
+> Conceptual explanation for humans — the loop vs the model vs the AWS account, what AgentCore actually is, and when `agentcore` is the right choice — lives in `docs/agent-execution.md`. Keep the two in sync when this section changes.
+
 The same deepagents loop also ships as a standalone artifact — **`packages/agent-runtime`** — with the BYOA HTTP contract (`POST /invocations` SSE + `GET /ping`), hostable on a laptop or AWS Bedrock AgentCore Runtime (same bundle). Three execution layers now share one event contract, selected per agent via `harness.provider` in workspace YAML (`local` | `agentcore` | `runtime`) or fleet-wide via `VOCION_AGENT_PROVIDER`.
 
 **`agentcore` and `runtime` are BOTH AWS Bedrock AgentCore, and they are not the same thing** — AgentCore is a product family, and these are two different services inside it. The distinction is *who writes the agent loop*:
