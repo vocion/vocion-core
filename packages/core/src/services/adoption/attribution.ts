@@ -1,3 +1,4 @@
+import type { SnoozeHorizon } from './events';
 import type { AdoptionActor } from './track';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
@@ -6,9 +7,9 @@ import { track } from './track';
 
 /**
  * Agent attribution for HITL events, plus the ONE choke point every
- * review-decision and review-feedback capture goes through — routers and
- * services call these instead of hand-rolling `track()` calls, so the
- * event shape and attribution rules can't drift between call sites.
+ * review-decision, review-snooze and review-feedback capture goes through —
+ * routers and services call these instead of hand-rolling `track()` calls, so
+ * the event shape and attribution rules can't drift between call sites.
  *
  * Attribution is honest-or-null: an event carries an `agentSlug` only
  * when the run maps to exactly one agent. Ambiguous cases (a capability shared
@@ -100,6 +101,59 @@ export function trackReviewDecision(
         decision,
         ...(opts.latencyMs != null ? { latencyMs: opts.latencyMs } : {}),
       },
+    });
+  })().catch(() => {});
+}
+
+const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const ONE_WEEK_MS = 7 * ONE_DAY_MS;
+
+/**
+ * Bucket a snooze into how far out it pushed the item. Upper bounds are
+ * inclusive, so a snooze of exactly one day reads `up_to_1d` rather than
+ * depending on how many milliseconds passed between the click and the write.
+ * A snooze already in the past (or right now) buckets as the shortest horizon
+ * rather than erroring — the routers reject those, and a stale clock should
+ * not lose the event.
+ * @param until - When the item resurfaces.
+ * @param from - Evaluation time; defaults to now.
+ */
+export function bucketSnoozeHorizon(until: Date, from: Date = new Date()): SnoozeHorizon {
+  const ms = until.getTime() - from.getTime();
+  if (ms < FOUR_HOURS_MS) {
+    return 'under_4h';
+  }
+  if (ms <= ONE_DAY_MS) {
+    return 'up_to_1d';
+  }
+  if (ms <= ONE_WEEK_MS) {
+    return 'up_to_1w';
+  }
+  return 'over_1w';
+}
+
+/**
+ * Record one deferral on the adoption stream, agent-attributed the same way
+ * as decisions and feedback. Fire-and-forget: returns a promise that never
+ * rejects, so a capture failure can never fail the snooze it rides on.
+ * @param actor
+ * @param item
+ * @param item.kind
+ * @param item.id
+ * @param until - When the item resurfaces; bucketed into `deferredFor`.
+ */
+export function trackReviewSnooze(
+  actor: AdoptionActor,
+  item: { kind: ReviewRunKind; id: number },
+  until: Date,
+): Promise<void> {
+  return (async () => {
+    const agentSlug = await resolveRunAgentSlug(actor.orgId, item.kind, item.id);
+    await track(actor, 'review.snoozed', {
+      agentSlug,
+      resource: [`${item.kind}_run`, item.id],
+      meta: { kind: item.kind, deferredFor: bucketSnoozeHorizon(until) },
     });
   })().catch(() => {});
 }
