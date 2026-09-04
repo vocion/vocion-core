@@ -53,7 +53,7 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
         <StatCard label="Reach" value={a?.reach ?? 0} definition="Distinct users who interacted with this agent in the window" />
         <StatCard label="Conversations" value={a?.conversations ?? 0} />
         <StatCard label="Messages" value={a?.messages ?? 0} />
-        <StatCard label="Approval rate" value={formatPercent(a?.approvalRate ?? null)} hint={a ? `${a.approvals}✓ ${a.rejections}✗` : undefined} definition="Approved ÷ all review decisions on this agent's runs" />
+        <StatCard label="Approval rate" value={formatPercent(a?.approvalRate ?? null)} hint={a ? `${a.approvals}✓ ${a.rejections}✗ ${a.revisions}✎` : undefined} definition="Approved as-is ÷ every judged decision on this agent's runs. An edited or rewritten draft counts against the rate — the reviewer kept the action but not the wording." />
         <StatCard label="Feedback" value={a ? `↑${a.feedbackUp} ↓${a.feedbackDown}` : '—'} />
       </div>
 

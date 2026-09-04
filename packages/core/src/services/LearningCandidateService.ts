@@ -16,7 +16,7 @@
 
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { learningCandidateSchema } from '@/models/Schema';
+import { learningCandidateSchema, learningFeedbackOccurrenceSchema } from '@/models/Schema';
 import { addLearning, checkDedup } from '@/services/LearningsService';
 
 export type LearningCandidate = typeof learningCandidateSchema.$inferSelect;
@@ -106,6 +106,7 @@ export async function getCandidate(orgId: string, id: number): Promise<LearningC
  * @param opts.orgId
  * @param opts.stepName
  * @param opts.ruleText
+ * @param opts.polarity
  * @param opts.sourceFeedbackJobId
  * @param opts.sourceRunId
  */
@@ -113,6 +114,12 @@ export async function createCandidate(opts: {
   orgId: string;
   stepName: string;
   ruleText: string;
+  /**
+   * Whether the rule asks the agent to change ('correct') or to keep doing
+   * something a reviewer praised ('reinforce'). Defaults to correction, which
+   * is what feedback without an explicit polarity has always been.
+   */
+  polarity?: 'correct' | 'reinforce';
   sourceFeedbackJobId?: number | null;
   sourceRunId?: number | null;
 }): Promise<LearningCandidate> {
@@ -126,6 +133,7 @@ export async function createCandidate(opts: {
       orgId: opts.orgId,
       stepName: opts.stepName,
       ruleText,
+      polarity: opts.polarity ?? 'correct',
       sourceFeedbackJobId: opts.sourceFeedbackJobId ?? null,
       sourceRunId: opts.sourceRunId ?? null,
       status: 'pending',
@@ -232,9 +240,11 @@ export async function decideCandidate(opts: {
       .set({ status: 'rejected', rejectedReason: reason, decidedBy: opts.decidedBy, decidedAt: new Date() })
       .where(and(eq(learningCandidateSchema.orgId, opts.orgId), eq(learningCandidateSchema.id, opts.id)))
       .returning();
+    await trackCandidateDecision(opts.orgId, opts.id, opts.decidedBy, 'rejected');
     return { ok: true, candidate: row!, ruleId: null };
   }
 
+  const agentSlug = await resolveCandidateAgentSlug(opts.orgId, opts.id);
   let added;
   try {
     added = await addLearning({
@@ -243,6 +253,8 @@ export async function decideCandidate(opts: {
       ruleText: effectiveRuleText(candidate),
       source: candidate.sourceFeedbackJobId ? `feedback:${candidate.sourceFeedbackJobId}` : 'learning-candidate',
       createdBy: opts.decidedBy,
+      agentSlug,
+      occurrenceCount: candidate.occurrenceCount,
     });
   } catch (error) {
     // addLearning throws only for an unknown step; anything else is a real fault.
@@ -275,6 +287,7 @@ export async function decideCandidate(opts: {
     })
     .where(and(eq(learningCandidateSchema.orgId, opts.orgId), eq(learningCandidateSchema.id, opts.id)))
     .returning();
+  await trackCandidateDecision(opts.orgId, opts.id, opts.decidedBy, 'approved', agentSlug);
   return { ok: true, candidate: row!, ruleId: added.rule?.id ?? null };
 }
 
@@ -287,4 +300,67 @@ export async function decideCandidate(opts: {
  */
 export async function checkCandidateText(orgId: string, stepName: string, ruleText: string) {
   return checkDedup(orgId, stepName, ruleText);
+}
+
+/**
+ * Which agent's behaviour is this candidate about?
+ *
+ * The candidate row itself does not say — it carries a step name and rule
+ * text. The occurrences behind it do: review-queue feedback records the agent
+ * whose proposal drew the reaction. The most recent occurrence that names an
+ * agent wins, since a rule restated about a second agent is still primarily
+ * about the one someone reacted to last.
+ *
+ * Null is a normal answer — a rule proposed from a document comment is about
+ * the workspace, not an agent.
+ * @param orgId
+ * @param candidateId
+ */
+async function resolveCandidateAgentSlug(orgId: string, candidateId: number): Promise<string | null> {
+  const [occurrence] = await db
+    .select({ agentSlug: learningFeedbackOccurrenceSchema.agentSlug })
+    .from(learningFeedbackOccurrenceSchema)
+    .where(and(
+      eq(learningFeedbackOccurrenceSchema.orgId, orgId),
+      eq(learningFeedbackOccurrenceSchema.candidateId, candidateId),
+      sql`${learningFeedbackOccurrenceSchema.agentSlug} is not null`,
+    ))
+    .orderBy(desc(learningFeedbackOccurrenceSchema.id))
+    .limit(1);
+  return occurrence?.agentSlug ?? null;
+}
+
+/**
+ * Put the decision on the adoption stream.
+ *
+ * Both outcomes are recorded. A rejection used to leave no trace at all, which
+ * made the queue look like it only ever produced rules — the pile of rules
+ * people turned down is the more useful half when judging whether the
+ * classifier is proposing the right things.
+ *
+ * Fire-and-forget: telemetry must never fail a decision a person just made.
+ * @param orgId
+ * @param candidateId
+ * @param decidedBy
+ * @param decision
+ * @param agentSlug - Resolved by the caller on approval; looked up otherwise.
+ */
+async function trackCandidateDecision(
+  orgId: string,
+  candidateId: number,
+  decidedBy: string,
+  decision: 'approved' | 'rejected',
+  agentSlug?: string | null,
+): Promise<void> {
+  try {
+    const slug = agentSlug === undefined ? await resolveCandidateAgentSlug(orgId, candidateId) : agentSlug;
+    const { track } = await import('@/services/adoption/track');
+    await track({ orgId, userId: decidedBy }, 'learning.candidate_decided', {
+      agentSlug: slug ?? undefined,
+      resource: ['learning_candidate', candidateId],
+      meta: { decision },
+    });
+  } catch (error) {
+    console.error(`[LearningCandidateService] could not track the ${decision} decision on candidate ${candidateId}`, error);
+  }
 }

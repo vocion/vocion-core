@@ -1104,6 +1104,13 @@ export const learningSchema = pgTable(
     /** Where the rule came from: 'manual', 'feedback:<id>', 'self-improver:<run_id>', etc. */
     source: text('source'),
     createdBy: text('created_by'),
+    /**
+     * How many separate pieces of feedback asked for this rule — the count
+     * carried over from the candidate on approval, plus every later piece of
+     * feedback that restated an already-adopted rule. A rule people keep
+     * asking for is worth surfacing differently from one asked for once.
+     */
+    occurrenceCount: integer('occurrence_count').default(1).notNull(),
     /** Optional last-applied timestamp for staleness UI; updated when the agent reads the step. */
     lastUsedAt: timestamp('last_used_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -1752,6 +1759,20 @@ export const learningCandidateSchema = pgTable(
     sourceFeedbackJobId: integer('source_feedback_job_id').references(() => feedbackJobSchema.id, { onDelete: 'set null' }),
     /** The run the feedback was about, when there was one. */
     sourceRunId: integer('source_run_id'),
+    /**
+     * 'correct' (the agent should change what it does) or 'reinforce' (the
+     * agent should keep doing something a reviewer praised). Correction is the
+     * default because every candidate that existed before positive feedback
+     * was collected came from someone disagreeing.
+     */
+    polarity: text('polarity').default('correct').notNull(),
+    /**
+     * How many separate pieces of feedback asked for this rule. New feedback
+     * that restates a pending candidate increments this instead of inserting a
+     * second row, so the queue can be ordered by weight of evidence. See
+     * `learningFeedbackOccurrenceSchema` for the individual submissions.
+     */
+    occurrenceCount: integer('occurrence_count').default(1).notNull(),
     /** 'pending' | 'approved' | 'rejected'. */
     status: text('status').default('pending').notNull(),
     /** Required when rejecting — a rejection with no reason teaches nobody anything. */
@@ -1771,6 +1792,66 @@ export const learningCandidateSchema = pgTable(
     orgStatusIdx: index('learning_candidate_org_status_idx').on(table.orgId, table.status),
   }),
 );
+
+/**
+ * One row per piece of feedback that landed on a proposed or adopted rule.
+ *
+ * The first submission creates a candidate and one occurrence. Every later
+ * submission that says substantively the same thing adds an occurrence and
+ * increments the target's `occurrenceCount` — it does not create a second
+ * candidate. That is what lets the queue answer "how many people asked for
+ * this, and who" without showing the same idea five times.
+ *
+ * Exactly one of `candidateId` / `learningId` is set: feedback attaches to a
+ * pending suggestion, or to a rule that has already been adopted.
+ */
+export const learningFeedbackOccurrenceSchema = pgTable(
+  'learning_feedback_occurrence',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Set when the feedback landed on a candidate still awaiting a decision. */
+    candidateId: integer('candidate_id').references(() => learningCandidateSchema.id, { onDelete: 'cascade' }),
+    /** Set when the feedback restated a rule that is already adopted. */
+    learningId: integer('learning_id').references(() => learningSchema.id, { onDelete: 'cascade' }),
+    /** 'correct' or 'reinforce' — the polarity of this individual submission. */
+    polarity: text('polarity').notNull(),
+    /** What the person actually wrote, kept so a reviewer can read the evidence. */
+    note: text('note'),
+    /** The agent whose recommendation drew the feedback, when there was one. */
+    agentSlug: text('agent_slug'),
+    sourceFeedbackJobId: integer('source_feedback_job_id').references(() => feedbackJobSchema.id, { onDelete: 'set null' }),
+    /** The run being reacted to — an action run, workflow run or mission run id. */
+    sourceRunId: integer('source_run_id'),
+    submittedBy: text('submitted_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('learning_feedback_occurrence_candidate_idx').on(table.orgId, table.candidateId),
+    index('learning_feedback_occurrence_learning_idx').on(table.orgId, table.learningId),
+    // A row with neither target is an orphan nothing would ever read; a row
+    // with both would be counted twice. Declared here as well as in migration
+    // 0077 so `drizzle-kit generate` does not later propose dropping it.
+    check(
+      'learning_feedback_occurrence_target_ck',
+      sql`(
+        (${table.candidateId} is not null and ${table.learningId} is null)
+        or (${table.candidateId} is null and ${table.learningId} is not null)
+      )`,
+    ),
+  ],
+);
+
+export const learningFeedbackOccurrenceRelations = relations(learningFeedbackOccurrenceSchema, ({ one }) => ({
+  candidate: one(learningCandidateSchema, {
+    fields: [learningFeedbackOccurrenceSchema.candidateId],
+    references: [learningCandidateSchema.id],
+  }),
+  rule: one(learningSchema, {
+    fields: [learningFeedbackOccurrenceSchema.learningId],
+    references: [learningSchema.id],
+  }),
+}));
 
 export const knowledgeDocumentSchema = pgTable(
   'knowledge_document',

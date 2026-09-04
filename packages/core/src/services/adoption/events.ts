@@ -18,6 +18,8 @@ import { z } from 'zod';
 
 export const runKind = z.enum(['skill', 'workflow', 'mission', 'action']);
 export const feedbackRating = z.enum(['up', 'down']);
+/** Whether a proposed rule asks the agent to change or to keep doing something. */
+export const learningPolarity = z.enum(['correct', 'reinforce']);
 
 type EventSpec = {
   /** True when the event is agent-attributable — callers should pass `agentSlug`. */
@@ -71,6 +73,32 @@ export const ADOPTION_EVENTS = {
     }),
   },
   'learning.added': { agent: true },
+  /**
+   * Feedback proposed a rule nobody had proposed before, so a candidate is
+   * now waiting in the queue. `polarity` says whether the reviewer wanted a
+   * behaviour changed or kept.
+   */
+  'learning.candidate_created': {
+    agent: true,
+    meta: z.object({ polarity: learningPolarity }),
+  },
+  /**
+   * Feedback restated a rule that was already pending or already adopted. No
+   * candidate was created; the existing row's occurrence count went up. These
+   * events are how "five people keep asking for this" becomes visible.
+   */
+  'learning.candidate_duplicate': {
+    agent: true,
+    meta: z.object({
+      polarity: learningPolarity,
+      matchedKind: z.enum(['candidate', 'learning']),
+    }),
+  },
+  /** A person adopted or rejected a candidate. Both outcomes are signal. */
+  'learning.candidate_decided': {
+    agent: true,
+    meta: z.object({ decision: z.enum(['approved', 'rejected']) }),
+  },
   /**
    * One assessed call = one event, whoever ordered it (scheduled mission
    * check or a chat turn). The drill-down pointer to the ledger:

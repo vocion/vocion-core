@@ -181,6 +181,15 @@ export async function addLearning(opts: {
   ruleText: string;
   source?: string;
   createdBy?: string;
+  /**
+   * The agent this rule is about. A rule adopted from a candidate carries a
+   * `feedback:<id>` source rather than an `agent:<slug>` one, so the slug
+   * cannot be parsed back out of `source` — without this the adoption stream
+   * records the rule with no agent and the per-agent view never sees it.
+   */
+  agentSlug?: string | null;
+  /** How many separate pieces of feedback asked for this rule. */
+  occurrenceCount?: number;
 }) {
   const text = opts.ruleText.trim();
   if (!text) {
@@ -210,6 +219,7 @@ export async function addLearning(opts: {
       ruleText: text,
       source: opts.source ?? null,
       createdBy: opts.createdBy ?? null,
+      occurrenceCount: opts.occurrenceCount ?? 1,
     })
     .returning();
   if (opts.createdBy && row) {
@@ -223,8 +233,10 @@ export async function addLearning(opts: {
           import('@/services/adoption/attribution'),
         ]);
         await track({ orgId: opts.orgId, userId: opts.createdBy! }, 'learning.added', {
-          // Learnings targeted at an agent carry an 'agent:<slug>' source.
-          agentSlug: agentSlugFromPrincipal(opts.source),
+          // Rules written straight at an agent carry an 'agent:<slug>' source.
+          // Rules adopted from feedback carry 'feedback:<id>' instead, so the
+          // caller passes the slug it already resolved.
+          agentSlug: opts.agentSlug ?? agentSlugFromPrincipal(opts.source),
           resource: ['learning', row.id],
         });
       } catch (error) {
