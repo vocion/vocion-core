@@ -21,6 +21,8 @@
 # Run from the EC2:
 #
 #   sudo bash /opt/vocion/infra/aws/apply-migrations.sh
+#   sudo bash /opt/vocion/infra/aws/apply-migrations.sh --check
+#   sudo bash /opt/vocion/infra/aws/apply-migrations.sh --baseline all
 #
 # A database whose schema predates this tracking table needs a one-time
 # baseline so the existing migrations aren't replayed — the script says
@@ -47,10 +49,63 @@ MIGRATIONS_DIR="${MIGRATIONS_DIR:-${REPO_DIR:-/opt/vocion}/packages/core/migrati
 # Postgres container may still be initialising.
 READINESS_ATTEMPTS="${POSTGRES_READINESS_ATTEMPTS:-30}"
 # One-time escape hatch for a database whose schema predates this
-# tracking table — see baseline_pre_existing_schema below.
+# tracking table — see baseline_pre_existing_schema below. Settable as an
+# environment variable or, preferably, with --baseline: `sudo VAR=value`
+# is refused by the default sudoers env_reset, so a flag is one less
+# thing for an operator to get wrong.
 MIGRATIONS_BASELINE="${MIGRATIONS_BASELINE:-}"
+# --check reports what would happen and writes nothing.
+CHECK_ONLY=false
 
 log() { echo "[apply-migrations] $*"; }
+
+print_usage() {
+  cat <<USAGE
+Usage: apply-migrations.sh [--baseline <file|all>] [--check]
+
+  --baseline <file>  treat every migration up to and including <file> as
+                     already applied, for a database whose schema predates
+                     the __pgsql_migrations table
+  --baseline all     treat every migration file as already applied
+  --check            report what would happen; write nothing
+  -h, --help         this message
+
+Environment: POSTGRES_CONTAINER, POSTGRES_DB, POSTGRES_USER,
+MIGRATIONS_DIR, REPO_DIR, POSTGRES_READINESS_ATTEMPTS, MIGRATIONS_BASELINE
+USAGE
+}
+
+parse_arguments() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --baseline)
+        if [ "$#" -lt 2 ]; then
+          log "ERROR: --baseline needs a migration file name, or 'all'."
+          exit 1
+        fi
+        MIGRATIONS_BASELINE="$2"
+        shift 2
+        ;;
+      --baseline=*)
+        MIGRATIONS_BASELINE="${1#--baseline=}"
+        shift
+        ;;
+      --check)
+        CHECK_ONLY=true
+        shift
+        ;;
+      -h | --help)
+        print_usage
+        exit 0
+        ;;
+      *)
+        log "ERROR: unknown argument '$1'"
+        print_usage
+        exit 1
+        ;;
+    esac
+  done
+}
 
 # Run a psql command inside the Postgres container. stdout is the
 # caller's to handle; stderr is left alone so failures are visible in
@@ -78,6 +133,9 @@ wait_for_postgres() {
 }
 
 create_tracking_table() {
+  if [ "${CHECK_ONLY}" = true ]; then
+    return 0
+  fi
   run_sql -c "
     SET client_min_messages = warning;
     CREATE TABLE IF NOT EXISTS __pgsql_migrations (
@@ -137,6 +195,16 @@ find_migration_position() {
 }
 
 count_tracked_migrations() {
+  local table_exists
+  # Under --check the tracking table may not exist yet, since --check
+  # does not create it. Same one-statement-at-a-time reason as the
+  # drizzle probe below.
+  table_exists=$(run_sql -tA -c \
+    "SELECT to_regclass('public.__pgsql_migrations') IS NOT NULL;")
+  if [ "${table_exists}" != "t" ]; then
+    echo 0
+    return 0
+  fi
   run_sql -tA -c "SELECT count(*) FROM __pgsql_migrations;"
 }
 
@@ -181,6 +249,9 @@ count_drizzle_migrations() {
 
 record_migration_as_applied() {
   local name="$1"
+  if [ "${CHECK_ONLY}" = true ]; then
+    return 0
+  fi
   run_sql -c \
     "INSERT INTO __pgsql_migrations (name) VALUES ('${name}')
      ON CONFLICT (name) DO NOTHING;" >/dev/null
@@ -257,12 +328,20 @@ baseline_pre_existing_schema() {
   log "ERROR: database '${DB_NAME}' already has application tables but"
   log "  __pgsql_migrations is empty, so this script cannot tell which"
   log "  migrations ran. Replaying them all would fail on the first file."
-  log "  Fix once, then re-run:"
-  log "    - migrated by drizzle-kit? nothing to do, this script reads"
-  log "      drizzle.__drizzle_migrations automatically."
-  log "    - applied by hand? re-run with the last applied file name:"
-  log "      sudo env MIGRATIONS_BASELINE=0042_thing.sql bash $0"
-  log "    - schema fully up to date? MIGRATIONS_BASELINE=all"
+  log ""
+  log "  Work out where the schema stands, then say so once:"
+  log "    - the app is healthy on the current checkout, so the schema is"
+  log "      up to date:   sudo bash $0 --baseline all"
+  log "    - migrations were applied by hand up to a known file:"
+  log "                    sudo bash $0 --baseline 0042_thing.sql"
+  log ""
+  log "  To find that file, open the newest migrations in ${MIGRATIONS_DIR}"
+  log "  and check whether what they create already exists:"
+  log "    sudo docker exec ${CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} \\"
+  log "      -c '\\d <table the migration creates>'"
+  log ""
+  log "  'sudo bash $0 --check' reports what any of this would do without"
+  log "  writing anything."
   return 1
 }
 
@@ -270,29 +349,65 @@ apply_pending_migrations() {
   local applied=0
   local skipped=0
   local sql_file name already
+  # --check does not create the tracking table, so it may legitimately be
+  # absent here; then nothing is recorded and every file counts as pending.
+  local tracking_present
+  tracking_present=$(run_sql -tA -c \
+    "SELECT to_regclass('public.__pgsql_migrations') IS NOT NULL;")
   while IFS= read -r sql_file; do
     name=$(basename "${sql_file}")
-    already=$(run_sql -tA -c \
-      "SELECT 1 FROM __pgsql_migrations WHERE name = '${name}';")
+    already=""
+    if [ "${tracking_present}" = "t" ]; then
+      already=$(run_sql -tA -c \
+        "SELECT 1 FROM __pgsql_migrations WHERE name = '${name}';")
+    fi
     if [ "${already}" = "1" ]; then
       skipped=$((skipped + 1))
+      continue
+    fi
+    if [ "${CHECK_ONLY}" = true ]; then
+      log "would apply ${name}"
+      applied=$((applied + 1))
       continue
     fi
     log "applying ${name}"
     # --single-transaction so a mid-file error rolls the whole file
     # back; without it a failure leaves half a migration in place.
+    #
+    # CREATE INDEX CONCURRENTLY is the exception: Postgres refuses to run
+    # it inside a transaction block, so such a file is applied unwrapped.
+    # ON_ERROR_STOP still halts it on the first error, but a later
+    # statement failing leaves the earlier ones in place — the log says
+    # so, because recovery then needs a human.
+    local transaction_flag="--single-transaction"
+    if grep -qiE '\bCONCURRENTLY\b' "${sql_file}"; then
+      transaction_flag=""
+      log "  ${name} uses CONCURRENTLY — applying without a transaction;"
+      log "  a partial failure in this file will not roll back"
+    fi
     if sudo docker exec -i "${CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" \
-      -v ON_ERROR_STOP=1 --single-transaction < "${sql_file}" >/dev/null; then
+      -v ON_ERROR_STOP=1 ${transaction_flag} < "${sql_file}" >/dev/null; then
       record_migration_as_applied "${name}"
       applied=$((applied + 1))
     else
-      log "  x ${name} FAILED — nothing from this file was applied."
+      if [ -n "${transaction_flag}" ]; then
+        log "  x ${name} FAILED — nothing from this file was applied."
+      else
+        log "  x ${name} FAILED — it ran without a transaction, so check"
+        log "    which statements landed before re-running."
+      fi
       log "${applied} applied · ${skipped} already-applied · 1 failed"
       return 1
     fi
   done < <(list_migration_files)
   log "${applied} applied · ${skipped} already-applied · 0 failed"
 }
+
+parse_arguments "$@"
+
+if [ "${CHECK_ONLY}" = true ]; then
+  log "--check: reporting only, nothing will be written"
+fi
 
 verify_migrations_directory
 wait_for_postgres
