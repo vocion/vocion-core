@@ -24,7 +24,9 @@ set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/vocion/core.git}"
 GIT_REF="${1:-main}"
-REPO_DIR="${REPO_DIR:-/opt/vocion}"
+# REPO_DIR is exported so apply-migrations.sh resolves its migrations
+# directory against this checkout rather than the hardcoded default.
+export REPO_DIR="${REPO_DIR:-/opt/vocion}"
 DATA_DIR="${DATA_DIR:-/opt/vocion-data}"
 ENV_FILE="${REPO_DIR}/infra/aws/.env.production"
 

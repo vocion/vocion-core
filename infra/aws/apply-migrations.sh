@@ -39,7 +39,10 @@ set -euo pipefail
 CONTAINER="${POSTGRES_CONTAINER:-vocion-postgres}"
 DB_NAME="${POSTGRES_DB:-vocion}"
 DB_USER="${POSTGRES_USER:-postgres}"
-MIGRATIONS_DIR="${MIGRATIONS_DIR:-/opt/vocion/packages/core/migrations}"
+# Follows REPO_DIR, which update.sh and bootstrap.sh export, so a
+# checkout somewhere other than /opt/vocion migrates from its own
+# migration set rather than the default one.
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-${REPO_DIR:-/opt/vocion}/packages/core/migrations}"
 # bootstrap.sh calls this right after `docker compose up -d`, so the
 # Postgres container may still be initialising.
 READINESS_ATTEMPTS="${POSTGRES_READINESS_ATTEMPTS:-30}"
@@ -88,7 +91,49 @@ create_tracking_table() {
 # files with a zero-padded ordinal prefix, so lexical sort is apply
 # order — the same order as migrations/meta/_journal.json.
 list_migration_files() {
-  ls -1 "${MIGRATIONS_DIR}"/[0-9]*.sql 2>/dev/null | sort
+  # `find`, not a glob: it exits 0 when nothing matches, where `ls` on an
+  # unmatched glob exits 1 and takes the whole pipeline down under
+  # `pipefail`.
+  find "${MIGRATIONS_DIR}" -maxdepth 1 -name '[0-9]*.sql' 2>/dev/null | sort
+}
+
+# Stop before touching the database when there is nothing to apply from.
+# A wrong MIGRATIONS_DIR would otherwise sail through as "0 applied" and
+# hand back a green deploy on an unmigrated schema — the exact failure
+# this script exists to prevent.
+verify_migrations_directory() {
+  if [ ! -d "${MIGRATIONS_DIR}" ]; then
+    log "ERROR: no migrations directory at ${MIGRATIONS_DIR}"
+    log "  Set MIGRATIONS_DIR, or REPO_DIR when the checkout lives"
+    log "  somewhere other than /opt/vocion."
+    exit 1
+  fi
+  local file_count
+  file_count=$(list_migration_files | wc -l | tr -d ' ')
+  if [ "${file_count}" -eq 0 ]; then
+    log "ERROR: ${MIGRATIONS_DIR} holds no migration files."
+    log "  packages/core/migrations is never empty, so this is a wrong"
+    log "  path rather than an empty migration set. Refusing to report a"
+    log "  successful migration run."
+    exit 1
+  fi
+  log "${file_count} migration file(s) in ${MIGRATIONS_DIR}"
+}
+
+# 1-based position of a migration file in apply order, by exact name.
+# Prints nothing and returns 1 when the name matches no file.
+find_migration_position() {
+  local wanted="$1"
+  local position=0
+  local sql_file
+  while IFS= read -r sql_file; do
+    position=$((position + 1))
+    if [ "$(basename "${sql_file}")" = "${wanted}" ]; then
+      printf '%s' "${position}"
+      return 0
+    fi
+  done < <(list_migration_files)
+  return 1
 }
 
 count_tracked_migrations() {
@@ -99,12 +144,22 @@ count_tracked_migrations() {
 # a genuinely empty database (safe to migrate from zero) apart from one
 # that was migrated by some other route before this script existed.
 database_has_application_tables() {
-  local table_count
+  local table_count query_status
+  # Exact name, not `NOT LIKE '__%migrations'` — `_` is a LIKE wildcard,
+  # so that pattern also excluded real tables such as `db_migrations`.
   table_count=$(run_sql -tA -c "
     SELECT count(*) FROM information_schema.tables
     WHERE table_schema = 'public'
-      AND table_name NOT LIKE '__%migrations';
+      AND table_name <> '__pgsql_migrations';
   ")
+  query_status=$?
+  # This function is called as the right operand of `&&`, where `set -e`
+  # is suspended, so a failed query has to be handled here or the script
+  # would decide the schema is empty without having read it.
+  if [ "${query_status}" -ne 0 ] || [ -z "${table_count}" ]; then
+    log "ERROR: could not read the table list of database '${DB_NAME}'."
+    exit 1
+  fi
   [ "${table_count}" -gt 0 ]
 }
 
@@ -162,15 +217,10 @@ record_first_n_as_applied() {
 #
 # With neither, stop — replaying is worse than refusing.
 baseline_pre_existing_schema() {
-  local drizzle_count
-  drizzle_count=$(count_drizzle_migrations)
-  if [ "${drizzle_count}" -gt 0 ]; then
-    log "schema exists and drizzle recorded ${drizzle_count} migration(s);"
-    log "  treating the first ${drizzle_count} file(s) as already applied"
-    record_first_n_as_applied "${drizzle_count}"
-    return 0
-  fi
-
+  # The operator's explicit position is read first. Drizzle's history is
+  # only a floor: a database migrated by drizzle through 0010 and then
+  # by hand through 0042 would otherwise be baselined at 10 and die
+  # replaying 0011, with the operator's MIGRATIONS_BASELINE ignored.
   if [ "${MIGRATIONS_BASELINE}" = "all" ]; then
     local total
     total=$(list_migration_files | wc -l | tr -d ' ')
@@ -183,8 +233,7 @@ baseline_pre_existing_schema() {
     local through
     # `|| true` so a name that matches nothing falls through to the
     # error message below instead of tripping `set -e` silently.
-    through=$(list_migration_files \
-      | grep -n "/${MIGRATIONS_BASELINE}\$" | cut -d: -f1 || true)
+    through=$(find_migration_position "${MIGRATIONS_BASELINE}" || true)
     if [ -z "${through}" ]; then
       log "ERROR: MIGRATIONS_BASELINE='${MIGRATIONS_BASELINE}' matches no file"
       log "  in ${MIGRATIONS_DIR}. Pass a file name such as 0042_thing.sql."
@@ -196,6 +245,15 @@ baseline_pre_existing_schema() {
     return 0
   fi
 
+  local drizzle_count
+  drizzle_count=$(count_drizzle_migrations)
+  if [ "${drizzle_count}" -gt 0 ]; then
+    log "schema exists and drizzle recorded ${drizzle_count} migration(s);"
+    log "  treating the first ${drizzle_count} file(s) as already applied"
+    record_first_n_as_applied "${drizzle_count}"
+    return 0
+  fi
+
   log "ERROR: database '${DB_NAME}' already has application tables but"
   log "  __pgsql_migrations is empty, so this script cannot tell which"
   log "  migrations ran. Replaying them all would fail on the first file."
@@ -203,7 +261,7 @@ baseline_pre_existing_schema() {
   log "    - migrated by drizzle-kit? nothing to do, this script reads"
   log "      drizzle.__drizzle_migrations automatically."
   log "    - applied by hand? re-run with the last applied file name:"
-  log "      sudo MIGRATIONS_BASELINE=0042_thing.sql bash $0"
+  log "      sudo env MIGRATIONS_BASELINE=0042_thing.sql bash $0"
   log "    - schema fully up to date? MIGRATIONS_BASELINE=all"
   return 1
 }
@@ -236,6 +294,7 @@ apply_pending_migrations() {
   log "${applied} applied · ${skipped} already-applied · 0 failed"
 }
 
+verify_migrations_directory
 wait_for_postgres
 create_tracking_table
 
