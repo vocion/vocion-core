@@ -92,13 +92,20 @@ entry needs `systemPrompt` or `systemPromptFile`.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `provider` | `local` \| `agentcore` \| `runtime` | `local` | Where the agent loop executes: in-process, the AWS AgentCore managed harness, or the out-of-process agent-runtime artifact. |
+| `runsOn` | `in-process` \| `agentcore-container` \| `aws-managed-harness` | derived — see below | Which machinery runs the turn. `in-process`: our harness, in this app's process, no AgentCore. `agentcore-container`: the same harness, in our container, hosted on AWS AgentCore Runtime. `aws-managed-harness`: AWS's own harness instead of ours — it drives the turn and calls back for tools, and the agent gets one tool and no subagents, playbooks or gates. |
+| `provider` | — | — | Pre-rename name for `runsOn`, with values `local` / `runtime` / `agentcore`. Still read and normalised; not written back. |
 | `interrupts` | string[] | `[]` | Skill or tool slugs that pause for human approval before executing. |
 | `maxTokens` | positive int | — | Cap on the model's output tokens. |
 | `excludeTools` | string[] | `[]` | Withhold built-in tools by name — e.g. `propose_action` for an agent that should have no CRM-write surface at all. |
 | `grantTools` | string[] | `[]` | The inverse: tools too powerful to be default-on, granted only to agents that name them. |
 | `model` | string | — | Model override for the `agentcore` / `runtime` providers. |
 | `recommendActionBackstop` | boolean | — | When a turn ends with zero `recommend_action` calls, run a short follow-up pass to emit the action cards the agent's rules require. |
+
+For how the loop, the model vendor, and the AWS account relate — and why two fields both end in "provider" — see [where an agent turn runs](../agent-execution.md).
+
+**`runsOn` is derived when you leave it out.** An agent with `modelProvider: bedrock` and no `runsOn` gets `agentcore-container`. Everything else falls to `in-process`. Choosing Bedrock as the model vendor therefore also chooses AWS as the place the turn runs, and writing `runsOn: in-process` alongside it opts back out.
+
+On `agentcore-container` the container signs Bedrock with a short-lived session core mints from the org's own stored AWS key, so model spend lands on the customer's account. An org that has stored no key gets no session and the container falls through to the platform's own credentials.
 
 ## Example
 

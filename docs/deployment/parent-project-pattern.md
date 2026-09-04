@@ -120,6 +120,54 @@ makes that impossible.
 Phase 2 is a separate action because it needs Docker and builds a linux/arm64
 image. A plain infrastructure change shouldn't require either.
 
+### Wire the app to the runtime
+
+Provisioning creates the runtime. It does not tell the app to use it — that is
+five environment variables, and getting one wrong fails in a way that looks
+like a model problem rather than a config problem.
+
+`provision.sh` and `deploy-runtime.sh` write what they created to SSM under
+`/vocion/agentcore/<env>/`: `runtime-arn`, `memory-id`, `runtime-image`,
+`runtime-role-arn`, `ecr-repo-uri`. **Read those at deploy time. Do not paste
+an ARN into a compose file or a tfvars** — the runtime is redeployed far more
+often than the parent project's infrastructure, and a pasted ARN is how an
+environment ends up invoking last month's image.
+
+| Var | Value | What breaks without it |
+|---|---|---|
+| `VOCION_AGENT_RUNTIME_ARN` | SSM `runtime-arn` | Core falls back to `VOCION_AGENT_RUNTIME_URL` (default `http://localhost:8080`) and every agent turn fails to connect. Chat is broken, the site is fine. |
+| `VOCION_TOOL_ENDPOINT_URL` | `https://<the client's core>/api/internal/agent-tools` | The runtime executes the loop but **every tool call fails**, because the default is localhost and AWS cannot reach it. The agent answers, badly, from the model alone. |
+| `VOCION_AGENTCORE_REGION` | the region the runtime was provisioned in | Core signs `InvokeAgentRuntime` against `us-west-2` and cannot find a runtime provisioned elsewhere. |
+| `VOCION_AGENTCORE_MEMORY_ID` | SSM `memory-id` | Conversations still work — history rides the payload — but nothing is remembered across conversations. |
+| `VOCION_BEDROCK_SESSION_SECONDS` | optional, default 3600 | Nothing. Only shorten or lengthen the STS session if you have a reason. |
+
+`VOCION_TOOL_ENDPOINT_URL` is the one that surprises people. Every domain tool
+an agent has — knowledge search, CRM lookups, learnings, briefings, all of them
+— is executed by core, not by the runtime; the runtime calls back over HTTP
+with a signed tenant claim. So the client's core has to be reachable from AWS,
+over TLS, before a deployed agent can do anything but talk. The endpoint
+verifies the claim on every request and is safe to expose, but it is a tenant
+boundary: terminate TLS properly and don't put it behind a wildcard that also
+serves something else.
+
+Model spend follows the org's stored AWS key. Core mints a short-lived STS
+session from the key the client saved at `/dashboard/api-tokens` and sends it
+in the invocation, so Bedrock is billed to their account. If they have stored
+no key, the runtime signs with its own execution role and the bill is ours —
+which is the right fallback for a trial and the wrong one for a paying client,
+so check it during handover rather than assuming.
+
+### One-time: let CI deploy the runtime
+
+`.github/workflows/deploy-agent-runtime.yml` does nothing until someone runs
+`infra/agentcore/provision-ci-role.sh` and sets `AWS_DEPLOY_ROLE_ARN` as a
+repository secret. That step is deliberately manual and deliberately human: it
+creates federated trust between GitHub and the AWS account. Do it once per
+environment, and expect to do it again for staging and production — SSM is
+namespaced per environment (`/vocion/agentcore/<env>/`, see
+[`multiple-environments.md`](./multiple-environments.md)) so the two never
+share a runtime by accident.
+
 ---
 
 ## Gotchas

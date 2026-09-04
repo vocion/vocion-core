@@ -124,6 +124,27 @@ export type InvocationRequest = {
    * before.
    */
   memory?: { sessionId: string; actorId: string };
+  /**
+   * Temporary AWS credentials for the Bedrock model path, minted by core
+   * from the org's own stored access key.
+   *
+   * Present only when that org has stored one. Absent means "do not
+   * override" — the model client then resolves credentials from this
+   * process's own chain (execution role, or a Bedrock API key in
+   * `AWS_BEARER_TOKEN_BEDROCK`), which is the platform's account rather
+   * than the customer's.
+   *
+   * All three fields are required together: a temporary access key is
+   * rejected by AWS unless the session token proving STS issued it comes
+   * with it. Ignored entirely on the Anthropic model path.
+   */
+  aws?: {
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken: string;
+    /** ISO-8601 instant the session expires. Informational. */
+    expiresAt?: string;
+  };
 };
 
 /** Tool endpoint response: the tool's output plus any side-channel events it emitted. */

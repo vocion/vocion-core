@@ -16,6 +16,7 @@ It's built for the part most agent frameworks skip — **operating** AI in produ
 - **Connect the real systems** — a built-in connector pack (Google Ads, GA4, HubSpot, Gmail, Slack, Google Drive) on a durable, incremental, **client-scoped** ingestion pipeline.
 - **A multi-tenant control plane** — tenant Bearer tokens that resolve to a permission principal, a **write API** (drive the review queue over REST), and **MCP over HTTP** (the agent/tool plane) — every mutation, token or human, routed through one authorization model.
 - **Safe by construction** — discovery-vs-mutation permissions, an autonomy ladder with approval gates, and cross-client isolation enforced at the query, not the prompt.
+- **Run the agent loop where you want it** — in this app's process, in our own container on AWS Bedrock AgentCore Runtime, or handed over to AWS's managed harness. One setting, `harness.runsOn`, and the same agent behaves the same way across the first two. [Where an agent turn runs](./docs/agent-execution.md) explains the three, and which AWS account ends up paying for the tokens.
 
 ## Layered architecture
 
