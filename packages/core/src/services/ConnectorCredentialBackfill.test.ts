@@ -219,6 +219,55 @@ describe('backfillConnectorCredentials', () => {
     });
   });
 
+  it('moves a Slack bot token onto the workspace credential', async () => {
+    // Slack gained a platform, so the backfill now has somewhere to move its
+    // key instead of leaving it on the install.
+    const connector = await makeConnector('slack');
+    await storeCredential({ orgId: ORG, installId: connector.installId, displayName: 'Slack', raw: { token: 'xoxb-1' } });
+
+    const report = await backfillConnectorCredentials();
+
+    expect(report.moved).toHaveLength(1);
+    await expect(credentialsInUse(connector, 'slack')).resolves.toEqual({ token: 'xoxb-1' });
+  });
+
+  it('moves one Google grant across, keeping the durable set intact', async () => {
+    const connector = await makeConnector('gmail');
+    await storeCredential({
+      orgId: ORG,
+      installId: connector.installId,
+      displayName: 'Google',
+      raw: { clientId: 'client-1', clientSecret: 'secret-1', refreshToken: 'refresh-1' },
+    });
+
+    const report = await backfillConnectorCredentials();
+
+    expect(report.moved).toHaveLength(1);
+    await expect(credentialsInUse(connector, 'gmail')).resolves.toMatchObject({
+      clientId: 'client-1',
+      refreshToken: 'refresh-1',
+    });
+  });
+
+  it('moves a Zoom app across with all three of its values', async () => {
+    const connector = await makeConnector('zoom');
+    await storeCredential({
+      orgId: ORG,
+      installId: connector.installId,
+      displayName: 'Zoom',
+      raw: { accountId: 'acct-1', clientId: 'client-1', clientSecret: 'secret-1' },
+    });
+
+    const report = await backfillConnectorCredentials();
+
+    expect(report.moved).toHaveLength(1);
+    await expect(credentialsInUse(connector, 'zoom')).resolves.toEqual({
+      accountId: 'acct-1',
+      clientId: 'client-1',
+      clientSecret: 'secret-1',
+    });
+  });
+
   it('leaves a connector with no credential platform alone', async () => {
     // The web crawler reads public pages, so there is no platform to move its
     // credential onto and nothing for the backfill to do.
@@ -360,5 +409,44 @@ describe('backfillConnectorCredentials', () => {
     await expect(credentialsInUse(production, 'strapi')).resolves.toMatchObject({
       baseUrl: 'https://cms.example',
     });
+  });
+});
+
+/**
+ * The backfill writes the same link `linkSourceToStoredCredential` does, so it
+ * owes the same `api_token_exclusive` flag. Left on the column default, a
+ * backfilled Jira or Strapi link would sit outside the unique index that stops
+ * a second source claiming its credential.
+ */
+describe('the exclusivity flag the backfill writes', () => {
+  it('claims a per-instance credential exclusively', async () => {
+    const connector = await makeConnector('strapi', { baseUrl: 'https://cms.partner.org', collections: ['events'] });
+    await storeCredential({
+      orgId: ORG,
+      installId: connector.installId,
+      displayName: 'Strapi',
+      raw: { token: 'strapi-token-aaaa' },
+    });
+
+    await backfillConnectorCredentials();
+    const [row] = await db
+      .select({ exclusive: knowledgeSourceSchema.apiTokenExclusive })
+      .from(knowledgeSourceSchema)
+      .where(eq(knowledgeSourceSchema.id, connector.sourceId));
+
+    expect(row?.exclusive).toBe(true);
+  });
+
+  it('leaves an account-wide credential shareable', async () => {
+    const connector = await makeConnector('slack');
+    await storeCredential({ orgId: ORG, installId: connector.installId, displayName: 'Slack', raw: { token: 'xoxb-1' } });
+
+    await backfillConnectorCredentials();
+    const [row] = await db
+      .select({ exclusive: knowledgeSourceSchema.apiTokenExclusive })
+      .from(knowledgeSourceSchema)
+      .where(eq(knowledgeSourceSchema.id, connector.sourceId));
+
+    expect(row?.exclusive).toBe(false);
   });
 });

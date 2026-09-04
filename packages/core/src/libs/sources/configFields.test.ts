@@ -343,9 +343,110 @@ describe('describeMissingFields', () => {
     expect(describeMissingFields(['Site URL'])).toBe('a site url');
   });
 
+  it('leaves the article off a field that asks for several', () => {
+    expect(describeMissingFields(['Project keys'])).toBe('project keys');
+  });
+
+  it('uses "an" before a label starting with a vowel', () => {
+    expect(describeMissingFields(['AWS region'])).toBe('an aws region');
+  });
+
+  it('keeps the article on a singular label ending in a double s', () => {
+    expect(describeMissingFields(['Email address'])).toBe('an email address');
+    expect(describeMissingFields(['Business'])).toBe('a business');
+  });
+
   it('joins several missing fields into one sentence', () => {
-    expect(describeMissingFields(['Site URL', 'Project keys'])).toBe('a site url and a project keys');
+    expect(describeMissingFields(['Site URL', 'Project keys'])).toBe('a site url and project keys');
     expect(describeMissingFields(['Bucket name', 'Key prefix', 'AWS region']))
-      .toBe('a bucket name, a key prefix and a aws region');
+      .toBe('a bucket name, a key prefix and an aws region');
+  });
+
+  it('reads as English for every required field in the table', () => {
+    // The wording is assembled from labels, so a new connector's label can
+    // break it without anyone reading the sentence it lands in.
+    for (const [slug, fields] of Object.entries(CONFIG_FIELDS)) {
+      const required = fields.filter(field => field.required === true).map(field => field.label);
+      if (required.length === 0) {
+        continue;
+      }
+      const sentence = describeMissingFields(required)!;
+
+      expect(sentence, `${slug} reads badly`).not.toMatch(/\ba [a-z]+s\b/);
+      expect(sentence, `${slug} reads badly`).not.toMatch(/\ba [aeiou]/);
+    }
+  });
+});
+
+describe('a dotted key that would reach a prototype', () => {
+  it('is refused rather than written', () => {
+    const fields: ConfigField[] = [{ key: '__proto__.polluted', label: 'Bad', type: 'text' }];
+    const { config } = buildConfigFromFields(fields, { '__proto__.polluted': 'yes' });
+
+    expect(config).toEqual({});
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('reads nothing back through one either', () => {
+    const fields: ConfigField[] = [{ key: 'constructor.name', label: 'Bad', type: 'text' }];
+
+    expect(fieldValuesFromConfig(fields, {})['constructor.name']).toBe('');
+  });
+});
+
+/**
+ * The update path replaces the whole config blob, so anything this form leaves
+ * out of what it builds is deleted from the source. A config can hold settings
+ * the form has no input for — `s3.pathFields` and `file-import.fieldMapping`
+ * come from the workspace manifest — and an admin opening the source and
+ * pressing Save must not wipe them.
+ */
+describe('settings the form has no input for', () => {
+  const fields: ConfigField[] = [
+    { key: 'bucket', label: 'Bucket name', type: 'text', required: true },
+    { key: 'prefix', label: 'Key prefix', type: 'text' },
+  ];
+
+  it('carries an unrendered setting through an edit', () => {
+    const saved = { bucket: 'acme-assets', prefix: 'templates/', pathFields: { campaign: 0 } };
+    const { config } = buildConfigFromFields(fields, fieldValuesFromConfig(fields, saved), saved);
+
+    expect(config).toEqual(saved);
+  });
+
+  it('still lets the form overwrite a setting it does render', () => {
+    const saved = { bucket: 'old-bucket', pathFields: { campaign: 0 } };
+    const { config } = buildConfigFromFields(fields, { bucket: 'new-bucket' }, saved);
+
+    expect(config).toEqual({ bucket: 'new-bucket', pathFields: { campaign: 0 } });
+  });
+
+  it('drops a rendered field cleared to blank rather than restoring the saved value', () => {
+    // Clearing an optional box means "use the connector's default", which only
+    // works if the key is absent. Carrying the old value back would make the
+    // box impossible to empty.
+    const saved = { bucket: 'acme-assets', prefix: 'templates/' };
+    const { config } = buildConfigFromFields(fields, { bucket: 'acme-assets', prefix: '' }, saved);
+
+    expect(config).toEqual({ bucket: 'acme-assets' });
+  });
+
+  it('keeps a nested setting whose parent key the form partly renders out of the way', () => {
+    // `csvOptions.delimiter` is rendered, so the whole `csvOptions` object is
+    // the form's to rebuild — carrying the saved one through would fight it.
+    const nested: ConfigField[] = [
+      { key: 'path', label: 'File path', type: 'text', required: true },
+      { key: 'csvOptions.delimiter', label: 'Separator', type: 'text' },
+    ];
+    const saved = { path: 'data.csv', csvOptions: { delimiter: ',' }, fieldMapping: { title: 'name' } };
+    const { config } = buildConfigFromFields(nested, { 'path': 'data.csv', 'csvOptions.delimiter': ';' }, saved);
+
+    expect(config).toEqual({ path: 'data.csv', csvOptions: { delimiter: ';' }, fieldMapping: { title: 'name' } });
+  });
+
+  it('adds nothing when there is no saved config, as when adding a source', () => {
+    const { config } = buildConfigFromFields(fields, { bucket: 'acme-assets' });
+
+    expect(config).toEqual({ bucket: 'acme-assets' });
   });
 });
