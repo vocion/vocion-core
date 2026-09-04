@@ -554,6 +554,13 @@
       "when": 1787547000000,
       "tag": "0078_conversation_updated_not_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1787547100000,
+      "tag": "0079_snooze_events_not_unique",
+      "breakpoints": true
     }
   ]
 }

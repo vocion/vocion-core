@@ -18,6 +18,17 @@ import { z } from 'zod';
 
 export const runKind = z.enum(['skill', 'workflow', 'mission', 'action']);
 export const feedbackRating = z.enum(['up', 'down']);
+/**
+ * How far out a snooze pushed an item, bucketed. Buckets rather than a
+ * timestamp because adoption metadata stays enums-and-counts only, and
+ * because the question a reader has is "briefly or indefinitely?", not
+ * "which minute?". Bounds are inclusive at the top (`up_to_1d` means "one day
+ * or less") so the UI's own presets — tomorrow, 3 days, next week — each land
+ * in one bucket every time instead of tipping into the next on the
+ * milliseconds between the click and the write.
+ */
+export const snoozeHorizon = z.enum(['under_4h', 'up_to_1d', 'up_to_1w', 'over_1w']);
+export type SnoozeHorizon = z.infer<typeof snoozeHorizon>;
 
 type EventSpec = {
   /** True when the event is agent-attributable — callers should pass `agentSlug`. */
@@ -68,6 +79,20 @@ export const ADOPTION_EVENTS = {
       kind: runKind,
       rating: feedbackRating.nullable().optional(),
       hasNote: z.boolean().optional(),
+    }),
+  },
+  /**
+   * A human deferred a queued item instead of deciding on it. Deliberately
+   * NOT a `review.decided` decision: a snooze leaves the item pending, so
+   * folding it into the approve/reject ratio would move the approval rate on
+   * an item nobody has judged yet. Counted on its own so a run of snoozes on
+   * one agent reads as "these suggestions are not worth acting on now".
+   */
+  'review.snoozed': {
+    agent: true,
+    meta: z.object({
+      kind: runKind,
+      deferredFor: snoozeHorizon,
     }),
   },
   'learning.added': { agent: true },
