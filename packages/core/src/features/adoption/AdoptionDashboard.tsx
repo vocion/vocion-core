@@ -41,7 +41,7 @@ export function PeriodPicker(props: { value: AdoptionWindow; onChange: (v: Adopt
   );
 }
 
-type SortKey = keyof Pick<AdoptionUserRow, 'name' | 'lastActiveAt' | 'logins' | 'sessions' | 'messages' | 'decisions' | 'learnings' | 'feedback' | 'distinctAgents' | 'status'>;
+type SortKey = keyof Pick<AdoptionUserRow, 'name' | 'lastActiveAt' | 'logins' | 'sessions' | 'messages' | 'decisions' | 'snoozes' | 'learnings' | 'feedback' | 'distinctAgents' | 'status'>;
 
 const USER_COLUMNS: Array<{ key: SortKey; label: string; title?: string }> = [
   { key: 'name', label: 'Member' },
@@ -50,6 +50,7 @@ const USER_COLUMNS: Array<{ key: SortKey; label: string; title?: string }> = [
   { key: 'sessions', label: 'Sessions', title: 'Activity clusters split at 30 minutes of idle' },
   { key: 'messages', label: 'Messages', title: 'Chat messages sent' },
   { key: 'decisions', label: 'Decisions', title: 'Every review decision this person made — approve, edit, reject, rewrite, skip or save' },
+  { key: 'snoozes', label: 'Snoozes', title: 'Queued items deferred instead of decided' },
   { key: 'learnings', label: 'Learnings' },
   { key: 'feedback', label: 'Feedback' },
   { key: 'distinctAgents', label: 'Agents', title: 'Distinct agents interacted with' },
@@ -59,13 +60,13 @@ const USER_COLUMNS: Array<{ key: SortKey; label: string; title?: string }> = [
 const STATUS_ORDER = { power: 0, active: 1, dormant: 2, never: 3 } as const;
 
 function exportUsersCsv(rows: AdoptionUserRow[], days: number) {
-  const header = ['name', 'email', 'role', 'status', 'last_login_at', 'last_active_at', 'logins', 'sessions', 'conversations', 'messages', 'decisions', 'learnings', 'feedback', 'distinct_agents', 'active_days'];
+  const header = ['name', 'email', 'role', 'status', 'last_login_at', 'last_active_at', 'logins', 'sessions', 'conversations', 'messages', 'decisions', 'snoozes', 'learnings', 'feedback', 'distinct_agents', 'active_days'];
   const esc = (v: unknown) => {
     const s = v == null ? '' : String(v instanceof Date ? v.toISOString() : v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [header.join(',')].concat(rows.map(r =>
-    [r.name, r.email, r.role, r.status, r.lastLoginAt, r.lastActiveAt, r.logins, r.sessions, r.conversations, r.messages, r.decisions, r.learnings, r.feedback, r.distinctAgents, r.activeDays].map(esc).join(','),
+    [r.name, r.email, r.role, r.status, r.lastLoginAt, r.lastActiveAt, r.logins, r.sessions, r.conversations, r.messages, r.decisions, r.snoozes, r.learnings, r.feedback, r.distinctAgents, r.activeDays].map(esc).join(','),
   ));
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
@@ -241,6 +242,7 @@ export function AdoptionDashboard() {
                   <td className="px-3 py-2 tabular-nums">{r.sessions}</td>
                   <td className="px-3 py-2 tabular-nums">{r.messages}</td>
                   <td className="px-3 py-2 tabular-nums">{r.decisions}</td>
+                  <td className="px-3 py-2 tabular-nums">{r.snoozes}</td>
                   <td className="px-3 py-2 tabular-nums">{r.learnings}</td>
                   <td className="px-3 py-2 tabular-nums">{r.feedback}</td>
                   <td className="px-3 py-2 tabular-nums">{r.distinctAgents}</td>
@@ -267,16 +269,17 @@ export function AdoptionDashboard() {
                 <th className="px-3 py-2 text-left font-medium">Conversations</th>
                 <th className="px-3 py-2 text-left font-medium">Messages</th>
                 <th className="px-3 py-2 text-left font-medium" title="Approved as-is ÷ every judged decision. An edited or rewritten draft counts against the rate.">Approval rate</th>
+                <th className="px-3 py-2 text-left font-medium" title="Items deferred instead of decided — not counted in the approval rate">Snoozes</th>
                 <th className="px-3 py-2 text-left font-medium" title="Thumbs up / thumbs down on runs">Feedback</th>
                 <th className="px-3 py-2 text-left font-medium">Learnings</th>
               </tr>
             </thead>
             <tbody>
               {!agents && (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</td></tr>
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</td></tr>
               )}
               {agents?.length === 0 && (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-xs text-muted-foreground">No agent-attributed activity in this window</td></tr>
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-xs text-muted-foreground">No agent-attributed activity in this window</td></tr>
               )}
               {agents?.map(a => (
                 <tr key={a.agentSlug} className="border-t border-border/50 text-xs">
@@ -289,6 +292,7 @@ export function AdoptionDashboard() {
                   <td className="px-3 py-2 tabular-nums">{a.conversations}</td>
                   <td className="px-3 py-2 tabular-nums">{a.messages}</td>
                   <td className="px-3 py-2 tabular-nums">{formatPercent(a.approvalRate)}</td>
+                  <td className="px-3 py-2 tabular-nums">{a.snoozes}</td>
                   <td className="px-3 py-2 tabular-nums">
                     <span title="thumbs up">
                       ↑
