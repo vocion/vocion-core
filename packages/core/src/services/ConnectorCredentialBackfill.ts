@@ -273,7 +273,16 @@ export async function backfillConnectorCredentials(): Promise<BackfillReport> {
 
     await db
       .update(knowledgeSourceSchema)
-      .set({ apiTokenId: created.id, configJson: remainingConfig })
+      .set({
+        apiTokenId: created.id,
+        // Written here for the same reason `linkSourceToStoredCredential`
+        // writes it: `knowledge_source_api_token_exclusive_idx` only covers
+        // rows that claim exclusivity, so a backfilled Jira or Strapi link
+        // left on the column default would sit outside the index that exists
+        // to stop a second source claiming its credential.
+        apiTokenExclusive: !platform.credentialsShareable,
+        configJson: remainingConfig,
+      })
       .where(eq(knowledgeSourceSchema.id, source.id));
 
     report.moved.push({

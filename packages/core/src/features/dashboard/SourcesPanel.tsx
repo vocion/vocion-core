@@ -1,7 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
-import type { ConfigField, ConfigFieldValue } from '@/libs/sources/configFields';
+import type { ConfigField, ConfigFieldOption, ConfigFieldValue } from '@/libs/sources/configFields';
 import {
   AlertTriangle,
   BarChart3,
@@ -1384,7 +1384,9 @@ function AddSourceDialogFrame({
                   operator to infer from a greyed-out button. */}
               {requirement
                 ? (
-                    <p className="flex items-start gap-1.5 text-sm text-destructive">
+                    // Announced, because a screen-reader user gets no other
+                    // signal that the submit button is refusing and why.
+                    <p role="status" aria-live="polite" className="flex items-start gap-1.5 text-sm text-destructive">
                       <CircleAlert className="mt-0.5 size-4 shrink-0" />
                       {`Still needed: ${requirement}`}
                     </p>
@@ -1588,6 +1590,24 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
 }
 
 /**
+ * A select field's choices, with the value currently held added to the end when
+ * the connector no longer offers it.
+ *
+ * Without this the browser shows the first choice while the form state still
+ * holds the old value, so the dropdown says one thing and saving does another.
+ * @param field - The select field being rendered.
+ * @param value - What the form currently holds for it.
+ */
+function optionsIncludingCurrent(field: ConfigField, value: ConfigFieldValue | undefined): ConfigFieldOption[] {
+  const declared = field.options ?? [];
+  const current = String(value ?? '');
+  if (current === '' || declared.some(option => option.value === current)) {
+    return [...declared];
+  }
+  return [...declared, { value: current, label: `${current} (no longer offered)` }];
+}
+
+/**
  * One input on a schema-driven add-source form.
  *
  * The shape of the input follows the field's declared type: a checkbox for a
@@ -1605,10 +1625,13 @@ function SourceConfigInput({ field, value, onChange }: {
   value: ConfigFieldValue | undefined;
   onChange: (value: ConfigFieldValue) => void;
 }) {
+  // The asterisk is decoration; `required` on the input is what a screen
+  // reader announces, so both are set from the same flag.
+  const isRequired = field.required === true;
   const labelText = (
     <span className="text-sm font-medium text-foreground/80">
       {field.label}
-      {field.required === true ? <span className="ml-0.5 text-destructive" aria-hidden="true">*</span> : null}
+      {isRequired ? <span className="ml-0.5 text-destructive" aria-hidden="true">*</span> : null}
     </span>
   );
   const helpText = field.help ? <span className="mt-1 block text-xs text-muted-foreground">{field.help}</span> : null;
@@ -1620,6 +1643,7 @@ function SourceConfigInput({ field, value, onChange }: {
           <input
             type="checkbox"
             checked={value === true}
+            required={isRequired}
             onChange={e => onChange(e.target.checked)}
           />
           {labelText}
@@ -1635,10 +1659,14 @@ function SourceConfigInput({ field, value, onChange }: {
         {labelText}
         <select
           value={String(value ?? '')}
+          required={isRequired}
           onChange={e => onChange(e.target.value)}
           className={FIELD_CLASS}
         >
-          {(field.options ?? []).map(option => (
+          {/* A saved value the connector no longer offers is listed rather than
+              dropped. Dropping it would leave the box showing the first choice
+              while the form still held — and would save — the old one. */}
+          {optionsIncludingCurrent(field, value).map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
@@ -1656,6 +1684,7 @@ function SourceConfigInput({ field, value, onChange }: {
         <input
           type="number"
           step={1}
+          required={isRequired}
           min={field.min}
           max={field.max}
           value={value === undefined ? '' : String(value)}
@@ -1673,6 +1702,7 @@ function SourceConfigInput({ field, value, onChange }: {
         {labelText}
         <input
           type="text"
+          required={isRequired}
           value={Array.isArray(value) ? value.join(', ') : String(value ?? '')}
           placeholder={field.placeholder}
           onChange={e => onChange(e.target.value)}
@@ -1688,6 +1718,7 @@ function SourceConfigInput({ field, value, onChange }: {
       {labelText}
       <input
         type={field.type === 'url' ? 'url' : 'text'}
+        required={isRequired}
         value={String(value ?? '')}
         placeholder={field.placeholder}
         onChange={e => onChange(e.target.value)}
@@ -1731,11 +1762,15 @@ function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, o
       ? fieldValuesFromConfig(fields, (existing.config ?? {}) as Record<string, unknown>)
       : initialFieldValues(fields)
   ));
+
   const [advancedShown, setAdvancedShown] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { config, missingLabels } = buildConfigFromFields(fields, values);
+  // The saved config goes in so an edit carries through settings this form has
+  // no input for, instead of deleting them.
+  const savedConfig = (existing?.config ?? {}) as Record<string, unknown>;
+  const { config, missingLabels } = buildConfigFromFields(fields, values, savedConfig);
   const everydayFields = fields.filter(field => field.advanced !== true);
   const advancedFields = fields.filter(field => field.advanced === true);
 
@@ -2521,14 +2556,16 @@ function AddSourceDialog({
   if (kind === 'strapi') {
     return <AddStrapiSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
   }
-  // Every other connector describes its own fields, so one form renders them
-  // all. `web` is the only slug left without an entry: its crawl toggle hides
-  // and shows a second field, which a flat field list cannot express.
-  const fields = configFieldsFor(kind);
-  if (fields.length > 0) {
-    return <AddConfigurableSourceDialog kind={kind} title={title} fields={fields} existing={source} onClose={onClose} onAdded={onAdded} />;
+  // Named rather than inferred from an empty field list, so a connector left
+  // out of CONFIG_FIELDS by mistake does not quietly get the crawler's form.
+  // `web`'s crawl toggle hides and shows a second field, which a flat list of
+  // inputs cannot express.
+  if (kind === 'web') {
+    return <AddWebSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
   }
-  return <AddWebSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
+  // Every other connector describes its own fields, so one form renders them all.
+  const fields = configFieldsFor(kind);
+  return <AddConfigurableSourceDialog kind={kind} title={title} fields={fields} existing={source} onClose={onClose} onAdded={onAdded} />;
 }
 
 function formatRelative(date: Date): string {

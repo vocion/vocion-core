@@ -858,6 +858,25 @@ describe('a credential several sources may share', () => {
     await expect(credentialsInUse(files, 'drive')).resolves.toMatchObject({ refreshToken: 'refresh-1' });
   });
 
+  it('lets two Zoom sources hold one server-to-server app', async () => {
+    // One app authenticates for the whole account, so sources scoped to
+    // different people share it.
+    const recordings = await makeConnector('zoom', 'zoom-recordings');
+    const webinars = await makeConnector('zoom', 'zoom-webinars');
+    const credential = await storePlatformKey({
+      orgId: ORG,
+      name: 'Zoom',
+      platform: 'zoom',
+      values: { accountId: 'acct-1', clientId: 'client-1', clientSecret: 'secret-1' },
+    });
+
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: recordings, connectorSlug: 'zoom', apiTokenId: credential.id });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: webinars, connectorSlug: 'zoom', apiTokenId: credential.id });
+
+    await expect(storedCredentialIdForSource(ORG, recordings)).resolves.toBe(credential.id);
+    await expect(storedCredentialIdForSource(ORG, webinars)).resolves.toBe(credential.id);
+  });
+
   it('does not mark a shared link exclusive, so the index leaves it alone', async () => {
     const support = await makeConnector('slack', 'slack-support');
     const credential = await storePlatformKey({ orgId: ORG, name: 'Slack', platform: 'slack', values: SLACK });

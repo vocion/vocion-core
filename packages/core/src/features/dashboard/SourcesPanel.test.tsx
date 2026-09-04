@@ -1499,11 +1499,11 @@ describe('a form built from the connector\'s own fields', () => {
     render(<SourcesPanel />);
     await openConnectorForm('Jira');
 
-    await expect.element(page.getByText(/a site url and a project keys/i)).toBeVisible();
+    await expect.element(page.getByText(/a site url and project keys/i)).toBeVisible();
 
     await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
 
-    await expect.element(page.getByText(/a project keys/i)).toBeVisible();
+    await expect.element(page.getByText(/Still needed: project keys/i)).toBeVisible();
   });
 
   it('offers HubSpot its record types as a choice rather than a free-text box', async () => {
@@ -1535,6 +1535,91 @@ describe('a form built from the connector\'s own fields', () => {
     await page.getByRole('button', { name: 'Advanced settings' }).click();
 
     await expect.element(page.getByLabelText(/Filename pattern/)).toBeVisible();
+  });
+
+  it('shows the error and stops spinning when the save cannot reach the server', async () => {
+    // Before this the submit had no catch: a network failure left the dialog on
+    // a spinner that never resolved and said nothing.
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    const reachable = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : String(input);
+      if (url === '/rpc/sources' && init?.method === 'POST') {
+        throw new TypeError('Failed to fetch');
+      }
+      return reachable(input, init);
+    }));
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
+    await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await expect.element(page.getByText(/Failed to fetch/)).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeEnabled();
+  });
+
+  it('sends what a checkbox and a number box were changed to', async () => {
+    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
+    await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
+    await page.getByLabelText(/Include the issue description/).click();
+    await userEvent.fill(page.getByLabelText(/Keep finished issues for/), '14');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+
+    const created = posts.find(post => post.url === '/rpc/sources')!;
+
+    expect(created.body.configJson).toMatchObject({ includeDescription: false, doneWindowDays: 14 });
+  });
+
+  it('refuses to submit a number below the field\'s floor', async () => {
+    // The bound is on the input, so the browser stops the submit before the
+    // server ever sees a zero. `buildConfigFromFields` clamps as well, for the
+    // paths that do not go through a form.
+    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
+    await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
+    await userEvent.fill(page.getByLabelText(/Keep finished issues for/), '0');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(0);
+    await expect.element(page.getByLabelText(/Keep finished issues for/)).toBeInvalid();
+  });
+
+  it('closes Advanced settings again when it is clicked twice', async () => {
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('S3');
+
+    const toggle = page.getByRole('button', { name: 'Advanced settings' });
+
+    await toggle.click();
+
+    await expect.element(page.getByLabelText(/Filename pattern/)).toBeVisible();
+
+    await toggle.click();
+
+    expect(await page.getByLabelText(/Filename pattern/).elements()).toHaveLength(0);
+  });
+
+  it('marks a required field required, not only with an asterisk', async () => {
+    // The asterisk is `aria-hidden`, so it is the input's own `required` that a
+    // screen reader has to carry.
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await expect.element(page.getByLabelText(/Site URL/)).toBeRequired();
+    await expect.element(page.getByLabelText(/Statuses that do not mean finish/)).not.toBeRequired();
   });
 
   it('shows the saved settings when editing, not the connector defaults', async () => {
