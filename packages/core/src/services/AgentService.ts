@@ -82,6 +82,36 @@ export async function listAgentHierarchy(orgId: string): Promise<AgentHierarchyV
   return groupAgentHierarchy(await listAgents(orgId));
 }
 
+/**
+ * The harness provider an agent gets when its author named none.
+ *
+ * Choosing Bedrock as the model vendor now also chooses where the loop runs:
+ * `modelProvider: bedrock` defaults to the `runtime` artifact, which on a
+ * deployed installation is AgentCore Runtime. The two settings used to be
+ * unrelated axes — an org could be entirely on Bedrock and still run every
+ * agent in this process — and keeping them unrelated meant every Bedrock
+ * installation had to remember to set `provider: runtime` by hand on each
+ * agent, which is exactly the kind of thing that gets forgotten.
+ *
+ * Nothing is forced: an explicit `provider: local` still wins (it is read
+ * before this function is consulted), `VOCION_AGENT_PROVIDER` still overrides
+ * fleet-wide, and `VOCION_DISABLE_RUNTIME=1` still sends everything back to
+ * the in-process loop for a dev machine with no artifact on :8080.
+ *
+ * Anthropic and OpenAI agents are unaffected and keep running in process,
+ * because the artifact's own model path reaches those vendors only when the
+ * artifact itself is configured for them.
+ * @param modelProvider - The agent's `harness.modelProvider`, if it set one.
+ */
+function defaultHarnessProviderFor(
+  modelProvider: 'anthropic' | 'openai' | 'bedrock' | undefined,
+): 'runtime' | undefined {
+  if (modelProvider === 'bedrock') {
+    return 'runtime';
+  }
+  return undefined;
+}
+
 /* ------------------------------------------------------------------ */
 /* runAgentDeep — opt-in deepagents runtime (Phase 4)                  */
 /* ------------------------------------------------------------------ */
@@ -210,11 +240,16 @@ export async function runAgentDeep(opts: {
   //     harness, where an agentcore-pinned agent would otherwise be
   //     unchattable ("Tool error").
   //   - anything else: the in-process deepagents loop below.
+  //
+  // An agent that names no `provider` gets one derived from its
+  // `modelProvider` — see `defaultHarnessProviderFor`.
   const [agentRow] = await db
     .select({ harnessConfig: agentSchema.harnessConfig })
     .from(agentSchema)
     .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.slug, opts.agentSlug)));
-  const provider = process.env.VOCION_AGENT_PROVIDER ?? agentRow?.harnessConfig?.provider;
+  const provider = process.env.VOCION_AGENT_PROVIDER
+    ?? agentRow?.harnessConfig?.provider
+    ?? defaultHarnessProviderFor(agentRow?.harnessConfig?.modelProvider);
   if (provider === 'runtime' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
     return runAgentOnRuntime(opts);

@@ -230,12 +230,22 @@ export const AgentManifestSchema = z.object({
    *
    * `provider` and `modelProvider` are different axes and are easy to
    * confuse. `provider` is *where the loop runs*; `modelProvider` is *whose
-   * model answers*. An agent with `provider: local` and
-   * `modelProvider: bedrock` runs the in-process loop and reaches Amazon
-   * Bedrock for inference, spending the org's own stored AWS key.
+   * model answers*. They are related by one default: an agent that names
+   * `modelProvider: bedrock` and NO provider runs on the `runtime` artifact,
+   * which is AgentCore Runtime on a deployed installation — choosing Bedrock
+   * as the vendor also chooses AWS as the place the loop executes. Writing
+   * `provider: local` next to `modelProvider: bedrock` opts back out, and
+   * that combination still works: the in-process loop reaches Bedrock for
+   * inference on the org's own stored AWS key.
+   *
+   * Deliberately NOT defaulted to `local` here. The default has to stay
+   * absent in the stored row for `defaultHarnessProviderFor` (AgentService)
+   * to tell "the author wanted the in-process loop" apart from "the author
+   * said nothing" — writing `local` for both would make the Bedrock default
+   * unreachable for every agent that came through workspace YAML.
    */
   harness: z.object({
-    provider: z.enum(['local', 'agentcore', 'runtime']).default('local'),
+    provider: z.enum(['local', 'agentcore', 'runtime']).optional(),
     interrupts: z.array(z.string()).default([]),
     maxTokens: z.number().int().positive().optional(),
     excludeTools: z.array(z.string()).default([]),
