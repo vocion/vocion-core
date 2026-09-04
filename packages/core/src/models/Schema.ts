@@ -1160,7 +1160,13 @@ export const conversationSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
-    uniqueIndex('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
+    // Not unique. It serves `listConversations`, which filters on org and agent
+    // and sorts by `updated_at` — a sort key, not an identity. Uniqueness only
+    // meant that two conversations with one agent landing in the same
+    // millisecond could not both exist, which two people opening a chat at once
+    // would hit, and which `$onUpdate` could reproduce on two rows bumped
+    // together.
+    index('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
     index('conversation_org_scope_idx').on(table.orgId, table.scopeRef, table.updatedAt),
   ],
 );
