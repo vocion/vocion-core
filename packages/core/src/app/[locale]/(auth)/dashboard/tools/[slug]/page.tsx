@@ -3,8 +3,13 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { ToolProviderKeyCard } from '@/features/tools/ToolProviderKeyCard';
 import { Link } from '@/libs/I18nNavigation';
+import { platformForToolProvider } from '@/libs/platforms/registry';
 import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
+import { listPlatformCredentials } from '@/services/ApiTokenService';
+import { ORG_ROLE } from '@/types/Auth';
+import { requireOrganization } from '@/utils/Auth';
 
 const CATEGORY_LABELS: Record<string, string> = {
   research: 'Research the web',
@@ -30,8 +35,19 @@ export default async function ToolDetailPage(props: {
   if (!tool) {
     notFound();
   }
-  const status = capabilityStatuses().find(s => s.capability === tool.capability);
+  const { orgId, has } = await requireOrganization();
+  const statuses = await capabilityStatuses(orgId);
+  const status = statuses.find(s => s.capability === tool.capability);
   const isReady = status?.ready ?? true;
+
+  // A provider that bills someone has a credential platform behind it; the
+  // builtin extractor and the calculator do not, and get no key card.
+  const platform = status ? platformForToolProvider(status.provider) : null;
+  const storedCredentials = platform ? await listPlatformCredentials(orgId, platform.id) : [];
+  // These platforms hold one live key per org, so the first row is the key in
+  // use. `keyHint` is a mask — the secret itself never reaches the page.
+  const storedKeyHint = storedCredentials[0]?.keyHint ?? null;
+  const canManageKeys = has({ role: ORG_ROLE.ADMIN });
 
   return (
     <>
@@ -67,6 +83,12 @@ export default async function ToolDetailPage(props: {
                         Needs key
                       </span>
                     )}
+                {status?.keySource === 'workspace' && (
+                  <span className="text-xs text-muted-foreground">On this workspace's key</span>
+                )}
+                {status?.keySource === 'server' && (
+                  <span className="text-xs text-muted-foreground">On the Vocion server key</span>
+                )}
                 <span className="font-mono text-xs text-muted-foreground">{tool.name}</span>
                 <Badge variant="outline" className="text-[10px]">{CATEGORY_LABELS[tool.category] ?? tool.category}</Badge>
               </div>
@@ -75,6 +97,23 @@ export default async function ToolDetailPage(props: {
         )}
         description={tool.description}
       />
+
+      {platform && canManageKeys && (
+        <div className="mb-6">
+          <ToolProviderKeyCard
+            platformId={platform.id}
+            platformLabel={platform.label}
+            helpText={platform.helpText}
+            fields={platform.fields.map(field => ({
+              name: field.name,
+              label: field.label,
+              shapeHint: field.shapeHint,
+              secret: field.secret,
+            }))}
+            storedKeyHint={storedKeyHint}
+          />
+        </div>
+      )}
 
       <section className="mb-6 rounded-md border border-border p-5">
         <h2 className="mb-3 text-base font-semibold">Parameters</h2>

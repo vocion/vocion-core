@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
 import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
+import { requireOrganization } from '@/utils/Auth';
 
 const CATEGORY_LABELS: Record<string, string> = {
   research: 'Research the web',
@@ -16,7 +17,8 @@ export default async function ToolsPage(props: {
   const { locale } = await props.params;
   setRequestLocale(locale);
 
-  const statuses = capabilityStatuses();
+  const { orgId } = await requireOrganization();
+  const statuses = await capabilityStatuses(orgId);
   const statusByCapability = new Map(statuses.map(s => [s.capability, s]));
   const ready = statuses.filter(s => s.ready).length;
 
@@ -26,7 +28,7 @@ export default async function ToolsPage(props: {
     <>
       <TitleBar
         title="Tools"
-        description="Built-in capabilities every agent can use out of the box — live web search, browsing, image generation, calculation, and artifacts. Providers are pluggable via env."
+        description="Built-in capabilities every agent can use out of the box — live web search, browsing, image generation, calculation, and artifacts. Paid providers run on this workspace's own key when it has stored one, and on the Vocion server key otherwise."
       />
 
       <div className="mb-6 grid grid-cols-3 gap-3">

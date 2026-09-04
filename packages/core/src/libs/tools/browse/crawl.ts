@@ -10,11 +10,12 @@ import { extractLinks } from '@/libs/sources/web';
  * @param opts
  * @param opts.maxDepth
  * @param opts.maxPages
+ * @param opts.orgId
  */
 export async function bfsCrawl(
   provider: BrowseProvider,
   startUrl: string,
-  opts: { maxDepth?: number; maxPages?: number } = {},
+  opts: { maxDepth?: number; maxPages?: number; orgId?: string } = {},
 ): Promise<Page[]> {
   const maxDepth = Math.min(opts.maxDepth ?? 1, 3);
   const maxPages = Math.min(opts.maxPages ?? 20, 50);
@@ -32,7 +33,7 @@ export async function bfsCrawl(
 
     let page: Page | null = null;
     try {
-      page = await provider.fetchPage(url);
+      page = await provider.fetchPage(url, { orgId: opts.orgId });
     } catch {
       continue;
     }

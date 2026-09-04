@@ -1,6 +1,7 @@
 import type { CapabilityStatus } from '../types';
 import type { ImageProvider, ImageProviderName } from './types';
 import process from 'node:process';
+import { statusForProvider } from '../status';
 import { openaiImageProvider } from './openai';
 
 export function resolveImageProviderName(): ImageProviderName {
@@ -17,14 +18,7 @@ export function getImageProvider(name = resolveImageProviderName()): ImageProvid
   }
 }
 
-export function imageStatus(): CapabilityStatus {
+export async function imageStatus(orgId?: string): Promise<CapabilityStatus> {
   const name = resolveImageProviderName();
-  const provider = getImageProvider(name);
-  const ready = provider.isReady();
-  return {
-    capability: 'generate_image',
-    provider: name,
-    ready,
-    missingEnv: ready ? [] : provider.requiredEnv,
-  };
+  return statusForProvider('generate_image', getImageProvider(name), orgId);
 }

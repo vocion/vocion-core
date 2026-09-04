@@ -12,7 +12,7 @@ import { ProviderNotConfiguredError } from '@/libs/tools/types';
 
 const PER_PAGE_CHARS = 1_200;
 
-export function crawlSiteTool(_ctx: RuntimeContext) {
+export function crawlSiteTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
       const { start_url, max_depth, max_pages } = args;
@@ -21,6 +21,7 @@ export function crawlSiteTool(_ctx: RuntimeContext) {
         const pages = await bfsCrawl(provider, start_url, {
           maxDepth: max_depth ?? 1,
           maxPages: max_pages ?? 20,
+          orgId: ctx.orgId,
         });
         if (pages.length === 0) {
           return `Crawl of ${start_url} returned no readable pages.`;

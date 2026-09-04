@@ -1,6 +1,7 @@
 import type { CapabilityStatus } from '../types';
 import type { BrowseProvider, BrowseProviderName } from './types';
 import process from 'node:process';
+import { statusForProvider } from '../status';
 import { builtinBrowseProvider } from './builtin';
 import { firecrawlBrowseProvider } from './firecrawl';
 
@@ -13,14 +14,7 @@ export function getBrowseProvider(name = resolveBrowseProviderName()): BrowsePro
   return name === 'firecrawl' ? firecrawlBrowseProvider() : builtinBrowseProvider();
 }
 
-export function browseStatus(): CapabilityStatus {
+export async function browseStatus(orgId?: string): Promise<CapabilityStatus> {
   const name = resolveBrowseProviderName();
-  const provider = getBrowseProvider(name);
-  const ready = provider.isReady();
-  return {
-    capability: 'browse',
-    provider: name,
-    ready,
-    missingEnv: ready ? [] : provider.requiredEnv,
-  };
+  return statusForProvider('browse', getBrowseProvider(name), orgId);
 }
