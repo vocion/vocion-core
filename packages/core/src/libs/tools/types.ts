@@ -47,4 +47,10 @@ export type CapabilityStatus = {
   missingEnv: string[];
   /** Whose key the capability spends. See {@link CapabilityKeySource}. */
   keySource: CapabilityKeySource;
+  /**
+   * Masked tail of the workspace's stored key, when that is the key in use.
+   * A mask, never the secret — it is what the settings surface shows so the
+   * page needs no second query of its own.
+   */
+  storedKeyHint?: string | null;
 };

@@ -190,8 +190,9 @@ first, the server's env var second.** Reach for the helper, never
   supplied none; fall back to the env var then, do not fail.
 - `resolveToolProviderKey(provider, orgId)` (`libs/tools/orgKey.ts`) — the same
   answer for a built-in tool provider (`tavily`, `brave`, `firecrawl`, and
-  `openai` for image generation). `hasToolProviderKey(provider, orgId)` answers
-  the readiness question the Tools catalog asks without decrypting anything.
+  `openai` for image generation). `storedToolProviderCredential(provider, orgId)` answers
+  the readiness question the Tools catalog asks without decrypting anything —
+  and filters expired rows, which `listPlatformCredentials` deliberately keeps.
   A tool provider reads the org off `opts.orgId`, so every tool that calls one
   has to hand its org down — `webSearch`, `fetchUrl`, `crawlSite` and their MCP
   twins in `interfaces/mcp/tools/capability-tools.ts` all do.

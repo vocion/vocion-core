@@ -11,10 +11,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const hasToolProviderKey = vi.fn<(provider: string, orgId: string) => Promise<boolean>>();
+const storedToolProviderCredential = vi.fn<(provider: string, orgId: string) => Promise<{ keyHint: string | null } | null>>();
 
 vi.mock('@/libs/tools/orgKey', () => ({
-  hasToolProviderKey: (provider: string, orgId: string) => hasToolProviderKey(provider, orgId),
+  storedToolProviderCredential: (provider: string, orgId: string) => storedToolProviderCredential(provider, orgId),
   resolveToolProviderKey: async () => null,
 }));
 
@@ -33,8 +33,8 @@ async function statusOf(capability: string, orgId?: string) {
 }
 
 beforeEach(() => {
-  hasToolProviderKey.mockReset();
-  hasToolProviderKey.mockResolvedValue(false);
+  storedToolProviderCredential.mockReset();
+  storedToolProviderCredential.mockResolvedValue(null);
   process.env.TAVILY_API_KEY = 'tvly-ours';
 });
 
@@ -54,7 +54,7 @@ describe('a capability the server has a key for', () => {
 describe('a capability only the workspace has a key for', () => {
   beforeEach(() => {
     delete process.env.TAVILY_API_KEY;
-    hasToolProviderKey.mockResolvedValue(true);
+    storedToolProviderCredential.mockResolvedValue({ keyHint: '…abcd' });
   });
 
   it('is ready even though the server has no key', async () => {
@@ -67,6 +67,34 @@ describe('a capability only the workspace has a key for', () => {
 
   it('lists no missing env var, because nothing is missing', async () => {
     expect((await statusOf('web_search', 'org_catalog'))?.missingEnv).toEqual([]);
+  });
+
+  it('carries the masked hint, so the page needs no second query of its own', async () => {
+    expect((await statusOf('web_search', 'org_catalog'))?.storedKeyHint).toBe('…abcd');
+  });
+});
+
+describe('a credential store that is down', () => {
+  it('still reports the server\'s view instead of throwing', async () => {
+    // These statuses render two dashboard pages from a server component with
+    // no error boundary, so a rejected lookup used to mean a 500 on a page
+    // that has something useful to say either way.
+    storedToolProviderCredential.mockRejectedValue(new Error('connection refused'));
+
+    const status = await statusOf('web_search', 'org_catalog');
+
+    expect(status?.ready).toBe(true);
+    expect(status?.keySource).toBe('server');
+  });
+
+  it('says the capability needs a key when the server has none either', async () => {
+    delete process.env.TAVILY_API_KEY;
+    storedToolProviderCredential.mockRejectedValue(new Error('connection refused'));
+
+    const status = await statusOf('web_search', 'org_catalog');
+
+    expect(status?.ready).toBe(false);
+    expect(status?.missingEnv).toEqual(['TAVILY_API_KEY']);
   });
 });
 
@@ -84,6 +112,31 @@ describe('a capability nobody has a key for', () => {
   });
 });
 
+describe('every paid capability, not just web search', () => {
+  it('reports the workspace key for image generation', async () => {
+    // Image generation resolves through the org's OpenAI credential, so it has
+    // to answer the same way — it is the one paid capability whose platform is
+    // shared with the model calls.
+    delete process.env.OPENAI_API_KEY;
+    storedToolProviderCredential.mockResolvedValue({ keyHint: '…imgk' });
+
+    const status = await statusOf('generate_image', 'org_catalog');
+
+    expect(status?.ready).toBe(true);
+    expect(status?.keySource).toBe('workspace');
+  });
+
+  it('leaves the calculator alone, because it spends nothing', async () => {
+    storedToolProviderCredential.mockResolvedValue({ keyHint: '…nope' });
+
+    const status = await statusOf('run_code', 'org_catalog');
+
+    expect(status?.provider).toBe('builtin');
+    expect(status?.keySource).toBe('none');
+    expect(status?.ready).toBe(true);
+  });
+});
+
 describe('a capability that needs no key at all', () => {
   it('is ready on the builtin provider without any credential lookup', async () => {
     const status = await statusOf('browse', 'org_catalog');
@@ -98,6 +151,6 @@ describe('the server\'s own view of the catalog', () => {
   it('never asks the credential store when no org is in scope', async () => {
     await capabilityStatuses();
 
-    expect(hasToolProviderKey).not.toHaveBeenCalled();
+    expect(storedToolProviderCredential).not.toHaveBeenCalled();
   });
 });

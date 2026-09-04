@@ -97,6 +97,21 @@ describe('firecrawl provider choosing a key', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('looks the key up once for a crawl of many pages', async () => {
+    // `crawl_site` walks up to 50 pages through one provider instance. A
+    // lookup per page is a database read plus a decrypt per page, for an
+    // answer that cannot change inside a single crawl.
+    resolveToolProviderKey.mockResolvedValue('fc-theirs');
+    const provider = firecrawlBrowseProvider();
+
+    await provider.fetchPage(`${PAGE_URL}/one`, { orgId: 'org_browse' });
+    await provider.fetchPage(`${PAGE_URL}/two`, { orgId: 'org_browse' });
+    await provider.fetchPage(`${PAGE_URL}/three`, { orgId: 'org_browse' });
+
+    expect(resolveToolProviderKey).toHaveBeenCalledTimes(1);
+    expect(sentAuthorizations).toEqual(['Bearer fc-theirs', 'Bearer fc-theirs', 'Bearer fc-theirs']);
+  });
+
   it('never carries one org\'s key into the next org\'s fetch', async () => {
     resolveToolProviderKey.mockImplementation(async (_provider, orgId) =>
       orgId === 'org_first' ? 'fc-first' : 'fc-second');

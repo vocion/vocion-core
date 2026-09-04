@@ -7,7 +7,6 @@ import { ToolProviderKeyCard } from '@/features/tools/ToolProviderKeyCard';
 import { Link } from '@/libs/I18nNavigation';
 import { platformForToolProvider } from '@/libs/platforms/registry';
 import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
-import { listPlatformCredentials } from '@/services/ApiTokenService';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
 
@@ -43,11 +42,15 @@ export default async function ToolDetailPage(props: {
   // A provider that bills someone has a credential platform behind it; the
   // builtin extractor and the calculator do not, and get no key card.
   const platform = status ? platformForToolProvider(status.provider) : null;
-  const storedCredentials = platform ? await listPlatformCredentials(orgId, platform.id) : [];
-  // These platforms hold one live key per org, so the first row is the key in
-  // use. `keyHint` is a mask — the secret itself never reaches the page.
-  const storedKeyHint = storedCredentials[0]?.keyHint ?? null;
+  // The status already looked the credential up to decide readiness, and it
+  // carries the mask back, so the page does not query a second time. The
+  // secret itself never reaches the page either way.
+  const storedKeyHint = status?.storedKeyHint ?? null;
   const canManageKeys = has({ role: ORG_ROLE.ADMIN });
+  // A provider that bills someone but has no platform yet — E2B, whose
+  // integration is not built — would otherwise sit on "Needs key" with
+  // nothing to click and no reason given.
+  const perOrgKeysUnsupported = !platform && (status?.missingEnv.length ?? 0) > 0;
 
   return (
     <>
@@ -112,8 +115,36 @@ export default async function ToolDetailPage(props: {
             }))}
             storedKeyHint={storedKeyHint}
             serverHasKey={status?.keySource === 'server'}
+            sharedWithModelCalls={platform.llmProvider !== null}
           />
+          <p className="mt-2 text-xs text-muted-foreground">
+            This key is spent by
+            {' '}
+            <code className="font-mono">{status?.provider}</code>
+            , the provider this deployment runs for
+            {' '}
+            <code className="font-mono">{tool.capability}</code>
+            . A key for a different provider has no effect until the deployment switches to it.
+          </p>
         </div>
+      )}
+
+      {platform && !canManageKeys && (
+        <p className="mb-6 rounded-lg border border-border bg-background p-4 text-xs text-muted-foreground">
+          {storedKeyHint === null
+            ? `This tool runs on a ${platform.label} key. Ask a workspace admin to add one under API credentials.`
+            : `This tool runs on this workspace's own ${platform.label} key. A workspace admin can change it under API credentials.`}
+        </p>
+      )}
+
+      {perOrgKeysUnsupported && (
+        <p className="mb-6 rounded-lg border border-border bg-background p-4 text-xs text-muted-foreground">
+          This provider cannot take a per-workspace key yet — its integration is not built. Until it
+          is, the capability runs only when the server sets
+          {' '}
+          <code className="font-mono">{status?.missingEnv.join(', ')}</code>
+          .
+        </p>
       )}
 
       <section className="mb-6 rounded-md border border-border p-5">

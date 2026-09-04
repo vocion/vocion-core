@@ -9,10 +9,15 @@
  * the org's own key wins, the server's env var is the fallback. Reporting them
  * the other way round would tell a workspace the server is paying when it is
  * not.
+ *
+ * Nothing here throws. These statuses render two dashboard pages from server
+ * components with no error boundary, and the server's own view is worth
+ * showing even when the credential store cannot be reached.
  */
 
+import type { StoredToolCredential } from './orgKey';
 import type { CapabilityStatus } from './types';
-import { hasToolProviderKey } from './orgKey';
+import { storedToolProviderCredential } from './orgKey';
 
 /** The part of a provider this module needs to report on it. */
 type ReportableProvider = {
@@ -46,9 +51,16 @@ export async function statusForProvider(
     };
   }
 
-  const workspaceHasKey = orgId ? await hasToolProviderKey(provider.name, orgId) : false;
-  if (workspaceHasKey) {
-    return { capability, provider: provider.name, ready: true, missingEnv: [], keySource: 'workspace' };
+  const stored = orgId ? await storedCredentialOrNone(provider.name, orgId) : null;
+  if (stored) {
+    return {
+      capability,
+      provider: provider.name,
+      ready: true,
+      missingEnv: [],
+      keySource: 'workspace',
+      storedKeyHint: stored.keyHint,
+    };
   }
 
   if (provider.isReady()) {
@@ -62,4 +74,26 @@ export async function statusForProvider(
     missingEnv: provider.requiredEnv,
     keySource: 'none',
   };
+}
+
+/**
+ * The org's stored credential for `provider`, or null when it has none — and
+ * also null when the lookup itself fails.
+ *
+ * A credential store that cannot be reached is reported as "the org has no key
+ * of its own", which falls the status back to the server's view. The
+ * alternative is a 500 on a page that could have said something useful.
+ * @param provider - The provider being reported on.
+ * @param orgId - The org the page is being rendered for.
+ */
+async function storedCredentialOrNone(
+  provider: string,
+  orgId: string,
+): Promise<StoredToolCredential | null> {
+  try {
+    return await storedToolProviderCredential(provider, orgId);
+  } catch (error) {
+    console.error('[tools/status] could not read the org\'s stored credential', { provider, orgId, error });
+    return null;
+  }
 }

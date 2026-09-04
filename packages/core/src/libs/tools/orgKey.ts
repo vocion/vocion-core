@@ -33,26 +33,50 @@ export async function resolveToolProviderKey(
   if (!platform) {
     return null;
   }
+  if (platform.fields.length > 1) {
+    // `resolvePlatformKey` hands back field one, which on a multi-field
+    // credential is an identifier rather than the secret — returning it would
+    // look like a resolved key and authenticate nothing. `libs/llm/orgKey`
+    // refuses the same way, and AWS is why.
+    return null;
+  }
   return resolvePlatformKey(orgId, platform.id);
 }
 
+/** What the catalog needs to know about a key without handling the key. */
+export type StoredToolCredential = {
+  /** Masked tail of the stored key, for the settings surface to show. */
+  keyHint: string | null;
+};
+
 /**
- * Whether the org holds a live key for `provider`.
+ * The credential the org holds for `provider`, or null when it holds none the
+ * next call could actually spend.
  *
  * Answers the readiness question the Tools catalog asks without decrypting
- * anything: a capability is usable when a key exists, and the catalog has no
- * business handling the secret itself.
+ * anything — the catalog has no business handling the secret itself.
+ *
+ * Expiry is the subtlety. `listPlatformCredentials` keeps an expired row on
+ * purpose, because the settings page has to show one, while the call path's
+ * `resolvePlatformKey` treats an expired key as none. Counting an expired row
+ * here would light the catalog up green for a key that no call can spend, so
+ * expired rows are filtered out to match what the call would do.
  * @param provider - The tool provider in question, e.g. `firecrawl`.
  * @param orgId - The org whose credentials to look at.
  */
-export async function hasToolProviderKey(
+export async function storedToolProviderCredential(
   provider: string,
   orgId: string,
-): Promise<boolean> {
+): Promise<StoredToolCredential | null> {
   const platform = platformForToolProvider(provider);
   if (!platform) {
-    return false;
+    return null;
   }
   const stored = await listPlatformCredentials(orgId, platform.id);
-  return stored.length > 0;
+  const spendable = stored.find(credential =>
+    credential.expiresAt === null || credential.expiresAt.getTime() > Date.now());
+  if (!spendable) {
+    return null;
+  }
+  return { keyHint: spendable.keyHint };
 }
