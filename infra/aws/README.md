@@ -79,9 +79,62 @@ sudo bash /opt/vocion/infra/aws/update.sh v0.3.0    # switch to a tag
 sudo bash /opt/vocion/infra/aws/update.sh main      # back to main
 ```
 
-The script rebuilds the app image, rolling-restarts only `app` + `worker`
-(Postgres + Caddy stay untouched), applies any new migrations, re-runs
-`workspace:apply`.
+The script rebuilds the app image, applies any new migrations, then
+rolling-restarts only `app` + `worker` (Postgres + Caddy stay untouched).
+
+Migrations run **before** the containers roll, so new code never serves
+requests against the old schema, and a migration failure aborts the
+deploy with the old containers still serving. The script does not seed
+workspace content — see [Workspace content](#workspace-content).
+
+## Migrations
+
+`infra/aws/apply-migrations.sh` applies `packages/core/migrations/*.sql`
+through `psql` in the Postgres container, recording each file in a
+`__pgsql_migrations` table. `drizzle-kit` cannot be used here: it is a
+devDependency that the Next.js standalone build trims out of the runtime
+image.
+
+```bash
+sudo bash /opt/vocion/infra/aws/apply-migrations.sh
+```
+
+Both `bootstrap.sh` and `update.sh` call it and neither swallows its exit
+code — a failed migration fails the deploy.
+
+**Baselining an existing database.** On a box whose schema was migrated
+some other way, `__pgsql_migrations` is empty, and replaying every file
+would fail on the first `CREATE TABLE`. The script detects this and
+stops rather than guessing. It baselines itself automatically when
+`drizzle.__drizzle_migrations` exists; otherwise state the position once:
+
+```bash
+# Schema is fully up to date:
+sudo MIGRATIONS_BASELINE=all bash /opt/vocion/infra/aws/apply-migrations.sh
+
+# Applied by hand up to a known file:
+sudo MIGRATIONS_BASELINE=0042_thing.sql bash /opt/vocion/infra/aws/apply-migrations.sh
+```
+
+## Workspace content
+
+Neither deploy script seeds workspace content. A deployment mounts its
+own workspace tree and points `WORKSPACE_PATH` at it; apply changes with
+`npm run workspace:apply` from a checkout with dev dependencies
+installed, or through the in-product workspace editor. See
+[docs/workspace.md](../../docs/workspace.md).
+
+## Testing the deploy scripts
+
+```bash
+bash infra/aws/deploy-scripts.test.sh
+```
+
+Runs on any machine with Docker. It starts a throwaway `pgvector`
+container, exercises every branch of `apply-migrations.sh`, runs
+`update.sh` against fake `docker`/`git` binaries to assert the migration
+step precedes the container roll and aborts the deploy on failure, and
+removes everything it created on exit.
 
 ## Logs + ops
 

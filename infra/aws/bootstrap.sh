@@ -24,8 +24,8 @@ set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/vocion/core.git}"
 GIT_REF="${1:-main}"
-REPO_DIR="/opt/vocion"
-DATA_DIR="/opt/vocion-data"
+REPO_DIR="${REPO_DIR:-/opt/vocion}"
+DATA_DIR="${DATA_DIR:-/opt/vocion-data}"
 ENV_FILE="${REPO_DIR}/infra/aws/.env.production"
 
 log() { echo "[bootstrap] $*"; }
@@ -211,8 +211,15 @@ docker compose \
 log "applying database migrations"
 bash "${REPO_DIR}/infra/aws/apply-migrations.sh"
 
-log "seeding context (sales-assistant agent + operations + playbooks + learnings + evals)"
-docker compose -p vocion exec -T app sh -c 'cd packages/core && node src/scripts/apply-context.js' || true
+# No workspace seeding step. This used to run
+# `node src/scripts/apply-context.js` in the app container; that file has
+# not existed since the context-to-workspace rename, and the replacement
+# (`apply-workspace.ts`) needs tsx plus src/, neither of which survives
+# the Next.js standalone trim. The runtime image also ships no workspace
+# tree — a deployment mounts its own and sets WORKSPACE_PATH. So the call
+# failed on every boot behind `|| true`, and a fresh box was never seeded
+# no matter what this log line claimed. The operator seeds the workspace
+# after bootstrap; the closing instructions below say how.
 
 # ----- 9. Print status -----
 log "containers running:"
@@ -221,3 +228,8 @@ docker compose -p vocion ps
 VOCION_HOST=$(grep -E '^VOCION_HOSTNAME=' "${ENV_FILE}" | cut -d= -f2)
 log "bootstrap complete. Visit: https://${VOCION_HOST}"
 log "tail logs: docker compose -p vocion logs -f --tail=200"
+log ""
+log "Next: this box has a migrated database but no workspace content."
+log "Mount a workspace tree, set WORKSPACE_PATH in ${ENV_FILE}, and apply"
+log "it with 'npm run workspace:apply' from a checkout that has dev"
+log "dependencies installed. Walkthrough: docs/workspace.md"
