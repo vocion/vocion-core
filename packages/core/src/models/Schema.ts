@@ -562,7 +562,22 @@ export const agentSchema = pgTable(
      * existing hitl_gate machinery) before executing.
      */
     harnessConfig: jsonb('harness_config').$type<{
-      /** Which harness executes this agent: 'local' (in-process deepagents loop, default), 'agentcore' (AWS AgentCore managed harness), or 'runtime' (BYOA agent-runtime artifact). */
+      /**
+       * Which machinery runs this agent's turn:
+       *   - 'in-process' — our deepagents loop, in this process
+       *   - 'agentcore-container' — the same loop, in our container on AWS
+       *     AgentCore Runtime
+       *   - 'aws-managed-harness' — AWS owns the loop; the agent is reduced to
+       *     configuration and one tool
+       *
+       * Left unset by workspace:apply on purpose — `defaultHarnessTargetFor`
+       * derives it from `modelProvider`, and a stored value would shadow that.
+       */
+      runsOn?: 'in-process' | 'agentcore-container' | 'aws-managed-harness';
+      /**
+       * Pre-rename spelling of `runsOn`, kept for rows written before the
+       * rename. Read through `normalizeHarnessTarget`, never written.
+       */
       provider?: 'local' | 'agentcore' | 'runtime';
       interrupts?: string[];
       maxTokens?: number;
