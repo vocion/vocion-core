@@ -106,14 +106,28 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
   },
 ];
 
-/** Provider/key readiness for every capability. Never throws. */
-export function capabilityStatuses(): CapabilityStatus[] {
+/**
+ * Provider/key readiness for every capability. Never throws.
+ *
+ * Pass the org whose page this is and each capability also reports whether the
+ * workspace's own key or the server's is about to be spent. With no org — a
+ * deployment-level view, or a caller with no session — the credential store is
+ * not consulted at all.
+ * @param orgId - The org to report for, or undefined for the server's view.
+ */
+export async function capabilityStatuses(orgId?: string): Promise<CapabilityStatus[]> {
+  const [webSearch, browse, image, code] = await Promise.all([
+    webSearchStatus(orgId),
+    browseStatus(orgId),
+    imageStatus(orgId),
+    codeStatus(orgId),
+  ]);
   return [
-    webSearchStatus(),
-    browseStatus(),
-    imageStatus(),
-    codeStatus(),
+    webSearch,
+    browse,
+    image,
+    code,
     // create_artifact is builtin and always available.
-    { capability: 'create_artifact', provider: 'builtin', ready: true, missingEnv: [] },
+    { capability: 'create_artifact', provider: 'builtin', ready: true, missingEnv: [], keySource: 'none' },
   ];
 }

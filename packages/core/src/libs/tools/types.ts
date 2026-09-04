@@ -27,6 +27,16 @@ export class ProviderNotConfiguredError extends Error {
   }
 }
 
+/**
+ * Where the key a capability is about to spend comes from.
+ *
+ * `workspace` — the org pasted its own key, so its account is billed.
+ * `server` — the deployment's env var is in use.
+ * `none` — either the provider needs no key at all (the builtin page
+ * extractor, the calculator) or nobody has one, which `ready` tells apart.
+ */
+export type CapabilityKeySource = 'workspace' | 'server' | 'none';
+
 /** Reported to the dashboard Tools catalog so users see provider/key status. */
 export type CapabilityStatus = {
   capability: string;
@@ -35,4 +45,6 @@ export type CapabilityStatus = {
   ready: boolean;
   /** env vars that are missing (empty when ready). */
   missingEnv: string[];
+  /** Whose key the capability spends. See {@link CapabilityKeySource}. */
+  keySource: CapabilityKeySource;
 };

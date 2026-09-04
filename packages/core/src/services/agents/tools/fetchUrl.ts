@@ -12,13 +12,13 @@ import { ProviderNotConfiguredError } from '@/libs/tools/types';
 
 const MAX_CHARS = 12_000;
 
-export function fetchUrlTool(_ctx: RuntimeContext) {
+export function fetchUrlTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
       const { url } = args;
       try {
         const provider = getBrowseProvider();
-        const page = await provider.fetchPage(url);
+        const page = await provider.fetchPage(url, { orgId: ctx.orgId });
         if (!page) {
           return `Fetched ${url} but found no readable text.`;
         }

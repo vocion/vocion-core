@@ -1,19 +1,28 @@
 import type { WebSearchProvider, WebSearchResult } from './types';
 import process from 'node:process';
+import { resolveToolProviderKey } from '../orgKey';
 import { ProviderNotConfiguredError } from '../types';
 
 /**
  * Tavily — search built for LLM/agent consumption. Single key, returns
  * clean titles + snippets. https://docs.tavily.com/
+ *
+ * Spends the org's own Tavily key when it has stored one, so search spend
+ * lands on the customer's account alongside their model spend. Falls back to
+ * `TAVILY_API_KEY`, so a deployment that configured nothing new is unaffected.
  */
 export function tavilyProvider(): WebSearchProvider {
   const requiredEnv = ['TAVILY_API_KEY'];
   return {
     name: 'tavily',
     requiredEnv,
+    // Reports whether the *server* is configured. An org that stored its own
+    // key can search even when this says no, which is why the check below asks
+    // again with the org in hand rather than trusting this.
     isReady: () => Boolean(process.env.TAVILY_API_KEY),
     async search(query, opts) {
-      const apiKey = process.env.TAVILY_API_KEY;
+      const orgKey = opts?.orgId ? await resolveToolProviderKey('tavily', opts.orgId) : null;
+      const apiKey = orgKey ?? process.env.TAVILY_API_KEY;
       if (!apiKey) {
         throw new ProviderNotConfiguredError('web_search', 'tavily', requiredEnv);
       }

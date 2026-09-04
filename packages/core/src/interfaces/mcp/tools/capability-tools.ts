@@ -31,7 +31,7 @@ export function capabilityTools(config: McpConfig): ToolModule[] {
       inputSchema: { query: z.string(), count: z.number().int().min(1).max(10).default(5) },
       handler: async (input) => {
         const { query, count } = input as { query: string; count?: number };
-        return getWebSearchProvider().search(query, { count });
+        return getWebSearchProvider().search(query, { count, orgId: config.orgId });
       },
     },
     {
@@ -41,7 +41,7 @@ export function capabilityTools(config: McpConfig): ToolModule[] {
       inputSchema: { url: z.string().url() },
       handler: async (input) => {
         const { url } = input as { url: string };
-        return (await getBrowseProvider().fetchPage(url)) ?? { error: 'no readable content' };
+        return (await getBrowseProvider().fetchPage(url, { orgId: config.orgId })) ?? { error: 'no readable content' };
       },
     },
     {
@@ -55,7 +55,7 @@ export function capabilityTools(config: McpConfig): ToolModule[] {
       },
       handler: async (input) => {
         const { start_url, max_depth, max_pages } = input as { start_url: string; max_depth?: number; max_pages?: number };
-        return bfsCrawl(getBrowseProvider(), start_url, { maxDepth: max_depth, maxPages: max_pages });
+        return bfsCrawl(getBrowseProvider(), start_url, { maxDepth: max_depth, maxPages: max_pages, orgId: config.orgId });
       },
     },
     {

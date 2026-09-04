@@ -1,6 +1,7 @@
 import type { CapabilityStatus } from '../types';
 import type { WebSearchProvider, WebSearchProviderName } from './types';
 import process from 'node:process';
+import { statusForProvider } from '../status';
 import { braveProvider } from './brave';
 import { tavilyProvider } from './tavily';
 
@@ -32,18 +33,20 @@ export function getWebSearchProvider(name = resolveWebSearchProviderName()): Web
   }
 }
 
-/** For the dashboard Tools catalog. Never throws. */
-export function webSearchStatus(): CapabilityStatus {
+/**
+ * For the dashboard Tools catalog. Never throws.
+ * @param orgId
+ */
+export async function webSearchStatus(orgId?: string): Promise<CapabilityStatus> {
   const name = resolveWebSearchProviderName();
   if (name === 'anthropic') {
-    return { capability: 'web_search', provider: 'anthropic', ready: false, missingEnv: ['(provider not yet implemented)'] };
+    return {
+      capability: 'web_search',
+      provider: 'anthropic',
+      ready: false,
+      missingEnv: ['(provider not yet implemented)'],
+      keySource: 'none',
+    };
   }
-  const provider = getWebSearchProvider(name);
-  const ready = provider.isReady();
-  return {
-    capability: 'web_search',
-    provider: name,
-    ready,
-    missingEnv: ready ? [] : provider.requiredEnv,
-  };
+  return statusForProvider('web_search', getWebSearchProvider(name), orgId);
 }

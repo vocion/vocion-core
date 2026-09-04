@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { ProviderNotConfiguredError } from '@/libs/tools/types';
 import { getWebSearchProvider } from '@/libs/tools/websearch/registry';
 
-export function webSearchTool(_ctx: RuntimeContext) {
+export function webSearchTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
       const { query, count } = args;
@@ -24,7 +24,7 @@ export function webSearchTool(_ctx: RuntimeContext) {
         return `Web search is unavailable: ${(err as Error).message}`;
       }
       try {
-        const results = await provider.search(query, { count: count ?? 5 });
+        const results = await provider.search(query, { count: count ?? 5, orgId: ctx.orgId });
         if (results.length === 0) {
           return `No web results for "${query}".`;
         }

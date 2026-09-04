@@ -1,6 +1,7 @@
 import type { CapabilityStatus } from '../types';
 import type { CodeProvider, CodeProviderName } from './types';
 import process from 'node:process';
+import { statusForProvider } from '../status';
 import { builtinCodeProvider } from './builtin';
 import { e2bCodeProvider } from './e2b';
 
@@ -13,14 +14,7 @@ export function getCodeProvider(name = resolveCodeProviderName()): CodeProvider 
   return name === 'e2b' ? e2bCodeProvider() : builtinCodeProvider();
 }
 
-export function codeStatus(): CapabilityStatus {
+export async function codeStatus(orgId?: string): Promise<CapabilityStatus> {
   const name = resolveCodeProviderName();
-  const provider = getCodeProvider(name);
-  const ready = provider.isReady();
-  return {
-    capability: 'run_code',
-    provider: name,
-    ready,
-    missingEnv: ready ? [] : provider.requiredEnv,
-  };
+  return statusForProvider('run_code', getCodeProvider(name), orgId);
 }

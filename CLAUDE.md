@@ -188,6 +188,13 @@ first, the server's env var second.** Reach for the helper, never
 - `resolveOrgProviderKey(provider, orgId)` (`libs/llm/orgKey.ts`) — the raw key,
   for a call site that constructs its own SDK client. Returns null when the org
   supplied none; fall back to the env var then, do not fail.
+- `resolveToolProviderKey(provider, orgId)` (`libs/tools/orgKey.ts`) — the same
+  answer for a built-in tool provider (`tavily`, `brave`, `firecrawl`, and
+  `openai` for image generation). `hasToolProviderKey(provider, orgId)` answers
+  the readiness question the Tools catalog asks without decrypting anything.
+  A tool provider reads the org off `opts.orgId`, so every tool that calls one
+  has to hand its org down — `webSearch`, `fetchUrl`, `crawlSite` and their MCP
+  twins in `interfaces/mcp/tools/capability-tools.ts` all do.
 
 **Amazon Bedrock is the exception to "the key is one string."** Its credential
 is an AWS access key pair, stored under the `aws` platform, so
@@ -217,10 +224,11 @@ on a different provider from the one that ingested the documents would degrade
 search with no error anywhere.
 
 Already wired: the five chat-model call sites, `libs/retrieval/embedder.ts`,
-`libs/retrieval/reranker.ts`, `services/agents/tools/kitVision.ts`, and
-`libs/tools/image/openai.ts`. Deliberately still on the server's key, because no
-org is in scope where they run: `DiscoveryDetectionService` and
-`services/feedback/classifier.ts`.
+`libs/retrieval/reranker.ts`, `services/agents/tools/kitVision.ts`,
+`libs/tools/image/openai.ts`, and the paid tool providers
+`libs/tools/websearch/{tavily,brave}.ts` + `libs/tools/browse/firecrawl.ts`.
+Deliberately still on the server's key, because no org is in scope where they
+run: `DiscoveryDetectionService` and `services/feedback/classifier.ts`.
 
 **Never cache a client keyed on anything less than the exact key in use.** A
 per-provider singleton hands the first org's key to every org after it. Build
