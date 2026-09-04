@@ -167,6 +167,56 @@ describe('session derivation (SQL)', () => {
   });
 });
 
+describe('snooze counts', () => {
+  beforeEach(async () => {
+    await db.insert(userActivityEventSchema).values([
+      { orgId: ORG_A, userId: 'usr-a1', eventType: 'review.snoozed', agentSlug: 'helper-a', resourceType: 'action_run', resourceId: '1', metadata: { kind: 'action', deferredFor: 'up_to_1d' }, createdAt: minutesAgo(30) },
+      { orgId: ORG_A, userId: 'usr-a1', eventType: 'review.snoozed', agentSlug: 'helper-a', resourceType: 'action_run', resourceId: '2', metadata: { kind: 'action', deferredFor: 'over_1w' }, createdAt: minutesAgo(20) },
+      { orgId: ORG_A, userId: 'usr-a2', eventType: 'review.snoozed', agentSlug: 'helper-a', resourceType: 'action_run', resourceId: '3', metadata: { kind: 'action', deferredFor: 'under_4h' }, createdAt: minutesAgo(10) },
+      { orgId: ORG_A, userId: 'usr-a1', eventType: 'review.decided', agentSlug: 'helper-a', resourceType: 'action_run', resourceId: '4', metadata: { kind: 'action', decision: 'approved' }, createdAt: minutesAgo(10) },
+      // Outside the 7-day window, inside the 30-day one.
+      { orgId: ORG_A, userId: 'usr-a1', eventType: 'review.snoozed', agentSlug: 'helper-a', resourceType: 'action_run', resourceId: '5', metadata: { kind: 'action', deferredFor: 'up_to_1d' }, createdAt: minutesAgo(10 * 24 * 60) },
+    ]);
+  });
+
+  it('counts deferrals per member and per agent, window-scoped', async () => {
+    const users = await getUserRows(ORG_A, ACCT_A, 7);
+
+    expect(users.find(u => u.userId === 'usr-a1')?.snoozes).toBe(2);
+    expect(users.find(u => u.userId === 'usr-a2')?.snoozes).toBe(1);
+
+    const [agent] = await getAgentRows(ORG_A, 7);
+
+    expect(agent?.snoozes).toBe(3);
+
+    const [agentLongWindow] = await getAgentRows(ORG_A, 30);
+
+    expect(agentLongWindow?.snoozes).toBe(4);
+  });
+
+  it('leaves the approval rate untouched — a snooze is not a decision', async () => {
+    const [agent] = await getAgentRows(ORG_A, 7);
+
+    expect(agent?.approvals).toBe(1);
+    expect(agent?.rejections).toBe(0);
+    expect(agent?.approvalRate).toBe(1);
+  });
+
+  it('counts a deferral as an interaction, like every other review event', async () => {
+    const overview = await getOverview(ORG_A, ACCT_A, 7);
+
+    // 3 snoozes + 1 decision in the window.
+    expect(overview.interactions).toBe(4);
+  });
+
+  it('reports zero rather than undefined for a member who never deferred anything', async () => {
+    await db.delete(userActivityEventSchema);
+    const users = await getUserRows(ORG_A, ACCT_A, 7);
+
+    expect(users.find(u => u.userId === 'usr-a1')?.snoozes).toBe(0);
+  });
+});
+
 describe('multi-tenant isolation', () => {
   beforeEach(async () => {
     await db.insert(userActivityEventSchema).values([
