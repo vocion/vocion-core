@@ -355,18 +355,20 @@ export function SourcesPanel() {
   );
 }
 
-/** Connector-specific credential fields. Most read a single `token`; some take a full key set. */
+/**
+ * One input on the credential form.
+ *
+ * The server's platform descriptor supplies these for every connector that
+ * authenticates with a stored workspace credential. The fallback below covers
+ * a connector with no descriptor — a plugin-registered one — where a single
+ * token is the only reasonable guess.
+ */
 type CredField = { key: string; label: string; optional?: boolean };
-const TOKEN_FIELD: CredField = { key: 'token', label: 'Token' };
-const CRED_FIELDS: Record<string, { help: string; fields: CredField[] }> = {
-  'hubspot': { help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).', fields: [{ key: 'token', label: 'Private-app token' }] },
-  'slack': { help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).', fields: [{ key: 'token', label: 'Bot / user token' }] },
-  'gmail': { help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)', fields: [{ key: 'token', label: 'OAuth access token' }] },
-  'drive': { help: 'A Google OAuth access token with drive.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
-  'ga4': { help: 'A Google OAuth access token with analytics.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
-  'google-ads': { help: 'A Google Ads OAuth access token.', fields: [{ key: 'token', label: 'OAuth access token' }, { key: 'developerToken', label: 'Developer token', optional: true }] },
-  'strapi': { help: 'Strapi admin → Settings → API Tokens → Create new API Token. Read-only is enough — this connector never writes back.', fields: [{ key: 'token', label: 'API token' }] },
-  'zoom': { help: 'Zoom App Marketplace → Develop → Build App → Server-to-Server OAuth. Needs scopes user:read:admin + cloud_recording:read:admin. All three values are on the app\'s Credentials page.', fields: [{ key: 'accountId', label: 'Account ID' }, { key: 'clientId', label: 'Client ID' }, { key: 'clientSecret', label: 'Client secret' }] },
+
+/** What the form asks for when the server describes no fields for this connector. */
+const UNDESCRIBED_CONNECTOR_FIELDS: { help: string; fields: CredField[] } = {
+  help: 'Paste the connector access token.',
+  fields: [{ key: 'token', label: 'Token' }],
 };
 
 /**
@@ -428,6 +430,8 @@ type PlatformField = {
   label: string;
   shapeHint: string;
   secret: boolean;
+  /** Whether the credential is complete without this value. */
+  optional?: boolean;
 };
 
 /**
@@ -483,8 +487,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   onClose: () => void;
   onConnected: () => Promise<void> | void;
 }) {
-  const connectorSlug = ((source.config?._connector as string | undefined) ?? source.slug);
-  const fallbackSpec = CRED_FIELDS[connectorSlug] ?? { help: 'Paste the connector access token.', fields: [TOKEN_FIELD] };
+  const fallbackSpec = UNDESCRIBED_CONNECTOR_FIELDS;
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -524,7 +527,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   }, [source.id]);
 
   const fields: CredField[] = platformFields
-    ? platformFields.map(field => ({ key: field.name, label: field.label }))
+    ? platformFields.map(field => ({ key: field.name, label: field.label, optional: field.optional === true }))
     : fallbackSpec.fields;
   const help = platformHelp ?? fallbackSpec.help;
   const usingStored = pickedCredentialId !== null;
@@ -630,7 +633,12 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
                       : null}
                     {fields.map((field, index) => (
                       <label key={field.key} className="block">
-                        <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+                        <span className="text-sm font-medium text-foreground/80">
+                          {field.label}
+                          {field.optional
+                            ? <span className="ml-1 font-normal text-muted-foreground">(optional)</span>
+                            : null}
+                        </span>
                         <input
                           // A non-secret value — an instance URL, an account
                           // email — stays readable while it is typed. Masking

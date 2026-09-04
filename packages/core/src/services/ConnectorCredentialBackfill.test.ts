@@ -103,7 +103,11 @@ async function makeConnector(
   return { sourceId: source!.id, installId };
 }
 
-/** What the connector resolves at sync time, the way `runSync` asks for it. */
+/**
+ * What the connector resolves at sync time, the way `runSync` asks for it.
+ * @param connector
+ * @param connectorSlug
+ */
 async function credentialsInUse(connector: Connector, connectorSlug: string): Promise<unknown> {
   const [source] = await db
     .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
@@ -215,11 +219,11 @@ describe('backfillConnectorCredentials', () => {
     });
   });
 
-  it('leaves an OAuth connector alone', async () => {
-    // A Slack grant is issued to one installation and carries a refresh token,
-    // so there is nothing to move and nothing to share.
-    const connector = await makeConnector('slack');
-    await storeCredential({ orgId: ORG, installId: connector.installId, displayName: 'Slack', raw: { token: 'xoxb-1' } });
+  it('leaves a connector with no credential platform alone', async () => {
+    // The web crawler reads public pages, so there is no platform to move its
+    // credential onto and nothing for the backfill to do.
+    const connector = await makeConnector('web');
+    await storeCredential({ orgId: ORG, installId: connector.installId, displayName: 'Web', raw: { token: 'unused-1' } });
 
     const report = await backfillConnectorCredentials();
     const [source] = await db

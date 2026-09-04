@@ -144,8 +144,8 @@ function credentialValuesFor(
 export async function backfillConnectorCredentials(): Promise<BackfillReport> {
   const platformBySlug = new Map<string, CredentialPlatform>();
   for (const platform of listPlatforms()) {
-    if (platform.connectorSlug) {
-      platformBySlug.set(platform.connectorSlug, platform);
+    for (const slug of platform.connectorSlugs) {
+      platformBySlug.set(slug, platform);
     }
   }
 
