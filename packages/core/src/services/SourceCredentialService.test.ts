@@ -318,9 +318,9 @@ describe('a connector pointing at a stored credential', () => {
   });
 
   it('refuses a connector that does not authenticate with a stored credential', async () => {
-    // Slack's OAuth grant is issued to one install and carries a refresh
-    // token, so there is nothing for a connector row to point at.
-    const sourceId = await makeConnector('slack');
+    // The web crawler reads public pages, so there is no credential for a
+    // connector row to point at.
+    const sourceId = await makeConnector('web');
     const credential = await storePlatformKey({
       orgId: ORG,
       name: 'Strapi — prod',
@@ -331,7 +331,7 @@ describe('a connector pointing at a stored credential', () => {
     await expect(linkSourceToStoredCredential({
       orgId: ORG,
       sourceId,
-      connectorSlug: 'slack',
+      connectorSlug: 'web',
       apiTokenId: credential.id,
     })).rejects.toThrow(/does not authenticate with a stored API credential/);
   });
@@ -604,13 +604,16 @@ describe('the database rule behind it', () => {
     const staging = await makeConnector('strapi', 'strapi-staging');
     const production = await makeConnector('strapi', 'strapi-production');
     const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi — staging', platform: 'strapi', values: STRAPI });
-    await db.update(knowledgeSourceSchema).set({ apiTokenId: credential.id }).where(eq(knowledgeSourceSchema.id, staging));
+    await db
+      .update(knowledgeSourceSchema)
+      .set({ apiTokenId: credential.id, apiTokenExclusive: true })
+      .where(eq(knowledgeSourceSchema.id, staging));
 
     // Asserted on SQLSTATE rather than on the message, because the driver
     // wraps the message and `isUniqueViolation` reads the code too.
     const refusal = await db
       .update(knowledgeSourceSchema)
-      .set({ apiTokenId: credential.id })
+      .set({ apiTokenId: credential.id, apiTokenExclusive: true })
       .where(eq(knowledgeSourceSchema.id, production))
       .then(() => null, (error: unknown) => error);
 
@@ -735,6 +738,7 @@ describe('the index refusing a link the pre-check let through', () => {
         kind: 'plugin',
         configJson: {},
         apiTokenId: credential.id,
+        apiTokenExclusive: true,
       });
 
     await expect(linkSourceToStoredCredential({
@@ -750,7 +754,7 @@ describe('the index refusing a link the pre-check let through', () => {
     const credential = await storePlatformKey({ orgId: ORG, name: 'Strapi — prod', platform: 'strapi', values: STRAPI });
     await db
       .insert(knowledgeSourceSchema)
-      .values({ orgId: 'org_somebody_else', slug: 'strapi-theirs', kind: 'plugin', configJson: {}, apiTokenId: credential.id });
+      .values({ orgId: 'org_somebody_else', slug: 'strapi-theirs', kind: 'plugin', configJson: {}, apiTokenId: credential.id, apiTokenExclusive: true });
 
     await linkSourceToStoredCredential({ orgId: ORG, sourceId, connectorSlug: 'strapi', apiTokenId: credential.id })
       .catch(() => undefined);
@@ -810,5 +814,80 @@ describe('a credential whose connector is deleted', () => {
     await db.delete(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.id, sourceId));
 
     await expect(listPlatformCredentials(ORG, 'strapi')).resolves.toHaveLength(1);
+  });
+});
+
+/**
+ * The other half of the exclusivity rule. A credential issued for one place
+ * belongs to one source; an account-wide grant is meant to be held by several,
+ * and making a workspace paste the same Slack bot token once per channel was
+ * the thing that made the API tokens page not worth using for these connectors.
+ */
+describe('a credential several sources may share', () => {
+  const SLACK = { token: 'xoxb-shared-token' };
+  const GOOGLE = {
+    clientId: 'client-1.apps.googleusercontent.com',
+    clientSecret: 'secret-1',
+    refreshToken: 'refresh-1',
+  };
+
+  it('lets two Slack sources hold one bot token', async () => {
+    // One source syncs one channel, and one bot token reads them all.
+    const support = await makeConnector('slack', 'slack-support');
+    const sales = await makeConnector('slack', 'slack-sales');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Slack', platform: 'slack', values: SLACK });
+
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: support, connectorSlug: 'slack', apiTokenId: credential.id });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: sales, connectorSlug: 'slack', apiTokenId: credential.id });
+
+    await expect(storedCredentialIdForSource(ORG, support)).resolves.toBe(credential.id);
+    await expect(storedCredentialIdForSource(ORG, sales)).resolves.toBe(credential.id);
+  });
+
+  it('serves every Google connector from the one Google credential', async () => {
+    // One OAuth consent covers all of them, which is the reason `google` is a
+    // single platform rather than five.
+    const mail = await makeConnector('gmail', 'gmail-inbox');
+    const files = await makeConnector('drive', 'drive-shared');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Google', platform: 'google', values: GOOGLE });
+
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: mail, connectorSlug: 'gmail', apiTokenId: credential.id });
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: files, connectorSlug: 'drive', apiTokenId: credential.id });
+
+    await expect(credentialsInUse(mail, 'gmail')).resolves.toMatchObject({ refreshToken: 'refresh-1' });
+    await expect(credentialsInUse(files, 'drive')).resolves.toMatchObject({ refreshToken: 'refresh-1' });
+  });
+
+  it('does not mark a shared link exclusive, so the index leaves it alone', async () => {
+    const support = await makeConnector('slack', 'slack-support');
+    const credential = await storePlatformKey({ orgId: ORG, name: 'Slack', platform: 'slack', values: SLACK });
+
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: support, connectorSlug: 'slack', apiTokenId: credential.id });
+
+    const [row] = await db
+      .select({ exclusive: knowledgeSourceSchema.apiTokenExclusive })
+      .from(knowledgeSourceSchema)
+      .where(eq(knowledgeSourceSchema.id, support));
+
+    expect(row?.exclusive).toBe(false);
+  });
+
+  it('marks a per-instance link exclusive, so the index still refuses a second', async () => {
+    const staging = await makeConnector('strapi', 'strapi-staging');
+    const credential = await storePlatformKey({
+      orgId: ORG,
+      name: 'Strapi — staging',
+      platform: 'strapi',
+      values: { baseUrl: 'https://cms.example.com', token: 'strapi-token-aaaa' },
+    });
+
+    await linkSourceToStoredCredential({ orgId: ORG, sourceId: staging, connectorSlug: 'strapi', apiTokenId: credential.id });
+
+    const [row] = await db
+      .select({ exclusive: knowledgeSourceSchema.apiTokenExclusive })
+      .from(knowledgeSourceSchema)
+      .where(eq(knowledgeSourceSchema.id, staging));
+
+    expect(row?.exclusive).toBe(true);
   });
 });
