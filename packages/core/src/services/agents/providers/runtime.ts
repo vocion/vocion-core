@@ -20,6 +20,14 @@
  * the payload must be reachable FROM AWS (VOCION_TOOL_ENDPOINT_URL);
  * localhost only works for the local transport.
  *
+ * Bedrock credentials: the artifact has no database access and no KMS
+ * grant, so it cannot resolve the org's stored AWS key itself. Core mints a
+ * short-lived STS session from that key and sends it in the payload; the
+ * artifact signs Bedrock with it, so model spend lands on the customer's
+ * account. An org that stored no key sends no credential and the artifact
+ * falls through to its own chain — the platform's secrets. See
+ * `mintBedrockSessionForRuntime`.
+ *
  * Budget accounting: the artifact can't reach the DB, so it emits
  * runtime-internal `usage` events per model turn; we charge
  * BudgetService here and do NOT forward those to the browser.
@@ -29,6 +37,7 @@ import type { AgentEvent } from '../types';
 import { Buffer } from 'node:buffer';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { mintBedrockSessionForRuntime } from '@/libs/llm/bedrockCredentials';
 import { agentSchema } from '@/models/Schema';
 import { chargeUsage } from '@/services/BudgetService';
 import { signClaim } from '../claims';
@@ -96,6 +105,13 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   const files = await buildInitialFiles(opts.orgId, opts.agentSlug);
   const hc = row.harnessConfig ?? {};
 
+  // Resolved for every run, not only for `modelProvider: bedrock` agents:
+  // which vendor the artifact actually calls depends on ITS environment
+  // (no ANTHROPIC_API_KEY means Bedrock), which core cannot see from here.
+  // Sending the session whenever the org has one keeps the deployed path
+  // billed to the customer without core having to guess.
+  const awsSession = await mintBedrockSessionForRuntime(opts.orgId);
+
   // AgentCore Memory session (Phase 5, opt-in): keyed by the persisted
   // conversation. Default posture is belt-and-suspenders — history still
   // rides the payload and the artifact prefers whichever source is more
@@ -129,6 +145,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     conversationHistory: omitHistory ? undefined : opts.conversationHistory,
     files,
     tools: { endpoint: TOOL_ENDPOINT(), catalog, claim },
+    ...(awsSession ? { aws: awsSession } : {}),
     trace: { orgId: opts.orgId, userId: opts.userId ?? 'system' },
     memory: memorySession,
   };

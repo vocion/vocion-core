@@ -29,6 +29,7 @@
  * `resolveAwsCredentials` with the fallback off.
  */
 
+import type { GetSessionTokenCommandOutput } from '@aws-sdk/client-sts';
 import type { AwsCredentials } from '@/services/ApiTokenService';
 import process from 'node:process';
 import { resolveAwsCredentials } from '@/services/ApiTokenService';
@@ -90,4 +91,93 @@ export async function resolveBedrockCredentials(orgId: string): Promise<BedrockC
     return { source: 'org', keyPair: stored };
   }
   return { source: 'environment', keyPair: null };
+}
+
+/**
+ * How long a runtime session credential stays valid, in seconds.
+ *
+ * One hour by default. `GetSessionToken` allows anything from 15 minutes to 36
+ * hours for an IAM user session, and no agent run comes near either bound — a
+ * long run is minutes. The window is therefore chosen for blast radius rather
+ * than for headroom: the credential leaves this process and travels in an
+ * AgentCore invocation payload, so the shorter it lives, the less a copy of
+ * that payload is worth to anyone who finds one.
+ */
+function runtimeSessionDurationSeconds(): number {
+  const configured = Number(process.env.VOCION_BEDROCK_SESSION_SECONDS);
+  return Number.isFinite(configured) && configured >= 900 ? configured : 3600;
+}
+
+/**
+ * A temporary AWS credential for the runtime artifact to sign Bedrock with.
+ *
+ * Shaped as the AWS SDK expects it, session token included. A temporary access
+ * key is not valid on its own — AWS accepts it only alongside the token that
+ * proves STS issued it — so all three fields travel together or none do.
+ */
+export type RuntimeBedrockSession = {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken: string;
+  /** ISO-8601 instant the session stops working, for logging and tests. */
+  expiresAt: string;
+};
+
+/**
+ * A short-lived Bedrock credential for `orgId`, to hand to the runtime artifact.
+ *
+ * The artifact runs out of process — on AgentCore it runs in another AWS
+ * account entirely — with no database access and no KMS grant, so it cannot
+ * resolve an org's stored key itself. This function is the bridge: core, which
+ * holds both, resolves the org's own AWS pair and mints a session from it. The
+ * session travels in the invocation payload and the artifact signs Bedrock with
+ * it, so the model spend lands on the customer's account exactly as it does on
+ * the in-process path.
+ *
+ * **Returns null when the org has stored no AWS pair**, which is not an error.
+ * Null means "we are not overriding the artifact's own credential chain", and
+ * the artifact then falls through to the platform's secrets — its execution
+ * role or `AWS_BEARER_TOKEN_BEDROCK` — the same second-choice fallback
+ * `resolveBedrockCredentials` allows for the in-process path.
+ *
+ * **Throws when the org has a pair but STS refuses it.** The tempting
+ * alternative — log it and return null — would silently move that customer's
+ * model spend onto the platform account and look like success, which is the
+ * failure this whole path exists to prevent. A stored credential that cannot
+ * mint a session is a misconfiguration the org has to fix, so it surfaces.
+ * @param orgId - The org the agent run belongs to.
+ */
+export async function mintBedrockSessionForRuntime(orgId: string): Promise<RuntimeBedrockSession | null> {
+  const stored = await resolveAwsCredentials(orgId);
+  if (!stored) {
+    return null;
+  }
+
+  const { GetSessionTokenCommand, STSClient } = await import('@aws-sdk/client-sts');
+  const sts = new STSClient({ region: bedrockRegion(), credentials: stored });
+
+  let issued: GetSessionTokenCommandOutput;
+  try {
+    issued = await sts.send(new GetSessionTokenCommand({
+      DurationSeconds: runtimeSessionDurationSeconds(),
+    }));
+  } catch (error) {
+    console.error(`[bedrock] STS refused a session for org ${orgId}:`, error);
+    throw new Error(
+      `Could not mint a Bedrock session from the AWS credentials stored for this org. `
+      + `Check the access key at /dashboard/api-tokens is active and allowed to call sts:GetSessionToken.`,
+    );
+  }
+
+  const credentials = issued.Credentials;
+  if (!credentials?.AccessKeyId || !credentials.SecretAccessKey || !credentials.SessionToken) {
+    throw new Error('STS returned an incomplete session credential for the agent runtime');
+  }
+
+  return {
+    accessKeyId: credentials.AccessKeyId,
+    secretAccessKey: credentials.SecretAccessKey,
+    sessionToken: credentials.SessionToken,
+    expiresAt: (credentials.Expiration ?? new Date()).toISOString(),
+  };
 }
