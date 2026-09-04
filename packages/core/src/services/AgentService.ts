@@ -1,3 +1,4 @@
+import type { HarnessTarget } from './agents/harnessTarget';
 import type { RawStreamEvent } from './agents/traceEmitter';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
@@ -5,6 +6,7 @@ import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { agentSchema } from '@/models/Schema';
 import { AnswerStreamer } from './agents/answerStream';
+import { normalizeHarnessTarget } from './agents/harnessTarget';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolNodeId, toolOutputContent, TraceEmitter } from './agents/traceEmitter';
 
@@ -80,6 +82,35 @@ export function groupAgentHierarchy(agents: AgentRow[]): AgentHierarchyView[] {
  */
 export async function listAgentHierarchy(orgId: string): Promise<AgentHierarchyView[]> {
   return groupAgentHierarchy(await listAgents(orgId));
+}
+
+/**
+ * Which machinery an agent gets when its author named none.
+ *
+ * Choosing Bedrock as the model vendor now also chooses where the loop runs:
+ * `modelProvider: bedrock` defaults to `agentcore-container` — our own loop, in
+ * our container, hosted on AWS AgentCore Runtime. The two settings used to be
+ * unrelated axes, so an installation could be entirely on Bedrock and still run
+ * every agent in this process, and every agent had to repeat the target by hand
+ * to reach AWS at all.
+ *
+ * Nothing is forced: an explicit `runsOn` still wins (it is read before this
+ * function is consulted), `VOCION_AGENT_PROVIDER` still overrides fleet-wide,
+ * and `VOCION_DISABLE_RUNTIME=1` still sends everything back to the in-process
+ * loop for a dev machine with no container on :8080.
+ *
+ * Anthropic and OpenAI agents are unaffected and keep running in process,
+ * because the container's own model path reaches those vendors only when the
+ * container itself is configured for them.
+ * @param modelProvider - The agent's `harness.modelProvider`, if it set one.
+ */
+function defaultHarnessTargetFor(
+  modelProvider: 'anthropic' | 'openai' | 'bedrock' | undefined,
+): HarnessTarget | undefined {
+  if (modelProvider === 'bedrock') {
+    return 'agentcore-container';
+  }
+  return undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -198,28 +229,36 @@ export async function runAgentDeep(opts: {
     throw new Error(message);
   }
 
-  // Harness provider dispatch — three execution layers, one contract:
-  //   - `runtime`  (BYOA): the standalone agent-runtime artifact
-  //     (localhost in dev, AgentCore Runtime when deployed). Also
-  //     selectable fleet-wide via VOCION_AGENT_PROVIDER=runtime.
-  //     VOCION_DISABLE_RUNTIME=1 forces the in-process loop instead —
-  //     for dev machines where the artifact isn't running on :8080.
-  //   - `agentcore` (managed harness): AWS runs the loop, tools call
-  //     back inline. VOCION_DISABLE_AGENTCORE=1 forces the local loop —
-  //     for dev machines with no AWS credentials / no provisioned
-  //     harness, where an agentcore-pinned agent would otherwise be
-  //     unchattable ("Tool error").
-  //   - anything else: the in-process deepagents loop below.
+  // Harness dispatch — three targets, one event contract:
+  //   - `agentcore-container`: OUR deepagents loop, in the
+  //     packages/agent-runtime container (localhost in dev, AWS
+  //     AgentCore Runtime when deployed). VOCION_DISABLE_RUNTIME=1
+  //     forces the in-process loop instead — for dev machines where the
+  //     container isn't running on :8080.
+  //   - `aws-managed-harness`: AWS owns the loop; our tools are called
+  //     back inline. VOCION_DISABLE_AGENTCORE=1 forces the in-process
+  //     loop — for dev machines with no AWS credentials / no provisioned
+  //     harness, where such an agent would otherwise be unchattable
+  //     ("Tool error").
+  //   - `in-process` (or anything unrecognised): the loop below.
+  //
+  // Names are normalised, so a pre-rename `local`/`runtime`/`agentcore`
+  // in an old row or in VOCION_AGENT_PROVIDER still resolves. An agent
+  // that named nothing gets a target derived from its `modelProvider`
+  // — see `defaultHarnessTargetFor`.
   const [agentRow] = await db
     .select({ harnessConfig: agentSchema.harnessConfig })
     .from(agentSchema)
     .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.slug, opts.agentSlug)));
-  const provider = process.env.VOCION_AGENT_PROVIDER ?? agentRow?.harnessConfig?.provider;
-  if (provider === 'runtime' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
+  const harness = agentRow?.harnessConfig;
+  const target = normalizeHarnessTarget(process.env.VOCION_AGENT_PROVIDER)
+    ?? normalizeHarnessTarget(harness?.runsOn ?? harness?.provider)
+    ?? defaultHarnessTargetFor(harness?.modelProvider);
+  if (target === 'agentcore-container' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
     return runAgentOnRuntime(opts);
   }
-  if (provider === 'agentcore' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
+  if (target === 'aws-managed-harness' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
     const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
     return runAgentOnAgentCoreHarness(opts);
   }

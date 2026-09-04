@@ -28,6 +28,8 @@ ENV=dev AWS_PROFILE=metacto bash infra/agentcore/smoke-invoke.sh   # toolless st
 
 Core targets the deployed runtime when `VOCION_AGENT_RUNTIME_ARN` is set (SigV4 via the AWS SDK); unset, it uses `VOCION_AGENT_RUNTIME_URL` (default `http://localhost:8080`). **Deployed tool calls require a cloud-reachable core** (`VOCION_TOOL_ENDPOINT_URL`) — until vocion-core itself is deployed, cloud runs are loop+model only and tool calls fail gracefully as tool errors the model can see.
 
+**Which AWS account pays for the tokens.** The invocation payload carries an `aws` block when the calling org has stored its own AWS access key: a short-lived STS session core minted from that key, which the Bedrock model client signs with, so inference is billed to the customer. No block means no override, and the client falls through to this process's own chain — the runtime execution role, or `AWS_BEARER_TOKEN_BEDROCK` — which is the platform's account. The session is per invocation and is read through a ref on every model request, so the cached graph never signs with a previous caller's credential.
+
 Rollback: `update-agent-runtime` with any previous image tag in ECR (tags are `<git-sha>-<timestamp>`).
 
 ## Env

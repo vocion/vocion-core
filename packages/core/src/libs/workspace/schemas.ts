@@ -1,4 +1,6 @@
+import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
+import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
 const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
   message: 'slug must be lowercase, start with a letter, and contain only letters, numbers, dashes, or underscores',
@@ -133,6 +135,33 @@ export const PackManifestSchema = z.object({
 });
 export type PackManifest = z.infer<typeof PackManifestSchema>;
 
+/**
+ * Collapse a parsed harness block's two spellings of the same field into one.
+ *
+ * `runsOn` is the field; `provider` is what it used to be called. Authors may
+ * have written either, and a workspace kept in a parent project may not be
+ * updated for a long time — so both are read here, `runsOn` wins if somehow
+ * both are present, and only `runsOn` survives into the stored row. Callers
+ * downstream therefore never have to know the old name existed.
+ *
+ * Both keys are dropped entirely when neither was authored. That absence is
+ * load-bearing: `defaultHarnessTargetFor` derives a target from the agent's
+ * model vendor, and it can only do that while "unset" is still visible.
+ * @param harness - The parsed harness block, before normalisation.
+ */
+function normalizeHarnessBlock<T extends { runsOn?: HarnessTarget; provider?: HarnessTarget }>(
+  harness: T,
+): Omit<T, 'provider'> {
+  const { provider, ...rest } = harness;
+  const target = harness.runsOn ?? provider;
+  if (!target) {
+    const withoutRunsOn = { ...rest };
+    delete withoutRunsOn.runsOn;
+    return withoutRunsOn;
+  }
+  return { ...rest, runsOn: target };
+}
+
 export const AgentManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string(),
@@ -221,21 +250,57 @@ export const AgentManifestSchema = z.object({
    * (the BYOA artifact — packages/agent-runtime: our deepagents loop
    * hosted out-of-process, localhost in dev / AgentCore Runtime when
    * deployed; tools execute in core via the claim-verified tool
-   * endpoint). `interrupts` lists skill/tool slugs that pause for
+   * endpoint).
+   *
+   * `agentcore` and `runtime` are BOTH AWS Bedrock AgentCore — it is a
+   * product family, and these are two services inside it. The difference
+   * is who owns the loop: on `agentcore` AWS does, and the agent is pure
+   * configuration with `search_knowledge` as its only tool; on `runtime`
+   * we do, and the agent keeps the full tool registry, subagents,
+   * playbooks and approval gates, because those are deepagents features
+   * our loop implements. Neither routes inference — a Bedrock call is a
+   * direct Converse call in all three cases. `interrupts` lists skill/tool slugs that pause for
    * human approval (via the hitl_gate flow) before executing;
    * `maxTokens` caps the model's output tokens; `excludeTools`
    * withholds built-in tools by name (e.g. `propose_action` for agents
    * that should have no CRM-write surface at all); `model` overrides the
    * model id; `modelProvider` overrides which vendor serves it.
    *
-   * `provider` and `modelProvider` are different axes and are easy to
-   * confuse. `provider` is *where the loop runs*; `modelProvider` is *whose
-   * model answers*. An agent with `provider: local` and
-   * `modelProvider: bedrock` runs the in-process loop and reaches Amazon
-   * Bedrock for inference, spending the org's own stored AWS key.
+   * `runsOn` and `modelProvider` are different axes and are easy to
+   * confuse. `runsOn` is *which machinery runs the turn*; `modelProvider` is
+   * whose model answers*. `bedrock` belongs to the second and has never been
+   * a value of the first.
+   *
+   * Three values, named for whose loop you get rather than whose cloud it
+   * sits in — see `services/agents/harnessTarget.ts`:
+   *
+   *   - `in-process` — our deepagents loop, in this process. No AgentCore.
+   *   - `agentcore-container` — the SAME loop, in our container, hosted on
+   *     AWS AgentCore Runtime. Tools call back to core.
+   *   - `aws-managed-harness` — AWS owns the loop. The agent becomes pure
+   *     configuration with one tool and no subagents, playbooks or gates.
+   *
+   * The old spellings (`local`, `runtime`, `agentcore`) are still accepted
+   * and normalised on parse, because parent projects hold workspace files
+   * this repo cannot see. `provider:` is likewise still read as an alias for
+   * `runsOn:`.
+   *
+   * One default links the two axes: an agent that names `modelProvider:
+   * bedrock` and no `runsOn` gets `agentcore-container`, since choosing AWS
+   * as the vendor is almost always choosing AWS as the place to run.
+   * `runsOn: in-process` next to it opts back out, and that combination
+   * works — the in-process loop reaches Bedrock on the org's own stored key.
+   *
+   * `runsOn` is deliberately NOT defaulted here. The default has to stay
+   * absent in the stored row for `defaultHarnessTargetFor` (AgentService) to
+   * tell "the author wanted the in-process loop" apart from "the author said
+   * nothing" — writing one for both would make the Bedrock default
+   * unreachable for every agent that came through workspace YAML.
    */
   harness: z.object({
-    provider: z.enum(['local', 'agentcore', 'runtime']).default('local'),
+    runsOn: harnessTargetSchema.optional(),
+    /** Pre-rename spelling of `runsOn`. Read, normalised, and not re-emitted. */
+    provider: harnessTargetSchema.optional(),
     interrupts: z.array(z.string()).default([]),
     maxTokens: z.number().int().positive().optional(),
     excludeTools: z.array(z.string()).default([]),
@@ -257,7 +322,7 @@ export const AgentManifestSchema = z.object({
      * mode and it stops calling the tool (observed 3→0 card regression).
      */
     recommendActionBackstop: z.boolean().optional(),
-  }).partial().default({}),
+  }).partial().transform(normalizeHarnessBlock).default({}),
 }).refine(
   v => !!(v.systemPromptFile || v.systemPrompt),
   { message: 'agent must have either systemPromptFile or inline systemPrompt' },
