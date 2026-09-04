@@ -30,7 +30,7 @@ sweep. Field-by-field reference for each authored type:
 
 | Object | Written by | Schema symbol | Table | Surface |
 |---|---|---|---|---|
-| Tool call | `withToolCallRecord` at the tool registry, all three harness providers; `skill_read` rows from the stream/relay for mounted SKILL.md reads | `toolCallSchema` | `tool_call` | `/dashboard/activity?kind=tool` (filter by agent, tool) |
+| Tool call | `withToolCallRecord` at the tool registry, all three harness targets; `skill_read` rows from the stream/relay for mounted SKILL.md reads | `toolCallSchema` | `tool_call` | `/dashboard/activity?kind=tool` (filter by agent, tool) |
 | Workflow run | `WorkflowService.startWorkflow` | `workflowRunSchema` | `workflow_run` | `/api/v1/runs`, `/dashboard/workflows/<slug>/runs` |
 | Mission run | `MissionService.startMission` | `missionRunSchema` | `mission_run` | `/dashboard/missions/runs` |
 | Action run | `ActionService.proposeAction` / `executeAction` | `actionRunSchema` | `action_run` | `/dashboard/review` |

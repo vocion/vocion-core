@@ -92,7 +92,8 @@ entry needs `systemPrompt` or `systemPromptFile`.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `provider` | `local` \| `agentcore` \| `runtime` | derived — see below | Where the agent loop executes. `local`: this app's process. `agentcore`: AWS's *managed harness* — AWS drives the turn and calls back for tools. `runtime`: our own loop in the out-of-process agent-runtime artifact, hosted on AgentCore *Runtime* when deployed. The last two are both AgentCore services; the difference is whether AWS or we own the loop. |
+| `runsOn` | `in-process` \| `agentcore-container` \| `aws-managed-harness` | derived — see below | Which machinery runs the turn. `in-process`: our harness, in this app's process, no AgentCore. `agentcore-container`: the same harness, in our container, hosted on AWS AgentCore Runtime. `aws-managed-harness`: AWS's own harness instead of ours — it drives the turn and calls back for tools, and the agent gets one tool and no subagents, playbooks or gates. |
+| `provider` | — | — | Pre-rename name for `runsOn`, with values `local` / `runtime` / `agentcore`. Still read and normalised; not written back. |
 | `interrupts` | string[] | `[]` | Skill or tool slugs that pause for human approval before executing. |
 | `maxTokens` | positive int | — | Cap on the model's output tokens. |
 | `excludeTools` | string[] | `[]` | Withhold built-in tools by name — e.g. `propose_action` for an agent that should have no CRM-write surface at all. |
@@ -102,9 +103,9 @@ entry needs `systemPrompt` or `systemPromptFile`.
 
 For how the loop, the model vendor, and the AWS account relate — and why two fields both end in "provider" — see [where an agent turn runs](../agent-execution.md).
 
-**`provider` is derived when you leave it out.** An agent with `modelProvider: bedrock` and no `provider` runs on `runtime` — the out-of-process artifact, which is AgentCore Runtime on a deployed installation. Everything else falls to `local`, the in-process loop. Choosing Bedrock as the model vendor therefore also chooses AWS as the place the loop runs, and writing `provider: local` alongside it opts back out.
+**`runsOn` is derived when you leave it out.** An agent with `modelProvider: bedrock` and no `runsOn` gets `agentcore-container`. Everything else falls to `in-process`. Choosing Bedrock as the model vendor therefore also chooses AWS as the place the turn runs, and writing `runsOn: in-process` alongside it opts back out.
 
-On the `runtime` provider the artifact signs Bedrock with a short-lived session core mints from the org's own stored AWS key, so model spend lands on the customer's account. An org that has stored no key gets no session and the artifact falls through to the platform's own credentials.
+On `agentcore-container` the container signs Bedrock with a short-lived session core mints from the org's own stored AWS key, so model spend lands on the customer's account. An org that has stored no key gets no session and the container falls through to the platform's own credentials.
 
 ## Example
 
