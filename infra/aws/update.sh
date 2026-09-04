@@ -45,8 +45,14 @@ log "rebuilding vocion-app image"
 # no Clerk publishable key. The repo-root path is still accepted as a
 # fallback for a box that was set up by hand against the old location.
 ENV_FILE="${REPO_DIR}/infra/aws/.env.production"
-if [ ! -f "${ENV_FILE}" ] && [ -f "${REPO_DIR}/.env.production" ]; then
-  ENV_FILE="${REPO_DIR}/.env.production"
+LEGACY_ENV_FILE="${REPO_DIR}/.env.production"
+if [ -f "${ENV_FILE}" ] && [ -f "${LEGACY_ENV_FILE}" ]; then
+  log "WARNING: two env files exist and they may disagree."
+  log "  using:    ${ENV_FILE}"
+  log "  ignoring: ${LEGACY_ENV_FILE}"
+  log "  Delete the second one once you have confirmed the first is current."
+elif [ ! -f "${ENV_FILE}" ] && [ -f "${LEGACY_ENV_FILE}" ]; then
+  ENV_FILE="${LEGACY_ENV_FILE}"
 fi
 if [ ! -f "${ENV_FILE}" ]; then
   log "ERROR: no .env.production found at ${REPO_DIR}/infra/aws/ or ${REPO_DIR}/."

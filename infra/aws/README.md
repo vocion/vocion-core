@@ -112,17 +112,34 @@ stops rather than guessing. It baselines itself automatically when
 `drizzle.__drizzle_migrations` exists; otherwise state the position once:
 
 ```bash
+# See what it would do, without writing anything:
+sudo bash /opt/vocion/infra/aws/apply-migrations.sh --check
+
 # Schema is fully up to date:
-sudo env MIGRATIONS_BASELINE=all bash /opt/vocion/infra/aws/apply-migrations.sh
+sudo bash /opt/vocion/infra/aws/apply-migrations.sh --baseline all
 
 # Applied by hand up to a known file:
-sudo env MIGRATIONS_BASELINE=0042_thing.sql bash /opt/vocion/infra/aws/apply-migrations.sh
+sudo bash /opt/vocion/infra/aws/apply-migrations.sh --baseline 0042_thing.sql
 ```
 
-`sudo env`, not `sudo VAR=value` — the default sudoers `env_reset` rejects
-command-line environment assignments. An explicit `MIGRATIONS_BASELINE`
-takes precedence over the drizzle history, so it also fixes a database
-that drizzle migrated part of the way and a person finished by hand.
+Use the flag rather than `sudo MIGRATIONS_BASELINE=... bash`, which the
+default sudoers `env_reset` refuses. The env var still works when it is
+already exported. An explicit baseline takes precedence over the drizzle
+history, so it also covers a database drizzle migrated part of the way
+and a person finished by hand.
+
+To find the last applied file, open the newest migrations and check
+whether what they create already exists:
+
+```bash
+sudo docker exec vocion-postgres psql -U postgres -d vocion -c '\d <table>'
+```
+
+**Migrations that use `CONCURRENTLY`.** Each file normally applies inside
+one transaction, so a mid-file error rolls back. `CREATE INDEX
+CONCURRENTLY` cannot run inside a transaction, so a file containing it is
+applied unwrapped and the log says so — a partial failure in that file
+stays partial and needs a person.
 
 ## Workspace content
 

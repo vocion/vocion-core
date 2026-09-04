@@ -242,6 +242,20 @@ run_applier() {
   APPLIER_EXIT=$?
 }
 
+# run_applier_with_flags <script arguments...> — command-line flags
+# rather than environment variables.
+run_applier_with_flags() {
+  APPLIER_OUTPUT=$(
+    env PATH="${SHIM_DIR}:${PATH}" \
+      POSTGRES_CONTAINER="${TEST_CONTAINER}" \
+      POSTGRES_DB="${DB_NAME}" \
+      POSTGRES_USER="${DB_USER}" \
+      MIGRATIONS_DIR="${MIGRATIONS_FIXTURE}" \
+      bash "${SCRIPT_DIR}/apply-migrations.sh" "$@" 2>&1
+  )
+  APPLIER_EXIT=$?
+}
+
 # Same, but without MIGRATIONS_DIR, so the applier falls back to its
 # REPO_DIR-derived default.
 run_applier_using_repo_dir() {
@@ -420,7 +434,7 @@ test_existing_schema_without_tracking_refuses() {
   run_applier
   check_exit_code "exits non-zero" nonzero "${APPLIER_EXIT}"
   check_contains "explains why it stopped" "${APPLIER_OUTPUT}" "already has application tables"
-  check_contains "names the escape hatch" "${APPLIER_OUTPUT}" "MIGRATIONS_BASELINE"
+  check_contains "names the escape hatch" "${APPLIER_OUTPUT}" "--baseline all"
   check_absent "does not replay the first migration" "${APPLIER_OUTPUT}" "applying 0000_first.sql"
 }
 
@@ -510,6 +524,106 @@ test_baseline_is_ignored_on_an_empty_database() {
   run_applier MIGRATIONS_BASELINE=all
   check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
   check_contains "applies everything instead of baselining" "${APPLIER_OUTPUT}" "2 applied · 0 already-applied · 0 failed"
+}
+
+test_baseline_flag_matches_the_env_var() {
+  echo "apply-migrations: --baseline flag"
+  reset_database
+  query_test_database 'CREATE TABLE "organization" ("id" text PRIMARY KEY NOT NULL);' >/dev/null
+  seed_two_pending_migrations
+  run_applier_with_flags --baseline all
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "baselines every file" "${APPLIER_OUTPUT}" "treating all 2 file(s) as applied"
+  local tracked
+  tracked=$(query_test_database "SELECT count(*) FROM __pgsql_migrations;")
+  if [ "${tracked}" = "2" ]; then
+    pass "both files recorded"
+  else
+    fail "both files recorded" "found ${tracked} tracking rows"
+  fi
+}
+
+test_baseline_flag_accepts_a_file_name() {
+  echo "apply-migrations: --baseline <file>"
+  reset_database
+  query_test_database 'CREATE TABLE "organization" ("id" text PRIMARY KEY NOT NULL);' >/dev/null
+  seed_two_pending_migrations
+  run_applier_with_flags --baseline=0000_first.sql
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "baselines through the named file" "${APPLIER_OUTPUT}" \
+    "baselined 1 migration(s) as already applied"
+  check_contains "applies the rest" "${APPLIER_OUTPUT}" "applying 0001_second.sql"
+}
+
+test_baseline_flag_without_a_value_is_rejected() {
+  echo "apply-migrations: --baseline with no value"
+  run_applier_with_flags --baseline
+  check_exit_code "exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "explains what it wanted" "${APPLIER_OUTPUT}" "needs a migration file name"
+}
+
+test_unknown_flag_is_rejected() {
+  echo "apply-migrations: unknown flag"
+  run_applier_with_flags --nope
+  check_exit_code "exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "names the argument" "${APPLIER_OUTPUT}" "unknown argument '--nope'"
+  check_contains "prints usage" "${APPLIER_OUTPUT}" "Usage: apply-migrations.sh"
+}
+
+test_check_mode_writes_nothing() {
+  echo "apply-migrations: --check"
+  reset_database
+  seed_two_pending_migrations
+  run_applier_with_flags --check
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "says it is reporting only" "${APPLIER_OUTPUT}" "nothing will be written"
+  check_contains "reports what it would apply" "${APPLIER_OUTPUT}" "would apply 0000_first.sql"
+  check_absent "does not apply anything" "${APPLIER_OUTPUT}" "applying 0000_first.sql"
+  local created tracking
+  created=$(query_test_database "SELECT count(*) FROM information_schema.tables WHERE table_name = 'organization';")
+  tracking=$(query_test_database "SELECT to_regclass('public.__pgsql_migrations') IS NOT NULL;")
+  if [ "${created}" = "0" ]; then
+    pass "no migration was applied"
+  else
+    fail "no migration was applied" "organization table exists"
+  fi
+  if [ "${tracking}" = "f" ]; then
+    pass "no tracking table was created"
+  else
+    fail "no tracking table was created" "__pgsql_migrations exists"
+  fi
+}
+
+test_check_mode_reports_the_baseline_refusal() {
+  echo "apply-migrations: --check on a schema needing a baseline"
+  reset_database
+  query_test_database 'CREATE TABLE "organization" ("id" text PRIMARY KEY NOT NULL);' >/dev/null
+  seed_two_pending_migrations
+  run_applier_with_flags --check
+  check_exit_code "exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "offers the flag form" "${APPLIER_OUTPUT}" "--baseline all"
+  check_contains "shows how to locate the last applied file" "${APPLIER_OUTPUT}" "psql -U postgres"
+}
+
+test_concurrently_migration_runs_without_a_transaction() {
+  echo "apply-migrations: CREATE INDEX CONCURRENTLY"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_migration 0001_concurrent_index.sql \
+    'CREATE INDEX CONCURRENTLY "organization_id_idx" ON "organization" ("id");'
+  run_applier
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "says why the file ran unwrapped" "${APPLIER_OUTPUT}" \
+    "uses CONCURRENTLY — applying without a transaction"
+  check_contains "applies both files" "${APPLIER_OUTPUT}" "2 applied · 0 already-applied · 0 failed"
+  local index_exists
+  index_exists=$(query_test_database "SELECT count(*) FROM pg_indexes WHERE indexname = 'organization_id_idx';")
+  if [ "${index_exists}" = "1" ]; then
+    pass "the concurrent index really exists"
+  else
+    fail "the concurrent index really exists" "index is missing"
+  fi
 }
 
 test_unreachable_container_fails_loudly() {
@@ -622,6 +736,19 @@ test_update_tolerates_missing_optional_values() {
   check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
   check_contains "still builds" "$(cat "${CALL_LOG}")" "docker build"
   check_contains "reaches the end" "${UPDATE_OUTPUT}" "done."
+}
+
+test_update_warns_when_both_env_files_exist() {
+  echo "update.sh: two env files present"
+  cp "${FIXTURE_REPO}/infra/aws/.env.production" "${FIXTURE_REPO}/.env.production"
+  reset_database
+  seed_two_pending_migrations
+  run_update_script
+  check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
+  check_contains "warns about the ambiguity" "${UPDATE_OUTPUT}" "two env files exist"
+  check_contains "says which one won" "${UPDATE_OUTPUT}" \
+    "using:    ${FIXTURE_REPO}/infra/aws/.env.production"
+  rm -f "${FIXTURE_REPO}/.env.production"
 }
 
 test_update_accepts_the_legacy_env_location() {
@@ -769,6 +896,13 @@ main() {
   test_drizzle_history_baselines_automatically
   test_explicit_baseline_overrides_drizzle_history
   test_baseline_is_ignored_on_an_empty_database
+  test_baseline_flag_matches_the_env_var
+  test_baseline_flag_accepts_a_file_name
+  test_baseline_flag_without_a_value_is_rejected
+  test_unknown_flag_is_rejected
+  test_check_mode_writes_nothing
+  test_check_mode_reports_the_baseline_refusal
+  test_concurrently_migration_runs_without_a_transaction
   test_unreachable_container_fails_loudly
   test_default_container_and_database_match_compose
 
@@ -779,6 +913,7 @@ main() {
   test_update_fails_without_an_env_file
   test_update_fails_when_a_required_build_value_is_missing
   test_update_tolerates_missing_optional_values
+  test_update_warns_when_both_env_files_exist
   test_update_accepts_the_legacy_env_location
 
   test_bootstrap_applies_migrations_and_completes
