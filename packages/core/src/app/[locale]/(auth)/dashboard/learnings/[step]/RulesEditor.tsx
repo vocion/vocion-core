@@ -11,6 +11,8 @@ type Rule = {
   source: string | null;
   createdBy: string | null;
   createdAt: string;
+  /** How many people asked for this rule before it was adopted. */
+  occurrenceCount: number;
 };
 
 type Props = {
@@ -261,6 +263,18 @@ export function RulesEditor({ step, initialRules }: Props) {
                                   <span className="font-mono">
                                     source:
                                     {r.source}
+                                  </span>
+                                </>
+                              )}
+                              {r.occurrenceCount > 1 && (
+                                <>
+                                  <span aria-hidden>·</span>
+                                  <span>
+                                    asked
+                                    {' '}
+                                    {r.occurrenceCount}
+                                    {' '}
+                                    times
                                   </span>
                                 </>
                               )}

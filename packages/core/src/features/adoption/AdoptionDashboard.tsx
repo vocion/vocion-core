@@ -49,7 +49,7 @@ const USER_COLUMNS: Array<{ key: SortKey; label: string; title?: string }> = [
   { key: 'logins', label: 'Logins', title: 'auth.login events in the window' },
   { key: 'sessions', label: 'Sessions', title: 'Activity clusters split at 30 minutes of idle' },
   { key: 'messages', label: 'Messages', title: 'Chat messages sent' },
-  { key: 'decisions', label: 'Approvals', title: 'Review decisions (approve + reject)' },
+  { key: 'decisions', label: 'Decisions', title: 'Every review decision this person made — approve, edit, reject, rewrite, skip or save' },
   { key: 'snoozes', label: 'Snoozes', title: 'Queued items deferred instead of decided' },
   { key: 'learnings', label: 'Learnings' },
   { key: 'feedback', label: 'Feedback' },
@@ -268,7 +268,7 @@ export function AdoptionDashboard() {
                 <th className="px-3 py-2 text-left font-medium" title="Distinct users who interacted with this agent">Reach</th>
                 <th className="px-3 py-2 text-left font-medium">Conversations</th>
                 <th className="px-3 py-2 text-left font-medium">Messages</th>
-                <th className="px-3 py-2 text-left font-medium" title="Approved ÷ all review decisions on this agent's runs">Approval rate</th>
+                <th className="px-3 py-2 text-left font-medium" title="Approved as-is ÷ every judged decision. An edited or rewritten draft counts against the rate.">Approval rate</th>
                 <th className="px-3 py-2 text-left font-medium" title="Items deferred instead of decided — not counted in the approval rate">Snoozes</th>
                 <th className="px-3 py-2 text-left font-medium" title="Thumbs up / thumbs down on runs">Feedback</th>
                 <th className="px-3 py-2 text-left font-medium">Learnings</th>

@@ -51,6 +51,7 @@ export type ProposeResult = {
  * @param input.proposal.confidence
  * @param input.proposal.rationale
  * @param input.proposal.evidence
+ * @param input.proposal.agentSlug
  * @param input.dedupKey
  * @param input.expiresAt
  */
@@ -61,7 +62,7 @@ export async function proposeAction(input: {
   principal: Principal;
   invokedBy?: string;
   /** Agent-proposal envelope — confidence (0–1), rationale, evidence uris. */
-  proposal?: { confidence?: number; rationale?: string; evidence?: string[] };
+  proposal?: { confidence?: number; rationale?: string; evidence?: string[]; agentSlug?: string };
   /**
    * Upsert key for agent-suggested actions — (object type + id + action slug).
    * If a PENDING action_run already exists for (orgId, dedupKey), it is

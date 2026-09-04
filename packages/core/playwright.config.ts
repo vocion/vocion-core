@@ -90,6 +90,30 @@ export default defineConfig<ChromaticConfig>({
       timeout: 120 * 1000,
       use: { ...devices['Desktop Chrome'] },
     },
+    // The feedback-to-learning loop end to end. Self-seeding like `queue`.
+    // Run with: npx playwright test --project=learning
+    {
+      name: 'learning',
+      testDir: './e2e/learning',
+      timeout: 120 * 1000,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // The same loop against a REAL model, end to end. Defined only when
+    // LIVE_MODEL_E2E is set, so `npx playwright test` — locally or in CI —
+    // never spends money or reaches an external service by default.
+    // Run with:
+    //   LIVE_MODEL_E2E=1 DATABASE_URL=... npx playwright test --project=learning-live
+    ...(process.env.LIVE_MODEL_E2E
+      ? [
+          {
+            name: 'learning-live',
+            testDir: './e2e/learning-live',
+            // Each assertion waits on a queue round trip plus two model calls.
+            timeout: 300 * 1000,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
     // The API credentials matrix (platforms, validation, expiry rules).
     // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
     // so no Clerk setup project and no dependencies.

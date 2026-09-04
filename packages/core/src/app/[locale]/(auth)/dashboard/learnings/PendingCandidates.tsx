@@ -12,6 +12,10 @@ export type PendingCandidate = {
   ruleText: string;
   editedRuleText: string | null;
   sourceFeedbackJobId: number | null;
+  /** 'correct' = change this behaviour, 'reinforce' = keep doing it. */
+  polarity: string;
+  /** How many separate pieces of feedback asked for this same rule. */
+  occurrenceCount: number;
   createdAt: string;
 };
 
@@ -165,6 +169,30 @@ export function PendingCandidates({ candidates, total, pageSize }: Props) {
             <li key={candidate.id} className="rounded-lg border border-border bg-background p-4">
               <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <code className="font-mono">{candidate.stepName}</code>
+                <span aria-hidden>·</span>
+                <span
+                  className={candidate.polarity === 'reinforce' ? 'text-emerald-700' : 'text-amber-700'}
+                  title={candidate.polarity === 'reinforce'
+                    ? 'Someone praised this and said why — adopting it tells the agent to keep doing it'
+                    : 'Someone disagreed and said why — adopting it tells the agent to do this differently'}
+                >
+                  {candidate.polarity === 'reinforce' ? 'keep doing' : 'change'}
+                </span>
+                {candidate.occurrenceCount > 1 && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span
+                      className="font-medium text-foreground"
+                      title="How many separate pieces of feedback asked for this same rule"
+                    >
+                      asked
+                      {' '}
+                      {candidate.occurrenceCount}
+                      {' '}
+                      times
+                    </span>
+                  </>
+                )}
                 {candidate.sourceFeedbackJobId !== null && (
                   <>
                     <span aria-hidden>·</span>
