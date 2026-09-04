@@ -748,8 +748,70 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
       resource: ['action_run', opts.runId],
       meta: { kind: 'action', decision: SIGNAL_TO_DECISION[opts.signal], ...(run?.actionId ? { actionId: run.actionId } : {}), ...(opts.hint ? { hint: opts.hint } : {}) },
     });
+    await queueSignalForLearning(opts, agentSlug);
   } catch {
     /* signal capture never blocks the decision */
+  }
+}
+
+/** Which signals mean "the agent got this wrong" vs "the agent got this right". */
+const SIGNAL_POLARITY = {
+  approve: 'reinforce',
+  save: 'reinforce',
+  edit: 'correct',
+  reject: 'correct',
+  rewrite: 'correct',
+  skip: null,
+} as const;
+
+/**
+ * Queue a triage signal for the feedback classifier, so a reaction to an
+ * agent's proposal can become a learning candidate.
+ *
+ * Two rules decide whether anything is queued:
+ *
+ * - **There has to be text.** A bare click says the reviewer disagreed but not
+ *   what the agent should do differently, and asking a model to invent the
+ *   reason produces rules nobody stated. The signal is still counted in the
+ *   adoption metrics either way — this only governs whether a rule can be
+ *   proposed from it.
+ * - **`skip` never queues.** Skipping leaves the item pending; the reviewer has
+ *   not judged it yet.
+ *
+ * Idempotent on (run, signal): re-deciding an item does not queue a second job.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.signal
+ * @param opts.userId
+ * @param opts.hint
+ * @param agentSlug - The agent that proposed the action, when known.
+ */
+async function queueSignalForLearning(
+  opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string },
+  agentSlug: string | undefined,
+): Promise<void> {
+  const polarity = SIGNAL_POLARITY[opts.signal];
+  const note = opts.hint?.trim();
+  if (!polarity || !note) {
+    return;
+  }
+  try {
+    const { enqueue } = await import('@/services/FeedbackWorkerService');
+    await enqueue({
+      orgId: opts.orgId,
+      source: 'review',
+      externalId: `action_run:${opts.runId}:${opts.signal}`,
+      payload: {
+        text: note,
+        agentSlug,
+        sourceRunId: opts.runId,
+        submittedBy: opts.userId,
+        polarityHint: polarity,
+      },
+    });
+  } catch (error) {
+    console.error(`[ReviewService] could not queue the ${opts.signal} signal on action run ${opts.runId} for learning`, error);
   }
 }
 

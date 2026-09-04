@@ -220,6 +220,15 @@ export async function submitMissionRunFeedback(opts: {
     .set({ rating: opts.rating, feedbackNote: opts.note, feedbackBy: opts.by, feedbackAt: new Date() })
     .where(and(eq(missionRunSchema.id, opts.runId), eq(missionRunSchema.orgId, opts.orgId)));
   if (opts.by) {
+    const { queueRunFeedbackForLearning } = await import('@/services/feedback/runFeedbackQueue');
+    void queueRunFeedbackForLearning({
+      orgId: opts.orgId,
+      kind: 'mission',
+      runId: opts.runId,
+      rating: opts.rating,
+      note: opts.note ?? null,
+      submittedBy: opts.by,
+    });
     const { trackReviewFeedback } = await import('@/services/adoption/attribution');
     void trackReviewFeedback(
       { orgId: opts.orgId, userId: opts.by },
