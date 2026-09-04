@@ -545,7 +545,21 @@
       "idx": 77,
       "version": "7",
       "when": 1787546900000,
-      "tag": "0077_feedback_learning_loop",
+      "tag": "0077_shared_connector_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1787547000000,
+      "tag": "0078_conversation_updated_not_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1787547100000,
+      "tag": "0079_feedback_learning_loop",
       "breakpoints": true
     }
   ]

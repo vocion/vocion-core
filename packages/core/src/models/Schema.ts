@@ -1167,7 +1167,13 @@ export const conversationSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
-    uniqueIndex('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
+    // Not unique. It serves `listConversations`, which filters on org and agent
+    // and sorts by `updated_at` — a sort key, not an identity. Uniqueness only
+    // meant that two conversations with one agent landing in the same
+    // millisecond could not both exist, which two people opening a chat at once
+    // would hit, and which `$onUpdate` could reproduce on two rows bumped
+    // together.
+    index('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
     index('conversation_org_scope_idx').on(table.orgId, table.scopeRef, table.updatedAt),
   ],
 );
@@ -1714,6 +1720,19 @@ export const knowledgeSourceSchema = pgTable(
     // `AnyPgColumn` return type documents.
     // eslint-disable-next-line ts/no-use-before-define
     apiTokenId: text('api_token_id').references((): AnyPgColumn => apiTokenSchema.id, { onDelete: 'restrict' }),
+    /**
+     * Whether this source is the only one allowed to hold `api_token_id`.
+     *
+     * Decided by the credential's platform at link time and written here so
+     * the database can enforce it: a partial unique index cannot look up a
+     * platform descriptor, but it can read a boolean on the row. True for a
+     * credential issued for one place — a Strapi token is worthless against
+     * any instance but the one that minted it. False for an account-wide
+     * grant, where sharing is the point: one Google refresh token serves
+     * Gmail, Drive and Calendar, and one Slack bot token every channel the
+     * workspace syncs.
+     */
+    apiTokenExclusive: boolean('api_token_exclusive').default(false).notNull(),
     enabled: text('enabled').default('true').notNull(),
     lastSyncedAt: timestamp('last_synced_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -1724,9 +1743,24 @@ export const knowledgeSourceSchema = pgTable(
   },
   table => [
     uniqueIndex('knowledge_source_org_slug_idx').on(table.orgId, table.slug),
-    // Partial, so the many connectors using no stored credential are not all
-    // competing for one null. Doubles as the lookup index for the column.
-    uniqueIndex('knowledge_source_api_token_live_idx')
+    // Unique only over the links that claim exclusivity. It used to cover every
+    // link, back when every stored credential was issued for one place. That
+    // stopped being true once a platform could serve several connectors — one
+    // Google refresh token is meant to be held by Gmail, Drive and Calendar at
+    // once — so the rule narrowed to the rows that still want it rather than
+    // being given up. `api_token_exclusive` is what a partial index can read in
+    // place of the platform descriptor that actually decides.
+    //
+    // This is the rule, not the pre-check in `linkSourceToStoredCredential`:
+    // two people picking one credential at the same moment both pass that
+    // check, and this index is what refuses the second write.
+    uniqueIndex('knowledge_source_api_token_exclusive_idx')
+      .on(table.apiTokenId)
+      .where(sql`${table.apiTokenId} is not null and ${table.apiTokenExclusive}`),
+    // Plain lookup index for the column, covering the shared links the unique
+    // one above leaves out. Partial, so the many sources naming no credential
+    // are not all indexed on one null.
+    index('knowledge_source_api_token_live_idx')
       .on(table.apiTokenId)
       .where(sql`${table.apiTokenId} is not null`),
   ],
@@ -2016,7 +2050,8 @@ export const sourceSyncCheckpointSchema = pgTable(
  * A supplied key is found one of two ways, decided per platform by
  * `credentialsPerOrg` in the registry. An LLM platform has at most one live row
  * per org and callers resolve it implicitly — "the org's Anthropic key". A
- * connector platform (`jira`, `strapi`, `hubspot`, `granola`) may hold as many
+ * connector platform (`jira`, `strapi`, `hubspot`, `granola`, `google`, `slack`,
+ * `zoom`) may hold as many
  * live rows as the workspace wants, told apart by `name`, and a
  * `knowledge_source.api_token_id` names the one that connector uses.
  * `api_token_org_platform_live_idx` enforces the cap for the first kind and
@@ -2092,7 +2127,7 @@ export const apiTokenSchema = pgTable(
     // `registry.test.ts` fails if the two drift.
     uniqueIndex('api_token_org_platform_live_idx')
       .on(table.orgId, table.platform)
-      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi')`),
+      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom')`),
     // The two credential shapes must never mix. A `vocion` row carries a secret
     // hash, and either a complete set of encryption columns or none of them —
     // none being a token issued before minted tokens were stored encrypted.
