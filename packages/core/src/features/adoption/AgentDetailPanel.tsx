@@ -49,11 +49,12 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
         <PeriodPicker value={days} onChange={setDays} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         <StatCard label="Reach" value={a?.reach ?? 0} definition="Distinct users who interacted with this agent in the window" />
         <StatCard label="Conversations" value={a?.conversations ?? 0} />
         <StatCard label="Messages" value={a?.messages ?? 0} />
         <StatCard label="Approval rate" value={formatPercent(a?.approvalRate ?? null)} hint={a ? `${a.approvals}✓ ${a.rejections}✗` : undefined} definition="Approved ÷ all review decisions on this agent's runs" />
+        <StatCard label="Snoozes" value={a?.snoozes ?? 0} definition="Items deferred instead of decided — a snooze leaves the item pending, so it never moves the approval rate" />
         <StatCard label="Feedback" value={a ? `↑${a.feedbackUp} ↓${a.feedbackDown}` : '—'} />
       </div>
 
