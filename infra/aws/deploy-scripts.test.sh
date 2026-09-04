@@ -175,7 +175,12 @@ FAKE
 echo "git \$*" >> "${CALL_LOG}"
 exit 0
 FAKE
-  chmod +x "${FAKE_DOCKER_DIR}/docker" "${FAKE_DOCKER_DIR}/git"
+  # bootstrap.sh probes whether the data directory is a mount point.
+  # Reporting "no" keeps it off the docker data-root migration path,
+  # which would rewrite /etc/docker/daemon.json.
+  printf '#!/bin/sh\nexit 1\n' > "${FAKE_DOCKER_DIR}/mountpoint"
+  chmod +x "${FAKE_DOCKER_DIR}/docker" "${FAKE_DOCKER_DIR}/git" \
+    "${FAKE_DOCKER_DIR}/mountpoint"
 }
 
 write_migration() {
@@ -190,13 +195,30 @@ clear_migrations() {
 
 # A repo-shaped directory update.sh can be pointed at with REPO_DIR.
 build_fixture_repo() {
-  mkdir -p "${FIXTURE_REPO}/infra/aws" "${FIXTURE_REPO}/packages/core"
+  mkdir -p "${FIXTURE_REPO}/infra/aws" "${FIXTURE_REPO}/packages/core/migrations"
+  printf '%s\n' 'CREATE TABLE "from_repo_dir" ("id" text PRIMARY KEY NOT NULL);' \
+    > "${FIXTURE_REPO}/packages/core/migrations/0000_from_repo_dir.sql"
   cp "${SCRIPT_DIR}/apply-migrations.sh" "${FIXTURE_REPO}/infra/aws/"
   cp "${SCRIPT_DIR}/update.sh" "${FIXTURE_REPO}/infra/aws/"
-  printf 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_fixture\n' \
-    > "${FIXTURE_REPO}/infra/aws/.env.production"
-  printf 'NEXT_PUBLIC_APP_URL=https://fixture.example\n' \
-    >> "${FIXTURE_REPO}/infra/aws/.env.production"
+  cp "${SCRIPT_DIR}/bootstrap.sh" "${FIXTURE_REPO}/infra/aws/"
+  # A .git directory so bootstrap.sh takes the "already cloned" path.
+  mkdir -p "${FIXTURE_REPO}/.git"
+  write_fixture_env_file
+}
+
+# The env file both scripts read. LANGFUSE_SELF_HOSTED_REPLICAS=0 puts
+# bootstrap.sh on the Langfuse Cloud path, which skips its long
+# self-hosting precondition check.
+write_fixture_env_file() {
+  cat > "${FIXTURE_REPO}/infra/aws/.env.production" <<ENV
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_fixture
+NEXT_PUBLIC_APP_URL=https://fixture.example
+VOCION_HOSTNAME=fixture.example
+LANGFUSE_SELF_HOSTED_REPLICAS=0
+LANGFUSE_BASE_URL=https://cloud.langfuse.example
+LANGFUSE_PUBLIC_KEY=pk-lf-fixture
+LANGFUSE_SECRET_KEY=sk-lf-fixture
+ENV
 }
 
 # ----------------------------------------------------------------------
@@ -220,6 +242,21 @@ run_applier() {
   APPLIER_EXIT=$?
 }
 
+# Same, but without MIGRATIONS_DIR, so the applier falls back to its
+# REPO_DIR-derived default.
+run_applier_using_repo_dir() {
+  APPLIER_OUTPUT=$(
+    env PATH="${SHIM_DIR}:${PATH}" \
+      POSTGRES_CONTAINER="${TEST_CONTAINER}" \
+      POSTGRES_DB="${DB_NAME}" \
+      POSTGRES_USER="${DB_USER}" \
+      REPO_DIR="${FIXTURE_REPO}" \
+      "$@" \
+      bash "${SCRIPT_DIR}/apply-migrations.sh" 2>&1
+  )
+  APPLIER_EXIT=$?
+}
+
 UPDATE_OUTPUT=""
 UPDATE_EXIT=0
 
@@ -236,6 +273,25 @@ run_update_script() {
       bash "${FIXTURE_REPO}/infra/aws/update.sh" 2>&1
   )
   UPDATE_EXIT=$?
+}
+
+BOOTSTRAP_OUTPUT=""
+BOOTSTRAP_EXIT=0
+
+run_bootstrap_script() {
+  : > "${CALL_LOG}"
+  BOOTSTRAP_OUTPUT=$(
+    env PATH="${FAKE_DOCKER_DIR}:${PATH}" \
+      REPO_DIR="${FIXTURE_REPO}" \
+      DATA_DIR="${WORK_DIR}/data" \
+      POSTGRES_CONTAINER="${TEST_CONTAINER}" \
+      POSTGRES_DB="${DB_NAME}" \
+      POSTGRES_USER="${DB_USER}" \
+      MIGRATIONS_DIR="${MIGRATIONS_FIXTURE}" \
+      DEPLOY_CALL_LOG="${CALL_LOG}" \
+      bash "${FIXTURE_REPO}/infra/aws/bootstrap.sh" 2>&1
+  )
+  BOOTSTRAP_EXIT=$?
 }
 
 # ----------------------------------------------------------------------
@@ -276,6 +332,8 @@ test_fresh_database_applies_every_migration() {
   fi
 }
 
+# Deliberately continues from the previous test's database and files:
+# idempotency, incremental apply, failure and retry are one sequence.
 test_rerun_is_idempotent() {
   echo "apply-migrations: re-run"
   run_applier
@@ -323,13 +381,35 @@ test_retry_after_fixing_the_migration() {
   check_contains "applies the fixed file" "${APPLIER_OUTPUT}" "1 applied · 3 already-applied · 0 failed"
 }
 
-test_no_migration_files_is_a_no_op() {
-  echo "apply-migrations: empty migrations directory"
+test_missing_migrations_directory_fails() {
+  echo "apply-migrations: migrations directory does not exist"
+  reset_database
+  run_applier MIGRATIONS_DIR="${WORK_DIR}/no-such-directory"
+  check_exit_code "exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "names the path it looked at" "${APPLIER_OUTPUT}" \
+    "no migrations directory at ${WORK_DIR}/no-such-directory"
+  check_absent "does not claim a successful run" "${APPLIER_OUTPUT}" "0 failed"
+}
+
+test_empty_migrations_directory_fails() {
+  echo "apply-migrations: migrations directory holds no files"
   reset_database
   clear_migrations
   run_applier
+  check_exit_code "exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "explains that this is a wrong path" "${APPLIER_OUTPUT}" \
+    "holds no migration files"
+  check_absent "does not claim a successful run" "${APPLIER_OUTPUT}" "0 failed"
+}
+
+test_migrations_directory_follows_repo_dir() {
+  echo "apply-migrations: MIGRATIONS_DIR defaults from REPO_DIR"
+  reset_database
+  run_applier_using_repo_dir
   check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
-  check_contains "reports nothing to do" "${APPLIER_OUTPUT}" "0 applied · 0 already-applied · 0 failed"
+  check_contains "reads the checkout's own migrations" "${APPLIER_OUTPUT}" \
+    "1 migration file(s) in ${FIXTURE_REPO}/packages/core/migrations"
+  check_contains "applies that file" "${APPLIER_OUTPUT}" "applying 0000_from_repo_dir.sql"
 }
 
 test_existing_schema_without_tracking_refuses() {
@@ -401,6 +481,28 @@ test_drizzle_history_baselines_automatically() {
   check_absent "does not replay the baselined file" "${APPLIER_OUTPUT}" "applying 0000_first.sql"
 }
 
+test_explicit_baseline_overrides_drizzle_history() {
+  echo "apply-migrations: MIGRATIONS_BASELINE beats drizzle history"
+  reset_database
+  query_test_database 'CREATE TABLE "organization" ("id" text PRIMARY KEY NOT NULL);' >/dev/null
+  query_test_database 'CREATE TABLE "todo" ("id" text PRIMARY KEY NOT NULL);' >/dev/null
+  query_test_database "CREATE SCHEMA drizzle;
+    CREATE TABLE drizzle.__drizzle_migrations (id serial PRIMARY KEY, hash text, created_at bigint);
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('hash-0000', 1);" >/dev/null
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_migration 0001_second.sql "${SECOND_MIGRATION}"
+  write_migration 0002_third.sql "${THIRD_MIGRATION}"
+  # Drizzle stopped at 0000; a person applied 0001 by hand. Baselining
+  # from drizzle's single row would replay 0001 and fail.
+  run_applier MIGRATIONS_BASELINE=0001_second.sql
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "uses the operator's position" "${APPLIER_OUTPUT}" \
+    "baselined 2 migration(s) as already applied"
+  check_absent "ignores the drizzle row count" "${APPLIER_OUTPUT}" "drizzle recorded"
+  check_contains "applies only what follows" "${APPLIER_OUTPUT}" "applying 0002_third.sql"
+}
+
 test_baseline_is_ignored_on_an_empty_database() {
   echo "apply-migrations: baseline flag on an empty database"
   reset_database
@@ -456,6 +558,10 @@ test_update_migrates_before_rolling_containers() {
 
 test_update_reads_env_from_infra_aws() {
   echo "update.sh: build-time env file"
+  reset_database
+  seed_two_pending_migrations
+  run_update_script
+  check_exit_code "exits 0" 0 "${UPDATE_EXIT}"
   check_contains "reports the env file it read" "${UPDATE_OUTPUT}" \
     "reading build-time env from ${FIXTURE_REPO}/infra/aws/.env.production"
   check_contains "passes the Clerk key as a build arg" "$(cat "${CALL_LOG}")" \
@@ -526,6 +632,57 @@ test_update_accepts_the_legacy_env_location() {
   check_contains "falls back to the repo root" "${UPDATE_OUTPUT}" \
     "reading build-time env from ${FIXTURE_REPO}/.env.production"
   mv "${FIXTURE_REPO}/.env.production" "${FIXTURE_REPO}/infra/aws/.env.production"
+}
+
+# ----------------------------------------------------------------------
+# bootstrap.sh tests. Its system-prereq and docker-data-root sections are
+# skipped by the fakes (docker already "present", data directory not a
+# mount point); everything from the stack bring-up onward really runs.
+# ----------------------------------------------------------------------
+
+test_bootstrap_applies_migrations_and_completes() {
+  echo "bootstrap.sh: happy path"
+  reset_database
+  seed_two_pending_migrations
+  run_bootstrap_script
+  check_exit_code "exits 0" 0 "${BOOTSTRAP_EXIT}"
+  check_contains "applies the migrations" "${BOOTSTRAP_OUTPUT}" \
+    "2 applied · 0 already-applied · 0 failed"
+  check_order "the stack comes up before migrations run" "${BOOTSTRAP_OUTPUT}" \
+    "starting Vocion stack" "applying database migrations"
+  check_contains "reports completion" "${BOOTSTRAP_OUTPUT}" "bootstrap complete"
+  check_contains "says how to apply workspace content" "${BOOTSTRAP_OUTPUT}" \
+    "WORKSPACE_PATH"
+  local todo_exists
+  todo_exists=$(query_test_database "SELECT count(*) FROM information_schema.tables WHERE table_name = 'todo';")
+  if [ "${todo_exists}" = "1" ]; then
+    pass "the migration really ran against the database"
+  else
+    fail "the migration really ran against the database" "todo table is missing"
+  fi
+}
+
+test_bootstrap_aborts_on_migration_failure() {
+  echo "bootstrap.sh: failing migration"
+  reset_database
+  seed_two_pending_migrations
+  write_migration 0002_broken.sql "${PARTIAL_FAILURE_MIGRATION}"
+  run_bootstrap_script
+  check_exit_code "exits non-zero" nonzero "${BOOTSTRAP_EXIT}"
+  check_contains "names the failing file" "${BOOTSTRAP_OUTPUT}" "0002_broken.sql FAILED"
+  check_absent "never reports completion" "${BOOTSTRAP_OUTPUT}" "bootstrap complete"
+  rm -f "${MIGRATIONS_FIXTURE}/0002_broken.sql"
+}
+
+test_bootstrap_aborts_without_an_env_file() {
+  echo "bootstrap.sh: missing env file"
+  local saved="${WORK_DIR}/saved-bootstrap.env"
+  mv "${FIXTURE_REPO}/infra/aws/.env.production" "${saved}"
+  run_bootstrap_script
+  check_exit_code "exits non-zero" nonzero "${BOOTSTRAP_EXIT}"
+  check_contains "says which file is missing" "${BOOTSTRAP_OUTPUT}" ".env.production missing"
+  check_absent "never reports completion" "${BOOTSTRAP_OUTPUT}" "bootstrap complete"
+  mv "${saved}" "${FIXTURE_REPO}/infra/aws/.env.production"
 }
 
 # ----------------------------------------------------------------------
@@ -602,12 +759,15 @@ main() {
   test_only_new_migration_is_applied
   test_failing_migration_aborts_and_rolls_back
   test_retry_after_fixing_the_migration
-  test_no_migration_files_is_a_no_op
+  test_missing_migrations_directory_fails
+  test_empty_migrations_directory_fails
+  test_migrations_directory_follows_repo_dir
   test_existing_schema_without_tracking_refuses
   test_baseline_all_marks_everything_applied
   test_baseline_by_file_name_applies_the_rest
   test_unknown_baseline_name_is_rejected
   test_drizzle_history_baselines_automatically
+  test_explicit_baseline_overrides_drizzle_history
   test_baseline_is_ignored_on_an_empty_database
   test_unreachable_container_fails_loudly
   test_default_container_and_database_match_compose
@@ -620,6 +780,10 @@ main() {
   test_update_fails_when_a_required_build_value_is_missing
   test_update_tolerates_missing_optional_values
   test_update_accepts_the_legacy_env_location
+
+  test_bootstrap_applies_migrations_and_completes
+  test_bootstrap_aborts_on_migration_failure
+  test_bootstrap_aborts_without_an_env_file
 
   test_scripts_do_not_swallow_migration_failures
   test_bootstrap_no_longer_uses_drizzle_kit
