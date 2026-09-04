@@ -152,6 +152,16 @@ A classification that proposes rule text goes to `services/feedback/ruleRecorder
 
 Duplicates are judged by one Haiku call over a shortlist (`services/feedback/duplicateDetection.ts`) — trigram overlap orders the shortlist, recency fills the rest of it, and the model decides. It fails open: an unparseable or failed judgement treats the rule as new, because a duplicate in the queue is mergeable and dropped feedback is gone.
 
+Testing the loop: `npx playwright test --project=learning` covers ingestion (which reviewer signals reach the queue) with no model at all. The two model steps — classifying the note and judging duplicates — are covered against a real model by an opt-in project that is only defined when `LIVE_MODEL_E2E` is set, so a plain test run never calls out:
+
+```bash
+# 1. the worker, pointed at the same database the app uses
+AWS_PROFILE=veerio AWS_REGION=us-west-2 VOCION_LLM_PROVIDER_CLASSIFIER=bedrock \
+  ENABLE_FEEDBACK_WORKER=1 npm run worker:serve
+# 2. the spec
+LIVE_MODEL_E2E=1 DATABASE_URL=... npx playwright test --project=learning-live
+```
+
 Still never auto-committed: a person adopts or rejects every candidate at `/dashboard/learnings` or over `/api/v1/learning-candidates`. Both outcomes now land on the adoption stream (`learning.candidate_created`, `learning.candidate_duplicate`, `learning.candidate_decided`).
 
 ## Evals + budgets

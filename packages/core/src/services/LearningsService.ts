@@ -81,6 +81,9 @@ export async function getLearnings(orgId: string, stepName: string) {
       source: r.source,
       createdBy: r.createdBy,
       createdAt: r.createdAt,
+      // How many people asked for this rule before it was adopted — carried
+      // over from the candidate it came from, and the reason the column exists.
+      occurrenceCount: r.occurrenceCount,
     })),
   };
 }
