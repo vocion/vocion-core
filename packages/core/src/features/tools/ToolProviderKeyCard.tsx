@@ -42,6 +42,14 @@ type ToolProviderKeyCardProps = {
   fields: readonly ToolProviderKeyField[];
   /** Masked hint of the key already on file, or null when there is none. */
   storedKeyHint: string | null;
+  /**
+   * Whether the deployment itself has a key for this platform.
+   *
+   * Without it the card cannot tell "you are running on our key" from "nobody
+   * has a key at all" — and promising the first while the readiness badge says
+   * "Needs key" contradicts the page the card sits on.
+   */
+  serverHasKey: boolean;
 };
 
 /**
@@ -65,7 +73,7 @@ function everyFieldFilled(
  * @param props - See {@link ToolProviderKeyCardProps}.
  */
 export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
-  const { platformId, platformLabel, helpText, fields, storedKeyHint } = props;
+  const { platformId, platformLabel, helpText, fields, storedKeyHint, serverHasKey } = props;
   const router = useRouter();
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -122,8 +130,9 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
           )
         : (
             <p className="mb-3 text-xs text-muted-foreground">
-              No key from this workspace yet, so calls run on the Vocion server key. Paste your own
-              to bill your account instead.
+              {serverHasKey
+                ? 'No key from this workspace yet, so calls run on the Vocion server key. Paste your own to bill your account instead.'
+                : 'Nobody has a key for this yet, so the tool cannot run. Paste yours to turn it on for this workspace.'}
             </p>
           )}
 

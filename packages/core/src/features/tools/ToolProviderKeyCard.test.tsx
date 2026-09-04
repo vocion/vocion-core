@@ -40,8 +40,9 @@ const TAVILY_FIELDS = [
 /**
  * Render the card for Tavily, with or without a key already on file.
  * @param storedKeyHint - The masked hint of the key on file, or null for none.
+ * @param serverHasKey
  */
-function renderCard(storedKeyHint: string | null = null) {
+function renderCard(storedKeyHint: string | null = null, serverHasKey = true) {
   // The card links to API credentials with the locale-aware Link, which reads
   // the intl context, so the provider has to be here even though nothing in
   // these tests is translated.
@@ -53,6 +54,7 @@ function renderCard(storedKeyHint: string | null = null) {
         helpText="Your Tavily API key, from app.tavily.com."
         fields={TAVILY_FIELDS}
         storedKeyHint={storedKeyHint}
+        serverHasKey={serverHasKey}
       />
     </NextIntlClientProvider>,
   );
@@ -105,6 +107,23 @@ describe('a tool with no key on file', () => {
     await userEvent.click(page.getByRole('button', { name: 'Save key' }));
 
     await expect.element(page.getByText('That key does not look right.')).toBeVisible();
+  });
+});
+
+describe('what the card says about whose key is in use', () => {
+  it('says the server key is carrying the tool when only the server has one', async () => {
+    renderCard(null, true);
+
+    await expect.element(page.getByText(/calls run on the Vocion server key/i)).toBeVisible();
+  });
+
+  it('does not claim a server key exists when nobody has one', async () => {
+    // The readiness badge says "Needs key" in this state, so copy promising
+    // that calls run on the server key contradicts the page it sits on.
+    renderCard(null, false);
+
+    await expect.element(page.getByText(/nobody has a key for this yet/i)).toBeVisible();
+    expect(page.getByText(/calls run on the Vocion server key/i).elements()).toHaveLength(0);
   });
 });
 
