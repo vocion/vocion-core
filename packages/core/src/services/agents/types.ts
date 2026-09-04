@@ -198,7 +198,7 @@ export type RuntimeContext = {
   /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
   conversationId?: number;
   /** Which harness runs the loop — stamped on tool_call rows. */
-  provider?: 'local' | 'agentcore' | 'runtime';
+  provider?: 'local' | 'runtime';
   /** Langfuse trace id of the current turn — links tool_call rows to cost/latency. */
   traceId?: string;
   /**
@@ -218,7 +218,7 @@ export type RuntimeContext = {
    * executing; `maxTokens` caps the model's output for this agent.
    */
   harnessConfig: {
-    provider?: 'local' | 'agentcore' | 'runtime';
+    provider?: 'local' | 'runtime';
     interrupts?: string[];
     maxTokens?: number;
     excludeTools?: string[];

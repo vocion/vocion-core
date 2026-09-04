@@ -228,17 +228,12 @@ export async function runAgentDeep(opts: {
     throw new Error(message);
   }
 
-  // Harness provider dispatch — three execution layers, one contract:
+  // Harness provider dispatch — two execution layers, one contract:
   //   - `runtime`  (BYOA): the standalone agent-runtime artifact
   //     (localhost in dev, AgentCore Runtime when deployed). Also
   //     selectable fleet-wide via VOCION_AGENT_PROVIDER=runtime.
   //     VOCION_DISABLE_RUNTIME=1 forces the in-process loop instead —
   //     for dev machines where the artifact isn't running on :8080.
-  //   - `agentcore` (managed harness): AWS runs the loop, tools call
-  //     back inline. VOCION_DISABLE_AGENTCORE=1 forces the local loop —
-  //     for dev machines with no AWS credentials / no provisioned
-  //     harness, where an agentcore-pinned agent would otherwise be
-  //     unchattable ("Tool error").
   //   - anything else: the in-process deepagents loop below.
   //
   // An agent that names no `provider` gets one derived from its
@@ -254,11 +249,6 @@ export async function runAgentDeep(opts: {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
     return runAgentOnRuntime(opts);
   }
-  if (provider === 'agentcore' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
-    const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
-    return runAgentOnAgentCoreHarness(opts);
-  }
-
   const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug);
   bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId);
   const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;

@@ -23,8 +23,8 @@ function arg(name: string): string | undefined {
 }
 
 // Default: exercise whatever provider the agent's harness config picks
-// (post-cutover that IS the runtime). Pass --provider runtime|local|agentcore
-// to force one for comparison runs.
+// (post-cutover that IS the runtime). Pass --provider runtime|local to
+// force one for comparison runs.
 const forced = arg('provider');
 if (forced) {
   process.env.VOCION_AGENT_PROVIDER = forced;

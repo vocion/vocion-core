@@ -214,23 +214,12 @@ export const AgentManifestSchema = z.object({
   /**
    * Harness config (v0.3) — per-agent knobs for the reusable agent
    * harness. `provider` selects where the agent loop executes:
-   * `local` (in-process deepagents loop, the default), `agentcore`
-   * (the AWS AgentCore managed harness — provisioned by
-   * workspace:apply, invoked via InvokeHarness; operations execute
-   * client-side in vocion-core as inline functions), or `runtime`
-   * (the BYOA artifact — packages/agent-runtime: our deepagents loop
-   * hosted out-of-process, localhost in dev / AgentCore Runtime when
+   * `local` (the in-process deepagents loop) or `runtime` (the BYOA
+   * artifact — packages/agent-runtime: the SAME deepagents loop hosted
+   * out-of-process, on localhost in dev and on AgentCore Runtime when
    * deployed; tools execute in core via the claim-verified tool
-   * endpoint).
-   *
-   * `agentcore` and `runtime` are BOTH AWS Bedrock AgentCore — it is a
-   * product family, and these are two services inside it. The difference
-   * is who owns the loop: on `agentcore` AWS does, and the agent is pure
-   * configuration with `search_knowledge` as its only tool; on `runtime`
-   * we do, and the agent keeps the full tool registry, subagents,
-   * playbooks and approval gates, because those are deepagents features
-   * our loop implements. Neither routes inference — a Bedrock call is a
-   * direct Converse call in all three cases. `interrupts` lists skill/tool slugs that pause for
+   * endpoint). Both run our own loop, so an agent behaves identically
+   * either way — only the process boundary moves. `interrupts` lists skill/tool slugs that pause for
    * human approval (via the hitl_gate flow) before executing;
    * `maxTokens` caps the model's output tokens; `excludeTools`
    * withholds built-in tools by name (e.g. `propose_action` for agents
@@ -254,7 +243,7 @@ export const AgentManifestSchema = z.object({
    * unreachable for every agent that came through workspace YAML.
    */
   harness: z.object({
-    provider: z.enum(['local', 'agentcore', 'runtime']).optional(),
+    provider: z.enum(['local', 'runtime']).optional(),
     interrupts: z.array(z.string()).default([]),
     maxTokens: z.number().int().positive().optional(),
     excludeTools: z.array(z.string()).default([]),

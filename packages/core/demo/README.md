@@ -29,5 +29,5 @@ Serving env (Vercel project `vocion-demo`):
   VOCION_LLM_MODE=replay
   VOCION_LLM_CACHE_DIR=demo/llm-cache
   WORKSPACE_PATH=demo/workspace
-  VOCION_DISABLE_RUNTIME=1  VOCION_DISABLE_AGENTCORE=1
+  VOCION_DISABLE_RUNTIME=1
   VOCION_DEMO_HINT_EMAIL=admin@acme.test  VOCION_DEMO_HINT_PASSWORD=demo123

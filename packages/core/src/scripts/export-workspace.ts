@@ -104,7 +104,7 @@ async function main(): Promise<void> {
       playbooks: (a.playbookSlugs ?? []).length > 0 ? a.playbookSlugs : undefined,
       learningSteps: (a.learningSteps ?? []).length > 0 ? a.learningSteps : undefined,
       // Harness block — carries the execution-layer choice (BYOA
-      // `provider: runtime`, agentcore, interrupts, excludeTools…).
+      // `provider: runtime`, interrupts, excludeTools…).
       // Omitting this is how a round-trip would un-cut-over an agent.
       harness: Object.keys(a.harnessConfig ?? {}).length > 0 ? a.harnessConfig : undefined,
       skills: a.skillSlugs ?? [],

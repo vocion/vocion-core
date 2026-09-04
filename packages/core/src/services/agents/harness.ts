@@ -94,10 +94,10 @@ export type HarnessModelConfig = {
  * `model` is honoured ONLY alongside `modelProvider`, and that condition is
  * load-bearing rather than tidiness. The local loop used to ignore `model`
  * entirely, so every `model:` already written in workspace YAML was authored
- * for the agentcore or runtime harness and holds a Bedrock id
+ * for the runtime harness and holds a Bedrock id
  * (`global.anthropic.claude-sonnet-4-6` in Veerio's own agent). Reading it
- * unconditionally would hand that id to ChatAnthropic the moment an agentcore
- * agent fell back to the local loop — which `VOCION_DISABLE_AGENTCORE=1` does
+ * unconditionally would hand that id to ChatAnthropic the moment a runtime
+ * agent fell back to the local loop — which `VOCION_DISABLE_RUNTIME=1` does
  * routinely in dev — and every turn would fail on an unknown model. Naming the
  * provider is how an author says which vendor's id this is.
  * @param harnessConfig - The agent's harness block, or an empty object.

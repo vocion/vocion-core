@@ -38,10 +38,6 @@ describe('agent harness provider', () => {
     expect(parseHarness({ provider: 'runtime' }).provider).toBe('runtime');
   });
 
-  it('keeps an explicit agentcore', () => {
-    expect(parseHarness({ provider: 'agentcore' }).provider).toBe('agentcore');
-  });
-
   it('rejects a provider it does not recognise', () => {
     expect(() => parseHarness({ provider: 'lambda' })).toThrow();
   });

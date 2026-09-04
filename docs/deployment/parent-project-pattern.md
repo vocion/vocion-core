@@ -81,8 +81,9 @@ better name is worth. Rename it in both, or in neither.
 | Builds | VPC, EC2, EBS, Elastic IP, Route 53, IAM, snapshots. Then Caddy, Postgres, Langfuse, Temporal, the app. | ECR repo, execution role, Memory store, arm64 image, the runtime itself |
 | Tool | OpenTofu + `bootstrap.sh` | `provision.sh`, `deploy-runtime.sh`, `smoke-invoke.sh` |
 
-Skip phase 2 and **the site comes up healthy while chat fails**. Any agent with
-`harness.provider: agentcore` has nowhere to execute until the runtime exists.
+Skip phase 2 and **the site comes up healthy while chat fails**. Any agent on
+the `runtime` provider — which is every Bedrock agent by default — has nowhere
+to execute until the runtime exists.
 
 Langfuse is the one part of phase 1 that needs a decision rather than a
 script: managed Cloud, self-hosted on the box, or off. Make it before
@@ -177,9 +178,8 @@ Four defaults that are wrong for any client outside `us-east-1`:
 | What | Where | Effect |
 |---|---|---|
 | `REPO_FILTER` hardcoded to `repo:vocion/vocion-core:ref:refs/heads/main` | `infra/agentcore/provision-ci-role.sh:18` | The OIDC role it creates only admits core's own CI. A parent project's pipeline can't assume it — run phase 2 from an operator machine until this is parameterised. |
-| Region defaults to `us-east-1`, passed positionally | `agentcore-harness-role.sh` | Harness role lands in the wrong region, silently. |
-| `VOCION_AGENTCORE_REGION` defaults to `us-east-1` | `services/agents/providers/agentcore.ts` | Agents run their model loop in a region nobody chose. Set it in the parent's compose overlay, for the app *and* the worker. |
-| Agent with no `model` resolves to `gpt-4o` | workspace applier | Only bites the `local` provider — `agentcore` agents use `harness.model` — but it bites quietly. Pin every model explicitly. |
+| `VOCION_AGENTCORE_REGION` defaults to `us-west-2` | `services/agents/providers/runtime.ts` | Core signs `InvokeAgentRuntime` against a region the runtime may not be in, and cannot find it. Set it in the parent's compose overlay, for the app *and* the worker. |
+| Agent with no `model` resolves to `gpt-4o` | workspace applier | Bites quietly. Pin every model explicitly. |
 
 **One more, on secrets.** Both parent projects create the Secrets Manager entry
 out-of-band and reference it from Terraform as a data source, so API keys never

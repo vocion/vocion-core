@@ -18,10 +18,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const runAgentOnRuntime = vi.fn(async () => ({ response: 'from the artifact', traceId: 't', toolCalls: [] }));
-const runAgentOnAgentCoreHarness = vi.fn(async () => ({ response: 'from the managed harness', traceId: 't', toolCalls: [] }));
 
 vi.mock('@/services/agents/providers/runtime', () => ({ runAgentOnRuntime }));
-vi.mock('@/services/agents/providers/agentcore', () => ({ runAgentOnAgentCoreHarness }));
 
 // The in-process loop is the "neither provider ran" signal. Stubbing the
 // harness keeps the test off deepagents and off a live model.
@@ -65,10 +63,8 @@ async function run(slug: string): Promise<string> {
 beforeEach(async () => {
   await db.delete(agentSchema);
   runAgentOnRuntime.mockClear();
-  runAgentOnAgentCoreHarness.mockClear();
   delete process.env.VOCION_AGENT_PROVIDER;
   delete process.env.VOCION_DISABLE_RUNTIME;
-  delete process.env.VOCION_DISABLE_AGENTCORE;
 });
 
 afterEach(async () => {
@@ -123,18 +119,12 @@ describe('harness provider defaults', () => {
     expect(runAgentOnRuntime).not.toHaveBeenCalled();
   });
 
-  it('lets an explicit agentcore provider on a bedrock agent win', async () => {
-    await insertAgent('pinned-managed', { modelProvider: 'bedrock', provider: 'agentcore' });
-
-    await expect(run('pinned-managed')).resolves.toBe('from the managed harness');
-    expect(runAgentOnRuntime).not.toHaveBeenCalled();
-  });
-
   it('lets the fleet-wide environment override win over the default', async () => {
-    process.env.VOCION_AGENT_PROVIDER = 'agentcore';
+    process.env.VOCION_AGENT_PROVIDER = 'local';
     await insertAgent('bedrock-agent', { modelProvider: 'bedrock' });
 
-    await expect(run('bedrock-agent')).resolves.toBe('from the managed harness');
+    await expect(run('bedrock-agent')).rejects.toThrow('in-process loop reached');
+    expect(runAgentOnRuntime).not.toHaveBeenCalled();
   });
 
   it('honours the dev kill switch, so a bedrock agent still chats with no artifact running', async () => {

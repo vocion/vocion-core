@@ -12,8 +12,8 @@ const { chatModelOptionsFor } = await import('./harness');
  *
  * The rule worth pinning is that a bare `model:` is ignored on the local loop.
  * Every `model:` written before `modelProvider` existed holds a Bedrock id
- * authored for the agentcore or runtime harness, so honouring it unconditionally
- * would hand a Bedrock id to ChatAnthropic whenever an agentcore agent fell back
+ * authored for the runtime harness, so honouring it unconditionally
+ * would hand a Bedrock id to ChatAnthropic whenever a runtime agent fell back
  * to the local loop.
  */
 
@@ -38,7 +38,7 @@ describe('chatModelOptionsFor', () => {
 
   it('ignores a model with no provider, because it belongs to another harness', () => {
     // Veerio's own agent carries exactly this: a Bedrock id authored for the
-    // agentcore harness, with no modelProvider. On the local fallback path it
+    // runtime harness, with no modelProvider. On the local fallback path it
     // must not reach ChatAnthropic.
     expect(chatModelOptionsFor({ model: 'global.anthropic.claude-sonnet-4-6' })).toEqual({});
   });

@@ -92,12 +92,12 @@ entry needs `systemPrompt` or `systemPromptFile`.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `provider` | `local` \| `agentcore` \| `runtime` | derived — see below | Where the agent loop executes. `local`: this app's process. `agentcore`: AWS's *managed harness* — AWS drives the turn and calls back for tools. `runtime`: our own loop in the out-of-process agent-runtime artifact, hosted on AgentCore *Runtime* when deployed. The last two are both AgentCore services; the difference is whether AWS or we own the loop. |
+| `provider` | `local` \| `runtime` | derived — see below | Where the agent loop executes: in this app's process, or the out-of-process agent-runtime artifact (AgentCore Runtime when deployed). Same loop either way — only the process boundary moves. |
 | `interrupts` | string[] | `[]` | Skill or tool slugs that pause for human approval before executing. |
 | `maxTokens` | positive int | — | Cap on the model's output tokens. |
 | `excludeTools` | string[] | `[]` | Withhold built-in tools by name — e.g. `propose_action` for an agent that should have no CRM-write surface at all. |
 | `grantTools` | string[] | `[]` | The inverse: tools too powerful to be default-on, granted only to agents that name them. |
-| `model` | string | — | Model override for the `agentcore` / `runtime` providers. |
+| `model` | string | — | Model override. Honoured only alongside `modelProvider`. |
 | `recommendActionBackstop` | boolean | — | When a turn ends with zero `recommend_action` calls, run a short follow-up pass to emit the action cards the agent's rules require. |
 
 **`provider` is derived when you leave it out.** An agent with `modelProvider: bedrock` and no `provider` runs on `runtime` — the out-of-process artifact, which is AgentCore Runtime on a deployed installation. Everything else falls to `local`, the in-process loop. Choosing Bedrock as the model vendor therefore also chooses AWS as the place the loop runs, and writing `provider: local` alongside it opts back out.

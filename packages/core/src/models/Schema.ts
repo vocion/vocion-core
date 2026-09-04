@@ -435,7 +435,7 @@ export const objectDocumentLinkRelations = relations(objectDocumentLinkSchema, (
 
 /**
  * One row per domain-tool invocation, written at the tool registry so
- * all three harness providers (local, agentcore, runtime) are covered.
+ * both harness providers (local, runtime) are covered.
  * This is the record of what agents actually do; it replaces the
  * operation-scoped skill_run history. Cost and model latency live on
  * the linked Langfuse trace, not here; durationMs is the tool's own
@@ -460,7 +460,7 @@ export const toolCallSchema = pgTable(
     durationMs: integer('duration_ms'),
     conversationId: integer('conversation_id'),
     missionRunId: integer('mission_run_id'),
-    /** Which harness executed the loop: local | agentcore | runtime. */
+    /** Which harness executed the loop: local | runtime. */
     provider: text('provider'),
     /** Langfuse trace of the turn — cost and latency are read there. */
     langfuseTraceId: text('langfuse_trace_id'),
@@ -562,8 +562,14 @@ export const agentSchema = pgTable(
      * existing hitl_gate machinery) before executing.
      */
     harnessConfig: jsonb('harness_config').$type<{
-      /** Which harness executes this agent: 'local' (in-process deepagents loop, default), 'agentcore' (AWS AgentCore managed harness), or 'runtime' (BYOA agent-runtime artifact). */
-      provider?: 'local' | 'agentcore' | 'runtime';
+      /**
+       * Where this agent's loop executes: 'local' (in-process deepagents loop)
+       * or 'runtime' (the same loop in the out-of-process agent-runtime
+       * artifact, which is AgentCore Runtime when deployed). Left unset by
+       * workspace:apply on purpose — `defaultHarnessProviderFor` derives it
+       * from `modelProvider`, and a stored value would shadow that.
+       */
+      provider?: 'local' | 'runtime';
       interrupts?: string[];
       maxTokens?: number;
       /** Built-in tool names to withhold from this agent (e.g. propose_action for agents with no CRM writes). */
@@ -572,8 +578,8 @@ export const agentSchema = pgTable(
       grantTools?: string[];
       /**
        * Model id this agent's main role runs on, overriding the per-role env
-       * default. Read by every provider: the agentcore and runtime harnesses
-       * pass it to the managed runtime, and the local loop hands it to
+       * default. Read by both providers: the runtime artifact receives it in
+       * the invocation payload, and the local loop hands it to
        * `buildChatModelForOrg`.
        */
       model?: string;
@@ -586,12 +592,6 @@ export const agentSchema = pgTable(
        */
       modelProvider?: 'anthropic' | 'openai' | 'bedrock';
     }>().default({}).notNull(),
-    /**
-     * agentcore provider only: ARN of the provisioned AgentCore harness.
-     * Written by workspace:apply when it creates/updates the harness;
-     * read by the invoke adapter. NULL for local-provider agents.
-     */
-    harnessArn: text('harness_arn'),
     /** Search tuning: recency decay, source weights, result limits */
     searchConfig: jsonb('search_config').$type<{
       recencyDecay?: number;
