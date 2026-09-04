@@ -221,7 +221,16 @@ export const AgentManifestSchema = z.object({
    * (the BYOA artifact — packages/agent-runtime: our deepagents loop
    * hosted out-of-process, localhost in dev / AgentCore Runtime when
    * deployed; tools execute in core via the claim-verified tool
-   * endpoint). `interrupts` lists skill/tool slugs that pause for
+   * endpoint).
+   *
+   * `agentcore` and `runtime` are BOTH AWS Bedrock AgentCore — it is a
+   * product family, and these are two services inside it. The difference
+   * is who owns the loop: on `agentcore` AWS does, and the agent is pure
+   * configuration with `search_knowledge` as its only tool; on `runtime`
+   * we do, and the agent keeps the full tool registry, subagents,
+   * playbooks and approval gates, because those are deepagents features
+   * our loop implements. Neither routes inference — a Bedrock call is a
+   * direct Converse call in all three cases. `interrupts` lists skill/tool slugs that pause for
    * human approval (via the hitl_gate flow) before executing;
    * `maxTokens` caps the model's output tokens; `excludeTools`
    * withholds built-in tools by name (e.g. `propose_action` for agents

@@ -92,7 +92,7 @@ entry needs `systemPrompt` or `systemPromptFile`.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `provider` | `local` \| `agentcore` \| `runtime` | derived — see below | Where the agent loop executes: in-process, the AWS AgentCore managed harness, or the out-of-process agent-runtime artifact. |
+| `provider` | `local` \| `agentcore` \| `runtime` | derived — see below | Where the agent loop executes. `local`: this app's process. `agentcore`: AWS's *managed harness* — AWS drives the turn and calls back for tools. `runtime`: our own loop in the out-of-process agent-runtime artifact, hosted on AgentCore *Runtime* when deployed. The last two are both AgentCore services; the difference is whether AWS or we own the loop. |
 | `interrupts` | string[] | `[]` | Skill or tool slugs that pause for human approval before executing. |
 | `maxTokens` | positive int | — | Cap on the model's output tokens. |
 | `excludeTools` | string[] | `[]` | Withhold built-in tools by name — e.g. `propose_action` for an agent that should have no CRM-write surface at all. |

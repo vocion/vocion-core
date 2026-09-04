@@ -121,7 +121,19 @@ Opt in by setting `VOCION_AGENT_RUNTIME=deepagents` and pointing the chat at `/r
 
 ## BYOA agent runtime (harness provider `runtime`)
 
-The same deepagents loop also ships as a standalone artifact — **`packages/agent-runtime`** — with the BYOA HTTP contract (`POST /invocations` SSE + `GET /ping`), hostable on a laptop or AWS Bedrock AgentCore Runtime (same bundle). Three execution layers now share one event contract, selected per agent via `harness.provider` in workspace YAML (`local` | `agentcore` | `runtime`) or fleet-wide via `VOCION_AGENT_PROVIDER`:
+The same deepagents loop also ships as a standalone artifact — **`packages/agent-runtime`** — with the BYOA HTTP contract (`POST /invocations` SSE + `GET /ping`), hostable on a laptop or AWS Bedrock AgentCore Runtime (same bundle). Three execution layers now share one event contract, selected per agent via `harness.provider` in workspace YAML (`local` | `agentcore` | `runtime`) or fleet-wide via `VOCION_AGENT_PROVIDER`.
+
+**`agentcore` and `runtime` are BOTH AWS Bedrock AgentCore, and they are not the same thing** — AgentCore is a product family, and these are two different services inside it. The distinction is *who writes the agent loop*:
+
+| | `agentcore` | `runtime` |
+|---|---|---|
+| AWS service | the managed harness (`CreateHarness` / `InvokeHarness`) | AgentCore **Runtime** — a container host |
+| Who owns the loop | AWS. The agent is pure configuration (systemPrompt, model, tools) | us. Our deepagents image runs inside their microVM |
+| Tools | one — `search_knowledge`, declared as an `inline_function` and handed back to core mid-turn | the full ~30-tool registry, over the claim-verified tool endpoint |
+| Subagents, playbooks/skills, HITL gates | none — they are deepagents features AWS's loop has no equivalent for | all of them |
+| In use by | `Veerio-Life/veerio-vocion` (`event-ingestion-lead`), deployed | `sales-assistant`, and every Bedrock agent by default |
+
+Neither is a Bedrock *gateway*: inference is a direct Bedrock Converse call in all three cases. AgentCore is hosting (plus Memory), not the model path. Do NOT delete the `agentcore` provider on the grounds that core has no agent on it — Veerio does, their `infra/aws/agentcore-harness-role.sh` provisions its role, and their `apply-workspace.sh` hard-fails without `VOCION_AGENTCORE_REGION`.
 
 - The artifact is **generic**: agent definitions travel in the invocation payload (compiled from the agent row per request), so `workspace:apply` stays a DB sync and agent edits never redeploy anything.
 - **Tools execute in core**, not the artifact: catalog entries POST back to `/api/internal/agent-tools` with a signed `TenantClaim` (`services/agents/claims.ts`) — orgId/user ACLs come only from the verified claim (`services/agents/toolEndpoint.ts`; cross-tenant test suite in `toolEndpoint.test.ts`). Single tool registry: `services/agents/tools/registry.ts`.
