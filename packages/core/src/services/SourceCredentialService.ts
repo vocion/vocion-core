@@ -260,20 +260,28 @@ export async function linkSourceToStoredCredential(input: {
     );
   }
 
-  // Checked before writing so the refusal can name the connector holding it.
-  // The unique index is still the rule — two people picking the same
-  // credential at once get past this check, and one of the two writes then
-  // fails, which the catch below turns into the same message.
-  const heldBy = await connectorHoldingCredential(input.orgId, input.apiTokenId, input.sourceId);
-  if (heldBy !== null) {
-    throw new CredentialInUseError(credentialInUseMessage(heldBy));
+  // A credential issued for one place may only be held by one source; a
+  // shareable one — a Slack bot token, a Google refresh token — is meant to be
+  // held by several. The answer is written onto the row as well as checked
+  // here, because `knowledge_source_api_token_exclusive_idx` is what actually
+  // enforces it and a partial index cannot read a platform descriptor.
+  const exclusive = !platform.credentialsShareable;
+  if (exclusive) {
+    // Checked before writing so the refusal can name the source holding it.
+    // The index is still the rule: two people picking the same credential at
+    // once both pass this check, and one of the two writes then fails, which
+    // the catch below turns into the same message.
+    const heldBy = await connectorHoldingCredential(input.orgId, input.apiTokenId, input.sourceId);
+    if (heldBy !== null) {
+      throw new CredentialInUseError(credentialInUseMessage(heldBy));
+    }
   }
 
   let linked: { id: number }[];
   try {
     linked = await db
       .update(knowledgeSourceSchema)
-      .set({ apiTokenId: input.apiTokenId })
+      .set({ apiTokenId: input.apiTokenId, apiTokenExclusive: exclusive })
       .where(and(
         eq(knowledgeSourceSchema.orgId, input.orgId),
         eq(knowledgeSourceSchema.id, input.sourceId),
@@ -283,8 +291,8 @@ export async function linkSourceToStoredCredential(input: {
     if (!isUniqueViolation(error)) {
       throw error;
     }
-    // Two people picked the same credential at the same time. The index
-    // refused the second write, which is the rule doing its job.
+    // Two people picked the same exclusive credential at the same time. The
+    // index refused the second write, which is the rule doing its job.
     console.error('[linkSourceToStoredCredential] a concurrent link claimed the credential first', {
       sourceId: input.sourceId,
       connectorSlug: input.connectorSlug,
