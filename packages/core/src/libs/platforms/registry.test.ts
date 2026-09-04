@@ -8,11 +8,13 @@
  * ones that refuse.
  */
 
+import type { CredentialPlatformId } from './registry';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { describe, expect, it } from 'vitest';
 import {
+  credentialsAreShareable,
   DEFAULT_PLATFORM_ID,
   getPlatform,
   holdsManyCredentials,
@@ -227,8 +229,11 @@ describe('keyHint', () => {
 });
 
 describe('connector platforms', () => {
-  /** The four connectors that authenticate with a key a person pastes. */
-  const CONNECTOR_SLUGS = ['granola', 'hubspot', 'jira', 'strapi'] as const;
+  /** Connectors whose platform is named after the connector itself. */
+  const CONNECTOR_SLUGS = ['granola', 'hubspot', 'jira', 'strapi', 'slack', 'zoom'] as const;
+
+  /** Connectors that share one Google credential, whose platform is `google`. */
+  const GOOGLE_SLUGS = ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'] as const;
 
   it('gives every API-key connector a platform of its own', () => {
     for (const slug of CONNECTOR_SLUGS) {
@@ -236,11 +241,66 @@ describe('connector platforms', () => {
     }
   });
 
-  it('does not claim a connector that authenticates some other way', () => {
-    // OAuth grants stay in `source_credential`, and these need no auth at all.
-    for (const slug of ['drive', 'slack', 'zoom', 'web', 's3', 'localFiles']) {
+  it('points every Google connector at the one Google credential', () => {
+    // One OAuth consent covers all five, so five separate platforms would only
+    // make a workspace paste the same refresh token five times.
+    for (const slug of GOOGLE_SLUGS) {
+      expect(platformForConnectorSlug(slug)?.id).toBe('google');
+    }
+  });
+
+  it('does not claim a connector that needs no stored credential', () => {
+    for (const slug of ['web', 's3', 'local-files', 'file-import']) {
       expect(platformForConnectorSlug(slug)).toBeNull();
     }
+  });
+
+  it('shares an account-wide credential and keeps a per-instance one exclusive', () => {
+    // A Slack bot token reads every channel and a Google consent covers every
+    // Google connector, so several sources may hold one. A Strapi token is
+    // worthless against any instance but its own, so offering it to a second
+    // source could only produce a failing sync.
+    for (const id of ['google', 'slack', 'zoom'] as const) {
+      expect(credentialsAreShareable(id)).toBe(true);
+    }
+    for (const id of ['granola', 'hubspot', 'jira', 'strapi'] as const) {
+      expect(credentialsAreShareable(id)).toBe(false);
+    }
+  });
+
+  it('treats an unknown platform id as a bug rather than answering for it', () => {
+    // Silently returning false would let a typo turn an exclusive credential
+    // shareable, which no test downstream would notice.
+    expect(() => credentialsAreShareable('not-a-platform' as CredentialPlatformId)).toThrow(/unknown credential platform/);
+  });
+
+  it('accepts a Google credential without the Ads-only developer token', () => {
+    const values = validatePlatformCredential('google', {
+      clientId: 'client-1.apps.googleusercontent.com',
+      clientSecret: 'secret-1',
+      refreshToken: 'refresh-1',
+    });
+
+    expect(values.developerToken).toBeUndefined();
+    expect(values.refreshToken).toBe('refresh-1');
+  });
+
+  it('keeps the Ads developer token when it is supplied', () => {
+    const values = validatePlatformCredential('google', {
+      clientId: 'client-1.apps.googleusercontent.com',
+      clientSecret: 'secret-1',
+      refreshToken: 'refresh-1',
+      developerToken: 'dev-1',
+    });
+
+    expect(values.developerToken).toBe('dev-1');
+  });
+
+  it('still refuses a Google credential missing a required value', () => {
+    expect(() => validatePlatformCredential('google', {
+      clientId: 'client-1.apps.googleusercontent.com',
+      clientSecret: 'secret-1',
+    })).toThrow(/Refresh token/i);
   });
 
   it('lets a workspace hold as many connector credentials as it wants', () => {
@@ -320,17 +380,18 @@ describe('connector platforms', () => {
 describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
   it('names every platform an org may hold several live credentials for', () => {
     expect([...MANY_CREDENTIAL_PLATFORM_IDS].sort()).toEqual(
-      ['granola', 'hubspot', 'jira', 'strapi', 'vocion'],
+      ['google', 'granola', 'hubspot', 'jira', 'slack', 'strapi', 'vocion', 'zoom'],
     );
   });
 
   it('matches the list the partial unique index carves out', () => {
-    // A partial index cannot call into TypeScript, so migration 0070 spells the
-    // same platform ids out in SQL. If the two ever drift, an org either loses
-    // the one-live cap on an LLM key or cannot hold a second connector
-    // credential — and neither shows up until someone tries it.
+    // A partial index cannot call into TypeScript, so the migration that last
+    // rebuilt the index spells the same platform ids out in SQL. If the two
+    // ever drift, an org either loses the one-live cap on an LLM key or cannot
+    // hold a second connector credential — and neither shows up until someone
+    // tries it.
     const migration = readFileSync(
-      path.join(process.cwd(), 'migrations', '0076_connector_credentials.sql'),
+      path.join(process.cwd(), 'migrations', '0077_shared_connector_credentials.sql'),
       'utf8',
     );
     const carveOut = /platform"?\s+NOT IN \(([^)]*)\)/i.exec(migration);
