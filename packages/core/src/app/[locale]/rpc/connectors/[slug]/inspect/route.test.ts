@@ -15,16 +15,21 @@ import { InspectInputError } from '@/libs/sources/inspect';
 
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/libs/sources/registry', () => ({ getConnector: vi.fn() }));
+// The write functions are mocked alongside the reads so a test can assert
+// they are never reached: "persists nothing" is the promise the dialog makes
+// before someone pastes a live key into it.
 vi.mock('@/services/SourceCredentialService', () => ({
   getCredentialsForConnector: vi.fn(),
   storedCredentialIdForSource: vi.fn(),
+  storeCredentialForSource: vi.fn(),
+  linkSourceToStoredCredential: vi.fn(),
 }));
-vi.mock('@/services/SourceSyncService', () => ({ getSourceById: vi.fn() }));
+vi.mock('@/services/SourceSyncService', () => ({ getSourceById: vi.fn(), addSource: vi.fn() }));
 
 const { clerkAuth } = await import('@/libs/Auth');
 const { getConnector } = await import('@/libs/sources/registry');
-const { getCredentialsForConnector, storedCredentialIdForSource } = await import('@/services/SourceCredentialService');
-const { getSourceById } = await import('@/services/SourceSyncService');
+const { getCredentialsForConnector, linkSourceToStoredCredential, storeCredentialForSource, storedCredentialIdForSource } = await import('@/services/SourceCredentialService');
+const { addSource, getSourceById } = await import('@/services/SourceSyncService');
 const { POST } = await import('./route');
 
 const admin = {
@@ -91,6 +96,17 @@ describe('POST /rpc/connectors/[slug]/inspect', () => {
       credentials: { token: 'tok-123' },
       options: { collections: ['events', 'venues'] },
     });
+  });
+
+  it('persists nothing: no source row, no credential, no vault write', async () => {
+    const res = await POST(inspectRequest(goodBody), context('apollo'));
+
+    expect(res.status).toBe(200);
+    // The credential was used for the outbound call and dropped. This is what
+    // makes it safe to test a key before deciding to store it.
+    expect(storeCredentialForSource).not.toHaveBeenCalled();
+    expect(linkSourceToStoredCredential).not.toHaveBeenCalled();
+    expect(addSource).not.toHaveBeenCalled();
   });
 
   it('hands a connector-shaped payload straight through, whatever its shape', async () => {
