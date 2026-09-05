@@ -19,10 +19,12 @@ type ConnectorFixture = {
   icon: string;
   authKind: 'none' | 'apikey' | 'oauth';
   credentialPlatform: string | null;
+  syncless: boolean;
+  inspectable: boolean;
 };
 
 function connector(slug: string, name: string, description: string): ConnectorFixture {
-  return { slug, name, description, icon: name, authKind: 'apikey', credentialPlatform: null };
+  return { slug, name, description, icon: name, authKind: 'apikey', credentialPlatform: null, syncless: false, inspectable: false };
 }
 
 /**
@@ -42,7 +44,7 @@ const CONNECTORS: ConnectorFixture[] = [
   connector('hubspot', 'HubSpot', 'Ingest HubSpot CRM records (contacts, deals, companies).'),
 ];
 
-type Inspection = {
+type StrapiInspectionFixture = {
   reachable: boolean;
   authorized: boolean;
   detectedVersion: 4 | 5 | null;
@@ -51,6 +53,18 @@ type Inspection = {
   checks: { collection: string; status: string; entryCount: number | null; message: string | null }[];
   error: string | null;
 };
+
+/** The generic checklist every other inspectable connector returns. */
+type ChecklistInspectionFixture = {
+  reachable: boolean;
+  authorized: boolean;
+  checks: { key: string; label: string; ok: boolean; detail: string | null }[];
+  note: string | null;
+  error: string | null;
+};
+
+/** Strapi's bespoke payload is one of the two shapes the one route replies with. */
+type Inspection = StrapiInspectionFixture;
 
 /**
  * An inspect reply where the instance let us enumerate its collections.
@@ -105,6 +119,9 @@ type SourceFixture = {
   credentialConnected: boolean;
   credentialUpdatedAt: string | null;
   credentialBroken: 'revoked' | 'expired' | 'missing' | null;
+  syncless: boolean;
+  inspectable: boolean;
+  inspectNote: string | null;
   sync: {
     status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
     startedAt: string;
@@ -133,13 +150,16 @@ function sourceRow(sync: SourceFixture['sync']): SourceFixture {
     credentialConnected: true,
     credentialUpdatedAt: '2026-08-01T00:00:00.000Z',
     credentialBroken: null,
+    syncless: false,
+    inspectable: false,
+    inspectNote: null,
     sync,
   };
 }
 
 function stubSourcesApi(
   connectors: ConnectorFixture[],
-  inspections: Inspection[] = [],
+  inspections: (Inspection | ChecklistInspectionFixture)[] = [],
   options: {
     inspectRejection?: string;
     sources?: SourceFixture[];
@@ -163,7 +183,7 @@ function stubSourcesApi(
       posts.push({ url, body: JSON.parse(String(init.body)) });
       return new Response(JSON.stringify({ source: { id: 7 } }), { status: 200 });
     }
-    if (url === '/rpc/connectors/strapi/inspect' && init?.method === 'POST') {
+    if (/^\/rpc\/connectors\/[\w-]+\/inspect$/.test(url) && init?.method === 'POST') {
       posts.push({ url, body: JSON.parse(String(init.body)) });
       if (options.inspectRejection) {
         return new Response(JSON.stringify({ error: options.inspectRejection }), { status: 400 });
@@ -1639,5 +1659,126 @@ describe('a form built from the connector\'s own fields', () => {
     await expect.element(page.getByLabelText(/Site URL/)).toHaveValue('https://acme.atlassian.net');
     await expect.element(page.getByLabelText(/Project keys/)).toHaveValue('ENG');
     await expect.element(page.getByLabelText(/Keep finished issues for/)).toHaveValue(14);
+  });
+});
+
+/**
+ * Test connection: the affordance every inspectable connector gets, and the
+ * one Apollo uses first. The point of each test below is a rule the flow only
+ * has if the UI holds it — the key is checked BEFORE anything is saved, the
+ * cost is stated BEFORE the button is pressed, and a re-test needs no re-paste.
+ */
+const APOLLO_CONNECTORS: ConnectorFixture[] = [
+  { ...connector('apollo', 'Apollo', 'Prospecting and contact enrichment, queried live.'), syncless: true, inspectable: true },
+];
+
+const APOLLO_PROBE = {
+  reachable: true,
+  authorized: true,
+  checks: [
+    { key: 'auth', label: 'API key accepted', ok: true, detail: 'Apollo accepted the key.' },
+    { key: 'people_search', label: 'People search (0 credits)', ok: true, detail: 'The api_search path is open on this plan.' },
+    { key: 'company_search', label: 'Company search (spends 1 credit)', ok: false, detail: 'Apollo refused company search (403). That endpoint is paid-tier only.' },
+    { key: 'usage_stats', label: 'Usage stats (master key only)', ok: false, detail: 'Apollo refused the usage-stats endpoint (403).' },
+    { key: 'rate_limit_headers', label: 'Rate-limit headers observed', ok: true, detail: 'Apollo returned: x-rate-limit-minute.' },
+  ],
+  note: 'Nothing was saved by this test: no source row, no credential, no vault write.',
+  error: null,
+};
+
+/**
+ * A connected Apollo row, as /rpc/sources returns one.
+ * @param over - Fields to override.
+ */
+function apolloRow(over: Partial<SourceFixture> = {}): SourceFixture {
+  return {
+    ...sourceRow(null),
+    slug: 'apollo',
+    kind: 'apollo',
+    config: { _connector: 'apollo' },
+    syncless: true,
+    inspectable: true,
+    inspectNote: 'Runs five checks against Apollo and reports what this key opens. It spends 1 Apollo credit, on the company-search check; the other four are free. Nothing is saved.',
+    ...over,
+  };
+}
+
+describe('testing a connection', () => {
+  it('offers Test connection where a syncing source offers Sync now', async () => {
+    stubSourcesApi(APOLLO_CONNECTORS, [], { sources: [apolloRow()] });
+    renderPanel();
+
+    await expect.element(page.getByRole('button', { name: /Test connection/ })).toBeVisible();
+    expect(page.getByRole('button', { name: /Sync now/ }).elements()).toHaveLength(0);
+  });
+
+  it('re-tests a connected source on the vaulted credential, with nothing re-pasted', async () => {
+    const posts = stubSourcesApi(APOLLO_CONNECTORS, [APOLLO_PROBE], { sources: [apolloRow()] });
+    renderPanel();
+
+    await page.getByRole('button', { name: /Test connection/ }).click();
+    await page.getByRole('button', { name: /^Test connection$/ }).last().click();
+
+    await expect.element(page.getByText(/API key accepted/)).toBeVisible();
+
+    const inspect = posts.find(post => post.url === '/rpc/connectors/apollo/inspect');
+
+    expect(inspect?.body).toEqual({ sourceId: 1 });
+  });
+
+  it('reports each check separately, so a closed plan tier reads as a plan tier', async () => {
+    stubSourcesApi(APOLLO_CONNECTORS, [APOLLO_PROBE], { sources: [apolloRow()] });
+    renderPanel();
+
+    await page.getByRole('button', { name: /Test connection/ }).click();
+    await page.getByRole('button', { name: /^Test connection$/ }).last().click();
+
+    await expect.element(page.getByText(/paid-tier only/)).toBeVisible();
+    await expect.element(page.getByText(/The api_search path is open/)).toBeVisible();
+    await expect.element(page.getByText(/no source row, no credential, no vault write/)).toBeVisible();
+  });
+
+  it('states the credit the test spends before the button is pressed', async () => {
+    stubSourcesApi(APOLLO_CONNECTORS, [APOLLO_PROBE], { sources: [apolloRow()] });
+    renderPanel();
+
+    await page.getByRole('button', { name: /Test connection/ }).click();
+
+    await expect.element(page.getByText(/spends 1 Apollo credit/)).toBeVisible();
+  });
+
+  it('tests the key as typed, before anything is saved', async () => {
+    const posts = stubSourcesApi(
+      APOLLO_CONNECTORS,
+      [APOLLO_PROBE],
+      { sources: [apolloRow({ credentialConnected: false })] },
+    );
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await userEvent.fill(page.getByLabelText(/Instance URL/), 'https://api.apollo.io');
+    await userEvent.fill(page.getByLabelText(/API token/), 'apollo-key-1');
+    await page.getByRole('button', { name: /Test connection/ }).last().click();
+
+    await expect.element(page.getByText(/API key accepted/)).toBeVisible();
+
+    const inspect = posts.find(post => post.url === '/rpc/connectors/apollo/inspect');
+
+    expect(inspect?.body).toMatchObject({ credentials: { token: 'apollo-key-1' } });
+    // The whole point of testing first: nothing was stored to find this out.
+    expect(posts.some(post => post.url.endsWith('/credentials') && post.url !== 'GET /rpc/sources/1/credentials')).toBe(false);
+  });
+
+  it('shows the server\'s own refusal rather than a generic failure', async () => {
+    stubSourcesApi(APOLLO_CONNECTORS, [], {
+      sources: [apolloRow()],
+      inspectRejection: 'An Apollo API key is required.',
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: /Test connection/ }).click();
+    await page.getByRole('button', { name: /^Test connection$/ }).last().click();
+
+    await expect.element(page.getByText('An Apollo API key is required.')).toBeVisible();
   });
 });

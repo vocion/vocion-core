@@ -45,6 +45,7 @@ export type CredentialPlatformId
     | 'custom'
   // Connector platforms. One per API-key connector, so a workspace types its
   // Jira or Strapi key once and every connector install can point at it.
+    | 'apollo'
     | 'granola'
     | 'hubspot'
     | 'jira'
@@ -306,6 +307,23 @@ const PLATFORMS: readonly CredentialPlatform[] = [
   /* ---------------------------------------------------------------- */
   /* Connector platforms — a workspace may hold several of each.        */
   /* ---------------------------------------------------------------- */
+  {
+    id: 'apollo',
+    label: 'Apollo',
+    keySource: 'supplied',
+    credentialsPerOrg: 'many',
+    connectorSlugs: ['apollo'],
+    credentialsShareable: false,
+    llmProvider: null,
+    // Apollo keys are opaque and their shape has changed over the years, so
+    // nothing is enforced beyond non-empty. Test connection is what tells an
+    // operator whether the key works, and what it opens.
+    keyPattern: null,
+    keyShapeHint: 'any non-empty API key',
+    helpText: 'An Apollo API key, from Settings → Integrations → API. A master key additionally opens per-endpoint usage stats; Test connection reports which you pasted.',
+    // Named `token` to match what the client reads out of the credential bag.
+    fields: [{ name: 'token', label: 'API key', pattern: null, shapeHint: 'is any non-empty API key', secret: true }],
+  },
   {
     id: 'granola',
     label: 'Granola',

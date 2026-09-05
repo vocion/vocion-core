@@ -5,6 +5,7 @@
  * fails loudly on a missing token or an upstream error.
  */
 
+import type { StrapiInspection } from '@/libs/sources/strapi';
 import type { SourceContext } from '@/libs/sources/types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -714,5 +715,117 @@ describe('inspectStrapiInstance', () => {
     expect(inspection.checks[0]!.publiclyReadable).toBe(true);
     expect(inspection.authorized).toBe(false);
     expect(inspection.error).toContain('could not be confirmed');
+  });
+});
+
+/**
+ * `strapiConnector.inspect` is what the inspect route dispatches to. The input
+ * checks moved here with it: they are Strapi's own rules (a token is worthless
+ * without the instance it was issued for), and their messages are written for
+ * whoever is typing into the dialog.
+ */
+describe('strapiConnector.inspect', () => {
+  /**
+   * Inspect input, defaulted to a usable instance and token.
+   * @param over - Fields to override.
+   */
+  function input(over: Partial<{ config: Record<string, unknown>; credentials: Record<string, unknown>; options: Record<string, unknown> }> = {}) {
+    return {
+      config: { baseUrl: 'https://cms.example/' },
+      credentials: { token: '  tok-123  ' },
+      options: {},
+      ...over,
+    };
+  }
+
+  it('inspects the instance, trimming the inputs and dropping junk collections', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(String(url));
+      // Catalogue closed, so the names the caller asked about are what gets checked.
+      return String(url).includes('content-type-builder')
+        ? res({ error: 'Forbidden' }, false, 403)
+        : res(page([{ id: 1, documentId: 'doc-1' }]));
+    }));
+
+    const inspection = await strapiConnector.inspect!(input({
+      options: { collections: ['events', '  venues  ', '', 42] },
+    })) as StrapiInspection;
+
+    expect(inspection.reachable).toBe(true);
+    // Trimmed instance URL, trimmed collection names, junk entries dropped.
+    expect(urls.some(url => url.includes('https://cms.example/api/events'))).toBe(true);
+    expect(urls.some(url => url.includes('https://cms.example/api/venues'))).toBe(true);
+    expect(urls.some(url => url.includes('/api/42'))).toBe(false);
+  });
+
+  it('takes the instance URL off the credential, where it belongs', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(String(url));
+      return String(url).includes('content-type-builder')
+        ? res({ error: 'Forbidden' }, false, 403)
+        : res(page([]));
+    }));
+
+    await strapiConnector.inspect!(input({
+      config: {},
+      credentials: { token: 'tok', baseUrl: 'https://from-credential.example' },
+      options: { collections: ['events'] },
+    }));
+
+    expect(urls.every(url => url.startsWith('https://from-credential.example'))).toBe(true);
+  });
+
+  it('treats a missing collections list as none, not as an error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (
+      String(url).includes('content-type-builder')
+        ? res({ data: [{ uid: 'api::event.event', schema: { kind: 'collectionType', pluralName: 'events' } }] })
+        : res(page([{ id: 1, documentId: 'doc-1' }]))
+    )));
+
+    const inspection = await strapiConnector.inspect!(input()) as StrapiInspection;
+
+    expect(inspection.collections).toEqual(['events']);
+  });
+
+  it('asks for both halves when the token is missing', async () => {
+    await expect(strapiConnector.inspect!(input({ credentials: {} })))
+      .rejects
+      .toThrow('A base URL and an API token are both required');
+  });
+
+  it('asks for both halves when the URL is blank', async () => {
+    await expect(strapiConnector.inspect!(input({ config: { baseUrl: '   ' } })))
+      .rejects
+      .toThrow('A base URL and an API token are both required');
+  });
+
+  it('names the scheme when the URL has none — the message the operator sees', async () => {
+    await expect(strapiConnector.inspect!(input({ config: { baseUrl: 'cms.example' } })))
+      .rejects
+      .toThrow('The base URL must start with http:// or https://');
+  });
+
+  it('accepts http as well as https', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (
+      String(url).includes('content-type-builder')
+        ? res({ error: 'Forbidden' }, false, 403)
+        : res(page([]))
+    )));
+
+    await expect(strapiConnector.inspect!(input({ config: { baseUrl: 'http://cms.internal' } }))).resolves.toBeDefined();
+  });
+
+  it('rejects a URL whose scheme is neither', async () => {
+    await expect(strapiConnector.inspect!(input({ config: { baseUrl: 'file:///etc/passwd' } })))
+      .rejects
+      .toThrow('The base URL must start with http:// or https://');
+  });
+
+  it('ignores a non-string URL or token rather than passing it through', async () => {
+    await expect(strapiConnector.inspect!(input({ config: { baseUrl: 12345 }, credentials: { token: { nested: true } } })))
+      .rejects
+      .toThrow('A base URL and an API token are both required');
   });
 });
