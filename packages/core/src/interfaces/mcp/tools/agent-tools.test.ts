@@ -80,6 +80,17 @@ beforeEach(async () => {
       objectTypeSlugs: [],
       harnessConfig: {},
     },
+    {
+      orgId: ORG,
+      slug: 'prospecting-agent',
+      name: 'Prospecting',
+      systemPrompt: 'You prospect.',
+      skillSlugs: [],
+      connectorSources: ['apollo'],
+      objectTypeSlugs: [],
+      // One list write granted, one not: the second gate is per tool.
+      harnessConfig: { grantTools: ['apollo_add_to_list'] },
+    },
   ]);
 });
 
@@ -102,10 +113,12 @@ describe('agent-tools bridge — tool surface', () => {
       expect(names).toContain('lookup_objects');
       expect(names).toContain('freshen_source');
       expect(names).toContain('propose_action');
-      // Source-gated: lead-agent has gmail, not hubspot/zoom.
+      // Source-gated: lead-agent has gmail, not hubspot/zoom/apollo.
       expect(names).toContain('get_gmail_thread');
       expect(names).not.toContain('hubspot_count_deals');
       expect(names).not.toContain('get_zoom_transcript');
+      expect(names).not.toContain('apollo_search_people');
+      expect(names).not.toContain('apollo_enrich');
       // Emit-only / mission-bound tools stay off the MCP surface.
       expect(names).not.toContain('request_human_review');
       expect(names).not.toContain('recommend_action');
@@ -148,6 +161,44 @@ describe('agent-tools bridge — tool surface', () => {
       // crm-agent's sources gate the surface: hubspot in, gmail out.
       expect(names).toContain('hubspot_count_deals');
       expect(names).not.toContain('get_gmail_thread');
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('agent-tools bridge — the Apollo surface', () => {
+  it('serves every Apollo read to an agent with the source, and only the granted write', async () => {
+    const { client, server } = await setupClientServer(configFor('prospecting-agent'));
+    try {
+      const names = await listToolNames(client);
+
+      // The twelve-tool surface, minus the write this agent was not granted.
+      expect(names).toContain('apollo_search_people');
+      expect(names).toContain('apollo_enrich');
+      expect(names).toContain('apollo_bulk_enrich');
+      expect(names).toContain('apollo_search_companies');
+      expect(names).toContain('apollo_enrich_company');
+      expect(names).toContain('apollo_list_labels');
+      expect(names).toContain('apollo_list_contacts');
+      expect(names).toContain('apollo_usage');
+      // Granted.
+      expect(names).toContain('apollo_add_to_list');
+      // Not granted: a list write can indirectly start outreach.
+      expect(names).not.toContain('apollo_remove_from_list');
+      // This agent has no hubspot source, so routing never has to guess.
+      expect(names).not.toContain('hubspot_count_deals');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('keeps Apollo away from an agent whose sources do not include it', async () => {
+    const { client, server } = await setupClientServer(configFor('crm-agent'));
+    try {
+      const names = await listToolNames(client);
+
+      expect(names.filter(name => name.startsWith('apollo_'))).toEqual([]);
     } finally {
       await server.close();
     }
