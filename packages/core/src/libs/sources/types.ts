@@ -14,6 +14,7 @@
  */
 
 import type { z } from 'zod';
+import type { InspectInput } from './inspect';
 import type { IngestDoc } from '@/services/IngestionService';
 
 export type SourceAuthKind = 'none' | 'apikey' | 'oauth';
@@ -87,4 +88,33 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
    * safely call deleted.
    */
   sync: (ctx: SourceContext) => AsyncIterable<IngestDoc>;
+  /**
+   * True for a connector that ingests nothing — Apollo is queried live at chat
+   * time and mirrors nothing locally. Its `sync` still exists and yields no
+   * documents, but the Sources page offers Test connection where a syncing
+   * source offers Sync now: a Sync button that does nothing reads as a broken
+   * source. Sync-less rows also take their connector slug verbatim, so the row
+   * added by hand is the row a workspace manifest later adopts.
+   */
+  syncless?: boolean;
+  /**
+   * Look at the third party with candidate connection details, before any
+   * source row or credential exists — what `POST /rpc/connectors/[slug]/inspect`
+   * dispatches to. Persists nothing.
+   *
+   * Optional: a connector declaring none answers 501, and its Add-source dialog
+   * falls back to its plain form. Throw `InspectInputError` for input the
+   * connector cannot work with; the route answers 400 with the message.
+   *
+   * The return value is passed through verbatim, so a connector with a bespoke
+   * renderer (Strapi's collection pick-list) keeps its own richer shape. Return
+   * `ConnectorInspection` to get the generic checklist renderer.
+   */
+  inspect?: (input: InspectInput) => Promise<unknown>;
+  /**
+   * One line shown beside the Test connection button, BEFORE it is pressed.
+   * For anything the test costs — Apollo's probe spends one credit on the
+   * company-search check — so nobody spends it without being told.
+   */
+  inspectNote?: string;
 };

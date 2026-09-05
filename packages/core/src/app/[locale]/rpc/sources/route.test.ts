@@ -134,8 +134,10 @@ describe('GET /rpc/sources', () => {
     expect(body.connectors).toEqual([
       // `credentialPlatform` is how the picker knows to offer the credentials
       // the workspace already holds instead of asking for the key again.
-      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey', credentialPlatform: 'strapi' },
-      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none', credentialPlatform: null },
+      // `syncless` + `inspectable` are what put Test connection on a row
+      // where a syncing source shows Sync now.
+      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey', credentialPlatform: 'strapi', syncless: false, inspectable: false },
+      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none', credentialPlatform: null, syncless: false, inspectable: false },
     ]);
   });
 

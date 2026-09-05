@@ -8,6 +8,7 @@
  */
 
 import type { SourceConnector } from './types';
+import { apolloConnector } from './apollo';
 import { driveConnector } from './drive';
 import { fileImportConnector } from './fileImport';
 import { ga4Connector } from './ga4';
@@ -55,3 +56,4 @@ registerConnector(slackConnector);
 registerConnector(driveConnector);
 registerConnector(zoomConnector);
 registerConnector(s3Connector);
+registerConnector(apolloConnector);
