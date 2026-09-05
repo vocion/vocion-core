@@ -1,0 +1,33 @@
+packages/core/src/libs/apollo/client.test.ts
+  s_0e9c504de02655::t_f88a00cad5f98a 1-171
+packages/core/src/libs/http/retryAfter.ts
+  s_0e9c504de02655::t_f67172588a3639 1-14,16-41,43-45,47-56,62-78
+  s_0e9c504de02655::t_cd37e573fa4fe5 57-59
+  s_0e9c504de02655::t_036ee4c8d6066d 15,42,46
+  s_0e9c504de02655::t_a87afca042337e 60-61
+packages/core/src/libs/apollo/client.ts
+  s_0e9c504de02655::t_cd37e573fa4fe5 237-240
+  s_0e9c504de02655::t_957a41ee3751c2 1-236,244-291
+  s_0e9c504de02655::t_5db7403fd3baf8 241-243
+packages/core/src/libs/sources/jira.ts
+  s_0e9c504de02655::t_4cd076f756583f 34
+  s_0e9c504de02655::t_ef179ce13a5422 138-140,145-152,154
+  s_0e9c504de02655::t_cd37e573fa4fe5 32
+  s_0e9c504de02655::t_4cb36962786f2e 74-77,111-115,141-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f660540fa34abba7acd6f552bd495483f88ce21c",
+  "prompts": {},
+  "sessions": {
+    "s_0e9c504de02655": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3577d551-dcb4-44a6-a1fb-fe1799bda7a2",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
