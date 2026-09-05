@@ -1,0 +1,80 @@
+packages/core/src/libs/sources/jira.test.ts
+  s_0e9c504de02655::t_8af9fce13ce107 119,121,135,137
+packages/core/src/libs/sources/strapi.ts
+  s_0e9c504de02655::t_8af9fce13ce107 328-331
+  s_0e9c504de02655::t_e8fe0e3559cdf0 49,322-327,332-351
+packages/core/src/features/dashboard/SourcesPanel.test.tsx
+  s_0e9c504de02655::t_86c0b29174f5d1 66-67,162
+  s_0e9c504de02655::t_4d767bd5feae31 1664-1722,1724-1757,1762-1763,1765-1784
+  s_0e9c504de02655::t_8af9fce13ce107 1723,1764
+  s_0e9c504de02655::t_f57f33bc91da21 1759-1760
+  s_0e9c504de02655::t_9b2f8122d89282 47,57-65
+  s_0e9c504de02655::t_7a4728c4e63c8e 1758
+  s_0e9c504de02655::t_594701b6137eae 122-124,153-155,186
+  s_0e9c504de02655::t_20606653e3b5d8 22-23,27
+  s_0e9c504de02655::t_bc7492c7e221b0 1761
+  s_0e9c504de02655::t_2df5368b1c6496 68
+packages/core/src/libs/sources/registry.ts
+  s_0e9c504de02655::t_596ac71aa9a068 11,59
+packages/core/src/libs/sources/inspect.ts
+  s_0e9c504de02655::t_a895fd8d9ad95c 1-82
+packages/core/src/libs/sources/apollo.test.ts
+  s_0e9c504de02655::t_7104ae4fb61d3d 1-212
+packages/core/src/services/SourceSyncService.crud.test.ts
+  s_0e9c504de02655::t_aa8b4778aad7c4 19,41-52,270-292
+packages/core/migrations/meta/_journal.json
+  s_0e9c504de02655::t_585cf2ef485eb9 571-577,580
+packages/core/src/services/SourceSyncService.ts
+  s_0e9c504de02655::t_a2e6d4ec787569 82-87
+packages/core/src/libs/sources/strapi.test.ts
+  s_0e9c504de02655::t_290cec86ea0ee6 720-744,749-765,769-780,786-810,816-830
+  s_0e9c504de02655::t_43e61288df3c2e 745-748,766-768,781-785,811-815
+  s_0e9c504de02655::t_8af9fce13ce107 8
+  s_0e9c504de02655::t_4c35dfded14d42 831
+packages/core/src/features/dashboard/SourcesPanel.tsx
+  s_0e9c504de02655::t_65f84b7f9907b6 158,287,352-354,834-849,927,931,1013-1093
+  s_0e9c504de02655::t_8e7ce8e2b7acfb 371-530
+  s_0e9c504de02655::t_9a4c23d54b4c6d 66-71,93-94
+packages/core/src/libs/platforms/registry.ts
+  s_0e9c504de02655::t_585cf2ef485eb9 48,310-326
+packages/core/src/app/[locale]/rpc/connectors/[slug]/inspect/route.ts
+  s_0e9c504de02655::t_803fb51caf1747 2-3,5-11,13-17,19-22,26,28-32,47-48,51,55,57,62-93,96-101,104,107-111,116-124
+  s_0e9c504de02655::t_bc6fa720e5df37 125
+packages/core/src/app/[locale]/rpc/connectors/[slug]/inspect/route.test.ts
+  s_0e9c504de02655::t_d888f2cf552105 2-4,7-11,14,18-22,26-27,42-43,47-48,62,70-71,77-78,82-83,87-92,96-111,113,119,122,128,131,143-145,150,154,160-163,166-168,171-172,174,176-179,181-187,189-190,193-194,197-211,214-217,220,223-226,229-230,233-234,236,238-246
+packages/core/src/app/[locale]/rpc/sources/route.ts
+  s_0e9c504de02655::t_4b36e6f167672a 55-60,73-74
+packages/core/migrations/0081_apollo_credential_platform.sql
+  s_0e9c504de02655::t_585cf2ef485eb9 1-16
+packages/core/src/libs/sources/apollo.ts
+  s_0e9c504de02655::t_4b36e6f167672a 152
+  s_0e9c504de02655::t_8af9fce13ce107 165
+  s_0e9c504de02655::t_f89f5f669d4bae 1-151,153-164,166-170
+packages/core/src/app/[locale]/rpc/sources/route.test.ts
+  s_0e9c504de02655::t_dcd0107cda4014 137-140
+packages/core/src/libs/sources/configFields.ts
+  s_0e9c504de02655::t_596ac71aa9a068 315-326
+packages/core/src/models/Schema.ts
+  s_0e9c504de02655::t_585cf2ef485eb9 2145
+packages/core/src/libs/platforms/registry.test.ts
+  s_0e9c504de02655::t_75350e69d74382 383,394
+packages/core/src/libs/sources/types.ts
+  s_0e9c504de02655::t_4b36e6f167672a 114-119
+  s_0e9c504de02655::t_a895fd8d9ad95c 17,91-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0d7f75db626b12cb5af88201e63f7ca16f3d6e6b",
+  "prompts": {},
+  "sessions": {
+    "s_0e9c504de02655": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3577d551-dcb4-44a6-a1fb-fe1799bda7a2",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
