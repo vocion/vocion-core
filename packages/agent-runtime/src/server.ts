@@ -11,14 +11,46 @@
  * the bundle, the fewer CodeZip surprises on the managed runtime.
  */
 
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { AgentEvent, InvocationRequest } from './contract.js';
 import { Buffer } from 'node:buffer';
-import { createServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
+import { createServer as createHttpServer } from 'node:http';
 import process from 'node:process';
 import { runInvocation } from './loop.js';
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
+
+/**
+ * AgentCore authenticates InvokeAgentRuntime with SigV4 before the request
+ * reaches this process. Local HTTP has no such boundary, so it must use a
+ * separately configured bearer secret and fail closed when it is missing.
+ * @param req - Incoming request whose bearer credentials should be checked.
+ */
+function isAuthorized(req: IncomingMessage): boolean {
+  const authMode = process.env.VOCION_AGENT_RUNTIME_AUTH_MODE ?? 'secret';
+  if (authMode === 'agentcore') {
+    return true;
+  }
+  if (authMode !== 'secret') {
+    console.error(`agent runtime rejected unsupported auth mode: ${authMode}`);
+    return false;
+  }
+
+  const expectedSecret = process.env.VOCION_AGENT_RUNTIME_SECRET;
+  const authorization = req.headers.authorization;
+  const prefix = 'Bearer ';
+  const providedSecret = authorization?.startsWith(prefix)
+    ? authorization.slice(prefix.length)
+    : undefined;
+  if (!expectedSecret || !providedSecret) {
+    return false;
+  }
+
+  const expected = Buffer.from(expectedSecret, 'utf8');
+  const provided = Buffer.from(providedSecret, 'utf8');
+  return expected.length === provided.length && timingSafeEqual(expected, provided);
+}
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -56,6 +88,16 @@ function validate(body: unknown): InvocationRequest {
 }
 
 async function handleInvocation(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!isAuthorized(req)) {
+    console.warn('agent runtime invocation rejected: invalid authentication');
+    res.writeHead(401, {
+      'content-type': 'application/json',
+      'www-authenticate': 'Bearer',
+    });
+    res.end(JSON.stringify({ error: 'unauthorized' }));
+    return;
+  }
+
   let invocation: InvocationRequest;
   try {
     invocation = validate(JSON.parse(await readBody(req)));
@@ -91,8 +133,8 @@ async function handleInvocation(req: IncomingMessage, res: ServerResponse): Prom
   }
 }
 
-export function startServer(port: number): void {
-  const server = createServer((req, res) => {
+export function createRuntimeServer(): Server {
+  return createHttpServer((req, res) => {
     if (req.method === 'GET' && req.url === '/ping') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ status: 'Healthy' }));
@@ -105,6 +147,10 @@ export function startServer(port: number): void {
     res.writeHead(404, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: 'not found' }));
   });
+}
+
+export function startServer(port: number): void {
+  const server = createRuntimeServer();
 
   server.listen(port, () => {
     console.warn(`vocion agent-runtime listening on :${port} (/invocations, /ping)`);

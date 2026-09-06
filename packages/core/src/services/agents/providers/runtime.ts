@@ -45,6 +45,7 @@ import { buildInitialFiles } from '../harness';
 import { buildToolCatalog } from '../tools/registry';
 
 const RUNTIME_URL = (): string => process.env.VOCION_AGENT_RUNTIME_URL ?? 'http://localhost:8080';
+const RUNTIME_SECRET = (): string | undefined => process.env.VOCION_AGENT_RUNTIME_SECRET;
 const TOOL_ENDPOINT = (): string =>
   process.env.VOCION_TOOL_ENDPOINT_URL
   ?? `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/api/internal/agent-tools`;
@@ -265,9 +266,16 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     }
   } else {
     // Local transport: plain HTTP to the artifact.
+    const runtimeSecret = RUNTIME_SECRET();
+    if (!runtimeSecret) {
+      throw new Error('VOCION_AGENT_RUNTIME_SECRET must be set when invoking the runtime over HTTP');
+    }
     const res = await fetch(`${RUNTIME_URL()}/invocations`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        'authorization': `Bearer ${runtimeSecret}`,
+      },
       body: JSON.stringify(payload),
     });
     if (!res.ok || !res.body) {
