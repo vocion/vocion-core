@@ -51,6 +51,10 @@ MIGRATIONS_DIR="${MIGRATIONS_DIR:-${REPO_DIR:-/opt/vocion}/packages/core/migrati
 # through cannot run CREATE INDEX CONCURRENTLY at all. See
 # packages/core/migrations/CONVENTIONS.md.
 CONCURRENT_DIR="${MIGRATIONS_DIR}/concurrent"
+# The three statements Postgres refuses to run inside a transaction block.
+# Matched against a comment-stripped, newline-flattened copy of the file to
+# decide whether to drop --single-transaction — see strip_sql_comments.
+CONCURRENTLY_STATEMENTS='(CREATE([[:space:]]+UNIQUE)?[[:space:]]+INDEX[[:space:]]+CONCURRENTLY|DROP[[:space:]]+INDEX[[:space:]]+CONCURRENTLY|REINDEX[[:space:]]+[A-Z]+[[:space:]]+CONCURRENTLY)'
 # bootstrap.sh calls this right after `docker compose up -d`, so the
 # Postgres container may still be initialising.
 READINESS_ATTEMPTS="${POSTGRES_READINESS_ATTEMPTS:-30}"
@@ -392,12 +396,15 @@ baseline_pre_existing_schema() {
 # single check is not worth the dependency. Comment-stripping gets detection
 # close enough for that one decision without pretending to understand SQL.
 #
-# What it still cannot see: the keyword written inside a string literal —
-# for example a migration that INSERTs the literal text
-# 'CREATE INDEX CONCURRENTLY' as data. That would still count as a match.
-# Getting this wrong only makes detection too eager (running a migration
-# unwrapped when it did not need to be), never too blind (missing a real
-# CONCURRENTLY statement) — the safer of the two possible mistakes.
+# What it still cannot see: a whole statement written inside a string
+# literal — a migration that INSERTs the literal text
+# 'CREATE INDEX CONCURRENTLY foo ON bar' as data would still count as a
+# match. The keyword is matched as part of the three statement forms that
+# actually refuse a transaction (CONCURRENTLY_STATEMENTS below) rather than
+# on its own, so the far likelier prose case — a COMMENT ON INDEX, or a
+# `RAISE NOTICE 'built CONCURRENTLY'` — no longer drops the transaction
+# from a migration that needed it. Losing --single-transaction is not free:
+# a mid-file failure then leaves half the DDL in place.
 #
 # Implemented as a small state machine in awk, tracking whether we are
 # currently inside a block comment, rather than a multi-line sed
@@ -473,7 +480,7 @@ apply_pending_migrations() {
     # statement failing leaves the earlier ones in place — the log says
     # so, because recovery then needs a human.
     local transaction_flag="--single-transaction"
-    if strip_sql_comments "${sql_file}" | grep -qiE '\bCONCURRENTLY\b'; then
+    if strip_sql_comments "${sql_file}" | tr '\n' ' ' | grep -qiE "${CONCURRENTLY_STATEMENTS}"; then
       transaction_flag=""
       log "  ${name} uses CONCURRENTLY — applying without a transaction;"
       log "  a partial failure in this file will not roll back"

@@ -19,6 +19,7 @@ import {
   blankSqlComments,
   CONCURRENT_SUBDIR,
   findCreatedTables,
+  findIndexBuildingConstraints,
   findIndexBuilds,
   findMigrationSafetyProblems,
   findStatements,
@@ -90,6 +91,30 @@ describe('blankSqlComments', () => {
     expect(blankSqlComments(sql)).toBe(sql);
   });
 
+  it('leaves a double dash inside a dollar-quoted body alone', () => {
+    const sql = 'DO $$ BEGIN RAISE NOTICE \'a -- b\'; END $$;';
+
+    expect(blankSqlComments(sql)).toBe(sql);
+  });
+
+  it('leaves a block comment marker inside a tagged dollar quote alone', () => {
+    const sql = 'DO $body$ BEGIN RAISE NOTICE \'/* not a comment\'; END $body$;';
+
+    expect(blankSqlComments(sql)).toBe(sql);
+  });
+
+  it('still blanks a comment after a dollar-quoted body closes', () => {
+    const blanked = blankSqlComments('DO $$ BEGIN END $$; -- done');
+
+    expect(blanked).toBe('DO $$ BEGIN END $$;        ');
+  });
+
+  it('treats a lone dollar sign as ordinary text', () => {
+    const blanked = blankSqlComments('SELECT col$x FROM t; -- note');
+
+    expect(blanked).toBe('SELECT col$x FROM t;        ');
+  });
+
   it('treats drizzle statement breakpoints as comments', () => {
     const blanked = blankSqlComments('SELECT 1;--> statement-breakpoint\nSELECT 2;');
 
@@ -131,6 +156,38 @@ describe('findIndexBuilds', () => {
 
     expect(builds.map(build => build.table)).toEqual(['thing', 'other', 'third', 'fourth']);
     expect(builds.map(build => build.isConcurrent)).toEqual([false, false, true, false]);
+    expect(builds.map(build => build.isUnique)).toEqual([false, true, false, false]);
+    expect(builds.map(build => build.isIfNotExists)).toEqual([true, false, false, false]);
+  });
+});
+
+describe('findIndexBuildingConstraints', () => {
+  it('finds UNIQUE and PRIMARY KEY additions, named or anonymous', () => {
+    const constraints = findIndexBuildingConstraints(`
+      ALTER TABLE "thing" ADD CONSTRAINT "thing_slug_key" UNIQUE ("slug");
+      ALTER TABLE ONLY public.other ADD PRIMARY KEY (id);
+    `);
+
+    expect(constraints.map(constraint => [constraint.table, constraint.keyword])).toEqual([
+      ['thing', 'UNIQUE'],
+      ['other', 'PRIMARY KEY'],
+    ]);
+  });
+
+  it('ignores a foreign key, which builds no index', () => {
+    const constraints = findIndexBuildingConstraints(
+      'ALTER TABLE "thing" ADD CONSTRAINT "thing_org_fk" FOREIGN KEY ("org_id") REFERENCES "organization"("id");',
+    );
+
+    expect(constraints).toEqual([]);
+  });
+
+  it('attributes the constraint to its own statement, not an earlier ALTER', () => {
+    const constraints = findIndexBuildingConstraints(
+      'ALTER TABLE "first" ADD COLUMN "x" text;\nALTER TABLE "second" ADD CONSTRAINT "s_key" UNIQUE ("x");',
+    );
+
+    expect(constraints.map(constraint => constraint.table)).toEqual(['second']);
   });
 });
 
@@ -220,6 +277,38 @@ describe('findMigrationSafetyProblems — numbered migrations', () => {
     expect(problems[0]!.message).toContain(`${CONCURRENT_SUBDIR}/NNNN_<name>.sql`);
   });
 
+  it('rejects a UNIQUE constraint added to a pre-existing table', () => {
+    const problems = findMigrationSafetyProblems([{
+      file: `${MIGRATIONS_RELATIVE_DIR}/${ENFORCED}_unique.sql`,
+      sql: 'ALTER TABLE "conversation" ADD CONSTRAINT "conversation_slug_key" UNIQUE ("slug");',
+      isConcurrentBuild: false,
+    }]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['blocking-constraint']);
+    expect(problems[0]!.message).toContain('ADD UNIQUE');
+    expect(problems[0]!.message).toContain('expand-and-contract');
+  });
+
+  it('accepts a PRIMARY KEY on a table the same migration creates', () => {
+    const problems = findMigrationSafetyProblems([{
+      file: `${MIGRATIONS_RELATIVE_DIR}/${ENFORCED}_new.sql`,
+      sql: 'CREATE TABLE "fresh" (id text);\nALTER TABLE "fresh" ADD PRIMARY KEY ("id");',
+      isConcurrentBuild: false,
+    }]);
+
+    expect(problems).toEqual([]);
+  });
+
+  it('exempts a constraint in a migration written before the rule landed', () => {
+    const problems = findMigrationSafetyProblems([{
+      file: `${MIGRATIONS_RELATIVE_DIR}/${GRANDFATHERED}_unique.sql`,
+      sql: 'ALTER TABLE "conversation" ADD CONSTRAINT "conversation_slug_key" UNIQUE ("slug");',
+      isConcurrentBuild: false,
+    }]);
+
+    expect(problems).toEqual([]);
+  });
+
   it('ignores an index build that only appears in a comment', () => {
     const problems = findMigrationSafetyProblems([{
       file: `${MIGRATIONS_RELATIVE_DIR}/${ENFORCED}_notes.sql`,
@@ -268,11 +357,44 @@ describe('findMigrationSafetyProblems — the concurrent directory', () => {
 
   it('rejects a statement that is not an index build or drop', () => {
     const problems = withNumberedSibling(
-      'ALTER TABLE "conversation" ADD COLUMN "x" text;\nCREATE INDEX CONCURRENTLY "c_idx" ON "conversation" ("x");',
+      'ALTER TABLE "conversation" ADD COLUMN "x" text;\nCREATE INDEX CONCURRENTLY IF NOT EXISTS "c_idx" ON "conversation" ("x");',
     );
 
     expect(problems.map(problem => problem.rule)).toEqual(['non-index-statement-in-concurrent-dir']);
     expect(problems[0]!.line).toBe(1);
+  });
+
+  it('rejects a concurrent build with no IF NOT EXISTS', () => {
+    const problems = withNumberedSibling('CREATE INDEX CONCURRENTLY "c_idx" ON "conversation" ("org_id");');
+
+    expect(problems.map(problem => problem.rule)).toEqual(['non-concurrent-index-in-concurrent-dir']);
+    expect(problems[0]!.message).toContain('relation already exists');
+  });
+
+  it('rejects a UNIQUE concurrent build, which dev and test would not enforce', () => {
+    const problems = withNumberedSibling(
+      'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "c_idx" ON "conversation" ("org_id");',
+    );
+
+    expect(problems.map(problem => problem.rule)).toEqual(['unique-index-in-concurrent-dir']);
+  });
+
+  it('rejects a number that is not exactly four digits', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/081_scope.sql`,
+        sql: 'ALTER TABLE "conversation" ADD COLUMN "scope_ref" text;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/081_scope_index.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "c_idx" ON "conversation" ("org_id");',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['orphan-concurrent-build']);
+    expect(problems[0]!.message).toContain('exactly four digits');
   });
 
   it('rejects a concurrent build whose number matches no migration', () => {
