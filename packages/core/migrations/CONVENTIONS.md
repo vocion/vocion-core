@@ -34,14 +34,15 @@ against production straight after the numbered migration that shares its number,
 outside any transaction. The match is on the filename's first four characters,
 so the number needs exactly four digits and an underscore.
 
-One caveat if you are shipping to the Veerio deployment: it does not run this
-repo's `apply-migrations.sh`. `Veerio-Life/veerio-vocion`'s
-`infra/aws/apply-workspace.sh` applies migrations with a non-recursive glob over
-`packages/core/migrations/*.sql`, records them in a `schema_migration` table, and
-would skip `concurrent/` entirely — the index would never be built there. That
-loop does run psql in autocommit, so picking the directory up is a one-line
-change on that side; until it lands, a concurrent build reaches nothing but a
-future deployment of this repo.
+This only works if whatever applies migrations in a given environment knows to
+look in `concurrent/`. A deploy that globs `packages/core/migrations/*.sql`
+skips the directory in silence, and the index is simply never built there.
+`apply-migrations.sh --verify-indexes` exists to catch that: it reads the
+database and fails naming any index declared here that is missing, or that a
+failed build left `INVALID`. A deploy that applies migrations its own way should
+end with it. The requirement on parent projects, and the reason a project should
+call core's applier rather than reimplement the loop, is written up in
+`docs/deployment/parent-project-pattern.md`.
 
 Dev and test then run without those indexes, which is fine for a plain index: it
 changes query plans, never results. It is **not** fine for a unique one, so
