@@ -52,7 +52,7 @@ export default async function ObservabilityPage(props: {
           title="Observability"
           description="Per-org / per-user / per-feature LLM cost + run volume, powered by Langfuse."
         />
-        <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">
+        <div className="rounded-xl bg-muted/40 p-6 text-sm text-muted-foreground">
           Sign in to an organization to see spend and run volume for your workspace.
         </div>
       </>
@@ -120,7 +120,7 @@ export default async function ObservabilityPage(props: {
               </div>
             )
           : (
-              <div className="rounded-md border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+              <div className="rounded-lg bg-muted/40 p-4 text-sm text-muted-foreground">
                 Trace search is unavailable because Langfuse is not configured for this
                 deployment. The spend and run-volume numbers below come from this
                 application's own tables and are unaffected. See
@@ -150,7 +150,7 @@ export default async function ObservabilityPage(props: {
         </div>
 
         {topAgents.length > 0 && (
-          <div className="rounded-md border border-border">
+          <div className="overflow-hidden rounded-lg border border-border/70">
             <div className="border-b border-border px-4 py-3 text-sm font-medium">Top agents by spend</div>
             <div className="divide-y divide-border text-sm">
               {topAgents.map(agent => (
@@ -182,7 +182,7 @@ export default async function ObservabilityPage(props: {
           </div>
         )}
 
-        <div className="rounded-md border border-border bg-muted/30 p-4 text-xs text-muted-foreground">
+        <div className="rounded-lg bg-muted/40 p-4 text-xs text-muted-foreground">
           The
           {' '}
           <code className="rounded bg-background px-1 py-0.5">agent_budget</code>
@@ -201,7 +201,7 @@ export default async function ObservabilityPage(props: {
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-md border border-border p-4">
+    <div className="rounded-lg bg-muted/40 p-4">
       <div className="text-xs tracking-wide text-muted-foreground uppercase">{label}</div>
       <div className="mt-1 font-display text-2xl tabular-nums">{value}</div>
       {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}

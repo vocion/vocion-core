@@ -222,7 +222,7 @@ export function ReviewFocus() {
 
   if (!current || !desc) {
     return (
-      <div className="rounded-2xl border border-border px-6 py-12 text-center">
+      <div className="rounded-xl bg-muted/40 px-6 py-14 text-center">
         <ShieldCheck className="mx-auto size-8 text-brand-amber-deep" aria-hidden />
         <div className="mt-2 text-base font-semibold">All caught up</div>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -262,7 +262,7 @@ export function ReviewFocus() {
         )}
 
         {!current.card && (
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="rounded-xl border border-border/70 bg-card p-5">
             {/* WHAT am I approving — plain language, system badge, then why. */}
             <div className="flex items-start gap-3">
               <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">

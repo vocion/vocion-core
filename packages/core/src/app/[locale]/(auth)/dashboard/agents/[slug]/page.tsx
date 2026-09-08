@@ -155,7 +155,7 @@ export default async function AgentDetailPage(props: {
       {/* ── Body: flat left rail (makeup) + main column (people) ─────── */}
       <div className="mt-8 grid gap-x-12 gap-y-10 lg:grid-cols-[16rem_minmax(0,1fr)]">
         {/* Left rail — flat grouped metadata, no cards. main-first on mobile. */}
-        <aside className="order-2 flex flex-col gap-5 rounded-xl border border-border/60 bg-muted/40 p-5 lg:sticky lg:top-6 lg:order-1 lg:self-start">
+        <aside className="order-2 flex flex-col gap-5 rounded-xl bg-muted/40 p-5 lg:sticky lg:top-6 lg:order-1 lg:self-start">
           {isWorkspaceLead && (
             <>
               <RailGroup label="Owner">

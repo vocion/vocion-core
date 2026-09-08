@@ -13,6 +13,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useSidebar } from '@/components/ui/useSidebar';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
@@ -36,6 +37,8 @@ type Project = { id: string; slug: string; name: string; description: string | n
 export function WorkspaceMenu({ isAdmin = false, onManage }: { isAdmin?: boolean; onManage?: () => void }) {
   const { data: session } = useSession();
   const router = useRouter();
+  const { state: sidebarState } = useSidebar();
+  const collapsed = sidebarState === 'collapsed';
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
 
@@ -80,7 +83,9 @@ export function WorkspaceMenu({ isAdmin = false, onManage }: { isAdmin?: boolean
   };
 
   // Fixed-height row: skeleton while loading so the nav never shifts.
-  const rowClass = 'flex min-h-12 w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition hover:bg-sidebar-accent';
+  const rowClass = collapsed
+    ? 'flex min-h-12 w-full items-center justify-center rounded-lg py-2 transition hover:bg-sidebar-accent'
+    : 'flex min-h-12 w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition hover:bg-sidebar-accent';
 
   // The row is ALWAYS an interactive trigger — the menu (switch workspace +
   // manage links) must be reachable while the name is still loading. Only the
@@ -91,17 +96,19 @@ export function WorkspaceMenu({ isAdmin = false, onManage }: { isAdmin?: boolean
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className={rowClass} aria-label="Workspace and settings">
+      <DropdownMenuTrigger className={rowClass} aria-label="Workspace and settings" title={collapsed ? (label || 'Workspace') : undefined}>
         <span className={`grid size-7 shrink-0 place-items-center rounded-md text-xs font-bold ${loading ? 'animate-pulse bg-muted text-transparent' : 'bg-brand-amber-tint text-brand-amber-deep'}`}>
           {initial}
         </span>
-        <span className="min-w-0 flex-1">
-          {loading
-            ? <span className="block h-3 w-24 animate-pulse rounded bg-muted" />
-            : <span className="block truncate text-[13px] font-medium text-sidebar-foreground">{label}</span>}
-          <span className="mt-0.5 block truncate text-[11px] text-sidebar-foreground/50">{session?.user?.email ?? 'Manage workspace'}</span>
-        </span>
-        <ChevronRight className="size-3.5 shrink-0 text-sidebar-foreground/40" aria-hidden />
+        {!collapsed && (
+          <span className="min-w-0 flex-1">
+            {loading
+              ? <span className="block h-3 w-24 animate-pulse rounded bg-muted" />
+              : <span className="block truncate text-[13px] font-medium text-sidebar-foreground">{label}</span>}
+            <span className="mt-0.5 block truncate text-[11px] text-sidebar-foreground/50">{session?.user?.email ?? 'Manage workspace'}</span>
+          </span>
+        )}
+        {!collapsed && <ChevronRight className="size-3.5 shrink-0 text-sidebar-foreground/40" aria-hidden />}
       </DropdownMenuTrigger>
 
       <DropdownMenuContent side="top" align="start" className="w-60">

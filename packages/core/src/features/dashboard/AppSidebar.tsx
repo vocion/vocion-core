@@ -1,5 +1,6 @@
 'use client';
 
+import type { AppSidebarNavItem } from '@/features/dashboard/AppSidebarNav';
 import type { SurfaceId } from '@/features/navigation/surfaces';
 import {
   Activity,
@@ -31,8 +32,10 @@ import {
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
+import { useSidebar } from '@/components/ui/useSidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { AppSidebarNavGroup } from '@/features/dashboard/AppSidebarNavGroup';
+import { usePinnedNav } from '@/features/dashboard/usePinnedNav';
 import { WorkspaceMenu } from '@/features/dashboard/WorkspaceMenu';
 import { SurfaceNav } from '@/features/navigation/SurfaceNav';
 import { VocionLogo } from '@/templates/VocionLogo';
@@ -47,8 +50,9 @@ import { VocionLogo } from '@/templates/VocionLogo';
  *                    configuration sections with "Back to work" at top.
  *
  * The view persists per browser (reloading mid-manage keeps you managing).
- * Nav sweep 2026-07-24: every route has a real page (no dead links, no
- * stubs). Active-state styling via `--sidebar-accent`.
+ * Collapses to an icon rail (⌘B / the trigger) with tooltips; the active
+ * item is highlighted from the pathname; any item can be pinned to a
+ * "Pinned" group at the top that survives the work/manage switch.
  * @param props.isAdmin
  * @param props
  */
@@ -73,6 +77,9 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
 }) => {
   const t = useTranslations('DashboardLayout');
   const [view, setView] = useState<NavView>('work');
+  const { pinned, togglePin, isPinned } = usePinnedNav();
+  const { state: sidebarState } = useSidebar();
+  const collapsed = sidebarState === 'collapsed';
 
   // Restore the persisted view after mount (SSR renders the default).
   // localStorage cannot be read while rendering on the server, so a lazy
@@ -95,31 +102,65 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
     } catch { /* ignore */ }
   };
 
-  return (
-    <Sidebar {...props}>
-      <SidebarHeader className="pt-5">
-        <div className="flex justify-start px-2 pb-2">
-          <VocionLogo size="sm" />
-        </div>
+  const workItems: AppSidebarNavItem[] = [
+    { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
+    { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
+    { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
+    { title: 'Activity', url: '/dashboard/activity', icon: Activity },
+    { title: t('search'), url: '/dashboard/search', icon: BookOpen },
+  ];
+  const teamItems: AppSidebarNavItem[] = [
+    { title: t('teams'), url: '/dashboard/teams', icon: Network },
+    { title: t('agents'), url: '/dashboard/agents', icon: Users },
+    { title: 'Missions', url: '/dashboard/missions', icon: Compass },
+    { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
+    { title: 'Automation', url: '/dashboard/automation', icon: CalendarClock },
+  ];
+  const knowledgeItems: AppSidebarNavItem[] = [
+    { title: t('sources'), url: '/dashboard/connectors', icon: Plug },
+    { title: t('objects'), url: '/dashboard/objects', icon: Database },
+    { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
+  ];
+  const buildItems: AppSidebarNavItem[] = [
+    { title: t('skills'), url: '/dashboard/skills', icon: Zap },
+    { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
+    { title: 'Vision models', url: '/dashboard/models', icon: Cpu },
+    { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
+  ];
+  const observeItems: AppSidebarNavItem[] = [
+    { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
+  ];
+  const orgItems: AppSidebarNavItem[] = [
+    ...(isAdmin ? [{ title: t('adoption'), url: '/dashboard/adoption', icon: BarChart3 }] : []),
+    { title: 'Members', url: '/dashboard/members', icon: UserPlus },
+    ...(isAdmin ? [{ title: 'API tokens', url: '/dashboard/api-tokens', icon: KeyRound }] : []),
+    { title: 'System', url: '/dashboard/admin', icon: ShieldCheck },
+    { title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText },
+  ];
+  const pageItems: AppSidebarNavItem[] = workspacePages.map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft }));
+  const everyItem = [...workItems, ...teamItems, ...knowledgeItems, ...buildItems, ...observeItems, ...orgItems, ...pageItems];
+  // Pinned keeps the user's order; items whose route no longer exists drop out silently.
+  const pinnedItems = pinned.map(url => everyItem.find(i => i.url === url)).filter((i): i is AppSidebarNavItem => Boolean(i));
+  const pinProps = { onTogglePin: togglePin, isPinned };
 
+  return (
+    <Sidebar collapsible="icon" {...props}>
+      <SidebarHeader className="pt-4">
+        <div className="flex justify-start px-2 pb-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+          <VocionLogo size="sm" isTextHidden={collapsed} />
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
+        {pinnedItems.length > 0 && (
+          <AppSidebarNav label="Pinned" items={pinnedItems} {...pinProps} />
+        )}
         {view === 'work'
           ? (
               // WORK — the daily surface; the only door to config is the
               // quiet Manage entry at the bottom.
               <>
-                <AppSidebarNav
-                  label={t('main_section_label')}
-                  items={[
-                    { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
-                    { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
-                    { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
-                    { title: 'Activity', url: '/dashboard/activity', icon: Activity },
-                    { title: t('search'), url: '/dashboard/search', icon: BookOpen },
-                  ]}
-                />
+                <AppSidebarNav label={t('main_section_label')} items={workItems} {...pinProps} />
                 {/* Workspace-enabled surfaces (workspace.yaml `surfaces:`).
                     Renders nothing when none are on. */}
                 <SurfaceNav enabled={enabledSurfaces} />
@@ -127,91 +168,45 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   <AppSidebarNav
                     key={section}
                     label={section}
-                    items={workspacePages
-                      .filter(p => p.section === section)
-                      .map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft }))}
+                    items={pageItems.filter(p => workspacePages.find(w => w.url === p.url)?.section === section)}
+                    {...pinProps}
                   />
                 ))}
-                {/* Bottom cluster: which workspace you're in + the door to
-                    its configuration. Both are context, not daily nav. */}
-                <div className="mt-auto px-2 pb-1">
-                  <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
-                </div>
               </>
             )
           : (
               <>
-                <div className="px-2 pt-1">
+                <div className="px-2 pt-1 group-data-[collapsible=icon]:px-0">
                   <button
                     type="button"
                     onClick={() => pick('work')}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-[13px] font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                    title="Back to work"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-[13px] font-medium text-sidebar-foreground/80 transition group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                   >
-                    <ArrowLeft className="size-4" aria-hidden />
-                    Back to work
+                    <ArrowLeft className="size-4 shrink-0" aria-hidden />
+                    <span className="group-data-[collapsible=icon]:hidden">Back to work</span>
                   </button>
                 </div>
                 {/* MANAGE — who works for you + the shapes their work takes. */}
-                <AppSidebarNav
-                  label="Team"
-                  items={[
-                    { title: t('teams'), url: '/dashboard/teams', icon: Network },
-                    { title: t('agents'), url: '/dashboard/agents', icon: Users },
-                    { title: 'Missions', url: '/dashboard/missions', icon: Compass },
-                    { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
-                    { title: 'Automation', url: '/dashboard/automation', icon: CalendarClock },
-                  ]}
-                />
-
+                <AppSidebarNav label="Team" items={teamItems} {...pinProps} />
                 {/* What the team knows. Playbooks folded into Skills. */}
-                <AppSidebarNav
-                  label="Knowledge"
-                  items={[
-                    { title: t('sources'), url: '/dashboard/connectors', icon: Plug },
-                    { title: t('objects'), url: '/dashboard/objects', icon: Database },
-                    { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
-                  ]}
-                />
-
+                <AppSidebarNav label="Knowledge" items={knowledgeItems} {...pinProps} />
                 {/* How capabilities are made and proven. */}
-                <AppSidebarNav
-                  label="Build"
-                  items={[
-                    { title: t('skills'), url: '/dashboard/skills', icon: Zap },
-                    { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
-                    { title: 'Vision models', url: '/dashboard/models', icon: Cpu },
-                    { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
-                  ]}
-                />
-
+                <AppSidebarNav label="Build" items={buildItems} {...pinProps} />
                 {/* See what happened. Logs folded into Activity. */}
-                <AppSidebarNav
-                  label={t('observability_section_label')}
-                  items={[
-                    { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
-                  ]}
-                />
-
+                <AppSidebarNav label={t('observability_section_label')} items={observeItems} {...pinProps} />
                 {/* The account itself. Adoption is admin-gated server-side too. */}
-                <AppSidebarNavGroup
-                  label={t('organization_section_label')}
-                  items={[
-                    ...(isAdmin ? [{ title: t('adoption'), url: '/dashboard/adoption', icon: BarChart3 }] : []),
-                    { title: 'Members', url: '/dashboard/members', icon: UserPlus },
-                    ...(isAdmin ? [{ title: 'API tokens', url: '/dashboard/api-tokens', icon: KeyRound }] : []),
-                    { title: 'System', url: '/dashboard/admin', icon: ShieldCheck },
-                    { title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText },
-                  ]}
-                />
-
-                <div className="mt-auto px-2 pb-1">
-                  <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
-                </div>
+                <AppSidebarNavGroup label={t('organization_section_label')} items={orgItems} />
               </>
             )}
+        {/* Bottom cluster: which workspace you're in + the door to its
+            configuration. Both are context, not daily nav. */}
+        <div className="mt-auto px-2 pb-1 group-data-[collapsible=icon]:px-0">
+          <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
+        </div>
       </SidebarContent>
 
-      <SidebarFooter className="px-4 pb-3 text-[11px] text-muted-foreground/70">
+      <SidebarFooter className="px-4 pb-3 text-[11px] text-muted-foreground/70 group-data-[collapsible=icon]:hidden">
         <div>
           ©
           {' '}

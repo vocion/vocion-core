@@ -2,9 +2,11 @@
 
 import type { LucideIcon } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
+import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
 import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
 import { Link } from '@/libs/I18nNavigation';
 
@@ -12,10 +14,10 @@ import { Link } from '@/libs/I18nNavigation';
  * Collapsible variant of `AppSidebarNav` — the group label becomes a
  * toggle (shadcn sidebar Collapsible pattern). Used by the Organization
  * group; reusable for any section that earns sub-navigation.
- * @param props
- * @param props.label
- * @param props.defaultOpen
- * @param props.items
+ * @param props - Group props.
+ * @param props.label - Group heading, doubles as the toggle.
+ * @param props.defaultOpen - Start expanded (default true).
+ * @param props.items - Nav items.
  */
 export const AppSidebarNavGroup = (props: {
   label: string;
@@ -27,6 +29,7 @@ export const AppSidebarNavGroup = (props: {
   }[];
 }) => {
   const { toggleSidebar, isMobile } = useSidebar();
+  const pathname = usePathname();
 
   return (
     <Collapsible defaultOpen={props.defaultOpen ?? true} className="group/collapsible">
@@ -44,6 +47,8 @@ export const AppSidebarNavGroup = (props: {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
+                    isActive={isNavItemActive(pathname, item.url)}
+                    tooltip={item.title}
                     onClick={() => {
                       if (isMobile) {
                         toggleSidebar();

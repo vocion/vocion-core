@@ -21,7 +21,7 @@ const locales = [
 // FIXME: Update this configuration file based on your project information
 export const AppConfig = {
   name: 'Vocion',
-  sidebarCookieName: 'sidebar:state',
+  sidebarCookieName: 'sidebar_state',
   i18n: {
     locales,
     defaultLocale: 'en',

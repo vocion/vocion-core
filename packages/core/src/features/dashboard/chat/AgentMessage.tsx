@@ -6,6 +6,7 @@ import { memo } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
+import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
 import { WorkTimeline } from './WorkTimeline';
 
@@ -79,7 +80,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // multiple agents sharing a surface, the NAME is the signal, not a
   // decorative circle.
   return (
-    <div className="flex">
+    <div className="group/message flex">
       <div className="max-w-2xl min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <span>{agentName}</span>
@@ -148,6 +149,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           <div className="mt-2 flex justify-end">
             <ConfidenceIndicator level={message.confidence} />
           </div>
+        )}
+        {!streaming && message.content.trim().length > 0 && (
+          <MessageFeedback agentName={agentName} excerpt={message.content} />
         )}
       </div>
     </div>

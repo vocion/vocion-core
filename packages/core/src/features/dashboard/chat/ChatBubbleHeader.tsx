@@ -20,8 +20,11 @@ export type ChatBubbleHeaderProps = {
   maximized: boolean;
   onToggleMaximize: () => void;
   onClose: () => void;
-  /** Starts dragging the panel. Called only when the pointerdown didn't land on a button — see `onPointerDown` below. */
-  onDragStart: (event: React.PointerEvent) => void;
+  /** Starts dragging the panel (floating widget only). Omit for a docked surface — the header is then plain. */
+  onDragStart?: (event: React.PointerEvent) => void;
+  /** Labels for the size toggle; defaults describe the floating widget. */
+  maximizeLabel?: string;
+  restoreLabel?: string;
 };
 
 /**
@@ -41,6 +44,8 @@ export type ChatBubbleHeaderProps = {
  * @param root0.onToggleMaximize
  * @param root0.onClose
  * @param root0.onDragStart
+ * @param root0.maximizeLabel
+ * @param root0.restoreLabel
  */
 export function ChatBubbleHeader({
   agentName,
@@ -54,6 +59,8 @@ export function ChatBubbleHeader({
   onToggleMaximize,
   onClose,
   onDragStart,
+  maximizeLabel = 'Maximize',
+  restoreLabel = 'Restore',
 }: ChatBubbleHeaderProps) {
   const switchable = agents.length > 1;
 
@@ -68,7 +75,7 @@ export function ChatBubbleHeader({
     // Only start a drag when the pointer came down on the header's own
     // background — not on the agent switcher or one of the action buttons,
     // which need pointerdown to behave normally so their clicks still fire.
-    if ((event.target as HTMLElement).closest('button')) {
+    if (!onDragStart || (event.target as HTMLElement).closest('button')) {
       return;
     }
     onDragStart(event);
@@ -77,9 +84,9 @@ export function ChatBubbleHeader({
   return (
     <header
       onPointerDown={handlePointerDown}
-      title="Drag to move the chat window"
-      style={{ touchAction: 'none' }}
-      className="flex cursor-grab items-center gap-2.5 border-b border-border bg-background px-3 py-2.5 active:cursor-grabbing"
+      title={onDragStart ? 'Drag to move the chat window' : undefined}
+      style={onDragStart ? { touchAction: 'none' } : undefined}
+      className={`flex items-center gap-2.5 border-b border-border bg-background px-3 py-2.5 ${onDragStart ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
       {switchable
         ? (
@@ -116,8 +123,8 @@ export function ChatBubbleHeader({
       <button
         type="button"
         onClick={onToggleMaximize}
-        aria-label={maximized ? 'Restore' : 'Maximize'}
-        title={maximized ? 'Restore' : 'Maximize'}
+        aria-label={maximized ? restoreLabel : maximizeLabel}
+        title={maximized ? restoreLabel : maximizeLabel}
         className="cursor-pointer text-muted-foreground transition hover:text-foreground"
       >
         {maximized ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
