@@ -13,8 +13,10 @@
  *
  * With the variable unset, a development run falls back to an ephemeral key so
  * that losing a credential costs no more than a re-paste. Production gets no
- * such fallback: it throws instead, because a per-process key silently destroys
- * every credential stored under the previous one.
+ * such fallback: building the vault throws instead, because a per-process key
+ * silently destroys every credential stored under the previous one. Nothing
+ * builds a vault at boot, so that throw surfaces on the first request that
+ * touches a credential, not at startup.
  */
 
 import type { CredentialVault, EncryptResult } from './credentialVault';
@@ -99,10 +101,15 @@ async function getDek(_orgId: string, _dekId: number): Promise<Buffer> {
 }
 
 export function localVault(): CredentialVault {
-  // Read the key now rather than on the first encrypt or decrypt. kmsVault's
-  // missing-ARN check already fires at this point, and a deployment whose vault
-  // key is missing should fail while it is starting up, not hours later when a
-  // customer first touches a credential.
+  // Read the key when the vault is built rather than on the first encrypt or
+  // decrypt, which is where kmsVault's missing-ARN check already fires. Both
+  // backends now reject a missing setting at the same boundary.
+  //
+  // This is not a startup check. Nothing builds a vault at boot — every caller
+  // does it inside a function — so a deployment with no key still starts clean
+  // and health-checks green, and the throw lands on the first request that
+  // touches a credential. Making it a boot failure would need an explicit call
+  // from `instrumentation.ts`.
   masterKey();
   return {
     kind: 'local',
@@ -146,13 +153,17 @@ export function localVault(): CredentialVault {
         // and the dashboard does not: it tells the reader nothing they can act
         // on, and vouching for a string this code did not write is exactly what
         // the flattening rule exists to prevent.
-        const causeOfMismatch = process.env.VOCION_CREDENTIAL_VAULT_KEY
-          ? 'The value of VOCION_CREDENTIAL_VAULT_KEY has changed since this credential was saved'
-          : 'VOCION_CREDENTIAL_VAULT_KEY is unset, so every restart mints a new ephemeral key';
+        // The fix differs with the cause. A key that was never set has no
+        // previous value to restore, so telling that reader to put one back
+        // sends them looking for something that never existed.
+        const explanation = process.env.VOCION_CREDENTIAL_VAULT_KEY
+          ? 'The value of VOCION_CREDENTIAL_VAULT_KEY has changed since this credential was saved: '
+          + 'set it back to the value it had, or reconnect this source\'s credential under the '
+          + 'current key.'
+          : 'VOCION_CREDENTIAL_VAULT_KEY is unset, so every restart mints a new ephemeral key: set '
+            + 'it to a fixed value, then reconnect this source\'s credential.';
         throw new VaultDecryptionError(
-          'The stored credential could not be decrypted with the current vault key. '
-          + `${causeOfMismatch}: set VOCION_CREDENTIAL_VAULT_KEY back to the value it had, or `
-          + 'reconnect this source\'s credential under the current key.',
+          `The stored credential could not be decrypted with the current vault key. ${explanation}`,
           { cause: error },
         );
       }

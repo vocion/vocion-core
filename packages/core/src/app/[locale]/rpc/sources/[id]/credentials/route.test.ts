@@ -17,6 +17,7 @@
  * can point each at its own credential.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/services/SourceCredentialService', () => ({
@@ -177,14 +178,39 @@ describe('GET /rpc/sources/[id]/credentials', () => {
   });
 
   it('reports a credential that will not decrypt instead of saying none is stored', async () => {
+    // `VaultDecryptionError` is the vault promising this sentence is fit to
+    // read: it names a cause and a fix and holds no secret. That is the whole
+    // reason the type exists, so the message goes through as written.
     vi.mocked(getCredentialsForConnector).mockRejectedValue(
-      new Error('The stored credential could not be decrypted with the current vault key.'),
+      new VaultDecryptionError(
+        'The stored credential could not be decrypted with the current vault key.',
+        { cause: new Error('Unsupported state or unable to authenticate data') },
+      ),
     );
 
     const res = await GET(request, context('1'));
 
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('could not be decrypted') });
+  });
+
+  it('hides the reason when the failure is not one the vault vouched for', async () => {
+    // An ordinary Error can carry a constraint detail or a connection string,
+    // so the browser gets a fixed sentence and the reason goes to the log.
+    const failure = new Error('connect ECONNREFUSED 10.0.0.4:5432');
+    vi.mocked(getCredentialsForConnector).mockRejectedValue(failure);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await GET(request, context('1'));
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: 'Could not read the stored credential.' });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining('could not read credentials for connector'),
+      expect.objectContaining({ message: 'connect ECONNREFUSED 10.0.0.4:5432' }),
+    );
+
+    logged.mockRestore();
   });
 });
 

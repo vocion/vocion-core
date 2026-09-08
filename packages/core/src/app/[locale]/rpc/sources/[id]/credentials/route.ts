@@ -33,6 +33,7 @@
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
+import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { CredentialValidationError, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } from '@/services/ApiTokenService';
 import {
@@ -130,15 +131,24 @@ export async function GET(
         error: err.message,
       });
     }
-    // A vault failure reaches only the browser otherwise. The operator who can
-    // act on it — set the key, restore its old value — is reading the server
-    // log, not the admin's screen.
+    // Everything else is logged and then flattened, the same way
+    // `apiTokens.revealPlatformKey` handles the identical failure. A raw
+    // message here can carry a constraint detail or a connection string, so
+    // only `VaultDecryptionError` — the type whose whole contract is that its
+    // message names a cause and a fix and holds no secret — reaches the screen.
+    //
+    // Logging is not optional either way: the operator who can act on a vault
+    // failure reads the server log, not the admin's browser.
+    const isSafeToShow = err instanceof VaultDecryptionError;
     console.error('[rpc/sources/credentials] could not read credentials for connector', {
       connectorSlug,
       message: err instanceof Error ? err.message : String(err),
+      // The vault keeps Node's own wording out of the message it hands the
+      // dashboard. The log is where that half belongs.
+      cause: err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined,
     });
     return Response.json(
-      { error: err instanceof Error ? err.message : String(err) },
+      { error: isSafeToShow ? err.message : 'Could not read the stored credential.' },
       { status: 500 },
     );
   }
