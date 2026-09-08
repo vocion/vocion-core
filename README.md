@@ -6,6 +6,26 @@ Context as code. Skills as plugins. Review surfaces built in.
 
 **New here?** [**Getting started — build an agent workforce from zero**](./docs/getting-started.md) walks you from an empty directory to a working workforce, one file type at a time. No code required.
 
+## Who this is for
+
+**An engineer or tech lead putting a team of agents into production.** You have prototyped agents
+and now need the operating layer: approval gates a person actually sees, an audit trail from an
+output back to the prompt that produced it, connectors to the systems the work lives in, and a
+way to change an agent's behavior through a reviewed pull request instead of a text box. Start
+with [`docs/getting-started.md`](./docs/getting-started.md), then
+[`docs/workspace.md`](./docs/workspace.md).
+
+**A coding agent asked to set Vocion up for a company.** Read
+[`AGENTS.md`](./AGENTS.md) first. It carries the verified setup commands, the directory paths for
+every entity type, how to add an agent, a skill, and an approval gate, how to run lint,
+type-check, and tests, and an explicit list of what not to touch. Machine-readable index:
+[`llms.txt`](./llms.txt).
+
+**When not to use it.** If you want a single chatbot, a one-off script, or a hosted no-code
+builder, Vocion is more machinery than you need. It assumes you run Postgres, you keep
+configuration in git, and you want a human in the loop on actions that matter. `@vocion/core` is
+not published to npm — you install it by cloning this repository and running it yourself.
+
 ## What this is
 
 Vocion is a Next.js app + Postgres schema + MCP server + workflow runner. You author your work — **Sources, Objects, Skills, Playbooks, Workflows, Missions, Automations, Agents, and Teams** — as YAML + markdown in git, apply it to the database, and get a typed runtime with a unified human-review queue, observability, and a plugin ecosystem.
@@ -210,6 +230,8 @@ grant trademark rights.
 ## Docs
 
 - [`docs/getting-started.md`](./docs/getting-started.md) — **start here**: zero to a working agent workforce, with an example of every entity type
+- [`AGENTS.md`](./AGENTS.md) — setup and conventions written for a coding agent working in this repo
+- [`llms.txt`](./llms.txt) — machine-readable index of this repo's public docs
 - [`docs/README.md`](./docs/README.md) — docs index
 - [`docs/workspace.md`](./docs/workspace.md) — workspace-as-code: create, author, apply, base packs, commands
 - [`docs/entities/`](./docs/entities/) — one page per authored entity type, field by field
