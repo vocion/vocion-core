@@ -95,16 +95,8 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     try {
       const outcome = await upsertAgent(orgId, agent, defaults, dryRun, loaded.teams);
       bump(counts.agents, outcome);
-      // runsOn: aws-managed-harness — provision/refresh AWS's own harness
-      // after the row lands, and record the ARN the invoke adapter reads.
-      // Skills upserted above, so the inline tool catalog is current.
-      if (!dryRun && agent.harness?.runsOn === 'aws-managed-harness') {
-        const { syncAgentCoreHarness } = await import('@/services/agents/providers/agentcore');
-        const arn = await syncAgentCoreHarness(orgId, agent.slug);
-        await db
-          .update(agentSchema)
-          .set({ harnessArn: arn })
-          .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agent.slug)));
+      if (!dryRun) {
+        await reconcileManagedHarness(orgId, agent, errors);
       }
     } catch (err) {
       errors.push({ resource: 'agent', slug: agent.slug, message: (err as Error).message });
@@ -512,6 +504,85 @@ async function resolveAccountableUser(
     return null;
   }
   return row.id;
+}
+
+/**
+ * Bring AWS's managed harness in line with what the agent now asks for.
+ *
+ * Two directions, and only the first used to exist:
+ *
+ * - **On** `aws-managed-harness`: provision or refresh the harness and record
+ *   the ARN the invoke adapter reads. Skills are upserted before this, so the
+ *   inline tool catalog is current.
+ * - **Off** it: delete the harness the row points at and clear the ARN.
+ *   Without this the harness stayed `READY` after an agent moved to
+ *   `agentcore-container` — AWS's harness image, still chargeable, still
+ *   reachable by ARN, while every turn went to our own container. It is
+ *   invisible from the app, so the only way to find one was to read the
+ *   AgentCore console.
+ *
+ * The teardown is addressed by the ARN on the row, never by a name lookup:
+ * harness names carry no org, so two orgs whose agents share a slug map to one
+ * name, and a lookup would let one org's apply delete the other's harness.
+ *
+ * `runsOn` is already canonical here — `AgentManifestSchema` folds the
+ * pre-rename spellings (`provider:`, `agentcore`, `runtime`) into the three
+ * current names at parse time, which `harness-target.test.ts` pins — so a
+ * plain comparison is enough and no normalisation belongs in this layer.
+ *
+ * Failures land in `errors` rather than throwing: an unreachable AgentCore
+ * control plane must not stop the rest of a workspace apply, and a harness
+ * left behind is a cost and hygiene problem, not a correctness one.
+ * @param orgId - Tenant the agent belongs to.
+ * @param agent - The agent as authored in workspace YAML.
+ * @param errors - Apply-level error list, appended to on failure.
+ */
+async function reconcileManagedHarness(
+  orgId: string,
+  agent: LoadedAgent,
+  errors: ApplyResult['errors'],
+): Promise<void> {
+  if (agent.harness?.runsOn === 'aws-managed-harness') {
+    const { syncAgentCoreHarness } = await import('@/services/agents/providers/agentcore');
+    const arn = await syncAgentCoreHarness(orgId, agent.slug);
+    await db
+      .update(agentSchema)
+      .set({ harnessArn: arn })
+      .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agent.slug)));
+    return;
+  }
+
+  // Nothing to tear down unless this agent is recorded as having a harness.
+  // Checked against the row rather than the previous YAML, because the YAML
+  // that put it there may be long gone from the workspace.
+  const [row] = await db
+    .select({ harnessArn: agentSchema.harnessArn })
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agent.slug)));
+  if (!row?.harnessArn) {
+    return;
+  }
+
+  try {
+    const { deleteAgentCoreHarness } = await import('@/services/agents/providers/agentcore');
+    // Addressed by the stored ARN, so this can only ever reach the harness
+    // this org's own row points at.
+    const { deleted, harnessId } = await deleteAgentCoreHarness(row.harnessArn);
+    await db
+      .update(agentSchema)
+      .set({ harnessArn: null })
+      .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agent.slug)));
+    console.warn(
+      `workspace: ${agent.slug} left aws-managed-harness — harness ${harnessId} ${deleted ? 'deleted' : 'was already gone'}, cleared harnessArn`,
+    );
+  } catch (err) {
+    // The ARN stays on the row so the next apply tries again.
+    errors.push({
+      resource: 'agent',
+      slug: agent.slug,
+      message: `left aws-managed-harness but its harness could not be deleted: ${(err as Error).message}`,
+    });
+  }
 }
 
 async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, errors: ApplyResult['errors']): Promise<UpsertOutcome> {

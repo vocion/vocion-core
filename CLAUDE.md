@@ -135,7 +135,7 @@ The same deepagents loop also ships as a standalone artifact — **`packages/age
 | Subagents / playbooks / HITL gates | yes | yes | none |
 | Default for | everything not on Bedrock | Bedrock agents | nothing — opt in |
 
-Neither AgentCore path is a model gateway: inference is a direct Bedrock Converse call on all three. AgentCore is hosting plus Memory. Do NOT delete `aws-managed-harness` on the grounds that core has no agent on it — `Veerio-Life/veerio-vocion` runs `event-ingestion-lead` there, with `infra/aws/agentcore-harness-role.sh` and an `apply-workspace.sh` that hard-fails without `VOCION_AGENTCORE_REGION`.
+Neither AgentCore path is a model gateway: inference is a direct Bedrock Converse call on all three. AgentCore is hosting plus Memory. **No client is on `aws-managed-harness` today.** `Veerio-Life/veerio-vocion` was the one — `event-ingestion-lead` moved to `agentcore-container` on 2026-09-08, its harness was deleted, and the parent stopped creating `VocionAgentCoreHarnessRole` on every deploy. Removing the path is now a product decision rather than a mistake, so decide it deliberately; until then it stays supported, and `applier.ts` deprovisions a harness when an agent leaves it (see `managed-harness-reconcile.test.ts`) so choosing the container never leaves AWS's harness running.
 
 - The artifact is **generic**: agent definitions travel in the invocation payload (compiled from the agent row per request), so `workspace:apply` stays a DB sync and agent edits never redeploy anything.
 - **Tools execute in core**, not the artifact: catalog entries POST back to `/api/internal/agent-tools` with a signed `TenantClaim` (`services/agents/claims.ts`) — orgId/user ACLs come only from the verified claim (`services/agents/toolEndpoint.ts`; cross-tenant test suite in `toolEndpoint.test.ts`). Single tool registry: `services/agents/tools/registry.ts`.
@@ -145,7 +145,37 @@ Neither AgentCore path is a model gateway: inference is a direct Bedrock Convers
 - **Cutover status**: `sales-assistant` runs on `provider: runtime` (workspace YAML). Dev therefore needs the artifact running — `npm run dev:agent-runtime` (:8080) — or set `VOCION_DISABLE_RUNTIME=1` to force the in-process loop (symmetric to `VOCION_DISABLE_AGENTCORE`).
 - **AgentCore Memory (Phase 5, live)**: when `VOCION_AGENTCORE_MEMORY_ID` is set (core = flag only; the artifact needs it plus AWS creds), runtime-provider conversations with a persisted `conversation_id` get a Memory session (`vocion-conv-<id>-<org>`); the loop loads history from Memory and appends each completed turn (`packages/agent-runtime/src/memory.ts`). Default is belt-and-suspenders — payload history still rides along and the richer source wins; `VOCION_MEMORY_AUTHORITATIVE=1` omits payload history (verified live: turn answered from Memory alone). Postgres stays the system of record for the UI; Memory failures degrade silently to payload history.
 - **Long-term memory (live)**: the store runs two extraction strategies — `vocion_facts` (semantic) + `vocion_preferences` — namespaced `/facts/{actorId}` and `/preferences/{actorId}`. Each turn, the loop retrieves relevant records for the actor and injects them as a context preamble, so recall crosses conversations (verified live: a preference stated in one conversation was recalled in a brand-new one ~50s later, post-extraction). Strategies are provisioned idempotently by `infra/agentcore/provision.sh`.
-- Infra: `infra/agentcore/{provision,deploy-runtime,smoke-invoke}.sh` (ENV=dev, profile `metacto`, us-west-2). E2E: `src/scripts/smoke-runtime.ts` (`--provider` to force a specific provider). CI deploy: `.github/workflows/deploy-agent-runtime.yml` — inert until `provision-ci-role.sh` is run and `AWS_DEPLOY_ROLE_ARN` is set as a repo secret (deliberate human step: it creates GitHub↔AWS federated trust). See `packages/agent-runtime/README.md`.
+- Infra: `infra/agentcore/{provision,deploy-runtime,smoke-invoke}.sh` (ENV and AWS_PROFILE per client account, us-west-2). E2E: `src/scripts/smoke-runtime.ts` (`--provider` to force a specific provider). Core never deploys: it holds no AWS account, so the parent project that owns the account calls these scripts, from an operator machine or from its own pipeline (`provision-ci-role.sh` mints the GitHub-OIDC role for that — `TRUSTED_REPO` names the project allowed to assume it). See `packages/agent-runtime/README.md` and `docs/deployment/parent-project-pattern.md`.
+
+## Deploying into a client account: a deploy is two deploys
+
+Core never deploys — the parent project holding the AWS account does — and the
+thing parent projects get wrong is that there are **two** independent deploys:
+
+1. **The app box.** Sync the checkout to `main`, re-run the parent's bootstrap,
+   health-gate the URL. This is what a parent's CI usually automates.
+2. **The agent runtime container.** `infra/agentcore/deploy-runtime.sh` builds
+   the arm64 image from `packages/agent-runtime`, pushes it to ECR and updates
+   the AgentCore Runtime. Automating this needs a GitHub-OIDC role, so most
+   parents run it by hand — and then forget it.
+
+Deploy 1 without deploy 2 is half a deploy: the app runs new code while the
+agent loop runs old code, and nothing says so. After every pin bump, check
+whether the artifact moved — the deployed image's tag carries the core commit
+it was built from, so this is mechanical:
+
+```bash
+aws ssm get-parameter --name "/vocion/agentcore/<env>/runtime-image" \
+  --query 'Parameter.Value' --output text
+git diff --stat <that-commit>..HEAD -- packages/agent-runtime
+```
+
+Empty diff, container is current. Any output, every environment needs deploy 2.
+Editing an agent never does: the artifact is generic.
+
+The parent-project checklist, the one-time OIDC role and a `CLAUDE.md` snippet
+to paste into a new client project are in
+`docs/deployment/parent-project-pattern.md`.
 
 ## Background worker
 
