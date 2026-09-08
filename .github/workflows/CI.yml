@@ -91,6 +91,11 @@ jobs:
       - name: I18n check
         run: npm run check:i18n
 
+      # Refuses a migration that would take a write lock on a populated table.
+      # See packages/core/migrations/CONVENTIONS.md.
+      - name: Migration conventions
+        run: npm run check:migrations
+
   unit:
     strategy:
       matrix:
