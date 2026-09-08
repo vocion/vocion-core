@@ -122,7 +122,13 @@ export async function saveTurn(
  * preferences the store's extraction strategies distilled from PAST
  * conversations (namespaced per actor, so recall crosses sessions).
  * Returns [] on any failure or when no strategies are configured.
- * @param actorId
+ *
+ * `actorId` is the sole namespace key here — this module has no notion of
+ * org on its own. The caller (runtime.ts) is responsible for folding orgId
+ * into actorId before calling this, so that two orgs sharing a userId (or
+ * every org's unauthenticated runs) don't land in the same `/facts/...` and
+ * `/preferences/...` namespace.
+ * @param actorId - caller-supplied actor id; MUST already be org-scoped
  * @param query
  */
 export async function retrieveLongTerm(actorId: string, query: string): Promise<string[]> {
@@ -144,7 +150,15 @@ export async function retrieveLongTerm(actorId: string, query: string): Promise<
         return (res.memoryRecordSummaries ?? [])
           .map(r => r.content?.text?.trim())
           .filter((t): t is string => Boolean(t));
-      } catch {
+      } catch (namespaceError) {
+        // One namespace failing must not cost the other: facts and preferences
+        // are retrieved independently and either alone is still useful context.
+        // Logged rather than dropped, because the outer catch below never sees
+        // this — a silently empty namespace looks identical to an actor who
+        // genuinely has nothing stored yet.
+        console.warn(
+          `memory: retrieveLongTerm could not read ${namespace}: ${(namespaceError as Error).message}`,
+        );
         return [];
       }
     }));

@@ -58,6 +58,21 @@ export type AgentEvent
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
     | { type: 'hitl_gate'; gate: HitlGatePayload }
+    /**
+     * One tool call failed — the endpoint refused it, timed out, or could not
+     * be reached. Distinct from `error`, which ends the turn: the loop carries
+     * on after a failed tool, and the model is handed the failure as that
+     * tool's output so it can react to it.
+     *
+     * It exists because that text was the ONLY signal, and nothing obliges a
+     * model to relay it — so an unreachable tool endpoint reads as a
+     * confident, ungrounded answer. The usual cause is a
+     * `VOCION_TOOL_ENDPOINT_URL` that AWS cannot reach, where every tool fails
+     * identically and the agent still answers from the model alone. A typed
+     * event gives core something to log and alert on that does not depend on
+     * the model's cooperation.
+     */
+    | { type: 'tool_error'; tool: string; message: string; status?: number }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
     /**
