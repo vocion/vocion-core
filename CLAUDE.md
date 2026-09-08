@@ -275,7 +275,10 @@ Supplied keys never take a Vocion-side expiry — the vendor owns the lifetime.
 
 Encryption at rest is `VOCION_CREDENTIAL_VAULT`: `local` (wrapping key in
 `VOCION_CREDENTIAL_VAULT_KEY`, same database as the wrapped key — development
-only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`).
+only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`). On `local` with
+`NODE_ENV=production`, an unset `VOCION_CREDENTIAL_VAULT_KEY` throws rather than
+falling back to a per-process ephemeral key, which would orphan every
+credential stored under the previous one.
 
 ## Multi-Tenancy
 

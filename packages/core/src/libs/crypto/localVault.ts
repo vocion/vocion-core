@@ -10,9 +10,15 @@
  *   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
  *
  * Then set `VOCION_CREDENTIAL_VAULT_KEY=...` in `.env.local`.
+ *
+ * With the variable unset, a development run falls back to an ephemeral key so
+ * that losing a credential costs no more than a re-paste. Production gets no
+ * such fallback: it throws instead, because a per-process key silently destroys
+ * every credential stored under the previous one.
  */
 
 import type { CredentialVault, EncryptResult } from './credentialVault';
+import { Buffer } from 'node:buffer';
 import { randomBytes } from 'node:crypto';
 import process from 'node:process';
 import { desc, eq } from 'drizzle-orm';
@@ -28,8 +34,21 @@ import {
 function readMasterKey(): Buffer {
   const raw = process.env.VOCION_CREDENTIAL_VAULT_KEY;
   if (!raw) {
-    // Generate an ephemeral key. Loud — dev-only.
-
+    if (process.env.NODE_ENV === 'production') {
+      // An ephemeral key in production is silent data loss: each process start
+      // mints a different one, so anything stored under the previous key could
+      // never be decrypted again. Fail every credential read and write instead,
+      // which is recoverable — a key that no longer exists is not.
+      throw new Error(
+        'VOCION_CREDENTIAL_VAULT_KEY is not set. The local credential vault will not generate '
+        + 'an ephemeral key in production: every process start would mint a different one, and '
+        + 'credentials stored under the previous key could never be decrypted again. Set '
+        + 'VOCION_CREDENTIAL_VAULT_KEY to 32 base64-encoded random bytes '
+        + `(node -e "console.log(require('crypto').randomBytes(${AES_KEY_BYTES}).toString('base64'))"), `
+        + 'or move to AWS KMS with VOCION_CREDENTIAL_VAULT=kms and VOCION_KMS_KEY_ARN.',
+      );
+    }
+    // Development only: an ephemeral key costs a re-paste, not stored data.
     console.warn(
       '[localVault] VOCION_CREDENTIAL_VAULT_KEY is not set; generating an ephemeral key for THIS PROCESS only. Credentials stored now will be unreadable after restart.',
     );

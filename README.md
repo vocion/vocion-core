@@ -158,7 +158,7 @@ Credentials travel in both directions, and both live under **Dashboard → API c
 
 Supplied keys never carry a Vocion-side expiry — the vendor that issued the key owns its lifetime. Revoking or replacing is how one ends.
 
-Encryption at rest is configured by `VOCION_CREDENTIAL_VAULT`: `local` wraps the per-org key with `VOCION_CREDENTIAL_VAULT_KEY`, which puts the wrapping key and the wrapped key in the same database and is only appropriate for development; `kms` wraps it with AWS KMS under `VOCION_KMS_KEY_ARN`, which is what any install holding real customer keys should run.
+Encryption at rest is configured by `VOCION_CREDENTIAL_VAULT`: `local` wraps the per-org key with `VOCION_CREDENTIAL_VAULT_KEY`, which puts the wrapping key and the wrapped key in the same database and is only appropriate for development; `kms` wraps it with AWS KMS under `VOCION_KMS_KEY_ARN`, which is what any install holding real customer keys should run. On `local`, `VOCION_CREDENTIAL_VAULT_KEY` is mandatory whenever `NODE_ENV=production`: leaving it unset there is refused at startup, because the development fallback mints a fresh key per process and every credential saved under the last one becomes permanently unreadable.
 
 ## Retrieval
 
