@@ -28,6 +28,7 @@
 import type { CredentialPlatformId } from '@/libs/platforms/registry';
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { CredentialValidationError, DEFAULT_PLATFORM_ID, isCredentialPlatformId, listPlatforms } from '@/libs/platforms/registry';
 import { issueToken, listTokens, revealPlatformCredential, revokeToken, storePlatformKey } from '@/services/ApiTokenService';
 import { ORG_ROLE } from '@/types/Auth';
@@ -238,13 +239,26 @@ export const revealPlatformKeyRoute = os
     try {
       revealed = await revealPlatformCredential(orgId, input.tokenId);
     } catch (error) {
-      // A ciphertext that will not open. The message can carry KMS detail, so
-      // it is logged and replaced with one that says nothing.
+      // A ciphertext that will not open. Most of the reasons for that carry
+      // detail nobody outside the server should read — a KMS response, a
+      // connection string — so they are logged here and replaced with a
+      // sentence that says nothing.
+      //
+      // `VaultDecryptionError` is the exception, and the reason it exists: the
+      // vault authored that message for exactly this moment, it names the cause
+      // and the fix, and it holds no secret. Flattening it sent the last person
+      // who hit this to the container logs to learn something the screen
+      // already knew.
+      const isSafeToShow = error instanceof VaultDecryptionError;
       console.error('[apiTokens.revealPlatformKey] could not decrypt key', {
         tokenId: input.tokenId,
         message: error instanceof Error ? error.message : String(error),
+        // The vault keeps the underlying failure — Node's own wording for a
+        // ciphertext that will not authenticate — out of the message it hands
+        // the dashboard. The log is where that half belongs.
+        cause: error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined,
       });
-      throw ApiError.badRequest('Could not read that key.');
+      throw ApiError.badRequest(isSafeToShow ? error.message : 'Could not read that key.');
     }
     if (revealed.status === 'ok') {
       // `warn` rather than `info` because the lint rule allows only warn and

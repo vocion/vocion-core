@@ -29,15 +29,17 @@
  */
 
 import type { HarnessMessage, HarnessContentBlock as SdkContentBlock } from '@aws-sdk/client-bedrock-agentcore';
-import type { HarnessTool } from '@aws-sdk/client-bedrock-agentcore-control';
+import type { HarnessSummary, HarnessTool } from '@aws-sdk/client-bedrock-agentcore-control';
 import type { AgentEvent, RuntimeContext } from '../types';
 import { randomUUID } from 'node:crypto';
 import { BedrockAgentCoreClient, InvokeHarnessCommand } from '@aws-sdk/client-bedrock-agentcore';
 import {
   BedrockAgentCoreControlClient,
   CreateHarnessCommand,
+  DeleteHarnessCommand,
   GetHarnessCommand,
   ListHarnessesCommand,
+  ResourceNotFoundException,
   UpdateHarnessCommand,
 } from '@aws-sdk/client-bedrock-agentcore-control';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
@@ -132,6 +134,28 @@ function buildInlineTools(row: AgentRow): HarnessTool[] {
 }
 
 /**
+ * Find a harness by name, reading every page.
+ *
+ * `ListHarnesses` returns one page plus a `nextToken`. Asking for a single
+ * page and dropping the token means a harness past the first page reads as
+ * absent, and the caller then creates a second one under the same name.
+ * @param name - Harness name to look for.
+ * @returns The matching summary, or undefined when there is none.
+ */
+async function findHarnessByName(name: string): Promise<HarnessSummary | undefined> {
+  let nextToken: string | undefined;
+  do {
+    const page = await control().send(new ListHarnessesCommand({ nextToken }));
+    const match = (page.harnesses ?? []).find(h => h.harnessName === name);
+    if (match) {
+      return match;
+    }
+    nextToken = page.nextToken;
+  } while (nextToken);
+  return undefined;
+}
+
+/**
  * Create or update the AgentCore harness for one agent. Idempotent —
  * keyed by harness name derived from the agent slug. Returns the
  * harness ARN once READY.
@@ -170,8 +194,7 @@ export async function syncAgentCoreHarness(orgId: string, agentSlug: string): Pr
   };
 
   const name = harnessNameFor(agentSlug);
-  const listed = await control().send(new ListHarnessesCommand({}));
-  const existing = (listed.harnesses ?? []).find(h => h.harnessName === name);
+  const existing = await findHarnessByName(name);
 
   let harnessId: string;
   let arn: string;
@@ -385,4 +408,51 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
 
   emit({ type: 'done', response: responseText, traceId: '' });
   return { response: responseText, traceId: '', toolCalls: toolCallLog };
+}
+
+/**
+ * Delete the managed harness recorded on an agent row.
+ *
+ * Called when an agent moves OFF `aws-managed-harness`. Without it the harness
+ * stays `READY` and invisible — AWS's harness image, still chargeable, still
+ * reachable by anyone holding its ARN — while every actual turn goes to
+ * whatever the agent now names. That happened: `Veerio-Life/veerio-vocion`
+ * moved `event-ingestion-lead` to `agentcore-container` and its harness sat
+ * live for days, found only by reading the AgentCore console.
+ *
+ * Addressed by the id inside the stored ARN, deliberately, rather than by
+ * looking a name up:
+ *
+ * - `harnessNameFor` is `vocion_<slug>` with no org in it, so two orgs whose
+ *   agents share a slug map to one name. A name lookup would let one org's
+ *   apply delete another org's harness. The ARN came from that org's own row.
+ * - It needs no `ListHarnesses`, so a harness past the first page cannot read
+ *   as absent — which on this path would mean reporting success and leaving it
+ *   running.
+ *
+ * The harness owns the runtime underneath it, so `DeleteHarness` takes both;
+ * `DeleteAgentRuntime` on that runtime is refused with "This agent runtime is
+ * managed by harness ... Use DeleteHarness".
+ * @param harnessArn - The `harnessArn` stored on the agent row.
+ * @returns `deleted` false when the harness was already gone — the caller may
+ * still clear its ARN, since there is nothing left to point at.
+ */
+export async function deleteAgentCoreHarness(harnessArn: string): Promise<{ deleted: boolean; harnessId: string }> {
+  const harnessId = harnessArn.split('/').pop();
+  if (!harnessId) {
+    throw new Error(`agentcore: cannot read a harness id out of ${harnessArn}`);
+  }
+
+  try {
+    await control().send(new DeleteHarnessCommand({ harnessId }));
+    return { deleted: true, harnessId };
+  } catch (err) {
+    // Already gone — someone deleted it in the console, or a previous apply
+    // deleted it and failed before clearing the row. Either way the desired
+    // state is the actual state.
+    if (err instanceof ResourceNotFoundException) {
+      return { deleted: false, harnessId };
+    }
+    throw err;
+  }
 }

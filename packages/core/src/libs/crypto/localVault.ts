@@ -28,7 +28,7 @@ import {
   AES_KEY_BYTES,
   aesDecrypt,
   aesEncrypt,
-
+  VaultDecryptionError,
 } from './credentialVault';
 
 function readMasterKey(): Buffer {
@@ -128,24 +128,32 @@ export function localVault(): CredentialVault {
         );
       } catch (error) {
         // Node says "Unsupported state or unable to authenticate data", which
-        // tells the reader nothing. What it means is that the credential was
+        // tells the reader nothing. What it means is that this credential was
         // stored under a different key than the one this process holds, and the
-        // fix — reconnect the source — is not guessable from the original.
+        // fix is not guessable from the original.
         //
         // Which key changed depends on where this runs. Development can reach
         // here with VOCION_CREDENTIAL_VAULT_KEY unset, because every restart
         // then mints a new ephemeral key. Production cannot: an unset key throws
-        // before any ciphertext is touched, so here it means the variable itself
-        // was changed. Naming only the development cause would send an on-call
-        // reader looking for a variable that is already set.
+        // before any ciphertext is touched, so here it means the variable's own
+        // value changed. Naming only the development cause would send an
+        // on-call reader looking for a variable that is already set.
+        //
+        // `VaultDecryptionError` rather than a plain `Error` so the routes that
+        // otherwise flatten vault failures into "Could not read that key." show
+        // this sentence instead. It names an env var and a next step and no
+        // secret. Node's own wording goes in `cause`, where the log picks it up
+        // and the dashboard does not: it tells the reader nothing they can act
+        // on, and vouching for a string this code did not write is exactly what
+        // the flattening rule exists to prevent.
         const causeOfMismatch = process.env.VOCION_CREDENTIAL_VAULT_KEY
           ? 'The value of VOCION_CREDENTIAL_VAULT_KEY has changed since this credential was saved'
           : 'VOCION_CREDENTIAL_VAULT_KEY is unset, so every restart mints a new ephemeral key';
-        throw new Error(
+        throw new VaultDecryptionError(
           'The stored credential could not be decrypted with the current vault key. '
           + `${causeOfMismatch}: set VOCION_CREDENTIAL_VAULT_KEY back to the value it had, or `
-          + 'reconnect this source\'s credential under the current key. '
-          + `(${error instanceof Error ? error.message : String(error)})`,
+          + 'reconnect this source\'s credential under the current key.',
+          { cause: error },
         );
       }
     },
