@@ -46,6 +46,29 @@ type RpcErrorInterceptorOptions = {
 };
 
 /**
+ * Whether the caller reached the app over HTTPS.
+ *
+ * This decides which cookie `getToken` looks for, and getting it wrong is
+ * silent: Auth.js writes `__Secure-authjs.session-token` on an HTTPS site and
+ * `authjs.session-token` otherwise, and `getToken` defaults to the second
+ * name. Production terminates TLS at the reverse proxy and forwards plain HTTP
+ * to the app, so the request's own protocol reads `http:` and only
+ * `x-forwarded-proto` knows what the browser actually spoke. Without this,
+ * every production log line reported `orgId: null` — no cookie found, no error
+ * either.
+ * @param request - The request to judge.
+ */
+function isRequestOverHttps(request: Request): boolean {
+  const forwardedProtocol = request.headers.get('x-forwarded-proto');
+  if (forwardedProtocol) {
+    // A chain of proxies appends to this header; the browser-facing hop is first.
+    const [clientFacingProtocol] = forwardedProtocol.split(',');
+    return clientFacingProtocol?.trim() === 'https';
+  }
+  return new URL(request.url).protocol === 'https:';
+}
+
+/**
  * Read the caller's org from the session cookie, or `null` when there isn't one.
  *
  * Deliberately the JWT and not `auth()`: the session callback re-resolves
@@ -56,7 +79,11 @@ type RpcErrorInterceptorOptions = {
  */
 async function readOrgIdForLogging(request: Request): Promise<string | null> {
   try {
-    const token = await getToken({ req: request, secret: process.env.AUTH_SECRET });
+    const token = await getToken({
+      req: request,
+      secret: process.env.AUTH_SECRET,
+      secureCookie: isRequestOverHttps(request),
+    });
     return typeof token?.projectId === 'string' ? token.projectId : null;
   } catch (sessionError) {
     logger.warn('rpc error logging could not read the session cookie', {

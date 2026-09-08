@@ -23,7 +23,7 @@
     "start": "npm run start --workspace @vocion/core",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "check:types": "npm run check:types --workspace @vocion/core",
+    "check:types": "npm run check:types --workspaces --if-present",
     "check:deps": "knip",
     "check:i18n": "npm run check:i18n --workspace @vocion/core",
     "check:integrity": "node scripts/check-config-integrity.mjs",
