@@ -45,6 +45,16 @@ DB_USER="${POSTGRES_USER:-postgres}"
 # checkout somewhere other than /opt/vocion migrates from its own
 # migration set rather than the default one.
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-${REPO_DIR:-/opt/vocion}/packages/core/migrations}"
+# Concurrent index builds, applied from here and nowhere else. drizzle never
+# reads this subdirectory (its migrator opens only the files named in
+# meta/_journal.json), and the PGlite that dev and the unit tests migrate
+# through cannot run CREATE INDEX CONCURRENTLY at all. See
+# packages/core/migrations/CONVENTIONS.md.
+CONCURRENT_DIR="${MIGRATIONS_DIR}/concurrent"
+# The three statements Postgres refuses to run inside a transaction block.
+# Matched against a comment-stripped, newline-flattened copy of the file to
+# decide whether to drop --single-transaction — see strip_sql_comments.
+CONCURRENTLY_STATEMENTS='(CREATE([[:space:]]+UNIQUE)?[[:space:]]+INDEX[[:space:]]+CONCURRENTLY|DROP[[:space:]]+INDEX[[:space:]]+CONCURRENTLY|REINDEX[[:space:]]+[A-Z]+[[:space:]]+CONCURRENTLY)'
 # bootstrap.sh calls this right after `docker compose up -d`, so the
 # Postgres container may still be initialising.
 READINESS_ATTEMPTS="${POSTGRES_READINESS_ATTEMPTS:-30}"
@@ -148,11 +158,42 @@ create_tracking_table() {
 # Sorted list of migration file paths, newline-separated. Drizzle names
 # files with a zero-padded ordinal prefix, so lexical sort is apply
 # order — the same order as migrations/meta/_journal.json.
-list_migration_files() {
+# The numbered migrations, in apply order — the same set, in the same order,
+# that drizzle's journal describes. Baselining maps drizzle's applied count
+# onto positions in this list, so it must not include anything drizzle does
+# not know about.
+list_journal_migration_files() {
   # `find`, not a glob: it exits 0 when nothing matches, where `ls` on an
   # unmatched glob exits 1 and takes the whole pipeline down under
   # `pipefail`.
   find "${MIGRATIONS_DIR}" -maxdepth 1 -name '[0-9]*.sql' 2>/dev/null | sort
+}
+
+# Everything to apply, in order: each numbered migration followed by any
+# concurrent index build carrying the same 4-digit number, so the build sees
+# the columns the migration just added.
+list_migration_files() {
+  local sql_file number
+  while IFS= read -r sql_file; do
+    printf '%s\n' "${sql_file}"
+    number=$(basename "${sql_file}" | cut -c1-4)
+    # The directory check is load-bearing: under `pipefail`, `find` on a
+    # missing path fails the whole pipeline and `set -e` ends the script.
+    if [ -d "${CONCURRENT_DIR}" ]; then
+      find "${CONCURRENT_DIR}" -maxdepth 1 -name "${number}_*.sql" | sort
+    fi
+  done < <(list_journal_migration_files)
+}
+
+# Name a file is recorded under in __pgsql_migrations. Concurrent builds keep
+# their directory in the name so they can never collide with a numbered
+# migration that happens to share a filename.
+migration_recorded_name() {
+  local sql_file="$1"
+  case "${sql_file}" in
+    "${CONCURRENT_DIR}"/*) printf 'concurrent/%s' "$(basename "${sql_file}")" ;;
+    *) basename "${sql_file}" ;;
+  esac
 }
 
 # Stop before touching the database when there is nothing to apply from.
@@ -190,7 +231,7 @@ find_migration_position() {
       printf '%s' "${position}"
       return 0
     fi
-  done < <(list_migration_files)
+  done < <(list_journal_migration_files)
   return 1
 }
 
@@ -270,7 +311,7 @@ record_first_n_as_applied() {
     name=$(basename "${sql_file}")
     record_migration_as_applied "${name}"
     recorded=$((recorded + 1))
-  done < <(list_migration_files)
+  done < <(list_journal_migration_files)
   log "baselined ${recorded} migration(s) as already applied"
 }
 
@@ -294,7 +335,7 @@ baseline_pre_existing_schema() {
   # replaying 0011, with the operator's MIGRATIONS_BASELINE ignored.
   if [ "${MIGRATIONS_BASELINE}" = "all" ]; then
     local total
-    total=$(list_migration_files | wc -l | tr -d ' ')
+    total=$(list_journal_migration_files | wc -l | tr -d ' ')
     log "MIGRATIONS_BASELINE=all — treating all ${total} file(s) as applied"
     record_first_n_as_applied "${total}"
     return 0
@@ -355,12 +396,15 @@ baseline_pre_existing_schema() {
 # single check is not worth the dependency. Comment-stripping gets detection
 # close enough for that one decision without pretending to understand SQL.
 #
-# What it still cannot see: the keyword written inside a string literal —
-# for example a migration that INSERTs the literal text
-# 'CREATE INDEX CONCURRENTLY' as data. That would still count as a match.
-# Getting this wrong only makes detection too eager (running a migration
-# unwrapped when it did not need to be), never too blind (missing a real
-# CONCURRENTLY statement) — the safer of the two possible mistakes.
+# What it still cannot see: a whole statement written inside a string
+# literal — a migration that INSERTs the literal text
+# 'CREATE INDEX CONCURRENTLY foo ON bar' as data would still count as a
+# match. The keyword is matched as part of the three statement forms that
+# actually refuse a transaction (CONCURRENTLY_STATEMENTS below) rather than
+# on its own, so the far likelier prose case — a COMMENT ON INDEX, or a
+# `RAISE NOTICE 'built CONCURRENTLY'` — no longer drops the transaction
+# from a migration that needed it. Losing --single-transaction is not free:
+# a mid-file failure then leaves half the DDL in place.
 #
 # Implemented as a small state machine in awk, tracking whether we are
 # currently inside a block comment, rather than a multi-line sed
@@ -411,7 +455,7 @@ apply_pending_migrations() {
   tracking_present=$(run_sql -tA -c \
     "SELECT to_regclass('public.__pgsql_migrations') IS NOT NULL;")
   while IFS= read -r sql_file; do
-    name=$(basename "${sql_file}")
+    name=$(migration_recorded_name "${sql_file}")
     already=""
     if [ "${tracking_present}" = "t" ]; then
       already=$(run_sql -tA -c \
@@ -436,7 +480,7 @@ apply_pending_migrations() {
     # statement failing leaves the earlier ones in place — the log says
     # so, because recovery then needs a human.
     local transaction_flag="--single-transaction"
-    if strip_sql_comments "${sql_file}" | grep -qiE '\bCONCURRENTLY\b'; then
+    if strip_sql_comments "${sql_file}" | tr '\n' ' ' | grep -qiE "${CONCURRENTLY_STATEMENTS}"; then
       transaction_flag=""
       log "  ${name} uses CONCURRENTLY — applying without a transaction;"
       log "  a partial failure in this file will not roll back"

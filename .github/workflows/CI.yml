@@ -79,6 +79,16 @@ jobs:
       - name: Config integrity (malware guard)
         run: npm run check:integrity
 
+      # Refuses a migration that would take a write lock on a populated table.
+      # See packages/core/migrations/CONVENTIONS.md.
+      #
+      # Ahead of the linter deliberately. `npm run lint` currently exits 1 on
+      # this repo's standing errors, so any step after it never runs at all —
+      # a migration check placed later would be wired up and silently dead.
+      # It is also the cheapest step here: no build, no database, ~1s.
+      - name: Migration conventions
+        run: npm run check:migrations
+
       - name: Linter
         run: npm run lint
 
