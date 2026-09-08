@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
 import { drizzle } from 'drizzle-orm/pglite';
@@ -18,8 +19,22 @@ const createDbConnection = () => {
 
 const db = createDbConnection();
 
-await migrate(db, {
-  migrationsFolder: path.join(process.cwd(), 'migrations'),
-});
+/**
+ * Where drizzle's generated migrations live, resolved from THIS file rather
+ * than from the working directory.
+ *
+ * `process.cwd()` used to be the base, which only worked when vitest was
+ * launched from inside `packages/core`. Running it from the repo root — as
+ * `.github/workflows/deploy-agent-runtime.yml` does with
+ * `vitest run --root packages/core` — left every suite that touches the
+ * database failing with "Can't find meta/_journal.json file", because
+ * `--root` moves vitest's config root but not the process's cwd.
+ */
+const migrationsFolder = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../migrations',
+);
+
+await migrate(db, { migrationsFolder });
 
 export { db };
