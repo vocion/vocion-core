@@ -626,6 +626,47 @@ test_concurrently_migration_runs_without_a_transaction() {
   fi
 }
 
+test_concurrently_only_in_line_comment_uses_a_transaction() {
+  echo "apply-migrations: CONCURRENTLY mentioned only in a -- comment"
+  reset_database
+  clear_migrations
+  write_migration 0000_widget.sql \
+    '-- this migration does not actually use CONCURRENTLY, only mentions it here
+CREATE TABLE "widget" ("id" text PRIMARY KEY NOT NULL);'
+  run_applier
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_absent "does not treat the comment mention as real usage" "${APPLIER_OUTPUT}" "uses CONCURRENTLY"
+  check_contains "still applies the file" "${APPLIER_OUTPUT}" "1 applied · 0 already-applied · 0 failed"
+}
+
+test_concurrently_only_in_block_comment_uses_a_transaction() {
+  echo "apply-migrations: CONCURRENTLY mentioned only in a /* */ comment"
+  reset_database
+  clear_migrations
+  write_migration 0000_gadget.sql \
+    '/* CONCURRENTLY is not used below, just discussed */
+CREATE TABLE "gadget" ("id" text PRIMARY KEY NOT NULL);'
+  run_applier
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_absent "does not treat the comment mention as real usage" "${APPLIER_OUTPUT}" "uses CONCURRENTLY"
+  check_contains "still applies the file" "${APPLIER_OUTPUT}" "1 applied · 0 already-applied · 0 failed"
+}
+
+test_concurrently_comment_and_real_statement_still_detected() {
+  echo "apply-migrations: CONCURRENTLY named in prose alongside a real statement"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_migration 0001_concurrent_index.sql \
+    '-- CONCURRENTLY mentioned here in prose, and used for real below
+CREATE INDEX CONCURRENTLY "organization_id_idx" ON "organization" ("id");'
+  run_applier
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "says why the file ran unwrapped" "${APPLIER_OUTPUT}" \
+    "uses CONCURRENTLY — applying without a transaction"
+  check_contains "applies both files" "${APPLIER_OUTPUT}" "2 applied · 0 already-applied · 0 failed"
+}
+
 test_unreachable_container_fails_loudly() {
   echo "apply-migrations: unreachable container"
   run_applier POSTGRES_CONTAINER=vocion-no-such-container POSTGRES_READINESS_ATTEMPTS=2
@@ -903,6 +944,9 @@ main() {
   test_check_mode_writes_nothing
   test_check_mode_reports_the_baseline_refusal
   test_concurrently_migration_runs_without_a_transaction
+  test_concurrently_only_in_line_comment_uses_a_transaction
+  test_concurrently_only_in_block_comment_uses_a_transaction
+  test_concurrently_comment_and_real_statement_still_detected
   test_unreachable_container_fails_loudly
   test_default_container_and_database_match_compose
 

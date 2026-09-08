@@ -74,11 +74,24 @@ export function bedrockRegion(): string {
 /**
  * The AWS identity a Bedrock call for `orgId` should use.
  *
- * Never throws and never returns "nothing available": when the org has stored
- * no pair the answer is `{ source: 'environment', keyPair: null }`, and it is
- * the AWS SDK — not us — that decides whether the process has a usable
- * identity. Guessing that ourselves would mean either duplicating the whole
- * credential chain or refusing a host that authenticates by instance role.
+ * Never returns "nothing available": when the org has stored no pair the
+ * answer is `{ source: 'environment', keyPair: null }`, and it is the AWS
+ * SDK — not us — that decides whether the process has a usable identity.
+ * Guessing that ourselves would mean either duplicating the whole credential
+ * chain or refusing a host that authenticates by instance role.
+ *
+ * **Does throw when the org's stored pair cannot be decrypted.** This calls
+ * `resolveAwsCredentials`, which calls `resolvePlatformCredential` — and that
+ * function's contract is to throw on decryption failure rather than fall back
+ * silently. Operationally, that means the DEK and the stored ciphertext have
+ * diverged, most often because `VOCION_CREDENTIAL_VAULT_KEY` was never set
+ * and a restart minted a fresh ephemeral key that cannot open data encrypted
+ * under the old one. It is not caught here: treating it like "no pair stored"
+ * and falling through to the process's own AWS identity would sign the
+ * Bedrock call with the platform account instead of the org's, which is
+ * exactly the wrong-account billing risk this whole module exists to prevent.
+ * On the agentcore-container path this throw propagates and ends the agent
+ * turn — that is the intended failure mode, not a bug.
  *
  * Resolved per call, never cached. A cache keyed on anything less than the
  * exact credential in use is how one tenant ends up spending another tenant's

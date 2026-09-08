@@ -117,10 +117,22 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   // rides the payload and the artifact prefers whichever source is more
   // complete. VOCION_MEMORY_AUTHORITATIVE=1 omits payload history for
   // the real token savings once Memory-backed conversations are trusted.
+  // The actor id MUST carry orgId, exactly like sessionId above: long-term
+  // memory (facts/preferences, see memory.ts retrieveLongTerm) is namespaced
+  // by actor alone, with no org dimension of its own. Without orgId here, a
+  // user who belongs to two orgs would share one long-term memory across
+  // both, and every run with no userId (missions, background work) would
+  // collapse onto the single literal actor "system" shared by every org in
+  // the memory store. This intentionally changes the actor id format, which
+  // orphans any long-term records already written under the old unscoped
+  // namespaces (`/facts/<userId-or-system>`, `/preferences/<userId-or-system>`)
+  // — those records become unreachable. That is the point: an unscoped
+  // record could belong to the wrong org, so leaving it unreachable is safer
+  // than migrating it forward under a guessed org.
   const memorySession = process.env.VOCION_AGENTCORE_MEMORY_ID && opts.conversationId
     ? {
         sessionId: `vocion-conv-${opts.conversationId}-${opts.orgId}`.replace(/[^\w-]/g, '-').slice(0, 100),
-        actorId: (opts.userId ?? 'system').replace(/[^\w-]/g, '-').slice(0, 100),
+        actorId: `${opts.orgId}-${opts.userId ?? 'system'}`.replace(/[^\w-]/g, '-').slice(0, 100),
       }
     : undefined;
   const omitHistory = memorySession && process.env.VOCION_MEMORY_AUTHORITATIVE === '1';
@@ -168,7 +180,15 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
           outputTokens: event.outputTokens,
           cacheReadTokens: event.cacheReadTokens,
         },
-      }).catch(() => {});
+      }).catch((err) => {
+        // Charging is best-effort against the event stream — we never want a
+        // billing hiccup to abort someone's chat turn — but a swallowed
+        // failure here means budget enforcement silently stops working for
+        // this org, with nothing in production logs to say so. Log it.
+        console.error(
+          `runtime provider: budget charge failed for org ${opts.orgId} agent ${opts.agentSlug} (usage NOT recorded): ${(err as Error).message}`,
+        );
+      });
       return;
     }
     if (event.type === 'tool_end') {
@@ -206,6 +226,18 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
         }
       }
     }
+    if (event.type === 'tool_error') {
+      // Logged here as well as inside the artifact, because this is the side
+      // holding the org and agent — and because the most common cause is a
+      // VOCION_TOOL_ENDPOINT_URL this deployment set wrong, where every tool
+      // fails identically while the agent still answers fluently from the
+      // model alone. The turn is deliberately NOT failed: the model has the
+      // failure as that tool's output and may still give a useful answer.
+      console.warn(
+        `runtime provider: tool ${event.tool} failed for org ${opts.orgId} agent ${opts.agentSlug}`
+        + `${event.status === undefined ? '' : ` (status ${event.status})`}: ${event.message}`,
+      );
+    }
     if (event.type === 'done') {
       response = event.response;
       traceId = event.traceId ?? '';
@@ -235,54 +267,76 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
       }
       try {
         await handleEvent(JSON.parse(data) as AgentEvent);
-      } catch {
-        /* skip malformed frames rather than killing the run */
+      } catch (err) {
+        // A truncated or malformed frame silently drops whatever event it
+        // carried — possibly a response_delta, done, or error — which is
+        // invisible in production if we say nothing. Log it, but keep
+        // skipping just this one frame rather than aborting the stream:
+        // one bad frame does not mean the rest of the run is unusable, and
+        // ending the run here would lose a response the model may still
+        // finish producing in later frames.
+        console.warn(`agent runtime provider: dropped malformed SSE frame: ${(err as Error).message}`);
       }
     }
   };
 
-  const runtimeArn = process.env.VOCION_AGENT_RUNTIME_ARN;
-  if (runtimeArn) {
-    // Deployed transport: InvokeAgentRuntime (SigV4) against AgentCore.
-    const { BedrockAgentCoreClient, InvokeAgentRuntimeCommand } = await import('@aws-sdk/client-bedrock-agentcore');
-    const client = new BedrockAgentCoreClient({ region: process.env.VOCION_AGENTCORE_REGION ?? 'us-west-2' });
-    const { randomUUID } = await import('node:crypto');
-    const res = await client.send(new InvokeAgentRuntimeCommand({
-      agentRuntimeArn: runtimeArn,
-      runtimeSessionId: randomUUID(),
-      ...(opts.userId ? { runtimeUserId: opts.userId } : {}),
-      contentType: 'application/json',
-      accept: 'text/event-stream',
-      payload: Buffer.from(JSON.stringify(payload), 'utf8'),
-    }));
-    const stream = res.response as unknown as AsyncIterable<Uint8Array> | undefined;
-    if (!stream) {
-      throw new Error('agent runtime (AgentCore) returned no stream');
-    }
-    const decoder = new TextDecoder();
-    for await (const value of stream) {
-      await handleChunk(decoder.decode(value, { stream: true }));
-    }
-  } else {
-    // Local transport: plain HTTP to the artifact.
-    const res = await fetch(`${RUNTIME_URL()}/invocations`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok || !res.body) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`agent runtime returned ${res.status}${body ? `: ${body.slice(0, 300)}` : ''}`);
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
+  // Both transport branches below can fail before or during the stream
+  // (SigV4 call rejected, HTTP connect refused, non-2xx response, stream
+  // reader throwing mid-read). Previously nothing caught that: the promise
+  // this function returns would reject, but a caller consuming `onEvent`
+  // as an event stream would just see the stream end with no `error`
+  // event — indistinguishable from the artifact quietly giving up. Emit a
+  // typed error event first, mirroring loop.ts's own catch, then rethrow
+  // so the caller's promise still rejects exactly as before.
+  try {
+    const runtimeArn = process.env.VOCION_AGENT_RUNTIME_ARN;
+    if (runtimeArn) {
+      // Deployed transport: InvokeAgentRuntime (SigV4) against AgentCore.
+      const { BedrockAgentCoreClient, InvokeAgentRuntimeCommand } = await import('@aws-sdk/client-bedrock-agentcore');
+      const client = new BedrockAgentCoreClient({ region: process.env.VOCION_AGENTCORE_REGION ?? 'us-west-2' });
+      const { randomUUID } = await import('node:crypto');
+      const res = await client.send(new InvokeAgentRuntimeCommand({
+        agentRuntimeArn: runtimeArn,
+        runtimeSessionId: randomUUID(),
+        ...(opts.userId ? { runtimeUserId: opts.userId } : {}),
+        contentType: 'application/json',
+        accept: 'text/event-stream',
+        payload: Buffer.from(JSON.stringify(payload), 'utf8'),
+      }));
+      const stream = res.response as unknown as AsyncIterable<Uint8Array> | undefined;
+      if (!stream) {
+        throw new Error('agent runtime (AgentCore) returned no stream');
       }
-      await handleChunk(decoder.decode(value, { stream: true }));
+      const decoder = new TextDecoder();
+      for await (const value of stream) {
+        await handleChunk(decoder.decode(value, { stream: true }));
+      }
+    } else {
+      // Local transport: plain HTTP to the artifact.
+      const res = await fetch(`${RUNTIME_URL()}/invocations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok || !res.body) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`agent runtime returned ${res.status}${body ? `: ${body.slice(0, 300)}` : ''}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        await handleChunk(decoder.decode(value, { stream: true }));
+      }
     }
+  } catch (err) {
+    const message = (err as Error).message ?? 'agent runtime transport failed';
+    console.error(`agent runtime provider: transport failed for org ${opts.orgId} agent ${opts.agentSlug}: ${message}`);
+    emit({ type: 'error', message });
+    throw err;
   }
 
   if (errorMessage) {
