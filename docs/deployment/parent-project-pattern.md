@@ -159,19 +159,75 @@ so check it during handover rather than assuming.
 
 ### Who runs the deploy
 
-The parent project, not core. Core holds no AWS account and no credentials, so
-it cannot deploy a runtime anywhere — the scripts under `infra/agentcore/` are
-the shared implementation, and the parent project calls them with its own
-profile and environment, either from an operator machine or from its own
-pipeline. Veerio's wrapper is `./scripts/deploy.sh agentcore <env>`.
+The parent project, never core. Core holds no AWS account and no credentials,
+so it cannot deploy a runtime anywhere. The scripts under `infra/agentcore/`
+are the shared implementation; the parent project calls them with its own
+profile and environment. Veerio's wrapper is
+`./scripts/deploy.sh agentcore <env>`.
 
 Core used to carry a workflow that deployed a runtime into MetaCTO's own
-account for dev. It was never activated, and it was the wrong shape: it made
-core look like the thing that owns a deployment. Removed.
+account. It was never activated, and it was the wrong shape — it made core
+look like the thing that owns a deployment. Removed. What every client project
+does need is its own path to the same deploy, which is the next section.
 
-SSM is namespaced per environment (`/vocion/agentcore/<env>/`, see
+### One-time: let the client project's CI deploy the runtime
+
+Two steps per client account, then that project's pipeline can deploy
+unattended.
+
+**1. Create the deploy role in the client's account.** This is deliberately
+manual and deliberately human: it creates federated trust between GitHub and
+an AWS account.
+
+```bash
+GITHUB_REPO=Veerio-Life/veerio-vocion \
+AWS_PROFILE=veerio REGION=us-west-2 \
+  bash vocion-core/infra/agentcore/provision-ci-role.sh
+```
+
+The role it creates admits exactly one repo at one ref (`refs/heads/main` by
+default, `GITHUB_REF` to change it) and carries only what `deploy-runtime.sh`
+and `smoke-invoke.sh` need: ECR push, AgentCore create/update/get/invoke,
+`iam:PassRole` for the runtime role, and read/write on
+`/vocion/agentcore/*` parameters. Pass `ROLE_NAME` when one account serves
+more than one project.
+
+The script prints the `gh secret set` line to run next.
+
+**2. Call the scripts from the client project's workflow.** They need the
+submodule checked out, QEMU for the arm64 build, and the role above:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+
+steps:
+  - uses: actions/checkout@v4
+    with:
+      submodules: recursive
+
+  - uses: aws-actions/configure-aws-credentials@v4
+    with:
+      role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      aws-region: us-west-2
+
+  - uses: docker/setup-qemu-action@v3
+    with:
+      platforms: arm64
+
+  - run: ENV=production bash vocion-core/infra/agentcore/deploy-runtime.sh
+  - run: ENV=production bash vocion-core/infra/agentcore/smoke-invoke.sh
+```
+
+Do this once per environment. SSM is namespaced per environment
+(`/vocion/agentcore/<env>/`, see
 [`multiple-environments.md`](./multiple-environments.md)), so two environments
 never share a runtime by accident.
+
+The runtime artifact is generic — agent definitions travel in the invocation
+payload — so this pipeline only needs to run when `packages/agent-runtime`
+changes, not when an agent is edited.
 
 ---
 
