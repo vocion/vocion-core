@@ -96,6 +96,35 @@ jobs:
       - name: Migration conventions
         run: npm run check:migrations
 
+  agent-runtime:
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    name: Check the agent runtime artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js environment
+        uses: ./.github/actions/setup-project
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # The artifact deployed to AgentCore Runtime is its own workspace, and
+      # until now nothing in CI touched it: the root `check:types` and `test`
+      # scripts both named `@vocion/core` alone, and the only place its
+      # typecheck ran was a deploy workflow that has been removed. Its suite
+      # needs no database and no credentials, so it stands alone rather than
+      # joining the unit job's coverage run.
+      - name: Type checking
+        run: npm run check:types --workspace @vocion/agent-runtime
+
+      - name: Unit tests
+        run: npm run test --workspace @vocion/agent-runtime
+
   unit:
     strategy:
       matrix:
