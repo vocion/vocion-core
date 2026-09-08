@@ -10,7 +10,7 @@ Vocion is a multi-tenant SaaS application built on Next.js 16. It provides conte
 - **Retrieval:** Native first-party — pgvector (HNSW cosine) + Postgres FTS (tsvector + ts_rank), reciprocal rank fusion, optional LLM rerank. No third-party retrieval engine.
 - **Connectors:** First-party `SourceConnector` interface (`libs/sources/`). Sync orchestrated by `SourceSyncService` (Temporal async workflow queued). Built-in: `web`. Demo: `local-files` (see Phase B).
 - **Styling:** Tailwind CSS 4 + Shadcn UI (Radix primitives)
-- **Auth:** NextAuth (v0.3+) with multi-tenancy via accounts/projects + RBAC
+- **Auth:** Auth.js / NextAuth v5 (`next-auth` ^5.0.0-beta + `@auth/drizzle-adapter`) with multi-tenancy via accounts/projects + RBAC. Config: `src/libs/Auth.ts`; RPC guards: `src/routers/AuthGuards.ts`.
 - **Database:** PostgreSQL (Docker Compose; pgvector/pgvector:pg16) + Drizzle ORM
 - **Payments:** Stripe (optional, subscriptions)
 - **API:** oRPC (end-to-end type-safe RPC)
@@ -74,7 +74,7 @@ src/
 │   ├── (marketing)/       # Landing page (public)
 │   ├── (auth)/            # Authenticated pages
 │   │   ├── dashboard/     # Dashboard, todos, billing, settings
-│   │   └── (center)/      # Clerk sign-in/sign-up
+│   │   └── (center)/      # sign-in/sign-up (first-party Auth.js forms)
 │   ├── rpc/               # oRPC API routes
 │   └── webhook/           # Stripe webhook handler
 ├── components/ui/         # Shadcn UI components
@@ -208,26 +208,46 @@ only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`).
 
 ## Multi-Tenancy
 
-- Clerk organizations provide multi-tenancy
-- Each org has its own Stripe subscription stored in the `organization` DB table
-- Data is scoped by org (via `auth()` orgId)
+- Tenancy is first-party, not delegated to an identity provider: a
+  `tenant_account` owns one or more `project` rows (`src/models/Schema.ts`)
+- Every Auth.js session carries `{ user: { id, accountId, projectId, role } }`
+  (`src/libs/Auth.ts`); the active project is held in a `vocion_active_project`
+  cookie that the JWT callback honors on the next issue
+- Data is scoped by project (via `auth()` → `projectId`). `guardAuth` in
+  `src/routers/AuthGuards.ts` still returns `orgId` as an alias of `projectId`
+  because the business-content tables keep their `org_id` column for now
 - Roles: `org:admin`, `org:member` (defined in `src/types/Auth.ts`)
-- Enable organizations in Clerk Dashboard > Organization management > Settings
+- Nothing to enable in a provider dashboard: set `AUTH_SECRET` and run the
+  migrations. `VOCION_AUTH_PROVIDER` defaults to `local` (`src/libs/Env.ts`)
 
 ## Database Schema
 
-- **organization** - Clerk org ID, Stripe subscription fields, timestamps
+- **tenant_account** / **project** - first-party tenancy; Stripe subscription
+  fields live on `tenant_account`
+- **user** / **auth_account** / **session** / **verification_token** - Auth.js
+  tables, wired through `@auth/drizzle-adapter` in `src/libs/Auth.ts`
+- **account_membership** - user ↔ account membership and role
+- **organization** - legacy tenancy row (plain text id, Stripe subscription
+  fields, timestamps); superseded by `tenant_account` / `project`
 - **todo** - Sample CRUD entity scoped to user/org
 
 To modify: edit `src/models/Schema.ts`, then `npm run db:generate && npm run db:migrate`.
 
 ## Environment Setup
 
-Copy `.env.example` to `.env.local` and fill in your keys. Required 3rd-party services:
-1. **Clerk** - Auth (publishable key + secret key)
-3. **PostgreSQL** - Database (local via Docker or PGLite, production via Neon/Supabase/etc.)
+Copy `.env.example` to `.env.local` and fill in your keys. Required:
+
+1. **`AUTH_SECRET`** - Auth.js session signing secret. Required whenever
+   `VOCION_AUTH_PROVIDER` is unset or `local`, which is the default
+   (`src/libs/Env.ts`). Generate one with `openssl rand -base64 32`. Auth is
+   self-contained — there is no 3rd-party auth service to sign up for.
+2. **PostgreSQL** - Database (local via Docker or PGLite, production via Neon/Supabase/etc.)
 
 Optional: Stripe (payments), Sentry, Better Stack, Checkly, Crowdin.
+
+`VOCION_AUTH_PROVIDER` also accepts `clerk`, which reads `CLERK_SECRET_KEY` and
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`. That path is reserved for the hosted
+product and is **not wired in core** — leave the variable at its default.
 
 ## Key Directories (Infrastructure)
 
