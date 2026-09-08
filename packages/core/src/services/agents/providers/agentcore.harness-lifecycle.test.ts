@@ -7,11 +7,11 @@
  * - The create/update path looks a harness up by name. Reading only the first
  *   page makes a harness past it read as absent, and a second harness then
  *   gets created under the same name.
- * - The delete path must not depend on that lookup at all. `harnessNameFor` is
- *   `vocion_<slug>` with no org in it, so two orgs whose agents share a slug
- *   map to one name; deleting by name would let one org's workspace apply
- *   delete another org's harness. It deletes by the id inside the ARN stored
- *   on that org's own row instead.
+ * - The delete path must not depend on that lookup at all. It deletes the id
+ *   inside the ARN stored on that org's own row, so it can only reach that
+ *   org's harness — including an agent provisioned before harness names
+ *   carried an org, whose bare `vocion_<slug>` name a lookup could match for
+ *   a different org.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
