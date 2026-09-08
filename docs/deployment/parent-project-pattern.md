@@ -367,18 +367,24 @@ generic, so agent definitions travel in the invocation payload.
 
 ## Migrations: call core's applier
 
-Apply migrations with `vocion-core/infra/aws/apply-migrations.sh`, pointed at
-this deployment via `MIGRATIONS_DIR`, `POSTGRES_CONTAINER` and `POSTGRES_DB`.
-Never loop over `packages/core/migrations/*.sql` here.
+Apply migrations by calling core's script, never by looping over
+`packages/core/migrations/*.sql` here:
+
+    sudo MIGRATIONS_DIR=/opt/<project>/vocion-core/packages/core/migrations \
+      POSTGRES_CONTAINER=<pg-container> POSTGRES_DB=<database> \
+      bash /opt/<project>/vocion-core/infra/aws/apply-migrations.sh
 
 Core keeps index builds that must not lock the table in
 `packages/core/migrations/concurrent/`. A glob over the migrations directory
 skips that subdirectory silently — the schema change lands, the index does
 not, and the deploy still reports success.
 
-If this project keeps its own applier, end every deploy with
-`apply-migrations.sh --verify-indexes`, which reads the database and fails when
-one of those index builds is missing or `INVALID`.
+If this project keeps its own applier, end every deploy with the same script
+under `--verify-indexes`. It reads the database and nothing else, and fails
+naming any of those index builds that is missing or `INVALID`:
+
+    sudo MIGRATIONS_DIR=... POSTGRES_CONTAINER=... POSTGRES_DB=... \
+      bash .../vocion-core/infra/aws/apply-migrations.sh --verify-indexes
 ```
 
 ---

@@ -141,6 +141,21 @@ parse_arguments() {
         ;;
     esac
   done
+
+  # --verify-indexes exits before anything else runs, so accepting it
+  # alongside --check or --baseline would silently drop half the command.
+  if [ "${VERIFY_INDEXES_ONLY}" = true ]; then
+    if [ "${CHECK_ONLY}" = true ]; then
+      log "ERROR: --verify-indexes cannot be combined with --check."
+      log "  --verify-indexes already writes nothing. Run it on its own."
+      exit 1
+    fi
+    if [ -n "${MIGRATIONS_BASELINE}" ]; then
+      log "ERROR: --verify-indexes cannot be combined with --baseline."
+      log "  Baseline first, then verify in a second run."
+      exit 1
+    fi
+  fi
 }
 
 # Run a psql command inside the Postgres container. stdout is the
@@ -473,6 +488,11 @@ strip_sql_comments() {
 
 # Index names declared by the files in migrations/concurrent/, one per line.
 # Reads the comment-stripped text so a name mentioned in prose is not counted.
+#
+# UNIQUE is matched even though check:migrations refuses it in this directory:
+# verification should report on whatever is actually there, and a file that
+# predates the rule or evaded it still has an index that either landed or did
+# not.
 list_declared_concurrent_indexes() {
   if [ ! -d "${CONCURRENT_DIR}" ]; then
     return 0
@@ -481,7 +501,7 @@ list_declared_concurrent_indexes() {
   while IFS= read -r sql_file; do
     strip_sql_comments "${sql_file}" \
       | tr '\n' ' ' \
-      | grep -oiE 'CREATE([[:space:]]+UNIQUE)?[[:space:]]+INDEX[[:space:]]+CONCURRENTLY([[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS)?[[:space:]]+"?[A-Za-z0-9_]+"?' \
+      | grep -oiE 'CREATE([[:space:]]+UNIQUE)?[[:space:]]+INDEX[[:space:]]+CONCURRENTLY([[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS)?[[:space:]]+("[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)' \
       | awk '{ gsub(/"/, "", $NF); print $NF }' || true
   done < <(find "${CONCURRENT_DIR}" -maxdepth 1 -name '[0-9]*.sql' 2>/dev/null | sort)
 }
@@ -504,7 +524,13 @@ verify_concurrent_indexes() {
   local declared
   declared=$(list_declared_concurrent_indexes | sort -u)
   if [ -z "${declared}" ]; then
-    log "no concurrent index builds declared; nothing to verify"
+    if [ -d "${CONCURRENT_DIR}" ]; then
+      log "${CONCURRENT_DIR} declares no index builds; nothing to verify"
+    else
+      log "no ${CONCURRENT_DIR}; this migration set declares no index builds,"
+      log "  so there is nothing to verify. If that is a surprise, check"
+      log "  MIGRATIONS_DIR — it is ${MIGRATIONS_DIR}"
+    fi
     return 0
   fi
 
@@ -513,7 +539,10 @@ verify_concurrent_indexes() {
   log "verifying ${index_count} concurrent index build(s)"
 
   local quoted_names
-  quoted_names=$(printf '%s\n' "${declared}" | sed "s/.*/'&'/" | paste -sd, -)
+  # Single quotes doubled, the SQL escape. Index names come from files in this
+  # repo rather than from user input, but a name is not a place to be relying
+  # on that.
+  quoted_names=$(printf '%s\n' "${declared}" | sed "s/'/''/g; s/.*/'&'/" | paste -sd, -)
 
   # relname → indisvalid, for the declared names that exist at all.
   local found
@@ -525,16 +554,26 @@ verify_concurrent_indexes() {
   ")
 
   local problems=0
-  local index_name state
+  local index_name state declaring_file
   while IFS= read -r index_name; do
     state=$(printf '%s\n' "${found}" | awk -F'|' -v name="${index_name}" '$1 == name { print $2 }')
+    declaring_file=$(grep -rl -- "${index_name}" "${CONCURRENT_DIR}" 2>/dev/null | head -1)
     if [ -z "${state}" ]; then
       log "  x ${index_name} — MISSING. Whatever applied migrations here skipped"
-      log "    ${CONCURRENT_DIR}. See packages/core/migrations/CONVENTIONS.md."
+      log "    ${CONCURRENT_DIR}. Queries run on the plan this index was added to"
+      log "    avoid: slower, not down. Build it now with"
+      log "      sudo docker exec -i ${CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} \\"
+      log "        -v ON_ERROR_STOP=1 < ${declaring_file:-${CONCURRENT_DIR}/<file>.sql}"
+      log "    then fix the deploy — see packages/core/migrations/CONVENTIONS.md."
       problems=$((problems + 1))
     elif [ "${state}" != "t" ]; then
-      log "  x ${index_name} — INVALID. A concurrent build died partway; Postgres"
-      log "    will not use it. Drop it, then re-run the build."
+      log "  x ${index_name} — INVALID. A concurrent build died partway. The index"
+      log "    exists, Postgres never uses it, and IF NOT EXISTS will skip"
+      log "    rebuilding it for good. Queries are slower, not down. Fix with"
+      log "      sudo docker exec ${CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} \\"
+      log "        -v ON_ERROR_STOP=1 -c 'DROP INDEX CONCURRENTLY \"${index_name}\"'"
+      log "      sudo docker exec -i ${CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} \\"
+      log "        -v ON_ERROR_STOP=1 < ${declaring_file:-${CONCURRENT_DIR}/<file>.sql}"
       problems=$((problems + 1))
     fi
   done < <(printf '%s\n' "${declared}")

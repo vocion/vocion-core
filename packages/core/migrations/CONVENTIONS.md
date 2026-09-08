@@ -39,9 +39,10 @@ look in `concurrent/`. A deploy that globs `packages/core/migrations/*.sql`
 skips the directory in silence, and the index is simply never built there.
 `apply-migrations.sh --verify-indexes` exists to catch that: it reads the
 database and fails naming any index declared here that is missing, or that a
-failed build left `INVALID`. The requirement on parent projects is written up in
-`docs/deployment/parent-project-pattern.md`; `Veerio-Life/veerio-vocion` is the
-open case (issue #30 there).
+failed build left `INVALID`. A deploy that applies migrations its own way should
+end with it. The requirement on parent projects, and the reason a project should
+call core's applier rather than reimplement the loop, is written up in
+`docs/deployment/parent-project-pattern.md`.
 
 Dev and test then run without those indexes, which is fine for a plain index: it
 changes query plans, never results. It is **not** fine for a unique one, so
