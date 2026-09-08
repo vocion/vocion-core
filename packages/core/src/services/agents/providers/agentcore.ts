@@ -36,6 +36,7 @@ import { BedrockAgentCoreClient, InvokeHarnessCommand } from '@aws-sdk/client-be
 import {
   BedrockAgentCoreControlClient,
   CreateHarnessCommand,
+  DeleteHarnessCommand,
   GetHarnessCommand,
   ListHarnessesCommand,
   UpdateHarnessCommand,
@@ -138,6 +139,33 @@ function buildInlineTools(row: AgentRow): HarnessTool[] {
  * @param orgId
  * @param agentSlug
  */
+/**
+ * Delete this agent's managed harness, if it has one. Safe to call for an
+ * agent that never had one.
+ *
+ * Called when an agent moves OFF `aws-managed-harness` — otherwise the harness
+ * stays `READY` and invisible, running AWS's harness image, chargeable, and
+ * reachable by anyone holding its ARN, while every actual turn goes somewhere
+ * else. That happened: `Veerio-Life/veerio-vocion` moved
+ * `event-ingestion-lead` to `agentcore-container` and its harness sat live for
+ * days, found only by reading the AgentCore console.
+ *
+ * The harness owns the runtime underneath it, so `DeleteHarness` takes both —
+ * `DeleteAgentRuntime` on that runtime is refused.
+ * @param agentSlug - The agent whose harness to remove.
+ * @returns The deleted harness name, or null when there was nothing to delete.
+ */
+export async function deleteAgentCoreHarness(agentSlug: string): Promise<string | null> {
+  const name = harnessNameFor(agentSlug);
+  const listed = await control().send(new ListHarnessesCommand({}));
+  const existing = (listed.harnesses ?? []).find(h => h.harnessName === name);
+  if (!existing?.harnessId) {
+    return null;
+  }
+  await control().send(new DeleteHarnessCommand({ harnessId: existing.harnessId }));
+  return name;
+}
+
 export async function syncAgentCoreHarness(orgId: string, agentSlug: string): Promise<string> {
   const [row] = await db
     .select()
