@@ -128,8 +128,25 @@ describe('the Key column', () => {
     await expect.element(page.getByText(TOKEN)).not.toBeInTheDocument();
   });
 
-  it('says why a reveal failed instead of leaving the row silent', async () => {
-    revealPlatformKey.mockRejectedValue(new Error('boom'));
+  it('shows the reason the server gave for a failed reveal', async () => {
+    // What a vault holding the wrong key sends back. It names the env var and
+    // the next step, and the row is the only place the admin will ever see it.
+    const vaultReason
+      = 'The stored credential could not be decrypted with the current vault key. '
+        + 'Set VOCION_CREDENTIAL_VAULT_KEY in .env.local, then reconnect this source\'s credential.';
+    revealPlatformKey.mockRejectedValue(new Error(vaultReason));
+    await renderWithRow(tokenRow({ revealable: true }));
+
+    await userEvent.click(page.getByLabelText('Show key'));
+
+    await expect.element(page.getByText(vaultReason)).toBeVisible();
+  });
+
+  it('falls back to a flat sentence when the failure carries no message', async () => {
+    // A rejection that is not an Error at all — what a transport gives back
+    // when it fails before the server ever answers. Nothing worth reading, but
+    // the row still cannot go quiet.
+    revealPlatformKey.mockRejectedValue({ status: 500 });
     await renderWithRow(tokenRow({ revealable: true }));
 
     await userEvent.click(page.getByLabelText('Show key'));

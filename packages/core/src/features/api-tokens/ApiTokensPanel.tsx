@@ -599,8 +599,15 @@ export function ApiTokensPanel() {
         setRevealErrors(previous => ({ ...previous, [token.id]: revealRefusalMessage(result.status) }));
       }
     } catch (err) {
+      // The route has already decided what this row is allowed to say: a vault
+      // failure it can explain arrives with its own sentence, naming the cause
+      // and the fix, and anything else arrives as a flat "Could not read that
+      // key." Rewriting the message here would throw away the useful half of
+      // that work, so the row shows what came back and only falls back when
+      // nothing did.
       console.error('[ApiTokensPanel] could not reveal key', err);
-      setRevealErrors(previous => ({ ...previous, [token.id]: 'Could not read that key.' }));
+      const message = err instanceof Error && err.message ? err.message : 'Could not read that key.';
+      setRevealErrors(previous => ({ ...previous, [token.id]: message }));
     }
     setRevealingId(null);
   };

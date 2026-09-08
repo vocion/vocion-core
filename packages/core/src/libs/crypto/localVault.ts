@@ -13,6 +13,7 @@
  */
 
 import type { CredentialVault, EncryptResult } from './credentialVault';
+import { Buffer } from 'node:buffer';
 import { randomBytes } from 'node:crypto';
 import process from 'node:process';
 import { desc, eq } from 'drizzle-orm';
@@ -22,7 +23,7 @@ import {
   AES_KEY_BYTES,
   aesDecrypt,
   aesEncrypt,
-
+  VaultDecryptionError,
 } from './credentialVault';
 
 function readMasterKey(): Buffer {
@@ -108,7 +109,12 @@ export function localVault(): CredentialVault {
         // every restart mints a new ephemeral key, so credentials saved before
         // the restart cannot be read — the one cause worth naming, since the
         // fix (set the key, then reconnect) is not guessable from the original.
-        throw new Error(
+        //
+        // `VaultDecryptionError` rather than a plain `Error` so the routes that
+        // otherwise flatten vault failures into "Could not read that key." show
+        // this sentence instead. It names an env var and a next step and no
+        // secret: the only value it quotes is Node's own reason for refusing.
+        throw new VaultDecryptionError(
           'The stored credential could not be decrypted with the current vault key. '
           + 'If VOCION_CREDENTIAL_VAULT_KEY is unset, each restart generates a new key and '
           + 'credentials saved earlier become unreadable: set it in .env.local, then reconnect '

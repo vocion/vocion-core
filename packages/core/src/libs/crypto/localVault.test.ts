@@ -44,6 +44,21 @@ describe('localVault decrypt', () => {
     ).rejects.toThrow(/unable to authenticate data|Unsupported state/);
   });
 
+  it('throws the type that marks a message as safe to show', async () => {
+    // Imported here rather than at the top of the file: `vi.resetModules()`
+    // gives each test a fresh module registry, and a class from the outer
+    // registry is a different class from the one this vault throws.
+    const { localVault } = await import('./localVault');
+    const { VaultDecryptionError } = await import('./credentialVault');
+    const vault = localVault();
+
+    // The routes decide whether to show a vault error by its type, not by
+    // reading the string, so the type is the load-bearing part of this throw.
+    await expect(
+      vault.decrypt('org1', randomBytes(32).toString('base64'), randomBytes(12).toString('base64'), randomBytes(16).toString('base64'), 1),
+    ).rejects.toBeInstanceOf(VaultDecryptionError);
+  });
+
   it('says to set VOCION_CREDENTIAL_VAULT_KEY and reconnect', async () => {
     const { localVault } = await import('./localVault');
     const vault = localVault();
