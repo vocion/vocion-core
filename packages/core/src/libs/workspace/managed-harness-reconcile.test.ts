@@ -19,8 +19,9 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
-const syncAgentCoreHarness = vi.fn(async () => 'arn:aws:bedrock-agentcore:us-west-2:1234:harness/probe-AAA');
-const deleteAgentCoreHarness = vi.fn(async () => 'vocion_probe_agent');
+const HARNESS_ARN = 'arn:aws:bedrock-agentcore:us-west-2:1234:harness/vocion_probe_agent-AAA';
+const syncAgentCoreHarness = vi.fn(async () => HARNESS_ARN);
+const deleteAgentCoreHarness = vi.fn(async () => ({ deleted: true, harnessId: 'vocion_probe_agent-AAA' }));
 
 vi.mock('@/services/agents/providers/agentcore', () => ({
   syncAgentCoreHarness: (...args: unknown[]) => syncAgentCoreHarness(...args as []),
@@ -99,7 +100,7 @@ describe('managed harness reconciliation on apply', () => {
     await apply('harness:\n  runsOn: aws-managed-harness\n');
 
     expect(syncAgentCoreHarness).toHaveBeenCalledWith(ORG, SLUG);
-    expect(await storedHarnessArn()).toBe('arn:aws:bedrock-agentcore:us-west-2:1234:harness/probe-AAA');
+    expect(await storedHarnessArn()).toBe(HARNESS_ARN);
   });
 
   it('deletes the harness and clears the ARN when the agent moves to our container', async () => {
@@ -114,7 +115,9 @@ describe('managed harness reconciliation on apply', () => {
     const result = await apply('harness:\n  runsOn: agentcore-container\n');
 
     expect(result.errors).toEqual([]);
-    expect(deleteAgentCoreHarness).toHaveBeenCalledWith(SLUG);
+    // Addressed by the stored ARN, not by the agent slug — a name lookup could
+    // reach another org's harness, since harness names carry no org.
+    expect(deleteAgentCoreHarness).toHaveBeenCalledWith(HARNESS_ARN);
     expect(syncAgentCoreHarness).not.toHaveBeenCalled();
     expect(await storedHarnessArn()).toBeNull();
   });
@@ -132,6 +135,6 @@ describe('managed harness reconciliation on apply', () => {
         message: expect.stringContaining('AccessDenied on DeleteHarness'),
       }),
     ]);
-    expect(await storedHarnessArn()).toBe('arn:aws:bedrock-agentcore:us-west-2:1234:harness/probe-AAA');
+    expect(await storedHarnessArn()).toBe(HARNESS_ARN);
   });
 });
