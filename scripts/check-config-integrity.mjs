@@ -74,7 +74,19 @@ function walk(dir, onFile) {
       continue;
     }
     const abs = join(dir, entry);
-    const stat = statSync(abs);
+
+    // A dangling symlink makes statSync throw, which would end this check with
+    // a stack trace instead of a verdict — and it is the first thing CI runs.
+    // A broken link has no content to scan, so note it and carry on. The
+    // committed case is a separate concern, covered by `npm run check:symlinks`.
+    let stat;
+    try {
+      stat = statSync(abs);
+    } catch (error) {
+      console.warn(`  skipped ${relative(ROOT, abs).split(sep).join('/')}: ${error.message}`);
+      continue;
+    }
+
     if (stat.isDirectory()) {
       walk(abs, onFile);
     } else if (stat.isFile()) {
