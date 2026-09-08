@@ -72,6 +72,9 @@ function createBootstrapAdmin(): void {
   }
 }
 
+/** The credential the vault-failure tests save, break and then try to read. */
+const VAULT_MISMATCH_NAME = 'Vault Mismatch Co';
+
 /**
  * Break the stored Azure credential so the vault can no longer open
  * it — the state a rotated or missing `VOCION_CREDENTIAL_VAULT_KEY` leaves
@@ -91,6 +94,8 @@ function scrambleStoredAzureCredential(): void {
       'e2e/credentials/support/scramble-stored-credential.ts',
       '--platform',
       'azure-openai',
+      '--name',
+      VAULT_MISMATCH_NAME,
     ],
     { stdio: 'inherit' },
   );
@@ -433,7 +438,7 @@ test.describe('the Vocion token keeps its own rules', () => {
 });
 
 test.describe('a key that no longer decrypts', () => {
-  const NAME = 'Vault Mismatch Co';
+  const NAME = VAULT_MISMATCH_NAME;
 
   test('hands the key back while the vault still holds its key', async ({ page }) => {
     // Azure is the one platform the tests above never store a key for, so this

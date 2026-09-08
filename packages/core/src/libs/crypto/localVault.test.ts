@@ -35,13 +35,21 @@ describe('localVault decrypt', () => {
     ).rejects.toThrow(/could not be decrypted with the current vault key/);
   });
 
-  it('keeps Node\'s own reason in the message, for anyone debugging deeper', async () => {
+  it('keeps Node\'s own reason on the cause, for anyone debugging deeper', async () => {
     const { localVault } = await import('./localVault');
     const vault = localVault();
 
-    await expect(
-      vault.decrypt('org1', randomBytes(32).toString('base64'), randomBytes(12).toString('base64'), randomBytes(16).toString('base64'), 1),
-    ).rejects.toThrow(/unable to authenticate data|Unsupported state/);
+    // On `cause`, not in the message: the routes show the message to whoever
+    // clicked, and Node's wording is for the log.
+    let failure: Error | undefined;
+    try {
+      await vault.decrypt('org1', randomBytes(32).toString('base64'), randomBytes(12).toString('base64'), randomBytes(16).toString('base64'), 1);
+    } catch (error) {
+      failure = error as Error;
+    }
+
+    expect(failure?.message).not.toMatch(/unable to authenticate data|Unsupported state/);
+    expect((failure?.cause as Error).message).toMatch(/unable to authenticate data|Unsupported state/);
   });
 
   it('throws the type that marks a message as safe to show', async () => {

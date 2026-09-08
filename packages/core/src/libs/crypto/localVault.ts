@@ -113,12 +113,16 @@ export function localVault(): CredentialVault {
         // `VaultDecryptionError` rather than a plain `Error` so the routes that
         // otherwise flatten vault failures into "Could not read that key." show
         // this sentence instead. It names an env var and a next step and no
-        // secret: the only value it quotes is Node's own reason for refusing.
+        // secret. Node's own wording goes in `cause`, where the log picks it up
+        // and the dashboard does not: it tells the reader nothing they can act
+        // on, and vouching for a string this code did not write is exactly what
+        // the flattening rule exists to prevent.
         throw new VaultDecryptionError(
           'The stored credential could not be decrypted with the current vault key. '
           + 'If VOCION_CREDENTIAL_VAULT_KEY is unset, each restart generates a new key and '
-          + 'credentials saved earlier become unreadable: set it in .env.local, then reconnect '
-          + `this source's credential. (${error instanceof Error ? error.message : String(error)})`,
+          + 'credentials saved earlier become unreadable: set it, then reconnect '
+          + `this source's credential.`,
+          { cause: error },
         );
       }
     },
