@@ -345,6 +345,62 @@ baseline_pre_existing_schema() {
   return 1
 }
 
+# Print `sql_file` to stdout with `--` line comments and `/* ... */` block
+# comments removed, so a later keyword search sees only text that is
+# actually part of a statement.
+#
+# Why text-based detection at all, instead of a real SQL parser: this script
+# checks for exactly one keyword (CONCURRENTLY) to decide whether a migration
+# can run inside --single-transaction, and pulling in a SQL parser for that
+# single check is not worth the dependency. Comment-stripping gets detection
+# close enough for that one decision without pretending to understand SQL.
+#
+# What it still cannot see: the keyword written inside a string literal —
+# for example a migration that INSERTs the literal text
+# 'CREATE INDEX CONCURRENTLY' as data. That would still count as a match.
+# Getting this wrong only makes detection too eager (running a migration
+# unwrapped when it did not need to be), never too blind (missing a real
+# CONCURRENTLY statement) — the safer of the two possible mistakes.
+#
+# Implemented as a small state machine in awk, tracking whether we are
+# currently inside a block comment, rather than a multi-line sed
+# substitution — the state stays readable instead of hiding in a regex.
+strip_sql_comments() {
+  local sql_file="$1"
+  awk '
+    {
+      line = $0
+      out = ""
+      while (length(line) > 0) {
+        if (in_block_comment) {
+          end_pos = index(line, "*/")
+          if (end_pos > 0) {
+            line = substr(line, end_pos + 2)
+            in_block_comment = 0
+          } else {
+            line = ""
+          }
+          continue
+        }
+        dash_pos = index(line, "--")
+        block_start_pos = index(line, "/*")
+        if (block_start_pos > 0 && (dash_pos == 0 || block_start_pos < dash_pos)) {
+          out = out substr(line, 1, block_start_pos - 1)
+          line = substr(line, block_start_pos + 2)
+          in_block_comment = 1
+        } else if (dash_pos > 0) {
+          out = out substr(line, 1, dash_pos - 1)
+          line = ""
+        } else {
+          out = out line
+          line = ""
+        }
+      }
+      print out
+    }
+  ' "${sql_file}"
+}
+
 apply_pending_migrations() {
   local applied=0
   local skipped=0
@@ -380,7 +436,7 @@ apply_pending_migrations() {
     # statement failing leaves the earlier ones in place — the log says
     # so, because recovery then needs a human.
     local transaction_flag="--single-transaction"
-    if grep -qiE '\bCONCURRENTLY\b' "${sql_file}"; then
+    if strip_sql_comments "${sql_file}" | grep -qiE '\bCONCURRENTLY\b'; then
       transaction_flag=""
       log "  ${name} uses CONCURRENTLY — applying without a transaction;"
       log "  a partial failure in this file will not roll back"
