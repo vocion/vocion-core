@@ -160,13 +160,17 @@ test.describe('the platform selector decides which controls exist', () => {
       'Google Vertex AI',
       'Azure OpenAI',
       'AWS',
-      // The connector platforms, added after this list was first written: a
-      // credential for a source Vocion syncs from is stored the same way a
-      // model key is, and shows up in the same selector.
+      // The connector platforms, added after this spec was first written. A
+      // new connector lands here as well, on purpose: the selector is the one
+      // place a platform becomes reachable, so a silent addition is worth a
+      // failing assertion.
       'Granola',
       'HubSpot',
       'Jira',
       'Strapi',
+      'Google',
+      'Slack',
+      'Zoom',
       'Other platform',
     ]);
   });
@@ -310,7 +314,7 @@ test.describe('a saved key is masked, dated and one-per-platform', () => {
     await expect(page.getByRole('button', { name: 'Replace key' })).toBeVisible();
   });
 
-  test('replacing revokes the old key and keeps exactly one live', async ({ page }) => {
+  test('replacing keeps the new key on screen and takes the old one off it', async ({ page }) => {
     page.on('dialog', dialog => dialog.accept());
 
     await openFormFor(page, 'openai');
@@ -320,7 +324,25 @@ test.describe('a saved key is masked, dated and one-per-platform', () => {
 
     await expect(page.getByRole('row', { name: /Acme OpenAI rotated/ })).toContainText('…9999');
     await expect(page.getByRole('row', { name: /Acme OpenAI rotated/ })).toContainText('Active');
-    await expect(page.getByRole('row', { name: /Acme OpenAI(?! rotated)/ })).toContainText('Revoked');
+
+    // The replaced row is revoked, not deleted — kept for the audit trail, but
+    // off the default list so rotations do not pile up on the page.
+    await expect(page.getByRole('row', { name: /Acme OpenAI(?! rotated)/ })).toHaveCount(0);
+  });
+
+  test('the show-revoked toggle brings the replaced key back', async ({ page }) => {
+    await page.getByLabel('Show revoked').check();
+
+    const replaced = page.getByRole('row', { name: /Acme OpenAI(?! rotated)/ });
+
+    await expect(replaced).toContainText('Revoked');
+    await expect(replaced).toContainText('…1234');
+    // Revoked is a dead end, so the row offers no way to revoke it again.
+    await expect(replaced.getByRole('button', { name: 'Revoke' })).toHaveCount(0);
+
+    await page.getByLabel('Show revoked').uncheck();
+
+    await expect(page.getByRole('row', { name: /Acme OpenAI(?! rotated)/ })).toHaveCount(0);
   });
 
   test('a different platform keeps its own live key', async ({ page }) => {
@@ -362,11 +384,9 @@ test.describe('the Vocion token keeps its own rules', () => {
 
     const row = page.getByRole('row', { name: /Integration token/ });
 
+    // The platform column names Vocion; the row carried the longer
+    // "Vocion-issued" wording in an earlier build and no longer does.
     await expect(row).toContainText('Vocion');
-    // Minted tokens are stored encrypted now, so the row offers to show it
-    // again. The "Vocion-issued" label this used to assert was dropped when
-    // that landed — the platform cell already says whose token it is.
-    await expect(row.getByLabel('Show key')).toBeVisible();
     // A real date, not the em dash the platform keys show.
     await expect(row).not.toContainText('—');
 

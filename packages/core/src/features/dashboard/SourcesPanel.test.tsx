@@ -1426,3 +1426,218 @@ describe('editing a connector set up before the URL moved', () => {
     });
   });
 });
+
+/**
+ * Before this, every connector but Strapi was handed the web crawler's form: a
+ * URL box, a crawl checkbox and a page count, none of which Jira, HubSpot or S3
+ * read. What was typed was thrown away and the submit failed server-side. These
+ * tests hold each connector to the fields its own config schema declares.
+ */
+describe('a form built from the connector\'s own fields', () => {
+  const SCHEMA_DRIVEN_CONNECTORS: ConnectorFixture[] = [
+    connector('web', 'Web', 'Crawl a site from one URL — same-origin BFS.'),
+    connector('jira', 'Jira', 'Ingest Jira issues and projects.'),
+    connector('hubspot', 'HubSpot', 'Ingest HubSpot CRM records (contacts, deals, companies).'),
+    connector('s3', 'S3', 'Ingest objects from an S3 bucket.'),
+  ];
+
+  /**
+   * Open the picker and choose one connector by its tile.
+   * @param name - The connector's name, as the tile shows it.
+   */
+  async function openConnectorForm(name: string) {
+    await openPicker();
+    await page.getByRole('button', { name: new RegExp(name) }).click();
+  }
+
+  it('asks Jira for its own settings, not the crawler\'s', async () => {
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await expect.element(page.getByLabelText(/Site URL/)).toBeVisible();
+    await expect.element(page.getByLabelText(/Project keys/)).toBeVisible();
+    await expect.element(page.getByLabelText(/Keep finished issues for/)).toBeVisible();
+    await expect.element(page.getByLabelText(/Include the issue description/)).toBeVisible();
+    expect(await page.getByText('Crawl linked pages on the same origin').elements()).toHaveLength(0);
+  });
+
+  it('still gives the web connector its crawl form', async () => {
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('Web');
+
+    await expect.element(page.getByText('Crawl linked pages on the same origin')).toBeVisible();
+  });
+
+  it('sends what was typed, shaped the way the connector schema expects', async () => {
+    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
+    await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG, OPS');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+
+    const created = posts.find(post => post.url === '/rpc/sources')!;
+
+    expect(created.body).toEqual({
+      kind: 'jira',
+      configJson: {
+        baseUrl: 'https://acme.atlassian.net',
+        projectKeys: ['ENG', 'OPS'],
+        doneWindowDays: 90,
+        includeDescription: true,
+      },
+    });
+  });
+
+  it('names the fields still to fill in instead of a submit button that only greys out', async () => {
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await expect.element(page.getByText(/a site url and project keys/i)).toBeVisible();
+
+    await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
+
+    await expect.element(page.getByText(/Still needed: project keys/i)).toBeVisible();
+  });
+
+  it('offers HubSpot its record types as a choice rather than a free-text box', async () => {
+    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('HubSpot');
+
+    const recordType = page.getByLabelText(/Records to sync/);
+
+    await expect.element(recordType).toBeVisible();
+
+    await recordType.selectOptions('deals');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+
+    const created = posts.find(post => post.url === '/rpc/sources')!;
+
+    expect(created.body.configJson).toEqual({ objectType: 'deals', baseUrl: 'https://api.hubapi.com' });
+  });
+
+  it('keeps base-URL overrides out of the way until they are asked for', async () => {
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('S3');
+
+    expect(await page.getByLabelText(/API base URL|Filename pattern/).elements()).toHaveLength(0);
+
+    await page.getByRole('button', { name: 'Advanced settings' }).click();
+
+    await expect.element(page.getByLabelText(/Filename pattern/)).toBeVisible();
+  });
+
+  it('shows the error and stops spinning when the save cannot reach the server', async () => {
+    // Before this the submit had no catch: a network failure left the dialog on
+    // a spinner that never resolved and said nothing.
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    const reachable = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : String(input);
+      if (url === '/rpc/sources' && init?.method === 'POST') {
+        throw new TypeError('Failed to fetch');
+      }
+      return reachable(input, init);
+    }));
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
+    await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await expect.element(page.getByText(/Failed to fetch/)).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Add connector' }).last()).toBeEnabled();
+  });
+
+  it('sends what a checkbox and a number box were changed to', async () => {
+    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
+    await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
+    await page.getByLabelText(/Include the issue description/).click();
+    await userEvent.fill(page.getByLabelText(/Keep finished issues for/), '14');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    await vi.waitFor(() => expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(1));
+
+    const created = posts.find(post => post.url === '/rpc/sources')!;
+
+    expect(created.body.configJson).toMatchObject({ includeDescription: false, doneWindowDays: 14 });
+  });
+
+  it('refuses to submit a number below the field\'s floor', async () => {
+    // The bound is on the input, so the browser stops the submit before the
+    // server ever sees a zero. `buildConfigFromFields` clamps as well, for the
+    // paths that do not go through a form.
+    const posts = stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await userEvent.fill(page.getByLabelText(/Site URL/), 'https://acme.atlassian.net');
+    await userEvent.fill(page.getByLabelText(/Project keys/), 'ENG');
+    await userEvent.fill(page.getByLabelText(/Keep finished issues for/), '0');
+    await page.getByRole('button', { name: 'Add connector' }).last().click();
+
+    expect(posts.filter(post => post.url === '/rpc/sources')).toHaveLength(0);
+    await expect.element(page.getByLabelText(/Keep finished issues for/)).toBeInvalid();
+  });
+
+  it('closes Advanced settings again when it is clicked twice', async () => {
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('S3');
+
+    const toggle = page.getByRole('button', { name: 'Advanced settings' });
+
+    await toggle.click();
+
+    await expect.element(page.getByLabelText(/Filename pattern/)).toBeVisible();
+
+    await toggle.click();
+
+    expect(await page.getByLabelText(/Filename pattern/).elements()).toHaveLength(0);
+  });
+
+  it('marks a required field required, not only with an asterisk', async () => {
+    // The asterisk is `aria-hidden`, so it is the input's own `required` that a
+    // screen reader has to carry.
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS);
+    render(<SourcesPanel />);
+    await openConnectorForm('Jira');
+
+    await expect.element(page.getByLabelText(/Site URL/)).toBeRequired();
+    await expect.element(page.getByLabelText(/Statuses that do not mean finish/)).not.toBeRequired();
+  });
+
+  it('shows the saved settings when editing, not the connector defaults', async () => {
+    stubSourcesApi(SCHEMA_DRIVEN_CONNECTORS, [], {
+      sources: [{
+        ...sourceRow(null),
+        id: 4,
+        slug: 'jira-acme',
+        kind: 'jira',
+        config: { baseUrl: 'https://acme.atlassian.net', projectKeys: ['ENG'], doneWindowDays: 14 },
+      }],
+    });
+    renderPanel();
+
+    await page.getByRole('button', { name: 'Edit' }).first().click();
+
+    await expect.element(page.getByLabelText(/Site URL/)).toHaveValue('https://acme.atlassian.net');
+    await expect.element(page.getByLabelText(/Project keys/)).toHaveValue('ENG');
+    await expect.element(page.getByLabelText(/Keep finished issues for/)).toHaveValue(14);
+  });
+});
