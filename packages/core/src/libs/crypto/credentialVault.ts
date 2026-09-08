@@ -67,10 +67,15 @@ export type CredentialVault = {
  * and a fix, and it contains no secret, no ciphertext and no infrastructure
  * detail. Callers may show it as-is. Anything that cannot make that promise
  * stays an ordinary `Error` and stays opaque on screen.
+ *
+ * The underlying failure belongs in `cause`, never in the message. Node's own
+ * wording is useful to whoever reads the log and useless to whoever is looking
+ * at the dashboard, and a message that quotes an error nobody vetted is one
+ * library upgrade away from breaking the promise above.
  */
 export class VaultDecryptionError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = 'VaultDecryptionError';
   }
 }

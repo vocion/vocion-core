@@ -31,6 +31,7 @@
  */
 
 import type { TokenSummary } from '@/services/ApiTokenService';
+import { ORPCError } from '@orpc/client';
 import { AlertTriangle, Check, Copy, Eye, EyeOff, KeyRound, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -46,6 +47,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { client } from '@/libs/Orpc';
+import { API_ERROR_CODE } from '@/types/ApiError';
 
 /**
  * The expiry choices offered in the create form. A numeric value is a day
@@ -266,6 +268,30 @@ function FreshTokenNotice({ fresh, onDismiss }: { fresh: FreshToken; onDismiss: 
 }
 
 /**
+ * The message a failed call is allowed to put on screen, or null when it has
+ * none worth showing.
+ *
+ * The reveal route sends back exactly one kind of readable failure: a bad
+ * request whose message it authored — the vault explaining that a credential
+ * cannot be decrypted with the key this deployment holds. Every other refusal
+ * it makes carries a flat sentence instead, and everything that never reached
+ * the handler (a session that expired, a role check, a transport failure)
+ * carries wording written for a log rather than for this row.
+ *
+ * Trusting the code rather than the presence of a message is what keeps the
+ * second group off the page.
+ * @param error - Whatever the call rejected with.
+ */
+function messageTheRouteVouchedFor(error: unknown): string | null {
+  // No empty-message case to guard: an ORPCError given none falls back to its
+  // own code as the message, so there is nothing here that can render blank.
+  if (error instanceof ORPCError && error.code === API_ERROR_CODE.BAD_REQUEST) {
+    return error.message;
+  }
+  return null;
+}
+
+/**
  * The sentence to show when the server declines to reveal a credential.
  *
  * None of these is an error the admin caused, so each one says what is true of
@@ -361,7 +387,7 @@ function CredentialKeyCell({
                   {token.keyHint ? ` ${token.keyHint}` : ''}
                 </span>
               )}
-          {error && <p className="font-sans text-destructive">{error}</p>}
+          {error && <p role="alert" className="font-sans text-destructive">{error}</p>}
         </div>
         <Button
           variant="ghost"
@@ -503,7 +529,7 @@ export function ApiTokensPanel() {
 
   useEffect(() => {
     // False positive: every setState in refresh() runs after an await.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     void refresh();
   }, [refresh]);
 
@@ -600,14 +626,19 @@ export function ApiTokensPanel() {
       }
     } catch (err) {
       // The route has already decided what this row is allowed to say: a vault
-      // failure it can explain arrives with its own sentence, naming the cause
-      // and the fix, and anything else arrives as a flat "Could not read that
-      // key." Rewriting the message here would throw away the useful half of
-      // that work, so the row shows what came back and only falls back when
-      // nothing did.
+      // failure it can explain arrives as a bad request carrying its own
+      // sentence, naming the cause and the fix, and anything else it refuses
+      // arrives as a flat "Could not read that key." Rewriting the message here
+      // would throw away the useful half of that work.
+      //
+      // Only that one code is trusted, though. A 401, a 403 or a failure that
+      // never reached the handler carries wording nobody wrote for this row,
+      // so those fall back rather than being echoed onto the page.
       console.error('[ApiTokensPanel] could not reveal key', err);
-      const message = err instanceof Error && err.message ? err.message : 'Could not read that key.';
-      setRevealErrors(previous => ({ ...previous, [token.id]: message }));
+      setRevealErrors(previous => ({
+        ...previous,
+        [token.id]: messageTheRouteVouchedFor(err) ?? 'Could not read that key.',
+      }));
     }
     setRevealingId(null);
   };

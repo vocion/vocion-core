@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { parseArgs } from 'node:util';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { apiTokenSchema } from '@/models/Schema';
 import 'dotenv/config';
@@ -15,32 +15,36 @@ import 'dotenv/config';
  * authenticates. Rewriting the auth tag produces exactly that — AES-GCM
  * refuses, the vault explains why, and the dashboard has something to show.
  *
- * Test-support only. It takes the newest row for a platform rather than an id,
- * because the spec that calls it has just saved that credential through the UI
- * and never learns the id. Run through `dotenv -c` so it reads the same
- * `.env.local` the app under test reads.
+ * Test-support only. It takes the newest row matching a platform and a name
+ * rather than an id, because the spec that calls it has just saved that
+ * credential through the UI and never learns the id. Both are required so a
+ * database holding more than one org's credentials cannot be hit by accident.
+ * Run through `dotenv -c` so it reads the same `.env.local` the app under test
+ * reads.
  *
  * Usage:
- *   npx dotenv -c -- npx tsx e2e/credentials/support/scramble-stored-credential.ts --platform openai
+ *   npx dotenv -c -- npx tsx e2e/credentials/support/scramble-stored-credential.ts \
+ *     --platform azure-openai --name 'Vault Mismatch Co'
  */
 
 /** A well-formed 16-byte auth tag that belongs to no ciphertext we hold. */
 const WRONG_AUTH_TAG = Buffer.alloc(16, 7).toString('base64');
 
 /**
- * Overwrite the auth tag of the newest credential stored for one platform.
- * @param platform - The platform id whose newest credential should stop opening.
+ * Overwrite the auth tag of the newest credential stored under one name.
+ * @param platform - The platform the credential belongs to.
+ * @param name - The credential's name, as typed into the dashboard form.
  */
-async function scrambleNewestCredential(platform: string): Promise<void> {
+async function scrambleNewestCredential(platform: string, name: string): Promise<void> {
   const [token] = await db
     .select({ id: apiTokenSchema.id })
     .from(apiTokenSchema)
-    .where(eq(apiTokenSchema.platform, platform))
+    .where(and(eq(apiTokenSchema.platform, platform), eq(apiTokenSchema.name, name)))
     .orderBy(desc(apiTokenSchema.createdAt))
     .limit(1);
 
   if (!token) {
-    throw new Error(`No ${platform} credential is stored; save one before scrambling it.`);
+    throw new Error(`No ${platform} credential named "${name}" is stored; save one before scrambling it.`);
   }
 
   await db
@@ -48,18 +52,24 @@ async function scrambleNewestCredential(platform: string): Promise<void> {
     .set({ authTag: WRONG_AUTH_TAG })
     .where(eq(apiTokenSchema.id, token.id));
 
-  console.warn(`[scramble-stored-credential] ${platform} credential ${token.id} can no longer be decrypted`);
+  console.warn(`[scramble-stored-credential] ${platform} credential ${token.id} ("${name}") can no longer be decrypted`);
 }
 
 const { values } = parseArgs({
   options: {
-    platform: { type: 'string', default: 'openai' },
+    platform: { type: 'string' },
+    name: { type: 'string' },
   },
 });
 
+if (!values.platform || !values.name) {
+  console.error('[scramble-stored-credential] --platform and --name are both required');
+  process.exit(1);
+}
+
 // `.then()` rather than a top-level await: this file is compiled to CommonJS
 // when tsx runs it from outside `src`, and CommonJS has no top-level await.
-scrambleNewestCredential(values.platform!)
+scrambleNewestCredential(values.platform, values.name)
   .then(() => process.exit(0))
   .catch((error) => {
     console.error(error);

@@ -7,6 +7,7 @@
  * its row has to explain itself and offer a way forward instead of a button
  * that fails on click.
  */
+import { ORPCError } from '@orpc/client';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
@@ -129,17 +130,30 @@ describe('the Key column', () => {
   });
 
   it('shows the reason the server gave for a failed reveal', async () => {
-    // What a vault holding the wrong key sends back. It names the env var and
-    // the next step, and the row is the only place the admin will ever see it.
+    // What a vault holding the wrong key sends back: a bad request whose
+    // message the route authored. It names the env var and the next step, and
+    // the row is the only place the admin will ever see it.
     const vaultReason
       = 'The stored credential could not be decrypted with the current vault key. '
-        + 'Set VOCION_CREDENTIAL_VAULT_KEY in .env.local, then reconnect this source\'s credential.';
-    revealPlatformKey.mockRejectedValue(new Error(vaultReason));
+        + 'Set VOCION_CREDENTIAL_VAULT_KEY, then reconnect this source\'s credential.';
+    revealPlatformKey.mockRejectedValue(new ORPCError('bad-request', { message: vaultReason }));
     await renderWithRow(tokenRow({ revealable: true }));
 
     await userEvent.click(page.getByLabelText('Show key'));
 
     await expect.element(page.getByText(vaultReason)).toBeVisible();
+  });
+
+  it('says nothing the route did not author', async () => {
+    // A refusal from the guard rather than the handler. Its wording was
+    // written for a log, so the row shows its own sentence instead.
+    revealPlatformKey.mockRejectedValue(new ORPCError('forbidden', { message: 'role check failed for usr-1 on org_acme' }));
+    await renderWithRow(tokenRow({ revealable: true }));
+
+    await userEvent.click(page.getByLabelText('Show key'));
+
+    await expect.element(page.getByText('Could not read that key.')).toBeVisible();
+    await expect.element(page.getByText(/role check failed/)).not.toBeInTheDocument();
   });
 
   it('falls back to a flat sentence when the failure carries no message', async () => {

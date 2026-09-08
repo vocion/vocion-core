@@ -240,6 +240,10 @@ export const revealPlatformKeyRoute = os
       console.error('[apiTokens.revealPlatformKey] could not decrypt key', {
         tokenId: input.tokenId,
         message: error instanceof Error ? error.message : String(error),
+        // The vault keeps the underlying failure — Node's own wording for a
+        // ciphertext that will not authenticate — out of the message it hands
+        // the dashboard. The log is where that half belongs.
+        cause: error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined,
       });
       throw ApiError.badRequest(isSafeToShow ? error.message : 'Could not read that key.');
     }
