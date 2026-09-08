@@ -25,8 +25,7 @@ const db = createDbConnection();
  *
  * `process.cwd()` used to be the base, which only worked when vitest was
  * launched from inside `packages/core`. Running it from the repo root — as
- * `.github/workflows/deploy-agent-runtime.yml` does with
- * `vitest run --root packages/core` — left every suite that touches the
+ * `vitest run --root packages/core` does — left every suite that touches the
  * database failing with "Can't find meta/_journal.json file", because
  * `--root` moves vitest's config root but not the process's cwd.
  */

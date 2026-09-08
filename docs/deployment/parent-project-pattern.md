@@ -157,26 +157,30 @@ no key, the runtime signs with its own execution role and the bill is ours —
 which is the right fallback for a trial and the wrong one for a paying client,
 so check it during handover rather than assuming.
 
-### One-time: let CI deploy the runtime
+### Who runs the deploy
 
-`.github/workflows/deploy-agent-runtime.yml` does nothing until someone runs
-`infra/agentcore/provision-ci-role.sh` and sets `AWS_DEPLOY_ROLE_ARN` as a
-repository secret. That step is deliberately manual and deliberately human: it
-creates federated trust between GitHub and the AWS account. Do it once per
-environment, and expect to do it again for staging and production — SSM is
-namespaced per environment (`/vocion/agentcore/<env>/`, see
-[`multiple-environments.md`](./multiple-environments.md)) so the two never
-share a runtime by accident.
+The parent project, not core. Core holds no AWS account and no credentials, so
+it cannot deploy a runtime anywhere — the scripts under `infra/agentcore/` are
+the shared implementation, and the parent project calls them with its own
+profile and environment, either from an operator machine or from its own
+pipeline. Veerio's wrapper is `./scripts/deploy.sh agentcore <env>`.
+
+Core used to carry a workflow that deployed a runtime into MetaCTO's own
+account for dev. It was never activated, and it was the wrong shape: it made
+core look like the thing that owns a deployment. Removed.
+
+SSM is namespaced per environment (`/vocion/agentcore/<env>/`, see
+[`multiple-environments.md`](./multiple-environments.md)), so two environments
+never share a runtime by accident.
 
 ---
 
 ## Gotchas
 
-Four defaults that are wrong for any client outside `us-east-1`:
+Three defaults that are wrong for any client outside `us-east-1`:
 
 | What | Where | Effect |
 |---|---|---|
-| `REPO_FILTER` hardcoded to `repo:vocion/vocion-core:ref:refs/heads/main` | `infra/agentcore/provision-ci-role.sh:18` | The OIDC role it creates only admits core's own CI. A parent project's pipeline can't assume it — run phase 2 from an operator machine until this is parameterised. |
 | Region defaults to `us-east-1`, passed positionally | `agentcore-harness-role.sh` | Harness role lands in the wrong region, silently. |
 | `VOCION_AGENTCORE_REGION` defaults to `us-east-1` | `services/agents/providers/agentcore.ts` | Agents run their model loop in a region nobody chose. Set it in the parent's compose overlay, for the app *and* the worker. |
 | Agent with no `model` resolves to `gpt-4o` | workspace applier | Only bites the `local` provider — `agentcore` agents use `harness.model` — but it bites quietly. Pin every model explicitly. |
