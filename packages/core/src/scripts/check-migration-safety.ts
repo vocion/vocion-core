@@ -25,6 +25,13 @@
  * changes, which is documentation only and not checked here — is written in
  * `packages/core/migrations/CONVENTIONS.md`.
  *
+ * Two deliberate limits. Nested block comments (Postgres allows them) are
+ * unwound only as far as the first closing delimiter, and a keyword sitting
+ * inside a string literal counts as real SQL. Both make the check too eager
+ * rather than too blind — the safer of the two mistakes, and the same
+ * trade-off `infra/aws/apply-migrations.sh` already documents for its own
+ * detection.
+ *
  * Run: npm run check:migrations
  */
 
@@ -61,8 +68,10 @@ export type MigrationProblemRule
   = | 'blocking-index'
     | 'concurrent-build-in-transactional-migration'
     | 'non-concurrent-index-in-concurrent-dir'
+    | 'blocking-constraint'
     | 'non-index-statement-in-concurrent-dir'
-    | 'orphan-concurrent-build';
+    | 'orphan-concurrent-build'
+    | 'unique-index-in-concurrent-dir';
 
 export type MigrationProblem = {
   /** Repo-relative path of the offending file. */
@@ -88,6 +97,10 @@ type IndexBuild = {
   table: string;
   /** True when the statement says `CONCURRENTLY`. */
   isConcurrent: boolean;
+  /** True when the statement says `UNIQUE`. */
+  isUnique: boolean;
+  /** True when the statement says `IF NOT EXISTS`. */
+  isIfNotExists: boolean;
   /** Character offset of the `CREATE` keyword. */
   offset: number;
 };
@@ -113,10 +126,32 @@ export function blankSqlComments(sql: string): string {
   let index = 0;
   let inSingleQuote = false;
   let inDoubleQuote = false;
+  // The `$$` or `$tag$` currently open, if any. Postgres treats everything up
+  // to the matching delimiter as one literal, so nothing inside it is a
+  // comment and nothing inside it ends a statement.
+  let openDollarTag: string | null = null;
 
   while (index < characters.length) {
     const character = characters[index]!;
     const next = characters[index + 1];
+
+    if (openDollarTag !== null) {
+      if (sql.startsWith(openDollarTag, index)) {
+        index += openDollarTag.length;
+        openDollarTag = null;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+    if (!inSingleQuote && !inDoubleQuote && character === '$') {
+      const dollarTag = /^\$[A-Z_]*\$/i.exec(sql.slice(index));
+      if (dollarTag) {
+        openDollarTag = dollarTag[0];
+        index += openDollarTag.length;
+        continue;
+      }
+    }
 
     if (inSingleQuote) {
       inSingleQuote = character !== '\'';
@@ -203,7 +238,7 @@ const CREATE_TABLE_PATTERN = new RegExp(
 );
 
 const CREATE_INDEX_PATTERN = new RegExp(
-  String.raw`\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?:(${IDENTIFIER})\s+)?ON\s+(?:ONLY\s+)?(${IDENTIFIER})`,
+  String.raw`\bCREATE\s+(UNIQUE\s+)?INDEX\s+(CONCURRENTLY\s+)?(IF\s+NOT\s+EXISTS\s+)?(?:(${IDENTIFIER})\s+)?ON\s+(?:ONLY\s+)?(${IDENTIFIER})`,
   'gi',
 );
 
@@ -221,6 +256,54 @@ export function findCreatedTables(blankedSql: string): Set<string> {
 }
 
 /**
+ * `ALTER TABLE ... ADD [CONSTRAINT name] UNIQUE|PRIMARY KEY` builds an index
+ * behind the scenes, holding a heavier lock than `CREATE INDEX` does — reads
+ * block as well as writes. There is no concurrent form of the statement, so on
+ * a populated table the only safe route is expand and contract.
+ */
+const ALTER_TABLE_PATTERN = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:ONLY\s+)?(${IDENTIFIER})`, 'i');
+
+const ADD_INDEX_CONSTRAINT_PATTERN = new RegExp(
+  String.raw`\bADD\s+(?:CONSTRAINT\s+${IDENTIFIER}\s+)?(UNIQUE|PRIMARY\s+KEY)\b`,
+  'i',
+);
+
+export type ConstraintBuild = {
+  /** Table the constraint is added to, lowercased and stripped of quotes. */
+  table: string;
+  /** `UNIQUE` or `PRIMARY KEY`, normalised to upper case. */
+  keyword: string;
+  /** Character offset of the `ALTER` keyword. */
+  offset: number;
+};
+
+/**
+ * Every index-building constraint the file adds.
+ * @param blankedSql - SQL with comments already blanked out.
+ */
+export function findIndexBuildingConstraints(blankedSql: string): ConstraintBuild[] {
+  const constraints: ConstraintBuild[] = [];
+  // Statement by statement rather than across the whole file, so the table
+  // named in the report is the one the constraint is actually added to.
+  for (const statement of findStatements(blankedSql)) {
+    const alteredTable = ALTER_TABLE_PATTERN.exec(statement.text);
+    if (!alteredTable) {
+      continue;
+    }
+    const constraint = ADD_INDEX_CONSTRAINT_PATTERN.exec(statement.text);
+    if (!constraint) {
+      continue;
+    }
+    constraints.push({
+      table: normaliseIdentifier(alteredTable[1]!),
+      keyword: constraint[1]!.replaceAll(/\s+/g, ' ').toUpperCase(),
+      offset: statement.offset,
+    });
+  }
+  return constraints;
+}
+
+/**
  * Every index build in the file, with the table it targets.
  * @param blankedSql - SQL with comments already blanked out.
  */
@@ -228,9 +311,11 @@ export function findIndexBuilds(blankedSql: string): IndexBuild[] {
   const builds: IndexBuild[] = [];
   for (const match of blankedSql.matchAll(CREATE_INDEX_PATTERN)) {
     builds.push({
-      table: normaliseIdentifier(match[3]!),
-      isConcurrent: match[1] !== undefined,
-      offset: match.index ?? 0,
+      table: normaliseIdentifier(match[5]!),
+      isConcurrent: match[2] !== undefined,
+      isUnique: match[1] !== undefined,
+      isIfNotExists: match[3] !== undefined,
+      offset: match.index,
     });
   }
   return builds;
@@ -283,8 +368,9 @@ export function findMigrationSafetyProblems(files: MigrationFile[]): MigrationPr
   const problems: MigrationProblem[] = [];
 
   // apply-migrations.sh runs each concurrent build straight after the numbered
-  // migration sharing its number. One with no such migration is never placed,
-  // so it silently never runs — the failure this whole check exists to avoid.
+  // migration sharing its number, matched on the filename's first four
+  // characters. One with no such migration is never placed, so it silently
+  // never runs — the failure this whole check exists to avoid.
   const numberedMigrations = new Set(
     files
       .filter(file => !file.isConcurrentBuild)
@@ -292,48 +378,18 @@ export function findMigrationSafetyProblems(files: MigrationFile[]): MigrationPr
   );
 
   for (const file of files) {
-    if (file.isConcurrentBuild) {
-      const number = migrationNumberOf(file.file);
-      if (number === null || !numberedMigrations.has(number)) {
-        problems.push({
-          file: file.file,
-          line: 1,
-          rule: 'orphan-concurrent-build',
-          message: `no numbered migration shares this file's number, so apply-migrations.sh has nothing to order it after and will never run it. Name it after the migration whose columns it indexes. See ${CONVENTIONS_DOC}.`,
-        });
-      }
-    }
-
     const blanked = blankSqlComments(file.sql);
     const indexBuilds = findIndexBuilds(blanked);
+    const number = migrationNumberOf(file.file);
 
     if (file.isConcurrentBuild) {
-      for (const build of indexBuilds) {
-        if (!build.isConcurrent) {
-          problems.push({
-            file: file.file,
-            line: lineNumberAt(blanked, build.offset),
-            rule: 'non-concurrent-index-in-concurrent-dir',
-            message: `index on "${build.table}" is in ${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/ but does not say CONCURRENTLY. That directory exists so the build can avoid the write lock — write CREATE INDEX CONCURRENTLY IF NOT EXISTS, or move the statement back into the numbered migration. See ${CONVENTIONS_DOC}.`,
-          });
-        }
-      }
-      for (const statement of findStatements(blanked)) {
-        if (!isIndexOnlyStatement(statement.text)) {
-          problems.push({
-            file: file.file,
-            line: lineNumberAt(blanked, statement.offset),
-            rule: 'non-index-statement-in-concurrent-dir',
-            message: `only CREATE INDEX and DROP INDEX belong in ${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/. These files are applied outside any transaction, so a statement that fails halfway leaves the schema half-changed with nothing to roll back. Move this statement into the numbered migration. See ${CONVENTIONS_DOC}.`,
-          });
-        }
-      }
+      problems.push(...findConcurrentDirectoryProblems(file, blanked, indexBuilds, number, numberedMigrations));
       continue;
     }
 
     const createdTables = findCreatedTables(blanked);
-    const number = migrationNumberOf(file.file);
     const isEnforced = number === null || number >= FIRST_ENFORCED_MIGRATION_NUMBER;
+    const concurrentTarget = `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/${number === null ? 'NNNN' : String(number).padStart(4, '0')}_<name>.sql`;
 
     for (const build of indexBuilds) {
       if (build.isConcurrent) {
@@ -341,7 +397,7 @@ export function findMigrationSafetyProblems(files: MigrationFile[]): MigrationPr
           file: file.file,
           line: lineNumberAt(blanked, build.offset),
           rule: 'concurrent-build-in-transactional-migration',
-          message: `CREATE INDEX CONCURRENTLY cannot run here — drizzle applies each numbered migration in one transaction, and the PGlite used by dev and the unit tests cannot run a concurrent build at all. Move the statement to ${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/${number === null ? 'NNNN' : String(number).padStart(4, '0')}_<name>.sql. See ${CONVENTIONS_DOC}.`,
+          message: `CREATE INDEX CONCURRENTLY cannot run here — drizzle applies each numbered migration in one transaction, and the PGlite used by dev and the unit tests cannot run a concurrent build at all. Move the statement to ${concurrentTarget}. See ${CONVENTIONS_DOC}.`,
         });
         continue;
       }
@@ -350,9 +406,106 @@ export function findMigrationSafetyProblems(files: MigrationFile[]): MigrationPr
           file: file.file,
           line: lineNumberAt(blanked, build.offset),
           rule: 'blocking-index',
-          message: `CREATE INDEX on "${build.table}", which this migration does not create, blocks every write to that table for the length of the build. Move it to ${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/${number === null ? 'NNNN' : String(number).padStart(4, '0')}_<name>.sql as CREATE INDEX CONCURRENTLY IF NOT EXISTS. See ${CONVENTIONS_DOC}.`,
+          message: `CREATE INDEX on "${build.table}", which this migration does not create, blocks every write to that table for the length of the build. Move it to ${concurrentTarget} as CREATE INDEX CONCURRENTLY IF NOT EXISTS. See ${CONVENTIONS_DOC}.`,
         });
       }
+    }
+
+    if (!isEnforced) {
+      continue;
+    }
+
+    for (const constraint of findIndexBuildingConstraints(blanked)) {
+      if (!createdTables.has(constraint.table)) {
+        problems.push({
+          file: file.file,
+          line: lineNumberAt(blanked, constraint.offset),
+          rule: 'blocking-constraint',
+          message: `ADD ${constraint.keyword} on "${constraint.table}", which this migration does not create, builds an index while holding a lock that blocks reads as well as writes, and Postgres has no concurrent form of it. Add the column and the constraint across separate releases instead — see the expand-and-contract section of ${CONVENTIONS_DOC}.`,
+        });
+      }
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * The rules that apply only inside `migrations/concurrent/`.
+ * @param file - The concurrent build being checked.
+ * @param blanked - Its SQL with comments blanked out.
+ * @param indexBuilds - Index builds already parsed out of it.
+ * @param number - Its migration number, or null when the name has no digits.
+ * @param numberedMigrations - Numbers of the migrations in the same set.
+ */
+function findConcurrentDirectoryProblems(
+  file: MigrationFile,
+  blanked: string,
+  indexBuilds: IndexBuild[],
+  number: number | null,
+  numberedMigrations: Set<number | null>,
+): MigrationProblem[] {
+  const problems: MigrationProblem[] = [];
+  const filename = basename(file.file);
+
+  if (number === null || !numberedMigrations.has(number)) {
+    problems.push({
+      file: file.file,
+      line: 1,
+      rule: 'orphan-concurrent-build',
+      message: `no numbered migration shares this file's number, so apply-migrations.sh has nothing to order it after and will never run it. Rename it to ${CONCURRENT_SUBDIR}/<NNNN>_<name>.sql, where NNNN is the 4-digit number of the migration whose columns it indexes. See ${CONVENTIONS_DOC}.`,
+    });
+  } else if (!/^\d{4}_/.test(filename)) {
+    // The applier matches on the first four characters of the filename, so a
+    // 3- or 5-digit prefix is placed against the wrong migration or not at all.
+    problems.push({
+      file: file.file,
+      line: 1,
+      rule: 'orphan-concurrent-build',
+      message: `apply-migrations.sh matches these files on the first four characters of the name, so the number needs exactly four digits and an underscore: ${CONCURRENT_SUBDIR}/<NNNN>_<name>.sql. See ${CONVENTIONS_DOC}.`,
+    });
+  }
+
+  for (const build of indexBuilds) {
+    if (!build.isConcurrent) {
+      problems.push({
+        file: file.file,
+        line: lineNumberAt(blanked, build.offset),
+        rule: 'non-concurrent-index-in-concurrent-dir',
+        message: `index on "${build.table}" is in ${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/ but does not say CONCURRENTLY. That directory exists so the build can avoid the write lock — write CREATE INDEX CONCURRENTLY IF NOT EXISTS, or move the statement back into the numbered migration. See ${CONVENTIONS_DOC}.`,
+      });
+      continue;
+    }
+    if (!build.isIfNotExists) {
+      // Baselining records only the numbered migrations, so a concurrent build
+      // can legitimately be applied a second time against a database that
+      // already has the index. Without IF NOT EXISTS that run dies on
+      // "relation already exists" and takes the deploy with it.
+      problems.push({
+        file: file.file,
+        line: lineNumberAt(blanked, build.offset),
+        rule: 'non-concurrent-index-in-concurrent-dir',
+        message: `index on "${build.table}" needs IF NOT EXISTS. A concurrent build can be re-applied against a database that already has the index — a baselined one records only the numbered migrations — and without IF NOT EXISTS that run fails on "relation already exists" and aborts the deploy. See ${CONVENTIONS_DOC}.`,
+      });
+    }
+    if (build.isUnique) {
+      problems.push({
+        file: file.file,
+        line: lineNumberAt(blanked, build.offset),
+        rule: 'unique-index-in-concurrent-dir',
+        message: `a UNIQUE index on "${build.table}" cannot live here. Files in ${CONCURRENT_SUBDIR}/ are applied to production only, and uniqueness is a constraint rather than a query-plan detail — dev and the tests would accept rows production rejects. Take the expand-and-contract route in the numbered migrations instead. See ${CONVENTIONS_DOC}.`,
+      });
+    }
+  }
+
+  for (const statement of findStatements(blanked)) {
+    if (!isIndexOnlyStatement(statement.text)) {
+      problems.push({
+        file: file.file,
+        line: lineNumberAt(blanked, statement.offset),
+        rule: 'non-index-statement-in-concurrent-dir',
+        message: `only CREATE INDEX and DROP INDEX belong in ${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/. These files are applied outside any transaction, so a statement that fails halfway leaves the schema half-changed with nothing to roll back. Move this statement into the numbered migration. See ${CONVENTIONS_DOC}.`,
+      });
     }
   }
 

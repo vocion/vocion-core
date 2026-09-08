@@ -31,8 +31,15 @@ packages/core/migrations/
 `concurrent/` is invisible to drizzle — its migrator only opens the files named
 in `meta/_journal.json` — and `infra/aws/apply-migrations.sh` applies each one
 against production straight after the numbered migration that shares its number,
-outside any transaction. Dev and test then run without those indexes, which is
-fine: an index changes query plans, never results.
+outside any transaction. The match is on the filename's first four characters,
+so the number needs exactly four digits and an underscore.
+
+Dev and test then run without those indexes, which is fine for a plain index: it
+changes query plans, never results. It is **not** fine for a unique one, so
+`UNIQUE` is refused in `concurrent/` — uniqueness is a constraint, and dev and
+the tests would happily accept rows production rejects. A unique index on a
+populated table is an expand-and-contract problem (below), not an index
+problem.
 
 Write them like this:
 
@@ -47,9 +54,23 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "thing_org_lookup_idx"
   ON "thing" USING btree ("org_id", "updated_at");
 ```
 
+`IF NOT EXISTS` is required, not decorative. Baselining an existing database
+records only the numbered migrations, so a concurrent build can legitimately run
+against a database that already has the index; without it that run dies on
+`relation already exists` and takes the deploy down with it.
+
 Only `CREATE INDEX` and `DROP INDEX` belong in `concurrent/`. Those files have no
 transaction around them, so a statement that fails halfway leaves the schema
 half-changed with nothing to roll back.
+
+### Keeping `Schema.ts` in step
+
+Declare the index in `src/models/Schema.ts` as usual — that is what the ORM and
+the types read, and it is not what applies the DDL. The migrations here are
+hand-written (see `0066`'s header for why `drizzle-kit generate` is not in use),
+so nothing regenerates a plain `CREATE INDEX` behind your back. If generation is
+ever restored, an index that lives in `concurrent/` has to be removed from the
+generated migration by hand, or the lock comes back with it.
 
 An index on a table the same migration creates needs none of this — nothing else
 can be writing to a table that does not exist yet — so keep it in the numbered
@@ -83,6 +104,14 @@ default, is metadata-only on modern Postgres and safe. A `NOT NULL` on a
 populated column, a type change and a rename all rewrite or lock the table, so
 they belong in step 3 at the earliest, or behind a concurrent index build and a
 validated constraint.
+
+`ALTER TABLE ... ADD UNIQUE` and `ADD PRIMARY KEY` build an index too, holding a
+lock that blocks reads as well as writes, and Postgres has no concurrent form of
+either — so `check:migrations` refuses them on a table the migration does not
+create. `ADD CONSTRAINT ... FOREIGN KEY` is milder but not free: it scans the
+whole table to validate. The check does not refuse it (43 already exist), but on
+a populated table prefer `NOT VALID` followed by `VALIDATE CONSTRAINT` in a
+later release.
 
 This one is documentation, not a check — the checker cannot tell a safe column
 change from an unsafe one without knowing what the running code does.
