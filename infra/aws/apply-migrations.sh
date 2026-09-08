@@ -23,6 +23,21 @@
 #   sudo bash /opt/vocion/infra/aws/apply-migrations.sh
 #   sudo bash /opt/vocion/infra/aws/apply-migrations.sh --check
 #   sudo bash /opt/vocion/infra/aws/apply-migrations.sh --baseline all
+#   sudo bash /opt/vocion/infra/aws/apply-migrations.sh --verify-indexes
+#
+# Called from a parent project (a client repo that pins this one), point it
+# at that deployment with the environment variables listed in --help:
+#
+#   sudo MIGRATIONS_DIR=/opt/acme/vocion-core/packages/core/migrations \
+#     POSTGRES_CONTAINER=acme-postgres POSTGRES_DB=acme \
+#     bash /opt/acme/vocion-core/infra/aws/apply-migrations.sh
+#
+# Call it rather than reimplementing the loop. A hand-rolled applier in a
+# parent project silently skips migrations/concurrent/, so the index builds
+# there never land — see docs/deployment/parent-project-pattern.md. If a
+# parent project must keep its own applier, have its deploy finish with
+# `--verify-indexes`, which reads the database and fails when a concurrent
+# build is missing or INVALID.
 #
 # A database whose schema predates this tracking table needs a one-time
 # baseline so the existing migrations aren't replayed — the script says
@@ -66,18 +81,25 @@ READINESS_ATTEMPTS="${POSTGRES_READINESS_ATTEMPTS:-30}"
 MIGRATIONS_BASELINE="${MIGRATIONS_BASELINE:-}"
 # --check reports what would happen and writes nothing.
 CHECK_ONLY=false
+# --verify-indexes reports concurrent index builds that never landed and
+# writes nothing. Callable on its own, by a deploy that applies migrations
+# some other way — see the header.
+VERIFY_INDEXES_ONLY=false
 
 log() { echo "[apply-migrations] $*"; }
 
 print_usage() {
   cat <<USAGE
-Usage: apply-migrations.sh [--baseline <file|all>] [--check]
+Usage: apply-migrations.sh [--baseline <file|all>] [--check] [--verify-indexes]
 
   --baseline <file>  treat every migration up to and including <file> as
                      already applied, for a database whose schema predates
                      the __pgsql_migrations table
   --baseline all     treat every migration file as already applied
   --check            report what would happen; write nothing
+  --verify-indexes   report any index declared in migrations/concurrent/ that
+                     is missing or INVALID, then stop. Writes nothing. Safe to
+                     call from a deploy that applies migrations its own way.
   -h, --help         this message
 
 Environment: POSTGRES_CONTAINER, POSTGRES_DB, POSTGRES_USER,
@@ -102,6 +124,10 @@ parse_arguments() {
         ;;
       --check)
         CHECK_ONLY=true
+        shift
+        ;;
+      --verify-indexes)
+        VERIFY_INDEXES_ONLY=true
         shift
         ;;
       -h | --help)
@@ -445,6 +471,81 @@ strip_sql_comments() {
   ' "${sql_file}"
 }
 
+# Index names declared by the files in migrations/concurrent/, one per line.
+# Reads the comment-stripped text so a name mentioned in prose is not counted.
+list_declared_concurrent_indexes() {
+  if [ ! -d "${CONCURRENT_DIR}" ]; then
+    return 0
+  fi
+  local sql_file
+  while IFS= read -r sql_file; do
+    strip_sql_comments "${sql_file}" \
+      | tr '\n' ' ' \
+      | grep -oiE 'CREATE([[:space:]]+UNIQUE)?[[:space:]]+INDEX[[:space:]]+CONCURRENTLY([[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS)?[[:space:]]+"?[A-Za-z0-9_]+"?' \
+      | awk '{ gsub(/"/, "", $NF); print $NF }' || true
+  done < <(find "${CONCURRENT_DIR}" -maxdepth 1 -name '[0-9]*.sql' 2>/dev/null | sort)
+}
+
+# Report every concurrent index build that never landed.
+#
+# Why this exists as its own mode: the directory only reaches a database if
+# whatever applies migrations knows to look there. A parent project that
+# applies migrations its own way skips it silently — the numbered migration
+# lands, the index build does not, and the deploy reports success. Calling
+# this at the end of a deploy turns that silence into a failed deploy.
+#
+# Two states are reported, and both matter:
+#   missing — the build never ran, so queries are on the plan the index was
+#             added to avoid.
+#   INVALID — the build started and died. Postgres leaves the index in place
+#             but never uses it, and `IF NOT EXISTS` will skip rebuilding it
+#             for good, so this one hides indefinitely.
+verify_concurrent_indexes() {
+  local declared
+  declared=$(list_declared_concurrent_indexes | sort -u)
+  if [ -z "${declared}" ]; then
+    log "no concurrent index builds declared; nothing to verify"
+    return 0
+  fi
+
+  local index_count
+  index_count=$(printf '%s\n' "${declared}" | wc -l | tr -d ' ')
+  log "verifying ${index_count} concurrent index build(s)"
+
+  local quoted_names
+  quoted_names=$(printf '%s\n' "${declared}" | sed "s/.*/'&'/" | paste -sd, -)
+
+  # relname → indisvalid, for the declared names that exist at all.
+  local found
+  found=$(run_sql -tA -F'|' -c "
+    SELECT c.relname, i.indisvalid
+    FROM pg_class c
+    JOIN pg_index i ON i.indexrelid = c.oid
+    WHERE c.relkind = 'i' AND c.relname IN (${quoted_names});
+  ")
+
+  local problems=0
+  local index_name state
+  while IFS= read -r index_name; do
+    state=$(printf '%s\n' "${found}" | awk -F'|' -v name="${index_name}" '$1 == name { print $2 }')
+    if [ -z "${state}" ]; then
+      log "  x ${index_name} — MISSING. Whatever applied migrations here skipped"
+      log "    ${CONCURRENT_DIR}. See packages/core/migrations/CONVENTIONS.md."
+      problems=$((problems + 1))
+    elif [ "${state}" != "t" ]; then
+      log "  x ${index_name} — INVALID. A concurrent build died partway; Postgres"
+      log "    will not use it. Drop it, then re-run the build."
+      problems=$((problems + 1))
+    fi
+  done < <(printf '%s\n' "${declared}")
+
+  if [ "${problems}" -gt 0 ]; then
+    log "${problems} concurrent index build(s) did not land"
+    return 1
+  fi
+  log "all ${index_count} concurrent index build(s) present and valid"
+}
+
 apply_pending_migrations() {
   local applied=0
   local skipped=0
@@ -511,6 +612,17 @@ fi
 
 verify_migrations_directory
 wait_for_postgres
+
+# --verify-indexes is a read of the database, nothing more: no tracking
+# table, no baselining, no migrations. That is what makes it callable from a
+# deploy that applies migrations some other way.
+if [ "${VERIFY_INDEXES_ONLY}" = true ]; then
+  if verify_concurrent_indexes; then
+    exit 0
+  fi
+  exit 1
+fi
+
 create_tracking_table
 
 if [ "$(count_tracked_migrations)" -eq 0 ] && database_has_application_tables; then

@@ -865,6 +865,89 @@ test_check_mode_reports_concurrent_builds_without_running_them() {
   fi
 }
 
+test_verify_indexes_passes_when_the_build_landed() {
+  echo "apply-migrations: --verify-indexes, index present"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_concurrent_migration 0000_organization_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_verified_idx" ON "organization" ("id");'
+  run_applier
+  check_exit_code "the apply run exits 0" 0 "${APPLIER_EXIT}"
+  run_applier_with_flags --verify-indexes
+  check_exit_code "verify exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "says what it checked" "${APPLIER_OUTPUT}" \
+    "all 1 concurrent index build(s) present and valid"
+}
+
+test_verify_indexes_catches_a_skipped_directory() {
+  echo "apply-migrations: --verify-indexes, build never applied"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  run_applier
+  # The directory appears only after the migrations ran, standing in for a
+  # parent project whose own applier never looked at it.
+  write_concurrent_migration 0000_organization_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_never_built_idx" ON "organization" ("id");'
+  run_applier_with_flags --verify-indexes
+  check_exit_code "verify exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "names the missing index" "${APPLIER_OUTPUT}" "organization_never_built_idx — MISSING"
+  check_contains "points at the convention" "${APPLIER_OUTPUT}" "CONVENTIONS.md"
+}
+
+test_verify_indexes_catches_an_invalid_index() {
+  echo "apply-migrations: --verify-indexes, INVALID index left by a failed build"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  run_applier
+  # Mark a real index invalid, which is the state a concurrent build that dies
+  # partway leaves behind: present, never used, and skipped by IF NOT EXISTS.
+  query_test_database 'CREATE INDEX "organization_half_built_idx" ON "organization" ("id");' >/dev/null
+  query_test_database "UPDATE pg_index SET indisvalid = false WHERE indexrelid = '\"organization_half_built_idx\"'::regclass;" >/dev/null
+  write_concurrent_migration 0000_organization_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_half_built_idx" ON "organization" ("id");'
+  run_applier_with_flags --verify-indexes
+  check_exit_code "verify exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "names the invalid index" "${APPLIER_OUTPUT}" "organization_half_built_idx — INVALID"
+}
+
+test_verify_indexes_with_nothing_declared() {
+  echo "apply-migrations: --verify-indexes with no concurrent directory"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  run_applier
+  run_applier_with_flags --verify-indexes
+  check_exit_code "verify exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "says there is nothing to check" "${APPLIER_OUTPUT}" "nothing to verify"
+}
+
+test_verify_indexes_writes_nothing() {
+  echo "apply-migrations: --verify-indexes creates no tracking table"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  # A database this script has never touched. Verification must read it and
+  # stop, not baseline it or apply anything.
+  run_applier_with_flags --verify-indexes
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  local tracking organization
+  tracking=$(query_test_database "SELECT count(*) FROM information_schema.tables WHERE table_name = '__pgsql_migrations';")
+  organization=$(query_test_database "SELECT count(*) FROM information_schema.tables WHERE table_name = 'organization';")
+  if [ "${tracking}" = "0" ]; then
+    pass "no tracking table was created"
+  else
+    fail "no tracking table was created" "__pgsql_migrations exists"
+  fi
+  if [ "${organization}" = "0" ]; then
+    pass "no migration was applied"
+  else
+    fail "no migration was applied" "0000 ran under --verify-indexes"
+  fi
+}
+
 test_unreachable_container_fails_loudly() {
   echo "apply-migrations: unreachable container"
   run_applier POSTGRES_CONTAINER=vocion-no-such-container POSTGRES_READINESS_ATTEMPTS=2
@@ -1153,6 +1236,11 @@ main() {
   test_two_concurrent_builds_share_one_number
   test_failing_concurrent_build_stops_the_run
   test_check_mode_reports_concurrent_builds_without_running_them
+  test_verify_indexes_passes_when_the_build_landed
+  test_verify_indexes_catches_a_skipped_directory
+  test_verify_indexes_catches_an_invalid_index
+  test_verify_indexes_with_nothing_declared
+  test_verify_indexes_writes_nothing
   test_unreachable_container_fails_loudly
   test_default_container_and_database_match_compose
 
