@@ -34,6 +34,15 @@ against production straight after the numbered migration that shares its number,
 outside any transaction. The match is on the filename's first four characters,
 so the number needs exactly four digits and an underscore.
 
+One caveat if you are shipping to the Veerio deployment: it does not run this
+repo's `apply-migrations.sh`. `Veerio-Life/veerio-vocion`'s
+`infra/aws/apply-workspace.sh` applies migrations with a non-recursive glob over
+`packages/core/migrations/*.sql`, records them in a `schema_migration` table, and
+would skip `concurrent/` entirely — the index would never be built there. That
+loop does run psql in autocommit, so picking the directory up is a one-line
+change on that side; until it lands, a concurrent build reaches nothing but a
+future deployment of this repo.
+
 Dev and test then run without those indexes, which is fine for a plain index: it
 changes query plans, never results. It is **not** fine for a unique one, so
 `UNIQUE` is refused in `concurrent/` — uniqueness is a constraint, and dev and
