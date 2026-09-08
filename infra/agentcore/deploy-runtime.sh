@@ -45,7 +45,7 @@ docker push "$IMAGE" >/dev/null
 echo "-- pushed ${TAG}"
 
 # ---------------------------------------------------------------- 3. runtime
-ENV_VARS="{\"VOCION_MODEL_PROVIDER\":\"bedrock\",\"AWS_REGION\":\"${REGION}\"}"
+ENV_VARS="{\"VOCION_MODEL_PROVIDER\":\"bedrock\",\"AWS_REGION\":\"${REGION}\",\"VOCION_AGENT_RUNTIME_AUTH_MODE\":\"agentcore\"}"
 EXISTING_ID=$(aws bedrock-agentcore-control list-agent-runtimes \
   --query "agentRuntimes[?agentRuntimeName=='${RUNTIME_NAME}'].agentRuntimeId | [0]" --output text)
 
