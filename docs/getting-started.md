@@ -171,7 +171,7 @@ npm install
 # Configure — copy the example and fill in the required keys
 cp packages/core/.env.example packages/core/.env.local
 #   DATABASE_URL
-#   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY + CLERK_SECRET_KEY   (auth)
+#   AUTH_SECRET                                            (auth.js / next-auth v5 — `openssl rand -base64 32`)
 #   OPENAI_API_KEY and/or ANTHROPIC_API_KEY                (models + embeddings)
 # Everything else in .env.example is optional and commented.
 #
@@ -179,6 +179,11 @@ cp packages/core/.env.example packages/core/.env.local
 # Dashboard > API credentials, and then every outbound call for that workspace
 # — models, embeddings, rerank, vision, images — bills its account, not yours.
 # You still want one here: it is what covers any workspace that supplies none.
+#
+# `VOCION_AUTH_PROVIDER` also accepts `clerk`, which reads `CLERK_SECRET_KEY`
+# and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`. That path is reserved for the
+# hosted product and is not wired in core (`src/libs/Env.ts`) — leave the
+# variable at its default (`local`).
 
 npm run dev:up          # Postgres + Langfuse + Temporal in Docker
 npm run db:migrate      # apply the schema
@@ -305,7 +310,7 @@ to write under, so you do not have to re-key the file per environment. Passing
 `--project` is the recommended path — the manifest's `orgId` matters only if you
 apply without it.
 
-**What you should see.** On first visit you land on the Clerk sign-in screen;
+**What you should see.** On first visit you land on the auth.js sign-in screen;
 sign in, then open `http://localhost:3000/dashboard/agents`. The Revenue
 Director is listed with the icon, accent and eyebrow you set. Open it, ask
 "how's the quarter?", and you get an answer with no data behind it yet — that is
