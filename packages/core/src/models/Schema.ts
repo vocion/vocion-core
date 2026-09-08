@@ -562,7 +562,22 @@ export const agentSchema = pgTable(
      * existing hitl_gate machinery) before executing.
      */
     harnessConfig: jsonb('harness_config').$type<{
-      /** Which harness executes this agent: 'local' (in-process deepagents loop, default), 'agentcore' (AWS AgentCore managed harness), or 'runtime' (BYOA agent-runtime artifact). */
+      /**
+       * Which machinery runs this agent's turn:
+       *   - 'in-process' — our deepagents loop, in this process
+       *   - 'agentcore-container' — the same loop, in our container on AWS
+       *     AgentCore Runtime
+       *   - 'aws-managed-harness' — AWS owns the loop; the agent is reduced to
+       *     configuration and one tool
+       *
+       * Left unset by workspace:apply on purpose — `defaultHarnessTargetFor`
+       * derives it from `modelProvider`, and a stored value would shadow that.
+       */
+      runsOn?: 'in-process' | 'agentcore-container' | 'aws-managed-harness';
+      /**
+       * Pre-rename spelling of `runsOn`, kept for rows written before the
+       * rename. Read through `normalizeHarnessTarget`, never written.
+       */
       provider?: 'local' | 'agentcore' | 'runtime';
       interrupts?: string[];
       maxTokens?: number;
@@ -1104,6 +1119,13 @@ export const learningSchema = pgTable(
     /** Where the rule came from: 'manual', 'feedback:<id>', 'self-improver:<run_id>', etc. */
     source: text('source'),
     createdBy: text('created_by'),
+    /**
+     * How many separate pieces of feedback asked for this rule — the count
+     * carried over from the candidate on approval, plus every later piece of
+     * feedback that restated an already-adopted rule. A rule people keep
+     * asking for is worth surfacing differently from one asked for once.
+     */
+    occurrenceCount: integer('occurrence_count').default(1).notNull(),
     /** Optional last-applied timestamp for staleness UI; updated when the agent reads the step. */
     lastUsedAt: timestamp('last_used_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -1160,7 +1182,13 @@ export const conversationSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
-    uniqueIndex('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
+    // Not unique. It serves `listConversations`, which filters on org and agent
+    // and sorts by `updated_at` — a sort key, not an identity. Uniqueness only
+    // meant that two conversations with one agent landing in the same
+    // millisecond could not both exist, which two people opening a chat at once
+    // would hit, and which `$onUpdate` could reproduce on two rows bumped
+    // together.
+    index('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
     index('conversation_org_scope_idx').on(table.orgId, table.scopeRef, table.updatedAt),
   ],
 );
@@ -1707,6 +1735,19 @@ export const knowledgeSourceSchema = pgTable(
     // `AnyPgColumn` return type documents.
     // eslint-disable-next-line ts/no-use-before-define
     apiTokenId: text('api_token_id').references((): AnyPgColumn => apiTokenSchema.id, { onDelete: 'restrict' }),
+    /**
+     * Whether this source is the only one allowed to hold `api_token_id`.
+     *
+     * Decided by the credential's platform at link time and written here so
+     * the database can enforce it: a partial unique index cannot look up a
+     * platform descriptor, but it can read a boolean on the row. True for a
+     * credential issued for one place — a Strapi token is worthless against
+     * any instance but the one that minted it. False for an account-wide
+     * grant, where sharing is the point: one Google refresh token serves
+     * Gmail, Drive and Calendar, and one Slack bot token every channel the
+     * workspace syncs.
+     */
+    apiTokenExclusive: boolean('api_token_exclusive').default(false).notNull(),
     enabled: text('enabled').default('true').notNull(),
     lastSyncedAt: timestamp('last_synced_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -1717,9 +1758,24 @@ export const knowledgeSourceSchema = pgTable(
   },
   table => [
     uniqueIndex('knowledge_source_org_slug_idx').on(table.orgId, table.slug),
-    // Partial, so the many connectors using no stored credential are not all
-    // competing for one null. Doubles as the lookup index for the column.
-    uniqueIndex('knowledge_source_api_token_live_idx')
+    // Unique only over the links that claim exclusivity. It used to cover every
+    // link, back when every stored credential was issued for one place. That
+    // stopped being true once a platform could serve several connectors — one
+    // Google refresh token is meant to be held by Gmail, Drive and Calendar at
+    // once — so the rule narrowed to the rows that still want it rather than
+    // being given up. `api_token_exclusive` is what a partial index can read in
+    // place of the platform descriptor that actually decides.
+    //
+    // This is the rule, not the pre-check in `linkSourceToStoredCredential`:
+    // two people picking one credential at the same moment both pass that
+    // check, and this index is what refuses the second write.
+    uniqueIndex('knowledge_source_api_token_exclusive_idx')
+      .on(table.apiTokenId)
+      .where(sql`${table.apiTokenId} is not null and ${table.apiTokenExclusive}`),
+    // Plain lookup index for the column, covering the shared links the unique
+    // one above leaves out. Partial, so the many sources naming no credential
+    // are not all indexed on one null.
+    index('knowledge_source_api_token_live_idx')
       .on(table.apiTokenId)
       .where(sql`${table.apiTokenId} is not null`),
   ],
@@ -1752,6 +1808,20 @@ export const learningCandidateSchema = pgTable(
     sourceFeedbackJobId: integer('source_feedback_job_id').references(() => feedbackJobSchema.id, { onDelete: 'set null' }),
     /** The run the feedback was about, when there was one. */
     sourceRunId: integer('source_run_id'),
+    /**
+     * 'correct' (the agent should change what it does) or 'reinforce' (the
+     * agent should keep doing something a reviewer praised). Correction is the
+     * default because every candidate that existed before positive feedback
+     * was collected came from someone disagreeing.
+     */
+    polarity: text('polarity').default('correct').notNull(),
+    /**
+     * How many separate pieces of feedback asked for this rule. New feedback
+     * that restates a pending candidate increments this instead of inserting a
+     * second row, so the queue can be ordered by weight of evidence. See
+     * `learningFeedbackOccurrenceSchema` for the individual submissions.
+     */
+    occurrenceCount: integer('occurrence_count').default(1).notNull(),
     /** 'pending' | 'approved' | 'rejected'. */
     status: text('status').default('pending').notNull(),
     /** Required when rejecting — a rejection with no reason teaches nobody anything. */
@@ -1771,6 +1841,66 @@ export const learningCandidateSchema = pgTable(
     orgStatusIdx: index('learning_candidate_org_status_idx').on(table.orgId, table.status),
   }),
 );
+
+/**
+ * One row per piece of feedback that landed on a proposed or adopted rule.
+ *
+ * The first submission creates a candidate and one occurrence. Every later
+ * submission that says substantively the same thing adds an occurrence and
+ * increments the target's `occurrenceCount` — it does not create a second
+ * candidate. That is what lets the queue answer "how many people asked for
+ * this, and who" without showing the same idea five times.
+ *
+ * Exactly one of `candidateId` / `learningId` is set: feedback attaches to a
+ * pending suggestion, or to a rule that has already been adopted.
+ */
+export const learningFeedbackOccurrenceSchema = pgTable(
+  'learning_feedback_occurrence',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Set when the feedback landed on a candidate still awaiting a decision. */
+    candidateId: integer('candidate_id').references(() => learningCandidateSchema.id, { onDelete: 'cascade' }),
+    /** Set when the feedback restated a rule that is already adopted. */
+    learningId: integer('learning_id').references(() => learningSchema.id, { onDelete: 'cascade' }),
+    /** 'correct' or 'reinforce' — the polarity of this individual submission. */
+    polarity: text('polarity').notNull(),
+    /** What the person actually wrote, kept so a reviewer can read the evidence. */
+    note: text('note'),
+    /** The agent whose recommendation drew the feedback, when there was one. */
+    agentSlug: text('agent_slug'),
+    sourceFeedbackJobId: integer('source_feedback_job_id').references(() => feedbackJobSchema.id, { onDelete: 'set null' }),
+    /** The run being reacted to — an action run, workflow run or mission run id. */
+    sourceRunId: integer('source_run_id'),
+    submittedBy: text('submitted_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('learning_feedback_occurrence_candidate_idx').on(table.orgId, table.candidateId),
+    index('learning_feedback_occurrence_learning_idx').on(table.orgId, table.learningId),
+    // A row with neither target is an orphan nothing would ever read; a row
+    // with both would be counted twice. Declared here as well as in migration
+    // 0077 so `drizzle-kit generate` does not later propose dropping it.
+    check(
+      'learning_feedback_occurrence_target_ck',
+      sql`(
+        (${table.candidateId} is not null and ${table.learningId} is null)
+        or (${table.candidateId} is null and ${table.learningId} is not null)
+      )`,
+    ),
+  ],
+);
+
+export const learningFeedbackOccurrenceRelations = relations(learningFeedbackOccurrenceSchema, ({ one }) => ({
+  candidate: one(learningCandidateSchema, {
+    fields: [learningFeedbackOccurrenceSchema.candidateId],
+    references: [learningCandidateSchema.id],
+  }),
+  rule: one(learningSchema, {
+    fields: [learningFeedbackOccurrenceSchema.learningId],
+    references: [learningSchema.id],
+  }),
+}));
 
 export const knowledgeDocumentSchema = pgTable(
   'knowledge_document',
@@ -1935,7 +2065,8 @@ export const sourceSyncCheckpointSchema = pgTable(
  * A supplied key is found one of two ways, decided per platform by
  * `credentialsPerOrg` in the registry. An LLM platform has at most one live row
  * per org and callers resolve it implicitly — "the org's Anthropic key". A
- * connector platform (`jira`, `strapi`, `hubspot`, `granola`) may hold as many
+ * connector platform (`jira`, `strapi`, `hubspot`, `granola`, `google`, `slack`,
+ * `zoom`) may hold as many
  * live rows as the workspace wants, told apart by `name`, and a
  * `knowledge_source.api_token_id` names the one that connector uses.
  * `api_token_org_platform_live_idx` enforces the cap for the first kind and
@@ -2011,7 +2142,7 @@ export const apiTokenSchema = pgTable(
     // `registry.test.ts` fails if the two drift.
     uniqueIndex('api_token_org_platform_live_idx')
       .on(table.orgId, table.platform)
-      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi')`),
+      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom')`),
     // The two credential shapes must never mix. A `vocion` row carries a secret
     // hash, and either a complete set of encryption columns or none of them —
     // none being a token issued before minted tokens were stored encrypted.
@@ -2159,7 +2290,20 @@ export const actionRunSchema = pgTable(
      * Agent-proposal envelope: confidence (0–1), rationale, evidence doc uris.
      * Surfaced in the review queue + daily brief; feeds the trust ladder.
      */
-    proposal: jsonb('proposal').$type<{ confidence?: number; rationale?: string; evidence?: string[]; autoApproved?: boolean; autoApprovedThreshold?: number }>(),
+    proposal: jsonb('proposal').$type<{
+      confidence?: number;
+      rationale?: string;
+      evidence?: string[];
+      autoApproved?: boolean;
+      autoApprovedThreshold?: number;
+      /**
+       * Which agent's judgement this proposal represents. `invokedBy` cannot
+       * always answer that: a proposal made over the API records the human or
+       * token that called in, so without this the action has no agent and
+       * drops out of every per-agent metric and learning attribution.
+       */
+      agentSlug?: string;
+    }>(),
     /**
      * Idempotency/upsert key for agent-suggested actions — the review-card
      * system keys on (object type + object id + action slug), e.g.
@@ -2241,9 +2385,12 @@ export const userActivityEventSchema = pgTable(
     // a run legitimately receives multiple review.decided signals (rewritten →
     // skipped → approved) and the narrower index silently dropped all but the
     // first (0047).
+    // `review.snoozed` is exempt entirely: an item can be deferred any number
+    // of times and no metadata field tells one deferral from the next, so
+    // uniqueness here would drop every snooze after the first (0079).
     uniqueIndex('user_activity_event_resource_idx')
       .on(table.orgId, table.eventType, table.resourceType, table.resourceId, sql`(coalesce(${table.metadata}->>'decision',''))`)
-      .where(sql`resource_id IS NOT NULL`),
+      .where(sql`resource_id IS NOT NULL AND event_type <> 'review.snoozed'`),
   ],
 );
 
