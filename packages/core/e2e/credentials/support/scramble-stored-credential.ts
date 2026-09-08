@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { parseArgs } from 'node:util';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { apiTokenSchema } from '@/models/Schema';
 import 'dotenv/config';
@@ -36,23 +36,29 @@ const WRONG_AUTH_TAG = Buffer.alloc(16, 7).toString('base64');
  * @param name - The credential's name, as typed into the dashboard form.
  */
 async function scrambleNewestCredential(platform: string, name: string): Promise<void> {
-  const [token] = await db
+  // The subquery picks the row; the update writes it. One statement rather than
+  // a read followed by a write, so nothing can save a second credential under
+  // this name in between and leave the spec breaking the wrong one. `returning`
+  // covers what the separate read used to give: the id for the log line, and an
+  // empty result standing for "no such credential".
+  const newestMatch = db
     .select({ id: apiTokenSchema.id })
     .from(apiTokenSchema)
     .where(and(eq(apiTokenSchema.platform, platform), eq(apiTokenSchema.name, name)))
     .orderBy(desc(apiTokenSchema.createdAt))
     .limit(1);
 
-  if (!token) {
+  const [scrambled] = await db
+    .update(apiTokenSchema)
+    .set({ authTag: WRONG_AUTH_TAG })
+    .where(inArray(apiTokenSchema.id, newestMatch))
+    .returning({ id: apiTokenSchema.id });
+
+  if (!scrambled) {
     throw new Error(`No ${platform} credential named "${name}" is stored; save one before scrambling it.`);
   }
 
-  await db
-    .update(apiTokenSchema)
-    .set({ authTag: WRONG_AUTH_TAG })
-    .where(eq(apiTokenSchema.id, token.id));
-
-  console.warn(`[scramble-stored-credential] ${platform} credential ${token.id} ("${name}") can no longer be decrypted`);
+  console.warn(`[scramble-stored-credential] ${platform} credential ${scrambled.id} ("${name}") can no longer be decrypted`);
 }
 
 const { values } = parseArgs({
