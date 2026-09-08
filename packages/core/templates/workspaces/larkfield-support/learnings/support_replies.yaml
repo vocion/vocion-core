@@ -1,0 +1,27 @@
+name: support_replies
+title: Support reply rules
+description: >-
+  What this desk has learned about replying to customers — the rules a
+  human keeps writing in the reject box.
+preamble: |
+  These rules are rendered into every support agent's context. They are
+  seeded here so a fresh install starts with a house style instead of a
+  blank page; anything a person adds later lives in the database and is
+  never overwritten by an apply.
+agents:
+  - reply-drafter
+  - incident-liaison
+  - frontline-lead
+rules:
+  - id: answer-first
+    text: Answer the question in the first two sentences. Context, caveats, and links come after.
+  - id: no-invented-workaround
+    text: Never invent a workaround. If the handbook and the ticket history do not have it, say what you need from the customer.
+  - id: money-goes-to-escalations
+    text: Never mention a refund, a credit, an SLA penalty, or a delivery date in a reply. Hand the ticket to Escalations instead.
+  - id: one-clause-apology
+    text: One clause of apology, not a paragraph. "Sorry about that" then the fix.
+  - id: name-the-defect
+    text: When a ticket matches a known defect, name the defect id and the workaround, and say what the next update will be — never speculate about cause.
+  - id: plan-shapes-the-reply
+    text: Standard plan gets self-serve steps. Enterprise plan gets a named owner and a callback offer inside the business day.
