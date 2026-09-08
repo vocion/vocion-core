@@ -130,6 +130,13 @@ export async function GET(
         error: err.message,
       });
     }
+    // A vault failure reaches only the browser otherwise. The operator who can
+    // act on it — set the key, restore its old value — is reading the server
+    // log, not the admin's screen.
+    console.error('[rpc/sources/credentials] could not read credentials for connector', {
+      connectorSlug,
+      message: err instanceof Error ? err.message : String(err),
+    });
     return Response.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 500 },

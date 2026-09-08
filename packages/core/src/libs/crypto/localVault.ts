@@ -99,6 +99,11 @@ async function getDek(_orgId: string, _dekId: number): Promise<Buffer> {
 }
 
 export function localVault(): CredentialVault {
+  // Read the key now rather than on the first encrypt or decrypt. kmsVault's
+  // missing-ARN check already fires at this point, and a deployment whose vault
+  // key is missing should fail while it is starting up, not hours later when a
+  // customer first touches a credential.
+  masterKey();
   return {
     kind: 'local',
     async encrypt(orgId: string, plaintext: Buffer): Promise<EncryptResult> {
@@ -123,15 +128,24 @@ export function localVault(): CredentialVault {
         );
       } catch (error) {
         // Node says "Unsupported state or unable to authenticate data", which
-        // tells the reader nothing. With no VOCION_CREDENTIAL_VAULT_KEY set,
-        // every restart mints a new ephemeral key, so credentials saved before
-        // the restart cannot be read — the one cause worth naming, since the
-        // fix (set the key, then reconnect) is not guessable from the original.
+        // tells the reader nothing. What it means is that the credential was
+        // stored under a different key than the one this process holds, and the
+        // fix — reconnect the source — is not guessable from the original.
+        //
+        // Which key changed depends on where this runs. Development can reach
+        // here with VOCION_CREDENTIAL_VAULT_KEY unset, because every restart
+        // then mints a new ephemeral key. Production cannot: an unset key throws
+        // before any ciphertext is touched, so here it means the variable itself
+        // was changed. Naming only the development cause would send an on-call
+        // reader looking for a variable that is already set.
+        const causeOfMismatch = process.env.VOCION_CREDENTIAL_VAULT_KEY
+          ? 'The value of VOCION_CREDENTIAL_VAULT_KEY has changed since this credential was saved'
+          : 'VOCION_CREDENTIAL_VAULT_KEY is unset, so every restart mints a new ephemeral key';
         throw new Error(
           'The stored credential could not be decrypted with the current vault key. '
-          + 'If VOCION_CREDENTIAL_VAULT_KEY is unset, each restart generates a new key and '
-          + 'credentials saved earlier become unreadable: set it in .env.local, then reconnect '
-          + `this source's credential. (${error instanceof Error ? error.message : String(error)})`,
+          + `${causeOfMismatch}: set VOCION_CREDENTIAL_VAULT_KEY back to the value it had, or `
+          + 'reconnect this source\'s credential under the current key. '
+          + `(${error instanceof Error ? error.message : String(error)})`,
         );
       }
     },

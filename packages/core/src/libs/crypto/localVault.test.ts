@@ -1,22 +1,26 @@
-import type { Buffer } from 'node:buffer';
 /**
  * Two things the local vault has to get right about its master key.
  *
- * 1. The message it gives when it cannot read a stored credential. Node's own
+ * 1. That it refuses to mint an ephemeral key in production. A deployment
+ *    running without VOCION_CREDENTIAL_VAULT_KEY set left two stored
+ *    credentials permanently unreadable, and the only signal was a single
+ *    startup warning. The refusal happens when the vault is built, not on the
+ *    first credential operation, so a misconfigured deployment fails while it
+ *    is starting rather than hours later.
+ *
+ * 2. The message it gives when it cannot read a stored credential. Node's own
  *    AES-GCM failure is "Unsupported state or unable to authenticate data",
  *    which reached the operator verbatim through a failed source sync on
- *    2026-08-31 and named neither the cause nor the fix. `decrypt` has to
- *    explain the one cause that actually happens in local dev: no
- *    VOCION_CREDENTIAL_VAULT_KEY, so every restart mints a new ephemeral key
- *    and anything saved before it is unreadable.
- *
- * 2. That it refuses to mint an ephemeral key in production at all. A
- *    deployment running without the variable set left two stored credentials
- *    permanently unreadable, and the only signal was a single startup warning.
+ *    2026-08-31 and named neither the cause nor the fix. Which key changed
+ *    depends on where it runs, so the message has to name the right one:
+ *    development can get here with no key set at all, production only ever
+ *    gets here because the key's value changed.
  *
  * `decrypt` never touches the database in localVault — every DEK resolves to the
  * master key — so these are unit tests with no DB stub.
  */
+
+import type { Buffer } from 'node:buffer';
 import type { CredentialVault } from './credentialVault';
 import { randomBytes } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,9 +31,9 @@ const KEY = randomBytes(AES_KEY_BYTES).toString('base64');
 /**
  * Ask the vault to read a credential it has no hope of decrypting.
  *
- * Reading the master key happens before the ciphertext is touched, so whatever
- * this rejects with tells us which of the two failures we are looking at: a
- * master-key complaint, or the ordinary "does not authenticate".
+ * The ciphertext is random, so this is the same failure a credential saved
+ * under a different key gives: the key reads fine, the auth tag does not
+ * verify.
  * @param vault - Vault under test.
  */
 function readAnyCredential(vault: CredentialVault): Promise<Buffer> {
@@ -42,6 +46,16 @@ function readAnyCredential(vault: CredentialVault): Promise<Buffer> {
   );
 }
 
+/**
+ * Silence and capture the ephemeral-key warning.
+ *
+ * Building a vault with no key set warns on purpose, which would otherwise
+ * print through the test run.
+ */
+function captureWarnings() {
+  return vi.spyOn(console, 'warn').mockImplementation(() => {});
+}
+
 beforeEach(() => {
   vi.resetModules();
   vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', KEY);
@@ -49,6 +63,65 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
+
+describe('localVault master key', () => {
+  it('refuses to build in production without VOCION_CREDENTIAL_VAULT_KEY', async () => {
+    vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', undefined);
+    vi.stubEnv('NODE_ENV', 'production');
+    const { localVault } = await import('./localVault');
+
+    expect(() => localVault()).toThrow(/VOCION_CREDENTIAL_VAULT_KEY is not set/);
+  });
+
+  it('tells the operator in production why an ephemeral key is not an option', async () => {
+    vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', undefined);
+    vi.stubEnv('NODE_ENV', 'production');
+    const { localVault } = await import('./localVault');
+
+    expect(() => localVault()).toThrow(
+      /could never be decrypted again[\s\S]*VOCION_KMS_KEY_ARN/,
+    );
+  });
+
+  it('still mints an ephemeral key outside production, and warns while it does', async () => {
+    vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', undefined);
+    vi.stubEnv('NODE_ENV', 'development');
+    const warn = captureWarnings();
+    const { localVault } = await import('./localVault');
+
+    expect(() => localVault()).not.toThrow();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('ephemeral key'));
+  });
+
+  it('treats an unset NODE_ENV as development, not production', async () => {
+    // Nothing sets NODE_ENV in a plain `tsx` script or a container that never
+    // declares it. Only the explicit production value locks the vault down.
+    vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', undefined);
+    vi.stubEnv('NODE_ENV', undefined);
+    const warn = captureWarnings();
+    const { localVault } = await import('./localVault');
+
+    expect(() => localVault()).not.toThrow();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('ephemeral key'));
+  });
+
+  it('rejects a key that does not decode to 32 bytes', async () => {
+    vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', randomBytes(16).toString('base64'));
+    const { localVault } = await import('./localVault');
+
+    expect(() => localVault()).toThrow(
+      /VOCION_CREDENTIAL_VAULT_KEY must decode to 32 bytes; got 16/,
+    );
+  });
+
+  it('builds in production once a well-formed key is set', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const { localVault } = await import('./localVault');
+
+    expect(() => localVault()).not.toThrow();
+  });
 });
 
 describe('localVault decrypt', () => {
@@ -56,8 +129,6 @@ describe('localVault decrypt', () => {
     const { localVault } = await import('./localVault');
     const vault = localVault();
 
-    // Ciphertext this key never produced — the same failure a credential saved
-    // under a previous ephemeral key gives.
     await expect(readAnyCredential(vault)).rejects.toThrow(
       /could not be decrypted with the current vault key/,
     );
@@ -72,7 +143,7 @@ describe('localVault decrypt', () => {
     );
   });
 
-  it('says to set VOCION_CREDENTIAL_VAULT_KEY and reconnect', async () => {
+  it('says to restore the old key value or reconnect the source', async () => {
     const { localVault } = await import('./localVault');
     const vault = localVault();
 
@@ -80,66 +151,29 @@ describe('localVault decrypt', () => {
       /VOCION_CREDENTIAL_VAULT_KEY[\s\S]*reconnect/,
     );
   });
-});
 
-describe('localVault master key', () => {
-  it('refuses to run in production without VOCION_CREDENTIAL_VAULT_KEY', async () => {
-    vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', undefined);
-    vi.stubEnv('NODE_ENV', 'production');
+  it('blames a changed key value when a key is set', async () => {
+    // The only way production reaches this failure: the variable is set, but to
+    // something other than what the credential was stored under. Pointing an
+    // on-call reader at an unset variable would send them looking for a
+    // variable that is already there.
     const { localVault } = await import('./localVault');
     const vault = localVault();
 
     await expect(readAnyCredential(vault)).rejects.toThrow(
-      /VOCION_CREDENTIAL_VAULT_KEY is not set/,
+      /has changed since this credential was saved/,
     );
   });
 
-  it('tells the operator in production why an ephemeral key is not an option', async () => {
-    vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', undefined);
-    vi.stubEnv('NODE_ENV', 'production');
-    const { localVault } = await import('./localVault');
-    const vault = localVault();
-
-    await expect(readAnyCredential(vault)).rejects.toThrow(
-      /could never be decrypted again[\s\S]*VOCION_KMS_KEY_ARN/,
-    );
-  });
-
-  it('still mints an ephemeral key outside production, and warns while it does', async () => {
+  it('blames the ephemeral key when no key is set', async () => {
     vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', undefined);
     vi.stubEnv('NODE_ENV', 'development');
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { localVault } = await import('./localVault');
-    const vault = localVault();
-
-    // The ephemeral key exists, so the failure is the ordinary "this ciphertext
-    // does not authenticate", not the production refusal.
-    await expect(readAnyCredential(vault)).rejects.toThrow(
-      /could not be decrypted with the current vault key/,
-    );
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('ephemeral key'));
-
-    warn.mockRestore();
-  });
-
-  it('rejects a key that does not decode to 32 bytes', async () => {
-    vi.stubEnv('VOCION_CREDENTIAL_VAULT_KEY', randomBytes(16).toString('base64'));
+    captureWarnings();
     const { localVault } = await import('./localVault');
     const vault = localVault();
 
     await expect(readAnyCredential(vault)).rejects.toThrow(
-      /VOCION_CREDENTIAL_VAULT_KEY must decode to 32 bytes; got 16/,
-    );
-  });
-
-  it('accepts a well-formed key in production', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    const { localVault } = await import('./localVault');
-    const vault = localVault();
-
-    // The key reads fine, so the only complaint left is the ciphertext.
-    await expect(readAnyCredential(vault)).rejects.toThrow(
-      /could not be decrypted with the current vault key/,
+      /is unset, so every restart mints a new ephemeral key/,
     );
   });
 });
