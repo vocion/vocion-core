@@ -91,6 +91,21 @@ describe('apiTokens routes', () => {
     expect(JSON.stringify(listed)).not.toContain((created as any).token);
   });
 
+  it('hides revoked rows unless the caller asks for them', async () => {
+    signedInAs('admin');
+    const live = await issueToken({ orgId: ORG, name: 'live' });
+    const retired = await issueToken({ orgId: ORG, name: 'retired' });
+    await call(revokeTokenRoute, { tokenId: retired.id });
+
+    const listed = (await call(listTokensRoute, { includeRevoked: false })) as any[];
+
+    expect(listed.map(row => row.id)).toEqual([live.id]);
+
+    const audited = (await call(listTokensRoute, { includeRevoked: true })) as any[];
+
+    expect(audited.map(row => row.id).sort()).toEqual([live.id, retired.id].sort());
+  });
+
   it('refuses a member on every route', async () => {
     signedInAs('member');
 
@@ -148,9 +163,11 @@ describe('apiTokens routes', () => {
     await call(revokeTokenRoute, { tokenId: theirs.id });
     await call(revokeTokenRoute, { tokenId: mine.id });
 
-    const rows = (await call(listTokensRoute, undefined)) as any[];
+    const rows = (await call(listTokensRoute, { includeRevoked: true })) as any[];
 
     expect(rows.find(r => r.id === mine.id).revokedAt).not.toBeNull();
+    // And the default list, the one the dashboard asks for, no longer carries it.
+    expect((await call(listTokensRoute, undefined)) as any[]).toEqual([]);
 
     const { verifyToken } = await import('@/services/ApiTokenService');
 

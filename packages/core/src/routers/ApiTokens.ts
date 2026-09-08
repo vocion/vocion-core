@@ -76,10 +76,23 @@ function readExpiry(raw: string | null): Date | null {
   return expiresAt;
 }
 
-export const listTokensRoute = os.handler(async () => {
-  const { orgId } = await guardTokenAdmin();
-  return listTokens(orgId);
-});
+export const listTokensRoute = os
+  .input(z
+    .object({
+      /**
+       * True to include revoked rows. The dashboard asks for this only when an
+       * admin turns on "show revoked", because a rotation leaves the old row
+       * behind on purpose and the default list should be what is in use.
+       */
+      includeRevoked: z.boolean().optional(),
+    })
+    // Optional as a whole so an older client calling with no argument still
+    // gets the default list rather than a validation error.
+    .optional())
+  .handler(async ({ input }) => {
+    const { orgId } = await guardTokenAdmin();
+    return listTokens(orgId, { includeRevoked: input?.includeRevoked ?? false });
+  });
 
 export const createTokenRoute = os
   .input(z.object({
