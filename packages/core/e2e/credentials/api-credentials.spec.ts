@@ -38,8 +38,51 @@ const KEYS = {
 };
 
 function createBootstrapAdmin(): void {
-  // Through `dotenv -c` so the script sees .env.local — it is run outside the
-  // Next process, which is the only thing that loads that file on its own.
+  try {
+    // Through `dotenv -c` so the script sees .env.local — it is run outside the
+    // Next process, which is the only thing that loads that file on its own.
+    execFileSync(
+      'npx',
+      [
+        'dotenv',
+        '-c',
+        '--',
+        'npx',
+        'tsx',
+        'src/scripts/create-local-user.ts',
+        '--email',
+        ADMIN.email,
+        '--name',
+        ADMIN.name,
+        '--account',
+        ADMIN.account,
+        '--password',
+        ADMIN.password,
+        '--role',
+        'admin',
+      ],
+      { stdio: 'inherit' },
+    );
+  } catch (error) {
+    // Expected on a database that already ran this spec: the script refuses to
+    // overwrite an existing user and exits non-zero. Every test below signs in
+    // rather than signs up, so the run is still valid — and a genuine failure
+    // here surfaces as that sign-in failing, with this line naming the cause.
+    console.warn(`[credentials spec] create-local-user made no user: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/** The credential the vault-failure tests save, break and then try to read. */
+const VAULT_MISMATCH_NAME = 'Vault Mismatch Co';
+
+/**
+ * Break the stored Azure credential so the vault can no longer open
+ * it — the state a rotated or missing `VOCION_CREDENTIAL_VAULT_KEY` leaves
+ * every credential in. Through `dotenv -c` for the same reason the bootstrap
+ * is: the script runs outside the Next process, which is what loads
+ * `.env.local`, and it has to reach the database the app under test uses.
+ */
+function scrambleStoredAzureCredential(): void {
   execFileSync(
     'npx',
     [
@@ -48,17 +91,11 @@ function createBootstrapAdmin(): void {
       '--',
       'npx',
       'tsx',
-      'src/scripts/create-local-user.ts',
-      '--email',
-      ADMIN.email,
+      'e2e/credentials/support/scramble-stored-credential.ts',
+      '--platform',
+      'azure-openai',
       '--name',
-      ADMIN.name,
-      '--account',
-      ADMIN.account,
-      '--password',
-      ADMIN.password,
-      '--role',
-      'admin',
+      VAULT_MISMATCH_NAME,
     ],
     { stdio: 'inherit' },
   );
@@ -417,5 +454,43 @@ test.describe('the Vocion token keeps its own rules', () => {
 
     expect(messages[0]).toContain('Vocion server key');
     expect(messages[1]).toContain('stops working immediately');
+  });
+});
+
+test.describe('a key that no longer decrypts', () => {
+  const NAME = VAULT_MISMATCH_NAME;
+
+  test('hands the key back while the vault still holds its key', async ({ page }) => {
+    // Azure is the one platform the tests above never store a key for, so this
+    // is the only Azure row on the page and nothing here replaces anything.
+    await openFormFor(page, 'azure-openai');
+    await page.getByLabel('Name').fill(NAME);
+    await page.getByLabel('Azure OpenAI key').fill(KEYS.azure);
+    await page.getByRole('button', { name: 'Save key' }).click();
+
+    await expect(page.getByRole('cell', { name: NAME })).toBeVisible();
+
+    await page.getByRole('row', { name: new RegExp(NAME) }).getByLabel('Show key').click();
+
+    await expect(page.getByText(KEYS.azure)).toBeVisible();
+  });
+
+  test('names the vault key and the fix when the ciphertext will not open', async ({ page }) => {
+    // What a rotated secret or an unset VOCION_CREDENTIAL_VAULT_KEY leaves
+    // behind: a row whose ciphertext the running process cannot authenticate.
+    scrambleStoredAzureCredential();
+    await page.reload();
+
+    await page.getByRole('row', { name: new RegExp(NAME) }).getByLabel('Show key').click();
+
+    // The whole point of the change: the sentence the vault wrote reaches the
+    // screen, so the person reading it can fix this without opening the
+    // container logs.
+    const row = page.getByRole('row', { name: new RegExp(NAME) });
+
+    await expect(row).toContainText('could not be decrypted with the current vault key');
+    await expect(row).toContainText('VOCION_CREDENTIAL_VAULT_KEY');
+    // Explaining the failure must not turn into leaking what was stored.
+    await expect(page.locator('body')).not.toContainText(KEYS.azure);
   });
 });
