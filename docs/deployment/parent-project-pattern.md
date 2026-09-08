@@ -122,7 +122,7 @@ image. A plain infrastructure change shouldn't require either.
 
 ### Wire the app to the runtime
 
-Provisioning creates the runtime. It does not tell the app to use it — that is
+Provisioning creates the runtime. It does not tell the app to use it. That is
 five environment variables, and getting one wrong fails in a way that looks
 like a model problem rather than a config problem.
 
@@ -142,30 +142,34 @@ environment ends up invoking last month's image.
 | `VOCION_BEDROCK_SESSION_SECONDS` | optional, default 3600 | Nothing. Only shorten or lengthen the STS session if you have a reason. |
 
 `VOCION_TOOL_ENDPOINT_URL` is the one that surprises people. Every domain tool
-an agent has — knowledge search, CRM lookups, learnings, briefings, all of them
-— is executed by core, not by the runtime; the runtime calls back over HTTP
-with a signed tenant claim. So the client's core has to be reachable from AWS,
-over TLS, before a deployed agent can do anything but talk. The endpoint
-verifies the claim on every request and is safe to expose, but it is a tenant
-boundary: terminate TLS properly and don't put it behind a wildcard that also
-serves something else.
+an agent has — knowledge search, CRM lookups, learnings, briefings, all of
+them — is executed by core, not by the runtime. The runtime calls back over
+HTTP with a signed tenant claim.
+
+So the client's core has to be reachable from AWS, over TLS, before a deployed
+agent can do anything but talk. The endpoint verifies the claim on every
+request and is safe to expose, but it is a tenant boundary: terminate TLS
+properly, and don't put it behind a wildcard that also serves something
+else.
 
 Model spend follows the org's stored AWS key. Core mints a short-lived STS
 session from the key the client saved at `/dashboard/api-tokens` and sends it
-in the invocation, so Bedrock is billed to their account. If they have stored
-no key, the runtime signs with its own execution role and the bill is ours —
-which is the right fallback for a trial and the wrong one for a paying client,
-so check it during handover rather than assuming.
+in the invocation, so Bedrock is billed to their account.
+
+If they have stored no key, the runtime signs with its own execution role and
+the bill is ours. That is the right fallback for a trial and the wrong one for
+a paying client, so check it during handover rather than assuming.
 
 ### One-time: let CI deploy the runtime
 
 `.github/workflows/deploy-agent-runtime.yml` does nothing until someone runs
 `infra/agentcore/provision-ci-role.sh` and sets `AWS_DEPLOY_ROLE_ARN` as a
 repository secret. That step is deliberately manual and deliberately human: it
-creates federated trust between GitHub and the AWS account. Do it once per
-environment, and expect to do it again for staging and production — SSM is
-namespaced per environment (`/vocion/agentcore/<env>/`, see
-[`multiple-environments.md`](./multiple-environments.md)) so the two never
+creates federated trust between GitHub and the AWS account.
+
+Do it once per environment, and expect to do it again for staging and
+production. SSM is namespaced per environment (`/vocion/agentcore/<env>/`, see
+[`multiple-environments.md`](./multiple-environments.md)), so the two never
 share a runtime by accident.
 
 ---

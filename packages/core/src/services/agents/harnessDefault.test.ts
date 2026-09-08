@@ -3,15 +3,19 @@
  *
  * Choosing Bedrock as the model vendor now also chooses where the loop runs:
  * `modelProvider: bedrock` defaults to `agentcore-container` — our own loop, in
- * our container, hosted on AgentCore Runtime. Before this, the two settings
- * were unrelated: an installation could be entirely on Bedrock and still run
+ * our container, hosted on AgentCore Runtime. The two settings used to be
+ * unrelated, so an installation could be entirely on Bedrock and still run
  * every agent in this process, and every agent had to name the target by hand
  * to reach AWS at all.
  *
- * These tests pin the precedence, because the escape hatches are the part that
- * matters in practice: an explicit target on the agent, the fleet-wide
- * environment override, and the dev-machine kill switch all still win. Both
- * spellings of the target are covered — rows written before the rename carry
+ * These tests pin the precedence, since the escape hatches are what matters in
+ * practice. All three still win over the default:
+ *
+ *   - an explicit target on the agent
+ *   - the fleet-wide environment override
+ *   - the dev-machine kill switch
+ *
+ * Both spellings are covered: rows written before the rename carry
  * `provider: local` / `runtime` / `agentcore` and must keep resolving.
  */
 import process from 'node:process';

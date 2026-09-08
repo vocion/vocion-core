@@ -89,19 +89,23 @@ export async function listAgentHierarchy(orgId: string): Promise<AgentHierarchyV
  *
  * Choosing Bedrock as the model vendor now also chooses where the loop runs:
  * `modelProvider: bedrock` defaults to `agentcore-container` — our own loop, in
- * our container, hosted on AWS AgentCore Runtime. The two settings used to be
- * unrelated axes, so an installation could be entirely on Bedrock and still run
- * every agent in this process, and every agent had to repeat the target by hand
- * to reach AWS at all.
+ * our container, hosted on AWS AgentCore Runtime.
  *
- * Nothing is forced: an explicit `runsOn` still wins (it is read before this
- * function is consulted), `VOCION_AGENT_PROVIDER` still overrides fleet-wide,
- * and `VOCION_DISABLE_RUNTIME=1` still sends everything back to the in-process
- * loop for a dev machine with no container on :8080.
+ * The two settings used to be unrelated axes. An installation could be entirely
+ * on Bedrock and still run every agent in this process, so every agent had to
+ * repeat the target by hand to reach AWS at all.
  *
- * Anthropic and OpenAI agents are unaffected and keep running in process,
- * because the container's own model path reaches those vendors only when the
- * container itself is configured for them.
+ * Nothing is forced. Three ways out, all still honoured:
+ *
+ *   - an explicit `runsOn` on the agent — read before this function is
+ *     consulted;
+ *   - `VOCION_AGENT_PROVIDER` — overrides fleet-wide;
+ *   - `VOCION_DISABLE_RUNTIME=1` — sends everything back to the in-process
+ *     loop, for a dev machine with no container on :8080.
+ *
+ * Anthropic and OpenAI agents are unaffected and keep running in process: the
+ * container's own model path reaches those vendors only when the container
+ * itself is configured for them.
  * @param modelProvider - The agent's `harness.modelProvider`, if it set one.
  */
 function defaultHarnessTargetFor(
@@ -231,21 +235,21 @@ export async function runAgentDeep(opts: {
 
   // Harness dispatch — three targets, one event contract:
   //   - `agentcore-container`: OUR deepagents loop, in the
-  //     packages/agent-runtime container (localhost in dev, AWS
-  //     AgentCore Runtime when deployed). VOCION_DISABLE_RUNTIME=1
-  //     forces the in-process loop instead — for dev machines where the
-  //     container isn't running on :8080.
-  //   - `aws-managed-harness`: AWS owns the loop; our tools are called
-  //     back inline. VOCION_DISABLE_AGENTCORE=1 forces the in-process
-  //     loop — for dev machines with no AWS credentials / no provisioned
-  //     harness, where such an agent would otherwise be unchattable
-  //     ("Tool error").
-  //   - `in-process` (or anything unrecognised): the loop below.
+  //     packages/agent-runtime container (localhost in dev, AWS AgentCore
+  //     Runtime when deployed). VOCION_DISABLE_RUNTIME=1 forces the
+  //     in-process loop instead, for a dev machine with no container on :8080.
+  //   - `aws-managed-harness`: AWS owns the loop; our tools are called back
+  //     inline. VOCION_DISABLE_AGENTCORE=1 forces the in-process loop, for a
+  //     dev machine with no AWS credentials or no provisioned harness, where
+  //     such an agent would otherwise be unchattable ("Tool error").
+  //   - `in-process`, or anything unrecognised: the loop below.
   //
-  // Names are normalised, so a pre-rename `local`/`runtime`/`agentcore`
-  // in an old row or in VOCION_AGENT_PROVIDER still resolves. An agent
-  // that named nothing gets a target derived from its `modelProvider`
-  // — see `defaultHarnessTargetFor`.
+  // Precedence, highest first: VOCION_AGENT_PROVIDER, then the agent's own
+  // `runsOn`, then a target derived from its `modelProvider` (see
+  // `defaultHarnessTargetFor`).
+  //
+  // Names are normalised, so a pre-rename `local`/`runtime`/`agentcore` in an
+  // old row or in VOCION_AGENT_PROVIDER still resolves.
   const [agentRow] = await db
     .select({ harnessConfig: agentSchema.harnessConfig })
     .from(agentSchema)

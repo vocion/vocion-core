@@ -129,14 +129,14 @@ export type InvocationRequest = {
    * from the org's own stored access key.
    *
    * Present only when that org has stored one. Absent means "do not
-   * override" — the model client then resolves credentials from this
-   * process's own chain (execution role, or a Bedrock API key in
-   * `AWS_BEARER_TOKEN_BEDROCK`), which is the platform's account rather
-   * than the customer's.
+   * override": the model client then resolves credentials from this
+   * process's own chain — execution role, or a Bedrock API key in
+   * `AWS_BEARER_TOKEN_BEDROCK` — which is the platform's account, not the
+   * customer's.
    *
-   * All three fields are required together: a temporary access key is
-   * rejected by AWS unless the session token proving STS issued it comes
-   * with it. Ignored entirely on the Anthropic model path.
+   * All three fields are required together, because AWS rejects a temporary
+   * access key unless the session token proving STS issued it comes with it.
+   * Ignored entirely on the Anthropic model path.
    */
   aws?: {
     accessKeyId: string;

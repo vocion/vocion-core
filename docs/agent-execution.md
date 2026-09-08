@@ -1,8 +1,8 @@
 # Where an agent turn runs
 
-Three separate questions get confused with each other constantly, because two
-of them are spelled almost the same and the third has AWS's marketing on top of
-it. This page separates them.
+Three separate questions get confused constantly: two are spelled almost the
+same, and the third has AWS's marketing on top of it. This page separates
+them.
 
 | Question | The field | Values |
 |---|---|---|
@@ -54,34 +54,34 @@ The first two are the same agent. The third is a different agent.
 ### `in-process` and `agentcore-container` are the same agent
 
 Only the process boundary moves. Same loop, same agent definition, same tool
-registry, same prompt assembly, same event stream — which is what makes
+registry, same prompt assembly, same event stream. That is what makes
 `VOCION_DISABLE_RUNTIME=1` a safe dev switch rather than a behaviour change.
 
-Because the artifact is generic — the agent travels in the invocation payload —
-editing an agent never redeploys anything. `workspace:apply` stays a database
-sync.
+The artifact is also generic: the agent travels in the invocation payload. So
+editing an agent never redeploys anything, and `workspace:apply` stays a
+database sync.
 
 ### What it means that tools call back
 
-On `agentcore-container` the container holds no database credential and no KMS grant. It
-cannot read a source, a learning, or a CRM record. Every tool it "has" is a stub
-that POSTs to core, which executes the real implementation and returns the
-result. One registry, `services/agents/tools/registry.ts`, serves every
-provider.
+On `agentcore-container` the container holds no database credential and no KMS
+grant. It cannot read a source, a learning, or a CRM record. Every tool it
+"has" is a stub that POSTs to core, which runs the real implementation and
+returns the result. One registry, `services/agents/tools/registry.ts`, serves
+every target.
 
-The practical consequence, and the single most common deployment mistake: the
-URL in that payload comes from `VOCION_TOOL_ENDPOINT_URL` and defaults to
+Hence the most common deployment mistake. The callback URL in that payload
+comes from `VOCION_TOOL_ENDPOINT_URL`, and it defaults to
 `http://localhost:3000/…`. Deploy the artifact to AWS without changing it and
-every tool call fails. The agent still answers, from the model alone, badly.
-That is one unreachable URL, not thirty broken tools.
+every tool call fails: the agent still answers, from the model alone, badly.
+One unreachable URL, not thirty broken tools.
 
 ### `aws-managed-harness` gives the loop away
 
-On this provider AWS drives the turn. We hand Bedrock a system prompt, a model
-id and a tool list; AWS decides when to call a tool and pauses so core can
+On this target AWS drives the turn. We hand Bedrock a system prompt, a model id
+and a tool list; AWS decides when to call a tool, and pauses so core can
 execute it. The agent becomes pure configuration.
 
-The cost is everything the loop implements. That path declares exactly **one**
+The cost is everything our loop implements. This path declares exactly **one**
 tool, and has no subagents, no playbooks or skills, and no human-approval
 gates — not by omission, but because those are deepagents behaviours AWS's loop
 has no equivalent for.
@@ -138,18 +138,20 @@ router for model traffic.
 `VOCION_LLM_PROVIDER`.
 
 One default connects the two axes: **an agent with `modelProvider: bedrock` and
-no `runsOn` gets `agentcore-container`.** Choosing AWS as the model vendor also chooses
-AWS as the place the loop runs, because that is the shape every deployed
-installation wants and repeating `provider: runtime` on every agent is a thing
-people forget. Write `runsOn: in-process` next to it to opt back out, or
-`runsOn: aws-managed-harness` to hand the loop over; either is honoured.
+no `runsOn` gets `agentcore-container`.** Choosing AWS as the model vendor also
+chooses AWS as the place the loop runs, because that is the shape every deployed
+installation wants — and repeating the target on every agent is a thing people
+forget. Write `runsOn: in-process` next to it to opt back out, or
+`runsOn: aws-managed-harness` to hand the loop over. Either is honoured.
 
-`harness.runsOn` is deliberately **not** defaulted in the workspace schema.
-The parsed harness block is stored verbatim as the agent's `harnessConfig`, so a
-schema default would land in the database as though the author had typed it, and
-"the author said nothing" would become indistinguishable from "the author asked
-for the in-process loop". Agents applied before that change carry an explicit
-`provider: local` and need one `workspace:apply` to pick up the new default.
+`harness.runsOn` is deliberately **not** defaulted in the workspace schema. The
+parsed harness block is stored verbatim as the agent's `harnessConfig`, so a
+schema default would land in the database as though the author had typed it.
+"The author said nothing" would then be indistinguishable from "the author
+asked for the in-process loop".
+
+Agents applied before that change carry an explicit `provider: local`, and need
+one `workspace:apply` to pick up the new default.
 
 ### Which AWS account is billed
 
@@ -162,9 +164,9 @@ both of the providers we drive, by two different routes:
 | `in-process` | `resolveBedrockCredentials(orgId)` reads and decrypts the org's stored pair, and the Bedrock client signs with it |
 | `agentcore-container` | core mints a short-lived STS session from that pair and sends it in the payload's `aws` block; the container's model client signs with it |
 
-The container route needs the extra step because the container has no database
-and no KMS grant — it cannot resolve the org's key itself, and before this it
-signed with its own execution role, which is the **platform's** account.
+The container route needs that extra step because the container has no database
+and no KMS grant. It cannot resolve the org's key itself, and before this it
+signed with its own execution role — which is the **platform's** account.
 
 Three outcomes, and only one of them is loud:
 
@@ -176,12 +178,15 @@ Three outcomes, and only one of them is loud:
   Deliberately not a fall back: falling back would look like success while
   billing the wrong account.
 
-The session lasts an hour by default (`VOCION_BEDROCK_SESSION_SECONDS`), is
-minted per invocation, and is never stored. The long-lived key stays in Postgres
-as the only thing to rotate. The container reads the session through a
-per-invocation reference rather than capturing it, because the compiled graph is
-cached across invocations — and the cache is partitioned by org, so two tenants
-with byte-identical agent definitions cannot share one.
+Three details worth knowing about the session:
+
+- It lasts an hour by default (`VOCION_BEDROCK_SESSION_SECONDS`), is minted per
+  invocation, and is never stored. The long-lived key stays in Postgres as the
+  only thing to rotate.
+- The container reads it through a per-invocation reference rather than
+  capturing it, because the compiled graph is cached across invocations.
+- That cache is partitioned by org, so two tenants with byte-identical agent
+  definitions cannot share one graph.
 
 On `aws-managed-harness` the model call is made inside AWS's harness, on the
 harness execution role. An org's own stored key does not reach it.

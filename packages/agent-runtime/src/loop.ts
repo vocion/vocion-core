@@ -27,11 +27,12 @@ const GRAPH_CACHE_LIMIT = 16;
  * running it.
  *
  * The graph is expensive to build and identical for every request with the
- * same definition, so it is reused; anything that is per-request lives behind
- * a ref the graph reads through instead of being baked in. `awsRef` is the
- * important one: it holds the caller's temporary Bedrock credential, so it
- * MUST be replaced on every invocation and MUST NOT be part of what the graph
- * closed over at build time.
+ * same definition, so it is reused. Anything per-request lives behind a ref
+ * the graph reads through, instead of being baked in.
+ *
+ * `awsRef` is the important one. It holds the caller's temporary Bedrock
+ * credential, so it MUST be replaced on every invocation, and MUST NOT be
+ * something the graph closed over at build time.
  */
 type GraphEntry = {
   graph: ReturnType<typeof createDeepAgent>;
@@ -48,17 +49,17 @@ export function definitionHash(req: InvocationRequest): string {
       catalog: req.tools.catalog,
       endpoint: req.tools.endpoint,
       hasPlaybooks: Object.keys(req.files ?? {}).some(p => p.startsWith('/playbooks/') || p.startsWith('/skills/')),
-      // Two orgs can hold identical agent definitions — same slug, same
-      // prompt, same tool catalog — and before the graph carried a
-      // credential that was harmless. It no longer is, so the cache is
-      // partitioned by org as well. The credential itself is deliberately
-      // NOT hashed: it is minted per invocation, so hashing it would miss
-      // the cache every single time.
+      // Two orgs can hold identical agent definitions: same slug, same
+      // prompt, same tool catalog. That was harmless before the graph
+      // carried a credential. It is not now, so the cache is partitioned by
+      // org too. The credential itself is deliberately NOT hashed — it is
+      // minted per invocation, so hashing it would miss the cache every
+      // single time.
       orgId: req.trace?.orgId,
       // Whether a credential is present, not what it is. The model client
       // decides at build time whether to override its credential chain at
-      // all, so an org that stores an AWS key after its first run needs a
-      // rebuilt graph rather than a stale one that ignores the key.
+      // all. So an org that stores an AWS key after its first run needs a
+      // rebuilt graph, not a stale one that ignores the key.
       hasAwsSession: Boolean(req.aws),
     }))
     .digest('hex');
@@ -106,8 +107,8 @@ async function getGraph(req: InvocationRequest): Promise<GraphEntry> {
     tools: kept as SubAgent['tools'],
   }));
 
-  // Read through on every model request, never captured by value — the
-  // session belongs to whichever invocation is currently being served.
+  // Read through on every model request, never captured by value: the
+  // session belongs to whichever invocation is being served right now.
   const awsRef: GraphEntry['awsRef'] = { session: req.aws };
   const model = await buildChatModel({
     model: req.agent.model,

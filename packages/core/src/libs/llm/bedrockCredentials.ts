@@ -94,14 +94,14 @@ export async function resolveBedrockCredentials(orgId: string): Promise<BedrockC
 }
 
 /**
- * How long a runtime session credential stays valid, in seconds.
+ * How long a runtime session credential stays valid, in seconds. One hour by
+ * default.
  *
- * One hour by default. `GetSessionToken` allows anything from 15 minutes to 36
- * hours for an IAM user session, and no agent run comes near either bound — a
- * long run is minutes. The window is therefore chosen for blast radius rather
- * than for headroom: the credential leaves this process and travels in an
- * AgentCore invocation payload, so the shorter it lives, the less a copy of
- * that payload is worth to anyone who finds one.
+ * `GetSessionToken` allows 15 minutes to 36 hours for an IAM user session, and
+ * no agent run comes near either bound — a long run is minutes. So the window
+ * is picked for blast radius, not headroom: the credential leaves this process
+ * inside an AgentCore invocation payload, and the shorter it lives, the less a
+ * stray copy of that payload is worth.
  */
 function runtimeSessionDurationSeconds(): number {
   const configured = Number(process.env.VOCION_BEDROCK_SESSION_SECONDS);
@@ -111,9 +111,9 @@ function runtimeSessionDurationSeconds(): number {
 /**
  * A temporary AWS credential for the runtime artifact to sign Bedrock with.
  *
- * Shaped as the AWS SDK expects it, session token included. A temporary access
- * key is not valid on its own — AWS accepts it only alongside the token that
- * proves STS issued it — so all three fields travel together or none do.
+ * Shaped as the AWS SDK expects, session token included. A temporary access
+ * key is not valid on its own: AWS accepts it only with the token proving STS
+ * issued it. So all three fields travel together or none do.
  */
 export type RuntimeBedrockSession = {
   accessKeyId: string;
@@ -124,27 +124,28 @@ export type RuntimeBedrockSession = {
 };
 
 /**
- * A short-lived Bedrock credential for `orgId`, to hand to the runtime artifact.
+ * Mint a short-lived Bedrock credential for `orgId`, to hand to the runtime
+ * artifact.
  *
- * The artifact runs out of process — on AgentCore it runs in another AWS
- * account entirely — with no database access and no KMS grant, so it cannot
- * resolve an org's stored key itself. This function is the bridge: core, which
- * holds both, resolves the org's own AWS pair and mints a session from it. The
- * session travels in the invocation payload and the artifact signs Bedrock with
- * it, so the model spend lands on the customer's account exactly as it does on
- * the in-process path.
+ * The artifact runs out of process — on AgentCore, in another AWS account
+ * entirely — with no database access and no KMS grant, so it cannot resolve an
+ * org's stored key itself. Core holds both, so it resolves the org's own AWS
+ * pair and mints a session from it. The session travels in the invocation
+ * payload and the artifact signs Bedrock with it, so model spend lands on the
+ * customer's account, exactly as on the in-process path.
  *
- * **Returns null when the org has stored no AWS pair**, which is not an error.
- * Null means "we are not overriding the artifact's own credential chain", and
- * the artifact then falls through to the platform's secrets — its execution
- * role or `AWS_BEARER_TOKEN_BEDROCK` — the same second-choice fallback
- * `resolveBedrockCredentials` allows for the in-process path.
+ * Two exits, one quiet and one loud:
  *
- * **Throws when the org has a pair but STS refuses it.** The tempting
- * alternative — log it and return null — would silently move that customer's
- * model spend onto the platform account and look like success, which is the
- * failure this whole path exists to prevent. A stored credential that cannot
- * mint a session is a misconfiguration the org has to fix, so it surfaces.
+ * - **No stored AWS pair: returns null.** Not an error. Null means "we are not
+ *   overriding the artifact's own credential chain", so the artifact falls
+ *   through to the platform's secrets — its execution role, or
+ *   `AWS_BEARER_TOKEN_BEDROCK` — the same second choice
+ *   `resolveBedrockCredentials` allows in process.
+ * - **A pair STS refuses: throws.** The tempting alternative, log it and
+ *   return null, would quietly move that customer's model spend onto the
+ *   platform account and look like success — the exact failure this path
+ *   exists to prevent. A stored credential that cannot mint a session is a
+ *   misconfiguration for the org to fix, so it surfaces.
  * @param orgId - The org the agent run belongs to.
  */
 export async function mintBedrockSessionForRuntime(orgId: string): Promise<RuntimeBedrockSession | null> {

@@ -1,36 +1,38 @@
 /**
- * BYOA runtime provider — `harness.provider: runtime`.
+ * BYOA runtime provider — `harness.runsOn: agentcore-container` (authored as
+ * `provider: runtime` before the rename).
  *
- * Runs the agent on the standalone runtime artifact
- * (packages/agent-runtime) instead of the in-process deepagents loop.
- * The artifact is GENERIC: this provider assembles everything per
- * invocation — the compiled agent definition, mounted playbook/learning
- * files, the tool catalog, and a signed TenantClaim — and streams the
- * artifact's AgentEvents back to the caller verbatim, so the SSE route
- * and chat UI need no changes (same contract as the other providers).
+ * Runs the agent on the standalone runtime artifact (packages/agent-runtime)
+ * instead of the in-process deepagents loop. The artifact is GENERIC: this
+ * provider assembles everything per invocation — the compiled agent
+ * definition, mounted playbook/learning files, the tool catalog, and a signed
+ * TenantClaim — and streams the artifact's AgentEvents back to the caller
+ * verbatim. Same contract as the other providers, so the SSE route and chat UI
+ * need no changes.
  *
- * Where the artifact runs is configuration:
- *   - VOCION_AGENT_RUNTIME_ARN set → the deployed AgentCore Runtime,
- *     invoked via the AWS SDK (SigV4, streamed SSE response).
- *   - else VOCION_AGENT_RUNTIME_URL (default http://localhost:8080) →
- *     plain HTTP to a locally running artifact
- *     (npm run dev -w @vocion/agent-runtime).
- * Same artifact, same payload, same event stream — only the transport
- * differs. NOTE for the deployed path: the tool endpoint URL sent in
- * the payload must be reachable FROM AWS (VOCION_TOOL_ENDPOINT_URL);
- * localhost only works for the local transport.
+ * **Where the artifact runs** is configuration:
+ *   - VOCION_AGENT_RUNTIME_ARN set → the deployed AgentCore Runtime, invoked
+ *     via the AWS SDK (SigV4, streamed SSE response).
+ *   - else VOCION_AGENT_RUNTIME_URL (default http://localhost:8080) → plain
+ *     HTTP to a locally running artifact
+ *     (`npm run dev -w @vocion/agent-runtime`).
  *
- * Bedrock credentials: the artifact has no database access and no KMS
+ * Same artifact, same payload, same event stream — only the transport differs.
+ * On the deployed path, the tool endpoint URL sent in the payload must be
+ * reachable FROM AWS (VOCION_TOOL_ENDPOINT_URL); localhost only works for the
+ * local transport.
+ *
+ * **Bedrock credentials.** The artifact has no database access and no KMS
  * grant, so it cannot resolve the org's stored AWS key itself. Core mints a
- * short-lived STS session from that key and sends it in the payload; the
- * artifact signs Bedrock with it, so model spend lands on the customer's
- * account. An org that stored no key sends no credential and the artifact
- * falls through to its own chain — the platform's secrets. See
+ * short-lived STS session from that key and sends it in the payload, and the
+ * artifact signs Bedrock with it — so model spend lands on the customer's
+ * account. An org that stored no key sends no credential, and the artifact
+ * falls through to its own chain, which is the platform's secrets. See
  * `mintBedrockSessionForRuntime`.
  *
- * Budget accounting: the artifact can't reach the DB, so it emits
- * runtime-internal `usage` events per model turn; we charge
- * BudgetService here and do NOT forward those to the browser.
+ * **Budget accounting.** The artifact can't reach the DB, so it emits
+ * runtime-internal `usage` events per model turn. We charge BudgetService here
+ * and do NOT forward those to the browser.
  */
 
 import type { AgentEvent } from '../types';
@@ -105,9 +107,9 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   const files = await buildInitialFiles(opts.orgId, opts.agentSlug);
   const hc = row.harnessConfig ?? {};
 
-  // Resolved for every run, not only for `modelProvider: bedrock` agents:
-  // which vendor the artifact actually calls depends on ITS environment
-  // (no ANTHROPIC_API_KEY means Bedrock), which core cannot see from here.
+  // Resolved for every run, not only for `modelProvider: bedrock` agents.
+  // Which vendor the artifact actually calls depends on ITS environment (no
+  // ANTHROPIC_API_KEY means Bedrock), and core cannot see that from here.
   // Sending the session whenever the org has one keeps the deployed path
   // billed to the customer without core having to guess.
   const awsSession = await mintBedrockSessionForRuntime(opts.orgId);
