@@ -27,6 +27,7 @@
     "lint:fix": "eslint . --fix",
     "check:types": "tsc --noEmit --pretty",
     "check:i18n": "i18n-check -l src/locales -s en -u src -f next-intl",
+    "check:migrations": "tsx src/scripts/check-migration-safety.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "db-server:file": "pglite-server --extensions=vector --db=local.db --run 'npm run db:migrate'",

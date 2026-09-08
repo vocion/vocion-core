@@ -24,6 +24,12 @@ const tsvector = customType<{ data: string; driverData: string }>({
 // It automatically run the command `db-server:file`, which apply the migration before Next.js starts in development mode,
 // Alternatively, if your database is running, you can run `npm run db:migrate` and there is no need to restart the server.
 
+// Before hand-writing a migration, read packages/core/migrations/CONVENTIONS.md.
+// An index on a table that already exists must not use a plain `CREATE INDEX` —
+// it blocks every write to that table until the build finishes — and column
+// changes go through expand and contract across releases. `npm run
+// check:migrations` enforces the index rule and runs in CI.
+
 /* ==================================================================== */
 /* Phase 1 — Auth + Tenancy                                              */
 /*                                                                       */

@@ -322,6 +322,11 @@ only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`).
 
 To modify: edit `src/models/Schema.ts`, then `npm run db:generate && npm run db:migrate`.
 
+Migration conventions — index builds that must not take a write lock, and the
+expand-and-contract rule for column changes — are in
+`packages/core/migrations/CONVENTIONS.md`. `npm run check:migrations` enforces
+the index rule and runs in CI.
+
 ## Environment Setup
 
 Copy `.env.example` to `.env.local` and fill in your keys. Required 3rd-party services:

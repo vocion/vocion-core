@@ -193,6 +193,13 @@ clear_migrations() {
   mkdir -p "${MIGRATIONS_FIXTURE}"
 }
 
+# A production-only concurrent index build — see
+# packages/core/migrations/CONVENTIONS.md.
+write_concurrent_migration() {
+  mkdir -p "${MIGRATIONS_FIXTURE}/concurrent"
+  printf '%s\n' "$2" > "${MIGRATIONS_FIXTURE}/concurrent/$1"
+}
+
 # A repo-shaped directory update.sh can be pointed at with REPO_DIR.
 build_fixture_repo() {
   mkdir -p "${FIXTURE_REPO}/infra/aws" "${FIXTURE_REPO}/packages/core/migrations"
@@ -667,6 +674,197 @@ CREATE INDEX CONCURRENTLY "organization_id_idx" ON "organization" ("id");'
   check_contains "applies both files" "${APPLIER_OUTPUT}" "2 applied · 0 already-applied · 0 failed"
 }
 
+test_concurrent_directory_applies_after_its_migration() {
+  echo "apply-migrations: migrations/concurrent/ index build"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_concurrent_migration 0000_organization_index.sql \
+    'DROP INDEX IF EXISTS "organization_id_concurrent_idx";
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_id_concurrent_idx" ON "organization" ("id");'
+  run_applier
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "applies the numbered migration and the index build" "${APPLIER_OUTPUT}" \
+    "2 applied · 0 already-applied · 0 failed"
+  check_contains "runs the index build unwrapped" "${APPLIER_OUTPUT}" \
+    "uses CONCURRENTLY — applying without a transaction"
+
+  local index_exists recorded
+  index_exists=$(query_test_database "SELECT count(*) FROM pg_indexes WHERE indexname = 'organization_id_concurrent_idx';")
+  if [ "${index_exists}" = "1" ]; then
+    pass "the concurrent index exists"
+  else
+    fail "the concurrent index exists" "index is missing"
+  fi
+
+  # Recorded with its directory, so a concurrent build can never be mistaken
+  # for a numbered migration that happens to share a filename.
+  recorded=$(query_test_database "SELECT count(*) FROM __pgsql_migrations WHERE name = 'concurrent/0000_organization_index.sql';")
+  if [ "${recorded}" = "1" ]; then
+    pass "recorded under its directory"
+  else
+    fail "recorded under its directory" "no concurrent/ row in __pgsql_migrations"
+  fi
+
+  run_applier
+  check_contains "a re-run skips it" "${APPLIER_OUTPUT}" "0 applied · 2 already-applied · 0 failed"
+}
+
+test_concurrent_build_needs_its_numbered_migration_first() {
+  echo "apply-migrations: concurrent build ordered after its migration"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  # The column this indexes only exists after 0001 runs, so an index build
+  # ordered before it would fail outright.
+  write_migration 0001_add_column.sql 'ALTER TABLE "organization" ADD COLUMN "slug" text;'
+  write_concurrent_migration 0001_organization_slug_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_slug_idx" ON "organization" ("slug");'
+  run_applier
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "applies all three" "${APPLIER_OUTPUT}" "3 applied · 0 already-applied · 0 failed"
+  local index_exists
+  index_exists=$(query_test_database "SELECT count(*) FROM pg_indexes WHERE indexname = 'organization_slug_idx';")
+  if [ "${index_exists}" = "1" ]; then
+    pass "the index on the new column exists"
+  else
+    fail "the index on the new column exists" "index is missing"
+  fi
+}
+
+test_baseline_all_leaves_concurrent_builds_pending() {
+  echo "apply-migrations: --baseline all covers only the numbered migrations"
+  reset_database
+  clear_migrations
+  # A pre-existing schema with no tracking rows: baselining marks the numbered
+  # migrations as applied. The index builds are production-only and may never
+  # have run there, so they stay pending and build concurrently on the next run.
+  query_test_database 'CREATE TABLE "organization" ("id" text PRIMARY KEY NOT NULL);' >/dev/null
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_concurrent_migration 0000_organization_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_baselined_idx" ON "organization" ("id");'
+  run_applier_with_flags --baseline all
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "baselines the numbered migration only" "${APPLIER_OUTPUT}" "baselined 1 migration(s)"
+  check_contains "then applies the index build" "${APPLIER_OUTPUT}" "1 applied · 1 already-applied · 0 failed"
+  local index_exists
+  index_exists=$(query_test_database "SELECT count(*) FROM pg_indexes WHERE indexname = 'organization_baselined_idx';")
+  if [ "${index_exists}" = "1" ]; then
+    pass "the concurrent index was built on the baselined database"
+  else
+    fail "the concurrent index was built on the baselined database" "index is missing"
+  fi
+}
+
+test_orphan_concurrent_build_is_left_alone() {
+  echo "apply-migrations: concurrent build with no matching migration number"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  # Numbered 0009, but there is no 0009 migration to hang it off. The applier
+  # cannot place it, so it never runs — which is why check:migrations refuses
+  # to let one be committed.
+  write_concurrent_migration 0009_orphan_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_orphan_idx" ON "organization" ("id");'
+  run_applier
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "applies only the numbered migration" "${APPLIER_OUTPUT}" \
+    "1 applied · 0 already-applied · 0 failed"
+  local index_exists
+  index_exists=$(query_test_database "SELECT count(*) FROM pg_indexes WHERE indexname = 'organization_orphan_idx';")
+  if [ "${index_exists}" = "0" ]; then
+    pass "the orphan build did not run"
+  else
+    fail "the orphan build did not run" "the index exists, so ordering is not number-driven"
+  fi
+}
+
+test_concurrently_inside_a_string_literal_keeps_the_transaction() {
+  echo "apply-migrations: CONCURRENTLY only inside a string literal"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  # Prose about a concurrent build, not a concurrent build. Dropping
+  # --single-transaction here would cost this file its rollback for nothing.
+  write_migration 0001_comment_on_index.sql \
+    'CREATE INDEX IF NOT EXISTS "organization_prose_idx" ON "organization" ("id");
+COMMENT ON INDEX "organization_prose_idx" IS '"'"'rebuilt CONCURRENTLY in 0002'"'"';'
+  run_applier
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_absent "keeps the transaction" "${APPLIER_OUTPUT}" \
+    "uses CONCURRENTLY — applying without a transaction"
+}
+
+test_two_concurrent_builds_share_one_number() {
+  echo "apply-migrations: two concurrent builds under one migration number"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_concurrent_migration 0000_a_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_a_idx" ON "organization" ("id");'
+  write_concurrent_migration 0000_b_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_b_idx" ON "organization" ("id");'
+  run_applier
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "applies both builds" "${APPLIER_OUTPUT}" "3 applied · 0 already-applied · 0 failed"
+  local both
+  both=$(query_test_database "SELECT count(*) FROM pg_indexes WHERE indexname IN ('organization_a_idx', 'organization_b_idx');")
+  if [ "${both}" = "2" ]; then
+    pass "both indexes exist"
+  else
+    fail "both indexes exist" "found ${both} of 2"
+  fi
+}
+
+test_failing_concurrent_build_stops_the_run() {
+  echo "apply-migrations: a concurrent build that fails"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  # No such column, so the build fails outright.
+  write_concurrent_migration 0000_broken_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_missing_idx" ON "organization" ("no_such_column");'
+  write_migration 0001_second.sql "${SECOND_MIGRATION}"
+  run_applier
+  check_exit_code "exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "names the failing build" "${APPLIER_OUTPUT}" "concurrent/0000_broken_index.sql FAILED"
+  check_contains "says nothing rolled back" "${APPLIER_OUTPUT}" "it ran without a transaction"
+  local later_table recorded
+  later_table=$(query_test_database "SELECT count(*) FROM information_schema.tables WHERE table_name = 'todo';")
+  if [ "${later_table}" = "0" ]; then
+    pass "stops before the next migration"
+  else
+    fail "stops before the next migration" "0001 ran anyway"
+  fi
+  recorded=$(query_test_database "SELECT count(*) FROM __pgsql_migrations WHERE name = 'concurrent/0000_broken_index.sql';")
+  if [ "${recorded}" = "0" ]; then
+    pass "the failed build is not recorded"
+  else
+    fail "the failed build is not recorded" "it was recorded as applied"
+  fi
+}
+
+test_check_mode_reports_concurrent_builds_without_running_them() {
+  echo "apply-migrations: --check with a concurrent build"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_concurrent_migration 0000_organization_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_checkmode_idx" ON "organization" ("id");'
+  run_applier_with_flags --check
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "reports the numbered migration" "${APPLIER_OUTPUT}" "would apply 0000_first.sql"
+  check_contains "reports the concurrent build" "${APPLIER_OUTPUT}" \
+    "would apply concurrent/0000_organization_index.sql"
+  local index_exists
+  index_exists=$(query_test_database "SELECT count(*) FROM pg_indexes WHERE indexname = 'organization_checkmode_idx';")
+  if [ "${index_exists}" = "0" ]; then
+    pass "builds nothing"
+  else
+    fail "builds nothing" "the index was created under --check"
+  fi
+}
+
 test_unreachable_container_fails_loudly() {
   echo "apply-migrations: unreachable container"
   run_applier POSTGRES_CONTAINER=vocion-no-such-container POSTGRES_READINESS_ATTEMPTS=2
@@ -947,6 +1145,14 @@ main() {
   test_concurrently_only_in_line_comment_uses_a_transaction
   test_concurrently_only_in_block_comment_uses_a_transaction
   test_concurrently_comment_and_real_statement_still_detected
+  test_concurrent_directory_applies_after_its_migration
+  test_concurrent_build_needs_its_numbered_migration_first
+  test_baseline_all_leaves_concurrent_builds_pending
+  test_orphan_concurrent_build_is_left_alone
+  test_concurrently_inside_a_string_literal_keeps_the_transaction
+  test_two_concurrent_builds_share_one_number
+  test_failing_concurrent_build_stops_the_run
+  test_check_mode_reports_concurrent_builds_without_running_them
   test_unreachable_container_fails_loudly
   test_default_container_and_database_match_compose
 
