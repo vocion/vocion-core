@@ -28,6 +28,11 @@
  * Every credential of either kind is masked in the table and only shown when an
  * admin clicks to see it, so the page can sit open without a secret on
  * display.
+ *
+ * **Revoked rows are hidden by default.** Replacing a one-live key revokes the
+ * old row instead of deleting it, so the list would otherwise grow a dead
+ * entry on every rotation until the page read as a key changelog. "Show
+ * revoked" brings the history back for the audit case.
  */
 
 import type { TokenSummary } from '@/services/ApiTokenService';
@@ -466,6 +471,12 @@ export function ApiTokensPanel() {
   const [error, setError] = useState<string | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
+  /**
+   * Whether the table also lists revoked rows. Off by default: a platform
+   * capped at one live key revokes the old row on every rotation instead of
+   * deleting it, so the history is real but it is not what the page is for.
+   */
+  const [showRevoked, setShowRevoked] = useState(false);
   const [platformId, setPlatformId] = useState(VOCION_PLATFORM_ID);
   const [name, setName] = useState('');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
@@ -484,7 +495,7 @@ export function ApiTokensPanel() {
   const refresh = useCallback(async () => {
     try {
       const [rows, options] = await Promise.all([
-        client.apiTokens.list(),
+        client.apiTokens.list({ includeRevoked: showRevoked }),
         client.apiTokens.listPlatforms(),
       ]);
       setTokens(rows);
@@ -499,7 +510,7 @@ export function ApiTokensPanel() {
       setError('Could not load API credentials.');
     }
     setLoading(false);
-  }, []);
+  }, [showRevoked]);
 
   useEffect(() => {
     // False positive: every setState in refresh() runs after an await.
@@ -628,6 +639,22 @@ export function ApiTokensPanel() {
 
       {fresh && <FreshTokenNotice fresh={fresh} onDismiss={() => setFresh(null)} />}
 
+      {/* The way back to a revoked row. Rotating a key leaves the old one
+          behind on purpose, and this is the only affordance for reading that
+          history — without it the rows are reachable only in the database. */}
+      <div className="flex justify-end">
+        <Label htmlFor="show-revoked" className="text-sm font-normal text-muted-foreground">
+          <input
+            id="show-revoked"
+            type="checkbox"
+            checked={showRevoked}
+            onChange={event => setShowRevoked(event.target.checked)}
+            className="size-3.5 accent-primary"
+          />
+          Show revoked
+        </Label>
+      </div>
+
       <Table>
         <TableHeader>
           <TableRow>
@@ -690,7 +717,12 @@ export function ApiTokensPanel() {
           {tokens.length === 0 && (
             <TableRow>
               <TableCell colSpan={8} className="text-sm text-muted-foreground">
-                No API credentials yet.
+                {showRevoked
+                  ? 'No API credentials yet.'
+                  // Not "none yet": the org may hold revoked rows, and saying
+                  // there is nothing when the toggle would show something
+                  // would be wrong.
+                  : 'No credentials in use. Turn on “Show revoked” to see any that were replaced or revoked.'}
               </TableCell>
             </TableRow>
           )}
