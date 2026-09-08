@@ -180,13 +180,13 @@ manual and deliberately human: it creates federated trust between GitHub and
 an AWS account.
 
 ```bash
-GITHUB_REPO=Veerio-Life/veerio-vocion \
+TRUSTED_REPO=Veerio-Life/veerio-vocion \
 AWS_PROFILE=veerio REGION=us-west-2 \
   bash vocion-core/infra/agentcore/provision-ci-role.sh
 ```
 
 The role it creates admits exactly one repo at one ref (`refs/heads/main` by
-default, `GITHUB_REF` to change it) and carries only what `deploy-runtime.sh`
+default, `TRUSTED_REF` to change it) and carries only what `deploy-runtime.sh`
 and `smoke-invoke.sh` need: ECR push, AgentCore create/update/get/invoke,
 `iam:PassRole` for the runtime role, and read/write on
 `/vocion/agentcore/*` parameters. Pass `ROLE_NAME` when one account serves

@@ -91,6 +91,13 @@ jobs:
       - name: I18n check
         run: npm run check:i18n
 
+      # The unit job runs @vocion/core's suite under coverage. The runtime
+      # artifact is a separate workspace with its own vitest config, and
+      # nothing ran it — its tests are cheap and need no database, so they go
+      # here rather than into the coverage run.
+      - name: Agent runtime tests
+        run: npm run test --workspace @vocion/agent-runtime
+
   unit:
     strategy:
       matrix:
