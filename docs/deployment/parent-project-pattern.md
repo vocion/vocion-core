@@ -157,26 +157,86 @@ no key, the runtime signs with its own execution role and the bill is ours —
 which is the right fallback for a trial and the wrong one for a paying client,
 so check it during handover rather than assuming.
 
-### One-time: let CI deploy the runtime
+### Who runs the deploy
 
-`.github/workflows/deploy-agent-runtime.yml` does nothing until someone runs
-`infra/agentcore/provision-ci-role.sh` and sets `AWS_DEPLOY_ROLE_ARN` as a
-repository secret. That step is deliberately manual and deliberately human: it
-creates federated trust between GitHub and the AWS account. Do it once per
-environment, and expect to do it again for staging and production — SSM is
-namespaced per environment (`/vocion/agentcore/<env>/`, see
-[`multiple-environments.md`](./multiple-environments.md)) so the two never
-share a runtime by accident.
+The parent project, never core. Core holds no AWS account and no credentials,
+so it cannot deploy a runtime anywhere. The scripts under `infra/agentcore/`
+are the shared implementation; the parent project calls them with its own
+profile and environment. Veerio's wrapper is
+`./scripts/deploy.sh agentcore <env>`.
+
+Core used to carry a workflow that deployed a runtime into MetaCTO's own
+account. It was never activated, and it was the wrong shape — it made core
+look like the thing that owns a deployment. Removed. What every client project
+does need is its own path to the same deploy, which is the next section.
+
+### One-time: let the client project's CI deploy the runtime
+
+Two steps per client account, then that project's pipeline can deploy
+unattended.
+
+**1. Create the deploy role in the client's account.** This is deliberately
+manual and deliberately human: it creates federated trust between GitHub and
+an AWS account.
+
+```bash
+TRUSTED_REPO=Veerio-Life/veerio-vocion \
+AWS_PROFILE=veerio REGION=us-west-2 \
+  bash vocion-core/infra/agentcore/provision-ci-role.sh
+```
+
+The role it creates admits exactly one repo at one ref (`refs/heads/main` by
+default, `TRUSTED_REF` to change it) and carries only what `deploy-runtime.sh`
+and `smoke-invoke.sh` need: ECR push, AgentCore create/update/get/invoke,
+`iam:PassRole` for the runtime role, and read/write on
+`/vocion/agentcore/*` parameters. Pass `ROLE_NAME` when one account serves
+more than one project.
+
+The script prints the `gh secret set` line to run next.
+
+**2. Call the scripts from the client project's workflow.** They need the
+submodule checked out, QEMU for the arm64 build, and the role above:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+
+steps:
+  - uses: actions/checkout@v4
+    with:
+      submodules: recursive
+
+  - uses: aws-actions/configure-aws-credentials@v4
+    with:
+      role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      aws-region: us-west-2
+
+  - uses: docker/setup-qemu-action@v3
+    with:
+      platforms: arm64
+
+  - run: ENV=production bash vocion-core/infra/agentcore/deploy-runtime.sh
+  - run: ENV=production bash vocion-core/infra/agentcore/smoke-invoke.sh
+```
+
+Do this once per environment. SSM is namespaced per environment
+(`/vocion/agentcore/<env>/`, see
+[`multiple-environments.md`](./multiple-environments.md)), so two environments
+never share a runtime by accident.
+
+The runtime artifact is generic — agent definitions travel in the invocation
+payload — so this pipeline only needs to run when `packages/agent-runtime`
+changes, not when an agent is edited.
 
 ---
 
 ## Gotchas
 
-Four defaults that are wrong for any client outside `us-east-1`:
+Three defaults that are wrong for any client outside `us-east-1`:
 
 | What | Where | Effect |
 |---|---|---|
-| `REPO_FILTER` hardcoded to `repo:vocion/vocion-core:ref:refs/heads/main` | `infra/agentcore/provision-ci-role.sh:18` | The OIDC role it creates only admits core's own CI. A parent project's pipeline can't assume it — run phase 2 from an operator machine until this is parameterised. |
 | Region defaults to `us-east-1`, passed positionally | `agentcore-harness-role.sh` | Harness role lands in the wrong region, silently. |
 | `VOCION_AGENTCORE_REGION` defaults to `us-east-1` | `services/agents/providers/agentcore.ts` | Agents run their model loop in a region nobody chose. Set it in the parent's compose overlay, for the app *and* the worker. |
 | Agent with no `model` resolves to `gpt-4o` | workspace applier | Only bites the `local` provider — `agentcore` agents use `harness.model` — but it bites quietly. Pin every model explicitly. |

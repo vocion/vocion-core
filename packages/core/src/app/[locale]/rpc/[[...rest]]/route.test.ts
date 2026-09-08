@@ -54,11 +54,19 @@ type LoggedFields = {
  * Call one procedure over the RPC protocol the browser client speaks.
  * @param procedurePath - Path of the procedure to call, e.g. `boom`.
  * @param body - Raw request body, so a malformed one can be tested.
+ * @param options - Overrides for the request itself.
+ * @param options.pathname - Full pathname, for the URLs a rewrite produces.
+ * @param options.headers - Extra request headers, e.g. a forwarded protocol.
  */
-async function callProcedure(procedurePath: string, body = JSON.stringify({ json: {} })) {
-  const response = await POST(new Request(`http://localhost:3000/rpc/${procedurePath}`, {
+async function callProcedure(
+  procedurePath: string,
+  body = JSON.stringify({ json: {} }),
+  options: { pathname?: string; headers?: Record<string, string> } = {},
+) {
+  const pathname = options.pathname ?? `/rpc/${procedurePath}`;
+  const response = await POST(new Request(`http://localhost:3000${pathname}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...options.headers },
     body,
   }));
 
@@ -164,6 +172,41 @@ describe('rpc error logging', () => {
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(lastLogged('error').fields.orgId).toBeNull();
+  });
+
+  it('404s a path the handler is not mounted under, without logging an error', async () => {
+    // Worth pinning, because it settles what `readProcedurePath` has to cope
+    // with. `localePrefix` is `'as-needed'`, so a rewrite to `/en/rpc/boom`
+    // looked possible — but oRPC matches on the `/rpc` prefix, so such a
+    // request never reaches a procedure at all. A locale can therefore never
+    // turn up in a logged procedure name.
+    const { response } = await callProcedure('boom', undefined, { pathname: '/en/rpc/boom' });
+
+    expect(response.status).toBe(404);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('looks for the secure session cookie when the proxy forwarded HTTPS', async () => {
+    // TLS terminates at the reverse proxy, so the request itself is plain
+    // HTTP while the browser's cookie is `__Secure-` prefixed. Asking for the
+    // wrong name finds nothing and reports no error, which is how every
+    // production log line came to say `orgId: null`.
+    await callProcedure('boom', undefined, { headers: { 'x-forwarded-proto': 'https' } });
+
+    expect(getToken).toHaveBeenCalledWith(expect.objectContaining({ secureCookie: true }));
+    expect(lastLogged('error').fields.orgId).toBe('org_1');
+  });
+
+  it('takes the browser-facing hop from a chain of forwarded protocols', async () => {
+    await callProcedure('boom', undefined, { headers: { 'x-forwarded-proto': 'https, http' } });
+
+    expect(getToken).toHaveBeenCalledWith(expect.objectContaining({ secureCookie: true }));
+  });
+
+  it('looks for the plain session cookie when nothing forwarded HTTPS', async () => {
+    await callProcedure('boom');
+
+    expect(getToken).toHaveBeenCalledWith(expect.objectContaining({ secureCookie: false }));
   });
 
   it('keeps the original error when the logger itself throws', async () => {
