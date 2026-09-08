@@ -261,6 +261,56 @@ Three rules, each earned the hard way:
 3. **Run `node scripts/check-config-integrity.mjs` at the new pin before you
    commit it**, and re-check the pin after every merge — a GitHub merge can move
    a submodule pin backwards.
+4. **A pin bump is two deploys.** Bumping the pin and deploying the app box
+   leaves the agent runtime container on its old image, so the app runs new
+   code while the agent loop runs old code and nothing says so. The deployed
+   image's tag carries the core commit it was built from, so whether the
+   container moved is checkable rather than a judgement call:
+
+   ```bash
+   aws ssm get-parameter --name "/vocion/agentcore/<env>/runtime-image" \
+     --query 'Parameter.Value' --output text
+   git -C vocion-core diff --stat <that-commit>..HEAD -- packages/agent-runtime
+   ```
+
+   Empty diff, the container is current. Any output, every environment needs
+   `deploy-runtime.sh` as well — and every environment separately, since each
+   has its own ECR repository and runtime.
+
+---
+
+## Paste this into a new client project's `CLAUDE.md`
+
+A parent project needs its own `CLAUDE.md`, because the two-deploys rule is the
+one thing a session working in that repo cannot infer from the code in front of
+it. Adjust the wrapper command names to whatever that project calls them:
+
+```markdown
+## A deploy is two deploys
+
+The deploy workflow and `./scripts/deploy.sh apply <env>` update the **app box**
+only — sync the checkout, re-run bootstrap, health-gate the URL. They never
+touch the agent runtime container.
+
+`./scripts/deploy.sh agentcore <env>` is the second deploy: it builds the arm64
+image from `vocion-core/packages/agent-runtime`, pushes it to ECR and updates
+the AgentCore Runtime.
+
+After bumping the core pin, deploy both, for every environment, unless
+`packages/agent-runtime` is unchanged between what is deployed and the new pin.
+The deployed image's tag carries the core commit it was built from:
+
+    aws ssm get-parameter --name "/vocion/agentcore/<env>/runtime-image" \
+      --query 'Parameter.Value' --output text
+    git -C vocion-core diff --stat <that-commit>..HEAD -- packages/agent-runtime
+
+Empty diff means the container is current. Any output means every environment
+needs the agentcore deploy, and a deploy reported as done without it is half a
+deploy.
+
+Editing an agent's YAML never needs a container deploy — the artifact is
+generic, so agent definitions travel in the invocation payload.
+```
 
 ---
 

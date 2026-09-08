@@ -147,6 +147,36 @@ Neither AgentCore path is a model gateway: inference is a direct Bedrock Convers
 - **Long-term memory (live)**: the store runs two extraction strategies — `vocion_facts` (semantic) + `vocion_preferences` — namespaced `/facts/{actorId}` and `/preferences/{actorId}`. Each turn, the loop retrieves relevant records for the actor and injects them as a context preamble, so recall crosses conversations (verified live: a preference stated in one conversation was recalled in a brand-new one ~50s later, post-extraction). Strategies are provisioned idempotently by `infra/agentcore/provision.sh`.
 - Infra: `infra/agentcore/{provision,deploy-runtime,smoke-invoke}.sh` (ENV and AWS_PROFILE per client account, us-west-2). E2E: `src/scripts/smoke-runtime.ts` (`--provider` to force a specific provider). Core never deploys: it holds no AWS account, so the parent project that owns the account calls these scripts, from an operator machine or from its own pipeline (`provision-ci-role.sh` mints the GitHub-OIDC role for that — `TRUSTED_REPO` names the project allowed to assume it). See `packages/agent-runtime/README.md` and `docs/deployment/parent-project-pattern.md`.
 
+## Deploying into a client account: a deploy is two deploys
+
+Core never deploys — the parent project holding the AWS account does — and the
+thing parent projects get wrong is that there are **two** independent deploys:
+
+1. **The app box.** Sync the checkout to `main`, re-run the parent's bootstrap,
+   health-gate the URL. This is what a parent's CI usually automates.
+2. **The agent runtime container.** `infra/agentcore/deploy-runtime.sh` builds
+   the arm64 image from `packages/agent-runtime`, pushes it to ECR and updates
+   the AgentCore Runtime. Automating this needs a GitHub-OIDC role, so most
+   parents run it by hand — and then forget it.
+
+Deploy 1 without deploy 2 is half a deploy: the app runs new code while the
+agent loop runs old code, and nothing says so. After every pin bump, check
+whether the artifact moved — the deployed image's tag carries the core commit
+it was built from, so this is mechanical:
+
+```bash
+aws ssm get-parameter --name "/vocion/agentcore/<env>/runtime-image" \
+  --query 'Parameter.Value' --output text
+git diff --stat <that-commit>..HEAD -- packages/agent-runtime
+```
+
+Empty diff, container is current. Any output, every environment needs deploy 2.
+Editing an agent never does: the artifact is generic.
+
+The parent-project checklist, the one-time OIDC role and a `CLAUDE.md` snippet
+to paste into a new client project are in
+`docs/deployment/parent-project-pattern.md`.
+
 ## Background worker
 
 The comment-feedback loop ships as a separate process (Next.js doesn't host long-lived workers):
