@@ -126,6 +126,15 @@ export default defineConfig<ChromaticConfig>({
       timeout: 120 * 1000,
       use: { ...devices['Desktop Chrome'] },
     },
+    // VEERIO-252 — mission-run report routes, real HTTP against a real
+    // running app. No browser: uses Playwright's `request` fixture only, so
+    // it never depends on the `setup` (Clerk) project.
+    // Run with: npx playwright test --project=mission-runs
+    {
+      name: 'mission-runs',
+      testDir: './e2e/mission-runs',
+      timeout: 60 * 1000,
+    },
     ...(process.env.CI
       ? [
           {
