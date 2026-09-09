@@ -37,11 +37,11 @@ async function main() {
   if (deleted.length === 0) {
     // Not a failure: the suite may have run against a fresh in-memory
     // database, or the seed step may have been skipped.
-    console.log(`no user to delete: ${email}`);
+    console.warn(`no user to delete: ${email}`);
     return;
   }
 
-  console.log(`deleted user ${email} (${deleted[0]!.id})`);
+  console.warn(`deleted user ${email} (${deleted[0]!.id})`);
 }
 
 // `.then()` rather than a top-level await: this file is compiled to CommonJS
