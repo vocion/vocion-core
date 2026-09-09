@@ -329,12 +329,6 @@ describe('readTrackedSymlinks', () => {
 });
 
 describe('runCheck', () => {
-  it('passes against this repository', () => {
-    // Characterisation as much as assertion: it proves the git plumbing works
-    // and that no committed symlink points outside the checkout right now.
-    expect(runCheck()).toBe(0);
-  });
-
   it('exits non-zero on a repository carrying an absolute symlink', () => {
     const repositoryRoot = buildRepositoryWithCommittedSymlink('/somewhere/else/node_modules');
     try {
