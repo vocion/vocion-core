@@ -27,6 +27,45 @@ export type EmitEventInput = {
   invokedBy?: string;
 };
 
+/**
+ * Event types Vocion emits from its own code, as opposed to the ones an
+ * outside caller invents and posts to `/api/v1/events`.
+ *
+ * They live here, beside `EmitEventInput.type`, because this is the only place
+ * that defines what an event *is*; a workspace author writes one of these
+ * strings into an automation's `when.event` (see `AutomationManifestSchema`)
+ * and gets the payload documented below as the run's input. Renaming one
+ * breaks every workspace that subscribes to it, so treat these as public API.
+ */
+export const SOURCE_SYNC_COMPLETED = 'source.sync_completed';
+
+/**
+ * Payload of a `source.sync_completed` event.
+ *
+ * These are the fields an automation's `when.filter` can match on and the keys
+ * its workflow or mission receives as input, so they are a contract, not a
+ * debug dump: every one is a scalar (filters compare with `===`) and none of
+ * them carries document content.
+ */
+export type SourceSyncCompletedPayload = {
+  /** `knowledge_source.id` of the source that finished syncing. */
+  sourceId: number;
+  /** Source slug — the stable, human-readable handle a filter should use. */
+  sourceSlug: string;
+  /** Connector slug behind the source, e.g. `web`, `notion`. */
+  connector: string;
+  /** True when only documents changed since the last run were requested. */
+  incremental: boolean;
+  created: number;
+  updated: number;
+  unchanged: number;
+  tombstoned: number;
+  /** Documents the run could not ingest. A completed sync can still be > 0. */
+  errors: number;
+  /** ISO timestamp of the run's cutoff, i.e. when the sync started reading. */
+  completedAt: string;
+};
+
 export type EmitEventResult = {
   eventId: number | null;
   deduped: boolean;
