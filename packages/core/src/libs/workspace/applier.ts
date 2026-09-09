@@ -34,6 +34,14 @@ export type ApplyResult = {
     teams: ResourceCounts;
   };
   errors: Array<{ resource: string; slug: string; message: string }>;
+  /**
+   * Non-fatal problems worth a human's attention but not worth failing the
+   * apply over — an agent's authored lists (playbooks, skills, object
+   * types, learning steps) going from non-empty to empty is the one case
+   * today (see {@link warnEmptiedAgentLists}). Distinct from `errors`: an
+   * apply with only warnings still reports `status: 'applied'`.
+   */
+  warnings: Array<{ resource: string; slug: string; message: string }>;
   versionId: number | null;
 };
 
@@ -43,6 +51,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   const defaults = loaded.manifest.defaults ?? {};
 
   const errors: ApplyResult['errors'] = [];
+  const warnings: ApplyResult['warnings'] = [];
   const counts: ApplyResult['counts'] = {
     agents: blank(),
     skills: blank(),
@@ -93,7 +102,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 
   for (const agent of loaded.agents) {
     try {
-      const outcome = await upsertAgent(orgId, agent, defaults, dryRun, loaded.teams);
+      const outcome = await upsertAgent(orgId, agent, defaults, dryRun, loaded.teams, warnings);
       bump(counts.agents, outcome);
       if (!dryRun) {
         await reconcileManagedHarness(orgId, agent, errors);
@@ -255,6 +264,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     dryRun,
     counts,
     errors,
+    warnings,
     versionId,
   };
 }
@@ -417,7 +427,14 @@ async function upsertObjectType(orgId: string, ot: LoadedObjectType, dryRun: boo
   return 'updated';
 }
 
-async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?: string; temperature?: string }, dryRun: boolean, teams: LoadedTeam[] = []): Promise<UpsertOutcome> {
+async function upsertAgent(
+  orgId: string,
+  agent: LoadedAgent,
+  defaults: { model?: string; temperature?: string },
+  dryRun: boolean,
+  teams: LoadedTeam[] = [],
+  warnings: ApplyResult['warnings'] = [],
+): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
     .from(agentSchema)
@@ -469,10 +486,48 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     return 'unchanged';
   }
 
+  warnEmptiedAgentLists(agent.slug, existing, payload, warnings);
+
   if (!dryRun) {
     await db.update(agentSchema).set(payload).where(eq(agentSchema.id, existing.id));
   }
   return 'updated';
+}
+
+/** The agent lists a dropped-to-empty apply is worth warning about. */
+const AGENT_LIST_FIELDS = ['playbookSlugs', 'skillSlugs', 'objectTypeSlugs', 'learningSteps'] as const;
+
+/**
+ * Warn when this apply would empty out one of an agent's authored lists
+ * (playbooks, skills, object types, or learning steps) that held entries
+ * before. An apply from a branch that is simply missing those workspace
+ * files — rather than one that deliberately cleared the list — produces
+ * exactly this: `updated=1` with no other sign anything is wrong, and the
+ * agent silently loses every playbook/skill/object type/learning step it
+ * had. This does not block the apply — the new, empty list may be exactly
+ * what was authored — it only makes sure a human sees it.
+ * @param slug - The agent's slug, so the warning names who is affected.
+ * @param existing - The agent row as it stood before this apply.
+ * @param payload - The row this apply is about to write.
+ * @param warnings - The apply's running warnings list; pushed into in place.
+ */
+function warnEmptiedAgentLists(
+  slug: string,
+  existing: typeof agentSchema.$inferSelect,
+  payload: Record<string, unknown>,
+  warnings: ApplyResult['warnings'],
+): void {
+  const emptied = AGENT_LIST_FIELDS.filter((field) => {
+    const before = existing[field] ?? [];
+    const after = (payload[field] as string[] | undefined) ?? [];
+    return before.length > 0 && after.length === 0;
+  });
+  if (emptied.length === 0) {
+    return;
+  }
+  const message = `agent "${slug}" apply emptied ${emptied.join(', ')} — was non-empty before this apply; check whether this branch is simply missing those workspace files rather than intentionally clearing them`;
+  console.warn(`[workspace apply] ${message}`);
+  warnings.push({ resource: 'agent', slug, message });
 }
 
 /**

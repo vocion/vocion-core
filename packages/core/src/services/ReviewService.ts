@@ -680,10 +680,13 @@ export async function decide(
         hint: opts?.note,
       }).catch(() => {});
       // The decision is training signal: record what a good/bad proposal
-      // looks like in the `crm-updates` learning step so agents check their
-      // next proposals against real operator judgment. Never blocks the
-      // decision itself.
-      await recordActionDecisionLearning(item.id, orgId, action, opts?.reason ?? opts?.note).catch(() => {});
+      // looks like in the proposing agent's own learning step so it checks
+      // its next proposals against real operator judgment. Never blocks the
+      // decision itself — but a failure here is silently lost learning
+      // signal, so it is logged rather than swallowed.
+      await recordActionDecisionLearning(item.id, orgId, action, opts?.reason ?? opts?.note).catch((error) => {
+        console.warn(`[ReviewService] could not record decision-learning rule for action run ${item.id}`, error);
+      });
   }
 }
 
@@ -916,11 +919,39 @@ export async function rewriteDraft(opts: {
   return { input: { ...input, [key]: rewritten }, body: rewritten };
 }
 
+/** Learning step a proposal trains when its agent declares no `learningSteps` of its own. */
+const FALLBACK_LEARNING_STEP = 'crm-updates';
+
+/**
+ * Which learning step a proposing agent's decision-training rule gets filed
+ * under. Reads the agent's own `learningSteps` (workspace-authored — see
+ * `agentSchema.learningSteps` in models/Schema.ts) and takes the first one
+ * declared, so an agent outside the CRM domain (an event-ingestion agent
+ * proposing calendar candidates, say) trains its own bucket instead of one
+ * a different domain's agents read. Falls back to {@link FALLBACK_LEARNING_STEP}
+ * only when the agent declares no steps at all, and warns when it does —
+ * a workspace missing that declaration is either mid-migration or an agent
+ * that was never given one.
+ * @param orgId
+ * @param agentSlug
+ */
+async function resolveLearningStepForAgent(orgId: string, agentSlug: string): Promise<string> {
+  const { getAgent } = await import('./AgentService');
+  const agent = await getAgent(orgId, agentSlug);
+  const declaredSteps = agent?.learningSteps ?? [];
+  if (declaredSteps.length > 0) {
+    return declaredSteps[0]!;
+  }
+  console.warn(`[ReviewService] agent "${agentSlug}" declares no learningSteps; filing its decision-training rule under the fallback step "${FALLBACK_LEARNING_STEP}"`);
+  return FALLBACK_LEARNING_STEP;
+}
+
 /**
  * Approve/reject on a proposed action → a learning rule. This is the capture
  * side of the trust ladder: accumulated decisions teach agents which update
  * classes are safe (approved) vs which need stronger evidence (rejected).
- * No-ops quietly when the workspace has no `crm-updates` learning step.
+ * No-ops quietly when the proposing agent's learning step (see
+ * {@link resolveLearningStepForAgent}) does not exist in the workspace yet.
  * @param runId
  * @param orgId
  * @param decision
@@ -945,19 +976,26 @@ async function recordActionDecisionLearning(
   if (!run || !run.invokedBy?.startsWith('agent:')) {
     return; // only agent proposals train agents
   }
-  const input = (run.input ?? {}) as { objectType?: string; properties?: Record<string, unknown> };
-  const props = Object.keys(input.properties ?? {}).join(', ') || 'n/a';
+  const agentSlug = run.invokedBy.slice('agent:'.length);
+  const stepName = await resolveLearningStepForAgent(orgId, agentSlug);
+  // The candidate's actual data lives under `fields` (see
+  // libs/actions/objects-propose-candidate.ts `CandidateInput.fields`) — the
+  // `properties` key this used to read was always undefined, which is why
+  // every rule used to read "updating [n/a]".
+  const input = (run.input ?? {}) as { objectType?: string; fields?: Record<string, unknown> };
+  const fieldNames = Object.keys(input.fields ?? {}).join(', ') || 'n/a';
   const conf = run.proposal?.confidence != null ? ` (confidence ${run.proposal.confidence})` : '';
   const rationale = run.proposal?.rationale ? ` Rationale was: ${run.proposal.rationale.slice(0, 140)}` : '';
   const ruleText = decision === 'approve'
-    ? `APPROVED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${props}].${rationale} — this class of update matched operator judgment; similar evidence justifies similar proposals.`
-    : `REJECTED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${props}].${reason ? ` Operator reason: ${reason.slice(0, 120)}.` : ''}${rationale} — do not propose this class again without stronger evidence.`;
+    ? `APPROVED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${fieldNames}].${rationale} — this class of update matched operator judgment; similar evidence justifies similar proposals.`
+    : `REJECTED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${fieldNames}].${reason ? ` Operator reason: ${reason}.` : ''}${rationale} — do not propose this class again without stronger evidence.`;
   const { addLearning } = await import('./LearningsService');
   await addLearning({
     orgId,
-    stepName: 'crm-updates',
+    stepName,
     ruleText,
     source: `action_run:${runId}`,
     createdBy: 'review-decision',
+    agentSlug,
   });
 }
