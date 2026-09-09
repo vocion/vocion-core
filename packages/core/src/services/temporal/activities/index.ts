@@ -235,6 +235,7 @@ export async function recordWorkflowCompletedActivity(input: RecordWorkflowCompl
 export * from './fireAutomation';
 /* Daily Langfuse trace pruning (Temporal Schedule). */
 export * from './langfuseRetention';
+export * from './reapWorkerRuns';
 /* Source-sync activity (Temporal Schedules). */
 export * from './sourceSync';
 export * from './startMissionRun';

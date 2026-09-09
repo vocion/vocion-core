@@ -258,6 +258,12 @@ export async function runAgentDeep(opts: {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
     return runAgentOnRuntime(opts);
   }
+  if (target === 'external-worker') {
+    // ADR 0004: Vocion is the control plane, a process it does not host does the
+    // work. This queues a worker_run and returns a receipt instead of a turn.
+    const { queueExternalWorkerTurn } = await import('./agents/providers/externalWorker');
+    return queueExternalWorkerTurn(opts);
+  }
   if (target === 'aws-managed-harness' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
     const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
     return runAgentOnAgentCoreHarness(opts);
