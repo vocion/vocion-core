@@ -1,0 +1,8 @@
+name: Engineering
+description: >-
+  The platform team at Cobalt Works — five people's worth of standing
+  work: review the queue of open pull requests, respond to incidents,
+  cut releases, and keep the docs true. The team is flat: one lead and
+  four specialists, one level deep.
+lead: engineering-lead
+# No accountableUser: inherits the workspace default when one is set.

@@ -1,0 +1,17 @@
+slug: release-readiness
+name: Weekday release readiness check
+description: >-
+  The only place time lives in this workspace. Wakes the engineering
+  lead every weekday morning to check the standing mission.
+status: active
+agent: engineering-lead
+when:
+  schedule: '0 14 * * 1-5'
+do:
+  checkMission: keep-main-releasable
+  prompt: >-
+    Check whether main is releasable. Report the open pull requests with
+    no drafted review, the ones open longest and why they are stuck, any
+    open incident and its current severity, and everything sitting in
+    the review queue waiting on a human with how long it has waited.
+    Drive the gaps to a draft; approve nothing and release nothing.
