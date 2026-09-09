@@ -33,6 +33,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { buildChatModelForOrg } from '@/libs/llm';
+import { logger } from '@/libs/Logger';
 import { agentSchema, playbookSchema, projectSchema, teamSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
 import { mountSkills } from '@/services/playbooks/mount';
@@ -397,11 +398,21 @@ export async function buildInitialFiles(
   if (!row) {
     return {};
   }
-  const mounted = await mountSkills({
-    orgId,
-    skillSlugs: row.skillSlugs ?? [],
-    playbookSlugs: row.playbookSlugs ?? [],
-  });
+  // A workspace file with an unresolvable {{env.NAME}} token throws here.
+  // Log it and let it propagate: an agent started with the raw token
+  // treats it as a real value and invents one, which is far harder to
+  // spot than a failed run.
+  let mounted: Record<string, string>;
+  try {
+    mounted = await mountSkills({
+      orgId,
+      skillSlugs: row.skillSlugs ?? [],
+      playbookSlugs: row.playbookSlugs ?? [],
+    });
+  } catch (error) {
+    logger.error(`agent "${agentSlug}" cannot start: mounting its workspace files failed`, { error });
+    throw error;
+  }
   const learnings = await bundleStepMarkdown(orgId, row.learningSteps ?? []);
   return Object.fromEntries(
     Object.entries({ ...mounted, ...learnings }).map(([path, body]) => [path, toFileData(body)]),

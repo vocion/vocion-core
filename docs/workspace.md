@@ -206,6 +206,61 @@ Check/apply/export honor `WORKSPACE_PATH` and `SEED_ORG_ID` env vars. Flags:
 - `--org <orgId>` — override the `orgId` in the manifest (advanced / back-compat)
 - `--applied-by <name>` — who triggered this apply (default: `$USER`)
 
+## Per-deployment values (`{{env.NAME}}`)
+
+One workspace git tree is usually deployed to more than one box — a dev
+install and a production one, or one install per tenant. Anything that
+differs between those boxes (an API base URL, a portal hostname) cannot
+be hardcoded in a playbook. Write a token instead:
+
+```markdown
+Fetch the source list from {{env.VEERIO_API_URL}}/api/sources/ingestion
+```
+
+`NAME` is upper snake case (`[A-Z][A-Z0-9_]*`). Spaces inside the braces
+are fine (`{{ env.VEERIO_API_URL }}`). The token is replaced with the
+value of that environment variable in the vocion-core process — both
+when `workspace apply` reads the file and when the file is mounted for
+an agent at run time, so the stored `contentSha` always matches the body
+the agent actually reads.
+
+**Only allowlisted variables substitute.** Name them in
+`WORKSPACE_TEMPLATE_VARS`, comma separated:
+
+```bash
+WORKSPACE_TEMPLATE_VARS=VEERIO_API_URL,PORTAL_HOST
+VEERIO_API_URL=https://api-dev.veerio.app
+```
+
+Set both on every process that reads the workspace — the app **and** the
+Temporal worker. The allowlist is the only source, so no other part of
+the environment can reach an agent by accident. Do not put secrets on it:
+a workspace file is git-tracked and its substituted body is hashed into
+the audit trail.
+
+**An unresolvable token is a hard failure, never a passthrough.** If a
+token names a variable that is not allowlisted, or one that is
+allowlisted but unset (or blank), then:
+
+- `npm run workspace:apply` prints the file path and the token and exits
+  `2` — nothing is applied;
+- an agent invocation logs the error and refuses to start.
+
+That is deliberate. A raw `{{env.NAME}}` reaching a model does not look
+like an error to it — it reads the token as a real value and invents a
+plausible one.
+
+**Text that is not a token is untouched.** `{{customer.name}}`,
+`{{#each items}}`, and `{{ENV.SHOUTED}}` all reach the agent verbatim, so
+a skill can document Handlebars, Jinja, or Liquid syntax.
+
+**Where substitution applies:** every workspace `.md` and `.yaml` the
+loader reads (`skills/`, `playbooks/`, `agents/`, `missions/`,
+`automations/`, `objects/`, `workflows/`, `sources/`, and the manifest),
+and every skill or playbook body mounted for an agent. The dashboard's
+raw file browser under Workspace shows files as authored, tokens
+included — it is a view of the git tree, not of what the agent sees.
+
 ## Audit trail
 
 Every `workspace:apply` records a row in `workspace_version` (git SHA, applied_at, files, per-resource counts, applied_by). Every `tool_call` stamps `workspace_sha` — so six months from now, "why did the agent draft the email like that?" is answerable by:
@@ -238,9 +293,10 @@ How to read a `workspace_sha`:
 - Every YAML file is validated by its Zod schema; a wrong type, a missing required field, or a bad slug fails the load with the file path and the reason.
 - Unknown fields are **stripped, not rejected** — schemas are plain `z.object`, so a typo'd key is silently ignored rather than reported. Check the field name against [`docs/entities/`](./entities/) when a setting appears to have no effect.
 - Applies are idempotent and atomic per resource: a validation failure in one resource doesn't block the rest.
+- An `{{env.NAME}}` token naming a variable that is not on `WORKSPACE_TEMPLATE_VARS`, or one that is allowlisted but unset, fails the whole load with the file path and the token — see [Per-deployment values](#per-deployment-values-envname).
 
 ## What does NOT live in a workspace
 
 - **Runtime state** — tool calls, drafts, approvals, business object instances, user data. That's DB only.
-- **Secrets** — API keys, OAuth tokens. Use `.env` or a secrets manager; connector credentials live encrypted in the runtime's vault, attached to the source after apply.
+- **Secrets** — API keys, OAuth tokens. Use `.env` or a secrets manager; connector credentials live encrypted in the runtime's vault, attached to the source after apply. Non-secret per-box values (an API base URL) belong in an `{{env.NAME}}` token, never on the allowlist as a secret.
 - **Per-instance business objects** — the *definition* of a Discovery Call is context; a specific discovery call is runtime data (created via the UI).

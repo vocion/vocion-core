@@ -3,7 +3,7 @@ import type { ComposedEntry, FolderEntry, PackRaw, RawEntry } from './compose';
 import type { Origin } from './merge';
 import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { isSurfaceId, SURFACE_IDS } from '@/features/navigation/surfaces';
@@ -29,6 +29,7 @@ import {
 } from './schemas';
 import { computeWorkspaceSha } from './sha';
 import { assertTeams } from './teams';
+import { readWorkspaceTextFile } from './template-vars';
 
 export type LoadedAgent = AgentManifest & {
   resolvedSystemPrompt: string;
@@ -300,7 +301,7 @@ function loadManifest(abs: string): WorkspaceManifest {
   for (const c of candidates) {
     const p = join(abs, c);
     try {
-      const raw = readFileSync(p, 'utf8');
+      const raw = readWorkspaceTextFile(p);
       const parsed = parseYaml(raw);
       return validateOrThrow(WorkspaceManifestSchema, parsed, p, 'workspace manifest');
     } catch (err) {
@@ -384,7 +385,7 @@ function readRawEntries(dir: string, matches: (f: string) => boolean): RawEntry[
   return walkDir(dir)
     .filter(matches)
     .map((file) => {
-      const raw = (parseYaml(readFileSync(file, 'utf8')) ?? {}) as Record<string, unknown>;
+      const raw = (parseYaml(readWorkspaceTextFile(file)) ?? {}) as Record<string, unknown>;
       const slug = typeof raw.slug === 'string' ? raw.slug : '';
       return { slug, raw, sourceFile: file };
     });
@@ -457,7 +458,7 @@ function loadPackRaw(pack: LoadedPack): PackRaw {
 function readPackFolders(root: string, dirName: 'skills' | 'playbooks'): Map<string, FolderEntry> {
   const map = new Map<string, FolderEntry>();
   for (const file of walkDir(join(root, dirName)).filter(f => basename(f) === 'SKILL.md')) {
-    const fm = parseFrontmatter(readFileSync(file, 'utf8'), file);
+    const fm = parseFrontmatter(readWorkspaceTextFile(file), file);
     const data = fm.data as { slug?: unknown; playbooks?: unknown } | null;
     const slug = typeof data?.slug === 'string' ? data.slug : '';
     if (!slug) {
@@ -544,11 +545,11 @@ function readPackKind(
 ): Map<string, RawEntry> {
   const map = new Map<string, RawEntry>();
   for (const file of walkDir(join(root, dirName)).filter(matches)) {
-    const raw = (parseYaml(readFileSync(file, 'utf8')) ?? {}) as Record<string, unknown>;
+    const raw = (parseYaml(readWorkspaceTextFile(file)) ?? {}) as Record<string, unknown>;
     for (const { file: fileKey, inline } of promptFields) {
       const rel = raw[fileKey];
       if (typeof rel === 'string' && rel) {
-        raw[inline] = readFileSync(resolve(dirname(file), rel), 'utf8').trim();
+        raw[inline] = readWorkspaceTextFile(resolve(dirname(file), rel)).trim();
         delete raw[fileKey];
       }
     }
@@ -565,7 +566,7 @@ function readPackKind(
 }
 
 function parseFile<T>(file: string, schema: ZodType<T>, kind: string): T {
-  const raw = readFileSync(file, 'utf8');
+  const raw = readWorkspaceTextFile(file);
   const parsed = parseYaml(raw);
   return validateOrThrow(schema, parsed, file, kind);
 }
@@ -590,7 +591,7 @@ function validateOrThrow<T>(schema: ZodType<T>, value: unknown, file: string, ki
  * @param filesTracked
  */
 function loadPlaybook(file: string, kind: 'skill' | 'playbook', filesTracked: string[]): LoadedPlaybook {
-  const raw = readFileSync(file, 'utf8');
+  const raw = readWorkspaceTextFile(file);
   const fm = parseFrontmatter(raw, file);
   const parsed = validateOrThrow(PlaybookManifestSchema, fm.data, file, 'playbook');
   const contentSha = createHash('sha256').update(fm.body, 'utf8').digest('hex');
@@ -675,7 +676,7 @@ function parseFrontmatter(raw: string, file: string): { data: unknown; body: str
 function resolvePromptField(sourceFile: string, promptFile: string | undefined, inline: string | undefined, filesTracked: string[]): string {
   if (promptFile) {
     const abs = resolve(dirname(sourceFile), promptFile);
-    const content = readFileSync(abs, 'utf8');
+    const content = readWorkspaceTextFile(abs);
     filesTracked.push(abs);
     return content.trim();
   }

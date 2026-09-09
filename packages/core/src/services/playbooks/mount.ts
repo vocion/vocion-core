@@ -20,13 +20,18 @@
  *     workspace when present, else from the base pack (merged by path).
  *
  * Per-tenant isolation is enforced by `orgId`-scoped DB queries.
+ *
+ * Every body read here passes through `{{env.NAME}}` substitution (see
+ * `libs/workspace/template-vars.ts`), so an agent never sees a raw
+ * deployment token. An unresolvable token throws rather than mounting.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { getWorkspacePath } from '@/libs/workspace/reader';
+import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
 import { playbookSchema } from '@/models/Schema';
 
 const PACK_ROOT = 'packages/core/templates/base';
@@ -132,14 +137,13 @@ export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, 
       : [workspaceFile()];
 
   for (const candidate of candidates) {
-    if (!candidate) {
+    // A missing candidate falls through to the next origin; a file that
+    // exists but cannot be read or templated must NOT be swallowed —
+    // serving a half-resolved body to an agent is worse than failing.
+    if (!candidate || !existsSync(candidate)) {
       continue;
     }
-    try {
-      return readFileSync(candidate, 'utf8');
-    } catch {
-      continue;
-    }
+    return readWorkspaceTextFile(candidate);
   }
   return null;
 }

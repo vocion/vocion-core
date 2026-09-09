@@ -36,7 +36,17 @@ writeFileSync(join(WORKSPACE, 'skills', 'write-lead-brief', 'examples.md'), 'an 
 mkdirSync(join(WORKSPACE, 'playbooks', 'house-style'), { recursive: true });
 writeFileSync(join(WORKSPACE, 'playbooks', 'house-style', 'SKILL.md'), PLAYBOOK_BODY);
 
+/** A second workspace whose playbook names a per-deployment API URL. */
+const TEMPLATED_WORKSPACE = join(ROOT, 'workspace', 'templated');
+mkdirSync(join(TEMPLATED_WORKSPACE, 'playbooks', 'house-style'), { recursive: true });
+writeFileSync(
+  join(TEMPLATED_WORKSPACE, 'playbooks', 'house-style', 'SKILL.md'),
+  '# House style\n\nFetch {{env.VEERIO_API_URL}}/api/sources.\n',
+);
+
 const ORIGINAL_PATH = process.env.WORKSPACE_PATH;
+const ORIGINAL_ALLOWLIST = process.env.WORKSPACE_TEMPLATE_VARS;
+const ORIGINAL_API_URL = process.env.VEERIO_API_URL;
 
 beforeEach(async () => {
   await db.delete(playbookSchema);
@@ -65,13 +75,24 @@ beforeEach(async () => {
   ]);
 });
 
+/**
+ * Put one env var back the way the test process found it.
+ * @param name - the variable to restore.
+ * @param original - its value before the test touched it, or undefined.
+ */
+function restoreEnvVar(name: string, original: string | undefined): void {
+  if (original === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = original;
+  }
+}
+
 afterAll(async () => {
   await db.delete(playbookSchema);
-  if (ORIGINAL_PATH === undefined) {
-    delete process.env.WORKSPACE_PATH;
-  } else {
-    process.env.WORKSPACE_PATH = ORIGINAL_PATH;
-  }
+  restoreEnvVar('WORKSPACE_PATH', ORIGINAL_PATH);
+  restoreEnvVar('WORKSPACE_TEMPLATE_VARS', ORIGINAL_ALLOWLIST);
+  restoreEnvVar('VEERIO_API_URL', ORIGINAL_API_URL);
   rmSync(ROOT, { recursive: true, force: true });
 });
 
@@ -115,6 +136,27 @@ describe('mountSkills', () => {
     const files = await mountSkills({ orgId: ORG, skillSlugs: ['write-lead-brief'], playbookSlugs: [] });
 
     expect(Object.keys(files)).toHaveLength(0);
+  });
+
+  it('resolves an {{env.NAME}} token before the agent ever sees the body', async () => {
+    process.env.WORKSPACE_PATH = TEMPLATED_WORKSPACE;
+    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
+    process.env.VEERIO_API_URL = 'https://api-dev.veerio.app';
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: [], playbookSlugs: ['house-style'] });
+
+    expect(files['/playbooks/house-style/SKILL.md']).toContain('https://api-dev.veerio.app/api/sources');
+    expect(files['/playbooks/house-style/SKILL.md']).not.toContain('{{');
+  });
+
+  it('refuses to mount rather than serve a raw token when the variable is missing', async () => {
+    process.env.WORKSPACE_PATH = TEMPLATED_WORKSPACE;
+    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
+    delete process.env.VEERIO_API_URL;
+
+    await expect(
+      mountSkills({ orgId: ORG, skillSlugs: [], playbookSlugs: ['house-style'] }),
+    ).rejects.toThrow(/VEERIO_API_URL/);
   });
 
   it('never mounts a slug the caller did not name as the right kind', async () => {
