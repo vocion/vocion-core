@@ -30,6 +30,24 @@ registerAction({
   },
 });
 
+// A second action whose schema carries a hand-authored `superRefine` message
+// (the same shape `objects.propose_candidate` uses for its `dedupOn` checks),
+// so the ZodError-to-ActionError translation can be tested against a message
+// that isn't zod's own generic wording.
+registerAction({
+  id: 'test.write-custom-message',
+  name: 'Test write with a custom validation message',
+  description: 'test',
+  inputSchema: z.object({ value: z.string() }).superRefine((value, ctx) => {
+    if (value.value === '') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'value must not be empty' });
+    }
+  }),
+  grant: 'test_write',
+  external: true,
+  execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
+});
+
 const ORG = 'org_act';
 function agent(autonomy: 1 | 2 | 3 | 4 | 5): Principal {
   return { kind: 'agent', id: 'agent:follow-up', grants: ['test_write'], autonomy, scope: { orgId: ORG } };
@@ -86,6 +104,25 @@ describe('ActionService gating', () => {
   it('validates input against the action schema', async () => {
     await expect(proposeAction({ orgId: ORG, actionId: 'test.write', input: { wrong: 1 }, principal: agent(5) }))
       .rejects
-      .toThrow();
+      .toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+
+  it('surfaces a schema violation as a clean ActionError, not a raw ZodError dump', async () => {
+    // Before this fix, `proposeAction` let `inputSchema.parse` throw straight
+    // through: every caller (the agent's `propose_action` tool, the write
+    // API, the review router) only reads `.message` off whatever it catches,
+    // and a raw ZodError's `.message` is its issues array JSON-stringified —
+    // burying a hand-authored validation message inside brace-and-quote
+    // noise instead of handing back the sentence it was written to be.
+    let caught: unknown;
+    try {
+      await proposeAction({ orgId: ORG, actionId: 'test.write-custom-message', input: { value: '' }, principal: agent(5) });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({ code: 'VALIDATION_FAILED', message: 'value must not be empty' });
+    // The regression this guards against: message text buried in a JSON blob.
+    expect((caught as Error).message).not.toMatch(/[[{]/);
   });
 });
