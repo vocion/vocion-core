@@ -79,6 +79,13 @@ jobs:
       - name: Config integrity (malware guard)
         run: npm run check:integrity
 
+      # Refuses a symlink committed with a target outside the checkout. Three
+      # `node_modules` symlinks pointing at one laptop reached main in #221,
+      # because `.gitignore` said `node_modules/` and the trailing slash does
+      # not match a symlink. Same placement reasoning as the step below.
+      - name: Committed symlinks
+        run: npm run check:symlinks
+
       # Refuses a migration that would take a write lock on a populated table.
       # See packages/core/migrations/CONVENTIONS.md.
       #
