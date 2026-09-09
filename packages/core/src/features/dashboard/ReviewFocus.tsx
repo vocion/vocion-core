@@ -137,25 +137,15 @@ export function ReviewFocus() {
 
   const typeTotal = types.reduce((sum, t) => sum + t.count, 0);
   const filter = (
-    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="review-type-filter">
+    <div className="mb-4" data-testid="review-type-filter">
       <TokenSelect
         label="Filter by card type"
         options={types.map(t => ({ value: t.actionId, label: t.label, count: t.count }))}
         selected={activeTypes}
         onChange={selectTypes}
-        placeholder="Filter by card type — type to search…"
+        placeholder="Filter"
         emptyLabel={`All types · ${typeTotal}`}
       />
-      {activeTypes.length === 0 && types.length > 0 && (
-        <span className="text-[11px] text-muted-foreground">
-          {types.length}
-          {' '}
-          card type
-          {types.length === 1 ? '' : 's'}
-          {' '}
-          waiting
-        </span>
-      )}
     </div>
   );
 
