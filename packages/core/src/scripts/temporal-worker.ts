@@ -18,6 +18,7 @@ import { NativeConnection, Worker } from '@temporalio/worker';
 import { temporalAddress, temporalNamespace, VOCION_WORKFLOWS_TASK_QUEUE } from '../libs/temporal/client';
 import { applyLangfuseRetentionSchedule } from '../services/LangfuseRetentionScheduleService';
 import * as activities from '../services/temporal/activities';
+import { applyWorkerRunReaperSchedule } from '../services/WorkerRunReaperScheduleService';
 
 async function main(): Promise<void> {
   if ((process.env.ENABLE_TEMPORAL_WORKER ?? '0') !== '1') {
@@ -64,6 +65,11 @@ async function main(): Promise<void> {
     await applyLangfuseRetentionSchedule();
   } catch (error) {
     console.error('[temporal:worker] could not apply the Langfuse retention schedule', error);
+  }
+  try {
+    await applyWorkerRunReaperSchedule();
+  } catch (error) {
+    console.error('[temporal:worker] could not apply the worker-run reaper schedule', error);
   }
 
   console.log(`[temporal:worker] started — task queue: ${VOCION_WORKFLOWS_TASK_QUEUE}`);
