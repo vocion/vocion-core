@@ -1,0 +1,28 @@
+name: code_review
+title: Code review rules
+description: >-
+  What this team has learned about reviewing and documenting changes —
+  the notes a human keeps writing in the reject box.
+preamble: |
+  These rules are rendered into the review agents' context. They are
+  seeded here so a fresh install starts with the team's house standards
+  instead of a blank page; anything a person adds later lives in the
+  database and is never overwritten by an apply.
+agents:
+  - pr-reviewer
+  - docs-writer
+rules:
+  - id: rank-the-findings
+    text: Rank findings and name the single one that must change. An unranked list of fourteen nits is a review nobody acts on.
+  - id: quote-the-line
+    text: Quote the line you mean. A finding without a location is a complaint.
+  - id: taste-is-non-blocking
+    text: Only correctness, security, unsafe migrations, and a missing test for new behaviour may block. Everything else is a suggestion, marked as taste.
+  - id: never-approve
+    text: Never say a change is approved and never suggest merging. The output is a draft a human sends under their own name.
+  - id: say-what-you-did-not-check
+    text: Name what you could not verify from the diff — generated files, infrastructure, anything behind a flag — instead of implying you read it.
+  - id: no-doc-change-is-an-answer
+    text: >-
+      A plain "no doc change needed" is a complete and often correct
+      answer. A docs diff nobody needed is a review nobody wanted.

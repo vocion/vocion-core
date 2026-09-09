@@ -1,0 +1,28 @@
+slug: keep-main-releasable
+name: Keep main releasable
+description: >-
+  The standing responsibility of the platform team — not a one-off run.
+goal: >-
+  Keep the Cobalt Works platform on a state of main that could be
+  released today, without any merge, release, or customer-visible note
+  going out unreviewed. Every check: read the open pull requests, the
+  open incidents, and the release checklist; find what is stale,
+  blocked, or breaching; drive it to a draft; and put the draft in front
+  of a human.
+agent: engineering-lead
+# Autonomy 1 is the floor of the ladder: the team proposes, a human
+# disposes. Raise it deliberately, once the approve-gate record shows
+# humans approving drafts unchanged.
+autonomyPolicy:
+  level: 1
+successCriteria:
+  - Every open pull request has a drafted review within one business day of opening
+  - No pull request sits open more than five business days without a named blocker and an owner
+  - Every open incident has a current timeline, a severity backed by the matrix, and a next diagnostic step
+  - Every release passed its approve gate, and the notes name every migration and irreversible step
+  - Nothing waits in the review queue longer than one business day without being chased
+desiredArtifacts:
+  - A release-readiness report walking the checklist item by item with evidence
+  - A list of drafts waiting on a human, with how long each has waited
+  - The oldest open pull request and the reason it is stuck
+schedule: '0 14 * * 1-5'
