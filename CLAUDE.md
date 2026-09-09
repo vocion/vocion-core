@@ -115,7 +115,7 @@ Every operation run + agent run + eval run stamps the active `workspace_sha` so 
 
 ## Agent runtime (v0.2)
 
-Agents run on **LangChain.js + `deepagents@1.10`**. The runtime gives you subagents (declared per-agent in YAML), a per-request virtual filesystem mounting playbooks at `/playbooks/<slug>/` and rendered learnings at `/learnings/<step>.md`, built-in `write_todos` + filesystem tools, and SSE streaming with 15s keepalives. See [`docs/internal/adr/0001-langchain-deepagents.md`](./docs/internal/adr/0001-langchain-deepagents.md).
+Agents run on **LangChain.js + `deepagents@1.10`**. The runtime gives you subagents (declared per-agent in YAML), a per-request virtual filesystem mounting playbooks at `/playbooks/<slug>/` and rendered learnings at `/learnings/<step>.md`, built-in `write_todos` + filesystem tools, and SSE streaming with 15s keepalives. See [`docs/adr/0001-langchain-deepagents.md`](./docs/adr/0001-langchain-deepagents.md).
 
 Opt in by setting `VOCION_AGENT_RUNTIME=deepagents` and pointing the chat at `/rpc/agent/stream`. Default model: `claude-sonnet-4-6` (main) + `claude-haiku-4-5-20251001` (classifier). Override per-role via `VOCION_LLM_MODEL_MAIN` etc.
 

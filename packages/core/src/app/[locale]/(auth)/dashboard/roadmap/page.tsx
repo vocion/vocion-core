@@ -1,5 +1,4 @@
 import { setRequestLocale } from 'next-intl/server';
-import { notFound } from 'next/navigation';
 import { DocsSidebar } from '@/features/dashboard/DocsSidebar';
 import { DocViewer } from '@/features/dashboard/DocViewer';
 import { listDocs, readDoc } from '@/libs/docs';
@@ -11,11 +10,25 @@ export default async function RoadmapPage(props: { params: Promise<{ locale: str
   setRequestLocale(locale);
 
   const doc = readDoc(DEFAULT_SLUG);
-  if (!doc) {
-    notFound();
-  }
-
   const entries = listDocs({ kind: 'roadmap' });
+
+  // `docs/internal/` is MetaCTO-only and is NOT distributed with this public
+  // repo (see .gitignore). A checkout without it still renders this route —
+  // an empty roadmap is the honest state, not a 404 that reads like a bug.
+  if (!doc) {
+    return (
+      <div className="mx-auto max-w-xl p-10 text-center">
+        <h1 className="font-display text-lg font-semibold">Roadmap not available</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Internal planning docs live outside this repository. Add
+          {' '}
+          <code className="font-mono text-xs">docs/internal/</code>
+          {' '}
+          to this checkout to read them here.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full gap-6 p-6">

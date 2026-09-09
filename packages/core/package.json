@@ -28,6 +28,7 @@
     "check:types": "tsc --noEmit --pretty",
     "check:i18n": "i18n-check -l src/locales -s en -u src -f next-intl",
     "check:migrations": "tsx src/scripts/check-migration-safety.ts",
+    "check:symlinks": "tsx src/scripts/check-tracked-symlinks.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "db-server:file": "pglite-server --extensions=vector --db=local.db --run 'npm run db:migrate'",
