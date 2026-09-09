@@ -192,7 +192,11 @@ describe('the dedupOn contract — VEERIO-257', () => {
     expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).toHaveLength(0);
   });
 
-  it('proposing the same candidate twice still yields one pending row once dedupOn is valid', async () => {
+  it('re-proposing the same candidate refreshes the existing pending row instead of stacking a second one', async () => {
+    // Pre-existing dedup-collapse behaviour, not new with VEERIO-257 — this
+    // is here as a regression guard: it would pass just as well before that
+    // fix, since the fix only changes what a proposal without an identity
+    // does, not what happens when the identity matches.
     const first = await proposeAction({
       orgId: ORG,
       actionId: 'objects.propose_candidate',
@@ -210,19 +214,17 @@ describe('the dedupOn contract — VEERIO-257', () => {
     expect(await objectsFor()).toHaveLength(1);
   });
 
-  it('flags an identity field the extractor left blank, without refusing the proposal', async () => {
-    const card = await objectProposeCandidateAction.reviewCard!(
+  it('flags an identity field the extractor left blank, but only when one actually is', async () => {
+    const withBlankVenue = await objectProposeCandidateAction.reviewCard!(
       { orgId: ORG },
       parse({ fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: '' } }),
     );
 
-    expect(fieldValue(card.fields, 'Dedup field left blank')?.value).toMatch(/venue/);
-  });
+    expect(fieldValue(withBlankVenue.fields, 'Dedup field left blank')?.value).toMatch(/venue/);
 
-  it('says nothing about a blank identity field when none of dedupOn is blank', async () => {
-    const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
+    const withEveryFieldFilled = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
 
-    expect(fieldValue(card.fields, 'Dedup field left blank')).toBeUndefined();
+    expect(fieldValue(withEveryFieldFilled.fields, 'Dedup field left blank')).toBeUndefined();
   });
 
   it('does not crash on a hand-built input that skips the schema entirely (dedupOn undefined)', async () => {
@@ -273,12 +275,14 @@ describe('the dedup key — per candidate, never per page', () => {
       .toBe('objects.propose_candidate:event-candidate|open-mic-night|2026-09-12t19-30|none');
   });
 
-  it('has no key at all when nothing identifies the candidate', () => {
-    // Since VEERIO-257 the input schema refuses an empty `dedupOn` outright
-    // (see 'the dedupOn contract' below), so this can only be exercised by a
-    // hand-built input that skips the schema. The dangerous alternative is a
-    // constant key: every candidate of the type would collapse into one
-    // queue item and the reviewer would see only the last one to arrive.
+  it('never substitutes a constant dedup key when nothing identifies the candidate, which would merge unrelated candidates into one', () => {
+    // Pre-existing safety net in `dedupKeyFor`, not new with VEERIO-257 — the
+    // input schema now refuses an empty `dedupOn` outright (see 'the
+    // dedupOn contract' below), so on the `propose_candidate` path this can
+    // no longer happen. This exercises the defensive branch directly, via a
+    // hand-built input that bypasses the schema, because the rule itself
+    // — no identity, no key, and never a constant standing in for one — is
+    // still worth guarding on its own terms.
     const bypassed = { ...parse(), dedupOn: [] } as CandidateInput;
 
     expect(objectProposeCandidateAction.dedupKeyFor!(bypassed)).toBeUndefined();
@@ -668,10 +672,12 @@ describe('the queue behaviour', () => {
     expect(listActions().map(action => action.id)).toContain('objects.propose_candidate');
   });
 
-  it('queues two candidates that share no identity value as two items, never merged', async () => {
-    // Since VEERIO-257, `dedupOn: []` is refused rather than treated as "every
-    // proposal is its own item" (see 'the dedupOn contract' above) — a
-    // genuinely one-off candidate needs a real identity value of its own.
+  it('two candidates that differ only in their dedupOn field land as two separate queue items, never merged', async () => {
+    // Pre-existing dedup-key behaviour, not new with VEERIO-257 — before
+    // that fix a one-off candidate could also reach this by passing
+    // `dedupOn: []`, which is refused now (see 'the dedupOn contract'
+    // above). The rule this guards — two different identity values are two
+    // items, full stop — is unchanged and still worth its own test.
     const first = await proposeAction({
       orgId: ORG,
       actionId: 'objects.propose_candidate',
