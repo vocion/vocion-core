@@ -99,6 +99,10 @@ export type QueueLeadsResult = {
   notInMirror: string[];
   /** Total rows on the queue after this call, across every lane. */
   queueTotal: number;
+  /** Last sync of the mirror the identities were read from. */
+  asOf: string | null;
+  /** Set when that mirror has fallen behind its own schedule, so a thin batch is explained. */
+  mirrorStaleness: string | null;
   leads: QueuedLead[];
 };
 
@@ -149,6 +153,8 @@ export type MqlReconciliation = {
   truncated: boolean;
   asOf: string | null;
   sourcesRead: string[];
+  /** Set when the mirror is behind its own sync schedule, so "no gaps" is not read as "all covered". */
+  mirrorStaleness: string | null;
   note: string;
 };
 
@@ -235,6 +241,8 @@ export async function queueLeads(orgId: string, opts: QueueLeadsOptions): Promis
   const briefedAt = opts.now ?? new Date();
 
   const found: CrmRecord[] = [];
+  let asOf: Date | null = null;
+  let staleness: string | null = null;
   for (let offset = 0; offset < refs.length; offset += PAGE) {
     const page = await queryCrmRecords(orgId, 'contacts', {
       refs: refs.slice(offset, offset + PAGE),
@@ -242,6 +250,8 @@ export async function queueLeads(orgId: string, opts: QueueLeadsOptions): Promis
       allowedSourceSlugs: opts.allowedSourceSlugs,
     });
     found.push(...page.records);
+    asOf = page.asOf;
+    staleness = page.freshness.reason;
   }
   const foundRefs = new Set(found.map(r => r.ref));
 
@@ -279,6 +289,8 @@ export async function queueLeads(orgId: string, opts: QueueLeadsOptions): Promis
     alreadyQueued: found.length - inserted.length,
     notInMirror: refs.filter(r => !foundRefs.has(r)),
     queueTotal: total?.n ?? 0,
+    asOf: asOf ? asOf.toISOString() : null,
+    mirrorStaleness: staleness,
     leads: [...insertedRefs].map((ref) => {
       const rec = byRef.get(ref)!;
       return {
@@ -378,6 +390,7 @@ export async function reconcileMqlWindow(
   let asOf: Date | null = null;
   let sources: string[] = [];
   let since: string | null = null;
+  let staleness: string | null = null;
 
   // An unbounded window would reconcile the whole CRM against a queue that
   // only ever covers recent arrivals, reporting years of old leads as gaps.
@@ -405,6 +418,7 @@ export async function reconcileMqlWindow(
     asOf = page.asOf;
     sources = page.sources;
     since = page.createdAfter;
+    staleness = page.freshness.reason;
     arrivals.push(...page.records);
     if (!page.hasMore) {
       break;
@@ -444,6 +458,7 @@ export async function reconcileMqlWindow(
     truncated,
     asOf: asOf ? asOf.toISOString() : null,
     sourcesRead: sources,
+    mirrorStaleness: staleness,
     note: 'Arrivals are contacts CREATED in this window that are at the named stage now, which is not the same as contacts that ENTERED that stage in the window. The mirror does not carry a stage-entry date.',
   };
 }
