@@ -28,6 +28,7 @@
     "check:i18n": "npm run check:i18n --workspace @vocion/core",
     "check:integrity": "node scripts/check-config-integrity.mjs",
     "check:migrations": "npm run check:migrations --workspace @vocion/core",
+    "check:symlinks": "npm run check:symlinks --workspace @vocion/core",
     "test": "npm run test --workspace @vocion/core",
     "test:e2e": "npm run test:e2e --workspace @vocion/core",
     "db:generate": "npm run db:generate --workspace @vocion/core",

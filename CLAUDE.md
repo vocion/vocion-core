@@ -115,7 +115,7 @@ Every operation run + agent run + eval run stamps the active `workspace_sha` so 
 
 ## Agent runtime (v0.2)
 
-Agents run on **LangChain.js + `deepagents@1.10`**. The runtime gives you subagents (declared per-agent in YAML), a per-request virtual filesystem mounting playbooks at `/playbooks/<slug>/` and rendered learnings at `/learnings/<step>.md`, built-in `write_todos` + filesystem tools, and SSE streaming with 15s keepalives. See [`docs/internal/adr/0001-langchain-deepagents.md`](./docs/internal/adr/0001-langchain-deepagents.md).
+Agents run on **LangChain.js + `deepagents@1.10`**. The runtime gives you subagents (declared per-agent in YAML), a per-request virtual filesystem mounting playbooks at `/playbooks/<slug>/` and rendered learnings at `/learnings/<step>.md`, built-in `write_todos` + filesystem tools, and SSE streaming with 15s keepalives. See [`docs/adr/0001-langchain-deepagents.md`](./docs/adr/0001-langchain-deepagents.md).
 
 Opt in by setting `VOCION_AGENT_RUNTIME=deepagents` and pointing the chat at `/rpc/agent/stream`. Default model: `claude-sonnet-4-6` (main) + `claude-haiku-4-5-20251001` (classifier). Override per-role via `VOCION_LLM_MODEL_MAIN` etc.
 
@@ -296,16 +296,20 @@ rotated or revoked key then takes effect on the next call with nothing to
 invalidate. Any new outbound path gets a test that runs two orgs in sequence and
 asserts each got its own key.
 
-**Only `CredentialValidationError` may reach a client.** Those messages are
-authored in the platform registry and name no secret. Any other failure carries
-whatever text the database or the vault produced; log it and return something
-generic.
+**Only `CredentialValidationError` and `VaultDecryptionError` may reach a
+client.** Both are written for a person and name no secret — the first from the
+platform registry, the second from the vault, which is why that type exists at
+all. Anything else carries whatever the database or vault produced: log it with
+its `cause` and return something generic.
 
 Supplied keys never take a Vocion-side expiry — the vendor owns the lifetime.
 
 Encryption at rest is `VOCION_CREDENTIAL_VAULT`: `local` (wrapping key in
 `VOCION_CREDENTIAL_VAULT_KEY`, same database as the wrapped key — development
-only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`).
+only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`). On `local` with
+`NODE_ENV=production`, an unset `VOCION_CREDENTIAL_VAULT_KEY` throws rather than
+falling back to a per-process ephemeral key, which would orphan every
+credential stored under the previous one.
 
 ## Multi-Tenancy
 
@@ -352,6 +356,25 @@ requirements/                       # Product specs and case studies
 ├── sales-assistant-*.md                   # the Sales Assistant sales agent case study
 └── ...
 ```
+
+## Git history
+
+- **After a history rewrite, reset to the remote — never pull or merge.** On
+  2026-09-09 `docs/internal/` was purged from this repo's history and every
+  branch was force-pushed, leaving every checkout on commits that no longer
+  exist. Merging then reconciles two unrelated histories and re-adds every
+  purged file, since the local side still has them. Tells: an absurd
+  `git rev-list --count HEAD..origin/main`, or `forced-update` in
+  `git reflog show origin/main`.
+- **`git reset --hard origin/<branch>` is the user's call. Ask first, every
+  time.** Two checks before it: `git status` clean, since `--hard` discards
+  uncommitted work too; and your commits visibly present in
+  `git log --oneline origin/<branch>` — read and match them yourself. If either
+  fails it is recovery, not routine: unpushed commits need cherry-picking onto
+  the new base, and a branch with no remote exists nowhere else.
+- **A purge unpublishes nothing.** Clones and forks keep the files, and GitHub
+  serves the old commits by SHA until it garbage collects. Treat the exposure
+  as having happened.
 
 ## Conventions
 

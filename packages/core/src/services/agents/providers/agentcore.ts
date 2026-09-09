@@ -14,7 +14,7 @@
  *     with the SAME tool implementations the local provider uses
  *     (searchKnowledgeTool) and resume with the result.
  *
- * Provisioning (`syncAgentCoreHarness`) is idempotent per agent slug:
+ * Provisioning (`syncAgentCoreHarness`) is idempotent per org and agent slug:
  * create-or-update, then poll READY. Invocation
  * (`runAgentOnAgentCoreHarness`) mirrors runAgentDeep's event/return
  * contract so the SSE route and chat UI need no changes.
@@ -31,7 +31,7 @@
 import type { HarnessMessage, HarnessContentBlock as SdkContentBlock } from '@aws-sdk/client-bedrock-agentcore';
 import type { HarnessSummary, HarnessTool } from '@aws-sdk/client-bedrock-agentcore-control';
 import type { AgentEvent, RuntimeContext } from '../types';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { BedrockAgentCoreClient, InvokeHarnessCommand } from '@aws-sdk/client-bedrock-agentcore';
 import {
   BedrockAgentCoreControlClient,
@@ -88,11 +88,96 @@ async function resolveExecutionRoleArn(): Promise<string> {
 }
 
 /**
- * Harness names must start with a letter, alphanumeric + underscores only.
- * @param agentSlug
+ * AWS caps a harness name at 40 characters and accepts
+ * `[a-zA-Z][a-zA-Z0-9_]{0,39}` — a letter first, then alphanumerics and
+ * underscores (verified against the CreateHarness API reference).
  */
-function harnessNameFor(agentSlug: string): string {
-  return `vocion_${agentSlug.replace(/[^a-z0-9]/gi, '_')}`;
+const MAX_HARNESS_NAME_LENGTH = 40;
+const HARNESS_NAME_PREFIX = 'vocion_';
+/** Hex characters of the org+slug digest kept in a harness name. */
+const HARNESS_NAME_DIGEST_LENGTH = 10;
+
+/**
+ * The harness name for one agent, unique per org as well as per slug.
+ *
+ * Agent slugs are unique within an org, not within a deployment. A name built
+ * from the slug alone therefore collided across orgs: two orgs each with a
+ * `support-lead` both resolved to `vocion_support_lead`, so the second org's
+ * apply found the first org's harness by name and called `UpdateHarness` on
+ * it, replacing that org's system prompt, model and allowed tools.
+ *
+ * The digest of `<orgId>:<slug>` is what makes the name unique; the readable
+ * slug fragment in front of it is for whoever is reading the AgentCore
+ * console, and is truncated to whatever the 40-character cap leaves over.
+ * @param orgId - Org the agent belongs to.
+ * @param agentSlug - The agent's slug within that org.
+ * @returns A name AWS accepts, distinct for every (org, slug) pair.
+ */
+function harnessNameFor(orgId: string, agentSlug: string): string {
+  const digest = createHash('sha256')
+    .update(`${orgId}:${agentSlug}`)
+    .digest('hex')
+    .slice(0, HARNESS_NAME_DIGEST_LENGTH);
+  const roomForSlug
+    = MAX_HARNESS_NAME_LENGTH - HARNESS_NAME_PREFIX.length - HARNESS_NAME_DIGEST_LENGTH - 1;
+  const readableSlug = agentSlug.replace(/[^a-z0-9]/gi, '_').slice(0, roomForSlug);
+  return `${HARNESS_NAME_PREFIX}${readableSlug}_${digest}`;
+}
+
+/**
+ * Whether AWS is telling us a harness is not there.
+ *
+ * The modelled class covers the normal case, but an error shape the SDK's
+ * parser does not recognise arrives as a generic service exception carrying
+ * the code in `name`. Matching only the class would make that read as an
+ * unexpected failure: provisioning would rethrow instead of replacing a
+ * missing harness, and teardown would refuse to clear a row whose harness is
+ * already gone.
+ * @param err - Whatever the AWS call threw.
+ */
+function isHarnessNotFound(err: unknown): boolean {
+  return err instanceof ResourceNotFoundException
+    || (err instanceof Error && err.name === 'ResourceNotFoundException');
+}
+
+/**
+ * The harness id inside a harness ARN, or undefined when there is none.
+ * @param harnessArn - A `.../harness/<id>` ARN.
+ */
+function harnessIdFromArn(harnessArn: string): string | undefined {
+  return harnessArn.split('/').pop() || undefined;
+}
+
+/**
+ * Turn a rejected harness write into an error that names the execution role.
+ *
+ * Nothing creates `VocionAgentCoreHarnessRole` any more — the parent project
+ * that used to make it on every deploy stopped, deliberately, so choosing our
+ * own container no longer provisions harness scaffolding. A client who then
+ * picks `aws-managed-harness` gets AWS's own wording about a role they have
+ * never heard of, with no hint of what should have created it or that an
+ * override exists. This says both, and keeps AWS's message inside.
+ * @param err - Whatever the Create/Update call threw.
+ * @param executionRoleArn - The role that was passed.
+ * @returns The error to throw instead.
+ */
+function describeHarnessWriteFailure(err: unknown, executionRoleArn: string): unknown {
+  const message = err instanceof Error ? err.message : String(err);
+  const isAboutTheRole = message.includes(executionRoleArn)
+    || message.includes(EXECUTION_ROLE_NAME)
+    || message.includes('PassRole')
+    || message.includes('executionRoleArn');
+  if (!isAboutTheRole) {
+    return err;
+  }
+  return new Error(
+    `agentcore: the harness execution role ${executionRoleArn} was rejected. `
+    + `Create that role (trusting bedrock-agentcore.amazonaws.com) in this account, `
+    + `or set VOCION_AGENTCORE_ROLE_ARN to a role that already exists. AWS said: ${message}`,
+    // The original keeps the AWS error's type and stack, which the rewritten
+    // message would otherwise drop.
+    { cause: err },
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -156,11 +241,56 @@ async function findHarnessByName(name: string): Promise<HarnessSummary | undefin
 }
 
 /**
- * Create or update the AgentCore harness for one agent. Idempotent —
- * keyed by harness name derived from the agent slug. Returns the
- * harness ARN once READY.
- * @param orgId
- * @param agentSlug
+ * The harness this agent should update, or undefined when it needs a new one.
+ *
+ * The ARN already recorded on the agent row is tried first, so an agent
+ * provisioned under an older naming scheme keeps the harness it has instead of
+ * being abandoned — the old one left running and chargeable — while a second
+ * one appears under the new name.
+ *
+ * The name lookup is the fallback, and it only matches the CURRENT scheme. An
+ * agent whose harness exists under the old bare-slug name and whose ARN was
+ * never recorded — a create that succeeded at AWS but whose row write did not
+ * — gets a new harness here, and the old one is left for whoever reads the
+ * console. Matching bare slugs is not worth it: that name carries no org, so
+ * the lookup could adopt a different org's harness.
+ * @param row - The agent row, whose `harnessArn` may point at a live harness.
+ * @param name - The name this agent's harness has under the current scheme.
+ */
+async function readHarnessToUpdate(
+  row: AgentRow,
+  name: string,
+): Promise<{ harnessId: string; arn: string } | undefined> {
+  const recordedId = row.harnessArn ? harnessIdFromArn(row.harnessArn) : undefined;
+  if (recordedId) {
+    try {
+      const { harness } = await control().send(new GetHarnessCommand({ harnessId: recordedId }));
+      if (harness?.harnessId && harness.arn) {
+        return { harnessId: harness.harnessId, arn: harness.arn };
+      }
+    } catch (err) {
+      if (!isHarnessNotFound(err)) {
+        throw err;
+      }
+      console.warn(
+        `agentcore: ${row.slug} points at harness ${recordedId}, which no longer exists — provisioning a new one`,
+      );
+    }
+  }
+  const byName = await findHarnessByName(name);
+  if (byName?.harnessId && byName.arn) {
+    return { harnessId: byName.harnessId, arn: byName.arn };
+  }
+  return undefined;
+}
+
+/**
+ * Create or update the AgentCore harness for one agent. Idempotent — the
+ * harness is found by the ARN on the agent row, or failing that by a name
+ * derived from the org id and the slug together. Returns the harness ARN
+ * once READY.
+ * @param orgId - Org the agent belongs to.
+ * @param agentSlug - The agent's slug within that org.
  */
 export async function syncAgentCoreHarness(orgId: string, agentSlug: string): Promise<string> {
   const [row] = await db
@@ -193,25 +323,29 @@ export async function syncAgentCoreHarness(orgId: string, agentSlug: string): Pr
     allowedTools: tools.map(t => `@*/${t.name!}`),
   };
 
-  const name = harnessNameFor(agentSlug);
-  const existing = await findHarnessByName(name);
+  const name = harnessNameFor(orgId, agentSlug);
+  const existing = await readHarnessToUpdate(row, name);
 
   let harnessId: string;
   let arn: string;
-  if (existing?.harnessId) {
-    await control().send(new UpdateHarnessCommand({ harnessId: existing.harnessId, ...shared }));
-    harnessId = existing.harnessId;
-    arn = existing.arn!;
-  } else {
-    const created = await control().send(new CreateHarnessCommand({
-      harnessName: name,
-      // v1: no AgentCore Memory — continuity comes from caller-supplied
-      // history, matching the local provider (see module header).
-      memory: { disabled: {} },
-      ...shared,
-    }));
-    harnessId = created.harness!.harnessId!;
-    arn = created.harness!.arn!;
+  try {
+    if (existing) {
+      await control().send(new UpdateHarnessCommand({ harnessId: existing.harnessId, ...shared }));
+      harnessId = existing.harnessId;
+      arn = existing.arn;
+    } else {
+      const created = await control().send(new CreateHarnessCommand({
+        harnessName: name,
+        // v1: no AgentCore Memory — continuity comes from caller-supplied
+        // history, matching the local provider (see module header).
+        memory: { disabled: {} },
+        ...shared,
+      }));
+      harnessId = created.harness!.harnessId!;
+      arn = created.harness!.arn!;
+    }
+  } catch (err) {
+    throw describeHarnessWriteFailure(err, shared.executionRoleArn);
   }
 
   // Wait until the harness (a Runtime under the hood) is invocable.
@@ -423,9 +557,10 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
  * Addressed by the id inside the stored ARN, deliberately, rather than by
  * looking a name up:
  *
- * - `harnessNameFor` is `vocion_<slug>` with no org in it, so two orgs whose
- *   agents share a slug map to one name. A name lookup would let one org's
- *   apply delete another org's harness. The ARN came from that org's own row.
+ * - The ARN came from that org's own row, so this can only ever reach that
+ *   org's harness. Names are org-scoped now, but an agent provisioned before
+ *   that change still carries a bare `vocion_<slug>` name, which a lookup
+ *   could match for a different org.
  * - It needs no `ListHarnesses`, so a harness past the first page cannot read
  *   as absent — which on this path would mean reporting success and leaving it
  *   running.
@@ -438,7 +573,7 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
  * still clear its ARN, since there is nothing left to point at.
  */
 export async function deleteAgentCoreHarness(harnessArn: string): Promise<{ deleted: boolean; harnessId: string }> {
-  const harnessId = harnessArn.split('/').pop();
+  const harnessId = harnessIdFromArn(harnessArn);
   if (!harnessId) {
     throw new Error(`agentcore: cannot read a harness id out of ${harnessArn}`);
   }
@@ -450,7 +585,7 @@ export async function deleteAgentCoreHarness(harnessArn: string): Promise<{ dele
     // Already gone — someone deleted it in the console, or a previous apply
     // deleted it and failed before clearing the row. Either way the desired
     // state is the actual state.
-    if (err instanceof ResourceNotFoundException) {
+    if (isHarnessNotFound(err)) {
       return { deleted: false, harnessId };
     }
     throw err;

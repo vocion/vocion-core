@@ -285,6 +285,38 @@ changes, not when an agent is edited.
 
 ---
 
+## Only if you use the AWS-managed harness: its execution role
+
+Most deployments run agents in **our own container** (`harness.runsOn:
+agentcore-container`), and need none of this. Nothing in that path touches a
+harness, an execution role, or IAM.
+
+An agent set to `aws-managed-harness` is different: AWS runs the agent loop,
+and the harness needs an IAM role to assume. `syncAgentCoreHarness` derives it
+as `arn:aws:iam::<account>:role/VocionAgentCoreHarnessRole` from whatever
+account the app is running in — and **nothing creates that role**. The parent
+project used to make it on every `deploy.sh agentcore` run, which was removed
+on purpose: choosing our own container should not provision harness
+scaffolding as a side effect.
+
+So one of these, before the first `workspace:apply` that has such an agent:
+
+- Create `VocionAgentCoreHarnessRole` in the client's account, trusting
+  `bedrock-agentcore.amazonaws.com`, with whatever Bedrock model access that
+  agent needs. Make it Terraform, not a console click — see the box role in
+  `infra/terraform/main.tf` for the shape.
+- Or set `VOCION_AGENTCORE_ROLE_ARN` in the app's environment to a role that
+  already exists. It skips the derivation entirely, name and all.
+
+The box role also needs `bedrock-agentcore:DeleteHarness` **and**
+`bedrock-agentcore:DeleteAgentRuntime`. AWS authorizes `DeleteHarness` as both,
+because the harness owns a runtime underneath it and deleting the harness
+deletes that runtime too. Without the second, an agent moving off
+`aws-managed-harness` fails to tear its harness down and the whole
+`workspace:apply` exits non-zero.
+
+---
+
 ## Gotchas
 
 Three defaults that are wrong for any client outside `us-east-1`:
