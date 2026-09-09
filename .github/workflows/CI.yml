@@ -229,6 +229,11 @@ jobs:
           args: sh -c "HOME=/root npm run test:e2e" # Set HOME to /root to avoid Playwright error with Firebox
         env:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          # Playwright boots `next start` next to a throwaway in-memory PGlite on
+          # 5432, and Env.ts validates on import, so the server needs these to
+          # come up at all. Same values the unit and build jobs use.
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_e2e
+          AUTH_SECRET: ci-only-secret-not-used-outside-ci
 
       - name: Fix test results permission # Give permissions to test results needed by Chromatic
         run: |
