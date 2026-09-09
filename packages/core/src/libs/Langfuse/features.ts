@@ -20,6 +20,8 @@ export const FEATURES = {
   WORKFLOW_STEP: 'workflow.step',
   /** Haiku-based feedback bucket classifier. */
   FEEDBACK_CLASSIFY: 'feedback.classify',
+  /** Haiku-based duplicate check between a proposed rule and existing ones. */
+  FEEDBACK_DEDUPE: 'feedback.dedupe',
   /** Emergent chip synthesis — mission × skills × tracker state → chips. */
   CHIP_SYNTHESIS: 'chat.chip-synthesis',
   /** OAuth token-refresh round-trips for Source plugins. */

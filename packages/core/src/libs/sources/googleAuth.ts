@@ -11,8 +11,14 @@
  *
  * `resolveGoogleAccessToken` mints a fresh access token from the refresh
  * token (caching it in-memory until ~5 min before expiry) and falls back to
- * the raw `token` when no refresh credentials exist. Obtain refresh
- * credentials via `npm run google:oauth` (one-time consent) or the Sources UI.
+ * the raw `token` when no refresh credentials exist.
+ *
+ * The durable set is what the Sources UI asks for: the `google` credential
+ * platform holds `clientId`, `clientSecret` and `refreshToken`, and one such
+ * credential serves every Google connector, since a single OAuth consent
+ * covers them all. `npm run google:oauth` runs the same consent from a
+ * terminal, though it still writes the older per-source credential rather than
+ * a workspace one.
  */
 
 import type { RawCredentials } from '@/services/SourceCredentialService';

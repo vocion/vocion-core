@@ -36,6 +36,7 @@ It's built for the part most agent frameworks skip — **operating** AI in produ
 - **Connect the real systems** — a built-in connector pack (Google Ads, GA4, HubSpot, Gmail, Slack, Google Drive) on a durable, incremental, **client-scoped** ingestion pipeline.
 - **A multi-tenant control plane** — tenant Bearer tokens that resolve to a permission principal, a **write API** (drive the review queue over REST), and **MCP over HTTP** (the agent/tool plane) — every mutation, token or human, routed through one authorization model.
 - **Safe by construction** — discovery-vs-mutation permissions, an autonomy ladder with approval gates, and cross-client isolation enforced at the query, not the prompt.
+- **Run the agent loop where you want it** — in this app's process, in our own container on AWS Bedrock AgentCore Runtime, or handed over to AWS's managed harness. One setting, `harness.runsOn`, and the same agent behaves the same way across the first two. [Where an agent turn runs](./docs/agent-execution.md) explains the three, and which AWS account ends up paying for the tokens.
 
 ## Layered architecture
 
@@ -177,7 +178,7 @@ Credentials travel in both directions, and both live under **Dashboard → API c
 
 Supplied keys never carry a Vocion-side expiry — the vendor that issued the key owns its lifetime. Revoking or replacing is how one ends.
 
-Encryption at rest is configured by `VOCION_CREDENTIAL_VAULT`: `local` wraps the per-org key with `VOCION_CREDENTIAL_VAULT_KEY`, which puts the wrapping key and the wrapped key in the same database and is only appropriate for development; `kms` wraps it with AWS KMS under `VOCION_KMS_KEY_ARN`, which is what any install holding real customer keys should run.
+Encryption at rest is configured by `VOCION_CREDENTIAL_VAULT`: `local` wraps the per-org key with `VOCION_CREDENTIAL_VAULT_KEY`, which puts the wrapping key and the wrapped key in the same database and is only appropriate for development; `kms` wraps it with AWS KMS under `VOCION_KMS_KEY_ARN`, which is what any install holding real customer keys should run. On `local`, `VOCION_CREDENTIAL_VAULT_KEY` is mandatory whenever `NODE_ENV=production`: leaving it unset there makes every credential read and write throw, because the development fallback mints a fresh key per process and every credential saved under the last one becomes permanently unreadable. The app still starts — no code builds a vault at boot — so the failure appears on the first request that touches a credential.
 
 ## Retrieval
 

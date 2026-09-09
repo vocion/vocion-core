@@ -16,6 +16,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { NativeConnection, Worker } from '@temporalio/worker';
 import { temporalAddress, temporalNamespace, VOCION_WORKFLOWS_TASK_QUEUE } from '../libs/temporal/client';
+import { applyLangfuseRetentionSchedule } from '../services/LangfuseRetentionScheduleService';
 import * as activities from '../services/temporal/activities';
 
 async function main(): Promise<void> {
@@ -53,6 +54,17 @@ async function main(): Promise<void> {
     workflowsPath: require.resolve('../services/temporal/workflows'),
     activities,
   });
+
+  // Keep the Langfuse trace-pruning Schedule in step with
+  // LANGFUSE_RETENTION_DAYS. Done here rather than at deploy time so a
+  // rebuilt Temporal cluster gets its schedule back on the next boot,
+  // and so clearing the variable actually removes the job. A failure
+  // here must not stop the worker: every other schedule still needs it.
+  try {
+    await applyLangfuseRetentionSchedule();
+  } catch (error) {
+    console.error('[temporal:worker] could not apply the Langfuse retention schedule', error);
+  }
 
   console.log(`[temporal:worker] started — task queue: ${VOCION_WORKFLOWS_TASK_QUEUE}`);
 

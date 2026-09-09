@@ -10,9 +10,11 @@
  *     prerequisite for integrating anything.
  *   - **Supplied platform keys** — the org's own OpenAI or Anthropic key,
  *     stored encrypted so their model spend bills their account instead of
- *     ours. The list only ever carries the masked hint; the full key leaves the
- *     server on one route, `revealPlatformKey`, and only when an admin asks for
- *     it by row.
+ *     ours.
+ *
+ * Both kinds are stored encrypted and both are readable back the same way: the
+ * list only ever carries the masked hint, and the full value leaves the server
+ * on one route, `revealPlatformKey`, and only when an admin asks for it by row.
  *
  * Two rules shape every handler here:
  *
@@ -26,6 +28,7 @@
 import type { CredentialPlatformId } from '@/libs/platforms/registry';
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { CredentialValidationError, DEFAULT_PLATFORM_ID, isCredentialPlatformId, listPlatforms } from '@/libs/platforms/registry';
 import { issueToken, listTokens, revealPlatformCredential, revokeToken, storePlatformKey } from '@/services/ApiTokenService';
 import { ORG_ROLE } from '@/types/Auth';
@@ -74,10 +77,23 @@ function readExpiry(raw: string | null): Date | null {
   return expiresAt;
 }
 
-export const listTokensRoute = os.handler(async () => {
-  const { orgId } = await guardTokenAdmin();
-  return listTokens(orgId);
-});
+export const listTokensRoute = os
+  .input(z
+    .object({
+      /**
+       * True to include revoked rows. The dashboard asks for this only when an
+       * admin turns on "show revoked", because a rotation leaves the old row
+       * behind on purpose and the default list should be what is in use.
+       */
+      includeRevoked: z.boolean().optional(),
+    })
+    // Optional as a whole so an older client calling with no argument still
+    // gets the default list rather than a validation error.
+    .optional())
+  .handler(async ({ input }) => {
+    const { orgId } = await guardTokenAdmin();
+    return listTokens(orgId, { includeRevoked: input?.includeRevoked ?? false });
+  });
 
 export const createTokenRoute = os
   .input(z.object({
@@ -89,8 +105,8 @@ export const createTokenRoute = os
     const { orgId, userId } = await guardTokenAdmin();
     const expiresAt = readExpiry(input.expiresAt);
     try {
-      // The plaintext in this response is the only time it exists outside the
-      // caller's clipboard — only its SHA-256 is stored.
+      // The token is returned in full so the panel can show it immediately.
+      // It is also kept, encrypted, so the row can show it again later.
       const { token, id } = await issueToken({
         orgId,
         name: input.name,
@@ -127,6 +143,10 @@ export const listPlatformsRoute = os.handler(async () => {
     id: platform.id,
     label: platform.label,
     keySource: platform.keySource,
+    // Whether saving a second credential here replaces the first or sits
+    // alongside it. The form's warnings turn on this, and getting it wrong
+    // means either a false alarm or a key replaced without saying so.
+    credentialsPerOrg: platform.credentialsPerOrg,
     keyShapeHint: platform.keyShapeHint,
     helpText: platform.helpText,
     // RegExp does not survive the wire, so the form gets the human hint and
@@ -197,18 +217,19 @@ export const createPlatformKeyRoute = os
   });
 
 /**
- * Decrypt one supplied platform key so the admin who owns it can read it back.
+ * Decrypt one stored credential so the admin who owns it can read it back —
+ * either a supplied platform key or a Vocion-issued token.
  *
- * The dashboard masks every key by default and calls this only when someone
- * asks to see one, so the plaintext crosses the wire on a deliberate click
- * rather than on every page load. Admin-only and session-only like the rest of
- * this router, and the reveal is logged — without the value — so an audit can
- * answer who looked at which credential.
+ * The dashboard masks every credential by default and calls this only when
+ * someone asks to see one, so the plaintext crosses the wire on a deliberate
+ * click rather than on every page load. Admin-only and session-only like the
+ * rest of this router, and the reveal is logged — without the value — so an
+ * audit can answer who looked at which credential.
  *
- * The three refusals come back as ordinary results rather than errors, because
- * none of them means the caller did anything wrong: a Vocion token has no
- * plaintext left to show, a revoked key is deliberately dead, and a missing row
- * is usually a stale tab.
+ * The refusals come back as ordinary results rather than errors, because
+ * neither means the caller did anything wrong: a Vocion token issued before
+ * minted tokens were stored encrypted has no plaintext left to show, and a
+ * missing row is usually a stale tab.
  */
 export const revealPlatformKeyRoute = os
   .input(z.object({ tokenId: z.string().min(1) }))
@@ -218,13 +239,26 @@ export const revealPlatformKeyRoute = os
     try {
       revealed = await revealPlatformCredential(orgId, input.tokenId);
     } catch (error) {
-      // A ciphertext that will not open. The message can carry KMS detail, so
-      // it is logged and replaced with one that says nothing.
+      // A ciphertext that will not open. Most of the reasons for that carry
+      // detail nobody outside the server should read — a KMS response, a
+      // connection string — so they are logged here and replaced with a
+      // sentence that says nothing.
+      //
+      // `VaultDecryptionError` is the exception, and the reason it exists: the
+      // vault authored that message for exactly this moment, it names the cause
+      // and the fix, and it holds no secret. Flattening it sent the last person
+      // who hit this to the container logs to learn something the screen
+      // already knew.
+      const isSafeToShow = error instanceof VaultDecryptionError;
       console.error('[apiTokens.revealPlatformKey] could not decrypt key', {
         tokenId: input.tokenId,
         message: error instanceof Error ? error.message : String(error),
+        // The vault keeps the underlying failure — Node's own wording for a
+        // ciphertext that will not authenticate — out of the message it hands
+        // the dashboard. The log is where that half belongs.
+        cause: error instanceof Error && error.cause instanceof Error ? error.cause.message : undefined,
       });
-      throw ApiError.badRequest('Could not read that key.');
+      throw ApiError.badRequest(isSafeToShow ? error.message : 'Could not read that key.');
     }
     if (revealed.status === 'ok') {
       // `warn` rather than `info` because the lint rule allows only warn and

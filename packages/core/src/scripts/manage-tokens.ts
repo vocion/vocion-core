@@ -130,13 +130,16 @@ async function main(): Promise<void> {
     console.warn('');
     console.warn(`  ${issued.token}`);
     console.warn('');
-    console.warn('⚠ Shown ONCE — only its hash is stored. Save it now (e.g. ~/.metacto/vocion.env,');
-    console.warn('  chmod 600). Never commit it or place it in a repo that deploys its files.');
+    console.warn('⚠ Save it now (e.g. ~/.metacto/vocion.env, chmod 600). Never commit it or place');
+    console.warn('  it in a repo that deploys its files. It can also be shown again later from');
+    console.warn('  Dashboard → API tokens, where an admin can reveal and copy it.');
     return;
   }
 
   if (command === 'list') {
-    const tokens = await listTokens(orgId);
+    // Revoked rows included: this command is the audit view, unlike the
+    // dashboard list, which hides them until an admin asks.
+    const tokens = await listTokens(orgId, { includeRevoked: true });
     if (tokens.length === 0) {
       console.warn(`no tokens for org ${orgId}`);
       return;

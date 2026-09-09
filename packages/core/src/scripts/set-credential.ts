@@ -79,7 +79,7 @@ async function main() {
   });
 
   console.warn(`✓ stored credential #${credentialId} for source "${args.source}" (install #${installId}) in project ${project.id}`);
-  console.warn('  Trigger a sync from /dashboard/sources or wait for the scheduled run.');
+  console.warn('  Trigger a sync from /dashboard/connectors or wait for the scheduled run.');
   process.exit(0);
 }
 

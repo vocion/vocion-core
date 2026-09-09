@@ -11,6 +11,7 @@
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
+import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listConnectors } from '@/libs/sources/registry';
 import { credentialStatusForOrg } from '@/services/SourceCredentialService';
 import { addSource, documentCountsForOrg, latestSyncStateForOrg, listSources } from '@/services/SourceSyncService';
@@ -32,7 +33,10 @@ export async function GET() {
   const withStatus = sources.map((s) => {
     const connectorSlug = (s.config?._connector as string | undefined) ?? s.slug;
     const authKind = connectorBySlug.get(connectorSlug)?.authKind ?? 'none';
-    const st = credStatus[connectorSlug];
+    // This row's own stored credential first, then the org's OAuth grant for
+    // the connector. A connector naming a credential is the only one whose
+    // status is per-row; a grant's status is the same for every row of a kind.
+    const st = credStatus.bySourceId[s.id] ?? credStatus.byConnectorSlug[connectorSlug];
     return {
       ...s,
       authKind,
@@ -40,6 +44,14 @@ export async function GET() {
       documentCount: docCounts[s.id] ?? 0,
       credentialConnected: authKind === 'none' ? true : (st?.connected ?? false),
       credentialUpdatedAt: st?.updatedAt ?? null,
+      // Why a credential cannot be used, when there is one that cannot. The
+      // page needs this to tell "nobody has connected this yet" apart from
+      // "somebody revoked the key this connector points at".
+      credentialBroken: st?.broken ?? null,
+      // The stored-credential platform this connector authenticates with, or
+      // null when it uses an OAuth grant or needs no credential. Setup offers
+      // the workspace's existing credentials for this platform.
+      credentialPlatform: platformForConnectorSlug(connectorSlug)?.id ?? null,
       // The last run's state, so the page can show a sync it did not start —
       // another tab's, the scheduler's, or one still going after a reload.
       sync: syncState[s.id] ?? null,
@@ -51,6 +63,7 @@ export async function GET() {
     description: c.description,
     icon: c.icon,
     authKind: c.authKind,
+    credentialPlatform: platformForConnectorSlug(c.slug)?.id ?? null,
   }));
   return Response.json({ sources: withStatus, connectors });
 }

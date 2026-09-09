@@ -59,7 +59,7 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
 
       {/* Top-level stats */}
       <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat icon={Plug} label="Sources" value={connectorSources.size} href="/dashboard/sources" />
+        <Stat icon={Plug} label="Connectors" value={connectorSources.size} href="/dashboard/connectors" />
         <Stat icon={FileText} label="Object types" value={objectTypes.length} href="/dashboard/objects" />
         <Stat icon={Database} label="Objects" value={objects.length} href="/dashboard/objects" />
         <Stat icon={Layers} label="Active agents" value={agents.length} href="/dashboard/agents" />
@@ -102,12 +102,12 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
             )}
       </section>
 
-      {/* Connected sources */}
+      {/* Connected connectors */}
       {connectorSources.size > 0 && (
         <section className="mb-8 rounded-lg border border-border bg-background p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Source systems</h2>
-            <Link href="/dashboard/sources" className="text-sm text-muted-foreground hover:text-foreground">Manage →</Link>
+            <h2 className="text-lg font-semibold">Connectors</h2>
+            <Link href="/dashboard/connectors" className="text-sm text-muted-foreground hover:text-foreground">Manage →</Link>
           </div>
           <div className="flex flex-wrap gap-2">
             {[...connectorSources].sort().map(src => (
@@ -126,7 +126,7 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <UpcomingCard icon={Share2} title="Relationships" description="Object-to-object cardinality + sync direction, versioned alongside object types." />
           <UpcomingCard icon={Scale} title="Rules & constraints" description="Per-object-type business rules: lifecycle transitions, required fields, dedup logic." />
-          <UpcomingCard icon={CheckCircle2} title="System-of-record" description="Per-field ownership + conflict-resolution policy across connected sources." />
+          <UpcomingCard icon={CheckCircle2} title="System-of-record" description="Per-field ownership + conflict-resolution policy across connected systems." />
           <UpcomingCard icon={AlertTriangle} title="Data quality" description="Runtime log of findings and unresolved decisions awaiting stakeholder input." />
         </div>
       </section>

@@ -1,7 +1,11 @@
 'use client';
 
 import type { AgentOption } from './types';
+import { MessagesSquare } from 'lucide-react';
+import { useEffect } from 'react';
+import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
+import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
 import { AgentSwitcher } from './AgentSwitcher';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
@@ -50,6 +54,29 @@ export type ChatShellProps = {
   greeting?: { eyebrow?: string; workspace: string };
 };
 
+/**
+ * Bails out before `useChatSession` when there is nobody to chat with.
+ *
+ * `useChatSession` picks a default agent with `agents[0]!` and reads its slug
+ * straight away, so an empty list crashed the page rather than showing
+ * anything. It reaches here empty in one case: the shell could not resolve a
+ * workspace, which is what a stale session cookie from another workspace looks
+ * like. `loadChatAgentContext` always appends the virtual search entry, so a
+ * workspace that resolved is never empty even before its first agent is
+ * authored.
+ *
+ * The guard sits one level above the hook rather than inside it, matching
+ * `ChatBubble` and `ChatDock`: React lets a component's hooks be skipped
+ * entirely by never rendering it, and `useChatSession` does real work on mount
+ * — a `client.chatWidget.getState()` call and a hand-off effect that can write
+ * a conversation — none of which should run with no agent to run it for.
+ * @param props - Component props.
+ * @param props.agents - Agents available to pick from. Empty renders the empty state.
+ * @param props.agentSlug - Initial selection.
+ * @param props.initialComposerValue - Text to pre-fill the composer with.
+ * @param props.suggestions - Empty-state chips.
+ * @param props.greeting - Empty-state greeting.
+ */
 export function ChatShell({
   agents,
   agentSlug,
@@ -57,7 +84,60 @@ export function ChatShell({
   suggestions = [],
   greeting,
 }: ChatShellProps) {
+  if (agents.length === 0) {
+    return <NoAgentsToChatWith />;
+  }
+
+  return (
+    <ChatShellInner
+      agents={agents}
+      agentSlug={agentSlug}
+      initialComposerValue={initialComposerValue}
+      suggestions={suggestions}
+      greeting={greeting}
+    />
+  );
+}
+
+/**
+ * What the chat page shows when no workspace resolved, in place of a crash.
+ *
+ * Signing in again is the fix when a session points at a workspace this
+ * deployment does not have — the usual cause on a developer's machine, where
+ * two checkouts on different ports share one cookie.
+ */
+function NoAgentsToChatWith() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <PageEmptyState
+        icon={MessagesSquare}
+        title="No agents to chat with"
+        description="This workspace has no agents available. If you were signed in elsewhere, sign in again — a session from another workspace cannot load this one's agents."
+      />
+    </div>
+  );
+}
+
+function ChatShellInner({
+  agents,
+  agentSlug,
+  initialComposerValue,
+  suggestions = [],
+  greeting,
+}: ChatShellProps) {
   const session = useChatSession({ agents, agentSlug, initialComposerValue, suggestions, greeting });
+
+  // The full-page chat IS this page's agent surface: an entry-point request
+  // (the hotkey, a rail control) focuses the composer instead of opening a
+  // second surface (032 §6).
+  useEffect(() => {
+    function onRequest(e: Event) {
+      e.preventDefault();
+      focusAgentComposer(null);
+    }
+    window.addEventListener(AGENT_SURFACE_EVENT, onRequest);
+    return () => window.removeEventListener(AGENT_SURFACE_EVENT, onRequest);
+  }, []);
 
   return (
     <div className="relative flex h-full flex-1 flex-col">
@@ -147,6 +227,9 @@ export function ChatShell({
             streaming={session.isStreaming}
             onStop={session.handleStop}
             placeholder={session.composerPlaceholder}
+            pastedText={session.pastedText}
+            onPasteText={session.setPastedText}
+            onClearPasted={() => session.setPastedText(null)}
           />
         </div>
 

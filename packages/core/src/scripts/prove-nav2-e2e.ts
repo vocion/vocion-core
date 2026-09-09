@@ -68,5 +68,6 @@ async function main(): Promise<void> {
   process.exit(noToggle && dailyOnly && hasRow && menuHasManage && hasTabs ? 0 : 2);
 }
 main().catch((e) => {
-  console.error(e); process.exit(1);
+  console.error(e);
+  process.exit(1);
 });

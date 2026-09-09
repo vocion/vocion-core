@@ -55,8 +55,11 @@ beforeEach(() => {
     },
   ]);
   vi.mocked(credentialStatusForOrg).mockResolvedValue({
-    strapi: { connected: true, updatedAt: new Date('2026-08-02T00:00:00.000Z') },
-  } as never);
+    // Keyed by connector row id: a stored credential is named by one
+    // connector, so two Strapi rows answer separately.
+    bySourceId: { 1: { connected: true, updatedAt: '2026-08-02T00:00:00.000Z', broken: null } },
+    byConnectorSlug: {},
+  });
   vi.mocked(documentCountsForOrg).mockResolvedValue({ 1: 43 });
   vi.mocked(latestSyncStateForOrg).mockResolvedValue({
     1: { status: 'running', startedAt, completedAt: null, error: null, counts: {} },
@@ -102,7 +105,7 @@ describe('GET /rpc/sources', () => {
         createdAt: new Date('2026-08-01T00:00:00.000Z'),
       },
     ]);
-    vi.mocked(credentialStatusForOrg).mockResolvedValue({} as never);
+    vi.mocked(credentialStatusForOrg).mockResolvedValue({ bySourceId: {}, byConnectorSlug: {} });
 
     const body = await (await GET()).json();
 
@@ -110,7 +113,7 @@ describe('GET /rpc/sources', () => {
   });
 
   it('reports a credential-needing source with nothing stored as not connected', async () => {
-    vi.mocked(credentialStatusForOrg).mockResolvedValue({} as never);
+    vi.mocked(credentialStatusForOrg).mockResolvedValue({ bySourceId: {}, byConnectorSlug: {} });
 
     const body = await (await GET()).json();
 
@@ -129,8 +132,10 @@ describe('GET /rpc/sources', () => {
     const body = await (await GET()).json();
 
     expect(body.connectors).toEqual([
-      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey' },
-      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none' },
+      // `credentialPlatform` is how the picker knows to offer the credentials
+      // the workspace already holds instead of asking for the key again.
+      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey', credentialPlatform: 'strapi' },
+      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none', credentialPlatform: null },
     ]);
   });
 

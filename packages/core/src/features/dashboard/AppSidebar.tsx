@@ -167,7 +167,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                 <AppSidebarNav
                   label="Knowledge"
                   items={[
-                    { title: t('sources'), url: '/dashboard/sources', icon: Plug },
+                    { title: t('sources'), url: '/dashboard/connectors', icon: Plug },
                     { title: t('objects'), url: '/dashboard/objects', icon: Database },
                     { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
                   ]}

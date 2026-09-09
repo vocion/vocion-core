@@ -108,6 +108,18 @@ export const MISSION_SCHEDULED_CHECK_WORKFLOW = 'missionScheduledCheck';
 /** Workflow type an automation's Schedule starts — dispatches its `do`. */
 export const AUTOMATION_FIRE_WORKFLOW = 'automationFire';
 
+/** Workflow type the daily Langfuse retention Schedule starts. */
+export const LANGFUSE_RETENTION_WORKFLOW = 'langfuseRetentionWorkflow';
+
+/**
+ * Schedule ID for Langfuse trace pruning.
+ *
+ * Deliberately not per-org: one Langfuse project holds every org's
+ * traces, and the retention period is a deployment-wide setting, so one
+ * Schedule covers the instance.
+ */
+export const LANGFUSE_RETENTION_SCHEDULE_ID = 'langfuse-retention';
+
 /**
  * Schedule ID convention for automations — `automation-<orgId>-<slug>`.
  * @param orgId

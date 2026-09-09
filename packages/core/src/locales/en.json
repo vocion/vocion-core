@@ -1,9 +1,5 @@
 {
-  "LocaleSwitcher": {
-    "button_label": "Change language"
-  },
   "ThemeSwitcher": {
-    "button_label": "Change theme",
     "theme_light_label": "Light",
     "theme_dark_label": "Dark",
     "theme_system_label": "System"
@@ -11,27 +7,15 @@
   "ProtectFallback": {
     "not_enough_permission": "You do not have the permissions to perform this action"
   },
-  "SignIn": {
-    "meta_title": "Sign in",
-    "meta_description": "Seamlessly sign in to your account with our user-friendly login process."
-  },
-  "SignUp": {
-    "meta_title": "Sign up",
-    "meta_description": "Effortlessly create an account through our intuitive sign-up process."
-  },
   "DashboardLayout": {
     "main_section_label": "Workspace",
-    "capabilities_section_label": "Capabilities",
     "observability_section_label": "Observability",
-    "settings_section_label": "Settings",
     "organization_section_label": "Organization",
-    "home": "Overview",
-    "ask": "Ask",
     "chat": "Chat",
     "search": "Search",
     "review": "Review",
     "observability": "Observability",
-    "sources": "Sources",
+    "sources": "Connectors",
     "objects": "Objects",
     "skills": "Skills",
     "workflows": "Workflows",
@@ -39,114 +23,12 @@
     "agents": "Agents",
     "learnings": "Learnings",
     "evals": "Evals",
-    "runs": "Run History",
-    "domains": "Domains",
     "docs": "Docs",
-    "members": "Members",
-    "audit": "Audit Log",
-    "billing": "Billing",
-    "admin": "Admin",
-    "roadmap": "Roadmap",
-    "settings": "Settings",
-    "support": "Support",
-    "feedback": "Feedback",
     "adoption": "Adoption"
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",
     "meta_description": "Vocion helps teams build, manage, and scale their business with contextual intelligence."
-  },
-  "DashboardIndex": {
-    "welcome_title": "Welcome to Vocion",
-    "welcome_description": "Your enterprise context platform. Connect systems, map business objects, and get grounded answers.",
-    "stat_connectors": "Connectors",
-    "stat_objects": "Objects",
-    "stat_domains": "Domains",
-    "stat_members": "Members",
-    "quick_actions_title": "Quick Actions",
-    "action_add_connector": "Add Connector",
-    "action_add_connector_desc": "Connect a new source system",
-    "action_map_objects": "Map Objects",
-    "action_map_objects_desc": "Define business object mappings",
-    "action_manage_domains": "Manage Domains",
-    "action_manage_domains_desc": "Configure knowledge domains",
-    "action_invite_members": "Invite Members",
-    "action_invite_members_desc": "Add team members to your workspace",
-    "phase2_title": "Coming in Phase 2",
-    "phase2_ask": "Ask - Conversational workspace with grounded answers",
-    "phase2_search": "Search - Find source material, records, and evidence",
-    "phase2_skills": "Skills - Reusable business actions and queries",
-    "phase2_runs": "Run History - Track skill and workflow executions"
-  },
-  "Connectors": {
-    "title_bar": "Sources",
-    "title_bar_description": "Connected systems that feed context into skills + retrieval. Authored per-tenant in context/[org]/sources/ (Phase 5 YAML shape coming).",
-    "add_connector": "Add source",
-    "section_active": "Active sources",
-    "section_active_description": "Connected systems currently indexing",
-    "section_available": "Available sources",
-    "section_available_description": "Systems you can connect",
-    "status_connected": "Connected",
-    "status_syncing": "Syncing",
-    "status_error": "Error",
-    "no_connectors": "No connectors configured yet. Add your first connector to start ingesting data.",
-    "last_sync": "Last sync",
-    "documents": "documents"
-  },
-  "Objects": {
-    "title_bar": "Business Objects",
-    "title_bar_description": "Map canonical business objects across source systems",
-    "add_object": "Add Object",
-    "section_types": "Object Types",
-    "section_types_description": "Registered object type definitions for this workspace",
-    "section_objects": "Object Instances",
-    "section_objects_description": "Business objects linking documents across source systems",
-    "no_types": "No object types defined",
-    "no_types_description": "Define object types like Discovery Call, Deal, or Account to start mapping business context.",
-    "no_objects": "No business objects created yet",
-    "no_objects_description": "Create objects to link Zoom transcripts, HubSpot records, emails, and more into unified business context.",
-    "sources": "sources",
-    "mappings": "mappings"
-  },
-  "Domains": {
-    "title_bar": "Knowledge Domains",
-    "title_bar_description": "Organize context by business domain",
-    "add_domain": "Add Domain",
-    "section_domains": "Domains",
-    "section_domains_description": "Knowledge domains group related connectors, objects, and skills",
-    "no_domains": "No domains configured yet. Create domains to organize your context by business area.",
-    "connectors": "connectors",
-    "objects": "objects",
-    "owner": "Owner"
-  },
-  "Audit": {
-    "title_bar": "Audit Log",
-    "title_bar_description": "Track all actions and events across your workspace",
-    "section_recent": "Recent Events",
-    "section_recent_description": "Latest audit trail entries",
-    "no_events": "No audit events yet. Events will appear here as your team uses the platform.",
-    "event_user": "User",
-    "event_action": "Action",
-    "event_resource": "Resource",
-    "event_time": "Time"
-  },
-  "Search": {
-    "title": "Search",
-    "description": "Find source material, records, and evidence across all connected systems",
-    "coming_soon_features_1": "Full-text search across all connectors",
-    "coming_soon_features_2": "Filter by source, author, date, and tags",
-    "coming_soon_features_3": "Business object-aware result ranking",
-    "coming_soon_features_4": "Evidence cards with metadata",
-    "coming_soon_features_5": "Save and share search results"
-  },
-  "Skills": {
-    "title": "Skills",
-    "description": "Reusable business queries and actions packaged for your team",
-    "coming_soon_features_1": "Query skills: summarize accounts, find escalations, pull roadmap evidence",
-    "coming_soon_features_2": "Skill catalog with input forms and output display",
-    "coming_soon_features_3": "Scoped retrieval per skill",
-    "coming_soon_features_4": "Version history and rollback",
-    "coming_soon_features_5": "Eval sets and quality tracking"
   },
   "Teams": {
     "title_bar": "Teams",
@@ -205,15 +87,6 @@
     "under_hide": "Hide",
     "under_slug": "Slug"
   },
-  "Runs": {
-    "title": "Run History",
-    "description": "Track every skill and workflow execution across your workspace",
-    "coming_soon_features_1": "Full run history with status, inputs, and outputs",
-    "coming_soon_features_2": "Filter by skill, user, date, and status",
-    "coming_soon_features_3": "Rerun and compare past executions",
-    "coming_soon_features_4": "Approval task inbox",
-    "coming_soon_features_5": "Feedback capture per run"
-  },
   "Billing": {
     "title_bar": "Billing",
     "title_bar_description": "Manage your billing and subscription",
@@ -232,38 +105,6 @@
   },
   "DataTable": {
     "no_results": "No results."
-  },
-  "Todos": {
-    "title_bar": "Todo List",
-    "title_bar_description": "View and manage your todo list",
-    "add_todo_button": "New todo"
-  },
-  "TodoTableColumns": {
-    "open_menu": "Open menu",
-    "edit": "Edit",
-    "delete": "Delete",
-    "title_header": "Title",
-    "message_header": "Message",
-    "created_at_header": "Created at"
-  },
-  "AddTodo": {
-    "title_bar": "Add Todo",
-    "add_todo_section_title": "Create a new todo",
-    "add_todo_section_description": "Fill in the form below to create a new todo"
-  },
-  "EditTodo": {
-    "title_bar": "Edit todo",
-    "edit_todo_section_title": "Modify todo",
-    "edit_todo_section_description": "Fill in the form below to edit the todo"
-  },
-  "TodoForm": {
-    "title_label": "Title",
-    "title_description": "Enter a descriptive title for your todo.",
-    "title_error_message": "Title is required and cannot be empty",
-    "message_title": "Message",
-    "message_description": "Enter a detailed message for your todo.",
-    "message_error_message": "Message is required and cannot be empty",
-    "submit_button": "Submit"
   },
   "PricingPlan": {
     "free_plan_name": "Starter",
