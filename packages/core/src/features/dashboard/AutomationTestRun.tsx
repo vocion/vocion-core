@@ -8,16 +8,20 @@ import { formatDuration, summarizeResult } from './automationResult';
 
 /**
  * The orders a report-only test run carries instead of the authored prompt.
- * The mission-check branch prefers `input.prompt`, so this replaces the full
- * three-part pass with the one part that answers "did it identify anyone".
+ *
+ * The mission-check branch prefers `input.prompt`, which is what turns "does
+ * it identify anyone" into a short read instead of a full pass that writes.
+ * Deliberately generic: this control is generic over automations, so it must
+ * not carry one automation's steps. It names the SHAPE of the run — read,
+ * report, stop — and leaves which reads to the standing orders.
  */
-const REPORT_ONLY_PROMPT = `REPORT ONLY. Run PART ONE of your standing orders and then STOP.
+const REPORT_ONLY_PROMPT = `REPORT ONLY. This is a rehearsal of your standing orders, not a working pass.
 
-Identify who is in scope: call hubspot_count_contacts with no lifecycle filter to read the exact stage string from \`facets.lifecycleStage\`, then call it again with that stage, created_within_days 7 and limit 200, paging until you have every record. Call get_lead_ledger to tell new arrivals from repeats, and reconcile_mql_window with the same stage and since_days 7.
+Do the READING your orders begin with — the counts, the windows, the ledgers, whatever tells you what is in scope right now — and then STOP and report.
 
-Do NOT call queue_lead. Do NOT write briefs. Do NOT draft anything. Do NOT propose any action.
+Write nothing and change nothing: no queueing, no briefs, no drafts, no notes, no propose_action, no tool whose name or description says it writes, sends, enrols or updates. If you are unsure whether a tool writes, do not call it.
 
-Report: the contacts in scope (the \`total\`), how many are already on the queue, the window the tools applied (\`created_after_applied\` / \`window.since\`), the mirror's \`as_of\`, and any \`mirror_stale\` warning. Then stop.`;
+Report the numbers the tools returned, quoting them: the totals, the window each tool actually applied (its \`created_after_applied\` / \`window.since\`, never a date you worked out), the \`as_of\` of any mirror you read, and any staleness warning the payload carried. Then stop.`;
 
 /**
  * Test-run control for an automation — "does this actually work, and what
@@ -85,6 +89,11 @@ export function AutomationTestRun({
         }
         const body = await res.json();
         setStatus(body?.status ?? null);
+        // The mission run does not exist until dispatch starts, so the link
+        // appears on the first poll that sees it rather than at the end.
+        if (typeof body?.targetRunId === 'number' && body.targetRunId > 0) {
+          setStarted(prev => (prev ? { ...prev, missionRunId: body.targetRunId } : prev));
+        }
         if (body?.status && body.status !== 'running') {
           setResult(body.result ?? null);
           setError(body.error ?? null);

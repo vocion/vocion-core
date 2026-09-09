@@ -341,6 +341,10 @@ export function getAutomationRun(orgId: string, id: number) {
 
 /**
  * The last fire of each automation in one query — what every card needs.
+ *
+ * Ordered by when the fire STARTED, not by row id. A later-inserted row can be
+ * an older fire, and ordering by id put a 4 September row still stuck
+ * `running` on the card as "last run" while a fire from the 8th sat behind it.
  * @param orgId
  */
 export async function lastRunBySlug(orgId: string): Promise<Map<string, AutomationRunRow>> {
@@ -348,7 +352,7 @@ export async function lastRunBySlug(orgId: string): Promise<Map<string, Automati
     .select()
     .from(automationRunSchema)
     .where(eq(automationRunSchema.orgId, orgId))
-    .orderBy(desc(automationRunSchema.id));
+    .orderBy(desc(automationRunSchema.startedAt), desc(automationRunSchema.id));
   const out = new Map<string, AutomationRunRow>();
   for (const row of rows) {
     if (!out.has(row.slug)) {
