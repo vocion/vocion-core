@@ -15,7 +15,10 @@
  *                    var VOCION_CREDENTIAL_VAULT_KEY (base64, 32
  *                    bytes). Each `source_dek` row stores that key
  *                    directly. Loud warning if NODE_ENV=production
- *                    and KMS isn't configured.
+ *                    and KMS isn't configured, and it throws outright
+ *                    if VOCION_CREDENTIAL_VAULT_KEY is also unset — an ephemeral
+ *                    per-process key would silently orphan every
+ *                    credential stored under the previous one.
  *
  * Factory `buildCredentialVault()` chooses based on
  * `VOCION_CREDENTIAL_VAULT`:
