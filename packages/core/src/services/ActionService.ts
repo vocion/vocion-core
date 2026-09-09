@@ -16,6 +16,7 @@
 
 import type { Principal } from '@/services/authz';
 import { and, eq } from 'drizzle-orm';
+import { ZodError } from 'zod';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema } from '@/models/Schema';
@@ -76,7 +77,24 @@ export async function proposeAction(input: {
   if (!action) {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${input.actionId}`);
   }
-  const parsed = action.inputSchema.parse(input.input);
+  // A schema violation (missing `dedupOn`, a payload the type's shape
+  // rejects, …) is the caller's mistake, not a server fault. Every caller of
+  // `proposeAction` — the agent's `propose_action` tool, the write API, the
+  // review router — only ever reads `.message` off whatever this throws, and
+  // a raw `ZodError.message` is its issues array JSON-stringified, which
+  // buries a carefully worded validation message (see
+  // `objects-propose-candidate.ts`'s `superRefine`) inside brace-and-quote
+  // noise. Re-throwing as an `ActionError` with the issue text joined plainly
+  // is what actually reaches the caller as a sentence they can act on.
+  let parsed;
+  try {
+    parsed = action.inputSchema.parse(input.input);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      throw new ActionError('VALIDATION_FAILED', error.issues.map(issue => issue.message).join('; '));
+    }
+    throw error;
+  }
   // Canonical dedup: when the proposer passes no key, the action derives one
   // from the parsed input — so an agent proposing the same call twice collapses
   // into the deterministic job's old behaviour instead of stacking queue items.

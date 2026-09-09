@@ -8,6 +8,7 @@
  * caller, and every event-specific word here lives in the test's object type
  * definition, never in the action.
  */
+import type { CandidateInput } from './objects-propose-candidate';
 import type { Principal } from '@/services/authz';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -126,15 +127,119 @@ describe('the input contract — domain-free', () => {
     expect(parsed.fields).toEqual({ closesOn: '2026-11-01', amountUsd: 25000 });
   });
 
-  it('defaults the collections so nothing downstream has to guard them', () => {
-    const parsed = objectProposeCandidateAction.inputSchema.parse({ objectType: 'x', title: 'y' });
+  it('defaults fields so nothing downstream has to guard it, but still requires dedupOn', () => {
+    expect(() => objectProposeCandidateAction.inputSchema.parse({ objectType: 'x', title: 'y' }))
+      .toThrow(/dedupOn must list at least one field/);
+
+    const parsed = objectProposeCandidateAction.inputSchema.parse({ objectType: 'x', title: 'y', dedupOn: ['closesOn'] });
 
     expect(parsed.fields).toEqual({});
-    expect(parsed.dedupOn).toEqual([]);
   });
 
   it('rejects a source link that is not a URL', () => {
     expect(() => parse({ sourceUrl: 'listings.example.org/events' })).toThrow();
+  });
+});
+
+describe('the dedupOn contract — VEERIO-257', () => {
+  it('rejects a missing dedupOn, naming the object type and the fix', () => {
+    expect(() => objectProposeCandidateAction.inputSchema.parse({ objectType: TYPE_SLUG, title: 'Open Mic Night' }))
+      .toThrow(new RegExp(`dedupOn must list at least one field for.*${TYPE_SLUG}.*top level of the input`));
+  });
+
+  it('rejects an empty dedupOn the same way as a missing one', () => {
+    expect(() => parse({ dedupOn: [] })).toThrow(/dedupOn must list at least one field/);
+  });
+
+  it('rejects a dedupOn key nested inside fields, naming the fix', () => {
+    expect(() => parse({ fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', dedupOn: ['title'] } }))
+      .toThrow(new RegExp(`dedupOn found inside fields for.*${TYPE_SLUG}.*top level of the input`));
+  });
+
+  it('reproduces the VEERIO-257 shape: empty dedupOn at the top level, the real list nested in fields', () => {
+    expect(() => parse({
+      dedupOn: [],
+      fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: 'The Flynn', dedupOn: ['title', 'start', 'venue'] },
+    })).toThrow(/dedupOn must list at least one field[\s\S]*dedupOn found inside fields/);
+  });
+
+  it('still rejects a nested dedupOn even when the top-level one is otherwise valid', () => {
+    expect(() => parse({ fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', dedupOn: ['title'] } }))
+      .toThrow(/dedupOn found inside fields/);
+  });
+
+  it('creates no queue item and no object row when dedupOn is empty', async () => {
+    await expect(proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate({ dedupOn: [] }),
+    })).rejects.toThrow(/dedupOn must list at least one field/);
+
+    expect(await objectsFor()).toHaveLength(0);
+    expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).toHaveLength(0);
+  });
+
+  it('creates no queue item and no object row when dedupOn is nested inside fields', async () => {
+    await expect(proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', dedupOn: ['title'] } }),
+    })).rejects.toThrow(/dedupOn found inside fields/);
+
+    expect(await objectsFor()).toHaveLength(0);
+    expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).toHaveLength(0);
+  });
+
+  it('re-proposing the same candidate refreshes the existing pending row instead of stacking a second one', async () => {
+    // Pre-existing dedup-collapse behaviour, not new with VEERIO-257 — this
+    // is here as a regression guard: it would pass just as well before that
+    // fix, since the fix only changes what a proposal without an identity
+    // does, not what happens when the identity matches.
+    const first = await proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate(),
+    });
+    const second = await proposeAction({
+      orgId: ORG,
+      actionId: 'objects.propose_candidate',
+      principal: ingestionAgent(),
+      input: candidate(),
+    });
+
+    expect(second.runId).toBe(first.runId);
+    expect(await objectsFor()).toHaveLength(1);
+  });
+
+  it('flags an identity field the extractor left blank, but only when one actually is', async () => {
+    const withBlankVenue = await objectProposeCandidateAction.reviewCard!(
+      { orgId: ORG },
+      parse({ fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: '' } }),
+    );
+
+    expect(fieldValue(withBlankVenue.fields, 'Dedup field left blank')?.value).toMatch(/venue/);
+
+    const withEveryFieldFilled = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
+
+    expect(fieldValue(withEveryFieldFilled.fields, 'Dedup field left blank')).toBeUndefined();
+  });
+
+  it('does not crash on a hand-built input that skips the schema entirely (dedupOn undefined)', async () => {
+    // The registered action always goes through `inputSchema.parse`, which
+    // now guarantees a non-empty `dedupOn`. A caller that builds a
+    // `CandidateInput` directly — bypassing that schema — still gets safe,
+    // defensive behaviour rather than a crash: no identity, no key, and no
+    // blank-field warning printed on the card.
+    const bypassed = { objectType: TYPE_SLUG, title: 'Open Mic Night', fields: {} } as CandidateInput;
+
+    expect(objectProposeCandidateAction.dedupKeyFor!(bypassed)).toBeUndefined();
+
+    const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, bypassed);
+
+    expect(fieldValue(card.fields, 'Dedup field left blank')).toBeUndefined();
   });
 });
 
@@ -170,11 +275,17 @@ describe('the dedup key — per candidate, never per page', () => {
       .toBe('objects.propose_candidate:event-candidate|open-mic-night|2026-09-12t19-30|none');
   });
 
-  it('has no key at all when nothing identifies the candidate', () => {
-    // The dangerous alternative is a constant key: every candidate of the type
-    // would collapse into one queue item and the reviewer would see only the
-    // last one to arrive.
-    expect(objectProposeCandidateAction.dedupKeyFor!(parse({ dedupOn: [] }))).toBeUndefined();
+  it('never substitutes a constant dedup key when nothing identifies the candidate, which would merge unrelated candidates into one', () => {
+    // Pre-existing safety net in `dedupKeyFor`, not new with VEERIO-257 — the
+    // input schema now refuses an empty `dedupOn` outright (see 'the
+    // dedupOn contract' below), so on the `propose_candidate` path this can
+    // no longer happen. This exercises the defensive branch directly, via a
+    // hand-built input that bypasses the schema, because the rule itself
+    // — no identity, no key, and never a constant standing in for one — is
+    // still worth guarding on its own terms.
+    const bypassed = { ...parse(), dedupOn: [] } as CandidateInput;
+
+    expect(objectProposeCandidateAction.dedupKeyFor!(bypassed)).toBeUndefined();
   });
 
   it('separates object types that happen to share a title', () => {
@@ -561,18 +672,23 @@ describe('the queue behaviour', () => {
     expect(listActions().map(action => action.id)).toContain('objects.propose_candidate');
   });
 
-  it('queues an identity-less candidate as its own item, never merged with the last one', async () => {
+  it('two candidates that differ only in their dedupOn field land as two separate queue items, never merged', async () => {
+    // Pre-existing dedup-key behaviour, not new with VEERIO-257 — before
+    // that fix a one-off candidate could also reach this by passing
+    // `dedupOn: []`, which is refused now (see 'the dedupOn contract'
+    // above). The rule this guards — two different identity values are two
+    // items, full stop — is unchanged and still worth its own test.
     const first = await proposeAction({
       orgId: ORG,
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
-      input: candidate({ dedupOn: [], title: 'First find' }),
+      input: candidate({ title: 'First find', fields: { title: 'First find', start: '2026-09-12T19:30', venue: 'The Flynn' } }),
     });
     const second = await proposeAction({
       orgId: ORG,
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
-      input: candidate({ dedupOn: [], title: 'Second find' }),
+      input: candidate({ title: 'Second find', fields: { title: 'Second find', start: '2026-09-12T19:30', venue: 'The Flynn' } }),
     });
 
     expect(second.runId).not.toBe(first.runId);
