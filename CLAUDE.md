@@ -364,6 +364,21 @@ requirements/                       # Product specs and case studies
   "the prompt says so" is not evidence. (Proven: 3 prompt iterations failed
   to restore action cards; the backstop guaranteed them. Same story for the
   `<scratch>` strip and the typed trace.)
+- **After a history rewrite, reset to the remote — never pull or merge.** On
+  2026-09-09 `docs/internal/` was purged from this repo's entire history and
+  every branch was force-pushed: 607 commits became 579, and every local
+  checkout was left on commits that no longer exist upstream. Merging in that
+  state reconciles two unrelated histories and re-adds every purged file,
+  because the local side still has them in its tree. The tells are an absurd
+  `git rev-list --count HEAD..origin/main` and a `forced-update` line in
+  `git reflog show origin/main`. Confirm the remote branch already carries your
+  commits (`git log --oneline origin/<branch>`), then
+  `git reset --hard origin/<branch>`. Reset is only safe once that check
+  passes: a branch with genuinely unpushed work needs those commits
+  cherry-picked onto the new base, and a branch with no remote at all exists
+  nowhere else. Purging history does not unpublish anything already cloned or
+  forked, and GitHub keeps serving the old commits by SHA until it garbage
+  collects — treat the exposure as having happened.
 - Conventional Commits (enforced by commitlint + lefthook)
 - ESLint with Antfu config
 - Strict TypeScript
