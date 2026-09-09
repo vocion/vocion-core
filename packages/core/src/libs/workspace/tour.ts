@@ -1,8 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { logger } from '@/libs/Logger';
 import { workspacePagesDir } from '@/libs/workspace/pages';
+import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
 
 /**
  * Workspace tour — a guided, step-by-step walkthrough of the dashboard,
@@ -53,9 +55,12 @@ export function readWorkspaceTour(): TourManifest | null {
     return null;
   }
   try {
-    const result = TourManifestSchema.safeParse(parseYaml(readFileSync(file, 'utf8')));
+    const result = TourManifestSchema.safeParse(parseYaml(readWorkspaceTextFile(file)));
     return result.success ? result.data : null;
-  } catch {
+  } catch (error) {
+    // A malformed or untemplatable tour hides the launcher rather than
+    // breaking the dashboard, but it should never do so quietly.
+    logger.error(`workspace tour at ${file} could not be read`, { error });
     return null;
   }
 }

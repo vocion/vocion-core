@@ -4,7 +4,7 @@ One row per authored or recorded object: where it is authored, its schema
 symbol, its table, where the runtime mounts or executes it, and the API or
 UI surface that shows it. This is the lookup that used to take a code
 sweep. Field-by-field reference for each authored type:
-[`docs/entities/`](./entities/). Decision record: `docs/internal/adr/0003-skill-playbook-operation.md`.
+[`docs/entities/`](./entities/). Decision record: `docs/adr/0003-skill-playbook-operation.md`.
 
 ## Authored objects (workspace-as-code)
 
