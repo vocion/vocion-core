@@ -117,7 +117,9 @@ npm install
 
 # 2. Configure env
 cp packages/core/.env.example packages/core/.env.local
-# Edit .env.local — at minimum set DATABASE_URL, Clerk keys, and one LLM provider key.
+# Edit .env.local — at minimum set DATABASE_URL, AUTH_SECRET, and one LLM provider key.
+# AUTH_SECRET signs Auth.js sessions; generate one with `openssl rand -base64 32`.
+# There is no third-party auth service to sign up for.
 # That provider key is the fallback: a workspace that stores its own is billed on
 # its own account instead. See "API credentials" below.
 
@@ -188,7 +190,7 @@ Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with re
 
 - **Framework:** Next.js 16 (App Router), React 19, TypeScript strict
 - **Database:** PostgreSQL 16 + Drizzle ORM
-- **Auth:** Clerk (multi-tenant, RBAC via Clerk organizations)
+- **Auth:** Auth.js / NextAuth v5 (`next-auth` + `@auth/drizzle-adapter`) — first-party tenancy, sessions carry `projectId`, RBAC via account/project membership
 - **LLM:** OpenAI, Anthropic — swappable per skill via the `provider` field
 - **Retrieval:** pgvector + Postgres FTS, RRF hybrid, optional LLM rerank (first-party)
 - **Observability:** Langfuse (LLM traces), OpenTelemetry (spans + metrics)
