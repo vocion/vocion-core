@@ -35,6 +35,28 @@ pure procedures, and neither carries its own schedule.
 
 `schedule` and `event` are mutually exclusive — exactly one is required.
 
+#### Events Vocion emits itself
+
+Any event type an API caller posts to `/api/v1/events` can be subscribed to.
+These are the ones the server raises on its own:
+
+| Event | Raised when | Payload |
+|---|---|---|
+| `source.sync_completed` | A source finishes a sync without failing. A run that completed with per-document errors still raises it; a run that failed does not. | `sourceId`, `sourceSlug`, `connector`, `incremental`, `created`, `updated`, `unchanged`, `tombstoned`, `errors`, `completedAt` (ISO) |
+
+Every payload field is a scalar, so any of them can be used in a `filter`:
+
+```yaml
+slug: reindex-handbook
+name: Summarize the handbook after it syncs
+when:
+  event: source.sync_completed
+  filter:
+    sourceSlug: handbook
+do:
+  workflow: summarize-handbook
+```
+
 ### `do`
 
 | Field | Type | What it does |

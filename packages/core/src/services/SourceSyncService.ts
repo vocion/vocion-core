@@ -31,6 +31,7 @@
  */
 
 import type { IngestDoc } from './IngestionService';
+import type { SourceSyncCompletedPayload } from '@/services/EventService';
 import { and, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
@@ -483,6 +484,50 @@ export async function finishSync(
     ));
 }
 
+/**
+ * Tell the rest of the system a sync finished.
+ *
+ * Fresh knowledge is the event most workspaces want to hang work off — reindex
+ * a summary, notify a channel, re-run a mission check against what just landed
+ * — and `AutomationManifestSchema` has always accepted `when: { event }` for
+ * exactly that. Nothing in the sync path ever emitted one, so those automations
+ * were declared, validated, stored, and never fired. This is the emitter.
+ *
+ * Two deliberate choices:
+ *
+ *   - **Never fails the sync.** The documents are already ingested and the
+ *     checkpoint already says `completed`. Throwing here would turn a good sync
+ *     into a failed one and, worse, invite a retry that re-walks the source.
+ *     A dispatch failure is logged and swallowed.
+ *   - **Imported lazily**, like the two API-route emitters. `EventService`
+ *     pulls in the workflow and automation runners; this module sits in the
+ *     import chain of CLI scripts that tsx compiles as CommonJS, where a
+ *     top-level await anywhere downstream is fatal (see `log` above).
+ *
+ * The dedupe key is the run's cutoff, so a redelivered emit for the same run
+ * is a no-op while the next run's event still gets through.
+ * @param orgId - Org that owns the source.
+ * @param payload - The completed run, as subscribers see it.
+ */
+async function announceSyncCompleted(orgId: string, payload: SourceSyncCompletedPayload): Promise<void> {
+  try {
+    const { emitEvent, SOURCE_SYNC_COMPLETED } = await import('@/services/EventService');
+    await emitEvent({
+      orgId,
+      type: SOURCE_SYNC_COMPLETED,
+      payload,
+      dedupeKey: `source-sync:${payload.sourceId}:${payload.completedAt}`,
+      invokedBy: 'source-sync',
+    });
+  } catch (err) {
+    log('error', 'sync completed but its event could not be dispatched', {
+      sourceId: payload.sourceId,
+      orgId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export async function runSync(opts: {
   orgId: string;
   sourceId: number;
@@ -835,6 +880,18 @@ export async function runSync(opts: {
       counts: countsForCheckpoint(),
       watermark: wholeSourceWasRead ? cutoff : undefined,
       failures: failuresForCheckpoint(),
+    });
+    await announceSyncCompleted(opts.orgId, {
+      sourceId: opts.sourceId,
+      sourceSlug: row.slug,
+      connector: connectorSlug,
+      incremental: !!opts.incremental,
+      created: result.created,
+      updated: result.updated,
+      unchanged: result.unchanged,
+      tombstoned: result.tombstoned,
+      errors: result.errors,
+      completedAt: cutoff.toISOString(),
     });
     return result;
   } catch (err) {
