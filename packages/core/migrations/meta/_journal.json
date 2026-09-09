@@ -575,6 +575,13 @@
       "when": 1787547300000,
       "tag": "0081_worker_run",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1787547400000,
+      "tag": "0082_chat_channel_binding",
+      "breakpoints": true
     }
   ]
 }
