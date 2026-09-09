@@ -31,5 +31,6 @@ async function main(): Promise<void> {
   process.exit(rollupTab > 0 && teamTabs >= 3 && regen > 0 ? 0 : 2);
 }
 main().catch((e) => {
-  console.error(e); process.exit(1);
+  console.error(e);
+  process.exit(1);
 });

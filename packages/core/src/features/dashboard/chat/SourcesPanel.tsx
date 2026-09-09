@@ -107,11 +107,15 @@ export function SourcesPanel({ documents, open, onClose, focusCitation, citedInd
   const cited = citedSet.size > 0 ? documents.filter(d => d.citationIndex != null && citedSet.has(d.citationIndex)) : [];
   const showTabs = cited.length > 0 && cited.length < documents.length;
   const [tab, setTab] = useState<'cited' | 'all'>('all');
-  // Default to Cited when the drawer opens (or a citation is tapped) if there's a split.
-  useEffect(() => {
+  // Default to Cited when the drawer opens (or a citation is tapped) if there's
+  // a split. This is React's "adjust state when a prop changes" pattern: doing
+  // it during render rather than in an effect avoids a second render pass.
+  const [lastOpened, setLastOpened] = useState({ open, focusCitation });
+  if (lastOpened.open !== open || lastOpened.focusCitation !== focusCitation) {
+    setLastOpened({ open, focusCitation });
     setTab(showTabs ? 'cited' : 'all');
     setSelected(null);
-  }, [open, focusCitation]);
+  }
 
   const visible = tab === 'cited' && showTabs ? cited : documents;
 

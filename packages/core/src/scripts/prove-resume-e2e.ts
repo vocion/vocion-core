@@ -68,5 +68,6 @@ async function main(): Promise<void> {
   process.exit(streamingBefore && reattached && completed && answerLen > 300 ? 0 : 2);
 }
 main().catch((e) => {
-  console.error(e); process.exit(1);
+  console.error(e);
+  process.exit(1);
 });
