@@ -38,5 +38,6 @@ async function main(): Promise<void> {
   process.exit(fresh ? 0 : 2);
 }
 main().catch((e) => {
-  console.error(e); process.exit(1);
+  console.error(e);
+  process.exit(1);
 });

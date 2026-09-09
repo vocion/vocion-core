@@ -29,6 +29,7 @@ import {
 } from './schemas';
 import { computeWorkspaceSha } from './sha';
 import { assertTeams } from './teams';
+import { readWorkspaceTextFile } from './template-vars';
 
 export type LoadedAgent = AgentManifest & {
   resolvedSystemPrompt: string;
@@ -307,7 +308,7 @@ function loadManifest(abs: string): WorkspaceManifest {
   for (const c of candidates) {
     const p = join(abs, c);
     try {
-      const raw = readFileSync(p, 'utf8');
+      const raw = readWorkspaceTextFile(p);
       const parsed = parseYaml(raw);
       return validateOrThrow(WorkspaceManifestSchema, parsed, p, 'workspace manifest');
     } catch (err) {
@@ -391,7 +392,7 @@ function readRawEntries(dir: string, matches: (f: string) => boolean): RawEntry[
   return walkDir(dir)
     .filter(matches)
     .map((file) => {
-      const raw = (parseYaml(readFileSync(file, 'utf8')) ?? {}) as Record<string, unknown>;
+      const raw = (parseYaml(readWorkspaceTextFile(file)) ?? {}) as Record<string, unknown>;
       const slug = typeof raw.slug === 'string' ? raw.slug : '';
       return { slug, raw, sourceFile: file };
     });
@@ -464,6 +465,7 @@ function loadPackRaw(pack: LoadedPack): PackRaw {
 function readPackFolders(root: string, dirName: 'skills' | 'playbooks'): Map<string, FolderEntry> {
   const map = new Map<string, FolderEntry>();
   for (const file of walkDir(join(root, dirName)).filter(f => basename(f) === 'SKILL.md')) {
+    // Base pack, not a tenant file: no {{env.NAME}} substitution.
     const fm = parseFrontmatter(readFileSync(file, 'utf8'), file);
     const data = fm.data as { slug?: unknown; playbooks?: unknown } | null;
     const slug = typeof data?.slug === 'string' ? data.slug : '';
@@ -537,7 +539,7 @@ function composeFolders(
       throw new Error(`base pack ${kind} "${slug}" is missing its SKILL.md at ${file}`);
     }
     // Base files are not sha-tracked; the pinned pack version covers them.
-    out.push({ ...loadPlaybook(file, kind, []), origin: 'core' });
+    out.push({ ...loadPlaybook(file, kind, [], false), origin: 'core' });
   }
 
   return out;
@@ -551,6 +553,7 @@ function readPackKind(
 ): Map<string, RawEntry> {
   const map = new Map<string, RawEntry>();
   for (const file of walkDir(join(root, dirName)).filter(matches)) {
+    // Base pack, not a tenant file: no {{env.NAME}} substitution.
     const raw = (parseYaml(readFileSync(file, 'utf8')) ?? {}) as Record<string, unknown>;
     for (const { file: fileKey, inline } of promptFields) {
       const rel = raw[fileKey];
@@ -572,7 +575,7 @@ function readPackKind(
 }
 
 function parseFile<T>(file: string, schema: ZodType<T>, kind: string): T {
-  const raw = readFileSync(file, 'utf8');
+  const raw = readWorkspaceTextFile(file);
   const parsed = parseYaml(raw);
   return validateOrThrow(schema, parsed, file, kind);
 }
@@ -592,12 +595,23 @@ function validateOrThrow<T>(schema: ZodType<T>, value: unknown, file: string, ki
  * {@link PlaybookManifestSchema}, compute a SHA-256 of the body, and
  * discover sibling resource files. Origin defaults to 'workspace'; the
  * folder compose overrides it for base and override entries.
- * @param file
- * @param kind
- * @param filesTracked
+ *
+ * `isWorkspaceFile` is false for a base-pack folder, which is read
+ * exactly as shipped — see `template-vars.ts` for why.
+ * @param file - absolute path to the SKILL.md.
+ * @param kind - skill or playbook.
+ * @param filesTracked - collects sibling paths for the workspace sha.
+ * @param isWorkspaceFile - false for a base-pack folder (no substitution).
  */
-function loadPlaybook(file: string, kind: 'skill' | 'playbook', filesTracked: string[]): LoadedPlaybook {
-  const raw = readFileSync(file, 'utf8');
+function loadPlaybook(
+  file: string,
+  kind: 'skill' | 'playbook',
+  filesTracked: string[],
+  isWorkspaceFile: boolean = true,
+): LoadedPlaybook {
+  // Only a tenant's own files carry {{env.NAME}} tokens; the base pack
+  // ships the same bytes to everyone.
+  const raw = isWorkspaceFile ? readWorkspaceTextFile(file) : readFileSync(file, 'utf8');
   const fm = parseFrontmatter(raw, file);
   const parsed = validateOrThrow(PlaybookManifestSchema, fm.data, file, 'playbook');
   const contentSha = createHash('sha256').update(fm.body, 'utf8').digest('hex');
@@ -682,7 +696,7 @@ function parseFrontmatter(raw: string, file: string): { data: unknown; body: str
 function resolvePromptField(sourceFile: string, promptFile: string | undefined, inline: string | undefined, filesTracked: string[]): string {
   if (promptFile) {
     const abs = resolve(dirname(sourceFile), promptFile);
-    const content = readFileSync(abs, 'utf8');
+    const content = readWorkspaceTextFile(abs);
     filesTracked.push(abs);
     return content.trim();
   }

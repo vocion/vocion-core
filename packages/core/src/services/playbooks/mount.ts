@@ -20,6 +20,12 @@
  *     workspace when present, else from the base pack (merged by path).
  *
  * Per-tenant isolation is enforced by `orgId`-scoped DB queries.
+ *
+ * Workspace bodies get their `{{env.NAME}}` tokens resolved on the way
+ * through (see `libs/workspace/template-vars.ts`), so an agent never
+ * sees a raw token; an unresolvable one throws instead of mounting.
+ * Base-pack bodies are served as shipped — every tenant gets the same
+ * bytes, so they carry no per-box values.
  */
 
 import { readFileSync } from 'node:fs';
@@ -27,6 +33,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { getWorkspacePath } from '@/libs/workspace/reader';
+import { substituteEnvTokens } from '@/libs/workspace/template-vars';
 import { playbookSchema } from '@/models/Schema';
 
 const PACK_ROOT = 'packages/core/templates/base';
@@ -125,21 +132,30 @@ export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, 
   };
   const packFile = (): string => fromRepoRoot(PACK_ROOT, dirName, row.slug, rel);
 
-  const candidates = row.origin === 'core'
-    ? [packFile()]
+  // Tag each candidate with where it came from: only the tenant's own
+  // files carry {{env.NAME}} tokens. Substituting the shared base pack
+  // would let one shipped example break everyone's apply.
+  const candidates: Array<{ path: string | null; isWorkspaceFile: boolean }> = row.origin === 'core'
+    ? [{ path: packFile(), isWorkspaceFile: false }]
     : row.origin === 'override'
-      ? [workspaceFile(), packFile()]
-      : [workspaceFile()];
+      ? [{ path: workspaceFile(), isWorkspaceFile: true }, { path: packFile(), isWorkspaceFile: false }]
+      : [{ path: workspaceFile(), isWorkspaceFile: true }];
 
   for (const candidate of candidates) {
-    if (!candidate) {
+    if (!candidate.path) {
       continue;
     }
+    let raw: string;
     try {
-      return readFileSync(candidate, 'utf8');
+      raw = readFileSync(candidate.path, 'utf8');
     } catch {
+      // Missing or unreadable — try the next origin. A row whose file was
+      // renamed just doesn't mount; workspace:apply cleans it up.
       continue;
     }
+    // Substitution failures are deliberately not caught. A raw token
+    // reaching a model is far harder to notice than a run that stops.
+    return candidate.isWorkspaceFile ? substituteEnvTokens(raw, candidate.path) : raw;
   }
   return null;
 }
