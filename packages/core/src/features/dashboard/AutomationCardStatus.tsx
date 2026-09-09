@@ -77,7 +77,7 @@ export function AutomationCardStatus({
       {freshness && <SourceFreshness freshness={freshness} />}
 
       <div>
-        <Link href={`/dashboard/automation/${slug}`} className="hover:underline">fire history →</Link>
+        <Link href={`/dashboard/automation/${slug}`} className="hover:underline">run history →</Link>
       </div>
     </div>
   );

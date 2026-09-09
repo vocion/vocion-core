@@ -22,7 +22,7 @@ const KIND_META: Record<ActivityKind, { label: string; icon: typeof Compass }> =
   mission: { label: 'Missions', icon: Compass },
   workflow: { label: 'Workflows', icon: GitBranch },
   event: { label: 'Events', icon: Zap },
-  automation: { label: 'Fires', icon: CalendarClock },
+  automation: { label: 'Automations', icon: CalendarClock },
   sync: { label: 'Syncs', icon: Database },
   tool: { label: 'Tool calls', icon: Wrench },
 };
@@ -105,7 +105,7 @@ export default async function ActivityPage(props: {
     <>
       <TitleBar
         title="Activity"
-        description="Everything the team did — checks, runs, fires, syncs, and every tool call — newest first. Decisions that need you live in Review."
+        description="Everything the team did — automation runs, mission checks, workflow runs, event fires, syncs, and every tool call — newest first. Decisions that need you live in Review."
       />
 
       {scopedTo && (

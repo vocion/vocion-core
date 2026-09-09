@@ -1,24 +1,24 @@
 import type { AutomationRunRow } from '@/services/AutomationService';
 
 /**
- * The hourly strip — one cell per hour, so twelve days of healthy hourly
- * fires are one glance and a nineteen-hour gap is one glance too.
+ * The hourly strip — one cell per hour, so twelve days of healthy hourly runs
+ * are one glance and a nineteen-hour gap is one glance too.
  *
  * This is the picture that had to be assembled by hand from `psql` to find the
- * 3 September outage a week after it happened. Filled means the hour held a
- * fire that closed `ok`; the shade is how long it took; hollow means the hour
- * passed with no fire. Hours before the first recorded fire are blank rather
- * than drawn as gaps, because nothing was expected of them.
+ * 3 September outage a week after it happened. Filled means the hour held a run
+ * that closed `ok`; the shade is how long it took; hollow means the hour passed
+ * with no run. Hours before the first recorded run are blank rather than drawn
+ * as gaps, because nothing was expected of them.
  */
 
 const HOURS = 24;
 const HOUR_MS = 3_600_000;
 
-type Cell = { fires: number; maxMs: number; errored: boolean };
+type Cell = { runs: number; maxMs: number; errored: boolean };
 
 /**
- * Bucket fires into hours, keyed `YYYY-MM-DDTHH`.
- * @param runs - Fires, any order.
+ * Bucket runs into hours, keyed `YYYY-MM-DDTHH`.
+ * @param runs - Runs, any order.
  */
 function bucket(runs: AutomationRunRow[]): Map<string, Cell> {
   const cells = new Map<string, Cell>();
@@ -27,7 +27,7 @@ function bucket(runs: AutomationRunRow[]): Map<string, Cell> {
     const ms = run.finishedAt ? run.finishedAt.getTime() - run.startedAt.getTime() : 0;
     const prev = cells.get(key);
     cells.set(key, {
-      fires: (prev?.fires ?? 0) + 1,
+      runs: (prev?.runs ?? 0) + 1,
       maxMs: Math.max(prev?.maxMs ?? 0, ms),
       errored: (prev?.errored ?? false) || run.status === 'error',
     });
@@ -50,12 +50,12 @@ function shade(cell: Cell): string {
 
 /**
  * @param props
- * @param props.runs - Fires to draw, any order.
+ * @param props.runs - Runs to draw, any order.
  * @param props.days - How many days back to draw.
- * @param props.expected - True when a schedule made every hour in range expect a fire, so empties draw as gaps.
+ * @param props.expected - True when a schedule made every hour in range expect a run, so empties draw as gaps.
  * @param props.now - Right edge of the strip.
  */
-export function AutomationFireStrip({
+export function AutomationRunStrip({
   runs,
   days = 13,
   expected = true,
@@ -67,11 +67,11 @@ export function AutomationFireStrip({
   now?: Date;
 }) {
   if (runs.length === 0) {
-    return <p className="text-xs text-muted-foreground">No fires recorded yet, so there is no history to draw.</p>;
+    return <p className="text-xs text-muted-foreground">No runs recorded yet, so there is no history to draw.</p>;
   }
   const cells = bucket(runs);
-  const firstFire = runs.reduce((a, b) => (a.startedAt <= b.startedAt ? a : b)).startedAt;
-  const lastFire = runs.reduce((a, b) => (a.startedAt >= b.startedAt ? a : b)).startedAt;
+  const firstRun = runs.reduce((a, b) => (a.startedAt <= b.startedAt ? a : b)).startedAt;
+  const lastRun = runs.reduce((a, b) => (a.startedAt >= b.startedAt ? a : b)).startedAt;
 
   // Rows are UTC days, oldest first, ending on the day of `now`.
   const dayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -100,13 +100,13 @@ export function AutomationFireStrip({
                     const key = at.toISOString().slice(0, 13);
                     const cell = cells.get(key);
                     // Outside the recorded range is genuinely nothing, not a
-                    // state: an hour before the first fire never expected one.
-                    const outOfRange = at.getTime() < firstFire.getTime() - HOUR_MS
-                      || at.getTime() > Math.max(lastFire.getTime(), now.getTime());
+                    // state: an hour before the first run never expected one.
+                    const outOfRange = at.getTime() < firstRun.getTime() - HOUR_MS
+                      || at.getTime() > Math.max(lastRun.getTime(), now.getTime());
                     const title = `${at.toISOString().slice(0, 16).replace('T', ' ')} UTC — ${
                       cell
-                        ? `${cell.fires > 1 ? `${cell.fires} fires, longest ` : 'fired, '}${(cell.maxMs / 60_000).toFixed(1)} min${cell.errored ? ', with an error' : ''}`
-                        : outOfRange ? 'outside the recorded range' : 'no fire'
+                        ? `${cell.runs > 1 ? `${cell.runs} runs, longest ` : 'ran, '}${(cell.maxMs / 60_000).toFixed(1)} min${cell.errored ? ', with an error' : ''}`
+                        : outOfRange ? 'outside the recorded range' : 'did not run'
                     }`;
                     return (
                       <td key={h}>
@@ -136,10 +136,10 @@ export function AutomationFireStrip({
         <Key className="bg-emerald-600" label="5 to 15 min" />
         <Key className="bg-amber-500" label="over 15 min" />
         <Key className="bg-red-500" label="errored" />
-        {expected && <Key className="border border-dashed border-amber-500/60" label="no fire" />}
+        {expected && <Key className="border border-dashed border-amber-500/60" label="did not run" />}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        One cell per UTC hour. Hover any cell for its fires and the longest of them.
+        One cell per UTC hour. Hover any cell for its runs and the longest of them.
       </p>
     </div>
   );

@@ -1,7 +1,7 @@
 /**
  * ActivityService — ONE stream for everything the team did, regardless of
- * what produced it: mission checks/briefs, workflow runs, event fires, and
- * source syncs. Backs /dashboard/activity (the "observe" surface in the
+ * what produced it: automation runs, mission checks/briefs, workflow runs,
+ * event fires, and source syncs. Backs /dashboard/activity (the "observe" surface in the
  * Chat · Review · Activity · Search daily-driver hierarchy).
  *
  * Read-only aggregation — each row links back to its native detail page.
@@ -216,7 +216,7 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
     ...automationRuns.map((a): ActivityItem => ({
       kind: 'automation',
       key: `automation-${a.id}`,
-      title: `Fire: ${a.slug}`,
+      title: `Automation: ${a.slug}`,
       slug: a.slug,
       status: a.status === 'ok' ? 'completed' : a.status === 'error' ? 'failed' : 'running',
       invokedBy: a.invokedBy,

@@ -9,7 +9,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { automationRunFacets, listAutomationRuns } from '@/services/AutomationService';
 
 /**
- * The run log — every fire across every automation, newest first.
+ * The run log — every run across every automation, newest first.
  *
  * The surface that answers "has this been running" for the whole system at
  * once, which is exactly what nobody could answer for 3 September: three
@@ -39,7 +39,7 @@ export default async function AutomationRunsPage(props: {
     <>
       <TitleBar
         title="Run log"
-        description="Every automation fire, newest first. Started, duration, what invoked it, what it found, and the run carrying the report."
+        description="Every automation run, newest first. Started, duration, what invoked it, what it found, and the mission run carrying the report."
       />
 
       <div className="mb-4">
@@ -54,7 +54,7 @@ export default async function AutomationRunsPage(props: {
       <p className="mb-3 text-xs text-muted-foreground">
         {total}
         {' '}
-        fire
+        run
         {total === 1 ? '' : 's'}
         {' '}
         match these filters
@@ -70,7 +70,7 @@ export default async function AutomationRunsPage(props: {
             href={`/dashboard/automation/runs?${new URLSearchParams({ ...toQuery(query), cursor: String(nextCursor) }).toString()}`}
             className="inline-flex items-center rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
           >
-            Older fires →
+            Older runs →
           </Link>
         </div>
       )}
