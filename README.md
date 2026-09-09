@@ -174,6 +174,7 @@ Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with re
 - **Retrieval:** pgvector + Postgres FTS, RRF hybrid, optional LLM rerank (first-party)
 - **Observability:** Langfuse (LLM traces), OpenTelemetry (spans + metrics)
 - **Workflows:** in-process durable step runner on Postgres
+- **Chat surfaces:** mention an agent in Slack and it replies in the thread; bindings map a channel to an agent, the review queue stays the only place anything is approved (feature flag `VOCION_SLACK_EVENTS=1`; [guide](./docs/guides/slack.md))
 - **External workers:** hours-long runs outside the app — a `worker_run` control plane with leases, heartbeats, per-run cost and a reaper (feature flag `VOCION_EXTERNAL_WORKERS=1`; [ADR 0004](./docs/adr/0004-external-worker-provider.md))
 
 ## Repo layout
