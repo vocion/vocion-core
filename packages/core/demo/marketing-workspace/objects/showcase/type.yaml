@@ -5,12 +5,12 @@ icon: megaphone
 schema:
   type: object
   properties:
-    use_case: { type: string }
-    status: { type: string, enum: [planned, built, published, measured] }
-    demo_workspace: { type: string }
-    blog_url: { type: string }
-    feature_issue: { type: string, description: GitHub issue URL for this run's feature request }
-    channels: { type: array, items: { type: string } }
-    cost_usd: { type: number }
-    engagement: { type: object, description: per-channel counts, synced by Growth Analyst }
-    learning_ids: { type: array, items: { type: string } }
+    use_case: {type: string}
+    status: {type: string, enum: [planned, built, published, measured]}
+    demo_workspace: {type: string}
+    blog_url: {type: string}
+    feature_issue: {type: string, description: GitHub issue URL for this run's feature request}
+    channels: {type: array, items: {type: string}}
+    cost_usd: {type: number}
+    engagement: {type: object, description: per-channel counts, synced by Growth Analyst}
+    learning_ids: {type: array, items: {type: string}}

@@ -29,6 +29,7 @@ type PagefindAPI = {
 };
 
 declare global {
+  // eslint-disable-next-line ts/consistent-type-definitions -- global augmentation needs an interface
   interface Window {
     pagefind?: PagefindAPI;
   }
@@ -67,7 +68,10 @@ export function DocsSearch() {
         window.pagefind = p;
         setStatus('idle');
       })
-      .catch(() => setStatus('unavailable'));
+      .catch((error) => {
+        console.error('Pagefind failed to load; docs search is unavailable.', error);
+        setStatus('unavailable');
+      });
   }, [open]);
 
   useEffect(() => {
@@ -123,12 +127,18 @@ export function DocsSearch() {
       {trigger}
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[10vh] backdrop-blur-sm"
-          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[10vh]"
         >
+          <button
+            type="button"
+            aria-label="Close search"
+            className="absolute inset-0 size-full cursor-default bg-black/40 backdrop-blur-sm"
+            onClick={() => setOpen(false)}
+          />
           <div
-            className="w-full max-w-2xl rounded-lg border border-border bg-background shadow-2xl"
-            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-label="Search the docs"
+            className="relative w-full max-w-2xl rounded-lg border border-border bg-background shadow-2xl"
           >
             <div className="flex items-center gap-3 border-b border-border px-4 py-3">
               <SearchIcon className="h-4 w-4 text-muted-foreground" />
