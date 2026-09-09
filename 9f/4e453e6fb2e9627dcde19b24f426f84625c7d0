@@ -1,6 +1,68 @@
 packages/core/src/features/dashboard/ReviewFocus.tsx
   s_dabaf601d68948::t_cd488d1ae230f7 307,354
   s_dabaf601d68948::t_5e7df42084fc29 355
+packages/core/src/app/[locale]/(auth)/dashboard/automation/runs/page.tsx
+  s_dabaf601d68948::t_ccbb6472831156 1-103
+packages/core/src/features/dashboard/runLogQuery.ts
+  s_dabaf601d68948::t_ccbb6472831156 1-49
+packages/core/src/app/api/v1/automations/[slug]/runs/[runId]/route.ts
+  s_dabaf601d68948::t_ccbb6472831156 1-30
+packages/core/src/services/agents/tools/personalization.test.ts
+  s_dabaf601d68948::t_ccbb6472831156 714-755
+packages/core/src/models/Schema.ts
+  s_dabaf601d68948::t_ccbb6472831156 2338-2344,2346-2350
+packages/core/src/services/AutomationService.test.ts
+  s_dabaf601d68948::t_ccbb6472831156 83-86,162,165-166
+packages/core/src/app/api/v1/automations/_runFilter.ts
+  s_dabaf601d68948::t_ccbb6472831156 1-69
+packages/core/src/app/api/v1/automations/[slug]/runs/route.ts
+  s_dabaf601d68948::t_ccbb6472831156 1-26
+packages/core/src/app/[locale]/(auth)/dashboard/automation/page.tsx
+  s_dabaf601d68948::t_ccbb6472831156 2,6-7,16-23,36-40,57-61,66-84,99-108,127-129,190,195-199
+packages/core/src/services/AutomationService.observability.test.ts
+  s_dabaf601d68948::t_ccbb6472831156 1-445
+packages/core/src/app/[locale]/(auth)/gtm/lead/[hubspotId]/page.tsx
+  s_dabaf601d68948::t_ccbb6472831156 142
+packages/core/src/app/[locale]/(auth)/dashboard/activity/page.tsx
+  s_dabaf601d68948::t_ccbb6472831156 25
+packages/core/src/services/automations/checkSummary.ts
+  s_dabaf601d68948::t_ccbb6472831156 1-236
+packages/core/src/services/temporal/workflows/automationFire.ts
+  s_dabaf601d68948::t_ccbb6472831156 13-28
+packages/core/migrations/0076_regenerate_note_history.sql
+  s_dabaf601d68948::t_ccbb6472831156 1-13
+packages/core/src/app/[locale]/(auth)/dashboard/automation/[slug]/page.tsx
+  s_dabaf601d68948::t_ccbb6472831156 1-170
+packages/core/migrations/meta/_journal.json
+  s_dabaf601d68948::t_ccbb6472831156 536-542,545
+packages/core/src/app/api/v1/automations/[slug]/run/route.ts
+  s_dabaf601d68948::t_ccbb6472831156 1-2,14,17,19-27,29-30,53,60-62,70-79,82,87-102
+packages/core/src/features/dashboard/automationResult.ts
+  s_dabaf601d68948::t_ccbb6472831156 1-102
+packages/core/src/features/dashboard/AutomationRunLog.tsx
+  s_dabaf601d68948::t_ccbb6472831156 1-117
+packages/core/src/features/dashboard/AutomationTestRun.tsx
+  s_dabaf601d68948::t_ccbb6472831156 3-4,6-7,10-24,27-38,41,44-52,54,57-60,62,64,66-99,105-106,111-120,126-135,140,174-188,207-215,221-249,256,281-284,286-288,291,293-296,399-475
+packages/core/src/services/ActivityService.ts
+  s_dabaf601d68948::t_ccbb6472831156 12,15,26,83,85,153-163,216-225
+packages/core/src/services/AutomationService.ts
+  s_dabaf601d68948::t_ccbb6472831156 14-16,24-25,81-116,119,126-135,139,141-142,144-154,189,220,226-231,237-242,246-255,258-284,286-343,346-347,350-531,553-563
+packages/core/src/scripts/temporal-worker.ts
+  s_dabaf601d68948::t_ccbb6472831156 22-24,72-90,95
+packages/core/src/services/temporal/activities/fireAutomation.ts
+  s_dabaf601d68948::t_ccbb6472831156 4-8,11,19-21,25-49
+packages/core/src/features/personalization/LeadContext.tsx
+  s_dabaf601d68948::t_ccbb6472831156 31,33-34,83-85,87-89,95-106
+packages/core/src/features/dashboard/AutomationCardStatus.tsx
+  s_dabaf601d68948::t_ccbb6472831156 1-115
+packages/core/src/app/api/v1/automations/runs/route.ts
+  s_dabaf601d68948::t_ccbb6472831156 1-35
+packages/core/src/features/dashboard/RunLogFilters.tsx
+  s_dabaf601d68948::t_ccbb6472831156 1-107
+packages/core/src/services/PersonalizationQueueService.ts
+  s_dabaf601d68948::t_ccbb6472831156 717-734
+packages/core/src/features/dashboard/AutomationFireStrip.tsx
+  s_dabaf601d68948::t_ccbb6472831156 1-155
 ---
 {
   "schema_version": "authorship/3.0.0",
