@@ -1,7 +1,8 @@
 /**
- * SampleWorkspaceService — loads the bundled "Meridian Outdoor — Revenue"
- * sample workspace into a team-less workspace (the empty-state primary on
- * /dashboard/teams, F1 slice 4).
+ * SampleWorkspaceService — loads one of the bundled starter workspaces
+ * (see SAMPLE_WORKSPACES) into a team-less workspace: the empty-state
+ * primary on /dashboard/teams, F1 slice 4. With no slug named it loads
+ * the registry default, "Meridian Outdoor — Revenue".
  *
  * Deliberately thin: gating + sample-user setup here, then the SAME
  * pipeline every apply uses — loadWorkspace → applyWorkspace — so the
@@ -14,13 +15,25 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { applyWorkspace, loadWorkspace } from '@/libs/workspace';
 import { teamSchema, userSchema } from '@/models/Schema';
+import { resolveSampleWorkspace } from './sampleWorkspaces';
 
 /**
- * Where the bundled sample lives, repo-relative (loadWorkspace resolves
- * via fromRepoRoot). Negative fixtures for tests sit beside it under
- * templates/workspaces/fixtures/ — never reachable from the router.
+ * The registry of bundled starters lives in ./sampleWorkspaces (a
+ * dependency-free module so the client empty state can import it).
+ * Re-exported here because that is where callers have always looked;
+ * SAMPLE_WORKSPACE_PATH keeps its old meaning — the default bundle's
+ * path. Negative fixtures for tests sit beside the starters under
+ * templates/workspaces/fixtures/ and are NOT in the registry, so they
+ * stay unreachable from the router.
  */
-export const SAMPLE_WORKSPACE_PATH = 'packages/core/templates/workspaces/meridian-revenue';
+export {
+  DEFAULT_SAMPLE_WORKSPACE,
+  resolveSampleWorkspace,
+  SAMPLE_WORKSPACE_PATH,
+  SAMPLE_WORKSPACES,
+  type SampleWorkspace,
+  UnknownSampleWorkspaceError,
+} from './sampleWorkspaces';
 
 /**
  * Sample humans the bundle references by email (display-only owners; no
@@ -40,6 +53,8 @@ export class SampleSeedBlockedError extends Error {
 }
 
 export type SeedSampleResult = {
+  /** Registry slug of the bundle that was applied. */
+  slug: string;
   /** Workspace sha of the applied bundle (recorded as a workspace_version). */
   sha: string;
   /** What the bundle defines — created (or re-affirmed) by the apply. */
@@ -59,14 +74,20 @@ export type SeedSampleResult = {
  * @param opts.workspaceOwnerEmail - Injected as the manifest's
  * `accountableUser` so the workspace-default owner is a real person in
  * the caller's account (the bundle file omits it on purpose).
+ * @param opts.slug - Which registry entry to load. Omitted (the old
+ * behaviour) resolves to SAMPLE_WORKSPACES[0]; an unknown slug throws
+ * {@link UnknownSampleWorkspaceError}.
  * @param opts.bundlePath - Test-only override (negative fixtures). The
- * router never passes this.
+ * router never passes this; it wins over `slug` when both are given.
  */
 export async function seedSampleWorkspace(opts: {
   orgId: string;
   workspaceOwnerEmail?: string | null;
+  slug?: string | null;
   bundlePath?: string;
 }): Promise<SeedSampleResult> {
+  // Resolve BEFORE the db round trip so a bad slug fails fast and cheap.
+  const sample = resolveSampleWorkspace(opts.slug);
   const [existingTeam] = await db
     .select({ slug: teamSchema.slug })
     .from(teamSchema)
@@ -78,7 +99,7 @@ export async function seedSampleWorkspace(opts: {
 
   await ensureSampleUsers();
 
-  const loaded = loadWorkspace(opts.bundlePath ?? SAMPLE_WORKSPACE_PATH);
+  const loaded = loadWorkspace(opts.bundlePath ?? sample.path);
   if (opts.workspaceOwnerEmail) {
     // The one parameterized field: the workspace-default owner. Injected
     // into the manifest BEFORE apply so resolution + provenance flow
@@ -90,6 +111,7 @@ export async function seedSampleWorkspace(opts: {
   const result = await applyWorkspace(loaded, { orgId: opts.orgId, appliedBy: 'teams-seed-sample' });
 
   return {
+    slug: sample.slug,
     sha: result.sha,
     teams: loaded.teams.map(t => t.slug),
     agents: loaded.agents.map(a => a.slug),
