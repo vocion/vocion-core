@@ -398,10 +398,9 @@ export async function buildInitialFiles(
   if (!row) {
     return {};
   }
-  // A workspace file with an unresolvable {{env.NAME}} token throws here.
-  // Log it and let it propagate: an agent started with the raw token
-  // treats it as a real value and invents one, which is far harder to
-  // spot than a failed run.
+  // An unresolvable {{env.NAME}} token throws here. Log it and let it
+  // through: an agent started with the raw token invents a value, which
+  // is far harder to spot than a failed run.
   let mounted: Record<string, string>;
   try {
     mounted = await mountSkills({

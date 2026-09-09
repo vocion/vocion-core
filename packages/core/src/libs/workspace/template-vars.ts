@@ -1,41 +1,36 @@
 /**
- * Per-deployment value substitution for workspace text files.
+ * Per-deployment values for workspace files.
  *
- * A workspace is one git tree deployed to several boxes (dev, prod, a
- * tenant's own install). Anything that differs per box — an API base
- * URL, a tenant portal host — cannot be hardcoded in a playbook or a
- * mission. Such a file writes a token instead:
+ * One workspace git tree gets deployed to several boxes — dev, prod, a
+ * tenant's own install. Anything that differs per box, like an API base
+ * URL, can't be hardcoded. So the file writes a token:
  *
  *     Fetch the source list from {{env.VEERIO_API_URL}}/api/sources
  *
- * and the token is replaced with the value of that environment variable
- * at the moment the file is read.
+ * and we swap in that environment variable's value as the file is read.
+ * The file on disk is never rewritten.
  *
- * Two rules keep this from becoming an accidental secret leak or a
- * silent misconfiguration:
+ * Two rules keep this safe:
  *
- *   1. Only variables named in `WORKSPACE_TEMPLATE_VARS` (comma
- *      separated) may be substituted. The allowlist is the only source
- *      — a token naming any other variable is an error, so no part of
- *      the process environment can reach an agent by accident.
- *   2. A token that cannot be resolved is a hard failure, never a
- *      passthrough. `workspace apply` exits non-zero and an agent
- *      invocation refuses to start, both naming the file and the token.
- *      Serving the raw `{{env.NAME}}` text to a model is the one
- *      outcome worth avoiding: the model treats it as a real URL and
- *      invents a plausible one.
+ *   1. Only variables listed in `WORKSPACE_TEMPLATE_VARS` can be
+ *      substituted. Without that gate, `{{env.DATABASE_URL}}` in a
+ *      playbook would quietly hand a password to a model.
+ *   2. A token we can't resolve stops everything — `workspace apply`
+ *      exits non-zero, an agent run refuses to start, and both name the
+ *      file and the token. Passing the raw text through is the one
+ *      outcome to avoid: a model reads `{{env.NAME}}` as a real URL and
+ *      invents a plausible one, and nothing looks wrong.
  *
- * Anything that is not exactly an `{{env.NAME}}` token is left alone,
- * so a skill that documents Handlebars, Jinja, or Liquid syntax still
- * reaches the agent verbatim. The base pack shipped inside vocion-core
- * is never substituted — it is shared by every tenant, and a token in
- * it would fail the apply of every workspace that had not allowlisted
- * that name.
+ * Text that isn't exactly an `{{env.NAME}}` token is left alone, so a
+ * skill can document Handlebars or Jinja syntax and still reach the
+ * agent verbatim. The base pack inside vocion-core is never
+ * substituted either — every tenant gets those same bytes, so one
+ * token there would break everyone's apply.
  *
- * Substitution happens at the two places a workspace file body is read:
- * the apply path in `loader.ts` (so the stored `contentSha` is the sha
- * of what an agent will actually see) and the mount path in
- * `services/playbooks/mount.ts` (what the agent reads at run time).
+ * Two places read a workspace body, and both come through here:
+ * `loader.ts` at apply time (which is why the stored `contentSha`
+ * hashes the resolved text) and `services/playbooks/mount.ts` when an
+ * agent mounts the file.
  */
 
 import { readFileSync } from 'node:fs';
@@ -50,11 +45,7 @@ const ENV_TOKEN_PATTERN = /\{\{\s*env\.([A-Z][A-Z0-9_]*)\s*\}\}/g;
 /** Environment variable holding the comma-separated allowlist. */
 export const TEMPLATE_VARS_ALLOWLIST_NAME = 'WORKSPACE_TEMPLATE_VARS';
 
-/**
- * Raised when a workspace file names a variable that may not be
- * substituted, or one that is allowlisted but has no value in this
- * process's environment.
- */
+/** Raised when a token can't be resolved — see the two rules above. */
 export class WorkspaceTemplateError extends Error {
   constructor(
     public readonly file: string,
@@ -67,9 +58,8 @@ export class WorkspaceTemplateError extends Error {
 }
 
 /**
- * The variable names a workspace file is allowed to substitute, read
- * fresh from the environment on every call so a test (or a worker that
- * loads its `.env` late) sees the current value.
+ * The variable names a workspace file may substitute. Read fresh every
+ * call, so a worker that loads its `.env` late still sees the value.
  */
 export function allowlistedTemplateVariableNames(): string[] {
   const raw = process.env[TEMPLATE_VARS_ALLOWLIST_NAME] ?? '';
@@ -86,13 +76,12 @@ export function allowlistedTemplateVariableNames(): string[] {
 /**
  * Replace every `{{env.NAME}}` token in one workspace file's text.
  * @param content - the file's raw text.
- * @param file - path used in error messages, so a failure says which
- * workspace file is at fault.
- * @throws {WorkspaceTemplateError} when a token names a variable that
- * is not allowlisted, or one that is allowlisted but unset/blank.
+ * @param file - path to name in an error message.
+ * @throws {WorkspaceTemplateError} when a token is not allowlisted, or
+ * its variable is unset, blank, or spans lines.
  */
 export function substituteEnvTokens(content: string, file: string): string {
-  // The overwhelming majority of workspace files carry no token at all.
+  // Most workspace files carry no token at all.
   if (!content.includes('{{')) {
     return content;
   }
@@ -104,7 +93,7 @@ export function substituteEnvTokens(content: string, file: string): string {
       throw new WorkspaceTemplateError(
         file,
         variableName,
-        `is not allowlisted — add ${variableName} to ${TEMPLATE_VARS_ALLOWLIST_NAME} (currently ${describeAllowlist(allowlist)})`,
+        `is not allowlisted — add it to ${TEMPLATE_VARS_ALLOWLIST_NAME} (currently ${describeAllowlist(allowlist)})`,
       );
     }
     const value = process.env[variableName];
@@ -112,17 +101,17 @@ export function substituteEnvTokens(content: string, file: string): string {
       throw new WorkspaceTemplateError(
         file,
         variableName,
-        `is allowlisted but ${variableName} has no value — set it in this process's environment (the app and the Temporal worker both need it)`,
+        `is allowlisted but has no value — set ${variableName} on both the app and the Temporal worker`,
       );
     }
-    // A YAML workspace file is substituted before it is parsed, so a
-    // value carrying a line break would splice new lines into the
-    // document and fail somewhere unrelated to the real cause.
+    // Substitution happens before the file is parsed, so a value with a
+    // line break would splice extra lines into the YAML and fail
+    // somewhere unrelated to the real cause.
     if (value.includes('\n') || value.includes('\r')) {
       throw new WorkspaceTemplateError(
         file,
         variableName,
-        `resolves to a value containing a line break, which would corrupt the file it is substituted into — give ${variableName} a single-line value`,
+        `resolves to a value containing a line break, which would corrupt the file — give ${variableName} a single-line value`,
       );
     }
     return value;
@@ -130,10 +119,9 @@ export function substituteEnvTokens(content: string, file: string): string {
 }
 
 /**
- * Read one workspace text file and substitute its `{{env.NAME}}`
- * tokens. Use this instead of `readFileSync` everywhere a workspace
- * `.md` or `.yaml` body is loaded, so the apply path and the agent's
- * read path always agree on the bytes.
+ * Read a workspace file and resolve its tokens. Use this instead of
+ * `readFileSync` for any workspace `.md` or `.yaml`, so apply time and
+ * run time always agree on the bytes.
  * @param file - absolute path to the file.
  */
 export function readWorkspaceTextFile(file: string): string {

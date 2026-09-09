@@ -590,8 +590,7 @@ function validateOrThrow<T>(schema: ZodType<T>, value: unknown, file: string, ki
  * folder compose overrides it for base and override entries.
  *
  * `isWorkspaceFile` is false for a base-pack folder, which is read
- * exactly as shipped — see `template-vars.ts` for why the pack is
- * excluded from substitution.
+ * exactly as shipped — see `template-vars.ts` for why.
  * @param file - absolute path to the SKILL.md.
  * @param kind - skill or playbook.
  * @param filesTracked - collects sibling paths for the workspace sha.
@@ -603,8 +602,8 @@ function loadPlaybook(
   filesTracked: string[],
   isWorkspaceFile: boolean = true,
 ): LoadedPlaybook {
-  // Only a tenant's own files carry {{env.NAME}} tokens — the base pack
-  // ships the same bytes to everyone, so it is read as-is.
+  // Only a tenant's own files carry {{env.NAME}} tokens; the base pack
+  // ships the same bytes to everyone.
   const raw = isWorkspaceFile ? readWorkspaceTextFile(file) : readFileSync(file, 'utf8');
   const fm = parseFrontmatter(raw, file);
   const parsed = validateOrThrow(PlaybookManifestSchema, fm.data, file, 'playbook');

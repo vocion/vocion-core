@@ -208,88 +208,78 @@ Check/apply/export honor `WORKSPACE_PATH` and `SEED_ORG_ID` env vars. Flags:
 
 ## Per-deployment values (`{{env.NAME}}`)
 
-One workspace git tree is usually deployed to more than one box — a dev
-install and a production one, or one install per tenant. Anything that
-differs between those boxes (an API base URL, a portal hostname) cannot
-be hardcoded in a playbook. Write a token instead:
+One workspace git tree usually runs on more than one box — a dev install
+and a production one, or one install per tenant. Anything that differs
+between them, like an API base URL, can't be hardcoded. Write a token
+instead:
 
 ```markdown
 Fetch the source list from {{env.VEERIO_API_URL}}/api/sources/ingestion
 ```
 
-`NAME` is upper snake case (`[A-Z][A-Z0-9_]*`). Spaces inside the braces
-are fine (`{{ env.VEERIO_API_URL }}`). The token is replaced with the
-value of that environment variable in the vocion-core process — both
-when `workspace apply` reads the file and when the file is mounted for
-an agent at run time, so the stored `contentSha` always matches the body
-the agent actually reads.
+vocion-core swaps in that environment variable's value as it reads the
+file. **The file on disk is never rewritten** — both boxes run the
+identical git tree.
 
-**Only allowlisted variables substitute.** Name them in
-`WORKSPACE_TEMPLATE_VARS`, comma separated:
+`NAME` is upper snake case (`[A-Z][A-Z0-9_]*`); spaces inside the braces
+are fine.
+
+### Setting it up
+
+Two variables on every process that reads the workspace — the app **and**
+the Temporal worker:
 
 ```bash
 WORKSPACE_TEMPLATE_VARS=VEERIO_API_URL,PORTAL_HOST
 VEERIO_API_URL=https://api-dev.veerio.app
 ```
 
-Set both on every process that reads the workspace — the app **and** the
-Temporal worker. The allowlist is the only source, so no other part of
-the environment can reach an agent by accident. Do not put secrets on it:
-a workspace file is git-tracked and its substituted body is hashed into
-the audit trail.
+`WORKSPACE_TEMPLATE_VARS` is an allowlist of names, and it is the only
+source. Without it, `{{env.DATABASE_URL}}` in a playbook would quietly
+hand a password to a model. Keep secrets off it for the same reason a
+workspace file is git-tracked: the resolved body is hashed into the audit
+trail.
 
-**An unresolvable token is a hard failure, never a passthrough.** If a
-token names a variable that is not allowlisted, or one that is
-allowlisted but unset (or blank), then:
+Values must be single-line. Substitution runs before the file is parsed,
+so a line break would splice extra lines into the YAML.
 
-- `npm run workspace:apply` prints the file path and the token and exits
-  `2` — nothing is applied;
-- an agent invocation logs the error and refuses to start.
-
-That is deliberate. A raw `{{env.NAME}}` reaching a model does not look
-like an error to it — it reads the token as a real value and invents a
-plausible one.
-
-**Text that is not a token is untouched.** `{{customer.name}}`,
-`{{#each items}}`, and `{{ENV.SHOUTED}}` all reach the agent verbatim, so
-a skill can document Handlebars, Jinja, or Liquid syntax.
-
-**Give a variable a single-line value.** A workspace file is substituted
-before it is parsed, so a value carrying a line break would splice extra
-lines into the YAML and fail somewhere unrelated to the real cause. A
-multi-line value is rejected by name instead.
-
-**When a token resolves depends on where its file ends up.** Two rules,
-because `workspace apply` stores some things and leaves others on disk:
+### When it resolves
 
 | File | Resolves | So… |
 |---|---|---|
-| `skills/` and `playbooks/` bodies | Every time an agent mounts them | Change the variable, restart the process, done. |
-| Everything the applier stores — agent system prompts, missions, automations, object types, the manifest | At `workspace apply` | Change the variable and **re-run apply**, or the stored value stays as it was. |
+| `skills/` and `playbooks/` bodies | Every time an agent mounts them | Change the value, restart, done. |
+| Everything `workspace apply` stores — agent system prompts, missions, automations, object types, the manifest | At apply time | Change the value, then **re-run apply**. |
 
-Substituted text is what gets hashed into `contentSha` and the audit
-trail, so `git show <workspace_sha>` shows the authored token while the
-database holds the resolved value. That is deliberate — the git tree
-stays portable between boxes.
+Either way the *resolved* text is what gets hashed into `contentSha`, so
+`git show <workspace_sha>` shows the authored token while the database
+holds the real value.
 
-**Where substitution applies:** every workspace `.md` and `.yaml` the
-loader reads (`skills/`, `playbooks/`, `agents/`, `missions/`,
-`automations/`, `objects/`, `workflows/`, `sources/`, and the manifest),
-every skill or playbook body mounted for an agent, and workspace
-`pages/` (including `tour.yaml`), which render to end users.
+### When it fails
 
-**Where it does not:**
+A token that names a variable outside the allowlist, or one with no
+value, stops everything:
 
-- **The base pack** shipped inside vocion-core. It is the same bytes for
-  every tenant, so a token in it would fail the apply of every workspace
-  that had not allowlisted that name. A workspace file that *overrides* a
-  base skill is a tenant file, and does substitute.
+- `npm run workspace:apply` names the file and the token, exits `2`,
+  applies nothing;
+- an agent run logs the error and refuses to start.
+
+That's deliberate. A raw `{{env.NAME}}` doesn't look like an error to a
+model — it reads the token as a real URL and invents a plausible one.
+
+### What doesn't substitute
+
+- **Text that isn't a token.** `{{customer.name}}`, `{{#each items}}`
+  and `{{ENV.SHOUTED}}` reach the agent verbatim, so a skill can document
+  Handlebars, Jinja, or Liquid.
+- **The base pack** shipped inside vocion-core. Every tenant gets those
+  same bytes, so one token there would break everyone's apply. A
+  workspace file that *overrides* a base skill is a tenant file, and does
+  substitute.
 - **The raw file views** — the Workspace file browser, and the agent and
-  mission drilldowns. Those show a file as authored, tokens included:
-  they are a view of the git tree, not of what the agent sees. The skill
-  and playbook detail pages show the resolved body, because that is
-  exactly what the agent reads; if a token there cannot be resolved, the
-  page says so instead of rendering.
+  mission drilldowns. Those show a file as authored, tokens included.
+  Skill and playbook detail pages show the resolved body instead, because
+  that's what the agent reads; if a token there can't be resolved, the
+  page says so rather than rendering.
 
 ## Audit trail
 
