@@ -125,6 +125,22 @@ function harnessNameFor(orgId: string, agentSlug: string): string {
 }
 
 /**
+ * Whether AWS is telling us a harness is not there.
+ *
+ * The modelled class covers the normal case, but an error shape the SDK's
+ * parser does not recognise arrives as a generic service exception carrying
+ * the code in `name`. Matching only the class would make that read as an
+ * unexpected failure: provisioning would rethrow instead of replacing a
+ * missing harness, and teardown would refuse to clear a row whose harness is
+ * already gone.
+ * @param err - Whatever the AWS call threw.
+ */
+function isHarnessNotFound(err: unknown): boolean {
+  return err instanceof ResourceNotFoundException
+    || (err instanceof Error && err.name === 'ResourceNotFoundException');
+}
+
+/**
  * The harness id inside a harness ARN, or undefined when there is none.
  * @param harnessArn - A `.../harness/<id>` ARN.
  */
@@ -253,7 +269,7 @@ async function readHarnessToUpdate(
         return { harnessId: harness.harnessId, arn: harness.arn };
       }
     } catch (err) {
-      if (!(err instanceof ResourceNotFoundException)) {
+      if (!isHarnessNotFound(err)) {
         throw err;
       }
       console.warn(
@@ -569,7 +585,7 @@ export async function deleteAgentCoreHarness(harnessArn: string): Promise<{ dele
     // Already gone — someone deleted it in the console, or a previous apply
     // deleted it and failed before clearing the row. Either way the desired
     // state is the actual state.
-    if (err instanceof ResourceNotFoundException) {
+    if (isHarnessNotFound(err)) {
       return { deleted: false, harnessId };
     }
     throw err;

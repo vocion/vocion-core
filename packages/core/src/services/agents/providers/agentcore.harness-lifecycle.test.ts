@@ -77,6 +77,17 @@ describe('deleteAgentCoreHarness', () => {
     });
   });
 
+  it('treats an unmodelled not-found — code in `name` only — as done too', async () => {
+    const unparsed = new Error('Harness not found');
+    unparsed.name = 'ResourceNotFoundException';
+    send.mockRejectedValue(unparsed);
+
+    await expect(deleteAgentCoreHarness(ARN)).resolves.toEqual({
+      deleted: false,
+      harnessId: 'vocion_event_ingestion_lead-QumHO9jDwy',
+    });
+  });
+
   it('rethrows any other failure, so the caller keeps the ARN and retries', async () => {
     send.mockRejectedValue(new Error('AccessDeniedException on DeleteHarness'));
 

@@ -244,6 +244,38 @@ describe('harness already recorded on the agent row', () => {
 
     warn.mockRestore();
   });
+
+  it('replaces the recorded harness on an unmodelled not-found as well', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const newArn = 'arn:aws:bedrock-agentcore:us-west-2:111122223333:harness/harness-new';
+    let getCalls = 0;
+    send.mockImplementation(async (command: unknown) => {
+      if (command instanceof GetHarnessCommand) {
+        getCalls += 1;
+        if (getCalls === 1) {
+          // The shape the SDK's parser does not recognise: a plain error whose
+          // only marker is the AWS code in `name`. Matching the modelled class
+          // alone would rethrow this instead of replacing the harness.
+          const unparsed = new Error('Harness not found');
+          unparsed.name = 'ResourceNotFoundException';
+          throw unparsed;
+        }
+        return { harness: { harnessId: 'harness-new', arn: newArn, status: 'READY' } };
+      }
+      if (command instanceof ListHarnessesCommand) {
+        return { harnesses: [] };
+      }
+      if (command instanceof CreateHarnessCommand) {
+        return { harness: { harnessId: 'harness-new', arn: newArn } };
+      }
+      return {};
+    });
+
+    await expect(syncAgentCoreHarness(ORG_A, SLUG)).resolves.toBe(newArn);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no longer exists'));
+
+    warn.mockRestore();
+  });
 });
 
 describe('the harness execution role', () => {
