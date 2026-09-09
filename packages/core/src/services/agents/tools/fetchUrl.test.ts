@@ -1,18 +1,18 @@
 /**
- * fetch_url paging suite (VEERIO-258) — a page longer than one 12,000-char
- * window must be readable to the end via `offset`, with every response
- * (including the first) reporting the page's total length. Covers: the
- * unchanged short-page default, walking a long page to its exact end,
- * asking past the end, landing exactly on a window boundary, and the
- * argument-validation branches (negative, non-numeric, beyond the server
- * cap) — none of which ever calls fetchPage.
+ * fetch_url suite (VEERIO-258) — the tool returns a page's full extracted
+ * text on every call, with no character cap and no truncation. Covers: a
+ * short page returned whole, a long page (well over the old 12,000-char
+ * cap) returned whole with nothing truncated, the total-length trailer, a
+ * page with no readable text, a not-configured provider, and a fetch
+ * error.
  *
  * No live network call: the browse provider registry is mocked and fed a
- * synthetic document built from a repeating digit ruler, so slicing it at
- * any offset is easy to verify by eye.
+ * synthetic document built from a repeating digit ruler, so its exact
+ * content is easy to assert on.
  */
 import type { RuntimeContext } from '../types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ProviderNotConfiguredError } from '@/libs/tools/types';
 
 const fetchPage = vi.fn();
 
@@ -25,7 +25,6 @@ const { fetchUrlTool } = await import('./fetchUrl');
 const CTX = {} as RuntimeContext;
 const URL = 'https://example.com/listing';
 const TITLE = 'Listing Page';
-const HEADER = `# ${TITLE}\n${URL}\n\n`;
 
 type Invokable = { invoke: (input: Record<string, unknown>) => Promise<string> };
 
@@ -45,109 +44,65 @@ function textOfLength(length: number): string {
   return out.slice(0, length);
 }
 
-/**
- * Splits a fetch_url response into its window text and its trailer note (the bracketed status line the tool appends after the window).
- * @param result - the raw string fetch_url returned
- */
-function splitResponse(result: string): { window: string; trailer: string } {
-  expect(result.startsWith(HEADER)).toBe(true);
-
-  const afterHeader = result.slice(HEADER.length);
-  const trailerStart = afterHeader.lastIndexOf('\n\n[');
-  return {
-    window: afterHeader.slice(0, trailerStart),
-    trailer: afterHeader.slice(trailerStart),
-  };
-}
-
 beforeEach(() => {
   fetchPage.mockReset();
-  fetchPage.mockResolvedValue(null);
 });
 
-describe('fetch_url paging', () => {
-  it('leaves a short page (under the 12,000-char window) unchanged, and reports its total length', async () => {
+describe('fetch_url', () => {
+  it('returns a short page whole, with its total length reported', async () => {
     const content = textOfLength(500);
     fetchPage.mockResolvedValue({ url: URL, title: TITLE, content });
 
     const result = await theTool().invoke({ url: URL });
-    const { window, trailer } = splitResponse(result);
 
-    expect(window).toBe(content);
-    expect(trailer).not.toContain('more characters remain');
-    expect(trailer).toContain('Total length: 500 characters.');
+    expect(result).toContain(content);
+    expect(result).toContain('Total length: 500 characters.');
     expect(fetchPage).toHaveBeenCalledWith(URL);
   });
 
-  it('reads a 56,662-character page to the end in five calls, offset by the value each response suggests, reporting the total on every call', async () => {
-    const total = 56_662;
+  it('returns a 56,662-character page whole in one call, with nothing truncated and no paging wording left anywhere', async () => {
+    const total = 56_662; // well over the old 12,000-char cap
     const content = textOfLength(total);
     fetchPage.mockResolvedValue({ url: URL, title: TITLE, content });
-    const tool = theTool();
 
-    let offset = 0;
-    let calls = 0;
-    let done = false;
-    let collected = '';
+    const result = await theTool().invoke({ url: URL });
 
-    while (!done) {
-      calls += 1;
-      const result = await tool.invoke(offset === 0 ? { url: URL } : { url: URL, offset });
-      const { window, trailer } = splitResponse(result);
-
-      expect(trailer).toContain(`Total length: ${total} characters.`);
-
-      collected += window;
-
-      const nextOffsetMatch = trailer.match(/offset: (\d+) to continue/);
-      if (nextOffsetMatch) {
-        offset = Number(nextOffsetMatch[1]);
-      } else {
-        expect(trailer).toContain('End of page');
-
-        done = true;
-      }
-    }
-
-    expect(calls).toBe(5);
-    expect(collected).toBe(content);
+    expect(result).toContain(content);
+    expect(result).toContain(`Total length: ${total} characters.`);
+    expect(result).not.toContain('truncated');
+    expect(result).not.toContain('offset');
   });
 
-  it('returns a clear "already past the end" message, still reporting total length, for an offset past the end', async () => {
-    const total = 5_000;
+  it('reports the total length on every call, not just for short pages', async () => {
+    const total = 56_662;
     fetchPage.mockResolvedValue({ url: URL, title: TITLE, content: textOfLength(total) });
 
-    const result = await theTool().invoke({ url: URL, offset: 10_000 });
+    const result = await theTool().invoke({ url: URL });
 
-    expect(result).toContain('Already at or past the end');
     expect(result).toContain(`Total length: ${total} characters.`);
   });
 
-  it('lands exactly on the last window with no "more characters" trailer when offset + window equals the total exactly', async () => {
-    const total = 24_000; // exactly two 12,000-char windows
-    fetchPage.mockResolvedValue({ url: URL, title: TITLE, content: textOfLength(total) });
+  it('reports no readable text without throwing, when the provider finds nothing', async () => {
+    fetchPage.mockResolvedValue(null);
 
-    const result = await theTool().invoke({ url: URL, offset: 12_000 });
-    const { window, trailer } = splitResponse(result);
+    const result = await theTool().invoke({ url: URL });
 
-    expect(window).toHaveLength(12_000);
-    expect(trailer).toContain('End of page');
-    expect(trailer).not.toContain('more characters remain');
-    expect(trailer).toContain(`Total length: ${total} characters.`);
+    expect(result).toBe(`Fetched ${URL} but found no readable text.`);
   });
 
-  it('rejects a negative offset without ever calling fetchPage', async () => {
-    await expect(theTool().invoke({ url: URL, offset: -1 })).rejects.toThrow();
-    expect(fetchPage).not.toHaveBeenCalled();
+  it('reports plainly when browse is not configured, instead of throwing the turn away', async () => {
+    fetchPage.mockRejectedValue(new ProviderNotConfiguredError('browse', 'firecrawl', ['FIRECRAWL_API_KEY']));
+
+    const result = await theTool().invoke({ url: URL });
+
+    expect(result).toContain('Browse is not configured');
   });
 
-  it('rejects a non-numeric offset without ever calling fetchPage', async () => {
-    await expect(theTool().invoke({ url: URL, offset: 'twelve-thousand' })).rejects.toThrow();
-    expect(fetchPage).not.toHaveBeenCalled();
-  });
+  it('reports a fetch error as data, instead of throwing the turn away', async () => {
+    fetchPage.mockRejectedValue(new Error('HTTP 404 fetching the page'));
 
-  it('rejects an offset beyond the server cap without ever calling fetchPage', async () => {
-    await expect(theTool().invoke({ url: URL, offset: 50_000_000 })).rejects.toThrow();
-    expect(fetchPage).not.toHaveBeenCalled();
+    const result = await theTool().invoke({ url: URL });
+
+    expect(result).toBe(`Could not fetch ${URL}: HTTP 404 fetching the page`);
   });
 });
