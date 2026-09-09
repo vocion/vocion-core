@@ -1,0 +1,6 @@
+name: Service Quality
+description: >-
+  Read-only oversight: queue health, SLA breaches, CSAT drivers, and
+  which approve gates a human keeps rejecting.
+lead: quality-lead
+# No accountableUser: inherits the workspace default (labeled as inherited).
