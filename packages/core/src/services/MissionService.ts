@@ -34,11 +34,160 @@ export function getMissionRun(runId: number, orgId: string) {
   });
 }
 
-export function listMissionRuns(orgId: string, opts: { status?: string; limit?: number } = {}) {
-  const where = opts.status
-    ? and(eq(missionRunSchema.orgId, orgId), eq(missionRunSchema.status, opts.status))
-    : eq(missionRunSchema.orgId, orgId);
-  return db.select().from(missionRunSchema).where(where).orderBy(desc(missionRunSchema.createdAt)).limit(opts.limit ?? 50);
+/**
+ * List mission runs for an org, newest first. `missionId` narrows to one
+ * mission's runs — used by the `/api/v1/missions/:slug/runs` read route so
+ * a caller only sees the runs of the mission it asked about, not every run
+ * in the org.
+ * @param orgId
+ * @param opts
+ * @param opts.status
+ * @param opts.limit
+ * @param opts.missionId
+ */
+export function listMissionRuns(orgId: string, opts: { status?: string; limit?: number; missionId?: number } = {}) {
+  const conditions = [eq(missionRunSchema.orgId, orgId)];
+  if (opts.status) {
+    conditions.push(eq(missionRunSchema.status, opts.status));
+  }
+  if (opts.missionId !== undefined) {
+    conditions.push(eq(missionRunSchema.missionId, opts.missionId));
+  }
+  return db.select().from(missionRunSchema).where(and(...conditions)).orderBy(desc(missionRunSchema.createdAt)).limit(opts.limit ?? 50);
+}
+
+/**
+ * One task's outcome inside a mission run's plan, as an outside caller
+ * reads it: the agent's status for that step, the failure reason when it
+ * has one, and `output` — the agent's own free-text report of what it did
+ * or, on 2026-09-08's incident, why it proposed nothing at all.
+ */
+export type MissionRunTaskReport = {
+  id: string;
+  title: string;
+  status: string;
+  output?: string;
+  error?: string;
+};
+
+/**
+ * The shape returned by `/api/v1/missions/:slug/runs` and
+ * `/api/v1/mission-runs/:id`. Bridges the `mission_run` row (models/Schema.ts)
+ * to field names an outside caller — the Veerio source registry, for one —
+ * can read without knowing our column names: `startedAt`/`finishedAt`
+ * instead of `createdAt`/`completedAt`, `invokedBy` instead of `createdBy`,
+ * and `missionSlug` resolved from the joined mission template (null for an
+ * ad-hoc run that never had one).
+ *
+ * A run's own `status`/`error` can read "completed"/null even when a task
+ * inside it failed — the run engine records that failure on the task, not
+ * the run — so a caller after real success/failure detail reads
+ * `plan.tasks[].status`/`.error`, not just these top-level fields.
+ */
+export type MissionRunReport = {
+  id: number;
+  missionSlug: string | null;
+  status: string;
+  startedAt: Date;
+  finishedAt: Date | null;
+  error: string | null;
+  invokedBy: string | null;
+  plan: { tasks: MissionRunTaskReport[] };
+};
+
+/**
+ * Normalize a run's `plan` column into the shape `MissionRunReport.plan`
+ * promises. The column has no DB-level NOT NULL (only a default), so it can
+ * be a literal `null`; a row written before `tasks` existed, or edited by
+ * hand, can also carry a `plan` object with no `tasks` array, or a `tasks`
+ * that isn't an array at all. Any of those would otherwise reach the API
+ * response as `plan.tasks === undefined`, and a caller iterating
+ * `plan.tasks[]` — the whole point of this route — would throw. Falling
+ * back to an empty array is the same "nothing to report yet" a caller
+ * already has to handle for a run with a real, empty plan.
+ * @param plan - The run's raw `plan` column value.
+ */
+function normalizePlanTasks(plan: MissionRunSummary['plan']): { tasks: MissionRunTaskReport[] } {
+  if (!plan || !Array.isArray(plan.tasks)) {
+    return { tasks: [] };
+  }
+  return { tasks: plan.tasks };
+}
+
+function toMissionRunReport(run: MissionRunSummary, missionSlug: string | null): MissionRunReport {
+  return {
+    id: run.id,
+    missionSlug,
+    status: run.status,
+    startedAt: run.createdAt,
+    finishedAt: run.completedAt,
+    error: run.error,
+    invokedBy: run.createdBy,
+    plan: normalizePlanTasks(run.plan),
+  };
+}
+
+/**
+ * Resolve one mission run's slug by looking up its mission template. Missions
+ * can start ad-hoc with no template (see `missionRunSchema.missionId`), so
+ * `missionId === null` resolves to a null slug rather than a lookup.
+ *
+ * Takes `orgId` and filters on it even though the run this id came from was
+ * already confirmed to belong to that org — belt and suspenders against a
+ * `mission_run.mission_id` that ever pointed at another org's mission (a data
+ * bug elsewhere, not a reachable path today) leaking that mission's slug.
+ * @param missionId
+ * @param orgId
+ */
+async function missionSlugFor(missionId: number | null, orgId: string): Promise<string | null> {
+  if (missionId === null) {
+    return null;
+  }
+  const mission = await db.query.missionSchema.findFirst({
+    where: and(eq(missionSchema.id, missionId), eq(missionSchema.orgId, orgId)),
+    columns: { slug: true },
+  });
+  return mission?.slug ?? null;
+}
+
+/**
+ * Fetch one mission run's full report for `/api/v1/mission-runs/:id`. Null
+ * when no run with that id exists in this org — the route turns that into a
+ * 404, the same way a wrong-org token is refused for every other resource
+ * under `/api/v1`.
+ * @param runId
+ * @param orgId
+ */
+export async function getMissionRunReport(runId: number, orgId: string): Promise<MissionRunReport | null> {
+  const run = await getMissionRun(runId, orgId);
+  if (!run) {
+    return null;
+  }
+  const missionSlug = await missionSlugFor(run.missionId, orgId);
+  return toMissionRunReport(run, missionSlug);
+}
+
+/**
+ * List the most recent runs of one mission template, for
+ * `/api/v1/missions/:slug/runs`. Null when the slug does not resolve to a
+ * mission in this org — the route turns that into a 404 rather than an
+ * empty list, so a wrong-tenant token cannot tell "no mission" from "no
+ * runs yet" and use it to probe for slugs that exist in other orgs.
+ * @param orgId
+ * @param missionSlug
+ * @param limit
+ */
+export async function listMissionRunReportsForMission(
+  orgId: string,
+  missionSlug: string,
+  limit: number,
+): Promise<MissionRunReport[] | null> {
+  const mission = await getMission(orgId, missionSlug);
+  if (!mission) {
+    return null;
+  }
+  const runs = await listMissionRuns(orgId, { missionId: mission.id, limit });
+  return runs.map(run => toMissionRunReport(run, missionSlug));
 }
 
 /**
