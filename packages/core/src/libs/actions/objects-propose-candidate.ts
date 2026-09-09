@@ -26,7 +26,15 @@
  *
  * Dedup is per candidate, never per page: `dedupOn` names the fields that
  * identify the thing, so re-walking a source tomorrow refreshes the one
- * pending item instead of stacking a second copy.
+ * pending item instead of stacking a second copy. `dedupOn` is mandatory —
+ * a proposal that leaves it empty, omits it, or nests it inside `fields`
+ * fails validation instead of silently storing a keyless row. That used to
+ * be legal (empty meant "every proposal is its own item") until a formatting
+ * slip by a model — `dedupOn: []` at the top level with the real identity
+ * list nested inside `fields` — passed validation, stored `dedup_key` NULL,
+ * and permanently duplicated pending rows in a live run (VEERIO-257). A
+ * genuinely one-off candidate now needs a real identity value of its own
+ * (a source id, a timestamp) rather than an empty list.
  */
 
 import type { ValidateFunction } from 'ajv';
@@ -46,7 +54,7 @@ export const CANDIDATE_STATUS = {
   rejected: 'rejected',
 } as const;
 
-const candidateInput = z.object({
+const candidateInputShape = z.object({
   /** Slug of an object type in this org's registry, e.g. `event-candidate`. */
   objectType: z.string().min(1).max(200),
   /** What to call this candidate in the queue and on the object row. */
@@ -57,9 +65,13 @@ const candidateInput = z.object({
    * Which `fields` keys identify this candidate, in order. `['title',
    * 'start', 'venue']` means those three values are the identity, so a
    * re-scrape that only changed the blurb updates the same queue item.
-   * Empty means every proposal is its own item.
+   *
+   * Required — at least one field — and always at the top level of the
+   * input, never inside `fields` (`dedupOn` is bookkeeping about the record,
+   * not a value on it). Both mistakes are checked below, in `superRefine`,
+   * because both need `objectType` to write a message that names the fix.
    */
-  dedupOn: z.array(z.string().min(1)).max(8).default([]),
+  dedupOn: z.array(z.string().min(1)).max(8).optional(),
   /** Deep link to the thing itself, where one exists. */
   sourceUrl: z.string().url().optional(),
   /** The page or feed the agent was walking when it found this. */
@@ -74,7 +86,24 @@ const candidateInput = z.object({
   rawExtractRef: z.string().max(500).optional(),
 });
 
-export type CandidateInput = z.infer<typeof candidateInput>;
+const candidateInput = candidateInputShape.superRefine((value, ctx) => {
+  if (!value.dedupOn || value.dedupOn.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['dedupOn'],
+      message: `dedupOn must list at least one field for "${value.objectType}"; put it at the top level of the input, not inside fields. An empty or missing dedupOn used to mean "every proposal is its own item" — it now stores a keyless row that duplicates whatever is already pending.`,
+    });
+  }
+  if (Object.prototype.hasOwnProperty.call(value.fields, 'dedupOn')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fields', 'dedupOn'],
+      message: `dedupOn found inside fields for "${value.objectType}"; it is never a field of the record. Move it to the top level of the input, alongside objectType and title.`,
+    });
+  }
+});
+
+export type CandidateInput = z.infer<typeof candidateInputShape>;
 
 /**
  * Collapse a value to the part that identifies it: lowercase, accents
@@ -106,14 +135,38 @@ function dedupKeyFrom(objectType: string, values: string[]): string {
  * The identity values for a candidate, in the order `dedupOn` names them.
  * A named field that the extractor did not fill still takes a slot, so a
  * missing venue cannot silently merge two different candidates.
+ *
+ * `input.dedupOn` is required by the input schema for anything that reached
+ * here through `propose_candidate` — the `?? []` only guards a caller that
+ * builds a `CandidateInput` by hand, bypassing that schema (a direct unit
+ * test, for instance).
  * @param input - The parsed action input.
  */
 function identityValues(input: CandidateInput): string[] {
   const values: string[] = [];
-  for (const fieldName of input.dedupOn) {
+  for (const fieldName of input.dedupOn ?? []) {
     values.push(normaliseForKey(input.fields[fieldName]));
   }
   return values;
+}
+
+/**
+ * The named identity fields the extractor left blank, in `dedupOn` order.
+ * Not itself an error — `identityValues` still holds a slot for it — but a
+ * reviewer should see that a candidate's identity rests partly on a blank,
+ * since a different candidate missing the same field would look identical
+ * on this key alone.
+ * @param input - The parsed action input.
+ */
+function emptyIdentityFields(input: CandidateInput): string[] {
+  const empty: string[] = [];
+  for (const fieldName of input.dedupOn ?? []) {
+    const value = input.fields[fieldName];
+    if (value === undefined || value === null || value === '') {
+      empty.push(fieldName);
+    }
+  }
+  return empty;
 }
 
 /**
@@ -499,8 +552,12 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
 
   // Per candidate, never per page. Values are normalised so casing and
   // punctuation drift between two extractions cannot split one thing in two.
-  // With no `dedupOn` there is no identity to key on, and no key: keying every
-  // candidate of a type the same way would collapse them all into one item.
+  // The input schema now requires a non-empty `dedupOn` on everything that
+  // reaches here through `propose_candidate`, so `values.length === 0` is
+  // unreachable from that path — it stays as a guard for a direct,
+  // hand-built `CandidateInput` (a unit test, say), where the same rule
+  // applies: no identity, no key, and never a constant in its place, which
+  // would collapse every candidate of a type into one queue item.
   dedupKeyFor(input) {
     const values = identityValues(input);
     if (values.length === 0) {
@@ -565,6 +622,18 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
     const problems = await describeSchemaProblems(objectType?.schema ?? null, input.fields);
     if (problems.length > 0) {
       fields.push({ label: 'Does not match the record type', value: problems.join('; ') });
+    }
+
+    // A warning, not a refusal: the identity slot is still held (see
+    // `identityValues`), so this candidate is not a duplicate risk on its
+    // own. It is worth a reviewer's attention because a second candidate
+    // missing the same field would carry the identical key.
+    const blankIdentityFields = emptyIdentityFields(input);
+    if (blankIdentityFields.length > 0) {
+      fields.push({
+        label: 'Dedup field left blank',
+        value: `${blankIdentityFields.join(', ')} — part of this candidate's identity, but the extractor left it blank.`,
+      });
     }
 
     // This one is a database round trip, which can genuinely fail. A broken
