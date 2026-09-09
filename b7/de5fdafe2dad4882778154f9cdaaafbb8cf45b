@@ -1,0 +1,24 @@
+packages/core/src/services/AutomationService.ts
+  s_dabaf601d68948::t_45fbd02c5040ff 344-347,355
+packages/core/src/app/[locale]/(auth)/dashboard/automation/[slug]/page.tsx
+  s_dabaf601d68948::t_8787b0f4d7e903 78-83
+packages/core/src/features/dashboard/AutomationTestRun.tsx
+  s_dabaf601d68948::t_be8bf838c78690 11-16,18,20,22,24
+  s_dabaf601d68948::t_b15224aa408985 92-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b7de5fdafe2dad4882778154f9cdaaafbb8cf45b",
+  "prompts": {},
+  "sessions": {
+    "s_dabaf601d68948": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c9ccb39-792c-4455-9397-142f1ea8e666",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
