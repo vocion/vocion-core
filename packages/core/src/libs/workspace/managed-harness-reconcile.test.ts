@@ -115,8 +115,8 @@ describe('managed harness reconciliation on apply', () => {
     const result = await apply('harness:\n  runsOn: agentcore-container\n');
 
     expect(result.errors).toEqual([]);
-    // Addressed by the stored ARN, not by the agent slug — a name lookup could
-    // reach another org's harness, since harness names carry no org.
+    // Addressed by the stored ARN, not by the agent slug, so it can only reach
+    // the harness this org's own row points at.
     expect(deleteAgentCoreHarness).toHaveBeenCalledWith(HARNESS_ARN);
     expect(syncAgentCoreHarness).not.toHaveBeenCalled();
     expect(await storedHarnessArn()).toBeNull();
