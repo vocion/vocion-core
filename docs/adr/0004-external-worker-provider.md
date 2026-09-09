@@ -1,6 +1,6 @@
 # ADR 0004 — External long-running workers as a fourth harness provider
 
-- **Status:** proposed (arch-decision; needs human approval before any code)
+- **Status:** accepted 2026-09-08 (Chris Fitkin + VP Engineering) — Phase 1 approved; Option 1
 - **Date:** 2026-09-08
 - **Owners:** Chris Fitkin
 - **Related:** ADR 0001 (deepagents runtime, "no checkpointer"), `packages/agent-runtime/README.md`,
