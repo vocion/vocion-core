@@ -16,7 +16,7 @@ which base pack (if any) the workspace builds on.
 | Field | Type | Required | What it does |
 |---|---|---|---|
 | `version` | `1` | yes | Manifest format version. Only `1` is valid. |
-| `orgId` | string | yes | Clerk organization id. Templates ship a placeholder; `workspace:apply --project` resolves it to the live project. |
+| `orgId` | string | yes | Id of the project (tenant) the workspace belongs to — auth.js (next-auth v5) session/org scoping, not Clerk. Templates ship a placeholder; `workspace:apply --project` resolves it to the live project. |
 | `name` | string | yes | Display name of the workspace. |
 | `description` | string | no | One-paragraph summary, shown in the dashboard. |
 | `lead` | slug | no | The workspace lead agent — the one that runs the whole workspace and consults the team leads. Applied to `project.leadAgentSlug`. Omit for no lead. |
