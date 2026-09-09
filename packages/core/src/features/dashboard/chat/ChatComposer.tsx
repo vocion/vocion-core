@@ -30,6 +30,8 @@ export type ChatComposerProps = {
   streaming?: boolean;
   /** Abort the in-flight turn (shown as Stop while streaming). */
   onStop?: () => void;
+  /** Something else is attached (anchored notes), so an empty box can still send. */
+  armed?: boolean;
   /** Captured pasted material, rendered as a chip so the instruction stays readable (032 §2.1 rule 5). */
   pastedText?: string | null;
   /** A large paste was intercepted — the session stores it beside the message. */
@@ -49,6 +51,7 @@ export function ChatComposer({
   placeholder,
   streaming = false,
   onStop,
+  armed = false,
   pastedText,
   onPasteText,
   onClearPasted,
@@ -68,7 +71,7 @@ export function ChatComposer({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && (value.trim().length > 0 || pastedText)) {
+      if (!disabled && (value.trim().length > 0 || pastedText || armed)) {
         onSubmit();
       }
     }
@@ -86,7 +89,7 @@ export function ChatComposer({
   };
 
   const trimmed = value.trim();
-  const sendEnabled = !disabled && (trimmed.length > 0 || Boolean(pastedText));
+  const sendEnabled = !disabled && (trimmed.length > 0 || Boolean(pastedText) || armed);
 
   return (
     <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-4 pt-4 pb-4 sm:px-6 sm:pt-6">
