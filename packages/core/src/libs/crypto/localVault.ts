@@ -11,12 +11,10 @@
  *
  * Then set `VOCION_CREDENTIAL_VAULT_KEY=...` in `.env.local`.
  *
- * With the variable unset, a development run falls back to an ephemeral key so
- * that losing a credential costs no more than a re-paste. Production gets no
- * such fallback: building the vault throws instead, because a per-process key
- * silently destroys every credential stored under the previous one. Nothing
- * builds a vault at boot, so that throw surfaces on the first request that
- * touches a credential, not at startup.
+ * Unset in development: falls back to an ephemeral key, costing a re-paste.
+ * Unset in production: building the vault throws, because a per-process key
+ * destroys every credential stored under the previous one. Nothing builds a
+ * vault at boot, so that throw lands on the first request, not at startup.
  */
 
 import type { CredentialVault, EncryptResult } from './credentialVault';
@@ -37,10 +35,9 @@ function readMasterKey(): Buffer {
   const raw = process.env.VOCION_CREDENTIAL_VAULT_KEY;
   if (!raw) {
     if (process.env.NODE_ENV === 'production') {
-      // An ephemeral key in production is silent data loss: each process start
-      // mints a different one, so anything stored under the previous key could
-      // never be decrypted again. Fail every credential read and write instead,
-      // which is recoverable — a key that no longer exists is not.
+      // Silent data loss: each start mints a different key, so anything saved
+      // under the last one is gone. Failing every read and write is
+      // recoverable; a key that no longer exists is not.
       throw new Error(
         'VOCION_CREDENTIAL_VAULT_KEY is not set. The local credential vault will not generate '
         + 'an ephemeral key in production: every process start would mint a different one, and '
@@ -67,11 +64,8 @@ let _master: Buffer | null = null;
 /**
  * Whether the key in `_master` came from the environment or was minted here.
  *
- * Recorded when the key is read, because that is what `decrypt` needs to name
- * the right cause. Re-reading the variable at failure time would describe the
- * environment as it is now, not the key the ciphertext was actually opened
- * with — a variable set after this process started would make an ephemeral-key
- * failure look like a changed value.
+ * Recorded at read time, not read live: a variable set after this process
+ * started would make an ephemeral-key failure look like a changed value.
  */
 let masterKeyCameFromEnvironment = false;
 
@@ -113,15 +107,9 @@ async function getDek(_orgId: string, _dekId: number): Promise<Buffer> {
 }
 
 export function localVault(): CredentialVault {
-  // Read the key when the vault is built rather than on the first encrypt or
-  // decrypt, which is where kmsVault's missing-ARN check already fires. Both
-  // backends now reject a missing setting at the same boundary.
-  //
-  // This is not a startup check. Nothing builds a vault at boot — every caller
-  // does it inside a function — so a deployment with no key still starts clean
-  // and health-checks green, and the throw lands on the first request that
-  // touches a credential. Making it a boot failure would need an explicit call
-  // from `instrumentation.ts`.
+  // Read the key here, the same boundary where kmsVault rejects a missing ARN.
+  // Not a startup check: nothing builds a vault at boot, so a deployment with
+  // no key starts clean and throws on the first request instead.
   masterKey();
   return {
     kind: 'local',
@@ -146,28 +134,18 @@ export function localVault(): CredentialVault {
           Buffer.from(authTag, 'base64'),
         );
       } catch (error) {
-        // Node says "Unsupported state or unable to authenticate data", which
-        // tells the reader nothing. What it means is that this credential was
-        // stored under a different key than the one this process holds, and the
-        // fix is not guessable from the original.
+        // Node's "Unsupported state or unable to authenticate data" tells the
+        // reader nothing. It means this credential was stored under a different
+        // key than the one this process holds.
         //
-        // Which key changed depends on where this runs. Development can reach
-        // here with VOCION_CREDENTIAL_VAULT_KEY unset, because every restart
-        // then mints a new ephemeral key. Production cannot: an unset key throws
-        // before any ciphertext is touched, so here it means the variable's own
-        // value changed. Naming only the development cause would send an
-        // on-call reader looking for a variable that is already set.
+        // Which key differs by environment, and so does the fix. Development
+        // can get here with no key set at all; production cannot, because an
+        // unset key throws first — so there the value itself changed, and a key
+        // that was never set has no previous value to restore.
         //
-        // `VaultDecryptionError` rather than a plain `Error` so the routes that
-        // otherwise flatten vault failures into "Could not read that key." show
-        // this sentence instead. It names an env var and a next step and no
-        // secret. Node's own wording goes in `cause`, where the log picks it up
-        // and the dashboard does not: it tells the reader nothing they can act
-        // on, and vouching for a string this code did not write is exactly what
-        // the flattening rule exists to prevent.
-        // The fix differs with the cause. A key that was never set has no
-        // previous value to restore, so telling that reader to put one back
-        // sends them looking for something that never existed.
+        // `VaultDecryptionError`, not a plain `Error`, so the routes show this
+        // sentence rather than flattening it: it names a variable and a next
+        // step and no secret. Node's wording goes on `cause`, for the log.
         const explanation = masterKeyCameFromEnvironment
           ? 'The value of VOCION_CREDENTIAL_VAULT_KEY has changed since this credential was saved: '
           + 'set it back to the value it had, or reconnect this source\'s credential under the '

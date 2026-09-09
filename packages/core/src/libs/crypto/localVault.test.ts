@@ -1,23 +1,18 @@
 /**
  * Two things the local vault has to get right about its master key.
  *
- * 1. That it refuses to mint an ephemeral key in production. A deployment
- *    running without VOCION_CREDENTIAL_VAULT_KEY set left two stored
- *    credentials permanently unreadable, and the only signal was a single
- *    startup warning. The refusal happens when the vault is built, not on the
- *    first credential operation, so a misconfigured deployment fails while it
- *    is starting rather than hours later.
+ * 1. It refuses to mint an ephemeral key in production. A deployment without
+ *    VOCION_CREDENTIAL_VAULT_KEY left two stored credentials permanently
+ *    unreadable, signalled only by one startup warning.
  *
- * 2. The message it gives when it cannot read a stored credential. Node's own
- *    AES-GCM failure is "Unsupported state or unable to authenticate data",
- *    which reached the operator verbatim through a failed source sync on
- *    2026-08-31 and named neither the cause nor the fix. Which key changed
- *    depends on where it runs, so the message has to name the right one:
- *    development can get here with no key set at all, production only ever
- *    gets here because the key's value changed.
+ * 2. The message when it cannot read a credential. Node's "Unsupported state
+ *    or unable to authenticate data" reached the operator verbatim through a
+ *    failed source sync on 2026-08-31, naming neither cause nor fix. Which key
+ *    changed depends on the environment, so the message must name the right
+ *    one.
  *
- * `decrypt` never touches the database in localVault — every DEK resolves to the
- * master key — so these are unit tests with no DB stub.
+ * `decrypt` never touches the database here — every DEK resolves to the master
+ * key — so these are unit tests with no DB stub.
  */
 
 import type { Buffer } from 'node:buffer';

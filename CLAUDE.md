@@ -297,11 +297,10 @@ invalidate. Any new outbound path gets a test that runs two orgs in sequence and
 asserts each got its own key.
 
 **Only `CredentialValidationError` and `VaultDecryptionError` may reach a
-client.** Both are authored for a person to read and name no secret — the first
-in the platform registry, the second by the vault, which is the whole reason
-that type exists rather than a plain `Error`. Any other failure carries
-whatever text the database or the vault produced; log it, with `cause` where
-there is one, and return something generic.
+client.** Both are written for a person and name no secret — the first from the
+platform registry, the second from the vault, which is why that type exists at
+all. Anything else carries whatever the database or vault produced: log it with
+its `cause` and return something generic.
 
 Supplied keys never take a Vocion-side expiry — the vendor owns the lifetime.
 
@@ -355,25 +354,22 @@ requirements/                       # Product specs and case studies
 
 ## Git history
 
-- **After a history rewrite, reset to the remote — never pull or merge, and ask
-  first.** On 2026-09-09 `docs/internal/` was purged from this repo's entire
-  history and every branch was force-pushed: 607 commits became 579, and every
-  local checkout was left on commits that no longer exist upstream. Merging
-  from that state reconciles two unrelated histories and re-adds every purged
-  file, because the local side still has them in its tree. The tells are an
-  absurd `git rev-list --count HEAD..origin/main` and a `forced-update` line in
+- **After a history rewrite, reset to the remote — never pull or merge.** On
+  2026-09-09 `docs/internal/` was purged from this repo's history and every
+  branch was force-pushed, leaving every checkout on commits that no longer
+  exist. Merging then reconciles two unrelated histories and re-adds every
+  purged file, since the local side still has them. Tells: an absurd
+  `git rev-list --count HEAD..origin/main`, or `forced-update` in
   `git reflog show origin/main`.
-- **The recovery is `git reset --hard origin/<branch>`, which is the user's
-  call, not yours.** Confirm before running it, every time. Two checks first:
-  `git status` must be clean, because `--hard` discards uncommitted work as
-  well as commits; and `git log --oneline origin/<branch>` must show your own
-  commits present on the remote — read the list and match them, the command
-  proves nothing on its own. If either check fails, it is recovery rather than
-  routine: unpushed commits need cherry-picking onto the new base, and a branch
-  with no remote at all exists nowhere else.
-- **A purge does not unpublish anything.** Existing clones and forks keep the
-  files, and GitHub serves the old commits by SHA until it garbage collects.
-  Treat the exposure as having happened.
+- **`git reset --hard origin/<branch>` is the user's call. Ask first, every
+  time.** Two checks before it: `git status` clean, since `--hard` discards
+  uncommitted work too; and your commits visibly present in
+  `git log --oneline origin/<branch>` — read and match them yourself. If either
+  fails it is recovery, not routine: unpushed commits need cherry-picking onto
+  the new base, and a branch with no remote exists nowhere else.
+- **A purge unpublishes nothing.** Clones and forks keep the files, and GitHub
+  serves the old commits by SHA until it garbage collects. Treat the exposure
+  as having happened.
 
 ## Conventions
 
