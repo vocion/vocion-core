@@ -139,6 +139,7 @@ export default async function LeadPage(props: {
     briefError: row.briefError,
     briefAttempts: row.briefAttempts,
     regenerateNote: row.regenerateNote,
+    regenerateHistory: row.regenerateHistory,
     draftSequence: row.draftSequence,
     recommendedSequence: row.recommendedSequence,
     reviewActionRunId: row.reviewActionRunId,

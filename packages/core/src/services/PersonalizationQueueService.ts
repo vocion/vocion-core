@@ -790,6 +790,24 @@ export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): 
       // A brief supersedes whatever the last failure said.
       briefError: null,
       skippedReason: null,
+      // And it supersedes the instruction that asked for it. The note was
+      // never cleared once addressed, so a satisfied instruction looked
+      // exactly like a fresh one — to the reviewer on the lead page and to
+      // the agent on the next pass, which spent part of its 19:00 report
+      // speculating about four leads being "stuck" when all four had been
+      // re-briefed and re-drafted. `regenerateHistory` keeps the reason the
+      // rewrite happened, dated, so nothing is lost by clearing it.
+      regenerateNote: null,
+      // Appended in SQL from the row's own current value, so the note is filed
+      // and cleared in one statement and no read-modify-write can lose it.
+      regenerateHistory: sql`
+        case when ${leadBriefSchema.regenerateNote} is null
+          then ${leadBriefSchema.regenerateHistory}
+          else ${leadBriefSchema.regenerateHistory} || jsonb_build_array(jsonb_build_object(
+            'note', ${leadBriefSchema.regenerateNote},
+            'addressedAt', ${briefedAt.toISOString()}::text
+          ))
+        end`,
     })
     .where(and(
       eq(leadBriefSchema.orgId, orgId),

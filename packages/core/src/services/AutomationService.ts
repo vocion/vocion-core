@@ -11,7 +11,9 @@
  */
 
 import type { ScheduleOptions } from '@temporalio/client';
-import { and, desc, eq } from 'drizzle-orm';
+import type { MirrorFreshness } from '@/services/CrmRecordsService';
+import { and, desc, eq, gte, inArray, like, lt, sql } from 'drizzle-orm';
+import { cronIntervalMs, humanizeAge, previousFire } from '@/libs/cron/schedule';
 import { db } from '@/libs/DB';
 import {
   AUTOMATION_FIRE_WORKFLOW,
@@ -19,7 +21,8 @@ import {
   getTemporalClient,
   VOCION_WORKFLOWS_TASK_QUEUE,
 } from '@/libs/temporal/client';
-import { automationRunSchema, automationSchema } from '@/models/Schema';
+import { automationRunSchema, automationSchema, knowledgeSourceSchema } from '@/models/Schema';
+import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
 
 export function listAutomations(orgId: string) {
   return db.select().from(automationSchema).where(eq(automationSchema.orgId, orgId));
@@ -75,24 +78,80 @@ export async function fireAutomation(
   slug: string,
   opts: { input?: Record<string, unknown>; invokedBy?: string; dryRun?: boolean } = {},
 ): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; automationRunId: number; result?: unknown }> {
+  return completeAutomationFire(await beginAutomationFire(orgId, slug, opts));
+}
+
+/** A fire whose run row exists and whose work has not been dispatched yet. */
+export type PendingAutomationFire = {
+  orgId: string;
+  slug: string;
+  kind: 'workflow' | 'mission_check' | 'job';
+  automationRunId: number;
+  doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> };
+  input: Record<string, unknown>;
+  invokedBy: string;
+};
+
+/**
+ * Record the fire, before doing any of its work.
+ *
+ * Split from the dispatch so a caller can answer immediately with the run row
+ * and let the work continue: `startMission` awaits the whole agent loop, so a
+ * request that dispatched inline held an HTTP connection for the entire pass —
+ * 2.7 minutes typically and 29 at the August peak.
+ *
+ * Every failure mode still writes a row: an inactive automation or a missing
+ * mission throws before dispatch, which is why the row is inserted first.
+ * @param orgId
+ * @param slug
+ * @param opts
+ * @param opts.input - Overrides merged over the automation's authored `do.input`.
+ * @param opts.invokedBy
+ * @param opts.dryRun - Recorded on the run row so a rehearsal is never mistaken for a real fire.
+ */
+export async function beginAutomationFire(
+  orgId: string,
+  slug: string,
+  opts: { input?: Record<string, unknown>; invokedBy?: string; dryRun?: boolean } = {},
+): Promise<PendingAutomationFire> {
   const automation = await getAutomation(orgId, slug);
   if (!automation) {
+    // Nothing to attribute a row to: the slug names no automation in this org.
     throw new Error(`automation "${slug}" not found for org ${orgId}`);
-  }
-  if (automation.status !== 'active') {
-    throw new Error(`automation "${slug}" is not active`);
   }
   const invokedBy = opts.invokedBy ?? `automation:${slug}`;
   const doCfg = automation.doConfig;
   const input = { ...(doCfg.input ?? {}), ...(opts.input ?? {}) };
   const kind: 'workflow' | 'mission_check' | 'job' = doCfg.workflow ? 'workflow' : doCfg.job ? 'job' : 'mission_check';
+  const row = { orgId, slug, kind, invokedBy, dryRun: opts.dryRun ?? false, input };
+
+  if (automation.status !== 'active') {
+    // Refused, but still recorded. A schedule firing a disabled automation
+    // produced no run row, no mission run, and therefore no trace anywhere —
+    // the fire simply did not appear to have happened.
+    const message = `automation "${slug}" is not active`;
+    await db.insert(automationRunSchema).values({ ...row, status: 'error', error: message, finishedAt: new Date() });
+    throw new Error(message);
+  }
 
   const [runRow] = await db
     .insert(automationRunSchema)
-    .values({ orgId, slug, kind, status: 'running', invokedBy, dryRun: opts.dryRun ?? false, input })
+    .values({ ...row, status: 'running' })
     .returning({ id: automationRunSchema.id });
-  const automationRunId = runRow!.id;
+  return { orgId, slug, kind, automationRunId: runRow!.id, doCfg, input, invokedBy };
+}
 
+/**
+ * Do the work and close out the row.
+ *
+ * A failure records the error and then rethrows — the caller's error handling
+ * is unchanged from when this was one function.
+ * @param pending - The recorded fire.
+ */
+export async function completeAutomationFire(
+  pending: PendingAutomationFire,
+): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; automationRunId: number; result?: unknown }> {
+  const { orgId, slug, doCfg, input, invokedBy, automationRunId } = pending;
   try {
     // The brief distinguishes an event fire from a schedule fire by what the
     // CALLER handed in, never by the merged input: a scheduled check with fixed
@@ -130,7 +189,7 @@ export async function fireAutomation(
  * @param doCfg.checkMission
  * @param doCfg.job
  * @param doCfg.prompt
- * @param input - The merged input the run records (`do.input` under the caller's).
+ * @param input - Merged `do.input` + caller overrides. `input.prompt` replaces the authored orders for this fire.
  * @param invokedBy
  * @param triggerInput - What the caller handed in: an event's payload, or nothing for a schedule fire.
  */
@@ -163,11 +222,18 @@ async function dispatchDo(
   }
 
   const { getMission, scheduledCheckBrief, startMission } = await import('@/services/MissionService');
+  const { queueSnapshot, summarizeMissionCheck } = await import('@/services/automations/checkSummary');
   const missionSlug = doCfg.checkMission!;
   const template = await getMission(orgId, missionSlug);
   if (!template) {
     throw new Error(`automation "${slug}": mission "${missionSlug}" not found`);
   }
+  // `input.prompt` overrides the authored orders for THIS fire only. That is
+  // what makes "does it identify anyone" a 30-second test ("PART ONE only,
+  // report and stop") rather than a full pass that briefs and drafts.
+  const prompt = typeof input.prompt === 'string' && input.prompt.trim() !== '' ? input.prompt : doCfg.prompt;
+  const startedAt = new Date();
+  const before = await queueSnapshot(orgId);
   const run = await startMission({
     orgId,
     missionSlug,
@@ -175,30 +241,301 @@ async function dispatchDo(
     // charter + working notes stay attached as standing context. An event
     // fire's payload rides it too, so the check knows what it was fired for;
     // a schedule fire hands in nothing and reads exactly as before.
-    brief: scheduledCheckBrief(template, doCfg.prompt, triggerInput && Object.keys(triggerInput).length > 0 ? triggerInput : undefined),
-    title: `Check: ${template.name}`,
+    brief: scheduledCheckBrief(template, prompt, triggerInput && Object.keys(triggerInput).length > 0 ? triggerInput : undefined),
+    // Titled by the automation that fired it, not by the mission it checks:
+    // `process-new-mqls` and `discovery-followup-check` both check the same
+    // mission, so `Check: <mission name>` made them identical in Activity and
+    // only `created_by` told them apart.
+    title: `${slug}: ${template.name}`,
     mode: 'check',
     invokedBy,
   });
-  return { kind: 'mission_check', runId: run.id };
+  // The summary the branch used to discard. Best-effort: a fire whose work
+  // succeeded must not be recorded as failed because measuring it did.
+  const result = await summarizeMissionCheck({ orgId, run, before, startedAt }).catch((err) => {
+    // A fire whose work succeeded must not be recorded as failed because
+    // MEASURING it did. Loud, though: a null result is the thing this change
+    // exists to remove, so a silent fallback would quietly restore it.
+    console.warn('[automation] could not summarize the mission check', { slug, missionRunId: run.id, error: (err as Error).message });
+    return undefined;
+  });
+  return { kind: 'mission_check', runId: run.id, result };
+}
+
+export type AutomationRunRow = typeof automationRunSchema.$inferSelect;
+
+export type AutomationRunFilter = {
+  /** One automation. Omit for every fire in the org — the cross-automation log. */
+  slug?: string;
+  status?: 'running' | 'ok' | 'error';
+  kind?: 'workflow' | 'mission_check' | 'job';
+  /** `schedule` for automation-fired, `test-run` for the dashboard control. */
+  invokedBy?: 'schedule' | 'test-run';
+  /** Inclusive lower bound on `started_at`. */
+  since?: Date;
+  /** Exclusive upper bound on `started_at`. */
+  until?: Date;
+  limit?: number;
+  /** `id` of the last row of the previous page. */
+  cursor?: number;
+};
+
+/** A page of the run log, plus the cursor for the next one. */
+export type AutomationRunPage = {
+  runs: AutomationRunRow[];
+  /** Total rows the filters matched, independent of the page. */
+  total: number;
+  /** Pass as `cursor` for the next page. Null when this is the last one. */
+  nextCursor: number | null;
+};
+
+/**
+ * Fires, newest first — one automation's or every automation's.
+ *
+ * Every fire wrote a row here all along; the only reader called this with
+ * `limit 1` and a slug, so "has anything been running" was a question only
+ * `psql` could answer. Nineteen hours of silence on 3 September were found a
+ * week later, from a table the product never showed.
+ *
+ * `invoked_by` carries `automation:<slug>` for a schedule fire and
+ * `dashboard:test-run` for the control, so the filter matches on the prefix
+ * rather than asking the caller to know the encoding.
+ * @param orgId - Tenant.
+ * @param filter - Which fires, and how many.
+ */
+export async function listAutomationRuns(orgId: string, filter: AutomationRunFilter = {}): Promise<AutomationRunPage> {
+  const limit = Math.min(Math.max(filter.limit ?? 50, 1), 500);
+  const where = and(
+    eq(automationRunSchema.orgId, orgId),
+    filter.slug ? eq(automationRunSchema.slug, filter.slug) : undefined,
+    filter.status ? eq(automationRunSchema.status, filter.status) : undefined,
+    filter.kind ? eq(automationRunSchema.kind, filter.kind) : undefined,
+    filter.invokedBy === 'test-run' ? like(automationRunSchema.invokedBy, 'dashboard:%') : undefined,
+    filter.invokedBy === 'schedule' ? like(automationRunSchema.invokedBy, 'automation:%') : undefined,
+    filter.since ? gte(automationRunSchema.startedAt, filter.since) : undefined,
+    filter.until ? lt(automationRunSchema.startedAt, filter.until) : undefined,
+  );
+  const [rows, [counted]] = await Promise.all([
+    db
+      .select()
+      .from(automationRunSchema)
+      // The cursor rides `id`, not `started_at`: two fires inside the same
+      // clock tick would otherwise page in an undefined order, and a page
+      // boundary there would drop or repeat a row.
+      .where(filter.cursor ? and(where, lt(automationRunSchema.id, filter.cursor)) : where)
+      .orderBy(desc(automationRunSchema.id))
+      .limit(limit + 1),
+    db.select({ n: sql<number>`count(*)::int` }).from(automationRunSchema).where(where),
+  ]);
+  const page = rows.slice(0, limit);
+  return {
+    runs: page,
+    total: Number(counted?.n ?? 0),
+    nextCursor: rows.length > limit ? (page.at(-1)?.id ?? null) : null,
+  };
 }
 
 /**
- * The most recent runs of an automation, newest first — what the Automation
- * page shows as "last run" so a silent schedule is visibly silent.
- * @param orgId
- * @param slug
- * @param limit
+ * One fire by id, scoped to the org. What an async test run polls.
+ * @param orgId - Tenant.
+ * @param id - `automation_run.id`.
  */
-export function listAutomationRuns(orgId: string, slug: string, limit = 5) {
-  return db
+export function getAutomationRun(orgId: string, id: number) {
+  return db.query.automationRunSchema.findFirst({
+    where: and(eq(automationRunSchema.orgId, orgId), eq(automationRunSchema.id, id)),
+  });
+}
+
+/**
+ * The last fire of each automation in one query — what every card needs.
+ * @param orgId
+ */
+export async function lastRunBySlug(orgId: string): Promise<Map<string, AutomationRunRow>> {
+  const rows = await db
     .select()
     .from(automationRunSchema)
-    .where(and(eq(automationRunSchema.orgId, orgId), eq(automationRunSchema.slug, slug)))
-    // id breaks ties: two fires inside the same clock tick would otherwise
-    // come back in an undefined order.
-    .orderBy(desc(automationRunSchema.startedAt), desc(automationRunSchema.id))
-    .limit(limit);
+    .where(eq(automationRunSchema.orgId, orgId))
+    .orderBy(desc(automationRunSchema.id));
+  const out = new Map<string, AutomationRunRow>();
+  for (const row of rows) {
+    if (!out.has(row.slug)) {
+      out.set(row.slug, row);
+    }
+  }
+  return out;
+}
+
+/**
+ * Filter values actually present in the log, so the log's own filters are never a hardcoded list.
+ * @param orgId
+ */
+export async function automationRunFacets(orgId: string): Promise<{ slugs: string[]; statuses: string[]; kinds: string[] }> {
+  const rows = await db
+    .selectDistinct({
+      slug: automationRunSchema.slug,
+      status: automationRunSchema.status,
+      kind: automationRunSchema.kind,
+    })
+    .from(automationRunSchema)
+    .where(eq(automationRunSchema.orgId, orgId));
+  return {
+    slugs: [...new Set(rows.map(r => r.slug))].sort(),
+    statuses: [...new Set(rows.map(r => r.status))].sort(),
+    kinds: [...new Set(rows.map(r => r.kind))].sort(),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Schedule health — is the silence normal?                            */
+/* ------------------------------------------------------------------ */
+
+export type ScheduleHealth = {
+  /** The cron this was judged against. Null for an event-when. */
+  cron: string | null;
+  /** When it should last have fired. Null when the cron is unparseable. */
+  expectedAt: Date | null;
+  /** When it actually last fired. Null when it never has. */
+  lastFireAt: Date | null;
+  /** How far behind, in ms. Null when there is no expectation to be behind. */
+  behindMs: number | null;
+  /** True when the schedule has missed its expected fire by more than one interval. */
+  overdue: boolean;
+  /** "expected hourly, last fire 19.3 hours ago". Null when healthy. */
+  reason: string | null;
+};
+
+/**
+ * Compare a schedule's last fire against the fire its cron expected.
+ *
+ * This is the one item that would have caught 3 September: three hourly
+ * automations stopped at 05:00 UTC and resumed at 00:15 the next day, and the
+ * card rendered one timestamp throughout. `paused` is honoured — a schedule a
+ * person deliberately paused is quiet on purpose.
+ * @param opts - The schedule, its last fire, and whether it is paused.
+ * @param opts.cron - The `when.schedule` cron, or null/undefined for an event-when.
+ * @param opts.lastFireAt - `started_at` of the most recent run.
+ * @param opts.paused - Temporal reports the schedule paused.
+ * @param opts.now - Evaluation time.
+ */
+export function scheduleHealth(opts: {
+  cron?: string | null;
+  lastFireAt?: Date | null;
+  paused?: boolean;
+  now?: Date;
+}): ScheduleHealth {
+  const now = opts.now ?? new Date();
+  const cron = opts.cron ?? null;
+  const lastFireAt = opts.lastFireAt ?? null;
+  const base = { cron, expectedAt: null, lastFireAt, behindMs: null, overdue: false, reason: null };
+  if (!cron || opts.paused) {
+    return base;
+  }
+  const expectedAt = previousFire(cron, now);
+  const intervalMs = cronIntervalMs(cron, now);
+  if (!expectedAt || intervalMs === null) {
+    return base;
+  }
+  const cadence = `every ${humanizeAge(intervalMs)}`;
+  if (!lastFireAt) {
+    return {
+      cron,
+      expectedAt,
+      lastFireAt: null,
+      behindMs: null,
+      overdue: true,
+      reason: `expected ${cadence}, and has never fired.`,
+    };
+  }
+  const behindMs = now.getTime() - lastFireAt.getTime();
+  // One whole interval of slack: a fire in flight, or a worker a minute late,
+  // is not an outage. Missing two in a row is.
+  const overdue = lastFireAt.getTime() < expectedAt.getTime() - intervalMs;
+  return {
+    cron,
+    expectedAt,
+    lastFireAt,
+    behindMs,
+    overdue,
+    reason: overdue ? `expected ${cadence}, last fire ${humanizeAge(behindMs)} ago.` : null,
+  };
+}
+
+/**
+ * How fresh the connector mirrors an automation's work reads are, right now.
+ *
+ * The slugs come from the last fire's own tool calls (`result.mirror.sources`),
+ * so this describes what the work actually reads rather than every source its
+ * agent could reach. A fire over seven-day-old data is not a healthy fire
+ * however green it looks.
+ * @param orgId - Tenant.
+ * @param slugs - Source slugs the fire read.
+ */
+export async function automationSourceFreshness(orgId: string, slugs: string[]): Promise<MirrorFreshness | null> {
+  if (slugs.length === 0) {
+    return null;
+  }
+  const rows = await db
+    .select({
+      slug: knowledgeSourceSchema.slug,
+      lastSyncedAt: knowledgeSourceSchema.lastSyncedAt,
+      configJson: knowledgeSourceSchema.configJson,
+    })
+    .from(knowledgeSourceSchema)
+    .where(and(eq(knowledgeSourceSchema.orgId, orgId), inArray(knowledgeSourceSchema.slug, slugs)));
+  if (rows.length === 0) {
+    return null;
+  }
+  return judgeMirrorFreshness(rows.map(r => ({
+    slug: r.slug,
+    schedule: (r.configJson as { schedule?: string } | null)?.schedule ?? null,
+    lastSyncedAt: r.lastSyncedAt,
+  })));
+}
+
+/* ------------------------------------------------------------------ */
+/* Abandoned-run reconciliation                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How long a `running` row is given before it counts as abandoned. Above the
+ * activity's `startToCloseTimeout`, so a pass still inside its own budget is
+ * never closed out from under it.
+ */
+export const ABANDONED_RUN_AFTER_MS = 70 * 60_000;
+
+/**
+ * Close out fires that can no longer end.
+ *
+ * A `discovery-followup-check` row from 4 September sat `running` with no
+ * `finished_at` because its worker restarted mid-flight, and nothing
+ * reconciles those — so the card would have read "last run Sep 4" for ever. A
+ * row that cannot end is worse than one that ended badly.
+ * @param opts - Scope and clock.
+ * @param opts.orgId - One tenant, or omit for every org (worker boot).
+ * @param opts.now - Evaluation time.
+ * @param opts.olderThanMs - Age at which a `running` row is abandoned.
+ */
+export async function reconcileAbandonedRuns(opts: {
+  orgId?: string;
+  now?: Date;
+  olderThanMs?: number;
+} = {}): Promise<{ reconciled: number; ids: number[] }> {
+  const now = opts.now ?? new Date();
+  const cutoff = new Date(now.getTime() - (opts.olderThanMs ?? ABANDONED_RUN_AFTER_MS));
+  const rows = await db
+    .update(automationRunSchema)
+    .set({
+      status: 'error',
+      error: 'abandoned: worker restart or activity timeout — the fire never reported an outcome',
+      finishedAt: now,
+    })
+    .where(and(
+      eq(automationRunSchema.status, 'running'),
+      lt(automationRunSchema.startedAt, cutoff),
+      opts.orgId ? eq(automationRunSchema.orgId, opts.orgId) : undefined,
+    ))
+    .returning({ id: automationRunSchema.id });
+  return { reconciled: rows.length, ids: rows.map(r => r.id) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -220,6 +557,17 @@ export function buildAutomationScheduleOptions(spec: AutomationScheduleSpec): Sc
   return {
     scheduleId: automationScheduleIdFor(spec.orgId, spec.slug),
     spec: { cronExpressions: [spec.cron] },
+    policies: {
+      // Stated, not inherited. SKIP is also the server default, but a fire
+      // that can claim leads must never run concurrently with itself, and a
+      // safety property that important should not depend on a default we do
+      // not control.
+      overlap: 'SKIP',
+      // An hourly pass that missed nineteen hours must not come back and fire
+      // nineteen times at once. One catch-up fire covers the gap; the strip
+      // and the run log are what show the gap happened.
+      catchupWindow: '1 hour',
+    },
     action: {
       type: 'startWorkflow',
       workflowType: AUTOMATION_FIRE_WORKFLOW,
