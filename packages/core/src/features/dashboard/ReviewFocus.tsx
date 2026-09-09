@@ -1,14 +1,16 @@
 'use client';
 
-import type { ReviewType } from './ReviewTypeChips';
 import type { ReviewCard } from '@/libs/actions/types';
 import { ArrowLeft, ArrowRight, Bookmark, Check, Loader2, Mail, RefreshCw, ShieldCheck, SkipForward, Sparkles, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { TokenSelect } from '@/components/ui/token-select';
 import { ReviewActionCard } from '@/features/review/ReviewActionCard';
 import { client } from '@/libs/Orpc';
-import { ReviewTypeChips } from './ReviewTypeChips';
+
+/** One card type pending for the org, with its real count and registered name. */
+type ReviewType = { actionId: string; label: string; count: number };
 
 /**
  * Review — FOCUS MODE with a human header. Every item leads with WHAT is
@@ -76,8 +78,11 @@ export function ReviewFocus() {
   const router = useRouter();
   const params = useSearchParams();
   // The filter lives in the URL: a filtered queue survives a reload and can be
-  // sent to whoever should work it.
-  const activeType = params.get('type');
+  // sent to whoever should work it. Repeated `?type=` params, so several card
+  // types can be worked as one queue.
+  const activeTypes = params.getAll('type').flatMap(v => v.split(',')).filter(Boolean);
+  // The array identity changes every render; the VALUE is what the fetch depends on.
+  const typeKey = activeTypes.join(',');
   const [items, setItems] = useState<ActionRun[]>([]);
   const [types, setTypes] = useState<ReviewType[]>([]);
   const [total, setTotal] = useState(0);
@@ -96,8 +101,9 @@ export function ReviewFocus() {
       // The filter goes to the SERVER, so a filtered queue draws its whole
       // window from the matching rows. Filtering the fetched page instead
       // would show whichever of the newest 50 happened to match.
+      const chosen = typeKey === '' ? [] : typeKey.split(',');
       const [page, present] = await Promise.all([
-        client.review.listPendingActions(activeType ? { actionIds: [activeType] } : {}),
+        client.review.listPendingActions(chosen.length > 0 ? { actionIds: chosen } : {}),
         client.review.listPendingActionTypes(),
       ]);
       setItems(page.items as ActionRun[]);
@@ -109,7 +115,7 @@ export function ReviewFocus() {
       setTotal(0);
     }
     setLoaded(true);
-  }, [activeType]);
+  }, [typeKey]);
 
   useEffect(() => {
     // A new filter is a new queue: the skip/back state belonged to the old one.
@@ -119,20 +125,38 @@ export function ReviewFocus() {
     void refresh();
   }, [refresh]);
 
-  const selectType = (actionId: string | null) => {
-    const next = new URLSearchParams(params.toString());
-    if (actionId) {
-      next.set('type', actionId);
-    } else {
-      next.delete('type');
+  const selectTypes = (next: string[]) => {
+    const qs = new URLSearchParams(params.toString());
+    qs.delete('type');
+    for (const value of next) {
+      qs.append('type', value);
     }
-    const qs = next.toString();
-    router.push(qs ? `/dashboard/review?${qs}` : '/dashboard/review');
+    const search = qs.toString();
+    router.push(search ? `/dashboard/review?${search}` : '/dashboard/review');
   };
 
   const typeTotal = types.reduce((sum, t) => sum + t.count, 0);
-  const chips = (
-    <ReviewTypeChips types={types} active={activeType} total={typeTotal} onSelect={selectType} />
+  const filter = (
+    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="review-type-filter">
+      <TokenSelect
+        label="Filter by card type"
+        options={types.map(t => ({ value: t.actionId, label: t.label, count: t.count }))}
+        selected={activeTypes}
+        onChange={selectTypes}
+        placeholder="Filter by card type — type to search…"
+        emptyLabel={`All types · ${typeTotal}`}
+      />
+      {activeTypes.length === 0 && types.length > 0 && (
+        <span className="text-[11px] text-muted-foreground">
+          {types.length}
+          {' '}
+          card type
+          {types.length === 1 ? '' : 's'}
+          {' '}
+          waiting
+        </span>
+      )}
+    </div>
   );
 
   const queue = [...items.filter(i => !skipped.has(i.id)), ...items.filter(i => skipped.has(i.id))];
@@ -261,19 +285,22 @@ export function ReviewFocus() {
   }
 
   if (!current || !desc) {
-    const activeLabel = types.find(t => t.actionId === activeType)?.label;
+    const chosen = types.filter(ty => activeTypes.includes(ty.actionId));
+    const chosenLabel = chosen.length === 1 ? chosen[0]!.label : null;
     return (
       <>
-        {chips}
+        {filter}
         <div className="rounded-2xl border border-border px-6 py-12 text-center">
           <ShieldCheck className="mx-auto size-8 text-brand-amber-deep" aria-hidden />
           <div className="mt-2 text-base font-semibold">
-            {activeLabel ? `No ${activeLabel} cards left` : 'All caught up'}
+            {chosenLabel
+              ? `No ${chosenLabel} cards left`
+              : activeTypes.length > 0 ? 'None of these types left' : 'All caught up'}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {decided > 0 ? `${decided} handled this session. ` : ''}
-            {activeLabel
-              ? 'Other card types are still waiting — pick All to see them.'
+            {activeTypes.length > 0
+              ? 'Other card types are still waiting — clear the filter to see them.'
               : 'New agent proposals land here for your decision.'}
           </p>
         </div>
@@ -287,7 +314,7 @@ export function ReviewFocus() {
 
   return (
     <>
-      {chips}
+      {filter}
       <div className="flex gap-6" data-testid="review-focus">
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex items-center justify-between px-1">

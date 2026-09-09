@@ -2,9 +2,9 @@ import { ArrowLeft } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { AutomationCardStatus } from '@/features/dashboard/AutomationCardStatus';
-import { AutomationFireStrip } from '@/features/dashboard/AutomationFireStrip';
 import { checkResultOf } from '@/features/dashboard/automationResult';
 import { AutomationRunLog } from '@/features/dashboard/AutomationRunLog';
+import { AutomationRunStrip } from '@/features/dashboard/AutomationRunStrip';
 import { AutomationTestRun } from '@/features/dashboard/AutomationTestRun';
 import { RunLogFilters } from '@/features/dashboard/RunLogFilters';
 import { parseRunLogQuery } from '@/features/dashboard/runLogQuery';
@@ -22,7 +22,7 @@ import {
   scheduleHealth,
 } from '@/services/AutomationService';
 
-/** Two weeks of hourly fires is what makes "healthy for twelve days" visible as such. */
+/** Two weeks of hourly runs is what makes "healthy for twelve days" visible as such. */
 const STRIP_DAYS = 13;
 
 /**
@@ -35,7 +35,7 @@ async function currentTime(): Promise<Date> {
 }
 
 /**
- * One automation: its definition, its fire history as an hourly strip, and the
+ * One automation: its definition, its run history as an hourly strip, and the
  * run log filtered to it.
  *
  * The strip is the picture that had to be built by hand from `psql` to find the
@@ -76,7 +76,7 @@ export default async function AutomationDetailPage(props: {
     }),
   ]);
   // Newest by START time, not by row id: a later-inserted row can be an older
-  // fire, and the stuck 4 September row would otherwise read as "last run".
+  // run, and the stuck 4 September row would otherwise read as "last run".
   const lastRun = strip.runs.reduce<typeof strip.runs[number] | null>(
     (newest, run) => (newest === null || run.startedAt > newest.startedAt ? run : newest),
     null,
@@ -84,13 +84,13 @@ export default async function AutomationDetailPage(props: {
   const freshness = await automationSourceFreshness(orgId, checkResultOf(lastRun?.result)?.mirror?.sources ?? []);
   const health = scheduleHealth({ cron, lastFireAt: lastRun?.startedAt ?? null, paused: live?.paused, now });
   const interval = cron ? cronIntervalMs(cron, now) : null;
-  const firesEveryHour = interval !== null && interval <= 3_600_000;
+  const runsEveryHour = interval !== null && interval <= 3_600_000;
 
   return (
     <>
       <TitleBar
         title={automation.name}
-        description={automation.description ?? 'Fire history and the run log for this automation.'}
+        description={automation.description ?? 'Run history and the run log for this automation.'}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-4">
@@ -99,7 +99,7 @@ export default async function AutomationDetailPage(props: {
           Automations
         </Link>
         <Link href="/dashboard/automation/runs" className="text-xs text-muted-foreground hover:text-foreground">
-          All automations’ fires →
+          All automations’ runs →
         </Link>
       </div>
 
@@ -143,25 +143,25 @@ export default async function AutomationDetailPage(props: {
 
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold">
-          Fire history —
+          Run history —
           {' '}
           {STRIP_DAYS}
           {' '}
           days
         </h2>
-        {/* Empty hours only read as GAPS for a schedule that expects a fire in
+        {/* Empty hours only read as GAPS for a schedule that expects a run in
             every hour. On a daily cron most hours are empty by design, so
             drawing them as gaps would cry outage 23 times a day. */}
-        <AutomationFireStrip runs={strip.runs} days={STRIP_DAYS} expected={firesEveryHour} />
+        <AutomationRunStrip runs={strip.runs} days={STRIP_DAYS} expected={runsEveryHour} />
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold">Fires</h2>
+        <h2 className="mb-3 text-sm font-semibold">Runs</h2>
         <RunLogFilters facets={facets} basePath={`/dashboard/automation/${slug}`} pinnedSlug={slug} />
         <p className="mb-3 text-xs text-muted-foreground">
           {total}
           {' '}
-          fire
+          run
           {total === 1 ? '' : 's'}
           {' '}
           match these filters

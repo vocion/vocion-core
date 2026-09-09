@@ -4,7 +4,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { formatDuration, invokedByLabel, summarizeResult, targetRunHref } from './automationResult';
 
 /**
- * The run log — every fire, one table, newest first.
+ * The run log — every run, one table, newest first.
  *
  * Separate from the automation cards on purpose: a card is the DEFINITION
  * (what it does, when it fires, who owns it) and this is the HISTORY. The
@@ -15,7 +15,7 @@ import { formatDuration, invokedByLabel, summarizeResult, targetRunHref } from '
 const CELL = 'px-3 py-2 align-top';
 
 /**
- * One page of fires.
+ * One page of runs.
  * @param props
  * @param props.runs - The rows to render.
  * @param props.showAutomation - Include the automation column (off on a per-automation page).
@@ -24,7 +24,7 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
   if (runs.length === 0) {
     return (
       <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">
-        No fires recorded for these filters.
+        No runs recorded for these filters.
       </div>
     );
   }

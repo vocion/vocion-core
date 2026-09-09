@@ -7,9 +7,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
  * The run log's filter row.
  *
  * Every control writes to the URL, so the filtered view is shareable and
- * survives a reload. The automation list comes from the fires actually
+ * survives a reload. The automation list comes from the runs actually
  * recorded, never a hardcoded list — a newly authored automation appears here
- * the first time it fires.
+ * the first time it runs.
  * @param props
  * @param props.facets - Values present in the log.
  * @param props.facets.slugs

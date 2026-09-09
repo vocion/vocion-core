@@ -25,7 +25,7 @@ Report the numbers the tools returned, quoting them: the totals, the window each
 
 /**
  * Test-run control for an automation — "does this actually work, and what
- * would it do?" without waiting for the next fire or opening a shell.
+ * would it do?" without waiting for the next scheduled run or opening a shell.
  *
  * Fires the SAME `fireAutomation` path the Temporal schedule uses, so the run
  * exercises the automation's authored `do.input`; only what is passed here
@@ -38,7 +38,7 @@ Report the numbers the tools returned, quoting them: the totals, the window each
  * so a run marked `dry_run = t` ran the full live agent. And the POST held an
  * HTTP connection for the whole agent loop, 2.7 minutes typically and 29 at
  * the August peak. Now: no dry-run claim for a mission check, copy that names
- * the real consequence, and a request that returns as soon as the fire is
+ * the real consequence, and a request that returns as soon as the run is
  * recorded, then polls.
  * @param props
  * @param props.slug
@@ -229,7 +229,7 @@ export function AutomationTestRun({
 
       {started && (
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Fire
+          Run
           {' '}
           <span className="font-mono">
             #
@@ -292,7 +292,7 @@ function isCheckResult(result: unknown): result is AutomationCheckResult {
 }
 
 /**
- * Render the fire's own counts. A mission check answers the four questions the
+ * Render the run's own counts. A mission check answers the four questions the
  * panel exists for; the sweep keeps its counts; anything else falls back to
  * the raw payload, because the control is generic over automations.
  * @param props
@@ -422,7 +422,7 @@ function CheckResult({ result, status }: { result: AutomationCheckResult; status
             : <span className="text-muted-foreground">no window applied — the pass made no in-window CRM read</span>}
         </Row>
         <Row label="Run status">
-          {status === 'error' ? 'the fire failed' : result.missionRunStatus}
+          {status === 'error' ? 'the run failed' : result.missionRunStatus}
           {result.tasks.total > 0 && ` · ${result.tasks.ok}/${result.tasks.total} tasks ok`}
           {result.tasks.failed > 0 && ` · ${result.tasks.failed} failed`}
           {formatDuration(result.durationMs) && ` · ${formatDuration(result.durationMs)}`}
