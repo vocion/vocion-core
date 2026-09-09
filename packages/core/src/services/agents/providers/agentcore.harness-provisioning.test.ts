@@ -215,6 +215,7 @@ describe('harness already recorded on the agent row', () => {
   });
 
   it('provisions a new harness when the recorded one has been deleted out from under us', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { ResourceNotFoundException } = await import('@aws-sdk/client-bedrock-agentcore-control');
     let getCalls = 0;
     const newArn = 'arn:aws:bedrock-agentcore:us-west-2:111122223333:harness/harness-new';
@@ -237,6 +238,11 @@ describe('harness already recorded on the agent row', () => {
 
     await expect(syncAgentCoreHarness(ORG_A, SLUG)).resolves.toBe(newArn);
     expect(sentCommands().some(c => c instanceof CreateHarnessCommand)).toBe(true);
+    // The row pointed somewhere real once, so say so rather than replacing the
+    // harness silently.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no longer exists'));
+
+    warn.mockRestore();
   });
 });
 
