@@ -521,9 +521,10 @@ async function resolveAccountableUser(
  *   invisible from the app, so the only way to find one was to read the
  *   AgentCore console.
  *
- * The teardown is addressed by the ARN on the row, never by a name lookup:
- * harness names carry no org, so two orgs whose agents share a slug map to one
- * name, and a lookup would let one org's apply delete the other's harness.
+ * The teardown is addressed by the ARN on the row, never by a name lookup, so
+ * it can only ever reach the harness this org's own row points at — including
+ * an agent provisioned before harness names carried an org, whose bare
+ * `vocion_<slug>` name a lookup could match for a different org.
  *
  * `runsOn` is already canonical here — `AgentManifestSchema` folds the
  * pre-rename spellings (`provider:`, `agentcore`, `runtime`) into the three
