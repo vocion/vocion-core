@@ -71,8 +71,8 @@ export default defineConfig<ChromaticConfig>({
       dependencies: ['setup'],
     },
     // The headless usage-video tour (F1 storyboard). Self-seeding: signs up
-    // the first-run admin on a FRESH PGlite DB, so no Clerk setup project
-    // and no dependencies. One long cinematic spec — generous timeout.
+    // the first-run admin on a FRESH PGlite DB, so no `setup` project
+    // dependency. One long cinematic spec — generous timeout.
     // Run with: npx playwright test --project=tour  (see e2e/tour/README.md)
     {
       name: 'tour',
@@ -82,7 +82,7 @@ export default defineConfig<ChromaticConfig>({
       use: { ...devices['Desktop Chrome'], video: 'on', trace: 'off' },
     },
     // The review-queue end-to-end specs. Self-seeding like `tour` (the sign-up
-    // route is invite-only), so no Clerk setup project and no dependencies.
+    // route is invite-only), so no `setup` project dependency.
     // Run with: npx playwright test --project=queue
     {
       name: 'queue',
@@ -116,7 +116,7 @@ export default defineConfig<ChromaticConfig>({
       : []),
     // The API credentials matrix (platforms, validation, expiry rules).
     // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
-    // so no Clerk setup project and no dependencies.
+    // so no `setup` project dependency.
     // Run with: npx playwright test --project=credentials
     {
       name: 'credentials',

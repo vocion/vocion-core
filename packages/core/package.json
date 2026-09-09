@@ -139,7 +139,6 @@
   },
   "devDependencies": {
     "@chromatic-com/playwright": "^0.12.8",
-    "@clerk/testing": "^1.14.3",
     "@electric-sql/pglite-socket": "^0.0.20",
     "@faker-js/faker": "^10.3.0",
     "@lingual/i18n-check": "^0.8.19",
