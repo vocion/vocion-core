@@ -146,6 +146,7 @@ describe('notionConnector', () => {
     expect(init.method).toBe('POST');
     expect((init.headers as Record<string, string>)['notion-version']).toBe('2025-09-03');
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer secret_tok');
+
     const body = JSON.parse(String(init.body));
 
     expect(body.filter).toBeUndefined();
@@ -161,6 +162,7 @@ describe('notionConnector', () => {
     const docs = await collect(notionConnector.sync(ctx()));
 
     expect(docs.map(d => d.externalId)).toEqual(['notion-database:db-1', 'notion-database:db-2']);
+
     const secondBody = JSON.parse(String((fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body));
 
     expect(secondBody.start_cursor).toBe('cur-2');
@@ -180,6 +182,7 @@ describe('notionConnector', () => {
     const docs = await collect(notionConnector.sync(ctx({ since: new Date('2026-08-01T00:00:00.000Z') })));
 
     expect(docs.map(d => d.externalId)).toEqual(['notion-database:fresh']);
+
     const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
 
     expect(body.sort.direction).toBe('descending');
@@ -243,6 +246,7 @@ describe('notionConnector', () => {
     expect(docs[0]!.content).not.toContain('Owner: Support');
     // Call order: search, the page's first block page, the toggle's children
     // (recursed inline), then the page's second block page.
+
     const blockUrls = fetchMock.mock.calls.slice(1).map(c => String((c as unknown as [string])[0]));
 
     expect(blockUrls[0]).toContain('/blocks/p1/children');
@@ -263,9 +267,11 @@ describe('notionConnector', () => {
 
   it('fails actionably on a missing token, a revoked token, and an unshared page', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => res({}, 200)));
+
     await expect(collect(notionConnector.sync(ctx({ credentials: {} })))).rejects.toThrow(/credentials\.token/);
 
     vi.stubGlobal('fetch', vi.fn(async () => res({ message: 'unauthorized' }, 401)));
+
     await expect(collect(notionConnector.sync(ctx()))).rejects.toThrow(/revoked/);
 
     vi.stubGlobal('fetch', vi.fn(async () => res({ message: 'restricted' }, 403)));
