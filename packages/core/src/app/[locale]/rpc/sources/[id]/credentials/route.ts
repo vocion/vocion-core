@@ -33,6 +33,7 @@
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
+import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { CredentialValidationError, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } from '@/services/ApiTokenService';
 import {
@@ -130,8 +131,20 @@ export async function GET(
         error: err.message,
       });
     }
+    // Only `VaultDecryptionError` reaches the screen — its contract is that
+    // the message names a cause and a fix and holds no secret. A raw one can
+    // carry a constraint detail or a connection string. Log either way: the
+    // operator who can act on this reads the server log, not the browser.
+    const isSafeToShow = err instanceof VaultDecryptionError;
+    console.error('[rpc/sources/credentials] could not read credentials for connector', {
+      connectorSlug,
+      message: err instanceof Error ? err.message : String(err),
+      // The vault keeps Node's own wording out of the message it hands the
+      // dashboard. The log is where that half belongs.
+      cause: err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined,
+    });
     return Response.json(
-      { error: err instanceof Error ? err.message : String(err) },
+      { error: isSafeToShow ? err.message : 'Could not read the stored credential.' },
       { status: 500 },
     );
   }
@@ -320,11 +333,19 @@ export async function POST(
     });
     return Response.json({ ok: true, credentialId });
   } catch (err) {
+    // Same gate as the GET catch and the rotate and link branches. A raw
+    // message here can carry the vault's missing-key refusal — env-var names
+    // and a KMS ARN, operator remediation handed to whoever clicked Save.
+    const isSafeToShow = err instanceof VaultDecryptionError || err instanceof CredentialValidationError;
     const message = err instanceof Error ? err.message : String(err);
     console.error('[rpc/sources/credentials] could not store install credential', {
       connectorSlug,
       message,
+      cause: err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined,
     });
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json(
+      { error: isSafeToShow ? message : 'Could not save the credential.' },
+      { status: 500 },
+    );
   }
 }
