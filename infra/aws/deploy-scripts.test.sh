@@ -865,6 +865,192 @@ test_check_mode_reports_concurrent_builds_without_running_them() {
   fi
 }
 
+test_verify_indexes_passes_when_the_build_landed() {
+  echo "apply-migrations: --verify-indexes, index present"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_concurrent_migration 0000_organization_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_verified_idx" ON "organization" ("id");'
+  run_applier
+  check_exit_code "the apply run exits 0" 0 "${APPLIER_EXIT}"
+  run_applier_with_flags --verify-indexes
+  check_exit_code "verify exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "says what it checked" "${APPLIER_OUTPUT}" \
+    "all 1 concurrent index build(s) present and valid"
+}
+
+test_verify_indexes_catches_a_skipped_directory() {
+  echo "apply-migrations: --verify-indexes, build never applied"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  run_applier
+  # The directory appears only after the migrations ran, standing in for a
+  # parent project whose own applier never looked at it.
+  write_concurrent_migration 0000_organization_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_never_built_idx" ON "organization" ("id");'
+  run_applier_with_flags --verify-indexes
+  check_exit_code "verify exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "names the missing index" "${APPLIER_OUTPUT}" "organization_never_built_idx — MISSING"
+  check_contains "points at the convention" "${APPLIER_OUTPUT}" "CONVENTIONS.md"
+}
+
+test_verify_indexes_catches_an_invalid_index() {
+  echo "apply-migrations: --verify-indexes, INVALID index left by a failed build"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  run_applier
+  # Mark a real index invalid, which is the state a concurrent build that dies
+  # partway leaves behind: present, never used, and skipped by IF NOT EXISTS.
+  query_test_database 'CREATE INDEX "organization_half_built_idx" ON "organization" ("id");' >/dev/null
+  query_test_database "UPDATE pg_index SET indisvalid = false WHERE indexrelid = '\"organization_half_built_idx\"'::regclass;" >/dev/null
+  write_concurrent_migration 0000_organization_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_half_built_idx" ON "organization" ("id");'
+  run_applier_with_flags --verify-indexes
+  check_exit_code "verify exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "names the invalid index" "${APPLIER_OUTPUT}" "organization_half_built_idx — INVALID"
+}
+
+test_verify_indexes_with_nothing_declared() {
+  echo "apply-migrations: --verify-indexes with no concurrent directory"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  run_applier
+  run_applier_with_flags --verify-indexes
+  check_exit_code "verify exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "says there is nothing to check" "${APPLIER_OUTPUT}" "nothing to verify"
+}
+
+test_verify_indexes_writes_nothing() {
+  echo "apply-migrations: --verify-indexes creates no tracking table"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  # A database this script has never touched. Verification must read it and
+  # stop, not baseline it or apply anything.
+  run_applier_with_flags --verify-indexes
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  local tracking organization
+  tracking=$(query_test_database "SELECT count(*) FROM information_schema.tables WHERE table_name = '__pgsql_migrations';")
+  organization=$(query_test_database "SELECT count(*) FROM information_schema.tables WHERE table_name = 'organization';")
+  if [ "${tracking}" = "0" ]; then
+    pass "no tracking table was created"
+  else
+    fail "no tracking table was created" "__pgsql_migrations exists"
+  fi
+  if [ "${organization}" = "0" ]; then
+    pass "no migration was applied"
+  else
+    fail "no migration was applied" "0000 ran under --verify-indexes"
+  fi
+}
+
+test_verify_indexes_names_the_file_and_the_command() {
+  echo "apply-migrations: --verify-indexes output is actionable"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  run_applier
+  write_concurrent_migration 0000_organization_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_actionable_idx" ON "organization" ("id");'
+  run_applier_with_flags --verify-indexes
+  check_contains "names the file that declares it" "${APPLIER_OUTPUT}" "0000_organization_index.sql"
+  check_contains "gives a runnable build command" "${APPLIER_OUTPUT}" "psql -U postgres -d vocion"
+  check_contains "says it is slow, not down" "${APPLIER_OUTPUT}" "slower, not down"
+}
+
+test_verify_indexes_ignores_a_name_in_a_comment() {
+  echo "apply-migrations: --verify-indexes, index named only in a comment"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_concurrent_migration 0000_organization_index.sql \
+    '-- CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_commented_idx" ON "organization" ("id");
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_real_idx" ON "organization" ("id");'
+  run_applier
+  run_applier_with_flags --verify-indexes
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "counts only the real one" "${APPLIER_OUTPUT}" "verifying 1 concurrent index build(s)"
+  check_absent "does not report the commented name" "${APPLIER_OUTPUT}" "organization_commented_idx"
+}
+
+test_verify_indexes_with_a_drop_only_file() {
+  echo "apply-migrations: --verify-indexes, concurrent file that only drops"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_concurrent_migration 0000_drop_only.sql 'DROP INDEX IF EXISTS "organization_retired_idx";'
+  run_applier
+  run_applier_with_flags --verify-indexes
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "says the directory declares nothing" "${APPLIER_OUTPUT}" "declares no index builds"
+}
+
+test_verify_indexes_counts_a_repeated_name_once() {
+  echo "apply-migrations: --verify-indexes, same index named by two files"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_concurrent_migration 0000_a.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_shared_idx" ON "organization" ("id");'
+  write_concurrent_migration 0000_b.sql \
+    'DROP INDEX IF EXISTS "organization_shared_idx";
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_shared_idx" ON "organization" ("id");'
+  run_applier
+  run_applier_with_flags --verify-indexes
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "counts the name once" "${APPLIER_OUTPUT}" "verifying 1 concurrent index build(s)"
+}
+
+test_verify_indexes_checks_a_unique_build() {
+  echo "apply-migrations: --verify-indexes, UNIQUE concurrent build"
+  reset_database
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  # check:migrations refuses UNIQUE in this directory, but verification reports
+  # on whatever is actually present.
+  write_concurrent_migration 0000_unique_index.sql \
+    'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "organization_unique_idx" ON "organization" ("id");'
+  run_applier
+  run_applier_with_flags --verify-indexes
+  check_exit_code "exits 0" 0 "${APPLIER_EXIT}"
+  check_contains "verified the unique build" "${APPLIER_OUTPUT}" "1 concurrent index build(s) present and valid"
+}
+
+test_verify_indexes_refuses_to_be_combined() {
+  echo "apply-migrations: --verify-indexes is not combinable"
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  run_applier_with_flags --verify-indexes --check
+  check_exit_code "with --check, exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "says why" "${APPLIER_OUTPUT}" "cannot be combined with --check"
+  run_applier_with_flags --verify-indexes --baseline all
+  check_exit_code "with --baseline, exits non-zero" nonzero "${APPLIER_EXIT}"
+  check_contains "says why" "${APPLIER_OUTPUT}" "cannot be combined with --baseline"
+}
+
+test_verify_indexes_on_an_unreachable_container() {
+  echo "apply-migrations: --verify-indexes against an unreachable container"
+  clear_migrations
+  write_migration 0000_first.sql "${FIRST_MIGRATION}"
+  write_concurrent_migration 0000_organization_index.sql \
+    'CREATE INDEX CONCURRENTLY IF NOT EXISTS "organization_unreachable_idx" ON "organization" ("id");'
+  APPLIER_OUTPUT=$(
+    env PATH="${SHIM_DIR}:${PATH}" \
+      POSTGRES_CONTAINER="no-such-container-here" \
+      POSTGRES_DB="${DB_NAME}" \
+      POSTGRES_USER="${DB_USER}" \
+      MIGRATIONS_DIR="${MIGRATIONS_FIXTURE}" \
+      POSTGRES_READINESS_ATTEMPTS=1 \
+      bash "${SCRIPT_DIR}/apply-migrations.sh" --verify-indexes 2>&1
+  )
+  APPLIER_EXIT=$?
+  check_exit_code "exits non-zero rather than reporting success" nonzero "${APPLIER_EXIT}"
+}
+
 test_unreachable_container_fails_loudly() {
   echo "apply-migrations: unreachable container"
   run_applier POSTGRES_CONTAINER=vocion-no-such-container POSTGRES_READINESS_ATTEMPTS=2
@@ -1153,6 +1339,18 @@ main() {
   test_two_concurrent_builds_share_one_number
   test_failing_concurrent_build_stops_the_run
   test_check_mode_reports_concurrent_builds_without_running_them
+  test_verify_indexes_passes_when_the_build_landed
+  test_verify_indexes_catches_a_skipped_directory
+  test_verify_indexes_catches_an_invalid_index
+  test_verify_indexes_with_nothing_declared
+  test_verify_indexes_writes_nothing
+  test_verify_indexes_names_the_file_and_the_command
+  test_verify_indexes_ignores_a_name_in_a_comment
+  test_verify_indexes_with_a_drop_only_file
+  test_verify_indexes_counts_a_repeated_name_once
+  test_verify_indexes_checks_a_unique_build
+  test_verify_indexes_refuses_to_be_combined
+  test_verify_indexes_on_an_unreachable_container
   test_unreachable_container_fails_loudly
   test_default_container_and_database_match_compose
 

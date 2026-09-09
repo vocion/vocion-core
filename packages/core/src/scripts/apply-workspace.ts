@@ -2,7 +2,7 @@ import process from 'node:process';
 import { parseArgs } from 'node:util';
 import { eq, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { applyWorkspace, getWorkspacePath, loadWorkspace, WorkspaceValidationError } from '@/libs/workspace';
+import { applyWorkspace, getWorkspacePath, loadWorkspace, WorkspaceTemplateError, WorkspaceValidationError } from '@/libs/workspace';
 import { projectSchema } from '@/models/Schema';
 import 'dotenv/config';
 
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
   try {
     loaded = loadWorkspace(contextPath);
   } catch (err) {
-    if (err instanceof WorkspaceValidationError) {
+    if (err instanceof WorkspaceValidationError || err instanceof WorkspaceTemplateError) {
       console.error(`\n✗ ${err.message}\n`);
       process.exit(2);
     }

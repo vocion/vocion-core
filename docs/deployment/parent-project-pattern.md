@@ -120,6 +120,60 @@ makes that impossible.
 Phase 2 is a separate action because it needs Docker and builds a linux/arm64
 image. A plain infrastructure change shouldn't require either.
 
+### Migrations are the same rule, and this is where it has already bitten
+
+Call `vocion-core/infra/aws/apply-migrations.sh`. Do not write your own loop
+over `packages/core/migrations/*.sql`.
+
+```bash
+sudo MIGRATIONS_DIR=<checkout>/vocion-core/packages/core/migrations \
+  POSTGRES_CONTAINER=<your-pg-container> POSTGRES_DB=<your-db> \
+  bash <checkout>/vocion-core/infra/aws/apply-migrations.sh
+```
+
+A hand-rolled loop looks like four lines and works, right up until core adds
+something the loop does not know about. Core keeps a second class of migration
+in `packages/core/migrations/concurrent/` — index builds written as
+`CREATE INDEX CONCURRENTLY`, because a plain `CREATE INDEX` on a populated
+table blocks every write to it until the build finishes. A non-recursive glob
+skips that directory in silence: the numbered migration lands, the index build
+does not, and the deploy reports success.
+
+That is not hypothetical. `Veerio-Life/veerio-vocion` applies migrations from
+its own `apply-workspace.sh` with exactly such a glob, so core's applier has
+never run there — confirmed against both of its environments, whose migration
+history lives in a `schema_migration` table core knows nothing about.
+
+Calling core's script also gets you the parts nobody thinks to write twice: the
+baselining path for a database whose schema predates the tracking table,
+dropping `--single-transaction` only for the statements Postgres actually
+refuses inside one, and stopping rather than skipping ahead when a migration
+fails.
+
+**If a parent project must keep its own applier**, end its deploy with:
+
+```bash
+sudo MIGRATIONS_DIR=... POSTGRES_CONTAINER=... POSTGRES_DB=... \
+  bash <checkout>/vocion-core/infra/aws/apply-migrations.sh --verify-indexes
+```
+
+That reads the database and nothing else — no tracking table, no baselining, no
+migrations — and exits non-zero naming any index declared in `concurrent/` that
+is missing, or that a failed build left `INVALID` (present, never used, and
+skipped forever by `IF NOT EXISTS`). It turns the silent case into a failed
+deploy.
+
+**Moving an existing project onto core's applier** needs one baseline, because
+its history is in its own table and core's applier reads `__pgsql_migrations`:
+
+```bash
+# once, on the box, after confirming the schema is current
+sudo ... bash .../apply-migrations.sh --baseline all
+```
+
+Then every later deploy is a normal run. Run `--check` first to see what it
+would do.
+
 ### Wire the app to the runtime
 
 Provisioning creates the runtime. It does not tell the app to use it — that is
@@ -231,6 +285,38 @@ changes, not when an agent is edited.
 
 ---
 
+## Only if you use the AWS-managed harness: its execution role
+
+Most deployments run agents in **our own container** (`harness.runsOn:
+agentcore-container`), and need none of this. Nothing in that path touches a
+harness, an execution role, or IAM.
+
+An agent set to `aws-managed-harness` is different: AWS runs the agent loop,
+and the harness needs an IAM role to assume. `syncAgentCoreHarness` derives it
+as `arn:aws:iam::<account>:role/VocionAgentCoreHarnessRole` from whatever
+account the app is running in — and **nothing creates that role**. The parent
+project used to make it on every `deploy.sh agentcore` run, which was removed
+on purpose: choosing our own container should not provision harness
+scaffolding as a side effect.
+
+So one of these, before the first `workspace:apply` that has such an agent:
+
+- Create `VocionAgentCoreHarnessRole` in the client's account, trusting
+  `bedrock-agentcore.amazonaws.com`, with whatever Bedrock model access that
+  agent needs. Make it Terraform, not a console click — see the box role in
+  `infra/terraform/main.tf` for the shape.
+- Or set `VOCION_AGENTCORE_ROLE_ARN` in the app's environment to a role that
+  already exists. It skips the derivation entirely, name and all.
+
+The box role also needs `bedrock-agentcore:DeleteHarness` **and**
+`bedrock-agentcore:DeleteAgentRuntime`. AWS authorizes `DeleteHarness` as both,
+because the harness owns a runtime underneath it and deleting the harness
+deletes that runtime too. Without the second, an agent moving off
+`aws-managed-harness` fails to tear its harness down and the whole
+`workspace:apply` exits non-zero.
+
+---
+
 ## Gotchas
 
 Three defaults that are wrong for any client outside `us-east-1`:
@@ -310,6 +396,27 @@ deploy.
 
 Editing an agent's YAML never needs a container deploy — the artifact is
 generic, so agent definitions travel in the invocation payload.
+
+## Migrations: call core's applier
+
+Apply migrations by calling core's script, never by looping over
+`packages/core/migrations/*.sql` here:
+
+    sudo MIGRATIONS_DIR=/opt/<project>/vocion-core/packages/core/migrations \
+      POSTGRES_CONTAINER=<pg-container> POSTGRES_DB=<database> \
+      bash /opt/<project>/vocion-core/infra/aws/apply-migrations.sh
+
+Core keeps index builds that must not lock the table in
+`packages/core/migrations/concurrent/`. A glob over the migrations directory
+skips that subdirectory silently — the schema change lands, the index does
+not, and the deploy still reports success.
+
+If this project keeps its own applier, end every deploy with the same script
+under `--verify-indexes`. It reads the database and nothing else, and fails
+naming any of those index builds that is missing or `INVALID`:
+
+    sudo MIGRATIONS_DIR=... POSTGRES_CONTAINER=... POSTGRES_DB=... \
+      bash .../vocion-core/infra/aws/apply-migrations.sh --verify-indexes
 ```
 
 ---
