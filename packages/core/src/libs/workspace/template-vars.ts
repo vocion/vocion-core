@@ -27,7 +27,10 @@
  *
  * Anything that is not exactly an `{{env.NAME}}` token is left alone,
  * so a skill that documents Handlebars, Jinja, or Liquid syntax still
- * reaches the agent verbatim.
+ * reaches the agent verbatim. The base pack shipped inside vocion-core
+ * is never substituted — it is shared by every tenant, and a token in
+ * it would fail the apply of every workspace that had not allowlisted
+ * that name.
  *
  * Substitution happens at the two places a workspace file body is read:
  * the apply path in `loader.ts` (so the stored `contentSha` is the sha
@@ -109,7 +112,17 @@ export function substituteEnvTokens(content: string, file: string): string {
       throw new WorkspaceTemplateError(
         file,
         variableName,
-        `is allowlisted but ${variableName} is not set in this process's environment`,
+        `is allowlisted but ${variableName} has no value — set it in this process's environment (the app and the Temporal worker both need it)`,
+      );
+    }
+    // A YAML workspace file is substituted before it is parsed, so a
+    // value carrying a line break would splice new lines into the
+    // document and fail somewhere unrelated to the real cause.
+    if (value.includes('\n') || value.includes('\r')) {
+      throw new WorkspaceTemplateError(
+        file,
+        variableName,
+        `resolves to a value containing a line break, which would corrupt the file it is substituted into — give ${variableName} a single-line value`,
       );
     }
     return value;

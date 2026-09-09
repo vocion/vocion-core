@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
@@ -42,6 +42,11 @@ mkdirSync(join(TEMPLATED_WORKSPACE, 'playbooks', 'house-style'), { recursive: tr
 writeFileSync(
   join(TEMPLATED_WORKSPACE, 'playbooks', 'house-style', 'SKILL.md'),
   '# House style\n\nFetch {{env.VEERIO_API_URL}}/api/sources.\n',
+);
+mkdirSync(join(TEMPLATED_WORKSPACE, 'skills', 'pipeline-health'), { recursive: true });
+writeFileSync(
+  join(TEMPLATED_WORKSPACE, 'skills', 'pipeline-health', 'SKILL.md'),
+  '# Pipeline health\n\nCall {{env.VEERIO_API_URL}}/api/pipeline.\n',
 );
 
 const ORIGINAL_PATH = process.env.WORKSPACE_PATH;
@@ -72,6 +77,16 @@ beforeEach(async () => {
       contentSha: 'sha-house-style',
       sourceFiles: [],
     },
+    {
+      orgId: ORG,
+      slug: 'pipeline-health',
+      name: 'Pipeline health',
+      description: 'A base-pack skill the workspace also carries a copy of.',
+      kind: 'skill',
+      origin: 'override',
+      contentSha: 'sha-pipeline-health',
+      sourceFiles: [],
+    },
   ]);
 });
 
@@ -87,6 +102,12 @@ function restoreEnvVar(name: string, original: string | undefined): void {
     process.env[name] = original;
   }
 }
+
+afterEach(() => {
+  restoreEnvVar('WORKSPACE_PATH', ORIGINAL_PATH);
+  restoreEnvVar('WORKSPACE_TEMPLATE_VARS', ORIGINAL_ALLOWLIST);
+  restoreEnvVar('VEERIO_API_URL', ORIGINAL_API_URL);
+});
 
 afterAll(async () => {
   await db.delete(playbookSchema);
@@ -157,6 +178,26 @@ describe('mountSkills', () => {
     await expect(
       mountSkills({ orgId: ORG, skillSlugs: [], playbookSlugs: ['house-style'] }),
     ).rejects.toThrow(/VEERIO_API_URL/);
+  });
+
+  it('an override row whose workspace copy has an unresolvable token fails instead of quietly serving the base copy', async () => {
+    // The base pack has a pipeline-health skill, so a silent fallback
+    // here would hand the agent the WRONG body and look like success.
+    process.env.WORKSPACE_PATH = TEMPLATED_WORKSPACE;
+    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
+    delete process.env.VEERIO_API_URL;
+
+    await expect(
+      mountSkills({ orgId: ORG, skillSlugs: ['pipeline-health'], playbookSlugs: [] }),
+    ).rejects.toThrow(/VEERIO_API_URL/);
+  });
+
+  it('falls back to the base copy when the workspace file is simply absent', async () => {
+    process.env.WORKSPACE_PATH = join(ROOT, 'nowhere');
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: ['pipeline-health'], playbookSlugs: [] });
+
+    expect(files['/skills/pipeline-health/SKILL.md']).toContain('pipeline');
   });
 
   it('never mounts a slug the caller did not name as the right kind', async () => {

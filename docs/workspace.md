@@ -254,12 +254,42 @@ plausible one.
 `{{#each items}}`, and `{{ENV.SHOUTED}}` all reach the agent verbatim, so
 a skill can document Handlebars, Jinja, or Liquid syntax.
 
+**Give a variable a single-line value.** A workspace file is substituted
+before it is parsed, so a value carrying a line break would splice extra
+lines into the YAML and fail somewhere unrelated to the real cause. A
+multi-line value is rejected by name instead.
+
+**When a token resolves depends on where its file ends up.** Two rules,
+because `workspace apply` stores some things and leaves others on disk:
+
+| File | Resolves | So… |
+|---|---|---|
+| `skills/` and `playbooks/` bodies | Every time an agent mounts them | Change the variable, restart the process, done. |
+| Everything the applier stores — agent system prompts, missions, automations, object types, the manifest | At `workspace apply` | Change the variable and **re-run apply**, or the stored value stays as it was. |
+
+Substituted text is what gets hashed into `contentSha` and the audit
+trail, so `git show <workspace_sha>` shows the authored token while the
+database holds the resolved value. That is deliberate — the git tree
+stays portable between boxes.
+
 **Where substitution applies:** every workspace `.md` and `.yaml` the
 loader reads (`skills/`, `playbooks/`, `agents/`, `missions/`,
 `automations/`, `objects/`, `workflows/`, `sources/`, and the manifest),
-and every skill or playbook body mounted for an agent. The dashboard's
-raw file browser under Workspace shows files as authored, tokens
-included — it is a view of the git tree, not of what the agent sees.
+every skill or playbook body mounted for an agent, and workspace
+`pages/` (including `tour.yaml`), which render to end users.
+
+**Where it does not:**
+
+- **The base pack** shipped inside vocion-core. It is the same bytes for
+  every tenant, so a token in it would fail the apply of every workspace
+  that had not allowlisted that name. A workspace file that *overrides* a
+  base skill is a tenant file, and does substitute.
+- **The raw file views** — the Workspace file browser, and the agent and
+  mission drilldowns. Those show a file as authored, tokens included:
+  they are a view of the git tree, not of what the agent sees. The skill
+  and playbook detail pages show the resolved body, because that is
+  exactly what the agent reads; if a token there cannot be resolved, the
+  page says so instead of rendering.
 
 ## Audit trail
 

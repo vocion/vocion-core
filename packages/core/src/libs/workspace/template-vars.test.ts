@@ -97,14 +97,31 @@ describe('substituteEnvTokens', () => {
 
     expect(substitute).toThrow(WorkspaceTemplateError);
     expect(substitute).toThrow(/missions\/ingest\.yaml/);
-    expect(substitute).toThrow(/is not set in this process's environment/);
+    expect(substitute).toThrow(/has no value/);
   });
 
   it('treats a blank value as unset — an empty URL fails later and further away', () => {
     process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
     process.env.VEERIO_API_URL = '   ';
 
-    expect(() => substituteEnvTokens('{{env.VEERIO_API_URL}}', 'f.md')).toThrow(/is not set/);
+    expect(() => substituteEnvTokens('{{env.VEERIO_API_URL}}', 'f.md')).toThrow(/has no value/);
+  });
+
+  it('rejects a value with a line break, which would splice new lines into a YAML file', () => {
+    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
+    process.env.VEERIO_API_URL = 'https://api.veerio.app\nextraKey: injected';
+
+    const substitute = () => substituteEnvTokens('base: {{env.VEERIO_API_URL}}', 'missions/ingest.yaml');
+
+    expect(substitute).toThrow(WorkspaceTemplateError);
+    expect(substitute).toThrow(/line break/);
+  });
+
+  it('rejects a value with a carriage return too', () => {
+    process.env.WORKSPACE_TEMPLATE_VARS = 'PORTAL_HOST';
+    process.env.PORTAL_HOST = 'portal.example.com\r';
+
+    expect(() => substituteEnvTokens('{{env.PORTAL_HOST}}', 'f.yaml')).toThrow(/line break/);
   });
 
   it('leaves Handlebars-like text that is not an env token completely alone', () => {

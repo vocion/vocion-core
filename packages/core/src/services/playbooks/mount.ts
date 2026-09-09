@@ -21,17 +21,19 @@
  *
  * Per-tenant isolation is enforced by `orgId`-scoped DB queries.
  *
- * Every body read here passes through `{{env.NAME}}` substitution (see
- * `libs/workspace/template-vars.ts`), so an agent never sees a raw
- * deployment token. An unresolvable token throws rather than mounting.
+ * Every WORKSPACE body read here passes through `{{env.NAME}}`
+ * substitution (see `libs/workspace/template-vars.ts`), so an agent
+ * never sees a raw deployment token. An unresolvable token throws
+ * rather than mounting. Base-pack bodies are served as shipped — the
+ * pack is shared by every tenant and carries no per-box values.
  */
 
-import { existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { getWorkspacePath } from '@/libs/workspace/reader';
-import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
+import { substituteEnvTokens } from '@/libs/workspace/template-vars';
 import { playbookSchema } from '@/models/Schema';
 
 const PACK_ROOT = 'packages/core/templates/base';
@@ -130,20 +132,33 @@ export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, 
   };
   const packFile = (): string => fromRepoRoot(PACK_ROOT, dirName, row.slug, rel);
 
-  const candidates = row.origin === 'core'
-    ? [packFile()]
+  // Each candidate is tagged with where it came from, because only the
+  // tenant's own workspace files carry {{env.NAME}} tokens. The base
+  // pack is shared by every tenant, so substituting it would let one
+  // shipped example fail everyone's apply.
+  const candidates: Array<{ path: string | null; isWorkspaceFile: boolean }> = row.origin === 'core'
+    ? [{ path: packFile(), isWorkspaceFile: false }]
     : row.origin === 'override'
-      ? [workspaceFile(), packFile()]
-      : [workspaceFile()];
+      ? [{ path: workspaceFile(), isWorkspaceFile: true }, { path: packFile(), isWorkspaceFile: false }]
+      : [{ path: workspaceFile(), isWorkspaceFile: true }];
 
   for (const candidate of candidates) {
-    // A missing candidate falls through to the next origin; a file that
-    // exists but cannot be read or templated must NOT be swallowed —
-    // serving a half-resolved body to an agent is worse than failing.
-    if (!candidate || !existsSync(candidate)) {
+    if (!candidate.path) {
       continue;
     }
-    return readWorkspaceTextFile(candidate);
+    let raw: string;
+    try {
+      raw = readFileSync(candidate.path, 'utf8');
+    } catch {
+      // The file isn't there (or isn't readable) — try the next origin.
+      // A workspace row whose file has been renamed simply doesn't mount;
+      // re-running workspace:apply cleans the row up.
+      continue;
+    }
+    // Substitution failures are deliberately NOT caught: an agent handed
+    // a raw {{env.NAME}} reads it as a real value and invents one, which
+    // is much harder to notice than a run that stops.
+    return candidate.isWorkspaceFile ? substituteEnvTokens(raw, candidate.path) : raw;
   }
   return null;
 }

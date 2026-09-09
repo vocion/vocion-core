@@ -3,7 +3,7 @@ import type { ComposedEntry, FolderEntry, PackRaw, RawEntry } from './compose';
 import type { Origin } from './merge';
 import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { isSurfaceId, SURFACE_IDS } from '@/features/navigation/surfaces';
@@ -458,7 +458,8 @@ function loadPackRaw(pack: LoadedPack): PackRaw {
 function readPackFolders(root: string, dirName: 'skills' | 'playbooks'): Map<string, FolderEntry> {
   const map = new Map<string, FolderEntry>();
   for (const file of walkDir(join(root, dirName)).filter(f => basename(f) === 'SKILL.md')) {
-    const fm = parseFrontmatter(readWorkspaceTextFile(file), file);
+    // Base pack, not a tenant file: no {{env.NAME}} substitution.
+    const fm = parseFrontmatter(readFileSync(file, 'utf8'), file);
     const data = fm.data as { slug?: unknown; playbooks?: unknown } | null;
     const slug = typeof data?.slug === 'string' ? data.slug : '';
     if (!slug) {
@@ -531,7 +532,7 @@ function composeFolders(
       throw new Error(`base pack ${kind} "${slug}" is missing its SKILL.md at ${file}`);
     }
     // Base files are not sha-tracked; the pinned pack version covers them.
-    out.push({ ...loadPlaybook(file, kind, []), origin: 'core' });
+    out.push({ ...loadPlaybook(file, kind, [], false), origin: 'core' });
   }
 
   return out;
@@ -545,11 +546,12 @@ function readPackKind(
 ): Map<string, RawEntry> {
   const map = new Map<string, RawEntry>();
   for (const file of walkDir(join(root, dirName)).filter(matches)) {
-    const raw = (parseYaml(readWorkspaceTextFile(file)) ?? {}) as Record<string, unknown>;
+    // Base pack, not a tenant file: no {{env.NAME}} substitution.
+    const raw = (parseYaml(readFileSync(file, 'utf8')) ?? {}) as Record<string, unknown>;
     for (const { file: fileKey, inline } of promptFields) {
       const rel = raw[fileKey];
       if (typeof rel === 'string' && rel) {
-        raw[inline] = readWorkspaceTextFile(resolve(dirname(file), rel)).trim();
+        raw[inline] = readFileSync(resolve(dirname(file), rel), 'utf8').trim();
         delete raw[fileKey];
       }
     }
@@ -586,12 +588,24 @@ function validateOrThrow<T>(schema: ZodType<T>, value: unknown, file: string, ki
  * {@link PlaybookManifestSchema}, compute a SHA-256 of the body, and
  * discover sibling resource files. Origin defaults to 'workspace'; the
  * folder compose overrides it for base and override entries.
- * @param file
- * @param kind
- * @param filesTracked
+ *
+ * `isWorkspaceFile` is false for a base-pack folder, which is read
+ * exactly as shipped — see `template-vars.ts` for why the pack is
+ * excluded from substitution.
+ * @param file - absolute path to the SKILL.md.
+ * @param kind - skill or playbook.
+ * @param filesTracked - collects sibling paths for the workspace sha.
+ * @param isWorkspaceFile - false for a base-pack folder (no substitution).
  */
-function loadPlaybook(file: string, kind: 'skill' | 'playbook', filesTracked: string[]): LoadedPlaybook {
-  const raw = readWorkspaceTextFile(file);
+function loadPlaybook(
+  file: string,
+  kind: 'skill' | 'playbook',
+  filesTracked: string[],
+  isWorkspaceFile: boolean = true,
+): LoadedPlaybook {
+  // Only a tenant's own files carry {{env.NAME}} tokens — the base pack
+  // ships the same bytes to everyone, so it is read as-is.
+  const raw = isWorkspaceFile ? readWorkspaceTextFile(file) : readFileSync(file, 'utf8');
   const fm = parseFrontmatter(raw, file);
   const parsed = validateOrThrow(PlaybookManifestSchema, fm.data, file, 'playbook');
   const contentSha = createHash('sha256').update(fm.body, 'utf8').digest('hex');
