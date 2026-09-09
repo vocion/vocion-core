@@ -109,6 +109,75 @@ describe('getMissionRunReport', () => {
   it('returns null for a run id that does not exist', async () => {
     expect(await getMissionRunReport(999_999, ORG)).toBeNull();
   });
+
+  it('falls back to an empty task list for a run whose plan column is literally null', async () => {
+    const [row] = await db
+      .insert(missionRunSchema)
+      .values({
+        orgId: ORG,
+        missionId: null,
+        title: 'A run',
+        brief: 'do the thing now',
+        status: 'completed',
+        createdBy: 'user_drew',
+        team: { lead: 'event-ingestion-lead', members: [] },
+        plan: null as never,
+      })
+      .returning({ id: missionRunSchema.id });
+
+    const report = await getMissionRunReport(row!.id, ORG);
+
+    expect(report!.plan).toEqual({ tasks: [] });
+  });
+
+  it('falls back to an empty task list for a plan object with no tasks array at all', async () => {
+    const [row] = await db
+      .insert(missionRunSchema)
+      .values({
+        orgId: ORG,
+        missionId: null,
+        title: 'A run',
+        brief: 'do the thing now',
+        status: 'completed',
+        createdBy: 'user_drew',
+        team: { lead: 'event-ingestion-lead', members: [] },
+        plan: {} as never,
+      })
+      .returning({ id: missionRunSchema.id });
+
+    const report = await getMissionRunReport(row!.id, ORG);
+
+    expect(report!.plan).toEqual({ tasks: [] });
+  });
+
+  it('falls back to an empty task list when tasks is present but not an array', async () => {
+    const [row] = await db
+      .insert(missionRunSchema)
+      .values({
+        orgId: ORG,
+        missionId: null,
+        title: 'A run',
+        brief: 'do the thing now',
+        status: 'completed',
+        createdBy: 'user_drew',
+        team: { lead: 'event-ingestion-lead', members: [] },
+        plan: { tasks: 'not-an-array' } as never,
+      })
+      .returning({ id: missionRunSchema.id });
+
+    const report = await getMissionRunReport(row!.id, ORG);
+
+    expect(report!.plan).toEqual({ tasks: [] });
+  });
+
+  it('never leaks another org\'s mission slug even if a run\'s missionId pointed at one', async () => {
+    const otherOrgMissionId = await makeMission('other-org-template', OTHER_ORG);
+    const runId = await makeRun({ missionId: otherOrgMissionId, orgId: ORG });
+
+    const report = await getMissionRunReport(runId, ORG);
+
+    expect(report!.missionSlug).toBeNull();
+  });
 });
 
 describe('listMissionRunReportsForMission', () => {

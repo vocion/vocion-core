@@ -95,6 +95,25 @@ export type MissionRunReport = {
   plan: { tasks: MissionRunTaskReport[] };
 };
 
+/**
+ * Normalize a run's `plan` column into the shape `MissionRunReport.plan`
+ * promises. The column has no DB-level NOT NULL (only a default), so it can
+ * be a literal `null`; a row written before `tasks` existed, or edited by
+ * hand, can also carry a `plan` object with no `tasks` array, or a `tasks`
+ * that isn't an array at all. Any of those would otherwise reach the API
+ * response as `plan.tasks === undefined`, and a caller iterating
+ * `plan.tasks[]` — the whole point of this route — would throw. Falling
+ * back to an empty array is the same "nothing to report yet" a caller
+ * already has to handle for a run with a real, empty plan.
+ * @param plan - The run's raw `plan` column value.
+ */
+function normalizePlanTasks(plan: MissionRunSummary['plan']): { tasks: MissionRunTaskReport[] } {
+  if (!plan || !Array.isArray(plan.tasks)) {
+    return { tasks: [] };
+  }
+  return { tasks: plan.tasks };
+}
+
 function toMissionRunReport(run: MissionRunSummary, missionSlug: string | null): MissionRunReport {
   return {
     id: run.id,
@@ -104,10 +123,7 @@ function toMissionRunReport(run: MissionRunSummary, missionSlug: string | null):
     finishedAt: run.completedAt,
     error: run.error,
     invokedBy: run.createdBy,
-    // The column has no DB-level NOT NULL (only a default), so the type
-    // allows null even though every insert path sets it — fall back to an
-    // empty plan rather than let a caller's `.tasks` throw on it.
-    plan: run.plan ?? { tasks: [] },
+    plan: normalizePlanTasks(run.plan),
   };
 }
 
@@ -115,14 +131,20 @@ function toMissionRunReport(run: MissionRunSummary, missionSlug: string | null):
  * Resolve one mission run's slug by looking up its mission template. Missions
  * can start ad-hoc with no template (see `missionRunSchema.missionId`), so
  * `missionId === null` resolves to a null slug rather than a lookup.
+ *
+ * Takes `orgId` and filters on it even though the run this id came from was
+ * already confirmed to belong to that org — belt and suspenders against a
+ * `mission_run.mission_id` that ever pointed at another org's mission (a data
+ * bug elsewhere, not a reachable path today) leaking that mission's slug.
  * @param missionId
+ * @param orgId
  */
-async function missionSlugFor(missionId: number | null): Promise<string | null> {
+async function missionSlugFor(missionId: number | null, orgId: string): Promise<string | null> {
   if (missionId === null) {
     return null;
   }
   const mission = await db.query.missionSchema.findFirst({
-    where: eq(missionSchema.id, missionId),
+    where: and(eq(missionSchema.id, missionId), eq(missionSchema.orgId, orgId)),
     columns: { slug: true },
   });
   return mission?.slug ?? null;
@@ -141,7 +163,7 @@ export async function getMissionRunReport(runId: number, orgId: string): Promise
   if (!run) {
     return null;
   }
-  const missionSlug = await missionSlugFor(run.missionId);
+  const missionSlug = await missionSlugFor(run.missionId, orgId);
   return toMissionRunReport(run, missionSlug);
 }
 
