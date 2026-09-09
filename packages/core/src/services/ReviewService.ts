@@ -12,7 +12,7 @@
 
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
-import { and, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
@@ -41,6 +41,19 @@ export type ListOptions = {
   includeSnoozed?: boolean;
   /** Restrict to one plane. Omit for the unified queue. */
   kind?: ReviewKind;
+  /**
+   * Restrict the action plane to these registered action ids
+   * (`personalization.enroll`, `hubspot.update`, …). Omit for every type.
+   *
+   * `kind` is the PLANE — workflow, mission, action — and a queue holding 557
+   * pending items can be 557 rows of one plane, which is exactly what
+   * production holds. This is the filter that separates them, and it runs in
+   * the WHERE clause so the per-plane `total` stays truthful under it.
+   *
+   * An empty array means "no action type matches", not "every type": that is
+   * what a caller asking for a type this org has never produced must get.
+   */
+  actionIds?: string[];
 };
 
 /** A page of the queue plus the total number of items the filters matched. */
@@ -231,6 +244,10 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     eq(actionRunSchema.status, PENDING_STATUS.action),
     // Stale suggestions drop out of the queue, matching the dashboard list.
     or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
+    // In SQL, not over the fetched page: with 557 pending items and a window
+    // of 50, filtering after the read would hand back whichever of the newest
+    // 50 happened to match and call it the total.
+    ...(opts.actionIds ? [inArray(actionRunSchema.actionId, opts.actionIds.length > 0 ? opts.actionIds : [''])] : []),
     ...routingFilters(opts, now),
   );
   const query = db
@@ -267,6 +284,52 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     return counted?.total ?? 0;
   });
   return { items, total };
+}
+
+/** One card type present in the pending queue, with its real count. */
+export type PendingActionType = {
+  actionId: string;
+  /** The action's own registered display name; the id itself when nothing is registered. */
+  label: string;
+  count: number;
+};
+
+/**
+ * The card types actually pending for this org, each with a true count.
+ *
+ * One GROUP BY, so a chip reads "Enroll 46" rather than counting whatever the
+ * current page happens to hold — with 557 pending items and a window of 50,
+ * those are different numbers. The list is driven by what is present, never a
+ * hardcoded set: the point of the card template is that a new object type
+ * registers without a UI change.
+ *
+ * Labels come from the action registry, so `personalization.enroll` renders as
+ * what its author called it and the slug stays available for the URL.
+ * @param orgId - Tenant.
+ * @param opts - The same routing filters the queue itself runs under, minus `actionIds`.
+ */
+export async function pendingActionTypes(orgId: string, opts: ListOptions = {}): Promise<PendingActionType[]> {
+  const now = new Date();
+  const rows = await db
+    .select({ actionId: actionRunSchema.actionId, n: sql<number>`count(*)::int` })
+    .from(actionRunSchema)
+    .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
+    .where(and(
+      eq(actionRunSchema.orgId, orgId),
+      eq(actionRunSchema.status, PENDING_STATUS.action),
+      or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
+      ...routingFilters(opts, now),
+    ))
+    .groupBy(actionRunSchema.actionId);
+
+  const { getAction } = await import('@/libs/actions/registry');
+  return rows
+    .map(row => ({
+      actionId: row.actionId,
+      label: getAction(row.actionId)?.name ?? row.actionId,
+      count: Number(row.n),
+    }))
+    .sort((a, b) => b.count - a.count || a.actionId.localeCompare(b.actionId));
 }
 
 /** An empty plane, for the kinds a `kind` filter excludes. */
