@@ -22,6 +22,7 @@ const KIND_META: Record<ActivityKind, { label: string; icon: typeof Compass }> =
   mission: { label: 'Missions', icon: Compass },
   workflow: { label: 'Workflows', icon: GitBranch },
   event: { label: 'Events', icon: Zap },
+  automation: { label: 'Fires', icon: CalendarClock },
   sync: { label: 'Syncs', icon: Database },
   tool: { label: 'Tool calls', icon: Wrench },
 };

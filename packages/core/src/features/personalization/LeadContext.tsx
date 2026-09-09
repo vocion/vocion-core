@@ -28,8 +28,10 @@ export type LeadDossier = {
   /** Set when the tries ran out. Rendered where the brief would be. */
   briefError: string | null;
   briefAttempts: number;
-  /** The instruction behind the last rewrite, kept so the brief has a why. */
+  /** An instruction that has NOT been addressed yet — the next pass will act on it. */
   regenerateNote: string | null;
+  /** Instructions already answered, newest last, each with when the answering brief was written. */
+  regenerateHistory?: Array<{ note: string; addressedAt: string }>;
 };
 
 /**
@@ -78,14 +80,30 @@ export const LANE_PILL: Record<string, { status: 'pending' | 'approved' | 'pause
  */
 const BriefZone = ({ row }: { row: LeadDossier }) => (
   <div>
+    {/* Outstanding vs answered, never the same block. An instruction that has
+        been addressed used to keep rendering exactly like a fresh one, which
+        is what made four re-briefed leads look stuck. */}
     {row.regenerateNote && (
-      <div className="mb-4 rounded-md border border-border bg-muted/40 p-3">
-        <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-          Rewritten on your instruction
+      <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+        <div className="mb-1 text-[11px] font-semibold tracking-wide text-amber-600 uppercase">
+          Rewrite requested — the next pass will act on this
         </div>
         <p className="whitespace-pre-line">{row.regenerateNote}</p>
       </div>
     )}
+
+    {!row.regenerateNote && row.regenerateHistory?.length
+      ? (
+          <div className="mb-4 rounded-md border border-border bg-muted/40 p-3">
+            <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+              Rewritten on your instruction ·
+              {' '}
+              {shortDate(row.regenerateHistory.at(-1)!.addressedAt)}
+            </div>
+            <p className="whitespace-pre-line">{row.regenerateHistory.at(-1)!.note}</p>
+          </div>
+        )
+      : null}
 
     {/* The error stands where the brief would be, so a lead that ran out of
         tries reads as a failure rather than a thin brief. */}

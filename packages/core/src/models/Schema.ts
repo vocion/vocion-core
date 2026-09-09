@@ -2539,8 +2539,19 @@ export const leadBriefSchema = pgTable(
     /** Why the lead left: 'reply' | 'intent' | 'routed'. */
     handoffTrigger: text('handoff_trigger'),
     handoffAt: timestamp('handoff_at', { mode: 'date' }),
-    /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
+    /**
+     * The reviewer's instruction for the next pass, kept so a rewrite has a
+     * reason. OUTSTANDING only: `saveLeadBrief` clears it and files it in
+     * `regenerateHistory`, because a satisfied instruction that still reads as
+     * pending misleads the reviewer on the lead page and the agent on the next
+     * pass alike.
+     */
     regenerateNote: text('regenerate_note'),
+    /** Instructions already addressed, each with the time the brief that answered it was written. */
+    regenerateHistory: jsonb('regenerate_history').$type<Array<{
+      note: string;
+      addressedAt: string;
+    }>>().default([]).notNull(),
     /** Briefing tries so far. Three, then the lead surfaces with its error. */
     briefAttempts: integer('brief_attempts').default(0).notNull(),
     /** Why the last try produced no brief. Rendered where the brief would be. */
