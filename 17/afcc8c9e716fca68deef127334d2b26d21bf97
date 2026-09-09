@@ -1,0 +1,21 @@
+packages/core/src/features/dashboard/TitleBar.tsx
+  s_dabaf601d68948::t_12ce4a34712fa5 4-9,11-13,15-22
+packages/core/src/app/[locale]/(auth)/dashboard/automation/page.tsx
+  s_dabaf601d68948::t_ed24c7a04cd67f 97-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "17afcc8c9e716fca68deef127334d2b26d21bf97",
+  "prompts": {},
+  "sessions": {
+    "s_dabaf601d68948": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c9ccb39-792c-4455-9397-142f1ea8e666",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
