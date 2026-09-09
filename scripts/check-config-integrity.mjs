@@ -17,10 +17,14 @@
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import process from 'node:process';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+// Defaults to the repository root. A directory may be passed instead, which is
+// how the test suite drives this script over a throwaway tree.
+const ROOT = process.argv[2] === undefined
+  ? new URL('..', import.meta.url).pathname
+  : resolve(process.argv[2]);
 
 /** Directories never worth scanning. */
 const SKIP_DIRS = new Set([
@@ -61,14 +65,13 @@ const SIGNATURES = [
 /** Files whose mere presence indicates compromise. */
 const BANNED_FILES = ['temp_auto_push.bat', 'config.bat'];
 
-const findings = [];
-
 /**
  * Walk the tree, invoking `onFile` for every file outside SKIP_DIRS.
  * @param dir - Absolute directory to walk.
- * @param onFile - Callback invoked with (absolutePath, repoRelativePath) per file.
+ * @param onFile - Called once per file.
+ * @param onUnreadable - Called once per path that cannot be stat-ed.
  */
-function walk(dir, onFile) {
+function walk(dir, onFile, onUnreadable) {
   for (const entry of readdirSync(dir)) {
     if (SKIP_DIRS.has(entry)) {
       continue;
@@ -79,24 +82,41 @@ function walk(dir, onFile) {
     // a stack trace instead of a verdict — and it is the first thing CI runs.
     // A broken link has no content to scan, so note it and carry on. The
     // committed case is a separate concern, covered by `npm run check:symlinks`.
+    const rel = relative(ROOT, abs).split(sep).join('/');
     let stat;
     try {
       stat = statSync(abs);
-    } catch (error) {
-      console.warn(`  skipped ${relative(ROOT, abs).split(sep).join('/')}: ${error.message}`);
+    } catch (cause) {
+      if (cause.code === 'ENOENT') {
+        // A dangling symlink: nothing to read, so nothing to scan. Saying so
+        // beats ending this check with a stack trace instead of a verdict —
+        // and it is the first thing CI runs. The links that actually trigger
+        // this are the untracked, gitignored ones a developer leaves in a
+        // worktree, `packages/core/.env.local` pointing at another checkout
+        // being the common one; `node_modules` never reaches here, since
+        // SKIP_DIRS drops it before the stat.
+        console.warn(`  - skipped ${rel} (not an error): dangling symlink, so there is nothing to scan.`);
+        continue;
+      }
+      // Anything else is a path this guard could not inspect. Report it as a
+      // finding rather than skipping quietly: a file that refuses to be read
+      // is the opposite of a reason to pass.
+      onUnreadable(`${rel}: could not be read — ${cause.message}. The integrity guard cannot vouch for a file it cannot stat.`);
       continue;
     }
 
     if (stat.isDirectory()) {
-      walk(abs, onFile);
+      walk(abs, onFile, onUnreadable);
     } else if (stat.isFile()) {
       onFile(abs, relative(ROOT, abs).split(sep).join('/'));
     }
   }
 }
 
+const findings = [];
+
 walk(ROOT, (abs, rel) => {
-  const base = rel.split('/').pop();
+  const base = rel.split('/').pop() ?? rel;
 
   if (BANNED_FILES.includes(base)) {
     findings.push(`${rel}: propagation artifact — this file is an indicator of compromise, not a build input.`);
@@ -145,7 +165,7 @@ walk(ROOT, (abs, rel) => {
       }
     }
   }
-});
+}, message => findings.push(message));
 
 if (findings.length > 0) {
   console.error('\n  Config integrity check FAILED:\n');

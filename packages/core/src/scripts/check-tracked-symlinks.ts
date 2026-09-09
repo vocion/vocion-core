@@ -23,11 +23,17 @@
  * committed, which is the thing that travels to another checkout. Mode
  * `120000` is git's mode for a symlink.
  *
+ * This lives under `packages/core` rather than the top-level `scripts/`, even
+ * though it inspects the whole repository: it is written in TypeScript, it
+ * reuses `fromRepoRoot`, and it runs under the `unit` vitest project, none of
+ * which reach a plain `.mjs` at the root. `check-migration-safety.ts` sits here
+ * for the same reasons.
+ *
  * Run: npm run check:symlinks
  */
 
 import { execFileSync } from 'node:child_process';
-import { isAbsolute, posix, resolve } from 'node:path';
+import { posix, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { fromRepoRoot } from '../libs/repo-root';
@@ -78,6 +84,20 @@ export function parseStagedSymlinkPaths(stagedOutput: string): string[] {
 }
 
 /**
+ * Whether a committed target is an absolute path.
+ *
+ * Deliberately not `node:path`'s `isAbsolute`, which answers for the host
+ * platform. A symlink's target is raw bytes written by whatever machine made
+ * the link, so a Windows-style `C:\\Users\\someone\\node_modules` has to be
+ * recognised while running on Linux CI — the platform helper there would call
+ * it relative and let it through.
+ * @param target - The symlink's committed target, verbatim.
+ */
+export function isTargetAbsolute(target: string): boolean {
+  return posix.isAbsolute(target) || /^[A-Z]:[\\/]/i.test(target) || target.startsWith('\\\\');
+}
+
+/**
  * Whether a symlink's committed target stays inside the repository.
  *
  * An absolute target never does — it names a location on one machine. A
@@ -87,7 +107,15 @@ export function parseStagedSymlinkPaths(stagedOutput: string): string[] {
  * @param target - The symlink's committed target, absolute or relative.
  */
 export function pointsOutsideRepository(symlinkPath: string, target: string): boolean {
-  if (isAbsolute(target)) {
+  if (isTargetAbsolute(target)) {
+    return true;
+  }
+  // A backslash means the link was authored on Windows, where it is the path
+  // separator. The posix helpers below would read `..\\..\\elsewhere` as one
+  // opaque segment and call it an in-repo name, so refuse it here instead —
+  // a committed symlink whose target only parses on one platform is broken
+  // everywhere else regardless of where it points.
+  if (target.includes('\\')) {
     return true;
   }
   // Both paths are repository-relative and always use forward slashes, because
@@ -109,7 +137,7 @@ export function findSymlinkProblems(symlinks: TrackedSymlink[]): SymlinkProblem[
     if (!pointsOutsideRepository(symlink.path, symlink.target)) {
       continue;
     }
-    const reason = isAbsolute(symlink.target)
+    const reason = isTargetAbsolute(symlink.target)
       ? 'absolute target — this path exists on one machine and is a dead link in every other checkout'
       : 'target escapes the repository — it resolves to a path no other checkout has';
     problems.push({ path: symlink.path, target: symlink.target, reason });
@@ -125,13 +153,14 @@ export function formatProblems(problems: SymlinkProblem[]): string {
   if (problems.length === 0) {
     return '';
   }
-  const lines = ['', `  ${problems.length} committed symlink(s) refused:`, ''];
+  const plural = problems.length === 1 ? 'symlink' : 'symlinks';
+  const lines = ['', `  check:symlinks — ${problems.length} committed ${plural} refused:`, ''];
   for (const problem of problems) {
     lines.push(`  ✗ ${problem.path} -> ${problem.target}`);
     lines.push(`      ${problem.reason}`);
   }
   lines.push('');
-  lines.push('  Remove it from the index and let .gitignore cover it:');
+  lines.push(`  Remove ${problems.length === 1 ? 'it' : 'them'} from the index and let .gitignore cover the path:`);
   lines.push('');
   for (const problem of problems) {
     lines.push(`      git rm --cached "${problem.path}"`);
@@ -161,10 +190,24 @@ export function readTrackedSymlinks(repositoryRoot: string = fromRepoRoot('.')):
 
   const symlinks: TrackedSymlink[] = [];
   for (const symlinkPath of parseStagedSymlinkPaths(stagedOutput)) {
-    const target = execFileSync('git', ['cat-file', '-p', `:${symlinkPath}`], {
-      cwd: repositoryRoot,
-      encoding: 'utf8',
-    });
+    let target: string;
+    try {
+      target = execFileSync('git', ['cat-file', '-p', `:${symlinkPath}`], {
+        cwd: repositoryRoot,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      // Reading a symlink out of the index fails on a checkout that is mid
+      // merge conflict, where the path has no stage-0 entry. Say which path
+      // and why rather than letting a raw subprocess error escape.
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `could not read the committed target of "${symlinkPath}": ${reason}. `
+        + 'A checkout mid merge conflict has no stage-0 entry for a conflicted path; '
+        + 'finish or abort the merge and run this again.',
+      );
+    }
     symlinks.push({ path: symlinkPath, target: target.trim() });
   }
   return symlinks;
