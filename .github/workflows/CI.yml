@@ -29,9 +29,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            .next/cache
+            packages/core/.next/cache
           # Generate a new cache whenever packages or source files change.
-          key: nextjs-${{ matrix.node-version }}-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('src/**') }}
+          key: nextjs-${{ matrix.node-version }}-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('packages/core/src/**') }}
 
       - name: Build Next.js
         # build-local lives in the @vocion/core workspace, not the repo root.
@@ -51,7 +51,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: |
-            .next
+            packages/core/.next
           key: nextjs-build-${{ matrix.node-version }}-${{ github.sha }}
 
   static:
