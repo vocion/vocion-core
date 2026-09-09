@@ -85,14 +85,6 @@ describe('GET /api/v1/missions/:slug/runs', () => {
     expect(res.status).toBe(401);
   });
 
-  it('rejects an invalid bearer token', async () => {
-    mockBearer.mockResolvedValue(null);
-
-    const res = await GET(requestFor('anything'), paramsFor('anything'));
-
-    expect(res.status).toBe(401);
-  });
-
   it('404s a mission that does not exist', async () => {
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 

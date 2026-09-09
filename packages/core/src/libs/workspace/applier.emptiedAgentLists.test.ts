@@ -27,27 +27,41 @@ const SLUG = 'probe-agent';
 const dirs: string[] = [];
 
 /**
- * A one-agent workspace. `playbooks` and `learningSteps` are the two list
- * fields exercised here — `playbooks` because it needs a real SKILL.md
- * folder to resolve (proving the wiring reaches a real authored resource,
- * not just a made-up string), `learningSteps` because it needs none (no
- * cross-reference validation at load time for that field), which keeps
- * most of these fixtures to one file.
+ * A one-agent workspace. All four `AGENT_LIST_FIELDS` are exercised here:
+ * `playbooks` and `skills` each need a real SKILL.md folder to resolve
+ * (proving the wiring reaches a real authored resource, not just a made-up
+ * string — `assertNamedRefs` in loader.ts throws on an agent naming a skill
+ * or playbook that resolves to nothing), `objectTypes` and `learningSteps`
+ * need no such folder (loader.ts runs no cross-reference validation for
+ * either — `assertNamedRefs` only checks `skills` and `playbooks`), so a
+ * made-up name is enough to populate them.
  * @param opts
  * @param opts.playbooks - Playbook slugs the agent names, or `[]`/omitted for none.
+ * @param opts.skills - Skill slugs the agent names, or `[]`/omitted for none.
+ * @param opts.objectTypes - Object type slugs the agent names, or `[]`/omitted for none.
  * @param opts.learningSteps - Learning step names the agent names, or `[]`/omitted for none.
  * @param opts.includePlaybookFolder - Whether to write the `playbooks/house-style/SKILL.md` file `playbooks: [house-style]` needs to resolve.
+ * @param opts.includeSkillFolder - Whether to write the `skills/call-notes/SKILL.md` file `skills: [call-notes]` needs to resolve.
  */
-function writeFixture(opts: { playbooks?: string[]; learningSteps?: string[]; includePlaybookFolder?: boolean }): string {
+function writeFixture(opts: {
+  playbooks?: string[];
+  skills?: string[];
+  objectTypes?: string[];
+  learningSteps?: string[];
+  includePlaybookFolder?: boolean;
+  includeSkillFolder?: boolean;
+}): string {
   const dir = mkdtempSync(join(tmpdir(), 'cc-emptied-lists-'));
   dirs.push(dir);
   writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: emptied-lists\n`);
   mkdirSync(join(dir, 'agents'));
   const playbooksLine = opts.playbooks?.length ? `playbooks: [${opts.playbooks.join(', ')}]\n` : '';
+  const skillsLine = opts.skills?.length ? `skills: [${opts.skills.join(', ')}]\n` : '';
+  const objectTypesLine = opts.objectTypes?.length ? `objectTypes: [${opts.objectTypes.join(', ')}]\n` : '';
   const learningStepsLine = opts.learningSteps?.length ? `learningSteps: [${opts.learningSteps.join(', ')}]\n` : '';
   writeFileSync(
     join(dir, 'agents', `${SLUG}.yaml`),
-    `slug: ${SLUG}\nname: Probe Agent\nsystemPrompt: Be helpful.\n${playbooksLine}${learningStepsLine}`,
+    `slug: ${SLUG}\nname: Probe Agent\nsystemPrompt: Be helpful.\n${playbooksLine}${skillsLine}${objectTypesLine}${learningStepsLine}`,
   );
   if (opts.includePlaybookFolder) {
     mkdirSync(join(dir, 'playbooks', 'house-style'), { recursive: true });
@@ -56,17 +70,36 @@ function writeFixture(opts: { playbooks?: string[]; learningSteps?: string[]; in
       '---\nslug: house-style\nname: House Style\ndescription: test fixture playbook\n---\n\nBody.\n',
     );
   }
+  if (opts.includeSkillFolder) {
+    mkdirSync(join(dir, 'skills', 'call-notes'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'call-notes', 'SKILL.md'),
+      '---\nslug: call-notes\nname: Call Notes\ndescription: test fixture skill\n---\n\nBody.\n',
+    );
+  }
   return dir;
 }
 
-async function apply(opts: { playbooks?: string[]; learningSteps?: string[]; includePlaybookFolder?: boolean }) {
+async function apply(opts: {
+  playbooks?: string[];
+  skills?: string[];
+  objectTypes?: string[];
+  learningSteps?: string[];
+  includePlaybookFolder?: boolean;
+  includeSkillFolder?: boolean;
+}) {
   const loaded = await loadWorkspace(writeFixture(opts));
   return applyWorkspace(loaded, { orgId: ORG });
 }
 
 async function storedAgent() {
   const [row] = await db
-    .select({ playbookSlugs: agentSchema.playbookSlugs, learningSteps: agentSchema.learningSteps })
+    .select({
+      playbookSlugs: agentSchema.playbookSlugs,
+      skillSlugs: agentSchema.skillSlugs,
+      objectTypeSlugs: agentSchema.objectTypeSlugs,
+      learningSteps: agentSchema.learningSteps,
+    })
     .from(agentSchema)
     .where(and(eq(agentSchema.orgId, ORG), eq(agentSchema.slug, SLUG)));
   return row;
@@ -106,14 +139,53 @@ describe('workspace apply — emptied agent lists', () => {
     expect((await storedAgent())?.playbookSlugs).toEqual([]);
   });
 
-  it('names every list that emptied, not just one, when several drop at once', async () => {
-    await apply({ playbooks: ['house-style'], learningSteps: ['alpha', 'beta'], includePlaybookFolder: true });
+  it('warns, naming the agent and the list, when an apply drops all of an agent\'s skills', async () => {
+    await apply({ skills: ['call-notes'], includeSkillFolder: true });
 
-    const result = await apply({ playbooks: [], learningSteps: [] });
+    const result = await apply({ skills: [] });
+
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      resource: 'agent',
+      slug: SLUG,
+      message: expect.stringContaining('skillSlugs'),
+    }));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(SLUG));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('skillSlugs'));
+    expect((await storedAgent())?.skillSlugs).toEqual([]);
+  });
+
+  it('warns, naming the agent and the list, when an apply drops all of an agent\'s object types', async () => {
+    await apply({ objectTypes: ['deal'] });
+
+    const result = await apply({ objectTypes: [] });
+
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      resource: 'agent',
+      slug: SLUG,
+      message: expect.stringContaining('objectTypeSlugs'),
+    }));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(SLUG));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('objectTypeSlugs'));
+    expect((await storedAgent())?.objectTypeSlugs).toEqual([]);
+  });
+
+  it('names every list that emptied, not just one, when all four drop at once', async () => {
+    await apply({
+      playbooks: ['house-style'],
+      skills: ['call-notes'],
+      objectTypes: ['deal'],
+      learningSteps: ['alpha', 'beta'],
+      includePlaybookFolder: true,
+      includeSkillFolder: true,
+    });
+
+    const result = await apply({ playbooks: [], skills: [], objectTypes: [], learningSteps: [] });
 
     const warning = result.warnings.find(w => w.slug === SLUG);
 
     expect(warning?.message).toContain('playbookSlugs');
+    expect(warning?.message).toContain('skillSlugs');
+    expect(warning?.message).toContain('objectTypeSlugs');
     expect(warning?.message).toContain('learningSteps');
   });
 
