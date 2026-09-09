@@ -10,6 +10,11 @@
  *   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
  *
  * Then set `VOCION_CREDENTIAL_VAULT_KEY=...` in `.env.local`.
+ *
+ * Unset in development: falls back to an ephemeral key, costing a re-paste.
+ * Unset in production: building the vault throws, because a per-process key
+ * destroys every credential stored under the previous one. Nothing builds a
+ * vault at boot, so that throw lands on the first request, not at startup.
  */
 
 import type { CredentialVault, EncryptResult } from './credentialVault';
@@ -29,8 +34,20 @@ import {
 function readMasterKey(): Buffer {
   const raw = process.env.VOCION_CREDENTIAL_VAULT_KEY;
   if (!raw) {
-    // Generate an ephemeral key. Loud — dev-only.
-
+    if (process.env.NODE_ENV === 'production') {
+      // Silent data loss: each start mints a different key, so anything saved
+      // under the last one is gone. Failing every read and write is
+      // recoverable; a key that no longer exists is not.
+      throw new Error(
+        'VOCION_CREDENTIAL_VAULT_KEY is not set. The local credential vault will not generate '
+        + 'an ephemeral key in production: every process start would mint a different one, and '
+        + 'credentials stored under the previous key could never be decrypted again. Set '
+        + 'VOCION_CREDENTIAL_VAULT_KEY to 32 base64-encoded random bytes '
+        + `(node -e "console.log(require('crypto').randomBytes(${AES_KEY_BYTES}).toString('base64'))"), `
+        + 'or move to AWS KMS with VOCION_CREDENTIAL_VAULT=kms and VOCION_KMS_KEY_ARN.',
+      );
+    }
+    // Development only: an ephemeral key costs a re-paste, not stored data.
     console.warn(
       '[localVault] VOCION_CREDENTIAL_VAULT_KEY is not set; generating an ephemeral key for THIS PROCESS only. Credentials stored now will be unreadable after restart.',
     );
@@ -44,8 +61,17 @@ function readMasterKey(): Buffer {
 }
 
 let _master: Buffer | null = null;
+/**
+ * Whether the key in `_master` came from the environment or was minted here.
+ *
+ * Recorded at read time, not read live: a variable set after this process
+ * started would make an ephemeral-key failure look like a changed value.
+ */
+let masterKeyCameFromEnvironment = false;
+
 function masterKey(): Buffer {
   if (!_master) {
+    masterKeyCameFromEnvironment = Boolean(process.env.VOCION_CREDENTIAL_VAULT_KEY);
     _master = readMasterKey();
   }
   return _master;
@@ -81,6 +107,10 @@ async function getDek(_orgId: string, _dekId: number): Promise<Buffer> {
 }
 
 export function localVault(): CredentialVault {
+  // Read the key here, the same boundary where kmsVault rejects a missing ARN.
+  // Not a startup check: nothing builds a vault at boot, so a deployment with
+  // no key starts clean and throws on the first request instead.
+  masterKey();
   return {
     kind: 'local',
     async encrypt(orgId: string, plaintext: Buffer): Promise<EncryptResult> {
@@ -104,24 +134,26 @@ export function localVault(): CredentialVault {
           Buffer.from(authTag, 'base64'),
         );
       } catch (error) {
-        // Node says "Unsupported state or unable to authenticate data", which
-        // tells the reader nothing. With no VOCION_CREDENTIAL_VAULT_KEY set,
-        // every restart mints a new ephemeral key, so credentials saved before
-        // the restart cannot be read — the one cause worth naming, since the
-        // fix (set the key, then reconnect) is not guessable from the original.
+        // Node's "Unsupported state or unable to authenticate data" tells the
+        // reader nothing. It means this credential was stored under a different
+        // key than the one this process holds.
         //
-        // `VaultDecryptionError` rather than a plain `Error` so the routes that
-        // otherwise flatten vault failures into "Could not read that key." show
-        // this sentence instead. It names an env var and a next step and no
-        // secret. Node's own wording goes in `cause`, where the log picks it up
-        // and the dashboard does not: it tells the reader nothing they can act
-        // on, and vouching for a string this code did not write is exactly what
-        // the flattening rule exists to prevent.
+        // Which key differs by environment, and so does the fix. Development
+        // can get here with no key set at all; production cannot, because an
+        // unset key throws first — so there the value itself changed, and a key
+        // that was never set has no previous value to restore.
+        //
+        // `VaultDecryptionError`, not a plain `Error`, so the routes show this
+        // sentence rather than flattening it: it names a variable and a next
+        // step and no secret. Node's wording goes on `cause`, for the log.
+        const explanation = masterKeyCameFromEnvironment
+          ? 'The value of VOCION_CREDENTIAL_VAULT_KEY has changed since this credential was saved: '
+          + 'set it back to the value it had, or reconnect this source\'s credential under the '
+          + 'current key.'
+          : 'VOCION_CREDENTIAL_VAULT_KEY is unset, so every restart mints a new ephemeral key: set '
+            + 'it to a fixed value, then reconnect this source\'s credential.';
         throw new VaultDecryptionError(
-          'The stored credential could not be decrypted with the current vault key. '
-          + 'If VOCION_CREDENTIAL_VAULT_KEY is unset, each restart generates a new key and '
-          + 'credentials saved earlier become unreadable: set it, then reconnect '
-          + `this source's credential.`,
+          `The stored credential could not be decrypted with the current vault key. ${explanation}`,
           { cause: error },
         );
       }

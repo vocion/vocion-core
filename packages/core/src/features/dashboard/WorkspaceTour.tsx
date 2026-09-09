@@ -229,7 +229,7 @@ export function WorkspaceTour({ steps, title, autoStart }: {
       <button
         type="button"
         onClick={end}
-        className="absolute right-4 top-4 z-20 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-lg hover:bg-muted"
+        className="absolute top-4 right-4 z-20 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-lg hover:bg-muted"
         style={{ pointerEvents: 'auto' }}
       >
         ✕ End tour (Esc)
