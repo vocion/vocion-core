@@ -932,7 +932,7 @@ opt into rather than copy.
 
 ```yaml
 # workspace.yaml — add to the manifest from Step 1
-extends: core@2.0.0 # pin a version; omit for no base layer at all
+extends: core@2.1.0 # pin a version; omit for no base layer at all
 use:
   # activating an agent pulls in the skills it declares, plus their playbooks
   agents: [revenue-director]
