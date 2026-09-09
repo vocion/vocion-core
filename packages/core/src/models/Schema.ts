@@ -2678,3 +2678,32 @@ export const workerRunSchema = pgTable(
     index('worker_run_lease_idx').on(table.status, table.leaseExpiresAt),
   ],
 );
+
+/* ------------------------------------------------------------------ */
+/* Chat surfaces — which agent answers in which channel (item 025)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Binds a chat-platform channel to an agent. The inbound event carries only a
+ * channel id, so this row is how an event finds its org AND its agent — the
+ * unique key is (surface, channel, team), not per org. `channel_id = '*'` with
+ * a `team_id` is the per-workspace catch-all that direct messages resolve to.
+ */
+export const chatChannelBindingSchema = pgTable(
+  'chat_channel_binding',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** `slack` today. */
+    surface: text('surface').notNull(),
+    teamId: text('team_id'),
+    channelId: text('channel_id').notNull(),
+    agentSlug: text('agent_slug').notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('chat_channel_binding_surface_channel_idx').on(table.surface, table.channelId, table.teamId),
+    index('chat_channel_binding_org_idx').on(table.orgId),
+  ],
+);
