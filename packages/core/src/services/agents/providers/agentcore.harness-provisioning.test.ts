@@ -14,7 +14,7 @@
  *
  * The AWS clients are mocked; the database is the real PGlite test one.
  */
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const send = vi.fn();
 
@@ -96,6 +96,19 @@ function replyAsEmptyAccount(harnessId: string): void {
     return {};
   });
 }
+
+/** What the override held before these tests started fiddling with it. */
+const roleOverrideBefore = process.env.VOCION_AGENTCORE_ROLE_ARN;
+
+afterEach(() => {
+  // process.env is shared with every other suite in this worker, so put it
+  // back rather than leaving an override behind.
+  if (roleOverrideBefore === undefined) {
+    delete process.env.VOCION_AGENTCORE_ROLE_ARN;
+  } else {
+    process.env.VOCION_AGENTCORE_ROLE_ARN = roleOverrideBefore;
+  }
+});
 
 afterAll(async () => {
   await db.delete(agentSchema).where(eq(agentSchema.orgId, ORG_A));

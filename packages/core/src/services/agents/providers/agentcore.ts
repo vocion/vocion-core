@@ -158,6 +158,9 @@ function describeHarnessWriteFailure(err: unknown, executionRoleArn: string): un
     `agentcore: the harness execution role ${executionRoleArn} was rejected. `
     + `Create that role (trusting bedrock-agentcore.amazonaws.com) in this account, `
     + `or set VOCION_AGENTCORE_ROLE_ARN to a role that already exists. AWS said: ${message}`,
+    // The original keeps the AWS error's type and stack, which the rewritten
+    // message would otherwise drop.
+    { cause: err },
   );
 }
 
@@ -227,8 +230,14 @@ async function findHarnessByName(name: string): Promise<HarnessSummary | undefin
  * The ARN already recorded on the agent row is tried first, so an agent
  * provisioned under an older naming scheme keeps the harness it has instead of
  * being abandoned — the old one left running and chargeable — while a second
- * one appears under the new name. The name lookup is the fallback, for an
- * agent whose harness exists but was never recorded.
+ * one appears under the new name.
+ *
+ * The name lookup is the fallback, and it only matches the CURRENT scheme. An
+ * agent whose harness exists under the old bare-slug name and whose ARN was
+ * never recorded — a create that succeeded at AWS but whose row write did not
+ * — gets a new harness here, and the old one is left for whoever reads the
+ * console. Matching bare slugs is not worth it: that name carries no org, so
+ * the lookup could adopt a different org's harness.
  * @param row - The agent row, whose `harnessArn` may point at a live harness.
  * @param name - The name this agent's harness has under the current scheme.
  */
