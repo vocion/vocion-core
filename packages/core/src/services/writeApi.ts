@@ -165,6 +165,12 @@ export type DecideInput = {
    * workflow this is the input the run resumes with.
    */
   editedInput?: Record<string, unknown>;
+  /**
+   * The record the approving caller created in its own system, e.g. the
+   * Strapi entry an admin panel just published. Only applied on `approve`;
+   * the action links its own row to it. Core never calls that system.
+   */
+  externalRef?: { system: string; id: string };
 };
 
 /**
@@ -192,6 +198,7 @@ export async function apiDecideReview(
       reason: input.reason,
       reviewedBy: caller.actorId,
       editedInput: input.action === 'approve' ? input.editedInput : undefined,
+      externalRef: input.action === 'approve' ? input.externalRef : undefined,
     },
   );
 
@@ -357,7 +364,9 @@ export async function apiProposeReview(caller: ApiCaller, input: ProposeInput) {
       input: input.input,
       principal: { kind: 'agent', id: agentId, scope: { orgId: caller.orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: caller.actorId,
-      proposal: { confidence: input.confidence, rationale: input.rationale },
+      // `invokedBy` below is the API caller, so the agent it acted for has to
+      // travel in the envelope or the action ends up attributed to nobody.
+      proposal: { confidence: input.confidence, rationale: input.rationale, agentSlug: input.agentSlug },
       dedupKey: input.dedupKey,
       expiresAt: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * DAY_IN_MS) : undefined,
     });

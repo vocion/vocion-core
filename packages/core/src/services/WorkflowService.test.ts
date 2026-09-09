@@ -21,7 +21,8 @@ vi.mock('@/libs/Langfuse', () => {
     event: vi.fn(),
   });
   return {
-    langfuse: { trace: fakeTrace, flushAsync: vi.fn(async () => {}) },
+    flushTraces: vi.fn(async () => {}),
+    getLangfuseClient: () => ({ trace: fakeTrace }),
     traceFor: fakeTrace,
     cleanUsageDetails: (x: Record<string, number | undefined>) => x,
   };

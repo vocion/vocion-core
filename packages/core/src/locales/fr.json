@@ -1,9 +1,5 @@
 {
-  "LocaleSwitcher": {
-    "button_label": "Changer de langue"
-  },
   "ThemeSwitcher": {
-    "button_label": "Changer de thème",
     "theme_light_label": "Clair",
     "theme_dark_label": "Sombre",
     "theme_system_label": "Système"
@@ -11,27 +7,15 @@
   "ProtectFallback": {
     "not_enough_permission": "Vous n'avez pas les permissions pour effectuer cette action"
   },
-  "SignIn": {
-    "meta_title": "Se connecter",
-    "meta_description": "Connectez-vous à votre compte avec facilité."
-  },
-  "SignUp": {
-    "meta_title": "S'inscrire",
-    "meta_description": "Créez un compte sans effort grâce à notre processus d'inscription intuitif."
-  },
   "DashboardLayout": {
     "main_section_label": "Espace de travail",
-    "capabilities_section_label": "Capacités",
     "observability_section_label": "Observabilité",
-    "settings_section_label": "Paramètres",
     "organization_section_label": "Organisation",
-    "home": "Vue d'ensemble",
-    "ask": "Demander",
     "chat": "Chat",
     "search": "Rechercher",
     "review": "Révision",
     "observability": "Observabilité",
-    "sources": "Sources",
+    "sources": "Connecteurs",
     "objects": "Objets",
     "skills": "Compétences",
     "workflows": "Workflows",
@@ -39,114 +23,12 @@
     "agents": "Agents",
     "learnings": "Apprentissages",
     "evals": "Évaluations",
-    "runs": "Historique",
-    "domains": "Domaines",
     "docs": "Docs",
-    "members": "Membres",
-    "audit": "Journal d'audit",
-    "billing": "Facturation",
-    "admin": "Admin",
-    "roadmap": "Roadmap",
-    "settings": "Réglages",
-    "support": "Support",
-    "feedback": "Commentaires",
     "adoption": "Adoption"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",
     "meta_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
-  },
-  "DashboardIndex": {
-    "welcome_title": "Bienvenue sur Vocion",
-    "welcome_description": "Votre plateforme de contexte d'entreprise. Connectez vos systèmes, mappez vos objets métier et obtenez des réponses fondées.",
-    "stat_connectors": "Connecteurs",
-    "stat_objects": "Objets",
-    "stat_domains": "Domaines",
-    "stat_members": "Membres",
-    "quick_actions_title": "Actions rapides",
-    "action_add_connector": "Ajouter un connecteur",
-    "action_add_connector_desc": "Connecter un nouveau système source",
-    "action_map_objects": "Mapper les objets",
-    "action_map_objects_desc": "Définir les mappages d'objets métier",
-    "action_manage_domains": "Gérer les domaines",
-    "action_manage_domains_desc": "Configurer les domaines de connaissances",
-    "action_invite_members": "Inviter des membres",
-    "action_invite_members_desc": "Ajouter des membres à votre espace de travail",
-    "phase2_title": "Prochainement en Phase 2",
-    "phase2_ask": "Demander - Espace conversationnel avec réponses fondées",
-    "phase2_search": "Rechercher - Trouver des documents, enregistrements et preuves",
-    "phase2_skills": "Compétences - Actions et requêtes métier réutilisables",
-    "phase2_runs": "Historique - Suivre les exécutions de compétences et workflows"
-  },
-  "Connectors": {
-    "title_bar": "Connecteurs",
-    "title_bar_description": "Connecter et gérer vos systèmes sources",
-    "add_connector": "Ajouter un connecteur",
-    "section_active": "Connecteurs actifs",
-    "section_active_description": "Systèmes sources actuellement connectés",
-    "section_available": "Connecteurs disponibles",
-    "section_available_description": "Systèmes sources que vous pouvez connecter",
-    "status_connected": "Connecté",
-    "status_syncing": "Synchronisation",
-    "status_error": "Erreur",
-    "no_connectors": "Aucun connecteur configuré. Ajoutez votre premier connecteur pour commencer l'ingestion de données.",
-    "last_sync": "Dernière synchro",
-    "documents": "documents"
-  },
-  "Objects": {
-    "title_bar": "Objets métier",
-    "title_bar_description": "Mapper les objets métier canoniques à travers les systèmes sources",
-    "add_object": "Ajouter un objet",
-    "section_types": "Types d'objets",
-    "section_types_description": "Définitions de types d'objets enregistrées pour cet espace de travail",
-    "section_objects": "Instances d'objets",
-    "section_objects_description": "Objets métier reliant des documents à travers les systèmes sources",
-    "no_types": "Aucun type d'objet défini",
-    "no_types_description": "Définissez des types d'objets comme Appel découverte, Affaire ou Compte pour mapper le contexte métier.",
-    "no_objects": "Aucun objet métier créé",
-    "no_objects_description": "Créez des objets pour relier transcriptions Zoom, fiches HubSpot, emails et plus en contexte métier unifié.",
-    "sources": "sources",
-    "mappings": "mappages"
-  },
-  "Domains": {
-    "title_bar": "Domaines de connaissances",
-    "title_bar_description": "Organiser le contexte par domaine métier",
-    "add_domain": "Ajouter un domaine",
-    "section_domains": "Domaines",
-    "section_domains_description": "Les domaines regroupent connecteurs, objets et compétences associés",
-    "no_domains": "Aucun domaine configuré. Créez des domaines pour organiser votre contexte par domaine métier.",
-    "connectors": "connecteurs",
-    "objects": "objets",
-    "owner": "Propriétaire"
-  },
-  "Audit": {
-    "title_bar": "Journal d'audit",
-    "title_bar_description": "Suivre toutes les actions et événements de votre espace de travail",
-    "section_recent": "Événements récents",
-    "section_recent_description": "Dernières entrées du journal d'audit",
-    "no_events": "Aucun événement d'audit. Les événements apparaîtront ici au fur et à mesure de l'utilisation de la plateforme.",
-    "event_user": "Utilisateur",
-    "event_action": "Action",
-    "event_resource": "Ressource",
-    "event_time": "Heure"
-  },
-  "Search": {
-    "title": "Rechercher",
-    "description": "Trouver des documents, enregistrements et preuves dans tous les systèmes connectés",
-    "coming_soon_features_1": "Recherche plein texte dans tous les connecteurs",
-    "coming_soon_features_2": "Filtrer par source, auteur, date et tags",
-    "coming_soon_features_3": "Classement des résultats par objet métier",
-    "coming_soon_features_4": "Cartes de preuves avec métadonnées",
-    "coming_soon_features_5": "Sauvegarder et partager les résultats"
-  },
-  "Skills": {
-    "title": "Compétences",
-    "description": "Requêtes et actions métier réutilisables pour votre équipe",
-    "coming_soon_features_1": "Compétences de requête : résumer des comptes, trouver des escalades, extraire des preuves",
-    "coming_soon_features_2": "Catalogue de compétences avec formulaires et affichage des résultats",
-    "coming_soon_features_3": "Périmètre de récupération par compétence",
-    "coming_soon_features_4": "Historique des versions et retour en arrière",
-    "coming_soon_features_5": "Jeux d'évaluation et suivi qualité"
   },
   "Teams": {
     "title_bar": "Teams",
@@ -205,15 +87,6 @@
     "under_hide": "Hide",
     "under_slug": "Slug"
   },
-  "Runs": {
-    "title": "Historique des exécutions",
-    "description": "Suivre chaque exécution de compétence et workflow dans votre espace de travail",
-    "coming_soon_features_1": "Historique complet avec statut, entrées et sorties",
-    "coming_soon_features_2": "Filtrer par compétence, utilisateur, date et statut",
-    "coming_soon_features_3": "Relancer et comparer les exécutions passées",
-    "coming_soon_features_4": "Boîte de réception des tâches d'approbation",
-    "coming_soon_features_5": "Capture de feedback par exécution"
-  },
   "Billing": {
     "title_bar": "Facturation",
     "title_bar_description": "Gérer votre facturation et votre abonnement",
@@ -232,38 +105,6 @@
   },
   "DataTable": {
     "no_results": "Aucun résultat."
-  },
-  "Todos": {
-    "title_bar": "Liste de Todos",
-    "title_bar_description": "Afficher et gérer votre liste de todos",
-    "add_todo_button": "Nouveau todo"
-  },
-  "TodoTableColumns": {
-    "open_menu": "Ouvrir le menu",
-    "edit": "Modifier",
-    "delete": "Supprimer",
-    "title_header": "Titre",
-    "message_header": "Message",
-    "created_at_header": "Créé le"
-  },
-  "AddTodo": {
-    "title_bar": "Ajouter une todo",
-    "add_todo_section_title": "Créer une nouvelle todo",
-    "add_todo_section_description": "Remplissez le formulaire ci-dessous pour créer une nouvelle todo"
-  },
-  "EditTodo": {
-    "title_bar": "Editer le todo",
-    "edit_todo_section_title": "Modifier le todo",
-    "edit_todo_section_description": "Remplissez le formulaire ci-dessous pour modifier la todo"
-  },
-  "TodoForm": {
-    "title_label": "Titre",
-    "title_description": "Entrez un titre descriptif pour votre todo.",
-    "title_error_message": "Le titre est requis et ne peut pas être vide.",
-    "message_title": "Message",
-    "message_description": "Entrez un message détaillé pour votre todo.",
-    "message_error_message": "Le message est requis et ne peut pas être vide.",
-    "submit_button": "Envoyer"
   },
   "PricingPlan": {
     "free_plan_name": "Gratuit",

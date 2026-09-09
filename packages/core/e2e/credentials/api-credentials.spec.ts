@@ -38,8 +38,51 @@ const KEYS = {
 };
 
 function createBootstrapAdmin(): void {
-  // Through `dotenv -c` so the script sees .env.local — it is run outside the
-  // Next process, which is the only thing that loads that file on its own.
+  try {
+    // Through `dotenv -c` so the script sees .env.local — it is run outside the
+    // Next process, which is the only thing that loads that file on its own.
+    execFileSync(
+      'npx',
+      [
+        'dotenv',
+        '-c',
+        '--',
+        'npx',
+        'tsx',
+        'src/scripts/create-local-user.ts',
+        '--email',
+        ADMIN.email,
+        '--name',
+        ADMIN.name,
+        '--account',
+        ADMIN.account,
+        '--password',
+        ADMIN.password,
+        '--role',
+        'admin',
+      ],
+      { stdio: 'inherit' },
+    );
+  } catch (error) {
+    // Expected on a database that already ran this spec: the script refuses to
+    // overwrite an existing user and exits non-zero. Every test below signs in
+    // rather than signs up, so the run is still valid — and a genuine failure
+    // here surfaces as that sign-in failing, with this line naming the cause.
+    console.warn(`[credentials spec] create-local-user made no user: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/** The credential the vault-failure tests save, break and then try to read. */
+const VAULT_MISMATCH_NAME = 'Vault Mismatch Co';
+
+/**
+ * Break the stored Azure credential so the vault can no longer open
+ * it — the state a rotated or missing `VOCION_CREDENTIAL_VAULT_KEY` leaves
+ * every credential in. Through `dotenv -c` for the same reason the bootstrap
+ * is: the script runs outside the Next process, which is what loads
+ * `.env.local`, and it has to reach the database the app under test uses.
+ */
+function scrambleStoredAzureCredential(): void {
   execFileSync(
     'npx',
     [
@@ -48,17 +91,11 @@ function createBootstrapAdmin(): void {
       '--',
       'npx',
       'tsx',
-      'src/scripts/create-local-user.ts',
-      '--email',
-      ADMIN.email,
+      'e2e/credentials/support/scramble-stored-credential.ts',
+      '--platform',
+      'azure-openai',
       '--name',
-      ADMIN.name,
-      '--account',
-      ADMIN.account,
-      '--password',
-      ADMIN.password,
-      '--role',
-      'admin',
+      VAULT_MISMATCH_NAME,
     ],
     { stdio: 'inherit' },
   );
@@ -123,6 +160,17 @@ test.describe('the platform selector decides which controls exist', () => {
       'Google Vertex AI',
       'Azure OpenAI',
       'AWS',
+      // The connector platforms, added after this spec was first written. A
+      // new connector lands here as well, on purpose: the selector is the one
+      // place a platform becomes reachable, so a silent addition is worth a
+      // failing assertion.
+      'Granola',
+      'HubSpot',
+      'Jira',
+      'Strapi',
+      'Google',
+      'Slack',
+      'Zoom',
       'Other platform',
     ]);
   });
@@ -266,7 +314,7 @@ test.describe('a saved key is masked, dated and one-per-platform', () => {
     await expect(page.getByRole('button', { name: 'Replace key' })).toBeVisible();
   });
 
-  test('replacing revokes the old key and keeps exactly one live', async ({ page }) => {
+  test('replacing keeps the new key on screen and takes the old one off it', async ({ page }) => {
     page.on('dialog', dialog => dialog.accept());
 
     await openFormFor(page, 'openai');
@@ -276,7 +324,25 @@ test.describe('a saved key is masked, dated and one-per-platform', () => {
 
     await expect(page.getByRole('row', { name: /Acme OpenAI rotated/ })).toContainText('…9999');
     await expect(page.getByRole('row', { name: /Acme OpenAI rotated/ })).toContainText('Active');
-    await expect(page.getByRole('row', { name: /Acme OpenAI(?! rotated)/ })).toContainText('Revoked');
+
+    // The replaced row is revoked, not deleted — kept for the audit trail, but
+    // off the default list so rotations do not pile up on the page.
+    await expect(page.getByRole('row', { name: /Acme OpenAI(?! rotated)/ })).toHaveCount(0);
+  });
+
+  test('the show-revoked toggle brings the replaced key back', async ({ page }) => {
+    await page.getByLabel('Show revoked').check();
+
+    const replaced = page.getByRole('row', { name: /Acme OpenAI(?! rotated)/ });
+
+    await expect(replaced).toContainText('Revoked');
+    await expect(replaced).toContainText('…1234');
+    // Revoked is a dead end, so the row offers no way to revoke it again.
+    await expect(replaced.getByRole('button', { name: 'Revoke' })).toHaveCount(0);
+
+    await page.getByLabel('Show revoked').uncheck();
+
+    await expect(page.getByRole('row', { name: /Acme OpenAI(?! rotated)/ })).toHaveCount(0);
   });
 
   test('a different platform keeps its own live key', async ({ page }) => {
@@ -318,8 +384,9 @@ test.describe('the Vocion token keeps its own rules', () => {
 
     const row = page.getByRole('row', { name: /Integration token/ });
 
+    // The platform column names Vocion; the row carried the longer
+    // "Vocion-issued" wording in an earlier build and no longer does.
     await expect(row).toContainText('Vocion');
-    await expect(row).toContainText('Vocion-issued');
     // A real date, not the em dash the platform keys show.
     await expect(row).not.toContainText('—');
 
@@ -387,5 +454,43 @@ test.describe('the Vocion token keeps its own rules', () => {
 
     expect(messages[0]).toContain('Vocion server key');
     expect(messages[1]).toContain('stops working immediately');
+  });
+});
+
+test.describe('a key that no longer decrypts', () => {
+  const NAME = VAULT_MISMATCH_NAME;
+
+  test('hands the key back while the vault still holds its key', async ({ page }) => {
+    // Azure is the one platform the tests above never store a key for, so this
+    // is the only Azure row on the page and nothing here replaces anything.
+    await openFormFor(page, 'azure-openai');
+    await page.getByLabel('Name').fill(NAME);
+    await page.getByLabel('Azure OpenAI key').fill(KEYS.azure);
+    await page.getByRole('button', { name: 'Save key' }).click();
+
+    await expect(page.getByRole('cell', { name: NAME })).toBeVisible();
+
+    await page.getByRole('row', { name: new RegExp(NAME) }).getByLabel('Show key').click();
+
+    await expect(page.getByText(KEYS.azure)).toBeVisible();
+  });
+
+  test('names the vault key and the fix when the ciphertext will not open', async ({ page }) => {
+    // What a rotated secret or an unset VOCION_CREDENTIAL_VAULT_KEY leaves
+    // behind: a row whose ciphertext the running process cannot authenticate.
+    scrambleStoredAzureCredential();
+    await page.reload();
+
+    await page.getByRole('row', { name: new RegExp(NAME) }).getByLabel('Show key').click();
+
+    // The whole point of the change: the sentence the vault wrote reaches the
+    // screen, so the person reading it can fix this without opening the
+    // container logs.
+    const row = page.getByRole('row', { name: new RegExp(NAME) });
+
+    await expect(row).toContainText('could not be decrypted with the current vault key');
+    await expect(row).toContainText('VOCION_CREDENTIAL_VAULT_KEY');
+    // Explaining the failure must not turn into leaking what was stored.
+    await expect(page.locator('body')).not.toContainText(KEYS.azure);
   });
 });
