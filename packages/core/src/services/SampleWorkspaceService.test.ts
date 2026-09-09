@@ -134,6 +134,7 @@ describe('seedSampleWorkspace on an empty workspace', () => {
 describe('SAMPLE_WORKSPACES registry', () => {
   it('is a non-empty list whose entries all carry slug/label/description/path', () => {
     expect(SAMPLE_WORKSPACES.length).toBeGreaterThan(0);
+
     for (const sample of SAMPLE_WORKSPACES) {
       expect(sample.slug).toMatch(/^[a-z0-9-]+$/);
       expect(sample.label.length).toBeGreaterThan(0);
