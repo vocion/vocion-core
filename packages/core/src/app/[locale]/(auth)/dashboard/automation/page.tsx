@@ -94,17 +94,17 @@ export default async function AutomationPage(props: {
       <TitleBar
         title="Automation"
         description="When things happen. Each automation binds a trigger — a schedule or an event — to a workflow run or a mission check."
+        actions={(
+          <Link
+            href="/dashboard/automation/runs"
+            title="Every fire, every automation"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+          >
+            <History className="size-3.5" />
+            Run log
+          </Link>
+        )}
       />
-
-      <div className="mb-4">
-        <Link
-          href="/dashboard/automation/runs"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
-        >
-          <History className="size-3.5" />
-          Run log — every fire, every automation
-        </Link>
-      </div>
 
       {automations.length === 0
         ? (
