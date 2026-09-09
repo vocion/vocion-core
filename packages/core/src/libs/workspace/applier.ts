@@ -1,6 +1,7 @@
 import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { withManifestDir } from '@/libs/sources/manifestDir';
 import { getConnector } from '@/libs/sources/registry';
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
@@ -938,11 +939,17 @@ async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean): 
   // Store the connector slug in config_json under `_connector` so
   // SourceSyncService.runSync can route to the right connector. This
   // matches the convention used by the addSource() picker path.
+  //
+  // `_manifestDir` records the directory of the workspace manifest that
+  // declared this source, so a connector resolves relative path options
+  // against the manifest rather than against WORKSPACE_PATH. For a
+  // manifest at the workspace root the two are the same path, which is
+  // why this is backwards compatible.
   const payload = {
     orgId,
     slug: src.slug,
     kind: 'plugin' as const,
-    configJson: { ...src.config, _connector: src.kind } as Record<string, unknown>,
+    configJson: withManifestDir({ ...src.config, _connector: src.kind }, src.manifestDir) as Record<string, unknown>,
     accessPolicy: src.access ?? null,
     enabled: String(src.enabled),
   };

@@ -51,7 +51,14 @@ export type LoadedAutomation = AutomationManifest & { sourceFile: string };
 
 export type LoadedLearningStep = LearningStepManifest & { sourceFile: string };
 export type LoadedEvalDataset = EvalDatasetManifest & { sourceFile: string };
-export type LoadedSource = SourceManifest & { sourceFile: string };
+/**
+ * A source, plus where it was declared. `manifestDir` is the absolute
+ * directory of the workspace manifest that carried it — connectors
+ * resolve relative path options (e.g. local-files `directory`) against
+ * it, so a template's bundled sample data works from any path rather
+ * than only from the workspace root.
+ */
+export type LoadedSource = SourceManifest & { sourceFile: string; manifestDir: string };
 /** A team — slug derived from the filename (teams/<slug>.yaml). */
 export type LoadedTeam = TeamManifest & { slug: string; sourceFile: string };
 
@@ -223,7 +230,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     .map((file) => {
       files.push(file);
       const parsed = parseFile(file, SourceManifestSchema, 'source');
-      return { ...parsed, sourceFile: file };
+      return { ...parsed, sourceFile: file, manifestDir: abs };
     });
 
   // Teams (F1): slug comes from the filename, so a team can't disagree
