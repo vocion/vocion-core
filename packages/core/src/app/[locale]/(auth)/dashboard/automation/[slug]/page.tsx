@@ -75,7 +75,12 @@ export default async function AutomationDetailPage(props: {
       limit: 500,
     }),
   ]);
-  const lastRun = strip.runs[0] ?? null;
+  // Newest by START time, not by row id: a later-inserted row can be an older
+  // fire, and the stuck 4 September row would otherwise read as "last run".
+  const lastRun = strip.runs.reduce<typeof strip.runs[number] | null>(
+    (newest, run) => (newest === null || run.startedAt > newest.startedAt ? run : newest),
+    null,
+  );
   const freshness = await automationSourceFreshness(orgId, checkResultOf(lastRun?.result)?.mirror?.sources ?? []);
   const health = scheduleHealth({ cron, lastFireAt: lastRun?.startedAt ?? null, paused: live?.paused, now });
   const interval = cron ? cronIntervalMs(cron, now) : null;
