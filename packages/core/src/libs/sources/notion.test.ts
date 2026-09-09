@@ -275,9 +275,11 @@ describe('notionConnector', () => {
     await expect(collect(notionConnector.sync(ctx()))).rejects.toThrow(/revoked/);
 
     vi.stubGlobal('fetch', vi.fn(async () => res({ message: 'restricted' }, 403)));
+
     await expect(collect(notionConnector.sync(ctx()))).rejects.toThrow(/share the pages/);
 
     vi.stubGlobal('fetch', vi.fn(async () => res({ message: 'boom' }, 500)));
+
     await expect(collect(notionConnector.sync(ctx()))).rejects.toThrow(/Notion request failed: 500/);
   });
 
