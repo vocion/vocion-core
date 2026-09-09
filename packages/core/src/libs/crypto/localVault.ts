@@ -64,8 +64,20 @@ function readMasterKey(): Buffer {
 }
 
 let _master: Buffer | null = null;
+/**
+ * Whether the key in `_master` came from the environment or was minted here.
+ *
+ * Recorded when the key is read, because that is what `decrypt` needs to name
+ * the right cause. Re-reading the variable at failure time would describe the
+ * environment as it is now, not the key the ciphertext was actually opened
+ * with — a variable set after this process started would make an ephemeral-key
+ * failure look like a changed value.
+ */
+let masterKeyCameFromEnvironment = false;
+
 function masterKey(): Buffer {
   if (!_master) {
+    masterKeyCameFromEnvironment = Boolean(process.env.VOCION_CREDENTIAL_VAULT_KEY);
     _master = readMasterKey();
   }
   return _master;
@@ -156,7 +168,7 @@ export function localVault(): CredentialVault {
         // The fix differs with the cause. A key that was never set has no
         // previous value to restore, so telling that reader to put one back
         // sends them looking for something that never existed.
-        const explanation = process.env.VOCION_CREDENTIAL_VAULT_KEY
+        const explanation = masterKeyCameFromEnvironment
           ? 'The value of VOCION_CREDENTIAL_VAULT_KEY has changed since this credential was saved: '
           + 'set it back to the value it had, or reconnect this source\'s credential under the '
           + 'current key.'

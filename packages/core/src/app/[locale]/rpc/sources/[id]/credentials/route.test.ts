@@ -368,6 +368,45 @@ describe('POST /rpc/sources/[id]/credentials', () => {
     expect(storePlatformKey).not.toHaveBeenCalled();
   });
 
+  it('shows the vault\'s own reason when storing against the install fails', async () => {
+  // The vault authored this sentence for a person to read, so it survives
+  // the flattening the sibling branches apply to everything else.
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'web', kind: 'plugin', config: {} });
+    vi.mocked(storeCredentialForSource).mockRejectedValue(
+      new VaultDecryptionError('The stored credential could not be decrypted with the current vault key.'),
+    );
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await POST(post({ credentials: { token: 'unused-1' } }), context('1'));
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('could not be decrypted') });
+
+    logged.mockRestore();
+  });
+
+  it('hides a store failure the vault did not vouch for', async () => {
+  // Without the gate this returned `err.message` verbatim. In production a
+  // missing vault key makes that message the operator's remediation steps —
+  // env-var names and a KMS ARN — handed to whoever clicked Save.
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'web', kind: 'plugin', config: {} });
+    vi.mocked(storeCredentialForSource).mockRejectedValue(
+      new Error('VOCION_CREDENTIAL_VAULT_KEY is not set. Set it to 32 base64-encoded random bytes'),
+    );
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await POST(post({ credentials: { token: 'unused-1' } }), context('1'));
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: 'Could not save the credential.' });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining('could not store install credential'),
+      expect.objectContaining({ message: expect.stringContaining('VOCION_CREDENTIAL_VAULT_KEY is not set') }),
+    );
+
+    logged.mockRestore();
+  });
+
   it('refuses a body with neither a picked credential nor any values', async () => {
     const res = await POST(post({ credentials: {} }), context('1'));
 

@@ -337,11 +337,22 @@ export async function POST(
     });
     return Response.json({ ok: true, credentialId });
   } catch (err) {
+    // Same gate as the GET catch above and as the rotate and link branches:
+    // only a message the vault or the registry authored is fit to show. A raw
+    // one here can carry a database detail, and since the vault refuses to
+    // build in production without a key, it can carry that refusal's env-var
+    // names and KMS ARN — remediation for an operator, handed to whoever
+    // happened to click Save.
+    const isSafeToShow = err instanceof VaultDecryptionError || err instanceof CredentialValidationError;
     const message = err instanceof Error ? err.message : String(err);
     console.error('[rpc/sources/credentials] could not store install credential', {
       connectorSlug,
       message,
+      cause: err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined,
     });
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json(
+      { error: isSafeToShow ? message : 'Could not save the credential.' },
+      { status: 500 },
+    );
   }
 }

@@ -296,10 +296,12 @@ rotated or revoked key then takes effect on the next call with nothing to
 invalidate. Any new outbound path gets a test that runs two orgs in sequence and
 asserts each got its own key.
 
-**Only `CredentialValidationError` may reach a client.** Those messages are
-authored in the platform registry and name no secret. Any other failure carries
-whatever text the database or the vault produced; log it and return something
-generic.
+**Only `CredentialValidationError` and `VaultDecryptionError` may reach a
+client.** Both are authored for a person to read and name no secret — the first
+in the platform registry, the second by the vault, which is the whole reason
+that type exists rather than a plain `Error`. Any other failure carries
+whatever text the database or the vault produced; log it, with `cause` where
+there is one, and return something generic.
 
 Supplied keys never take a Vocion-side expiry — the vendor owns the lifetime.
 
@@ -351,6 +353,28 @@ requirements/                       # Product specs and case studies
 └── ...
 ```
 
+## Git history
+
+- **After a history rewrite, reset to the remote — never pull or merge, and ask
+  first.** On 2026-09-09 `docs/internal/` was purged from this repo's entire
+  history and every branch was force-pushed: 607 commits became 579, and every
+  local checkout was left on commits that no longer exist upstream. Merging
+  from that state reconciles two unrelated histories and re-adds every purged
+  file, because the local side still has them in its tree. The tells are an
+  absurd `git rev-list --count HEAD..origin/main` and a `forced-update` line in
+  `git reflog show origin/main`.
+- **The recovery is `git reset --hard origin/<branch>`, which is the user's
+  call, not yours.** Confirm before running it, every time. Two checks first:
+  `git status` must be clean, because `--hard` discards uncommitted work as
+  well as commits; and `git log --oneline origin/<branch>` must show your own
+  commits present on the remote — read the list and match them, the command
+  proves nothing on its own. If either check fails, it is recovery rather than
+  routine: unpushed commits need cherry-picking onto the new base, and a branch
+  with no remote at all exists nowhere else.
+- **A purge does not unpublish anything.** Existing clones and forks keep the
+  files, and GitHub serves the old commits by SHA until it garbage collects.
+  Treat the exposure as having happened.
+
 ## Conventions
 
 - **Structural over prompting.** When a model behavior is a REQUIREMENT (cards
@@ -364,21 +388,6 @@ requirements/                       # Product specs and case studies
   "the prompt says so" is not evidence. (Proven: 3 prompt iterations failed
   to restore action cards; the backstop guaranteed them. Same story for the
   `<scratch>` strip and the typed trace.)
-- **After a history rewrite, reset to the remote — never pull or merge.** On
-  2026-09-09 `docs/internal/` was purged from this repo's entire history and
-  every branch was force-pushed: 607 commits became 579, and every local
-  checkout was left on commits that no longer exist upstream. Merging in that
-  state reconciles two unrelated histories and re-adds every purged file,
-  because the local side still has them in its tree. The tells are an absurd
-  `git rev-list --count HEAD..origin/main` and a `forced-update` line in
-  `git reflog show origin/main`. Confirm the remote branch already carries your
-  commits (`git log --oneline origin/<branch>`), then
-  `git reset --hard origin/<branch>`. Reset is only safe once that check
-  passes: a branch with genuinely unpushed work needs those commits
-  cherry-picked onto the new base, and a branch with no remote at all exists
-  nowhere else. Purging history does not unpublish anything already cloned or
-  forked, and GitHub keeps serving the old commits by SHA until it garbage
-  collects — treat the exposure as having happened.
 - Conventional Commits (enforced by commitlint + lefthook)
 - ESLint with Antfu config
 - Strict TypeScript
