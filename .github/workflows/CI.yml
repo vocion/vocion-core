@@ -29,9 +29,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            .next/cache
+            packages/core/.next/cache
           # Generate a new cache whenever packages or source files change.
-          key: nextjs-${{ matrix.node-version }}-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('src/**') }}
+          key: nextjs-${{ matrix.node-version }}-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('packages/core/src/**') }}
 
       - name: Build Next.js
         # build-local lives in the @vocion/core workspace, not the repo root.
@@ -39,13 +39,19 @@ jobs:
         env:
           NEXT_PUBLIC_SENTRY_DISABLED: 'true' # Only upload Sentry source maps in deployment
           NEXT_PUBLIC_APP_URL: http://localhost:3008
+          # next.config.ts imports src/libs/Env.ts, which refuses to load without
+          # these. Locally they come from .env.local, which is gitignored and so
+          # never reaches the runner. `build-local` boots a throwaway in-memory
+          # PGlite on 5432 and migrates against it, which is what this URL points at.
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_build
+          AUTH_SECRET: ci-only-secret-not-used-by-the-build
 
       - if: matrix.node-version == '22.x' && success()
         name: Cache Next.js build output
         uses: actions/cache/save@v5
         with:
           path: |
-            .next
+            packages/core/.next
           key: nextjs-build-${{ matrix.node-version }}-${{ github.sha }}
 
   static:
@@ -79,6 +85,23 @@ jobs:
       - name: Config integrity (malware guard)
         run: npm run check:integrity
 
+      # Refuses a symlink committed with a target outside the checkout. Three
+      # `node_modules` symlinks pointing at one laptop reached main in #221,
+      # because `.gitignore` said `node_modules/` and the trailing slash does
+      # not match a symlink. Same placement reasoning as the step below.
+      - name: Committed symlinks
+        run: npm run check:symlinks
+
+      # Refuses a migration that would take a write lock on a populated table.
+      # See packages/core/migrations/CONVENTIONS.md.
+      #
+      # Ahead of the linter deliberately. `npm run lint` currently exits 1 on
+      # this repo's standing errors, so any step after it never runs at all —
+      # a migration check placed later would be wired up and silently dead.
+      # It is also the cheapest step here: no build, no database, ~1s.
+      - name: Migration conventions
+        run: npm run check:migrations
+
       - name: Linter
         run: npm run lint
 
@@ -90,6 +113,35 @@ jobs:
 
       - name: I18n check
         run: npm run check:i18n
+
+  agent-runtime:
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    name: Check the agent runtime artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js environment
+        uses: ./.github/actions/setup-project
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # The artifact deployed to AgentCore Runtime is its own workspace, and
+      # until now nothing in CI touched it: the root `check:types` and `test`
+      # scripts both named `@vocion/core` alone, and the only place its
+      # typecheck ran was a deploy workflow that has been removed. Its suite
+      # needs no database and no credentials, so it stands alone rather than
+      # joining the unit job's coverage run.
+      - name: Type checking
+        run: npm run check:types --workspace @vocion/agent-runtime
+
+      - name: Unit tests
+        run: npm run test --workspace @vocion/agent-runtime
 
   unit:
     strategy:
@@ -144,6 +196,11 @@ jobs:
         uses: docker://mcr.microsoft.com/playwright:v1.58.2
         with:
           args: npm run storybook:test
+        env:
+          # Same reason as the build job: Env.ts validates on import, and the
+          # stories never dial the database.
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_storybook
+          AUTH_SECRET: ci-only-secret-not-used-by-storybook
 
   e2e:
     strategy:
@@ -172,6 +229,11 @@ jobs:
           args: sh -c "HOME=/root npm run test:e2e" # Set HOME to /root to avoid Playwright error with Firebox
         env:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          # Playwright boots `next start` next to a throwaway in-memory PGlite on
+          # 5432, and Env.ts validates on import, so the server needs these to
+          # come up at all. Same values the unit and build jobs use.
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_e2e
+          AUTH_SECRET: ci-only-secret-not-used-outside-ci
 
       - name: Fix test results permission # Give permissions to test results needed by Chromatic
         run: |
@@ -206,7 +268,21 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }} # Crowdin Actions needs to push commits to the PR branch, checkout HEAD commit instead of merge commit
           fetch-depth: 0
 
+      # Skip gracefully when Crowdin secrets aren't configured (forks / installs
+      # that don't localize) instead of failing every pull request red. The
+      # standalone crowdin.yml workflow already does this; this copy did not.
+      - name: Check Crowdin secrets
+        id: creds
+        run: |
+          if [ -n "${{ secrets.CROWDIN_PROJECT_ID }}" ] && [ -n "${{ secrets.CROWDIN_PERSONAL_TOKEN }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Crowdin secrets not configured — skipping sync."
+          fi
+
       - name: Crowdin action
+        if: steps.creds.outputs.present == 'true'
         uses: crowdin/github-action@v2
         with:
           upload_sources: true

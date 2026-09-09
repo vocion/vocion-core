@@ -5,8 +5,12 @@ import { defineConfig, devices } from '@playwright/test';
 // to avoid conflicts with the Next.js default port 3000.
 const PORT = process.env.PORT || '3008';
 
-// Set webServer.url and use.baseURL with the location of the WebServer respecting the correct set port
-const baseURL = `http://localhost:${PORT}`;
+// Set webServer.url and use.baseURL with the location of the WebServer respecting the correct set port.
+// PLAYWRIGHT_BASE_URL overrides the whole thing, host included: a worktree can
+// serve the app on its own hostname so its session cookie does not collide
+// with another checkout's, and the tests have to talk to that same hostname or
+// every sign-in fails the host check. Unset in CI, so nothing changes there.
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://localhost:${PORT}`;
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -77,6 +81,39 @@ export default defineConfig<ChromaticConfig>({
       retries: 0,
       use: { ...devices['Desktop Chrome'], video: 'on', trace: 'off' },
     },
+    // The review-queue end-to-end specs. Self-seeding like `tour` (the sign-up
+    // route is invite-only), so no Clerk setup project and no dependencies.
+    // Run with: npx playwright test --project=queue
+    {
+      name: 'queue',
+      testDir: './e2e/queue',
+      timeout: 120 * 1000,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // The feedback-to-learning loop end to end. Self-seeding like `queue`.
+    // Run with: npx playwright test --project=learning
+    {
+      name: 'learning',
+      testDir: './e2e/learning',
+      timeout: 120 * 1000,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // The same loop against a REAL model, end to end. Defined only when
+    // LIVE_MODEL_E2E is set, so `npx playwright test` — locally or in CI —
+    // never spends money or reaches an external service by default.
+    // Run with:
+    //   LIVE_MODEL_E2E=1 DATABASE_URL=... npx playwright test --project=learning-live
+    ...(process.env.LIVE_MODEL_E2E
+      ? [
+          {
+            name: 'learning-live',
+            testDir: './e2e/learning-live',
+            // Each assertion waits on a queue round trip plus two model calls.
+            timeout: 300 * 1000,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
     // The API credentials matrix (platforms, validation, expiry rules).
     // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
     // so no Clerk setup project and no dependencies.

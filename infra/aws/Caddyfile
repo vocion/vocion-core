@@ -39,3 +39,31 @@
 www.{$VOCION_HOSTNAME} {
     redir https://{$VOCION_HOSTNAME}{uri} 301
 }
+
+# Self-hosted Langfuse — the LLM trace, cost and prompt surface.
+#
+# Only relevant when the deployment self-hosts Langfuse. On Langfuse
+# Cloud there is nothing on this box to proxy: leave
+# LANGFUSE_SITE_ADDRESS unset and delete this block, or point it at a
+# hostname you do not use.
+#
+# The container publishes no host port (see
+# infra/docker-compose.langfuse.prod.yml), so Caddy reaching it over the
+# compose network is the only way in. Langfuse's own login is the gate;
+# if the client wants a second one, add `basic_auth` here rather than
+# publishing the port.
+{$LANGFUSE_SITE_ADDRESS} {
+    encode gzip zstd
+
+    reverse_proxy langfuse-web:3000 {
+        # Parts of the Langfuse UI stream; buffering breaks them the
+        # same way it breaks the app's SSE endpoints above.
+        flush_interval -1
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}

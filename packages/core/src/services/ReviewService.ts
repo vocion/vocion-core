@@ -596,6 +596,13 @@ export async function snooze(
     assignedBy: byUserId ?? null,
     ...(opts?.note !== undefined ? { note: opts.note } : {}),
   });
+  // The assignment row only ever holds the CURRENT snooze — the next one
+  // overwrites it — so the adoption event is the only record that a deferral
+  // happened at all. Awaited (not fired and forgotten) because
+  // `trackReviewSnooze` cannot reject and the caller is already awaiting a
+  // write; ordering it here means a snooze and its event land together.
+  const { trackReviewSnooze } = await import('@/services/adoption/attribution');
+  await trackReviewSnooze({ orgId, userId: byUserId ?? 'web' }, item, until);
 }
 
 /**
@@ -611,6 +618,9 @@ export async function snooze(
  * @param opts.reviewedBy
  * @param opts.editedInput
  * @param opts.note
+ * @param opts.externalRef
+ * @param opts.externalRef.system
+ * @param opts.externalRef.id
  */
 export async function decide(
   item: { kind: ReviewKind; id: number },
@@ -622,6 +632,11 @@ export async function decide(
     editedInput?: Record<string, unknown>;
     /** Reviewer's note for the agent — stored on the assignment, the triage signal, and the learning capture. */
     note?: string;
+    /**
+     * The record the approver just created in its own system. Passed straight
+     * to the action, which links its domain row to it. Ignored on reject.
+     */
+    externalRef?: { system: string; id: string };
   },
 ): Promise<void> {
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
@@ -646,7 +661,7 @@ export async function decide(
         if (opts?.editedInput) {
           await updateActionInput(item.id, orgId, opts.editedInput);
         }
-        await executeAction(item.id, orgId, { reviewedBy });
+        await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
       } else {
         await rejectAction(item.id, orgId, opts?.reason ?? opts?.note, { reviewedBy });
       }
@@ -727,11 +742,20 @@ const SIGNAL_TO_DECISION = {
 export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string }): Promise<void> {
   try {
     const [run] = await db
-      .select({ invokedBy: actionRunSchema.invokedBy, actionId: actionRunSchema.actionId })
+      .select({
+        invokedBy: actionRunSchema.invokedBy,
+        actionId: actionRunSchema.actionId,
+        proposal: actionRunSchema.proposal,
+      })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
       .limit(1);
-    const agentSlug = run?.invokedBy?.startsWith('agent:') ? run.invokedBy.slice('agent:'.length) : undefined;
+    // An in-process agent turn stamps `agent:<slug>` on invokedBy. A proposal
+    // made over the API stamps the caller there instead and puts the agent in
+    // the proposal envelope, so both have to be read.
+    const agentSlug = run?.invokedBy?.startsWith('agent:')
+      ? run.invokedBy.slice('agent:'.length)
+      : run?.proposal?.agentSlug ?? undefined;
     const { track } = await import('@/services/adoption/track');
     // Scope dimensions travel together: userId (individual) + orgId (workspace)
     // on the actor, actionId (action type) in meta.
@@ -740,8 +764,70 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
       resource: ['action_run', opts.runId],
       meta: { kind: 'action', decision: SIGNAL_TO_DECISION[opts.signal], ...(run?.actionId ? { actionId: run.actionId } : {}), ...(opts.hint ? { hint: opts.hint } : {}) },
     });
+    await queueSignalForLearning(opts, agentSlug);
   } catch {
     /* signal capture never blocks the decision */
+  }
+}
+
+/** Which signals mean "the agent got this wrong" vs "the agent got this right". */
+const SIGNAL_POLARITY = {
+  approve: 'reinforce',
+  save: 'reinforce',
+  edit: 'correct',
+  reject: 'correct',
+  rewrite: 'correct',
+  skip: null,
+} as const;
+
+/**
+ * Queue a triage signal for the feedback classifier, so a reaction to an
+ * agent's proposal can become a learning candidate.
+ *
+ * Two rules decide whether anything is queued:
+ *
+ * - **There has to be text.** A bare click says the reviewer disagreed but not
+ *   what the agent should do differently, and asking a model to invent the
+ *   reason produces rules nobody stated. The signal is still counted in the
+ *   adoption metrics either way — this only governs whether a rule can be
+ *   proposed from it.
+ * - **`skip` never queues.** Skipping leaves the item pending; the reviewer has
+ *   not judged it yet.
+ *
+ * Idempotent on (run, signal): re-deciding an item does not queue a second job.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.signal
+ * @param opts.userId
+ * @param opts.hint
+ * @param agentSlug - The agent that proposed the action, when known.
+ */
+async function queueSignalForLearning(
+  opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string },
+  agentSlug: string | undefined,
+): Promise<void> {
+  const polarity = SIGNAL_POLARITY[opts.signal];
+  const note = opts.hint?.trim();
+  if (!polarity || !note) {
+    return;
+  }
+  try {
+    const { enqueue } = await import('@/services/FeedbackWorkerService');
+    await enqueue({
+      orgId: opts.orgId,
+      source: 'review',
+      externalId: `action_run:${opts.runId}:${opts.signal}`,
+      payload: {
+        text: note,
+        agentSlug,
+        sourceRunId: opts.runId,
+        submittedBy: opts.userId,
+        polarityHint: polarity,
+      },
+    });
+  } catch (error) {
+    console.error(`[ReviewService] could not queue the ${opts.signal} signal on action run ${opts.runId} for learning`, error);
   }
 }
 
@@ -755,8 +841,20 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
  * @param opts.runId
  * @param opts.hint
  * @param opts.userId
+ * @param opts.contentId
  */
-export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: string; userId?: string }): Promise<{ input: Record<string, unknown>; body: string }> {
+export async function rewriteDraft(opts: {
+  orgId: string;
+  runId: number;
+  hint?: string;
+  userId?: string;
+  /**
+   * Which piece of content to rewrite, by the card's content id (e.g.
+   * `send-2`). Without it the run's single body is rewritten, as before — a
+   * sequence has several, and a guided review asks about one at a time.
+   */
+  contentId?: string;
+}): Promise<{ input: Record<string, unknown>; body: string; contentId?: string }> {
   const [run] = await db
     .select({ input: actionRunSchema.input, actionId: actionRunSchema.actionId })
     .from(actionRunSchema)
@@ -767,7 +865,19 @@ export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: 
   }
   const input = (run.input ?? {}) as Record<string, unknown>;
   const props = (input.properties ?? {}) as Record<string, unknown>;
-  const original = String(input.body ?? input.notes ?? props.notes ?? '');
+  // A targeted rewrite reads the addressed send; an untargeted one reads the
+  // run's single body, which is what every non-sequence action has.
+  const sends = Array.isArray(input.sends) ? input.sends as Array<Record<string, unknown>> : null;
+  const targetStep = opts.contentId?.startsWith('send-') ? Number(opts.contentId.slice(5)) : null;
+  const targetSend = sends && targetStep !== null
+    ? sends.find(s => Number(s.step) === targetStep)
+    : null;
+  if (opts.contentId && !targetSend) {
+    throw new Error(`no content ${opts.contentId} on action ${opts.runId}`);
+  }
+  const original = targetSend
+    ? String(targetSend.body ?? '')
+    : String(input.body ?? input.notes ?? props.notes ?? '');
   const { buildChatModelForOrg } = await import('@/libs/llm');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
   const model = await buildChatModelForOrg('main', opts.orgId, { temperature: 0.4, streaming: false, maxTokens: 1200 });
@@ -786,6 +896,19 @@ export async function rewriteDraft(opts: { orgId: string; runId: number; hint?: 
     rewritten = original;
   }
   await recordActionSignal({ orgId: opts.orgId, runId: opts.runId, signal: 'rewrite', userId: opts.userId, hint: opts.hint });
+  if (targetSend && sends) {
+    // The caller holds the revision and passes it back on approve, the same
+    // edit-then-approve path the card already uses — nothing is persisted
+    // behind the reviewer's back.
+    return {
+      input: {
+        ...input,
+        sends: sends.map(s => (Number(s.step) === targetStep ? { ...s, body: rewritten } : s)),
+      },
+      body: rewritten,
+      contentId: opts.contentId,
+    };
+  }
   if (input.body === undefined && input.notes === undefined && props.notes !== undefined) {
     return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten };
   }

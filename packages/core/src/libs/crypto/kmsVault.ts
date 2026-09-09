@@ -14,6 +14,7 @@
  */
 
 import type { CredentialVault, EncryptResult } from './credentialVault';
+import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms';
 import { and, desc, eq } from 'drizzle-orm';

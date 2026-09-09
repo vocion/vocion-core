@@ -60,4 +60,4 @@ names, so you rarely list those yourself.
 
 ## Related
 
-[Skill](./skill.md) · [Agent](./agent.md) · ADR: `docs/internal/adr/0003-skill-playbook-operation.md`
+[Skill](./skill.md) · [Agent](./agent.md) · ADR: `docs/adr/0003-skill-playbook-operation.md`

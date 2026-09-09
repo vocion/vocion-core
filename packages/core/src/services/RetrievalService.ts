@@ -30,7 +30,7 @@
 
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { langfuse, traceFor } from '@/libs/Langfuse';
+import { flushTraces, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { embed } from '@/libs/retrieval/embedder';
 import {
@@ -219,7 +219,7 @@ export async function search(query: string, opts: SearchOptions): Promise<Search
     emit({ type: 'retrieval.complete', hits: finalHits.length });
     return finalHits;
   } finally {
-    void langfuse.flushAsync();
+    void flushTraces();
   }
 }
 
@@ -442,7 +442,7 @@ async function hydrate(
 
 /**
  * Recent ingest activity — drives the source catalog card and the
- * `/dashboard/sources/[slug]` detail page.
+ * `/dashboard/connectors/[slug]` detail page.
  * @param orgId
  * @param sourceId
  * @param limit

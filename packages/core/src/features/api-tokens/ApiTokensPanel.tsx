@@ -4,22 +4,39 @@
  * Admin surface for an org's API credentials, in both directions.
  *
  * **Vocion tokens.** Issuing a credential no longer needs shell access: an
- * admin names a token, picks how long it should live, copies the secret once,
- * and pastes it into whatever outside tool needs to call Vocion. The secret is
- * shown exactly once, right after creation — after a reload only the hash
- * exists, so the row can never show it again. An org may hold as many of these
- * as it has integrations.
+ * admin names a token, picks how long it should live, and pastes it into
+ * whatever outside tool needs to call Vocion. The token is shown in full right
+ * after creation, and can be shown again later from its row — the same way a
+ * platform key can. An org may hold as many of these as it has integrations.
+ *
+ * A token issued before Vocion started storing minted tokens encrypted is the
+ * one exception: only its hash exists, so its row says so instead of offering a
+ * show button that could never produce anything.
  *
  * **Platform keys.** The org's own OpenAI or Anthropic key, pasted here so
- * their model runs bill their account. Exactly one live key per platform: the
- * database enforces it, and this panel says so before you save and again when
- * you are about to replace one, because the replacement takes effect instantly
- * and silently otherwise. A platform key is masked in the table and only shown
- * when an admin clicks to see it, so the page can sit open without a vendor key
- * on display.
+ * their model runs bill their account. Exactly one live key per platform for
+ * these: the database enforces it, and this panel says so before you save and
+ * again when you are about to replace one, because the replacement takes
+ * effect instantly and silently otherwise.
+ *
+ * **Connector credentials.** A Jira, Strapi, HubSpot or Granola key, which a
+ * connector install points at instead of keeping its own copy. A workspace may
+ * hold several of each, told apart by name — "Strapi — staging" and
+ * "Strapi — prod" both live at once — so saving one here adds to the list
+ * rather than replacing anything, and the panel says that instead.
+ *
+ * Every credential of either kind is masked in the table and only shown when an
+ * admin clicks to see it, so the page can sit open without a secret on
+ * display.
+ *
+ * **Revoked rows are hidden by default.** Replacing a one-live key revokes the
+ * old row instead of deleting it, so the list would otherwise grow a dead
+ * entry on every rotation until the page read as a key changelog. "Show
+ * revoked" brings the history back for the audit case.
  */
 
 import type { TokenSummary } from '@/services/ApiTokenService';
+import { ORPCError } from '@orpc/client';
 import { AlertTriangle, Check, Copy, Eye, EyeOff, KeyRound, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +52,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { client } from '@/libs/Orpc';
+import { API_ERROR_CODE } from '@/types/ApiError';
 
 /**
  * The expiry choices offered in the create form. A numeric value is a day
@@ -56,6 +74,12 @@ type PlatformOption = {
   id: string;
   label: string;
   keySource: 'minted' | 'supplied';
+  /**
+   * `one-live` — saving a second credential replaces the first, which the form
+   * has to warn about. `many` — a workspace holds as many as it wants, told
+   * apart by name; the connector platforms work this way, and so does `vocion`.
+   */
+  credentialsPerOrg: 'one-live' | 'many';
   keyShapeHint: string;
   helpText: string;
   fields: PlatformField[];
@@ -229,9 +253,8 @@ function FreshTokenNotice({ fresh, onDismiss }: { fresh: FreshToken; onDismiss: 
         {`Token “${fresh.name}” created`}
       </p>
       <p className="text-sm text-muted-foreground">
-        Copy it now. This is the only time it will be shown — Vocion stores only a
-        hash, so it cannot be recovered later. Revoke and create a new one if you
-        lose it.
+        Copy it into the tool that needs it. You can also show it again later
+        from its row in the table below.
       </p>
       <div className="flex items-center gap-2">
         <code className="flex-1 overflow-x-auto rounded bg-muted px-3 py-2 font-mono text-xs">
@@ -250,6 +273,30 @@ function FreshTokenNotice({ fresh, onDismiss }: { fresh: FreshToken; onDismiss: 
 }
 
 /**
+ * The message a failed call is allowed to put on screen, or null when it has
+ * none worth showing.
+ *
+ * The reveal route sends back exactly one kind of readable failure: a bad
+ * request whose message it authored — the vault explaining that a credential
+ * cannot be decrypted with the key this deployment holds. Every other refusal
+ * it makes carries a flat sentence instead, and everything that never reached
+ * the handler (a session that expired, a role check, a transport failure)
+ * carries wording written for a log rather than for this row.
+ *
+ * Trusting the code rather than the presence of a message is what keeps the
+ * second group off the page.
+ * @param error - Whatever the call rejected with.
+ */
+function messageTheRouteVouchedFor(error: unknown): string | null {
+  // No empty-message case to guard: an ORPCError given none falls back to its
+  // own code as the message, so there is nothing here that can render blank.
+  if (error instanceof ORPCError && error.code === API_ERROR_CODE.BAD_REQUEST) {
+    return error.message;
+  }
+  return null;
+}
+
+/**
  * The sentence to show when the server declines to reveal a credential.
  *
  * None of these is an error the admin caused, so each one says what is true of
@@ -257,8 +304,12 @@ function FreshTokenNotice({ fresh, onDismiss }: { fresh: FreshToken; onDismiss: 
  * @param status - The refusal the reveal route returned.
  */
 function revealRefusalMessage(status: 'not-found' | 'minted'): string {
+  // `minted` is a defensive case rather than one a click normally reaches: the
+  // show button only renders for a row the list already said is revealable. It
+  // is still worth a real sentence, because a tab left open while the token was
+  // revoked and re-created elsewhere can get here.
   if (status === 'minted') {
-    return 'Shown once at creation — only a hash is stored.';
+    return 'Issued before tokens were stored encrypted — only a hash exists. Revoke it and create a new one to get a token you can read back.';
   }
   return 'This credential no longer exists. Reload the page.';
 }
@@ -284,9 +335,10 @@ const MASK = '••••••••';
  * key itself still exists at the vendor, and whoever has to go and delete it
  * there needs to be able to read it.
  *
- * A Vocion-issued row has no reveal button, and that is not a permission
- * decision: only the SHA-256 of those secrets is stored, so the plaintext
- * genuinely no longer exists to show.
+ * A Vocion-issued token opens here like any other credential. The exception is
+ * one issued before minted tokens were stored encrypted: only its SHA-256
+ * exists, so the cell says as much instead of offering a button that could
+ * never produce anything.
  * @param props - Component props.
  * @param props.token - The credential row being rendered.
  * @param props.fields - The platform's fields, for labelling a multi-value
@@ -314,12 +366,16 @@ function CredentialKeyCell({
   onReveal: () => void;
   onHide: () => void;
 }) {
-  if (token.platform === VOCION_PLATFORM_ID) {
+  if (!token.revealable) {
     return (
       <TableCell className="max-w-72 font-mono text-xs text-muted-foreground">
-        <span title="Shown once at creation. Vocion stores only a hash, so it cannot be shown again.">
-          Vocion-issued
-        </span>
+        <p>Shown once at creation</p>
+        {/* The way out has to be readable, not parked in a tooltip: a title
+            attribute never reaches somebody navigating by keyboard, and this
+            row is otherwise a dead end. */}
+        <p className="font-sans">
+          Revoke it and create a new one to get a token you can show again.
+        </p>
       </TableCell>
     );
   }
@@ -336,7 +392,7 @@ function CredentialKeyCell({
                   {token.keyHint ? ` ${token.keyHint}` : ''}
                 </span>
               )}
-          {error && <p className="font-sans text-destructive">{error}</p>}
+          {error && <p role="alert" className="font-sans text-destructive">{error}</p>}
         </div>
         <Button
           variant="ghost"
@@ -441,6 +497,12 @@ export function ApiTokensPanel() {
   const [error, setError] = useState<string | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
+  /**
+   * Whether the table also lists revoked rows. Off by default: a platform
+   * capped at one live key revokes the old row on every rotation instead of
+   * deleting it, so the history is real but it is not what the page is for.
+   */
+  const [showRevoked, setShowRevoked] = useState(false);
   const [platformId, setPlatformId] = useState(VOCION_PLATFORM_ID);
   const [name, setName] = useState('');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
@@ -459,7 +521,7 @@ export function ApiTokensPanel() {
   const refresh = useCallback(async () => {
     try {
       const [rows, options] = await Promise.all([
-        client.apiTokens.list(),
+        client.apiTokens.list({ includeRevoked: showRevoked }),
         client.apiTokens.listPlatforms(),
       ]);
       setTokens(rows);
@@ -474,11 +536,11 @@ export function ApiTokensPanel() {
       setError('Could not load API credentials.');
     }
     setLoading(false);
-  }, []);
+  }, [showRevoked]);
 
   useEffect(() => {
     // False positive: every setState in refresh() runs after an await.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     void refresh();
   }, [refresh]);
 
@@ -486,7 +548,11 @@ export function ApiTokensPanel() {
   const isMinted = (selectedPlatform?.keySource ?? 'minted') === 'minted';
   // Only meaningful for a supplied platform: a Vocion row is allowed to have
   // as many siblings as the org wants.
-  const existingKey = isMinted ? undefined : liveKeyFor(tokens, platformId);
+  // Only a platform capped at one live credential has a key about to be
+  // replaced. On a connector platform a second credential is a second
+  // credential, so warning about a replacement would be a false alarm.
+  const holdsManyCredentials = selectedPlatform?.credentialsPerOrg === 'many';
+  const existingKey = isMinted || holdsManyCredentials ? undefined : liveKeyFor(tokens, platformId);
 
   /**
    * Reset the create form back to its opening state. Called after a successful
@@ -570,8 +636,20 @@ export function ApiTokensPanel() {
         setRevealErrors(previous => ({ ...previous, [token.id]: revealRefusalMessage(result.status) }));
       }
     } catch (err) {
+      // The route has already decided what this row is allowed to say: a vault
+      // failure it can explain arrives as a bad request carrying its own
+      // sentence, naming the cause and the fix, and anything else it refuses
+      // arrives as a flat "Could not read that key." Rewriting the message here
+      // would throw away the useful half of that work.
+      //
+      // Only that one code is trusted, though. A 401, a 403 or a failure that
+      // never reached the handler carries wording nobody wrote for this row,
+      // so those fall back rather than being echoed onto the page.
       console.error('[ApiTokensPanel] could not reveal key', err);
-      setRevealErrors(previous => ({ ...previous, [token.id]: 'Could not read that key.' }));
+      setRevealErrors(previous => ({
+        ...previous,
+        [token.id]: messageTheRouteVouchedFor(err) ?? 'Could not read that key.',
+      }));
     }
     setRevealingId(null);
   };
@@ -598,6 +676,22 @@ export function ApiTokensPanel() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {fresh && <FreshTokenNotice fresh={fresh} onDismiss={() => setFresh(null)} />}
+
+      {/* The way back to a revoked row. Rotating a key leaves the old one
+          behind on purpose, and this is the only affordance for reading that
+          history — without it the rows are reachable only in the database. */}
+      <div className="flex justify-end">
+        <Label htmlFor="show-revoked" className="text-sm font-normal text-muted-foreground">
+          <input
+            id="show-revoked"
+            type="checkbox"
+            checked={showRevoked}
+            onChange={event => setShowRevoked(event.target.checked)}
+            className="size-3.5 accent-primary"
+          />
+          Show revoked
+        </Label>
+      </div>
 
       <Table>
         <TableHeader>
@@ -661,7 +755,12 @@ export function ApiTokensPanel() {
           {tokens.length === 0 && (
             <TableRow>
               <TableCell colSpan={8} className="text-sm text-muted-foreground">
-                No API credentials yet.
+                {showRevoked
+                  ? 'No API credentials yet.'
+                  // Not "none yet": the org may hold revoked rows, and saying
+                  // there is nothing when the toggle would show something
+                  // would be wrong.
+                  : 'No credentials in use. Turn on “Show revoked” to see any that were replaced or revoked.'}
               </TableCell>
             </TableRow>
           )}
@@ -688,7 +787,9 @@ export function ApiTokensPanel() {
                 </p>
                 {!isMinted && !existingKey && (
                   <p className="text-xs text-muted-foreground">
-                    {`A workspace holds one ${selectedPlatform?.label} key at a time.`}
+                    {holdsManyCredentials
+                      ? `A workspace can hold several ${selectedPlatform?.label} credentials. The name is how you tell them apart, and how a connector picks one.`
+                      : `A workspace holds one ${selectedPlatform?.label} key at a time.`}
                   </p>
                 )}
                 {existingKey && (

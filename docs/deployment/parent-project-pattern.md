@@ -84,6 +84,12 @@ better name is worth. Rename it in both, or in neither.
 Skip phase 2 and **the site comes up healthy while chat fails**. Any agent with
 `harness.provider: agentcore` has nowhere to execute until the runtime exists.
 
+Langfuse is the one part of phase 1 that needs a decision rather than a
+script: managed Cloud, self-hosted on the box, or off. Make it before
+the first deploy, since the self-hosted path sets the admin password and
+the project API keys on first boot.
+[`observability.md`](./observability.md) covers all three.
+
 ### Call these scripts. Don't copy them.
 
 They read `ENV`, `AWS_PROFILE` and `REGION` from the environment, and each one
@@ -114,15 +120,209 @@ makes that impossible.
 Phase 2 is a separate action because it needs Docker and builds a linux/arm64
 image. A plain infrastructure change shouldn't require either.
 
+### Migrations are the same rule, and this is where it has already bitten
+
+Call `vocion-core/infra/aws/apply-migrations.sh`. Do not write your own loop
+over `packages/core/migrations/*.sql`.
+
+```bash
+sudo MIGRATIONS_DIR=<checkout>/vocion-core/packages/core/migrations \
+  POSTGRES_CONTAINER=<your-pg-container> POSTGRES_DB=<your-db> \
+  bash <checkout>/vocion-core/infra/aws/apply-migrations.sh
+```
+
+A hand-rolled loop looks like four lines and works, right up until core adds
+something the loop does not know about. Core keeps a second class of migration
+in `packages/core/migrations/concurrent/` — index builds written as
+`CREATE INDEX CONCURRENTLY`, because a plain `CREATE INDEX` on a populated
+table blocks every write to it until the build finishes. A non-recursive glob
+skips that directory in silence: the numbered migration lands, the index build
+does not, and the deploy reports success.
+
+That is not hypothetical. `Veerio-Life/veerio-vocion` applies migrations from
+its own `apply-workspace.sh` with exactly such a glob, so core's applier has
+never run there — confirmed against both of its environments, whose migration
+history lives in a `schema_migration` table core knows nothing about.
+
+Calling core's script also gets you the parts nobody thinks to write twice: the
+baselining path for a database whose schema predates the tracking table,
+dropping `--single-transaction` only for the statements Postgres actually
+refuses inside one, and stopping rather than skipping ahead when a migration
+fails.
+
+**If a parent project must keep its own applier**, end its deploy with:
+
+```bash
+sudo MIGRATIONS_DIR=... POSTGRES_CONTAINER=... POSTGRES_DB=... \
+  bash <checkout>/vocion-core/infra/aws/apply-migrations.sh --verify-indexes
+```
+
+That reads the database and nothing else — no tracking table, no baselining, no
+migrations — and exits non-zero naming any index declared in `concurrent/` that
+is missing, or that a failed build left `INVALID` (present, never used, and
+skipped forever by `IF NOT EXISTS`). It turns the silent case into a failed
+deploy.
+
+**Moving an existing project onto core's applier** needs one baseline, because
+its history is in its own table and core's applier reads `__pgsql_migrations`:
+
+```bash
+# once, on the box, after confirming the schema is current
+sudo ... bash .../apply-migrations.sh --baseline all
+```
+
+Then every later deploy is a normal run. Run `--check` first to see what it
+would do.
+
+### Wire the app to the runtime
+
+Provisioning creates the runtime. It does not tell the app to use it — that is
+five environment variables, and getting one wrong fails in a way that looks
+like a model problem rather than a config problem.
+
+`provision.sh` and `deploy-runtime.sh` write what they created to SSM under
+`/vocion/agentcore/<env>/`: `runtime-arn`, `memory-id`, `runtime-image`,
+`runtime-role-arn`, `ecr-repo-uri`. **Read those at deploy time. Do not paste
+an ARN into a compose file or a tfvars** — the runtime is redeployed far more
+often than the parent project's infrastructure, and a pasted ARN is how an
+environment ends up invoking last month's image.
+
+| Var | Value | What breaks without it |
+|---|---|---|
+| `VOCION_AGENT_RUNTIME_ARN` | SSM `runtime-arn` | Core falls back to `VOCION_AGENT_RUNTIME_URL` (default `http://localhost:8080`) and every agent turn fails to connect. Chat is broken, the site is fine. |
+| `VOCION_TOOL_ENDPOINT_URL` | `https://<the client's core>/api/internal/agent-tools` | The runtime executes the loop but **every tool call fails**, because the default is localhost and AWS cannot reach it. The agent answers, badly, from the model alone. |
+| `VOCION_AGENTCORE_REGION` | the region the runtime was provisioned in | Core signs `InvokeAgentRuntime` against `us-west-2` and cannot find a runtime provisioned elsewhere. |
+| `VOCION_AGENTCORE_MEMORY_ID` | SSM `memory-id` | Conversations still work — history rides the payload — but nothing is remembered across conversations. |
+| `VOCION_BEDROCK_SESSION_SECONDS` | optional, default 3600 | Nothing. Only shorten or lengthen the STS session if you have a reason. |
+
+`VOCION_TOOL_ENDPOINT_URL` is the one that surprises people. Every domain tool
+an agent has — knowledge search, CRM lookups, learnings, briefings, all of them
+— is executed by core, not by the runtime; the runtime calls back over HTTP
+with a signed tenant claim. So the client's core has to be reachable from AWS,
+over TLS, before a deployed agent can do anything but talk. The endpoint
+verifies the claim on every request and is safe to expose, but it is a tenant
+boundary: terminate TLS properly and don't put it behind a wildcard that also
+serves something else.
+
+Model spend follows the org's stored AWS key. Core mints a short-lived STS
+session from the key the client saved at `/dashboard/api-tokens` and sends it
+in the invocation, so Bedrock is billed to their account. If they have stored
+no key, the runtime signs with its own execution role and the bill is ours —
+which is the right fallback for a trial and the wrong one for a paying client,
+so check it during handover rather than assuming.
+
+### Who runs the deploy
+
+The parent project, never core. Core holds no AWS account and no credentials,
+so it cannot deploy a runtime anywhere. The scripts under `infra/agentcore/`
+are the shared implementation; the parent project calls them with its own
+profile and environment. Veerio's wrapper is
+`./scripts/deploy.sh agentcore <env>`.
+
+Core used to carry a workflow that deployed a runtime into MetaCTO's own
+account. It was never activated, and it was the wrong shape — it made core
+look like the thing that owns a deployment. Removed. What every client project
+does need is its own path to the same deploy, which is the next section.
+
+### One-time: let the client project's CI deploy the runtime
+
+Two steps per client account, then that project's pipeline can deploy
+unattended.
+
+**1. Create the deploy role in the client's account.** This is deliberately
+manual and deliberately human: it creates federated trust between GitHub and
+an AWS account.
+
+```bash
+TRUSTED_REPO=Veerio-Life/veerio-vocion \
+AWS_PROFILE=veerio REGION=us-west-2 \
+  bash vocion-core/infra/agentcore/provision-ci-role.sh
+```
+
+The role it creates admits exactly one repo at one ref (`refs/heads/main` by
+default, `TRUSTED_REF` to change it) and carries only what `deploy-runtime.sh`
+and `smoke-invoke.sh` need: ECR push, AgentCore create/update/get/invoke,
+`iam:PassRole` for the runtime role, and read/write on
+`/vocion/agentcore/*` parameters. Pass `ROLE_NAME` when one account serves
+more than one project.
+
+The script prints the `gh secret set` line to run next.
+
+**2. Call the scripts from the client project's workflow.** They need the
+submodule checked out, QEMU for the arm64 build, and the role above:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+
+steps:
+  - uses: actions/checkout@v4
+    with:
+      submodules: recursive
+
+  - uses: aws-actions/configure-aws-credentials@v4
+    with:
+      role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      aws-region: us-west-2
+
+  - uses: docker/setup-qemu-action@v3
+    with:
+      platforms: arm64
+
+  - run: ENV=production bash vocion-core/infra/agentcore/deploy-runtime.sh
+  - run: ENV=production bash vocion-core/infra/agentcore/smoke-invoke.sh
+```
+
+Do this once per environment. SSM is namespaced per environment
+(`/vocion/agentcore/<env>/`, see
+[`multiple-environments.md`](./multiple-environments.md)), so two environments
+never share a runtime by accident.
+
+The runtime artifact is generic — agent definitions travel in the invocation
+payload — so this pipeline only needs to run when `packages/agent-runtime`
+changes, not when an agent is edited.
+
+---
+
+## Only if you use the AWS-managed harness: its execution role
+
+Most deployments run agents in **our own container** (`harness.runsOn:
+agentcore-container`), and need none of this. Nothing in that path touches a
+harness, an execution role, or IAM.
+
+An agent set to `aws-managed-harness` is different: AWS runs the agent loop,
+and the harness needs an IAM role to assume. `syncAgentCoreHarness` derives it
+as `arn:aws:iam::<account>:role/VocionAgentCoreHarnessRole` from whatever
+account the app is running in — and **nothing creates that role**. The parent
+project used to make it on every `deploy.sh agentcore` run, which was removed
+on purpose: choosing our own container should not provision harness
+scaffolding as a side effect.
+
+So one of these, before the first `workspace:apply` that has such an agent:
+
+- Create `VocionAgentCoreHarnessRole` in the client's account, trusting
+  `bedrock-agentcore.amazonaws.com`, with whatever Bedrock model access that
+  agent needs. Make it Terraform, not a console click — see the box role in
+  `infra/terraform/main.tf` for the shape.
+- Or set `VOCION_AGENTCORE_ROLE_ARN` in the app's environment to a role that
+  already exists. It skips the derivation entirely, name and all.
+
+The box role also needs `bedrock-agentcore:DeleteHarness` **and**
+`bedrock-agentcore:DeleteAgentRuntime`. AWS authorizes `DeleteHarness` as both,
+because the harness owns a runtime underneath it and deleting the harness
+deletes that runtime too. Without the second, an agent moving off
+`aws-managed-harness` fails to tear its harness down and the whole
+`workspace:apply` exits non-zero.
+
 ---
 
 ## Gotchas
 
-Four defaults that are wrong for any client outside `us-east-1`:
+Three defaults that are wrong for any client outside `us-east-1`:
 
 | What | Where | Effect |
 |---|---|---|
-| `REPO_FILTER` hardcoded to `repo:vocion/vocion-core:ref:refs/heads/main` | `infra/agentcore/provision-ci-role.sh:18` | The OIDC role it creates only admits core's own CI. A parent project's pipeline can't assume it — run phase 2 from an operator machine until this is parameterised. |
 | Region defaults to `us-east-1`, passed positionally | `agentcore-harness-role.sh` | Harness role lands in the wrong region, silently. |
 | `VOCION_AGENTCORE_REGION` defaults to `us-east-1` | `services/agents/providers/agentcore.ts` | Agents run their model loop in a region nobody chose. Set it in the parent's compose overlay, for the app *and* the worker. |
 | Agent with no `model` resolves to `gpt-4o` | workspace applier | Only bites the `local` provider — `agentcore` agents use `harness.model` — but it bites quietly. Pin every model explicitly. |
@@ -147,6 +347,77 @@ Three rules, each earned the hard way:
 3. **Run `node scripts/check-config-integrity.mjs` at the new pin before you
    commit it**, and re-check the pin after every merge — a GitHub merge can move
    a submodule pin backwards.
+4. **A pin bump is two deploys.** Bumping the pin and deploying the app box
+   leaves the agent runtime container on its old image, so the app runs new
+   code while the agent loop runs old code and nothing says so. The deployed
+   image's tag carries the core commit it was built from, so whether the
+   container moved is checkable rather than a judgement call:
+
+   ```bash
+   aws ssm get-parameter --name "/vocion/agentcore/<env>/runtime-image" \
+     --query 'Parameter.Value' --output text
+   git -C vocion-core diff --stat <that-commit>..HEAD -- packages/agent-runtime
+   ```
+
+   Empty diff, the container is current. Any output, every environment needs
+   `deploy-runtime.sh` as well — and every environment separately, since each
+   has its own ECR repository and runtime.
+
+---
+
+## Paste this into a new client project's `CLAUDE.md`
+
+A parent project needs its own `CLAUDE.md`, because the two-deploys rule is the
+one thing a session working in that repo cannot infer from the code in front of
+it. Adjust the wrapper command names to whatever that project calls them:
+
+```markdown
+## A deploy is two deploys
+
+The deploy workflow and `./scripts/deploy.sh apply <env>` update the **app box**
+only — sync the checkout, re-run bootstrap, health-gate the URL. They never
+touch the agent runtime container.
+
+`./scripts/deploy.sh agentcore <env>` is the second deploy: it builds the arm64
+image from `vocion-core/packages/agent-runtime`, pushes it to ECR and updates
+the AgentCore Runtime.
+
+After bumping the core pin, deploy both, for every environment, unless
+`packages/agent-runtime` is unchanged between what is deployed and the new pin.
+The deployed image's tag carries the core commit it was built from:
+
+    aws ssm get-parameter --name "/vocion/agentcore/<env>/runtime-image" \
+      --query 'Parameter.Value' --output text
+    git -C vocion-core diff --stat <that-commit>..HEAD -- packages/agent-runtime
+
+Empty diff means the container is current. Any output means every environment
+needs the agentcore deploy, and a deploy reported as done without it is half a
+deploy.
+
+Editing an agent's YAML never needs a container deploy — the artifact is
+generic, so agent definitions travel in the invocation payload.
+
+## Migrations: call core's applier
+
+Apply migrations by calling core's script, never by looping over
+`packages/core/migrations/*.sql` here:
+
+    sudo MIGRATIONS_DIR=/opt/<project>/vocion-core/packages/core/migrations \
+      POSTGRES_CONTAINER=<pg-container> POSTGRES_DB=<database> \
+      bash /opt/<project>/vocion-core/infra/aws/apply-migrations.sh
+
+Core keeps index builds that must not lock the table in
+`packages/core/migrations/concurrent/`. A glob over the migrations directory
+skips that subdirectory silently — the schema change lands, the index does
+not, and the deploy still reports success.
+
+If this project keeps its own applier, end every deploy with the same script
+under `--verify-indexes`. It reads the database and nothing else, and fails
+naming any of those index builds that is missing or `INVALID`:
+
+    sudo MIGRATIONS_DIR=... POSTGRES_CONTAINER=... POSTGRES_DB=... \
+      bash .../vocion-core/infra/aws/apply-migrations.sh --verify-indexes
+```
 
 ---
 
