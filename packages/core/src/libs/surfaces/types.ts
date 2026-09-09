@@ -36,12 +36,26 @@ export type ChatParse
     | { kind: 'message'; inbound: ChatInbound }
     | { kind: 'ignore'; reason: string };
 
+/**
+ * Where a reply goes, and the face it wears. The persona fields are optional
+ * and carried from the channel binding; an adapter that gets neither must post
+ * exactly as it did before they existed — omitted, not sent empty.
+ */
+export type ChatReplyTarget = {
+  channelId: string;
+  threadRef: string;
+  /** Persona name to post under, e.g. `Sterling Banks`. */
+  displayName?: string;
+  /** Public https URL of the persona avatar. */
+  iconUrl?: string;
+};
+
 export type ChatSurfaceAdapter = {
   id: string;
   /** Verify the platform's request signature against the raw body. */
   verify: (rawBody: string, headers: Headers) => ChatVerification;
   /** Turn a parsed JSON payload into a challenge, a message, or a reason to ignore it. */
   parse: (payload: unknown) => ChatParse;
-  /** Post a plain-text reply into the thread. */
-  reply: (target: { channelId: string; threadRef: string }, text: string) => Promise<void>;
+  /** Post a plain-text reply into the thread, as the target's persona if it has one. */
+  reply: (target: ChatReplyTarget, text: string) => Promise<void>;
 };

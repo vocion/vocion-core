@@ -1,4 +1,4 @@
-import type { ChatInbound, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { ChatInbound, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { chatChannelBindingSchema } from '@/models/Schema';
@@ -61,18 +61,39 @@ export async function listBindings(orgId: string): Promise<ChatChannelBinding[]>
  * @param opts.teamId
  * @param opts.channelId
  * @param opts.agentSlug
+ * @param opts.displayName
+ * @param opts.iconUrl
  * @param opts.createdBy
  */
-export async function createBinding(opts: { orgId: string; surface: string; teamId?: string | null; channelId: string; agentSlug: string; createdBy?: string }): Promise<ChatChannelBinding> {
+export async function createBinding(opts: { orgId: string; surface: string; teamId?: string | null; channelId: string; agentSlug: string; displayName?: string | null; iconUrl?: string | null; createdBy?: string }): Promise<ChatChannelBinding> {
   const [row] = await db.insert(chatChannelBindingSchema).values({
     orgId: opts.orgId,
     surface: opts.surface,
     teamId: opts.teamId ?? null,
     channelId: opts.channelId,
     agentSlug: opts.agentSlug,
+    displayName: opts.displayName ?? null,
+    iconUrl: opts.iconUrl ?? null,
     createdBy: opts.createdBy ?? null,
   }).returning();
   return row!;
+}
+
+/**
+ * The channel + thread a reply goes to, wearing the binding's persona if it has
+ * one. Absent persona fields are left off the object rather than set to null,
+ * so an adapter — and the payload it builds — is unchanged for the bindings
+ * that predate personas.
+ * @param binding - The resolved binding.
+ * @param inbound - The message being answered.
+ */
+export function replyTargetFor(binding: Pick<ChatChannelBinding, 'displayName' | 'iconUrl'>, inbound: Pick<ChatInbound, 'channelId' | 'threadRef'>): ChatReplyTarget {
+  return {
+    channelId: inbound.channelId,
+    threadRef: inbound.threadRef,
+    ...(binding.displayName ? { displayName: binding.displayName } : {}),
+    ...(binding.iconUrl ? { iconUrl: binding.iconUrl } : {}),
+  };
 }
 
 /**
@@ -115,7 +136,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     return { outcome: 'unbound' };
   }
   const { orgId, agentSlug } = binding;
-  const target = { channelId: inbound.channelId, threadRef: inbound.threadRef };
+  const target = replyTargetFor(binding, inbound);
 
   const budget = await deps.preflight({ orgId, agentSlug });
   if (!budget.ok) {

@@ -1,4 +1,4 @@
-import type { ChatInbound, ChatParse, ChatSurfaceAdapter, ChatVerification } from './types';
+import type { ChatInbound, ChatParse, ChatReplyTarget, ChatSurfaceAdapter, ChatVerification } from './types';
 import { Buffer } from 'node:buffer';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -118,21 +118,32 @@ export function parseSlackPayload(payload: unknown): ChatParse {
 /**
  * Post a reply into the thread. Two-layer error check (`res.ok` and `body.ok`)
  * is the Slack idiom the source connector already uses.
- * @param target - Channel + thread.
- * @param target.channelId
- * @param target.threadRef
+ *
+ * A target that carries a persona is posted with Slack's `username` and
+ * `icon_url` overrides, which need the `chat:write.customize` bot scope — one
+ * app, N faces. Without a persona the payload is byte-identical to what it was
+ * before personas existed: the keys are omitted, never sent as null, because
+ * Slack treats an explicit empty `username` as a name and posts blank.
+ * @param target - Channel + thread, and optionally the persona to post as.
  * @param text - Plain text (Slack mrkdwn is fine).
  * @param token - Bot token.
  * @param baseUrl - Overridable for tests.
  */
-export async function postSlackReply(target: { channelId: string; threadRef: string }, text: string, token: string | undefined, baseUrl = 'https://slack.com/api'): Promise<void> {
+export async function postSlackReply(target: ChatReplyTarget, text: string, token: string | undefined, baseUrl = 'https://slack.com/api'): Promise<void> {
   if (!token) {
     throw new Error('SLACK_BOT_TOKEN is not set; cannot reply');
+  }
+  const payload: Record<string, string> = { channel: target.channelId, thread_ts: target.threadRef, text };
+  if (target.displayName) {
+    payload.username = target.displayName;
+  }
+  if (target.iconUrl) {
+    payload.icon_url = target.iconUrl;
   }
   const res = await fetch(`${baseUrl}/chat.postMessage`, {
     method: 'POST',
     headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json; charset=utf-8' },
-    body: JSON.stringify({ channel: target.channelId, thread_ts: target.threadRef, text }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     throw new Error(`Slack chat.postMessage failed: ${res.status} ${await res.text().catch(() => '')}`);

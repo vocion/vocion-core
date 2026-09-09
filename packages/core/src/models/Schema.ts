@@ -2699,6 +2699,13 @@ export const chatChannelBindingSchema = pgTable(
     teamId: text('team_id'),
     channelId: text('channel_id').notNull(),
     agentSlug: text('agent_slug').notNull(),
+    /**
+     * Persona the replies in this channel wear (migration 0083). Null means the
+     * app's own name and icon — i.e. exactly today's behaviour.
+     */
+    displayName: text('display_name'),
+    /** Public https URL of the persona avatar; Slack fetches it per message. */
+    iconUrl: text('icon_url'),
     createdBy: text('created_by'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },

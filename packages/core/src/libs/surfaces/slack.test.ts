@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
-import { parseSlackPayload, stripMentions, verifySlackSignature } from './slack';
+import { describe, expect, it, vi } from 'vitest';
+import { parseSlackPayload, postSlackReply, stripMentions, verifySlackSignature } from './slack';
 
 const SECRET = 'shh';
 const NOW = 1_700_000_000;
@@ -60,6 +60,54 @@ describe('parseSlackPayload', () => {
     expect(parseSlackPayload({ type: 'event_callback', event: { type: 'message', subtype: 'message_changed', user: 'U1', channel: 'C1', ts: '7', text: 'x' } }).kind).toBe('ignore');
     expect(parseSlackPayload({ type: 'event_callback', event: { type: 'reaction_added', user: 'U1', channel: 'C1', ts: '8' } }).kind).toBe('ignore');
     expect(parseSlackPayload({ type: 'event_callback', event: { type: 'app_mention', user: 'U1', channel: 'C1', ts: '9', text: '<@UBOT>' } }).kind).toBe('ignore');
+  });
+});
+
+describe('postSlackReply', () => {
+  /**
+   * Capture the one chat.postMessage body the call sends.
+   * @param target
+   */
+  async function post(target: Parameters<typeof postSlackReply>[0]): Promise<Record<string, unknown>> {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await postSlackReply(target, 'hello', 'xoxb-test', 'https://slack.test/api');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+
+    expect(url).toBe('https://slack.test/api/chat.postMessage');
+
+    return JSON.parse(String(init.body)) as Record<string, unknown>;
+  }
+
+  it('posts as the persona when the target carries one', async () => {
+    const body = await post({ channelId: 'C1', threadRef: '100.1', displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png' });
+
+    expect(body).toEqual({
+      channel: 'C1',
+      thread_ts: '100.1',
+      text: 'hello',
+      username: 'Sterling Banks',
+      icon_url: 'https://www.vocion.ai/personas/sterling.png',
+    });
+  });
+
+  it('sends the pre-persona payload unchanged when the target has none', async () => {
+    const body = await post({ channelId: 'C1', threadRef: '100.1' });
+
+    // No `username`/`icon_url` keys at all — an empty username posts blank in Slack.
+    expect(body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'hello' });
+  });
+
+  it('carries whichever half of the persona is set', async () => {
+    expect(await post({ channelId: 'C1', threadRef: '1', displayName: 'Keel Marsden' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', username: 'Keel Marsden' });
+    expect(await post({ channelId: 'C1', threadRef: '1', iconUrl: 'https://www.vocion.ai/personas/keel.png' })).toEqual({ channel: 'C1', thread_ts: '1', text: 'hello', icon_url: 'https://www.vocion.ai/personas/keel.png' });
   });
 });
 

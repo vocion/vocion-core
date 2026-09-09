@@ -26,6 +26,7 @@ At https://api.slack.com/apps, **Create New App → From scratch**, in your work
 | `chat:write` | reply in the thread |
 | `im:history` | receive direct messages |
 | `im:read`, `im:write` | open and read the DM channel |
+| `chat:write.customize` | optional — reply under a persona name and avatar (see below) |
 
 Install the app to the workspace and copy the **Bot User OAuth Token** (`xoxb-…`).
 **Basic Information → App Credentials:** copy the **Signing Secret**.
@@ -69,6 +70,29 @@ curl -X POST https://<host>/api/v1/chat-bindings \
 `GET /api/v1/chat-bindings` lists them; `DELETE /api/v1/chat-bindings/:id` removes one. A channel
 is bound once, to one agent in one org. Binding from workspace YAML is a follow-up; phase 1 keeps
 bindings explicit and auditable.
+
+## 5. Give the channel a persona (optional)
+
+A binding can carry a `displayName` and an `iconUrl`, and the reply arrives wearing them:
+
+```bash
+curl -X POST https://<host>/api/v1/chat-bindings \
+  -H "Authorization: Bearer vcn_live_…" -H 'Content-Type: application/json' \
+  -d '{"surface":"slack","teamId":"T0123","channelId":"C0456","agentSlug":"revenue-lead",
+       "displayName":"Sterling Banks","iconUrl":"https://www.vocion.ai/personas/sterling.png"}'
+```
+
+This is Slack's `username` / `icon_url` message override, so it needs the **`chat:write.customize`**
+bot scope and nothing else: still one app, one install, one secret, with a different face per
+channel. `iconUrl` must be a public `https` URL — Slack fetches the image itself, per message.
+
+Both fields are optional and independent. A binding with neither posts under the app's own name and
+icon exactly as before; the adapter omits the keys rather than sending them empty, because an empty
+`username` posts a blank name.
+
+A persona is a presentation detail. It changes no identity and no authorisation: the conversation,
+the audit trail and the review queue still record the agent slug and the Slack user id. Give the
+persona a name that reads as a person only if the surrounding product makes clear it is an agent.
 
 ## What happens on a message
 

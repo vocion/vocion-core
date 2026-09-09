@@ -9,8 +9,8 @@ const svc = await import('@/services/ChatSurfaceService');
 
 const ORG = 'org_chat';
 
-function fakeAdapter(): ChatSurfaceAdapter & { replies: { channelId: string; threadRef: string; text: string }[] } {
-  const replies: { channelId: string; threadRef: string; text: string }[] = [];
+function fakeAdapter(): ChatSurfaceAdapter & { replies: { channelId: string; threadRef: string; displayName?: string; iconUrl?: string; text: string }[] } {
+  const replies: { channelId: string; threadRef: string; displayName?: string; iconUrl?: string; text: string }[] = [];
   return {
     id: 'slack',
     replies,
@@ -75,6 +75,31 @@ describe('handleInbound', () => {
     expect(first.outcome === 'replied' && second.outcome === 'replied' && second.conversationId).toBe(first.outcome === 'replied' ? first.conversationId : -1);
     // user + assistant from turn 1 are the history for turn 2
     expect(adapter.replies[1]!.text).toBe('history=2');
+  });
+
+  it('replies as the binding persona when it has one, on the agent path and the budget path alike', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead', displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png' });
+    const adapter = fakeAdapter();
+    const persona = { displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png' };
+
+    await svc.handleInbound(adapter, inbound, { runAgent: vi.fn(async () => ({ response: 'up 12%', traceId: 't', toolCalls: [] })) as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+    expect(adapter.replies[0]).toEqual({ channelId: 'C1', threadRef: '100.1', ...persona, text: 'up 12%' });
+
+    await svc.handleInbound(adapter, inbound, { runAgent: vi.fn() as never, preflight: vi.fn(async () => ({ ok: false as const, reason: 'hard_cents_exceeded' as const, limit: 100, current: 150 })) });
+
+    expect(adapter.replies[1]).toMatchObject(persona);
+  });
+
+  it('leaves the persona fields off entirely for a binding without one', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+
+    await svc.handleInbound(adapter, inbound, { runAgent: vi.fn(async () => ({ response: 'up 12%', traceId: 't', toolCalls: [] })) as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+    // toEqual, not toMatchObject: an undefined key would still reach the adapter.
+    expect(adapter.replies).toEqual([{ channelId: 'C1', threadRef: '100.1', text: 'up 12%' }]);
+    expect(Object.keys(adapter.replies[0]!)).toEqual(['channelId', 'threadRef', 'text']);
   });
 
   it('refuses over-budget agents with a short reply and never runs the agent', async () => {
