@@ -1,0 +1,19 @@
+docs/internal/SECURITY-INCIDENT-2026-06.md
+  s_ebc1a5465fa595::t_548eba7c7458f5 3,57-66,69-71,76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8e3cdae869c9ae9f0872a939376fcfa6ae034cbb",
+  "prompts": {},
+  "sessions": {
+    "s_ebc1a5465fa595": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "738df430-b548-4db5-bdfd-36946c85e6d3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
