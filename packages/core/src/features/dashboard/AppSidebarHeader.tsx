@@ -1,6 +1,6 @@
 'use client';
 
-import { BookOpen, LogOut, Monitor, Moon, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
+import { BookOpen, LogOut, Monitor, Moon, Search, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
 import { useTheme } from 'next-themes';
@@ -18,17 +18,20 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { AppBreadcrumb } from '@/features/dashboard/AppBreadcrumb';
 import { AgentSurfaceButton } from '@/features/dashboard/chat/AgentSurfaceButton';
+import { openCommandPalette } from '@/features/dashboard/commandPaletteEvent';
+import { FeedbackButton } from '@/features/dashboard/FeedbackButton';
 import { Link } from '@/libs/I18nNavigation';
 import { ShellBarActionsOutlet } from './ShellBarActions';
 
 /**
- * The dashboard top bar — consolidated to two quiet controls: the sidebar
- * toggle on the left, one tucked account menu on the right. Theme lives inside
- * the account menu (not a standalone toggle), and page-level actions (chat's
- * New chat / Switch agent) portal into the outlet beside it via
- * ShellBarActions. Fewer, calmer controls — the bar is chrome, so it stays out
- * of the way.
+ * The dashboard top bar. Left: sidebar toggle + a breadcrumb that says where
+ * you are. Right: search (⌘K palette), Feedback, Docs, the page's own
+ * portalled controls, the Ask button (⌘J), and one tucked account menu with
+ * the theme inside it. Everything is quiet, text-sized and hairline-bordered —
+ * the bar is chrome, so it stays out of the way, but it now answers "where am
+ * I" and "how do I find X" without a trip to the sidebar.
  */
 export const AppSidebarHeader = () => {
   const { data: session } = useSession();
@@ -44,12 +47,38 @@ export const AppSidebarHeader = () => {
     .toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? '?';
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between gap-2 border-b px-2">
-      <div className="flex items-center gap-2 px-2 sm:px-4">
-        <SidebarTrigger className="-ml-1 size-11 sm:size-7" />
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border/80 px-2 sm:px-3">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <SidebarTrigger className="-ml-0.5 size-9 text-muted-foreground sm:size-8" />
+        <AppBreadcrumb />
       </div>
 
-      <div className="flex items-center gap-x-1.5 pr-1">
+      <div className="flex items-center gap-x-1 pr-1">
+        {/* Search everything — opens the ⌘K palette. Reads as an input on wide
+            screens, collapses to an icon below md. */}
+        <button
+          type="button"
+          onClick={openCommandPalette}
+          aria-label="Search (⌘K)"
+          className="inline-flex h-8 items-center gap-2 rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground max-md:size-9 max-md:justify-center md:w-56 md:border md:border-border md:bg-background md:px-2.5 md:hover:bg-background"
+        >
+          <Search className="size-4 shrink-0" aria-hidden />
+          <span className="hidden flex-1 text-left text-[13px] md:inline">Search everything…</span>
+          <kbd className="hidden rounded border border-border bg-muted px-1 font-sans text-[10px] text-muted-foreground lg:inline">⌘K</kbd>
+        </button>
+
+        <FeedbackButton />
+
+        <a
+          href="https://www.vocion.ai/docs"
+          target="_blank"
+          rel="noreferrer"
+          className="hidden h-8 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground md:inline-flex"
+        >
+          <BookOpen className="size-4" aria-hidden />
+          Docs
+        </a>
+
         {/* Page-owned controls (e.g. chat's New chat / Switch agent) land here. */}
         <ShellBarActionsOutlet />
 
@@ -60,9 +89,9 @@ export const AppSidebarHeader = () => {
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Account menu"
-            className="flex size-11 items-center justify-center rounded-full text-sm font-medium text-muted-foreground transition hover:text-foreground data-[state=open]:text-foreground sm:size-9"
+            className="ml-1 flex size-9 items-center justify-center rounded-full text-sm font-medium text-muted-foreground transition hover:text-foreground data-[state=open]:text-foreground"
           >
-            <span className="flex size-8 items-center justify-center rounded-full bg-muted">{initials}</span>
+            <span className="flex size-7 items-center justify-center rounded-full bg-muted text-xs">{initials}</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel className="flex flex-col">

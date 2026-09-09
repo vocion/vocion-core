@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
     "node": ">=20"
@@ -109,6 +109,7 @@
     "bcrypt": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "cronstrue": "^3.24.0",
     "deepagents": "1.10.1",
     "dotenv": "^17.4.2",

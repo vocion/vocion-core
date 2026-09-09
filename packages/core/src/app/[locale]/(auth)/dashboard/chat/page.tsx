@@ -49,7 +49,7 @@ export default async function ChatPage(props: {
     : [];
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <ChatShell
         agents={agents}
         agentSlug={requestedSlug ?? coordinatorSlug}

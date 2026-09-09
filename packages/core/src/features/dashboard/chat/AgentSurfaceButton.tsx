@@ -1,6 +1,6 @@
 'use client';
 
-import { MessageCircle } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { requestAgentSurface } from './agentSurface';
 
@@ -28,10 +28,12 @@ export function AgentSurfaceButton() {
         }
       }}
       aria-label="Ask the agent"
-      title="Ask the agent (⌘K)"
-      className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground sm:size-9"
+      title="Ask the agent (⌘J)"
+      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[13px] font-medium text-foreground shadow-xs transition hover:bg-muted"
     >
-      <MessageCircle className="size-4" aria-hidden="true" />
+      <Sparkles className="size-4 text-brand-amber" aria-hidden="true" />
+      <span>Ask</span>
+      <kbd className="ml-0.5 hidden rounded border border-border bg-muted px-1 font-sans text-[10px] text-muted-foreground lg:inline">⌘J</kbd>
     </button>
   );
 }

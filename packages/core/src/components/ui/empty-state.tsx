@@ -46,7 +46,7 @@ export function EmptyState({
     <div
       data-slot="empty-state"
       className={cn(
-        'flex flex-col items-center justify-center gap-3 rounded-xl border border-border bg-background/60 px-6 py-12 text-center',
+        'flex flex-col items-center justify-center gap-3 rounded-xl bg-muted/40 px-6 py-14 text-center',
         className,
       )}
       {...rest}

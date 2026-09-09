@@ -1,3 +1,4 @@
+import type { ChatRailState } from '@/features/dashboard/chat/ChatRail';
 import type { SurfaceId } from '@/features/navigation/surfaces';
 import { eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
@@ -7,7 +8,8 @@ import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
-import { ChatBubble } from '@/features/dashboard/chat/ChatBubble';
+import { CHAT_RAIL_COOKIE, ChatRail } from '@/features/dashboard/chat/ChatRail';
+import { CommandPalette } from '@/features/dashboard/CommandPalette';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
@@ -25,9 +27,9 @@ import { AppConfig } from '@/utils/AppConfig';
  * every top-level authenticated segment so the surfaces that live outside
  * `/dashboard` (`/gtm/...`, and whatever a later section adds) get the same
  * chrome without the tree being moved or the layout being copy-pasted.
- * @param props
- * @param props.locale
- * @param props.children
+ * @param props - Shell props.
+ * @param props.locale - Active locale.
+ * @param props.children - The routed page.
  */
 export async function AppShell(props: { locale: string; children: React.ReactNode }) {
   setRequestLocale(props.locale);
@@ -37,6 +39,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // error — every query scoped to a ghost org. Force a legible re-auth
   // instead of a silent blank workspace.
   const { orgId, has } = await auth();
+  const isAdmin = has({ role: ORG_ROLE.ADMIN });
   // Surfaces the workspace switched on (workspace.yaml `surfaces:`), read from
   // the same project row the stale-session guard already fetches.
   let enabledSurfaces: SurfaceId[] = [];
@@ -73,23 +76,32 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // If the cookie is not set, default to open
   const defaultOpen = cookieStore.get(AppConfig.sidebarCookieName)?.value !== 'false';
 
-  // Agent picker options for the floating chat bubble. Empty outside an org —
-  // the bubble renders nothing rather than a picker with no agents in it.
+  // Right-rail chat: SSR-known open state so it paints without a flash.
+  const railCookie = cookieStore.get(CHAT_RAIL_COOKIE)?.value;
+  const railState: ChatRailState = railCookie === 'open' || railCookie === 'wide' ? railCookie : 'closed';
+
+  // Agent picker options for the chat rail. Empty outside an org — the rail
+  // renders nothing rather than a picker with no agents in it.
   const agents = orgId ? (await loadChatAgentContext(orgId)).agents : [];
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <AppSidebar
-        isAdmin={has({ role: ORG_ROLE.ADMIN })}
+        isAdmin={isAdmin}
         enabledSurfaces={enabledSurfaces}
         workspacePages={readWorkspacePages().pages.filter(p => !p.nav.hidden).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
       />
-      <SidebarInset>
+      <SidebarInset className="h-svh max-h-svh overflow-hidden">
         <ShellBarActionsProvider>
           <AppSidebarHeader />
 
-          <div className="@container flex-1 px-4 py-4 sm:px-6">
-            {props.children}
+          {/* Page + rail side by side. The page column scrolls on its own so
+              the rail (and the header) stay put while you browse. */}
+          <div className="flex min-h-0 flex-1">
+            <div className="@container min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8">
+              {props.children}
+            </div>
+            <ChatRail agents={agents} defaultState={railState} />
           </div>
         </ShellBarActionsProvider>
         {(() => {
@@ -99,8 +111,8 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             : null;
         })()}
         <WorkspaceDriftBanner />
-        <ChatBubble agents={agents} />
         <AgentSurfaceHotkey />
+        <CommandPalette isAdmin={isAdmin} />
       </SidebarInset>
     </SidebarProvider>
   );

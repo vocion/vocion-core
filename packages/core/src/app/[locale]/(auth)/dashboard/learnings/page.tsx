@@ -79,7 +79,7 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
                 <li key={s.name}>
                   <Link
                     href={`/dashboard/learnings/${s.name}`}
-                    className="block rounded-xl border border-border bg-background p-5 transition hover:border-primary/30"
+                    className="block h-full rounded-xl bg-muted/40 p-5 transition hover:bg-muted/70"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

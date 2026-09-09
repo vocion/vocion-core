@@ -12,6 +12,13 @@
 export const AGENT_SURFACE_EVENT = 'vocion:open-agent-surface';
 
 /**
+ * Fired with `{ detail: { text } }` after a surface claimed a request, to seed
+ * its composer (the ⌘K palette's "Ask the agent: …"). Surfaces that own a
+ * composer listen; nothing else needs to.
+ */
+export const AGENT_PREFILL_EVENT = 'vocion:agent-prefill';
+
+/**
  * Ask whatever agent surface is mounted on this page to open and take focus.
  * @returns true when a mounted surface claimed the request; false when the
  * caller should navigate to /dashboard/chat instead.
