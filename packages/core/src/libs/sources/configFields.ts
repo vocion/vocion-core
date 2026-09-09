@@ -329,6 +329,54 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     },
   ],
 
+  'notion': [
+    {
+      key: 'query',
+      label: 'Search term',
+      type: 'text',
+      placeholder: 'Runbook',
+      help: 'Only pages and databases whose title matches this term sync. Leave blank for everything shared with the integration.',
+    },
+    {
+      key: 'includePages',
+      label: 'Include pages',
+      type: 'boolean',
+      defaultValue: true,
+    },
+    {
+      key: 'includeDatabases',
+      label: 'Include databases',
+      type: 'boolean',
+      defaultValue: true,
+      help: 'A database syncs as its title and description. Its rows are pages, and arrive only if they are shared too.',
+    },
+    {
+      key: 'includeProperties',
+      label: 'Include page properties',
+      type: 'boolean',
+      defaultValue: true,
+      help: 'Writes each non-title property as a "Name: value" line above the page body.',
+    },
+    {
+      key: 'pageSize',
+      label: 'Results per search request',
+      type: 'number',
+      advanced: true,
+      defaultValue: 100,
+      min: 1,
+      max: 100,
+      help: 'Notion caps this at 100. Lower it only to be gentler on a rate-limited integration.',
+    },
+    {
+      key: 'notionVersion',
+      label: 'Notion API version',
+      type: 'text',
+      advanced: true,
+      defaultValue: '2022-06-28',
+      help: 'The Notion-Version header sent on every request. Bump deliberately — later versions rename parts of the payload this connector reads.',
+    },
+  ],
+
   'slack': [
     {
       key: 'channel',
