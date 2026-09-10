@@ -341,7 +341,24 @@ export function scheduledCheckBrief(
 }
 
 /**
+ * Thrown when a resume can't claim the run — another resume got there
+ * first, or the run isn't sitting at an approval gate at all. This means
+ * "nothing to do here", not "the server broke".
+ */
+export class MissionRunNotResumableError extends Error {
+  constructor(runId: number) {
+    super(`mission run ${runId} is no longer resumable — it may already have been resumed, or it isn't currently paused for review`);
+    this.name = 'MissionRunNotResumableError';
+  }
+}
+
+/**
  * Approve the gated task and continue execution.
+ *
+ * Two tabs, or a click racing an MCP `mission_approve`, can both call this
+ * for the same run. The read below only shapes the new plan — the claim is
+ * the UPDATE's WHERE clause, so the loser gets zero rows and never reaches
+ * `executeMissionRun`. The gated task runs once.
  * @param runId
  * @param orgId
  */
@@ -357,7 +374,23 @@ export async function resumeMission(runId: number, orgId: string): Promise<Missi
       t.approvalRequired = false; // approved by the human
     }
   }
-  await db.update(missionRunSchema).set({ plan: { tasks }, pauseReason: null, pausedAt: null }).where(eq(missionRunSchema.id, runId));
+  const claimed = await db
+    .update(missionRunSchema)
+    // Flipping `status` in the same statement as the WHERE that checks it
+    // is what makes the claim stick. Leave it alone and the row still looks
+    // claimable after the winner's write, so the loser matches too.
+    .set({ status: 'running', plan: { tasks }, pauseReason: null, pausedAt: null })
+    .where(and(
+      eq(missionRunSchema.id, runId),
+      eq(missionRunSchema.orgId, orgId),
+      eq(missionRunSchema.status, 'awaiting_review'),
+    ))
+    .returning({ id: missionRunSchema.id });
+
+  if (claimed.length === 0) {
+    throw new MissionRunNotResumableError(runId);
+  }
+
   await executeMissionRun(runId, orgId);
   return (await getMissionRun(runId, orgId))!;
 }

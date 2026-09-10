@@ -1,5 +1,7 @@
-import { os } from '@orpc/server';
+import type { MissionRunSummary } from '@/services/MissionService';
+import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
+import { logger } from '@/libs/Logger';
 import { trackReviewDecision } from '@/services/adoption/attribution';
 import {
   cancelMission,
@@ -7,6 +9,7 @@ import {
   getMissionRun,
   listMissionRuns,
   listMissions,
+  MissionRunNotResumableError,
   promoteMissionToWorkflow,
   resumeMission,
   startMission,
@@ -91,7 +94,18 @@ export const getRun = os.input(z.object({ id: z.number().int().positive() })).ha
 
 export const resume = os.input(z.object({ id: z.number().int().positive() })).handler(async ({ input }) => {
   const { orgId, userId } = await guardAuth();
-  const run = await resumeMission(input.id, orgId);
+  let run: MissionRunSummary;
+  try {
+    run = await resumeMission(input.id, orgId);
+  } catch (err) {
+    // Lost the claim race, or the run left its approval gate. The reply
+    // omits the run id and raw status, so the log keeps that detail.
+    if (err instanceof MissionRunNotResumableError) {
+      logger.warn('mission resume lost the claim race or the run moved on', { runId: input.id, orgId, reason: err.message });
+      throw new ORPCError('CONFLICT', { message: 'This mission is no longer resumable — someone may have already approved it, or it has moved on.' });
+    }
+    throw err;
+  }
   void trackReviewDecision({ orgId, userId }, { kind: 'mission', id: input.id }, 'approved');
   return run;
 });
