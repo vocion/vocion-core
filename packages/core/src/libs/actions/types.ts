@@ -145,6 +145,28 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   dedupKeyFor?: (input: z.infer<S>) => string | undefined;
   /**
+   * Collapse a repeat proposal into an already-DECIDED run as well as a
+   * pending one. Off unless the action sets it, because for most actions the
+   * dedup key names a target rather than a one-off record: `gmail.send` keys
+   * on the recipient, so blocking decided runs there would bar that address
+   * for good after a single send.
+   *
+   * Set it on actions where the key names a specific record a person judged
+   * once — an extracted candidate, a detected event. Those are re-extracted
+   * every time their page is read, and without this each pass hands the
+   * moderator back everything they already approved or rejected.
+   *
+   * `statuses` are the decided statuses that block a fresh card (default
+   * `done` and `rejected`; a tenant that wants a rejection re-proposable
+   * passes `['done']`). `reproposeAfterDays` lets a decision go stale, so the
+   * same record may be offered again once the decision is that old; omit it
+   * and a decision stands for good.
+   */
+  dedupAgainstDecided?: {
+    statuses?: Array<'done' | 'failed' | 'rejected'>;
+    reproposeAfterDays?: number;
+  };
+  /**
    * Last check before anything is written, once the caller is known to be
    * allowed. For conditions the input schema cannot see because they depend
    * on tenant state — an object type the org never defined, a source with no

@@ -566,6 +566,16 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
     return dedupKeyFrom(input.objectType, values);
   },
 
+  // A candidate is one record a person judges once, and the same listing page
+  // is read again every sync — so a record already approved or rejected must
+  // not come back as a new card. Without this the queue refills with decided
+  // events every pass, and moderating becomes re-deciding.
+  //
+  // Both decided statuses block, and a decision stands for good. A workspace
+  // that wants rejected events offered again can narrow this to `['done']` or
+  // set `reproposeAfterDays`.
+  dedupAgainstDecided: {},
+
   // The candidate becomes a real row the moment it is proposed, holding the
   // whole payload and linked to nothing outside.
   // An object type the org never defined is the one failure worth stopping

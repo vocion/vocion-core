@@ -82,6 +82,11 @@ queue item.
   proposal still goes through — the review card just flags which identity
   field came back empty, so a reviewer knows two different candidates
   missing the same field would look identical on that key alone.
+- A record a person already approved or rejected does not come back. Propose
+  it again and the tool answers `Not proposed: a person already decided this
+  exact record` and writes nothing. That is the normal answer on a page you
+  have walked before, not a failure — so propose every record you find and
+  read the answer, rather than trying to remember which ones were decided.
 
 ## What you must not do
 
