@@ -13,14 +13,18 @@ import { db } from '@/libs/DB';
 import { missionRunSchema, missionSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
 import { clampAutonomyLevel, taskNeedsApproval } from './autonomy';
+import { describeTaskFailure } from './failure';
 
 /**
  * Log through a dynamic import.
  *
- * `libs/Logger` has a top-level await, and this file sits in the Temporal
- * worker's import chain, which tsx compiles as CommonJS — where that await
- * stops the worker booting. `scripts/temporal-worker.imports.test.ts`
- * guards the chain. Same approach as `libs/Langfuse.ts`.
+ * `libs/Logger` used to open with a top-level await, and this file sits in
+ * the Temporal worker's import chain, which tsx compiles as CommonJS, where
+ * that await stopped the worker booting. The await is gone now, the sink
+ * being configured in the background instead, but the import stays dynamic
+ * so this file adds no static edge into the logger's import graph, which
+ * `scripts/temporal-worker.imports.test.ts` guards. Same approach as
+ * `libs/Langfuse.ts`.
  * @param level - Which logger method to call.
  * @param message - What happened, in plain words.
  * @param properties - Identifiers and context worth keeping.
@@ -146,7 +150,8 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
         }
       } catch (err) {
         task.status = 'failed';
-        task.error = (err as Error).message ?? 'unknown error';
+        task.error = describeTaskFailure(err);
+        log('error', 'mission task failed', { runId, taskId: task.id, error: task.error });
       }
       await patch(runId, { plan: { tasks }, artifacts });
     }
@@ -169,7 +174,7 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
     }
     return run.status;
   } catch (err) {
-    const message = (err as Error).message ?? 'unknown error';
+    const message = describeTaskFailure(err);
     // If `outcome` is already set, the tasks finished and the throw came from
     // writing that down — record what really happened instead of relabelling
     // a successful run as failed.
