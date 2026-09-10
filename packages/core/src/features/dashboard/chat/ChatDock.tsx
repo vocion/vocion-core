@@ -11,6 +11,7 @@ import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel'
 import { Link } from '@/libs/I18nNavigation';
 import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
 import { ChatComposer } from './ChatComposer';
+import { ChatMenu } from './ChatMenu';
 import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
@@ -19,10 +20,22 @@ import { useChatSession } from './useChatSession';
 export type ChatDockProps = {
   /** Agents available to pick from — server-loaded, same list every chat surface uses. Empty array renders nothing. */
   agents: AgentOption[];
-  /** The record this dock is scoped to — the CRM mirror ref (e.g. `contacts:9412`). */
-  scopeRef: string;
-  /** Human name of the scope for the header (e.g. the lead's name). */
+  /**
+   * The record this dock is scoped to — the CRM mirror ref (e.g. `contacts:9412`).
+   * Absent, the dock is the everything conversation (058), the same thread the
+   * full page resumes, with `pageContext` saying where the person is.
+   */
+  scopeRef?: string;
+  /** Human name of the scope for the header (e.g. the lead's name, or "Everything"). */
   scopeLabel: string;
+  /** Where the person is, sent with each turn when the dock is not record-scoped (058). */
+  pageContext?: { path: string; title: string };
+  /**
+   * How the dock starts when this browser has never collapsed or opened one:
+   * open on a record (the decision is the point), collapsed to the button
+   * everywhere else (058). A stored choice wins over this.
+   */
+  defaultCollapsed?: boolean;
   /**
    * A decision waiting on this record. Given one, the dock runs the guided
    * review: the sends walked one card at a time, decided here (050).
@@ -33,6 +46,12 @@ export type ChatDockProps = {
 };
 
 const COLLAPSE_KEY = 'vocion_chat_dock_collapsed';
+
+/**
+ * Open, the dock takes a third of the viewport and never less than the old
+ * 384px column (058). Below 1200px it covers the page instead (see the aside).
+ */
+export const DOCK_WIDTH_CLASS = 'w-[max(24rem,33.333vw)]';
 
 /**
  * Stands in when no decision is waiting. Hooks cannot be called
@@ -49,16 +68,20 @@ const EMPTY_RUN = {
   card: { title: '', fields: [] },
 } as unknown as ReviewCardRun;
 
-function readCollapsed(): boolean {
+function readCollapsed(fallback: boolean): boolean {
   try {
-    return localStorage.getItem(COLLAPSE_KEY) === '1';
+    const stored = localStorage.getItem(COLLAPSE_KEY);
+    if (stored === null) {
+      return fallback;
+    }
+    return stored === '1';
   } catch {
-    return false;
+    return fallback;
   }
 }
 
 /**
- * The dock — the agent conversation as a third column on a record page
+ * The dock — the agent conversation as a third column beside the page
  * (agent-chat-surface.md §3, decided 2026-09-02: a core component, defaulting
  * to open, collapsible; the full-page chat stays as the everything scope).
  *
@@ -69,38 +92,43 @@ function readCollapsed(): boolean {
  * dock covers the page instead of narrowing it (032 §3.2).
  *
  * Mounted by the record page (which knows its scope), not by the shell; the
- * floating `ChatBubble` bails out on dock routes so a page never carries two
+ * shell's `PageDock` bails out on those routes so a page never carries two
  * chat surfaces (032 §6).
  * @param root0 - Component props.
  * @param root0.agents - Agents available to pick from. Empty array renders nothing.
  * @param root0.scopeRef - The record this dock is scoped to.
  * @param root0.scopeLabel - Human name of the scope for the header.
+ * @param root0.pageContext
+ * @param root0.defaultCollapsed
  * @param root0.run
  * @param root0.onDecided
  */
-export function ChatDock({ agents, scopeRef, scopeLabel, run, onDecided }: ChatDockProps) {
+export function ChatDock({ agents, scopeRef, scopeLabel, pageContext, defaultCollapsed, run, onDecided }: ChatDockProps) {
   if (agents.length === 0) {
     return null;
   }
-  return <ChatDockInner agents={agents} scopeRef={scopeRef} scopeLabel={scopeLabel} run={run} onDecided={onDecided} />;
+  return <ChatDockInner agents={agents} scopeRef={scopeRef} scopeLabel={scopeLabel} pageContext={pageContext} defaultCollapsed={defaultCollapsed} run={run} onDecided={onDecided} />;
 }
 
 /**
  * The dock body — split from the wrapper so `useChatSession` (and its mount
  * effects) never runs when there are no agents to talk to, the same guarantee
- * `ChatBubble` makes.
+ * `PageDock` makes.
  * @param root0 - Component props.
  * @param root0.agents - Guaranteed non-empty by the `ChatDock` wrapper.
  * @param root0.scopeRef - The record this dock is scoped to.
  * @param root0.scopeLabel - Human name of the scope for the header.
+ * @param root0.pageContext
+ * @param root0.defaultCollapsed
  * @param root0.run
  * @param root0.onDecided
  */
-function ChatDockInner({ agents, scopeRef, scopeLabel, run, onDecided }: ChatDockProps) {
-  // Default OPEN (the decision), collapsed only by the user's own hand;
-  // the choice persists per browser like the bubble's visual state does.
-  const [collapsed, setCollapsed] = useState(false);
-  const session = useChatSession({ agents, scopeRef });
+function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultCollapsed = false, run, onDecided }: ChatDockProps) {
+  // Starts as the page says (open on a record, collapsed elsewhere) until the
+  // person collapses or opens one; that choice persists per browser and
+  // applies on every page (058).
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const session = useChatSession({ agents, scopeRef, pageContext });
   const asideRef = useRef<HTMLElement | null>(null);
   // The page's comment layer, when it has one: notes taken on the document
   // beside this dock ride out with the next message (043).
@@ -129,11 +157,11 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, run, onDecided }: ChatDoc
   }, []);
 
   useEffect(() => {
-    // One-time read of a client-only value (localStorage) on mount — same
-    // pattern and same lint carve-out as ChatBubble's visual state.
-    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
-    setCollapsed(readCollapsed());
-  }, []);
+    // One-time read of a client-only value (localStorage) on mount; it cannot
+    // happen during render because it would mismatch the server-rendered default.
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setCollapsed(readCollapsed(defaultCollapsed));
+  }, [defaultCollapsed]);
 
   /**
    * Send the message with any anchored notes attached, then mark them
@@ -193,8 +221,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, run, onDecided }: ChatDoc
   return (
     <aside
       ref={asideRef}
-      aria-label={`Conversation about ${scopeLabel}`}
-      className="sticky top-0 z-30 flex h-screen w-96 shrink-0 flex-col border-l border-border bg-background max-[1199px]:fixed max-[1199px]:inset-y-0 max-[1199px]:right-0 max-[1199px]:shadow-2xl"
+      aria-label={scopeRef ? `Conversation about ${scopeLabel}` : 'Conversation'}
+      className={`sticky top-0 z-30 flex h-screen ${DOCK_WIDTH_CLASS} shrink-0 flex-col border-l border-border bg-background max-[1199px]:fixed max-[1199px]:inset-y-0 max-[1199px]:right-0 max-[1199px]:shadow-2xl`}
     >
       {/* Scope header — names what this conversation is about, with the one
           link back to everything (032 §3.1). */}
@@ -209,6 +237,17 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, run, onDecided }: ChatDoc
             </Link>
           </div>
         </div>
+        {/* The one chat menu, same as the full page's: new chat, recent
+            threads, which agent answers. History lives here now that the
+            floating bubble and its panel are gone (058). */}
+        <ChatMenu
+          onNewChat={session.handleNewChat}
+          conversations={session.recentChats}
+          onPickConversation={id => void session.handlePickConversation(id)}
+          agents={agents}
+          currentSlug={session.agent.slug}
+          onSwitch={session.handleSwitchAgent}
+        />
         <button
           type="button"
           onClick={() => setCollapsedPersisted(true)}

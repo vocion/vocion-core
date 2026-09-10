@@ -20,7 +20,7 @@ import { useChatSession } from './useChatSession';
  *
  * A render wrapper over `useChatSession`, which owns the transcript, the SSE
  * wire, the boot/resume sequence and the conversation pointers. The floating
- * `ChatBubble` renders the same hook with its own chrome, so both surfaces
+ * `ChatDock` renders the same hook with its own chrome, so both surfaces
  * behave identically and resume the same conversation.
  *
  * Agent identity is data-in: the server component that mounts ChatShell
@@ -66,7 +66,7 @@ export type ChatShellProps = {
  * authored.
  *
  * The guard sits one level above the hook rather than inside it, matching
- * `ChatBubble` and `ChatDock`: React lets a component's hooks be skipped
+ * `PageDock` and `ChatDock`: React lets a component's hooks be skipped
  * entirely by never rendering it, and `useChatSession` does real work on mount
  * — a `client.chatWidget.getState()` call and a hand-off effect that can write
  * a conversation — none of which should run with no agent to run it for.

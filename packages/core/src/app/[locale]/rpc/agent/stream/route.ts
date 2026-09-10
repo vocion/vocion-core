@@ -134,6 +134,11 @@ export async function POST(request: Request): Promise<Response> {
 
   const body = await request.json();
   const message = body.message as string;
+  // Where the person is when they ask (058): the everything-scoped dock off a
+  // record page sends it; the model reads it under the message, the log
+  // keeps the message as typed.
+  const { readPageContext, withPageContext } = await import('@/services/chat/pageContext');
+  const pageContext = readPageContext(body.page_context);
   // Resolve the agent. Explicit `agent_slug` wins; otherwise fall back
   // to the first agent for this project. 404 when zero agents authored
   // — the pre-v0.5.2 hardcoded "sales-assistant" fallback is gone.
@@ -246,7 +251,7 @@ export async function POST(request: Request): Promise<Response> {
           allowedSourceSlugs,
           orgId,
           agentSlug,
-          message,
+          message: withPageContext(message, pageContext),
           userId,
           conversationId: conversationId ?? undefined,
           conversationHistory,
