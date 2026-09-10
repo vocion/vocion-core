@@ -96,6 +96,15 @@ export type LeadHandoffTriggerPayload = {
   observedAt: string;
 };
 
+/**
+ * A reviewer pressed Regenerate on a lead brief. Emitted by the regenerate
+ * route after the lead is reset to the queued lane with the reviewer's note;
+ * an automation subscribed to it (`regenerate-brief-on-request` in the Metacto
+ * workspace) briefs and drafts that one lead at once instead of waiting for
+ * the hourly pass. Payload: `briefId`, `contactRef`, `contactName`, `note`.
+ */
+export const PERSONALIZATION_BRIEF_REGENERATE_REQUESTED = 'personalization.brief_regenerate_requested';
+
 export type EmitEventResult = {
   eventId: number | null;
   deduped: boolean;
