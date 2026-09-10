@@ -200,6 +200,24 @@ registerAction({
   execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
 });
 
+// A candidate whose identity fields the extractor could not fill. The key is
+// still built — the missing value leaves an empty slot — so two genuinely
+// different records share it, and a decision on one must not silently answer
+// for the other.
+registerAction({
+  id: 'test.candidate-weak-key',
+  name: 'Test candidate with an incomplete key',
+  description: 'test',
+  inputSchema: z.object({ value: z.string(), venue: z.string() }),
+  grant: 'test_write',
+  external: true,
+  dedupKeyFor: input => `test.candidate-weak-key:${(input as { value: string }).value}|${(input as { venue: string }).venue}`,
+  dedupAgainstDecided: {
+    keyIsTrustworthy: input => (input as { venue: string }).venue !== '',
+  },
+  execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
+});
+
 describe('proposing against an already-decided run', () => {
   beforeEach(() => {
     candidatesExecuted = 0;
@@ -326,6 +344,30 @@ describe('proposing against an already-decided run', () => {
     // for good and tell the caller about a decision on something else.
     expect(candidate.outcome).toBe('created');
     expect(candidate.runId).not.toBe(other.runId);
+  });
+
+  it('lets a second record through when the key it shares is built on a blank', async () => {
+    // Two different open mics, both on a page that named no venue. Same key,
+    // different events. Before, the second merged into a pending card a
+    // person could still split; blocking on the decision would drop it with
+    // nobody told.
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: '' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'not this one', { reviewedBy: 'user-lili' });
+
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: '' }, principal: agent(2) });
+
+    expect(second.outcome).toBe('created');
+    expect(second.runId).not.toBe(first.runId);
+  });
+
+  it('still blocks the same record when its key is complete', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-flynn' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'not for us', { reviewedBy: 'user-lili' });
+
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-flynn' }, principal: agent(2) });
+
+    expect(second.outcome).toBe('already_decided');
+    expect(second.runId).toBe(first.runId);
   });
 
   it('prefers the pending row when one is still open alongside a decided one', async () => {

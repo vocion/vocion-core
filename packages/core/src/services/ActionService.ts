@@ -260,7 +260,12 @@ export async function proposeAction(input: {
     // written anywhere and nobody is told. See `dedupAgainstDecided` in
     // `libs/actions/types.ts` for why that trade is made and what an action
     // can do instead.
-    const decided = await findDecidedRunForKey(input.orgId, action.id, dedupKey, action.dedupAgainstDecided);
+    // A key the action itself does not trust — a candidate missing one of
+    // its identity fields — must not answer for a record nobody has seen.
+    const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
+    const decided = keyIdentifiesOneRecord
+      ? await findDecidedRunForKey(input.orgId, action.id, dedupKey, action.dedupAgainstDecided)
+      : undefined;
     if (decided) {
       return { runId: decided.id, status: decided.status, outcome: 'already_decided', decidedAt: decided.decidedAt };
     }

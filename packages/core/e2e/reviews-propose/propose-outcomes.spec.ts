@@ -177,6 +177,22 @@ test.describe('POST /api/v1/reviews/propose', () => {
     expect(again.body.status).toBe('done');
   });
 
+  test('still queues a second event when the page named no venue for either', async ({ request }) => {
+    // Two different open mics on one night, and the page names no venue for
+    // either, so both carry the same incomplete fingerprint. A decision on
+    // the first says nothing about the second, which is a real event a
+    // moderator has never seen.
+    const first = await propose(request, eventProposal({ title: 'Open Mic', start: '2026-11-20T19:30', venue: '' }));
+    await decide(request, first.body.runId, 'reject', 'wrong one');
+    const queued = await pendingCount(request);
+
+    const second = await propose(request, eventProposal({ title: 'Open Mic', start: '2026-11-20T19:30', venue: '' }));
+
+    expect(second.body.outcome).toBe('created');
+    expect(second.body.runId).not.toBe(first.body.runId);
+    expect(await pendingCount(request)).toBe(queued + 1);
+  });
+
   test('still queues a genuinely new event found on the same page', async ({ request }) => {
     const first = await propose(request, eventProposal({ title: 'Winter Ceilidh', start: '2026-11-06T19:30' }));
     await decide(request, first.body.runId, 'reject', 'too far out');

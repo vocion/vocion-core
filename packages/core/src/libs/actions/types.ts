@@ -187,6 +187,18 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   dedupAgainstDecided?: {
     statuses?: Array<'done' | 'failed' | 'rejected'>;
     reproposeAfterDays?: number;
+    /**
+     * Whether THIS input's key identifies one record well enough to answer
+     * for it. Return false and the decided-run block is skipped: the record
+     * still reaches a human, the way it did before this option existed.
+     *
+     * For a candidate, the key is built even when the extractor found
+     * nothing for a `dedupOn` field — the missing value leaves an empty
+     * slot, so two different records can carry one key. Blocking on a
+     * decision then answers for a record nobody ever saw. Omit this and
+     * every key is trusted.
+     */
+    keyIsTrustworthy?: (input: z.infer<S>) => boolean;
   };
   /**
    * Last check before anything is written, once the caller is known to be
