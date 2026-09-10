@@ -217,6 +217,13 @@ jobs:
     timeout-minutes: 15
     needs: [build]
 
+    env:
+      # The visual-regression step below is skipped when this is empty. It
+      # has to travel through the job env because `secrets` is not one of the
+      # contexts available to a step-level `if` (GitHub context availability
+      # reference), while `env` is.
+      CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+
     steps:
       - uses: actions/checkout@v6
         with:
@@ -249,6 +256,12 @@ jobs:
           if [ -d packages/core/test-results ]; then sudo chmod -R 777 packages/core/test-results; fi
 
       - name: Run visual regression tests
+        # Skipped while the repository has no Chromatic token. Without one the
+        # action exits non-zero on `Missing project token` and fails the whole
+        # job, which buried a passing suite: the tests report `52 passed` and
+        # the check still reads red, so nobody can tell a real break from this.
+        # Setting the secret brings the step back with no further change.
+        if: env.CHROMATIC_PROJECT_TOKEN != ''
         uses: chromaui/action@v15
         with:
           playwright: true
