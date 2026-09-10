@@ -14,8 +14,9 @@
  * one-directional.
  */
 
+import type { Action } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
@@ -32,11 +33,92 @@ export class ActionError extends Error {
   }
 }
 
-export type ProposeResult = {
+/** The state of a single action_run, as any caller sees it. */
+export type ActionRunResult = {
   runId: number;
-  status: 'pending' | 'done' | 'failed';
+  status: 'pending' | 'done' | 'failed' | 'rejected';
   result?: Record<string, unknown> | null;
 };
+
+/**
+ * What a proposal did, so a caller can say it out loud:
+ * - `created` — a new run is in the queue (or ran, if the gate let it).
+ * - `refreshed` — a pending run already existed and now carries this payload.
+ * - `already_decided` — a person judged this exact record before; nothing was
+ *   written, and `runId` / `status` / `decidedAt` describe that earlier run.
+ *
+ * Without this every one of those answered `{ runId, status: 'pending' }` and
+ * no consumer could tell a fresh card from a refresh, let alone from one a
+ * moderator already threw out.
+ */
+export type ProposeOutcome = 'created' | 'refreshed' | 'already_decided';
+
+export type ProposeResult = ActionRunResult & {
+  outcome: ProposeOutcome;
+  /** When the earlier run was decided. Set on `already_decided` only. */
+  decidedAt?: Date | null;
+};
+
+const DAY_IN_MS = 86_400_000;
+
+/** What blocks a fresh card by default, for an action that opted in at all. */
+const DECIDED_STATUSES_THAT_BLOCK = ['done', 'rejected'] as const;
+
+/**
+ * The run of this dedup key a person already decided, when the action says a
+ * repeat proposal should collapse into it.
+ *
+ * Only actions carrying `dedupAgainstDecided` look here. For the rest, the
+ * dedup key names a target rather than one judged record — `gmail.send` keys
+ * on the recipient — and treating a decided run as a match would bar that
+ * target for good after a single send.
+ * @param orgId
+ * @param actionId - Scopes the match: a shared key on another action is not this record.
+ * @param dedupKey
+ * @param config - The action's `dedupAgainstDecided`, absent when it opted out.
+ */
+async function findDecidedRunForKey(
+  orgId: string,
+  actionId: string,
+  dedupKey: string,
+  config: Action['dedupAgainstDecided'],
+): Promise<{ id: number; status: 'done' | 'failed' | 'rejected'; decidedAt: Date } | undefined> {
+  if (!config) {
+    return undefined;
+  }
+  const statuses = config.statuses ?? [...DECIDED_STATUSES_THAT_BLOCK];
+  const [row] = await db
+    .select({
+      id: actionRunSchema.id,
+      status: actionRunSchema.status,
+      decidedAt: actionRunSchema.decidedAt,
+      executedAt: actionRunSchema.executedAt,
+      createdAt: actionRunSchema.createdAt,
+    })
+    .from(actionRunSchema)
+    .where(and(
+      eq(actionRunSchema.orgId, orgId),
+      eq(actionRunSchema.actionId, actionId),
+      eq(actionRunSchema.dedupKey, dedupKey),
+      inArray(actionRunSchema.status, [...statuses]),
+    ))
+    .orderBy(desc(actionRunSchema.id))
+    .limit(1);
+  if (!row) {
+    return undefined;
+  }
+  // `decidedAt` is stamped only when a person decided. A run the gate let
+  // through carries `executedAt` instead, and `createdAt` is the last resort
+  // so the window below always has a date to measure from.
+  const decidedAt = row.decidedAt ?? row.executedAt ?? row.createdAt;
+  if (config.reproposeAfterDays !== undefined) {
+    const staleAt = decidedAt.getTime() + config.reproposeAfterDays * DAY_IN_MS;
+    if (Date.now() >= staleAt) {
+      return undefined;
+    }
+  }
+  return { id: row.id, status: row.status as 'done' | 'failed' | 'rejected', decidedAt };
+}
 
 /**
  * Propose an action. Enforces the actor's grant + autonomy gate. If the gate
@@ -130,14 +212,20 @@ export async function proposeAction(input: {
   }
 
   // Upsert-by-key: a re-surfaced owed action updates its existing PENDING row
-  // rather than stacking duplicates in the queue. Only PENDING rows dedupe —
-  // a decided (done/rejected) action can be proposed fresh later.
+  // rather than stacking duplicates in the queue. A still-open card always
+  // wins — it is the one a moderator can still act on.
+  //
+  // Scoped to this action as well as the key. A caller may pass any
+  // `dedupKey` over the API, so two actions can share one; matching on the
+  // key alone would rewrite the other action's row with this input and run
+  // this action's `onProposed` against a run it does not own.
   if (dedupKey) {
     const [existing] = await db
       .select({ id: actionRunSchema.id })
       .from(actionRunSchema)
       .where(and(
         eq(actionRunSchema.orgId, input.orgId),
+        eq(actionRunSchema.actionId, action.id),
         eq(actionRunSchema.dedupKey, dedupKey),
         eq(actionRunSchema.status, 'pending'),
       ))
@@ -160,7 +248,26 @@ export async function proposeAction(input: {
         parsed,
         existing.id,
       );
-      return { runId: existing.id, status: 'pending' };
+      return { runId: existing.id, status: 'pending', outcome: 'refreshed' };
+    }
+
+    // Nothing open, but a person may have judged this exact record already.
+    // Actions that opted in stop here rather than putting the same card back
+    // in front of them — a listing page re-read every week would otherwise
+    // re-propose everything ever approved or rejected on it.
+    //
+    // Note what this drops: a payload that changed since the decision is not
+    // written anywhere and nobody is told. See `dedupAgainstDecided` in
+    // `libs/actions/types.ts` for why that trade is made and what an action
+    // can do instead.
+    // A key the action itself does not trust — a candidate missing one of
+    // its identity fields — must not answer for a record nobody has seen.
+    const keyIdentifiesOneRecord = action.dedupAgainstDecided?.keyIsTrustworthy?.(parsed) ?? true;
+    const decided = keyIdentifiesOneRecord
+      ? await findDecidedRunForKey(input.orgId, action.id, dedupKey, action.dedupAgainstDecided)
+      : undefined;
+    if (decided) {
+      return { runId: decided.id, status: decided.status, outcome: 'already_decided', decidedAt: decided.decidedAt };
     }
   }
 
@@ -210,7 +317,7 @@ export async function proposeAction(input: {
     // exists and a human opts in explicitly. Fails safe — it can only keep the
     // item in the review queue, never release it.
     if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll' || action.id === 'objects.propose_candidate') {
-      return { runId: run!.id, status: 'pending' };
+      return { runId: run!.id, status: 'pending', outcome: 'created' };
     }
     // Trust ladder: an ENABLED rule whose threshold this proposal's
     // confidence clears executes it now — audited, never silent. The
@@ -228,11 +335,11 @@ export async function proposeAction(input: {
           } as never,
         })
         .where(eq(actionRunSchema.id, run!.id));
-      return executeAction(run!.id, input.orgId);
+      return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
     }
-    return { runId: run!.id, status: 'pending' };
+    return { runId: run!.id, status: 'pending', outcome: 'created' };
   }
-  return executeAction(run!.id, input.orgId);
+  return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
 }
 
 /**
@@ -254,7 +361,7 @@ export async function executeAction(
     /** The downstream record the approver created, to link to the domain row. */
     externalRef?: { system: string; id: string };
   },
-): Promise<ProposeResult> {
+): Promise<ActionRunResult> {
   const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, runId)).limit(1);
   if (!run || run.orgId !== orgId) {
     throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);

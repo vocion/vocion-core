@@ -151,3 +151,238 @@ describe('ActionService gating', () => {
     expect((caught as Error).message).not.toMatch(/[[{]/);
   });
 });
+
+let candidatesExecuted = 0;
+
+// Actions that keep a moderated record per proposal — an extracted candidate a
+// human approves or rejects. Re-proposing one a moderator already decided must
+// not put a second card in front of them (VEERIO-262).
+registerAction({
+  id: 'test.candidate',
+  name: 'Test candidate',
+  description: 'test',
+  inputSchema: z.object({ value: z.string() }),
+  grant: 'test_write',
+  external: true,
+  dedupKeyFor: input => `test.candidate:${(input as { value: string }).value}`,
+  dedupAgainstDecided: {},
+  execute: async (_ctx, input) => {
+    candidatesExecuted += 1;
+    return { echoed: (input as { value: string }).value };
+  },
+});
+
+// Same shape, but the tenant wants a rejection to be re-proposable: only a
+// completed run blocks a fresh card.
+registerAction({
+  id: 'test.candidate-done-only',
+  name: 'Test candidate, done blocks only',
+  description: 'test',
+  inputSchema: z.object({ value: z.string() }),
+  grant: 'test_write',
+  external: true,
+  dedupKeyFor: input => `test.candidate-done-only:${(input as { value: string }).value}`,
+  dedupAgainstDecided: { statuses: ['done'] },
+  execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
+});
+
+// Same shape, but a decision goes stale: after a week the candidate may be
+// proposed again.
+registerAction({
+  id: 'test.candidate-weekly',
+  name: 'Test candidate, weekly re-proposal',
+  description: 'test',
+  inputSchema: z.object({ value: z.string() }),
+  grant: 'test_write',
+  external: true,
+  dedupKeyFor: input => `test.candidate-weekly:${(input as { value: string }).value}`,
+  dedupAgainstDecided: { reproposeAfterDays: 7 },
+  execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
+});
+
+// A candidate whose identity fields the extractor could not fill. The key is
+// still built — the missing value leaves an empty slot — so two genuinely
+// different records share it, and a decision on one must not silently answer
+// for the other.
+registerAction({
+  id: 'test.candidate-weak-key',
+  name: 'Test candidate with an incomplete key',
+  description: 'test',
+  inputSchema: z.object({ value: z.string(), venue: z.string() }),
+  grant: 'test_write',
+  external: true,
+  dedupKeyFor: input => `test.candidate-weak-key:${(input as { value: string }).value}|${(input as { venue: string }).venue}`,
+  dedupAgainstDecided: {
+    keyIsTrustworthy: input => (input as { venue: string }).venue !== '',
+  },
+  execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
+});
+
+describe('proposing against an already-decided run', () => {
+  beforeEach(() => {
+    candidatesExecuted = 0;
+  });
+
+  it('names the outcome when there was nothing to collapse into', async () => {
+    const out = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(out.outcome).toBe('created');
+    expect(out.status).toBe('pending');
+  });
+
+  it('names a refresh of a pending run as a refresh, not a create', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    // Same row, and the caller can tell — before this, both answered
+    // `{ runId, status: 'pending' }` and no consumer could distinguish them.
+    expect(second.runId).toBe(first.runId);
+    expect(second.outcome).toBe('refreshed');
+    expect(await db.select().from(actionRunSchema)).toHaveLength(1);
+  });
+
+  it('creates no second card for a candidate a moderator already rejected', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'not for us', { reviewedBy: 'user-lili' });
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(again.outcome).toBe('already_decided');
+    expect(again.runId).toBe(first.runId);
+    expect(again.status).toBe('rejected');
+    expect(again.decidedAt).toBeInstanceOf(Date);
+    // The whole point: the reviewer's queue does not grow back.
+    expect(await db.select().from(actionRunSchema)).toHaveLength(1);
+  });
+
+  it('creates no second card for a candidate already approved and run', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    await executeAction(first.runId, ORG, { reviewedBy: 'user-jamie' });
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(again.outcome).toBe('already_decided');
+    expect(again.runId).toBe(first.runId);
+    expect(again.status).toBe('done');
+    expect(await db.select().from(actionRunSchema)).toHaveLength(1);
+  });
+
+  it('runs the action once, not twice, when the decided run is re-proposed', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    await executeAction(first.runId, ORG, { reviewedBy: 'user-jamie' });
+
+    await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(candidatesExecuted).toBe(1);
+  });
+
+  it('leaves an action that never opted in free to be proposed again after a decision', async () => {
+    // `gmail.send` keys on the recipient. Blocking decided runs by default
+    // would mean one sent email bars that address forever.
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'x' }, principal: agent(2), dedupKey: 'test.write:someone' });
+    await rejectAction(first.runId, ORG, 'no', { reviewedBy: 'user-lili' });
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'x' }, principal: agent(2), dedupKey: 'test.write:someone' });
+
+    expect(again.outcome).toBe('created');
+    expect(again.runId).not.toBe(first.runId);
+    expect(await db.select().from(actionRunSchema)).toHaveLength(2);
+  });
+
+  it('honours an action that blocks on done but lets a rejection be re-proposed', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-done-only', input: { value: 'open-mic' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'not this week', { reviewedBy: 'user-lili' });
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.candidate-done-only', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(again.outcome).toBe('created');
+    expect(again.runId).not.toBe(first.runId);
+  });
+
+  it('lets a decision go stale when the action sets a re-proposal window', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weekly', input: { value: 'open-mic' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'too early', { reviewedBy: 'user-lili' });
+
+    const withinWindow = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weekly', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(withinWindow.outcome).toBe('already_decided');
+
+    // Age the decision past the window.
+    const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000);
+    await db.update(actionRunSchema).set({ decidedAt: eightDaysAgo }).where(eq(actionRunSchema.id, first.runId));
+
+    const afterWindow = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weekly', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(afterWindow.outcome).toBe('created');
+    expect(afterWindow.runId).not.toBe(first.runId);
+  });
+
+  it('keeps two different actions apart when a caller reuses one dedup key', async () => {
+    // `POST /api/v1/reviews/propose` lets a caller pass any `dedupKey`, so
+    // two actions can end up sharing one — `listing-42` for both. Matching on
+    // the key alone would let one action's pending row be rewritten with the
+    // other's input, and its `onProposed` run against a row it does not own.
+    const other = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'other' }, principal: agent(2), dedupKey: 'shared-key' });
+
+    const candidate = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'mine' }, principal: agent(2), dedupKey: 'shared-key' });
+
+    expect(candidate.outcome).toBe('created');
+    expect(candidate.runId).not.toBe(other.runId);
+
+    const [otherRow] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, other.runId));
+
+    expect(otherRow!.input).toMatchObject({ value: 'other' });
+  });
+
+  it('does not let another action\'s decided run block this one', async () => {
+    const other = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'other' }, principal: agent(2), dedupKey: 'shared-key' });
+    await rejectAction(other.runId, ORG, 'no', { reviewedBy: 'user-lili' });
+
+    const candidate = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'mine' }, principal: agent(2), dedupKey: 'shared-key' });
+
+    // Handing back the other action's run id here would drop this proposal
+    // for good and tell the caller about a decision on something else.
+    expect(candidate.outcome).toBe('created');
+    expect(candidate.runId).not.toBe(other.runId);
+  });
+
+  it('lets a second record through when the key it shares is built on a blank', async () => {
+    // Two different open mics, both on a page that named no venue. Same key,
+    // different events. Before, the second merged into a pending card a
+    // person could still split; blocking on the decision would drop it with
+    // nobody told.
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: '' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'not this one', { reviewedBy: 'user-lili' });
+
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: '' }, principal: agent(2) });
+
+    expect(second.outcome).toBe('created');
+    expect(second.runId).not.toBe(first.runId);
+  });
+
+  it('still blocks the same record when its key is complete', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-flynn' }, principal: agent(2) });
+    await rejectAction(first.runId, ORG, 'not for us', { reviewedBy: 'user-lili' });
+
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-flynn' }, principal: agent(2) });
+
+    expect(second.outcome).toBe('already_decided');
+    expect(second.runId).toBe(first.runId);
+  });
+
+  it('prefers the pending row when one is still open alongside a decided one', async () => {
+    const decided = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    await rejectAction(decided.runId, ORG, 'no', { reviewedBy: 'user-lili' });
+    // A row that predates the opt-in, or one an admin re-opened: whatever put
+    // it there, a card a moderator can still act on is the one to refresh.
+    const [reopened] = await db
+      .insert(actionRunSchema)
+      .values({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, status: 'pending', dedupKey: 'test.candidate:open-mic' })
+      .returning({ id: actionRunSchema.id });
+
+    const again = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(again.outcome).toBe('refreshed');
+    expect(again.runId).toBe(reopened!.id);
+  });
+});
