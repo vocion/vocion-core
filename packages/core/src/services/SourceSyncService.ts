@@ -893,6 +893,13 @@ export async function runSync(opts: {
       errors: result.errors,
       completedAt: cutoff.toISOString(),
     });
+    // A fresh HubSpot contacts mirror is when a reply or a booked meeting
+    // becomes visible. The watch is lazy-imported and never fails the sync,
+    // like the announcement above (ticket 055).
+    if (connectorSlug === 'hubspot' && ((config.objectType as string | undefined) ?? 'contacts') === 'contacts') {
+      const { watchForHandoffTriggers } = await import('@/services/HandoffTriggerService');
+      await watchForHandoffTriggers(opts.orgId, log);
+    }
     return result;
   } catch (err) {
     // Wait here too, for the same reason.

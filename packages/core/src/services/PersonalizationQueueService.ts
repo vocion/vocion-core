@@ -632,14 +632,90 @@ export type SaveLeadBriefResult = {
  * @param orgId
  * @param opts
  */
+/**
+ * Why a lead left the agent's care. `reply` and `meeting` are what the
+ * handoff watcher detects on the CRM mirror (`HandoffTriggerService`);
+ * `routed` is a reviewer sending the lead to a person by hand; `intent` is
+ * reserved for the page-view signal the mirror does not carry yet.
+ */
+export type HandoffTrigger = 'reply' | 'meeting' | 'intent' | 'routed';
+
 /** What a handoff brief carries, and why the lead left. */
 export type SaveHandoffBriefOptions = {
   contactRef: string;
   sections: Array<{ heading: string; body: string }>;
   /** Why the lead left the agent's care. */
-  trigger: 'reply' | 'intent' | 'routed';
+  trigger: HandoffTrigger;
   now?: Date;
 };
+
+/** One lead's saved record, read back for the handoff skill. */
+export type LeadBriefRecord = {
+  contactRef: string;
+  hubspotId: string | null;
+  contactName: string;
+  contactTitle: string | null;
+  companyName: string | null;
+  status: string;
+  entranceSource: string | null;
+  utmCampaign: string | null;
+  confidence: number | null;
+  sections: Array<{ heading: string; body: string }>;
+  claims: Array<{ text: string; kind: string; source: string; date?: string }>;
+  missing: string[];
+  /** The numbered sends as they were approved at Enroll. */
+  draftSequence: Array<{ step: number; day?: number; subject: string; body: string }>;
+  recommendedSequence: { id: string; name: string; reason?: string } | null;
+  /** When and by whom the enroll decision was taken; null if never decided. */
+  decidedAt: string | null;
+  decidedBy: string | null;
+  handoffSections: Array<{ heading: string; body: string }>;
+  handoffTrigger: string | null;
+  handoffAt: string | null;
+};
+
+/**
+ * Read one lead's saved record by CRM ref, for the handoff skill's Phase 1.
+ *
+ * Everything the review brief recorded, the approved sends and the decision,
+ * plus any earlier handoff brief. Read-only; the skill forms its hypotheses
+ * from the trigger evidence and never from a saved hypothesis section, and
+ * nothing here lets it change the record.
+ * @param orgId - Tenant.
+ * @param contactRef - CRM mirror ref, e.g. `contacts:9412`.
+ * @returns The record, or null when no row carries that ref.
+ */
+export async function leadBriefByRef(orgId: string, contactRef: string): Promise<LeadBriefRecord | null> {
+  const [row] = await db
+    .select()
+    .from(leadBriefSchema)
+    .where(and(eq(leadBriefSchema.orgId, orgId), eq(leadBriefSchema.contactRef, contactRef)))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  return {
+    contactRef: row.contactRef,
+    hubspotId: row.contactRef.split(':')[1] ?? null,
+    contactName: row.contactName,
+    contactTitle: row.contactTitle,
+    companyName: row.companyName,
+    status: row.status,
+    entranceSource: row.entranceSource,
+    utmCampaign: row.utmCampaign,
+    confidence: row.confidence,
+    sections: row.sections,
+    claims: row.claims,
+    missing: row.missing,
+    draftSequence: row.draftSequence,
+    recommendedSequence: row.recommendedSequence ?? null,
+    decidedAt: row.decidedAt?.toISOString() ?? null,
+    decidedBy: row.decidedBy,
+    handoffSections: row.handoffSections,
+    handoffTrigger: row.handoffTrigger,
+    handoffAt: row.handoffAt?.toISOString() ?? null,
+  };
+}
 
 export type SaveHandoffBriefResult = {
   saved: boolean;

@@ -589,6 +589,13 @@
       "when": 1787547500000,
       "tag": "0083_chat_channel_binding_persona",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1787547600000,
+      "tag": "0084_handoff_triggers",
+      "breakpoints": true
     }
   ]
 }

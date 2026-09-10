@@ -94,7 +94,10 @@ export async function fireAutomation(
   const automationRunId = runRow!.id;
 
   try {
-    const dispatched = await dispatchDo(orgId, slug, doCfg, input, invokedBy);
+    // The brief distinguishes an event fire from a schedule fire by what the
+    // CALLER handed in, never by the merged input: a scheduled check with fixed
+    // `do.input` is still a scheduled check.
+    const dispatched = await dispatchDo(orgId, slug, doCfg, input, invokedBy, opts.input);
     await db
       .update(automationRunSchema)
       .set({
@@ -127,8 +130,9 @@ export async function fireAutomation(
  * @param doCfg.checkMission
  * @param doCfg.job
  * @param doCfg.prompt
- * @param input
+ * @param input - The merged input the run records (`do.input` under the caller's).
  * @param invokedBy
+ * @param triggerInput - What the caller handed in: an event's payload, or nothing for a schedule fire.
  */
 async function dispatchDo(
   orgId: string,
@@ -136,6 +140,7 @@ async function dispatchDo(
   doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string },
   input: Record<string, unknown>,
   invokedBy: string,
+  triggerInput?: Record<string, unknown>,
 ): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; result?: unknown }> {
   if (doCfg.workflow) {
     const { startWorkflow } = await import('@/services/WorkflowService');
@@ -167,8 +172,10 @@ async function dispatchDo(
     orgId,
     missionSlug,
     // The automation's authored execution prompt rides the brief; the mission
-    // charter + working notes stay attached as standing context.
-    brief: scheduledCheckBrief(template, doCfg.prompt),
+    // charter + working notes stay attached as standing context. An event
+    // fire's payload rides it too, so the check knows what it was fired for;
+    // a schedule fire hands in nothing and reads exactly as before.
+    brief: scheduledCheckBrief(template, doCfg.prompt, triggerInput && Object.keys(triggerInput).length > 0 ? triggerInput : undefined),
     title: `Check: ${template.name}`,
     mode: 'check',
     invokedBy,

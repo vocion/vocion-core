@@ -66,6 +66,36 @@ export type SourceSyncCompletedPayload = {
   completedAt: string;
 };
 
+/**
+ * A lead that was enrolled in a sequence has done something a person should
+ * pick up: replied to a send, or booked a meeting. Emitted by
+ * `HandoffTriggerService` after a HubSpot contacts sync moves the lead's
+ * reply or meeting timestamp past what the watcher had seen, and past the
+ * enrollment decision. One event per new timestamp, deduped on it.
+ */
+export const LEAD_REPLIED = 'lead.replied';
+export const LEAD_MEETING_BOOKED = 'lead.meeting_booked';
+
+/**
+ * Payload of `lead.replied` and `lead.meeting_booked`. Scalars only, for the
+ * same reason as `SourceSyncCompletedPayload`: a `when.filter` compares with
+ * `===`, and an automation's mission check receives these keys verbatim as
+ * its trigger payload.
+ */
+export type LeadHandoffTriggerPayload = {
+  /** `lead_brief.id` of the enrolled lead. */
+  leadBriefId: number;
+  /** CRM mirror ref, e.g. `contacts:9412`. What `save_handoff_brief` takes. */
+  contactRef: string;
+  /** The HubSpot contact id, for the live read tools. */
+  hubspotId: string | null;
+  contactName: string;
+  /** Which signal moved: the handoff trigger the skill records. */
+  trigger: 'reply' | 'meeting';
+  /** ISO timestamp HubSpot stamped on the reply or the meeting activity. */
+  observedAt: string;
+};
+
 export type EmitEventResult = {
   eventId: number | null;
   deduped: boolean;
