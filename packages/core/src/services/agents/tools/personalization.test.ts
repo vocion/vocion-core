@@ -507,6 +507,32 @@ describe('next_lead_to_brief', () => {
     expect(row!.lastAttemptAt).not.toBeNull();
   });
 
+  it('with contact_ref, hands out that lead and no other (a Regenerate names one lead)', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+
+    const out = await call<ClaimOut>(tools.get('next_lead_to_brief'), { contact_ref: 'contacts:3' });
+
+    expect(out.lead?.contactRef).toBe('contacts:3');
+
+    const untouched = await db.select({ ref: leadBriefSchema.contactRef, tries: leadBriefSchema.briefAttempts }).from(leadBriefSchema).where(eq(leadBriefSchema.orgId, ORG));
+
+    expect(untouched.filter(r => r.ref !== 'contacts:3').every(r => r.tries === 0)).toBe(true);
+  });
+
+  it('with a contact_ref that is not eligible, hands out nothing rather than someone else', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+
+    const out = await call<ClaimOut>(tools.get('next_lead_to_brief'), { contact_ref: 'contacts:99' });
+
+    expect(out.lead).toBeNull();
+
+    const rows = await db.select({ tries: leadBriefSchema.briefAttempts }).from(leadBriefSchema).where(eq(leadBriefSchema.orgId, ORG));
+
+    expect(rows.every(r => r.tries === 0)).toBe(true);
+  });
+
   it('does not hand the same lead out twice inside one run', async () => {
     await seedQueue();
     const tools = toolsByName(ORG);
@@ -959,6 +985,22 @@ describe('next_brief_to_draft', () => {
 
     expect(out.lead).toBeNull();
     expect(out.waiting).toBe(0);
+  });
+
+  it('with contact_ref, drafts that briefed lead and no other', async () => {
+    await seedMirror();
+    const tools = toolsByName(ORG);
+    await call<QueueResult>(tools.get('queue_lead'), { contact_refs: ['contacts:1', 'contacts:2'] });
+    const first = await seedBriefed(tools);
+    const second = await seedBriefed(tools);
+
+    const out = await call<DraftClaimOut>(tools.get('next_brief_to_draft'), { contact_ref: second });
+
+    expect(out.lead?.contactRef).toBe(second);
+
+    const [other] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, first));
+
+    expect(other!.draftAttempts).toBe(0);
   });
 
   it('does not hand the same lead out twice inside one run', async () => {

@@ -43,11 +43,14 @@ export async function POST(
     return jsonError('NOT_FOUND', 'No brief with that id on this workspace queue', 404);
   }
 
-  const { emitEvent } = await import('@/services/EventService');
+  // The event is what makes Regenerate immediate: the workspace's
+  // regenerate-brief-on-request automation subscribes to it and briefs this
+  // one lead now, rather than on the next hourly pass.
+  const { emitEvent, PERSONALIZATION_BRIEF_REGENERATE_REQUESTED } = await import('@/services/EventService');
   await emitEvent({
     orgId,
-    type: 'personalization.brief_regenerate_requested',
-    payload: { briefId, contactRef: result.contactRef, note },
+    type: PERSONALIZATION_BRIEF_REGENERATE_REQUESTED,
+    payload: { briefId, contactRef: result.contactRef, contactName: result.contactName, note },
     invokedBy: userId,
   });
 

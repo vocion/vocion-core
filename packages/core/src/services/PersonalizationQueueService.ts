@@ -527,20 +527,24 @@ async function surfaceExhaustedBriefs(orgId: string): Promise<string[]> {
  * @param orgId
  * @param opts
  * @param opts.now
+ * @param opts.contactRef
  */
 export async function claimLeadToBrief(
   orgId: string,
-  opts: { now?: Date } = {},
+  opts: { now?: Date; contactRef?: string } = {},
 ): Promise<ClaimResult> {
   const now = opts.now ?? new Date();
   const surfaced = await surfaceExhaustedBriefs(orgId);
   const floor = new Date(now.getTime() - RETRY_FLOOR_MINUTES * 60_000);
 
+  // A targeted claim (a reviewer's Regenerate) takes THAT lead if it is
+  // eligible and nothing otherwise; it never falls through to the oldest.
   const eligible = and(
     eq(leadBriefSchema.orgId, orgId),
     eq(leadBriefSchema.status, QUEUED_STATUS),
     lt(leadBriefSchema.briefAttempts, MAX_BRIEF_ATTEMPTS),
     or(isNull(leadBriefSchema.lastAttemptAt), lt(leadBriefSchema.lastAttemptAt, floor)),
+    ...(opts.contactRef ? [eq(leadBriefSchema.contactRef, opts.contactRef)] : []),
   );
 
   const [next] = await db
@@ -996,11 +1000,14 @@ export type DraftClaimResult = {
  * Briefed, undrafted, not yet surfaced as a review item, tries left.
  * @param orgId
  * @param floor
+ * @param contactRef
  */
-function draftEligible(orgId: string, floor: Date) {
+function draftEligible(orgId: string, floor: Date, contactRef?: string) {
   return and(
     eq(leadBriefSchema.orgId, orgId),
     eq(leadBriefSchema.status, REVIEW_STATUS),
+    // Targeted like claimLeadToBrief: a Regenerate re-drafts its own lead only.
+    ...(contactRef ? [eq(leadBriefSchema.contactRef, contactRef)] : []),
     // A failed brief never gets drafts: drafting requires written sections.
     sql`jsonb_array_length(${leadBriefSchema.sections}) > 0`,
     sql`jsonb_array_length(${leadBriefSchema.draftSequence}) = 0`,
@@ -1018,14 +1025,15 @@ function draftEligible(orgId: string, floor: Date) {
  * @param orgId
  * @param opts
  * @param opts.now
+ * @param opts.contactRef
  */
 export async function claimBriefToDraft(
   orgId: string,
-  opts: { now?: Date } = {},
+  opts: { now?: Date; contactRef?: string } = {},
 ): Promise<DraftClaimResult> {
   const now = opts.now ?? new Date();
   const floor = new Date(now.getTime() - RETRY_FLOOR_MINUTES * 60_000);
-  const eligible = draftEligible(orgId, floor);
+  const eligible = draftEligible(orgId, floor, opts.contactRef);
 
   const [next] = await db
     .select({ id: leadBriefSchema.id })
