@@ -9,8 +9,8 @@ const svc = await import('@/services/ChatSurfaceService');
 
 const ORG = 'org_chat';
 
-function fakeAdapter(): ChatSurfaceAdapter & { replies: { channelId: string; threadRef: string; displayName?: string; iconUrl?: string; text: string }[] } {
-  const replies: { channelId: string; threadRef: string; displayName?: string; iconUrl?: string; text: string }[] = [];
+function fakeAdapter(): ChatSurfaceAdapter & { replies: { channelId: string; threadRef?: string; displayName?: string; iconUrl?: string; text: string }[] } {
+  const replies: { channelId: string; threadRef?: string; displayName?: string; iconUrl?: string; text: string }[] = [];
   return {
     id: 'slack',
     replies,
@@ -45,6 +45,35 @@ describe('bindings', () => {
 
     expect(await svc.deleteBinding('other', b!.id)).toBe(false);
     expect(await svc.deleteBinding(ORG, b!.id)).toBe(true);
+  });
+});
+
+describe('handleJoined', () => {
+  const join = { surface: 'slack', teamId: 'T1', channelId: 'C9', botUserId: 'UBOT' };
+
+  it('introduces the binding that will answer, wearing its persona, and starts no thread', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C9', agentSlug: 'revenue-lead', displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png' });
+    const adapter = fakeAdapter();
+    const out = await svc.handleJoined(adapter, join);
+
+    expect(out).toMatchObject({ outcome: 'introduced', orgId: ORG, agentSlug: 'revenue-lead' });
+    expect(adapter.replies[0]).toMatchObject({ channelId: 'C9', displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png' });
+    expect(adapter.replies[0]!.threadRef).toBeUndefined();
+    expect(adapter.replies[0]!.text).toContain('Sterling Banks');
+    expect(adapter.replies[0]!.text).toContain('revenue-lead');
+  });
+
+  it('falls back to the workspace catch-all for a channel nobody bound, and stays silent with no binding at all', async () => {
+    const adapter = fakeAdapter();
+
+    expect(await svc.handleJoined(adapter, join)).toEqual({ outcome: 'unbound' });
+    expect(adapter.replies).toEqual([]);
+
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: '*', agentSlug: 'vocion' });
+
+    expect(await svc.handleJoined(adapter, join)).toMatchObject({ outcome: 'introduced', agentSlug: 'vocion' });
+    expect(adapter.replies[0]!.text).toContain('vocion');
+    expect(Object.keys(adapter.replies[0]!)).toEqual(['channelId', 'text']);
   });
 });
 

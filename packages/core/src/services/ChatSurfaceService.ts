@@ -1,4 +1,4 @@
-import type { ChatInbound, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { ChatInbound, ChatJoin, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { chatChannelBindingSchema } from '@/models/Schema';
@@ -107,6 +107,53 @@ export async function deleteBinding(orgId: string, id: number): Promise<boolean>
     .where(and(eq(chatChannelBindingSchema.orgId, orgId), eq(chatChannelBindingSchema.id, id)))
     .returning({ id: chatChannelBindingSchema.id });
   return rows.length > 0;
+}
+
+/**
+ * The one line a channel hears when the bot is invited. Short on purpose: who
+ * answers here, and how to ask. It names the agent, never claims to be a
+ * person, and starts no thread.
+ * @param binding - The binding that will answer this channel.
+ */
+function introductionText(binding: Pick<ChatChannelBinding, 'agentSlug' | 'displayName'>): string {
+  const name = binding.displayName ?? binding.agentSlug;
+  return `I'm ${name}, a Vocion agent. I answer here as \`${binding.agentSlug}\` — mention me and I'll reply in the thread.`;
+}
+
+/**
+ * The bot was added to a channel. Introduce whoever answers there so a fresh
+ * channel is never met with silence — the workspace catch-all binding is what
+ * answers a channel nobody has bound, so this is the same resolution the first
+ * mention would get, said out loud one message early.
+ *
+ * Nothing is created and nothing runs: no agent turn, no conversation, no
+ * budget spend. An unbound channel (no exact binding, no catch-all) stays
+ * silent rather than advertising an install that cannot answer.
+ * @param adapter - The surface the join came from.
+ * @param join - The normalised join event.
+ */
+export async function handleJoined(adapter: ChatSurfaceAdapter, join: ChatJoin): Promise<
+  | { outcome: 'unbound' }
+  | { outcome: 'introduced'; orgId: string; agentSlug: string; text: string }
+  | { outcome: 'failed'; orgId: string; agentSlug: string; error: string }
+> {
+  const binding = await resolveBinding(join.surface, join.teamId, join.channelId);
+  if (!binding) {
+    return { outcome: 'unbound' };
+  }
+  const { orgId, agentSlug } = binding;
+  const target: ChatReplyTarget = {
+    channelId: join.channelId,
+    ...(binding.displayName ? { displayName: binding.displayName } : {}),
+    ...(binding.iconUrl ? { iconUrl: binding.iconUrl } : {}),
+  };
+  const text = introductionText(binding);
+  try {
+    await adapter.reply(target, text);
+    return { outcome: 'introduced', orgId, agentSlug, text };
+  } catch (error) {
+    return { outcome: 'failed', orgId, agentSlug, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /** Dependency seam so the handler is testable without a model or a network. */
