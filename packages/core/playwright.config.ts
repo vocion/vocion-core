@@ -135,6 +135,15 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/mission-runs',
       timeout: 60 * 1000,
     },
+    // VEERIO-262 — what a proposal did (created / refreshed / already_decided),
+    // over real HTTP against a real running app. No browser: uses the
+    // `request` fixture only, so it never depends on the `setup` project.
+    // Run with: npx playwright test --project=reviews-propose
+    {
+      name: 'reviews-propose',
+      testDir: './e2e/reviews-propose',
+      timeout: 60 * 1000,
+    },
     ...(process.env.CI
       ? [
           {
