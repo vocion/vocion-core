@@ -30,7 +30,7 @@
 import { z } from 'zod';
 
 /** The canonical name for each place an agent turn can run. */
-export type HarnessTarget = 'in-process' | 'agentcore-container' | 'aws-managed-harness';
+export type HarnessTarget = 'in-process' | 'agentcore-container' | 'aws-managed-harness' | 'external-worker';
 
 /**
  * The pre-rename spellings, and what each one meant.
@@ -44,7 +44,7 @@ const LEGACY_NAMES: Record<string, HarnessTarget> = {
   agentcore: 'aws-managed-harness',
 };
 
-const CANONICAL_NAMES: HarnessTarget[] = ['in-process', 'agentcore-container', 'aws-managed-harness'];
+const CANONICAL_NAMES: HarnessTarget[] = ['in-process', 'agentcore-container', 'aws-managed-harness', 'external-worker'];
 
 /** Every accepted spelling, canonical first. For schema enums and error text. */
 export function harnessTargetNames(): string[] {

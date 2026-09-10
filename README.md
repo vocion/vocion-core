@@ -63,6 +63,7 @@ Everything you author lives in a **workspace** — a git-backed directory of YAM
 | **[Skill](./docs/entities/skill.md)** | `skills/<slug>/SKILL.md` | Frontmatter + markdown procedure, read on the model's judgement |
 | **[Playbook](./docs/entities/playbook.md)** | `playbooks/<slug>/SKILL.md` | Standing context attached to a skill or an agent by name |
 | **[Mission](./docs/entities/mission.md)** | `missions/<slug>.yaml` | Standing responsibility: goal, success criteria, autonomy level |
+| **[Worker run](./docs/entities/worker-run.md)** | created by the API or by an agent with `harness.runsOn: external-worker` | A long-running run executed outside the app; Vocion leases, heartbeats, budgets and reaps it (ADR 0004) |
 | **[Workflow](./docs/entities/workflow.md)** | `workflows/<slug>/workflow.yaml` | Deterministic steps with approve / ask gates |
 | **[Automation](./docs/entities/automation.md)** | `automations/<slug>.yaml` | The only place time and events live: `when` → `do` |
 | **[Object type](./docs/entities/object-type.md)** | `objects/<slug>/type.yaml` | Business entity (Account, Deal, …) with source weights + classification prompt |
@@ -195,6 +196,8 @@ Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with re
 - **Retrieval:** pgvector + Postgres FTS, RRF hybrid, optional LLM rerank (first-party)
 - **Observability:** Langfuse (LLM traces), OpenTelemetry (spans + metrics)
 - **Workflows:** in-process durable step runner on Postgres
+- **Chat surfaces:** mention an agent in Slack and it replies in the thread; bindings map a channel to an agent, the review queue stays the only place anything is approved (feature flag `VOCION_SLACK_EVENTS=1`; [guide](./docs/guides/slack.md))
+- **External workers:** hours-long runs outside the app — a `worker_run` control plane with leases, heartbeats, per-run cost and a reaper (feature flag `VOCION_EXTERNAL_WORKERS=1`; [ADR 0004](./docs/adr/0004-external-worker-provider.md))
 
 ## Repo layout
 

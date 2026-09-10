@@ -579,7 +579,7 @@ export const agentSchema = pgTable(
        * Left unset by workspace:apply on purpose — `defaultHarnessTargetFor`
        * derives it from `modelProvider`, and a stored value would shadow that.
        */
-      runsOn?: 'in-process' | 'agentcore-container' | 'aws-managed-harness';
+      runsOn?: 'in-process' | 'agentcore-container' | 'aws-managed-harness' | 'external-worker';
       /**
        * Pre-rename spelling of `runsOn`, kept for rows written before the
        * rename. Read through `normalizeHarnessTarget`, never written.
@@ -2630,3 +2630,103 @@ export const leadBriefSchema = pgTable(
 // Re-export `sql` so callers can build the GENERATED-ALWAYS-AS-STORED
 // tsvector expression in raw migrations. Not used at query-time.
 export { sql };
+
+/* ------------------------------------------------------------------ */
+/* Worker runs — long-running agent runs executed OUTSIDE the app       */
+/* (ADR 0004, `harness.runsOn: external-worker`)                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A long-running agent run executed by a process Vocion does NOT host. Vocion
+ * is the control plane: it queues the run, hands out a lease, records
+ * heartbeats, checkpoints and cost, and reaps a run whose lease lapses. The
+ * worker owns its own working state (files, git, its own store); this row
+ * holds only what a human or another agent needs to see about it.
+ *
+ * Modelled on `source_sync_checkpoint` — the one resumable-work table before
+ * it — plus the columns a lease protocol needs. Status is text on purpose: a
+ * new state is a code change, not a migration.
+ */
+export const workerRunSchema = pgTable(
+  'worker_run',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    agentSlug: text('agent_slug').notNull(),
+    /** `queued` | `running` | `paused` | `awaiting_review` | `completed` | `failed` | `cancelled` | `lost` */
+    status: text('status').default('queued').notNull(),
+    /** What the worker was asked to do — free-form, worker-defined. */
+    input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
+    /** Whoever holds the lease. Set on claim; a re-claim after `lost` bumps `attempt`. */
+    workerId: text('worker_id'),
+    attempt: integer('attempt').default(0).notNull(),
+    leaseSeconds: integer('lease_seconds').default(300).notNull(),
+    leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date' }),
+    heartbeatAt: timestamp('heartbeat_at', { mode: 'date' }),
+    claimedAt: timestamp('claimed_at', { mode: 'date' }),
+    /** Hard deadline, echoed to the worker on every heartbeat. */
+    endsAt: timestamp('ends_at', { mode: 'date' }),
+    completedAt: timestamp('completed_at', { mode: 'date' }),
+    /** Coarse, worker-defined progress for the run page — not a token stream. */
+    progress: jsonb('progress').$type<Record<string, unknown>>().default({}).notNull(),
+    /** Opaque worker-defined resume position. */
+    cursor: text('cursor'),
+    counts: jsonb('counts').$type<Record<string, number>>().default({}).notNull(),
+    tokens: integer('tokens').default(0).notNull(),
+    cents: integer('cents').default(0).notNull(),
+    /** Per-run dollar cap in cents; the heartbeat reports what is left. */
+    capCents: integer('cap_cents'),
+    /** A human asked the run to stop; the worker learns it on its next heartbeat. */
+    stopRequested: boolean('stop_requested').default(false).notNull(),
+    result: jsonb('result').$type<Record<string, unknown>>(),
+    error: text('error'),
+    /** Non-fatal failures the worker carried on past, capped by the service. */
+    failures: jsonb('failures').$type<{ scope: string; message: string; at: string }[]>().default([]).notNull(),
+    workspaceSha: text('workspace_sha'),
+    langfuseTraceId: text('langfuse_trace_id'),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('worker_run_org_status_idx').on(table.orgId, table.status),
+    index('worker_run_org_agent_idx').on(table.orgId, table.agentSlug),
+    index('worker_run_lease_idx').on(table.status, table.leaseExpiresAt),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Chat surfaces — which agent answers in which channel (item 025)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Binds a chat-platform channel to an agent. The inbound event carries only a
+ * channel id, so this row is how an event finds its org AND its agent — the
+ * unique key is (surface, channel, team), not per org. `channel_id = '*'` with
+ * a `team_id` is the per-workspace catch-all that direct messages resolve to.
+ */
+export const chatChannelBindingSchema = pgTable(
+  'chat_channel_binding',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** `slack` today. */
+    surface: text('surface').notNull(),
+    teamId: text('team_id'),
+    channelId: text('channel_id').notNull(),
+    agentSlug: text('agent_slug').notNull(),
+    /**
+     * Persona the replies in this channel wear (migration 0083). Null means the
+     * app's own name and icon — i.e. exactly today's behaviour.
+     */
+    displayName: text('display_name'),
+    /** Public https URL of the persona avatar; Slack fetches it per message. */
+    iconUrl: text('icon_url'),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('chat_channel_binding_surface_channel_idx').on(table.surface, table.channelId, table.teamId),
+    index('chat_channel_binding_org_idx').on(table.orgId),
+  ],
+);

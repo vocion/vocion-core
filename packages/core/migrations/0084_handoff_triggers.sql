@@ -1,4 +1,4 @@
--- Hand-written, per 0075's precedent.
+-- Hand-written, per 0075's precedent. Renumbered from 0081 when main took 0081 to 0083 first.
 --
 -- The handoff watcher's memory. After every HubSpot contacts sync,
 -- `HandoffTriggerService` compares each enrolled lead's newest reply and
