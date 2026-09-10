@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import process from 'node:process';
 import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
@@ -100,6 +100,46 @@ export function listCorePackAgents(): CorePackAgent[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Read one workspace file, refusing if it points outside the folder that
+ * owns it.
+ *
+ * The slug guard at the entry point stops a path from being *written* to
+ * climb out. It says nothing about a symlink already sitting in the
+ * workspace: a tenant's workspace is a git checkout, git carries symlinks,
+ * and `readFileSync` follows them without complaint. Resolving both sides
+ * is the only way to see where the read actually lands.
+ *
+ * Returns null when the file is missing or refused, so a caller drops it
+ * from the layer rather than failing the whole page.
+ * @param base - Folder the file must stay inside.
+ * @param filePath - The file to read.
+ */
+function readContainedFile(base: string, filePath: string): string | null {
+  try {
+    const realBase = realpathSync(base);
+    const realPath = realpathSync(filePath);
+    const relativeToBase = relative(realBase, realPath);
+    if (relativeToBase.startsWith(`..${sep}`) || relativeToBase === '..' || relativeToBase.startsWith(sep)) {
+      return null;
+    }
+    return readFileSync(realPath, 'utf-8');
+  } catch {
+    // Missing, unreadable, or a broken link — the caller treats it the same
+    // way it already treats a file that isn't there.
+    return null;
+  }
+}
+
+/**
+ * What a workspace primitive slug is allowed to look like.
+ *
+ * Deliberately narrow: no dots, no slashes, nothing that can walk up a
+ * directory. Shared with the oRPC router so both entry points agree on
+ * which slugs exist.
+ */
+export const WORKSPACE_SLUG_PATTERN = /^[a-z0-9][\w-]*$/i;
+
 function slugToDirname(slug: string): string {
   return slug.replace(/_/g, '-');
 }
@@ -151,11 +191,17 @@ function readWorkspaceLayer(kind: PrimitiveKind, slug: string, contextPath: stri
       return null;
     }
     const rel = `${kindDir(kind)}/${name}`;
+    const content = readContainedFile(dir, join(dir, name));
+    if (content === null) {
+      // Refused or unreadable. Showing an empty editor would look like an
+      // empty file rather than one we declined to open.
+      return null;
+    }
     return {
       files: [{
         path: rel,
         fullPath: `${contextPath}/${rel}`,
-        content: readFileSync(join(dir, name), 'utf-8'),
+        content,
         language: 'yaml' as const,
         layer: 'workspace' as const,
       }],
@@ -169,13 +215,19 @@ function readWorkspaceLayer(kind: PrimitiveKind, slug: string, contextPath: stri
     const candidates = [`${dirName}.yaml`, `${dirName}.system-prompt.md`];
     const files = candidates
       .filter(name => existsSync(join(agentDir, name)))
-      .map(name => ({
-        path: `agents/${name}`,
-        fullPath: `${contextPath}/agents/${name}`,
-        content: readFileSync(join(agentDir, name), 'utf-8'),
-        language: detectLanguage(name),
-        layer: 'workspace' as const,
-      }));
+      .map((name) => {
+        const content = readContainedFile(agentDir, join(agentDir, name));
+        return content === null
+          ? null
+          : {
+              path: `agents/${name}`,
+              fullPath: `${contextPath}/agents/${name}`,
+              content,
+              language: detectLanguage(name),
+              layer: 'workspace' as const,
+            };
+      })
+      .filter(file => file !== null);
     if (files.length === 0) {
       return null;
     }
@@ -189,13 +241,18 @@ function readWorkspaceLayer(kind: PrimitiveKind, slug: string, contextPath: stri
     return null;
   }
   const dir = join(base, foundDirName, dirName);
-  const files = readDirFiles(dir).map(n => ({
-    path: `${foundDirName}/${dirName}/${n}`,
-    fullPath: `${contextPath}/${foundDirName}/${dirName}/${n}`,
-    content: readFileSync(join(dir, n), 'utf-8'),
-    language: detectLanguage(n),
-    layer: 'workspace' as const,
-  }));
+  const files = readDirFiles(dir).map((n) => {
+    const content = readContainedFile(dir, join(dir, n));
+    return content === null
+      ? null
+      : {
+          path: `${foundDirName}/${dirName}/${n}`,
+          fullPath: `${contextPath}/${foundDirName}/${dirName}/${n}`,
+          content,
+          language: detectLanguage(n),
+          layer: 'workspace' as const,
+        };
+  }).filter(file => file !== null);
   if (files.length === 0) {
     return null;
   }
@@ -215,24 +272,32 @@ function readCoreLayer(kind: PrimitiveKind, slug: string): PrimitiveFile[] {
     return [];
   }
 
-  const toFile = (absDir: string, rel: string, name: string): PrimitiveFile => ({
-    path: `${BASE_PACK_REL}/${rel}`,
-    content: readFileSync(join(absDir, name), 'utf-8'),
-    language: detectLanguage(name),
-    layer: 'core' as const,
-  });
+  const toFile = (absDir: string, rel: string, name: string): PrimitiveFile | null => {
+    const content = readContainedFile(absDir, join(absDir, name));
+    return content === null
+      ? null
+      : {
+          path: `${BASE_PACK_REL}/${rel}`,
+          content,
+          language: detectLanguage(name),
+          layer: 'core' as const,
+        };
+  };
 
   if (kind === 'agent') {
     const agentDir = join(packRoot, 'agents');
     return [`${dirName}.yaml`, `${dirName}.system-prompt.md`]
       .filter(name => existsSync(join(agentDir, name)))
-      .map(name => toFile(agentDir, `agents/${name}`, name));
+      .map(name => toFile(agentDir, `agents/${name}`, name))
+      .filter(file => file !== null);
   }
   if (kind === 'mission') {
     const name = `${dirName}.yaml`;
-    return existsSync(join(packRoot, 'missions', name))
-      ? [toFile(join(packRoot, 'missions'), `missions/${name}`, name)]
-      : [];
+    if (!existsSync(join(packRoot, 'missions', name))) {
+      return [];
+    }
+    const file = toFile(join(packRoot, 'missions'), `missions/${name}`, name);
+    return file === null ? [] : [file];
   }
   // Skills are SKILL.md folders under skills/ in the base pack; objects under objects/.
   const containerDir = kind === 'skill' ? 'skills' : kind === 'object' ? 'objects' : null;
@@ -243,7 +308,7 @@ function readCoreLayer(kind: PrimitiveKind, slug: string): PrimitiveFile[] {
   if (!existsSync(dir)) {
     return [];
   }
-  return readDirFiles(dir).map(n => toFile(dir, `${containerDir}/${dirName}/${n}`, n));
+  return readDirFiles(dir).map(n => toFile(dir, `${containerDir}/${dirName}/${n}`, n)).filter(file => file !== null);
 }
 
 /**
@@ -266,6 +331,13 @@ function readDirFiles(dir: string): string[] {
 export function readPrimitiveFiles(kind: PrimitiveKind, slug: string): PrimitiveFilesResult | null {
   const contextPath = getWorkspacePath();
   if (!contextPath) {
+    return null;
+  }
+  if (!WORKSPACE_SLUG_PATTERN.test(slug)) {
+    // Every read below builds a path out of this slug, and the dashboard
+    // drilldown pages hand it straight through from the URL. Refusing here
+    // covers both layers at once — nothing downstream ever sees a slug that
+    // can climb out of the workspace.
     return null;
   }
 

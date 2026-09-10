@@ -1,13 +1,14 @@
 import { Buffer } from 'node:buffer';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 import process from 'node:process';
 import { ORPCError, os } from '@orpc/server';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
+import { logger } from '@/libs/Logger';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
-import { applyWorkspace, getCurrentWorkspaceSha, getWorkspacePath, invalidateCurrentContextShaCache, loadWorkspace } from '@/libs/workspace';
+import { applyWorkspace, getCurrentWorkspaceSha, getWorkspacePath, invalidateCurrentContextShaCache, loadWorkspace, WORKSPACE_SLUG_PATTERN } from '@/libs/workspace';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
 import { guardAuth, guardRole } from './AuthGuards';
@@ -24,9 +25,17 @@ import { guardAuth, guardRole } from './AuthGuards';
 
 const PrimitiveKind = z.enum(['skill', 'workflow', 'object', 'agent', 'source']);
 
+// Real slugs across the demo and template workspaces are lowercase,
+// start with a letter or digit, and use only dashes or underscores after
+// that (e.g. "outreach-drafter", "write-lead-brief", "event_candidate").
+// Nothing legitimate needs a slash or a "..", so this pattern can't
+// express a traversal segment. It's the second line of defense — the
+// containment check below is the one that must hold even if this regex
+// has a gap.
+
 const ReadInput = z.object({
   kind: PrimitiveKind,
-  slug: z.string().min(1),
+  slug: z.string().min(1).regex(WORKSPACE_SLUG_PATTERN, 'slug must start with a letter or digit and contain only letters, digits, dashes, or underscores'),
 });
 
 const FileEntry = z.object({
@@ -67,6 +76,70 @@ function detectLanguage(fileName: string): 'yaml' | 'markdown' {
   return fileName.endsWith('.md') ? 'markdown' : 'yaml';
 }
 
+/**
+ * True when `target` is neither `base` nor somewhere under it — what a
+ * caller-controlled slug forces by walking up with "../", or by naming a
+ * sibling that merely starts with the real directory's name ("acme-secrets"
+ * next to "acme"). `startsWith` falls for that second one; `relative()`
+ * does not.
+ * @param base - Directory the resolved path must stay inside.
+ * @param target - The path built from caller input.
+ */
+function pathEscapesBase(base: string, target: string): boolean {
+  const rel = relative(base, target);
+  if (rel.startsWith('..') || rel.startsWith('/')) {
+    return true;
+  }
+
+  // Path text says nothing about where a symlink points, and a workspace is
+  // a git checkout — git carries symlinks, so a link inside it can aim
+  // anywhere on the host and the reads would follow it. Resolve both sides
+  // for real. Both, because the workspace itself may sit
+  // under a symlinked root. Same guard `writeFile` applies below.
+  if (!existsSync(target)) {
+    // Nothing there to read through; the checks below return not-found.
+    return false;
+  }
+  try {
+    const realBase = realpathSync(base);
+    const realTarget = realpathSync(target);
+    return realTarget !== realBase && !realTarget.startsWith(realBase + sep);
+  } catch (err) {
+    // A broken link, a loop, or a directory we cannot traverse. Refuse
+    // rather than guess.
+    logger.warn('workspace read could not resolve real paths for the symlink guard, refusing to read', {
+      baseDirectory: base,
+      target,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return true;
+  }
+}
+
+/**
+ * Read one workspace file, refusing if the file itself points outside the
+ * directory that owns it.
+ *
+ * Clearing the directory is not enough — the same trap sits one level down.
+ * A perfectly ordinary skill folder can hold a `SKILL.yaml` that is a
+ * symlink aimed anywhere on the host, and the folder check never looks at
+ * the files inside it.
+ * @param base - Directory the file must stay inside.
+ * @param filePath - The file to read.
+ * @param context - Identifiers worth keeping in the log if this is refused.
+ */
+function readContainedFile(base: string, filePath: string, context: Record<string, unknown>): string {
+  if (pathEscapesBase(base, filePath)) {
+    logger.warn('workspace.readPrimitive file pointed outside its own directory, refusing to read', {
+      ...context,
+      baseDirectory: base,
+      filePath,
+    });
+    throw new ORPCError('FORBIDDEN', { message: `file escapes workspace: ${filePath}` });
+  }
+  return readFileSync(filePath, 'utf-8');
+}
+
 export const readPrimitive = os
   .input(ReadInput)
   .output(ReadOutput)
@@ -84,6 +157,16 @@ export const readPrimitive = os
     // Agents are single-dir-less (files at workspace/<org>/agents/<slug>.yaml + <slug>.system-prompt.md)
     if (kind === 'agent') {
       const agentDir = join(base, 'agents');
+      // Both candidate file names share this prefix, so one check catches
+      // a traversal slug before either path is built.
+      if (pathEscapesBase(agentDir, join(agentDir, dirName))) {
+        logger.warn('workspace.readPrimitive slug escaped its workspace directory, refusing to read', {
+          kind,
+          slug,
+          agentDir,
+        });
+        throw new ORPCError('FORBIDDEN', { message: `slug escapes workspace: ${slug}` });
+      }
       const candidates = [
         { name: `${dirName}.yaml`, optional: false },
         { name: `${dirName}.system-prompt.md`, optional: true },
@@ -92,7 +175,7 @@ export const readPrimitive = os
         .filter(c => existsSync(join(agentDir, c.name)))
         .map(c => ({
           path: `agents/${c.name}`,
-          content: readFileSync(join(agentDir, c.name), 'utf-8'),
+          content: readContainedFile(agentDir, join(agentDir, c.name), { kind, slug }),
           language: detectLanguage(c.name),
         }));
       if (files.length === 0) {
@@ -102,7 +185,17 @@ export const readPrimitive = os
     }
 
     // Skill/Workflow/Object/Source: directory with multiple files
-    const dir = join(base, kindDir(kind), dirName);
+    const kindBase = join(base, kindDir(kind));
+    const dir = join(kindBase, dirName);
+    if (pathEscapesBase(kindBase, dir)) {
+      logger.warn('workspace.readPrimitive slug escaped its workspace directory, refusing to read', {
+        kind,
+        slug,
+        kindBase,
+        resolvedDir: dir,
+      });
+      throw new ORPCError('FORBIDDEN', { message: `slug escapes workspace: ${slug}` });
+    }
     if (!existsSync(dir)) {
       throw new ORPCError('NOT_FOUND', { message: `No directory found for ${kind} "${slug}" at ${kindDir(kind)}/${dirName}` });
     }
@@ -124,7 +217,7 @@ export const readPrimitive = os
 
     const files = fileNames.map(n => ({
       path: `${kindDir(kind)}/${dirName}/${n}`,
-      content: readFileSync(join(dir, n), 'utf-8'),
+      content: readContainedFile(dir, join(dir, n), { kind, slug }),
       language: detectLanguage(n),
     }));
 
@@ -159,8 +252,16 @@ export const writeFile = os
 
     // Containment guard: target must be inside the configured WORKSPACE_PATH.
     // Prevents path traversal (../../etc/passwd) and cross-tenant writes.
+    // This is a string comparison on the path we built by hand — it says
+    // nothing about a symlink sitting inside that path, which is what the
+    // realpath check below is for.
     const relFromContext = relative(contextBase, absTarget);
     if (relFromContext.startsWith('..') || relFromContext.startsWith('/')) {
+      logger.warn('workspace.writeFile path escaped WORKSPACE_PATH, refusing to write', {
+        path: input.path,
+        contextBase,
+        absTarget,
+      });
       throw new ORPCError('FORBIDDEN', { message: `path escapes WORKSPACE_PATH: ${input.path}` });
     }
 
@@ -170,8 +271,55 @@ export const writeFile = os
       throw new ORPCError('VALIDATION_FAILED', { message: `extension not allowed: ${ext}. Allowed: ${[...ALLOWED_EXTS].join(', ')}` });
     }
 
-    // Write (mkdir -p first in case the folder is new)
+    // Make sure the folder exists before we resolve real paths below —
+    // realpath throws on a directory that isn't there yet.
     mkdirSync(dirname(absTarget), { recursive: true });
+
+    // Symlink guard: the string check above only looks at the path we
+    // built by hand, which says nothing about where a symlink sitting
+    // inside the workspace repo actually points. A tenant's workspace is
+    // a git checkout, and a repo can commit a symlink that points outside
+    // it — writeFileSync would follow that link and overwrite whatever is
+    // on the other end. Resolve both sides for real before writing. The
+    // target file may not exist yet (a brand-new file), so fall back to
+    // resolving its parent directory, which the mkdir above guarantees
+    // exists.
+    //
+    // The target itself is checked with lstat, which reports the link
+    // rather than following it. `existsSync` follows, and answers false for
+    // a link whose target is missing — so a dangling link would otherwise
+    // fall through to the parent-directory check and then be written
+    // straight through to wherever it points.
+    let realContextBase: string;
+    let realTargetDir: string;
+    try {
+      if (lstatSync(absTarget, { throwIfNoEntry: false })?.isSymbolicLink()) {
+        logger.warn('workspace.writeFile target is a symlink, refusing to write through it', { path: input.path, absTarget });
+        throw new ORPCError('FORBIDDEN', { message: `path is a symlink: ${input.path}` });
+      }
+      realContextBase = realpathSync(contextBase);
+      realTargetDir = existsSync(absTarget) ? dirname(realpathSync(absTarget)) : realpathSync(dirname(absTarget));
+    } catch (err) {
+      if (err instanceof ORPCError) {
+        throw err;
+      }
+      logger.warn('workspace.writeFile could not resolve real paths for the symlink guard, refusing to write', {
+        path: input.path,
+        contextBase,
+        absTarget,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw new ORPCError('FORBIDDEN', { message: `could not verify path for write: ${input.path}` });
+    }
+    if (realTargetDir !== realContextBase && !realTargetDir.startsWith(realContextBase + sep)) {
+      logger.warn('workspace.writeFile target resolved outside WORKSPACE_PATH through a symlink, refusing to write', {
+        path: input.path,
+        realContextBase,
+        realTargetDir,
+      });
+      throw new ORPCError('FORBIDDEN', { message: `path escapes WORKSPACE_PATH: ${input.path}` });
+    }
+
     writeFileSync(absTarget, input.content, 'utf-8');
 
     // Apply to DB so the dashboard reflects the change immediately.
