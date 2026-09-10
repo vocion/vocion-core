@@ -73,11 +73,13 @@ const DECIDED_STATUSES_THAT_BLOCK = ['done', 'rejected'] as const;
  * on the recipient — and treating a decided run as a match would bar that
  * target for good after a single send.
  * @param orgId
+ * @param actionId - Scopes the match: a shared key on another action is not this record.
  * @param dedupKey
  * @param config - The action's `dedupAgainstDecided`, absent when it opted out.
  */
 async function findDecidedRunForKey(
   orgId: string,
+  actionId: string,
   dedupKey: string,
   config: Action['dedupAgainstDecided'],
 ): Promise<{ id: number; status: 'done' | 'failed' | 'rejected'; decidedAt: Date } | undefined> {
@@ -96,6 +98,7 @@ async function findDecidedRunForKey(
     .from(actionRunSchema)
     .where(and(
       eq(actionRunSchema.orgId, orgId),
+      eq(actionRunSchema.actionId, actionId),
       eq(actionRunSchema.dedupKey, dedupKey),
       inArray(actionRunSchema.status, [...statuses]),
     ))
@@ -211,12 +214,18 @@ export async function proposeAction(input: {
   // Upsert-by-key: a re-surfaced owed action updates its existing PENDING row
   // rather than stacking duplicates in the queue. A still-open card always
   // wins — it is the one a moderator can still act on.
+  //
+  // Scoped to this action as well as the key. A caller may pass any
+  // `dedupKey` over the API, so two actions can share one; matching on the
+  // key alone would rewrite the other action's row with this input and run
+  // this action's `onProposed` against a run it does not own.
   if (dedupKey) {
     const [existing] = await db
       .select({ id: actionRunSchema.id })
       .from(actionRunSchema)
       .where(and(
         eq(actionRunSchema.orgId, input.orgId),
+        eq(actionRunSchema.actionId, action.id),
         eq(actionRunSchema.dedupKey, dedupKey),
         eq(actionRunSchema.status, 'pending'),
       ))
@@ -251,7 +260,7 @@ export async function proposeAction(input: {
     // written anywhere and nobody is told. See `dedupAgainstDecided` in
     // `libs/actions/types.ts` for why that trade is made and what an action
     // can do instead.
-    const decided = await findDecidedRunForKey(input.orgId, dedupKey, action.dedupAgainstDecided);
+    const decided = await findDecidedRunForKey(input.orgId, action.id, dedupKey, action.dedupAgainstDecided);
     if (decided) {
       return { runId: decided.id, status: decided.status, outcome: 'already_decided', decidedAt: decided.decidedAt };
     }

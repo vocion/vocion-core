@@ -571,9 +571,10 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
   // not come back as a new card. Without this the queue refills with decided
   // events every pass, and moderating becomes re-deciding.
   //
-  // Both decided statuses block, and a decision stands for good. A workspace
-  // that wants rejected events offered again can narrow this to `['done']` or
-  // set `reproposeAfterDays`.
+  // Both decided statuses block, and a decision stands for good. Offering
+  // rejected events again means narrowing this to `['done']` or setting
+  // `reproposeAfterDays` here — it is one constant for every org, not
+  // something a workspace can override.
   dedupAgainstDecided: {},
 
   // The candidate becomes a real row the moment it is proposed, holding the

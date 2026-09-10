@@ -299,6 +299,35 @@ describe('proposing against an already-decided run', () => {
     expect(afterWindow.runId).not.toBe(first.runId);
   });
 
+  it('keeps two different actions apart when a caller reuses one dedup key', async () => {
+    // `POST /api/v1/reviews/propose` lets a caller pass any `dedupKey`, so
+    // two actions can end up sharing one — `listing-42` for both. Matching on
+    // the key alone would let one action's pending row be rewritten with the
+    // other's input, and its `onProposed` run against a row it does not own.
+    const other = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'other' }, principal: agent(2), dedupKey: 'shared-key' });
+
+    const candidate = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'mine' }, principal: agent(2), dedupKey: 'shared-key' });
+
+    expect(candidate.outcome).toBe('created');
+    expect(candidate.runId).not.toBe(other.runId);
+
+    const [otherRow] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, other.runId));
+
+    expect(otherRow!.input).toMatchObject({ value: 'other' });
+  });
+
+  it('does not let another action\'s decided run block this one', async () => {
+    const other = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'other' }, principal: agent(2), dedupKey: 'shared-key' });
+    await rejectAction(other.runId, ORG, 'no', { reviewedBy: 'user-lili' });
+
+    const candidate = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'mine' }, principal: agent(2), dedupKey: 'shared-key' });
+
+    // Handing back the other action's run id here would drop this proposal
+    // for good and tell the caller about a decision on something else.
+    expect(candidate.outcome).toBe('created');
+    expect(candidate.runId).not.toBe(other.runId);
+  });
+
   it('prefers the pending row when one is still open alongside a decided one', async () => {
     const decided = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
     await rejectAction(decided.runId, ORG, 'no', { reviewedBy: 'user-lili' });

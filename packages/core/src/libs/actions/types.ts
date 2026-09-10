@@ -157,8 +157,8 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * moderator back everything they already approved or rejected.
    *
    * `statuses` are the decided statuses that block a fresh card (default
-   * `done` and `rejected`; a tenant that wants a rejection re-proposable
-   * passes `['done']`). `reproposeAfterDays` lets a decision go stale, so the
+   * `done` and `rejected`; an action that wants a rejection re-proposable
+   * sets `['done']`). `reproposeAfterDays` lets a decision go stale, so the
    * same record may be offered again once the decision is that old; omit it
    * and a decision stands for good.
    *
@@ -179,6 +179,10 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    *   refill; an action that needs those late edits should either narrow
    *   `statuses`, set `reproposeAfterDays`, or handle the update itself
    *   rather than through the review queue.
+   *
+   * This is a source constant on the action, the same for every org — there
+   * is no workspace YAML or per-tenant override behind it. Changing it for
+   * one client means changing it here, for all of them.
    */
   dedupAgainstDecided?: {
     statuses?: Array<'done' | 'failed' | 'rejected'>;

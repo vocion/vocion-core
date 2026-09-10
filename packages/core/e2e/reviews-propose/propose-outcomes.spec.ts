@@ -58,10 +58,22 @@ test.beforeAll(() => {
 
 /**
  * One event, shaped the way the candidate-extraction playbook shapes it.
- * `dedupOn` names the fields that make this event this event.
+ * `dedupOn` names the fields that make this event this event, so a test that
+ * wants a different event changes one of those.
+ *
+ * The record's top-level `title` tracks `fields.title`: that is what the
+ * stored candidate row and the review card are labelled with, and fixtures
+ * that all read "Open Mic Night" would hide any mix-up between records.
  * @param over - Field overrides, to make a different event or a changed one.
  */
 function eventProposal(over: Record<string, unknown> = {}) {
+  const fields = {
+    title: 'Open Mic Night',
+    start: '2026-09-19T19:30',
+    venue: 'The Flynn',
+    price: 'Free',
+    ...over,
+  };
   return {
     actionId: 'objects.propose_candidate',
     agentSlug: 'listing-scout',
@@ -69,14 +81,8 @@ function eventProposal(over: Record<string, unknown> = {}) {
     rationale: 'Listed on the venue\'s own events page with a date and a time.',
     input: {
       objectType: 'event_candidate',
-      title: 'Open Mic Night',
-      fields: {
-        title: 'Open Mic Night',
-        start: '2026-09-19T19:30',
-        venue: 'The Flynn',
-        price: 'Free',
-        ...over,
-      },
+      title: fields.title,
+      fields,
       dedupOn: ['title', 'start', 'venue'],
       sourceUrl: 'https://example.org/events/open-mic-night',
       sourceListingUrl: 'https://example.org/events',
@@ -106,7 +112,10 @@ async function pendingCount(request: APIRequestContext): Promise<number> {
     headers: { authorization: `Bearer ${fixtures.token}` },
   });
   const body = await response.json();
-  return (body.items ?? body.reviews ?? []).length;
+  // Read `items` outright rather than falling back to an empty list. A
+  // fallback would turn a changed response shape into a count of zero, and
+  // every "the queue did not grow" assertion below would pass on nothing.
+  return (body.items as unknown[]).length;
 }
 
 test.describe('POST /api/v1/reviews/propose', () => {
