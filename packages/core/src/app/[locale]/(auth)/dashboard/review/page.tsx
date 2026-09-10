@@ -34,10 +34,7 @@ export default async function ReviewPage(props: {
 
   return (
     <>
-      <TitleBar
-        title="Review"
-        description="One thing at a time — decide it and the next one loads. Nothing sends without you."
-      />
+      <TitleBar title="Review" />
       <ReviewFocus />
 
       {workflowRuns.length > 0 && (
