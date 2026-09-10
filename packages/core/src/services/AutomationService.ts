@@ -89,6 +89,8 @@ export type PendingAutomationFire = {
   automationRunId: number;
   doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> };
   input: Record<string, unknown>;
+  /** What the CALLER handed in — an event's payload, or nothing for a schedule fire. */
+  triggerInput?: Record<string, unknown>;
   invokedBy: string;
 };
 
@@ -138,7 +140,7 @@ export async function beginAutomationFire(
     .insert(automationRunSchema)
     .values({ ...row, status: 'running' })
     .returning({ id: automationRunSchema.id });
-  return { orgId, slug, kind, automationRunId: runRow!.id, doCfg, input, invokedBy };
+  return { orgId, slug, kind, automationRunId: runRow!.id, doCfg, input, triggerInput: opts.input, invokedBy };
 }
 
 /**
@@ -151,12 +153,12 @@ export async function beginAutomationFire(
 export async function completeAutomationFire(
   pending: PendingAutomationFire,
 ): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; automationRunId: number; result?: unknown }> {
-  const { orgId, slug, doCfg, input, invokedBy, automationRunId } = pending;
+  const { orgId, slug, doCfg, input, triggerInput, invokedBy, automationRunId } = pending;
   try {
     // The brief distinguishes an event fire from a schedule fire by what the
     // CALLER handed in, never by the merged input: a scheduled check with fixed
     // `do.input` is still a scheduled check.
-    const dispatched = await dispatchDo(orgId, slug, doCfg, input, invokedBy, opts.input);
+    const dispatched = await dispatchDo(orgId, slug, doCfg, input, invokedBy, triggerInput);
     await db
       .update(automationRunSchema)
       .set({

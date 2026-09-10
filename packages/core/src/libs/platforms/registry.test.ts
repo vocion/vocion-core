@@ -379,8 +379,11 @@ describe('connector platforms', () => {
 
 describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
   it('names every platform an org may hold several live credentials for', () => {
+    // Apollo is deliberately absent: it is a connector, but widening the cap
+    // needs the partial unique index rebuilt, and nothing exercises it yet.
+    // See the `apollo` descriptor in registry.ts.
     expect([...MANY_CREDENTIAL_PLATFORM_IDS].sort()).toEqual(
-      ['apollo', 'google', 'granola', 'hubspot', 'jira', 'slack', 'strapi', 'vocion', 'zoom'],
+      ['google', 'granola', 'hubspot', 'jira', 'slack', 'strapi', 'vocion', 'zoom'],
     );
   });
 
@@ -391,7 +394,7 @@ describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
     // hold a second connector credential — and neither shows up until someone
     // tries it.
     const migration = readFileSync(
-      path.join(process.cwd(), 'migrations', '0086_apollo_credential_platform.sql'),
+      path.join(process.cwd(), 'migrations', '0077_shared_connector_credentials.sql'),
       'utf8',
     );
     const carveOut = /platform"?\s+NOT IN \(([^)]*)\)/i.exec(migration);

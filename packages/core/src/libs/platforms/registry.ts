@@ -311,7 +311,15 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     id: 'apollo',
     label: 'Apollo',
     keySource: 'supplied',
-    credentialsPerOrg: 'many',
+    // `one-live` rather than the `many` its sibling connectors get. Widening
+    // the cap means rebuilding `api_token_org_platform_live_idx` to carve
+    // apollo out of it, and a partial UNIQUE index has no concurrent route:
+    // `check:migrations` refuses the plain build, and `concurrent/` refuses
+    // UNIQUE because dev and the tests would then accept rows production
+    // rejects. Nothing exercises it yet — no org holds an Apollo key at all,
+    // and master-key detection reads whichever single key is stored — so the
+    // cap waits for the first workspace that actually needs two.
+    credentialsPerOrg: 'one-live',
     connectorSlugs: ['apollo'],
     credentialsShareable: false,
     llmProvider: null,
