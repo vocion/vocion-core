@@ -4,8 +4,9 @@
  * E2E spec (`e2e/mission-runs/mission-run-reports.spec.ts`).
  *
  * Builds, in the database the running app is actually pointed at:
- *   - a mission belonging to the existing `wt252` project (found by slug —
- *     bootstrap already seeded it, see the umbrella CLAUDE.md)
+ *   - a mission belonging to the `wt252` project (found by slug, and created
+ *     if this database has no such project — bootstrap seeds it in a
+ *     developer's worktree, nothing seeds it in CI)
  *   - three runs on that mission: two completed runs with a populated
  *     `plan.tasks[0].output`, and one run whose `plan` column is a literal
  *     `null` (a row a hand edit or a pre-`tasks` write could leave behind),
@@ -41,22 +42,58 @@ import { issueToken } from '@/services/ApiTokenService';
 import 'dotenv/config';
 
 const PRIMARY_PROJECT_SLUG = 'wt252';
+const PRIMARY_ACCOUNT_SLUG = 'wt252';
 const MISSION_SLUG = 'e2e-nightly-source-refresh';
 const CROSS_ORG_ACCOUNT_SLUG = 'e2e-cross-org-mission-runs';
 const CROSS_ORG_PROJECT_SLUG = 'e2e-cross-org-mission-runs';
 const TOKEN_NAME_PRIMARY = 'e2e mission-run reports (primary org)';
 const TOKEN_NAME_OTHER = 'e2e mission-run reports (other org)';
 
-async function findPrimaryProject() {
+/**
+ * The project these fixtures hang off, created if it is not already there.
+ *
+ * This used to throw when the slug was missing, on the assumption that
+ * bootstrap had already seeded it. That holds in a developer's worktree and
+ * never holds in CI, where every run starts on a throwaway in-memory PGlite
+ * with no bootstrap step — so the seed aborted and every mission-run spec
+ * failed. Creating the row when it is absent makes the script self-sufficient
+ * on a blank database while still adopting the existing project on a machine
+ * that does have one.
+ */
+async function findPrimaryProject(): Promise<string> {
   const [project] = await db
     .select({ id: projectSchema.id })
     .from(projectSchema)
     .where(eq(projectSchema.slug, PRIMARY_PROJECT_SLUG))
     .limit(1);
-  if (!project) {
-    throw new Error(`no project with slug "${PRIMARY_PROJECT_SLUG}" — expected the worktree's seeded demo project`);
+  if (project) {
+    return project.id;
   }
-  return project.id;
+
+  const [existingAccount] = await db
+    .select({ id: tenantAccountSchema.id })
+    .from(tenantAccountSchema)
+    .where(eq(tenantAccountSchema.slug, PRIMARY_ACCOUNT_SLUG))
+    .limit(1);
+  let accountId = existingAccount?.id;
+  if (!accountId) {
+    accountId = `acct-e2e-primary-${Date.now()}`;
+    await db.insert(tenantAccountSchema).values({
+      id: accountId,
+      name: 'E2E Mission Runs',
+      slug: PRIMARY_ACCOUNT_SLUG,
+    });
+  }
+
+  const projectId = `proj-e2e-primary-${Date.now()}`;
+  await db.insert(projectSchema).values({
+    id: projectId,
+    accountId,
+    slug: PRIMARY_PROJECT_SLUG,
+    name: 'E2E Mission Runs',
+  });
+  console.error(`[seed-mission-run-fixtures] created project "${PRIMARY_PROJECT_SLUG}" (${projectId}) — none existed`);
+  return projectId;
 }
 
 /**

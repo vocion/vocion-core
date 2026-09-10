@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
+import { ensureBootstrapAdmin } from '../support/bootstrap-admin';
 
 /**
  * A reviewer's reaction to an agent's proposed action, walked through the
@@ -44,41 +44,8 @@ const ADMIN = {
  */
 const RUN_TAG = `run-${Date.now()}`;
 
-/**
- * Creates the account, its default project and the admin user directly in the
- * database — the same command an operator runs on a real box. Re-running
- * against a database that already has the user is fine: the script exits
- * non-zero saying so, and the sign-in below still works.
- */
-function createBootstrapAdmin(): void {
-  try {
-    execFileSync(
-      'npm',
-      [
-        'run',
-        'user:create',
-        '--silent',
-        '--',
-        '--email',
-        ADMIN.email,
-        '--name',
-        ADMIN.name,
-        '--account',
-        ADMIN.account,
-        '--password',
-        ADMIN.password,
-        '--role',
-        'admin',
-      ],
-      { stdio: 'pipe' },
-    );
-  } catch (error) {
-    console.warn(`[learning spec] user:create made no user: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
 test('a reviewer\'s reason reaches the feedback queue, and a bare click does not', async ({ page }) => {
-  createBootstrapAdmin();
+  ensureBootstrapAdmin(ADMIN, 'learning spec');
 
   await page.goto('/sign-in');
   await page.getByLabel('Email').fill(ADMIN.email);
