@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
+import { tolerateExistingUser } from '../../tests/TestUtils';
 
 /**
  * A reviewer's reaction to an agent's proposed action, walked through the
@@ -73,7 +74,7 @@ function createBootstrapAdmin(): void {
       { stdio: 'pipe' },
     );
   } catch (error) {
-    console.warn(`[learning spec] user:create made no user: ${error instanceof Error ? error.message : String(error)}`);
+    tolerateExistingUser(error, '[learning spec]');
   }
 }
 

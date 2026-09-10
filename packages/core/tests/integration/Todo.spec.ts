@@ -2,7 +2,13 @@ import { faker } from '@faker-js/faker';
 import test, { expect } from '@playwright/test';
 import { signIn } from '../TestUtils';
 
-test.describe('Todo', () => {
+// Skipped: there is no todo feature left to test. `8765c5f8 refactor(nav):
+// sidebar reorg + delete orphan routes` removed the router procedures and the
+// /dashboard/todos route, so every request below answers 404 rather than the
+// 400/200 these assertions expect. Only the orphan `todo` table remains
+// (models/Schema.ts). Kept rather than deleted so whoever drops that table
+// finds these too; there is nothing here to re-point at a live surface.
+test.describe.skip('Todo', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page);
   });

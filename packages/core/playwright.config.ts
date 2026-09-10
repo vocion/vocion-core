@@ -12,6 +12,17 @@ const PORT = process.env.PORT || '3008';
 // every sign-in fails the host check. Unset in CI, so nothing changes there.
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://localhost:${PORT}`;
 
+const CI = !!process.env.CI;
+
+// CI fails fast. Every failure this suite has produced so far was
+// deterministic (a fixture that could not seed, a stale assertion, a server
+// that would not answer), so the first one is the whole story; letting the
+// rest run only pushed the job into its timeout, where Playwright never got
+// to print its summary. Locally the full picture is more useful, so these
+// stay off. The per-project timeouts below follow the same rule: generous
+// locally, tight in CI so a hung spec dies in well under a minute.
+const projectTimeout = (localMs: number, ciMs: number) => (CI ? ciMs : localMs);
+
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
@@ -22,13 +33,21 @@ export default defineConfig<ChromaticConfig>({
   // Timeout per test, test running locally are slower due to database connections with PGLite
   timeout: 30 * 1000,
   // Fail the build on CI if you accidentally left test.only in the source code.
-  forbidOnly: !!process.env.CI,
+  forbidOnly: CI,
+  // Stop at the first failure in CI (see above). 0 means no limit.
+  maxFailures: CI ? 1 : 0,
+  // A healthy run takes three to five minutes on the CI runner; eight caps a
+  // pathological one and still leaves the job time to upload its artifacts.
+  globalTimeout: CI ? 8 * 60 * 1000 : 0,
   // Reporter to use. See https://playwright.dev/docs/test-reporters
-  reporter: process.env.CI ? 'github' : 'list',
+  // `github` alone prints one dot per test and its annotations only at the
+  // end, so a cancelled job leaves nothing readable; `list` streams one line
+  // per test as it finishes.
+  reporter: CI ? [['list'], ['github']] : 'list',
 
   expect: {
     // Set timeout for async expect matchers
-    timeout: 15 * 1000,
+    timeout: CI ? 10 * 1000 : 15 * 1000,
   },
 
   // Run your local dev server before starting the tests:
@@ -47,6 +66,13 @@ export default defineConfig<ChromaticConfig>({
       // `next dev` gets the last fallback; CI runs `next start`, so without this
       // every /api/auth call answers UntrustedHost and the browser specs time out.
       AUTH_URL: baseURL,
+      // The local credential vault refuses to mint an ephemeral key when
+      // NODE_ENV is production (libs/crypto/localVault.ts), and CI runs
+      // `next start`, so without a key every "Save key" in the credentials
+      // specs answers "could not store key". Fixed, throwaway, and public on
+      // purpose: it encrypts test fixtures in a database that lives for the
+      // length of one run. Never reuse it anywhere real.
+      VOCION_CREDENTIAL_VAULT_KEY: process.env.VOCION_CREDENTIAL_VAULT_KEY ?? 'ZTJlLW9ubHktdmF1bHQta2V5LW5vdC1hLXNlY3JldCE=',
       PORT,
     },
   },
@@ -57,11 +83,17 @@ export default defineConfig<ChromaticConfig>({
     // More information: https://playwright.dev/docs/api/class-testoptions#test-options-base-url
     baseURL,
 
+    // In CI a single click or navigation that never completes dies on its own
+    // and the error names the step, instead of surfacing as the whole test's
+    // timeout with no hint of where it stalled. Unlimited locally, as before.
+    actionTimeout: CI ? 10 * 1000 : 0,
+    navigationTimeout: CI ? 15 * 1000 : 0,
+
     // Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer
-    trace: process.env.CI ? 'on' : 'retain-on-failure',
+    trace: CI ? 'on' : 'retain-on-failure',
 
     // Record videos when retrying the failed test.
-    video: process.env.CI ? 'retain-on-failure' : undefined,
+    video: CI ? 'retain-on-failure' : undefined,
 
     // Disable automatic screenshots at test completion when using Chromatic test fixture.
     disableAutoSnapshot: true,
@@ -78,21 +110,31 @@ export default defineConfig<ChromaticConfig>({
     // The headless usage-video tour (F1 storyboard). Self-seeding: signs up
     // the first-run admin on a FRESH PGlite DB, so no `setup` project
     // dependency. One long cinematic spec — generous timeout.
+    //
+    // Defined only outside CI. It records a marketing video rather than
+    // guarding behaviour: it holds still on purpose (`dwell`), takes minutes,
+    // and nothing reads its webm from a CI run. It is also the one project
+    // whose subject is the sample-workspace seeder rather than an app route,
+    // so a product change there stops pull requests on a video.
     // Run with: npx playwright test --project=tour  (see e2e/tour/README.md)
-    {
-      name: 'tour',
-      testDir: './e2e/tour',
-      timeout: 240 * 1000,
-      retries: 0,
-      use: { ...devices['Desktop Chrome'], video: 'on', trace: 'off' },
-    },
+    ...(CI
+      ? []
+      : [
+          {
+            name: 'tour',
+            testDir: './e2e/tour',
+            timeout: 240 * 1000,
+            retries: 0,
+            use: { ...devices['Desktop Chrome'], video: 'on' as const, trace: 'off' as const },
+          },
+        ]),
     // The review-queue end-to-end specs. Self-seeding like `tour` (the sign-up
     // route is invite-only), so no `setup` project dependency.
     // Run with: npx playwright test --project=queue
     {
       name: 'queue',
       testDir: './e2e/queue',
-      timeout: 120 * 1000,
+      timeout: projectTimeout(120 * 1000, 60 * 1000),
       use: { ...devices['Desktop Chrome'] },
     },
     // The feedback-to-learning loop end to end. Self-seeding like `queue`.
@@ -100,7 +142,7 @@ export default defineConfig<ChromaticConfig>({
     {
       name: 'learning',
       testDir: './e2e/learning',
-      timeout: 120 * 1000,
+      timeout: projectTimeout(120 * 1000, 60 * 1000),
       use: { ...devices['Desktop Chrome'] },
     },
     // The same loop against a REAL model, end to end. Defined only when
@@ -128,7 +170,7 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/credentials',
       // Generous: each test signs in fresh, and the first few pay for cold
       // Turbopack compiles of the sign-in, dashboard and credentials routes.
-      timeout: 120 * 1000,
+      timeout: projectTimeout(120 * 1000, 60 * 1000),
       use: { ...devices['Desktop Chrome'] },
     },
     // VEERIO-252 — mission-run report routes, real HTTP against a real
