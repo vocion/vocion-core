@@ -52,6 +52,10 @@ export function ReviewQueue({ initialWorkflowRuns }: Props) {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setActionError(message);
+        // Someone else may have resolved this run already, so refresh the
+        // list too — otherwise the reviewer clicks the same dead button.
+        const wr = await client.review.listWorkflowRuns({ status: 'paused', limit: 50 });
+        setWorkflowRuns(wr as WorkflowRunRow[]);
       }
     });
   };
@@ -65,15 +69,9 @@ export function ReviewQueue({ initialWorkflowRuns }: Props) {
 
   const totalPending = workflowRuns.length;
 
-  if (totalPending === 0) {
-    return (
-      <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        <CheckCircle className="mx-auto mb-2 size-8 opacity-50" />
-        Nothing pending review — queue is empty.
-      </div>
-    );
-  }
-
+  // Below the banner, not instead of it. Losing the race is exactly when
+  // the refetch comes back empty, and exactly when the reviewer needs to
+  // read why the queue just emptied.
   return (
     <div className="space-y-6">
       {actionError && (
@@ -81,6 +79,12 @@ export function ReviewQueue({ initialWorkflowRuns }: Props) {
           Action failed:
           {' '}
           {actionError}
+        </div>
+      )}
+      {totalPending === 0 && (
+        <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          <CheckCircle className="mx-auto mb-2 size-8 opacity-50" />
+          Nothing pending review — queue is empty.
         </div>
       )}
       {workflowRuns.length > 0 && (
