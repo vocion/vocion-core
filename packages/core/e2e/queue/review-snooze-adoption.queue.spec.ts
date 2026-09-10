@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
+import { ensureBootstrapAdmin } from '../support/bootstrap-admin';
 
 /**
  * Snoozing is measurable — the path from the review card's Snooze button to a
@@ -83,44 +83,6 @@ const RUN_TAG = `snooze-${Date.now().toString(36)}`;
 const ITEM_TITLE = `Deferred Listing ${RUN_TAG}`;
 
 /**
- * Creates the account, its default project and the admin user directly in the
- * database — the same command an operator runs on a real box. Re-running
- * against a database that already has the user is fine: the script exits
- * non-zero saying so, and the sign-in below still works.
- */
-function createBootstrapAdmin(): void {
-  try {
-    execFileSync(
-      'npm',
-      [
-        'run',
-        'user:create',
-        '--silent',
-        '--',
-        '--email',
-        ADMIN.email,
-        '--name',
-        ADMIN.name,
-        '--account',
-        ADMIN.account,
-        '--password',
-        ADMIN.password,
-        '--role',
-        'admin',
-      ],
-      // No DATABASE_URL of our own: the script wraps itself in `dotenv -c`, so
-      // it reads the same .env.local the app under test reads.
-      { stdio: 'pipe' },
-    );
-  } catch (error) {
-    // Expected on a local database that already has the admin — the script
-    // exits non-zero rather than overwriting. Any other cause shows up as the
-    // sign-in failing below, with this line naming it.
-    console.warn(`[snooze spec] user:create made no user: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-/**
  * Whole number in a table cell, with the empty and em-dash renderings read as
  * zero so a first run on a fresh database is not a parse failure.
  * @param text - The cell's rendered text.
@@ -131,7 +93,7 @@ function cellNumber(text: string | null): number {
 }
 
 test('a snooze taken from the review card shows up as a snooze on the adoption screen', async ({ page, baseURL }) => {
-  createBootstrapAdmin();
+  ensureBootstrapAdmin(ADMIN, 'snooze spec');
 
   await page.goto('/sign-in');
   await page.getByLabel('Email').fill(ADMIN.email);

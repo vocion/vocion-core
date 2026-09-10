@@ -209,7 +209,20 @@ jobs:
 
     name: Run E2E tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The Playwright suite does not fit in the 10 minutes every other job here
+    # gets. Measured: the runner spends ~1 minute on checkout plus setup, then
+    # `next start` and the throwaway PGlite take ~30s to answer, and the specs
+    # themselves are browser-driven against a real server on 2 workers. Every
+    # run on `main` and on every pull request was killed mid-suite at exactly
+    # 10m12s and reported as `cancelled`, which reads like an infrastructure
+    # blip rather than "the job needs more time", so the check had been red
+    # continuously without anyone treating it as a failure.
+    #
+    # 30 minutes is roughly three times the point the suite had reached when it
+    # used to be killed — headroom for a slower runner and for specs added
+    # later, while still bounded well under the 6h GitHub default so a hung
+    # browser cannot burn a runner all day.
+    timeout-minutes: 30
     needs: [build]
 
     steps:
@@ -234,6 +247,16 @@ jobs:
           # come up at all. Same values the unit and build jobs use.
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_e2e
           AUTH_SECRET: ci-only-secret-not-used-outside-ci
+          # Auth.js only trusts the request host automatically in development.
+          # Playwright runs the server through `next start`, which is production
+          # mode, so every `/api/auth/*` call answered
+          # `UntrustedHost: Host must be trusted. URL was:
+          # http://localhost:3008/api/auth/session` and this job failed on every
+          # pull request regardless of its contents. This is the CI-only
+          # equivalent of setting `AUTH_URL` for a deployment; it is scoped to
+          # this step, so nothing outside the runner trusts an arbitrary Host
+          # header. See https://errors.authjs.dev#untrustedhost
+          AUTH_TRUST_HOST: 'true'
 
       - name: Fix test results permission # Give permissions to test results needed by Chromatic
         run: |

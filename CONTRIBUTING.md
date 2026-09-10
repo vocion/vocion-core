@@ -60,6 +60,43 @@ goes in `migrations/concurrent/` and says `CONCURRENTLY`, because a plain
 changes go through expand and contract across releases, never in place.
 `npm run check:migrations` enforces the first rule and runs in CI.
 
+## Working in a git worktree
+
+A `git worktree` gets you a second checkout of a branch without disturbing the
+first, which is the usual way to work on two branches at once. Two things do
+**not** come with it, and both fail in ways that look like a broken branch:
+
+```bash
+git worktree add ../vocion-core-<topic> -b <branch>
+cd ../vocion-core-<topic>
+
+npm install                                        # node_modules is not shared
+cp packages/core/.env.example packages/core/.env.local   # nor is .env.local
+```
+
+`packages/core/.env.local` is gitignored (`.env*.local` in `.gitignore`), so a
+new worktree has no environment at all. `packages/core/src/libs/Env.ts` validates
+on import and `DATABASE_URL` is required there, so **it has to be set before
+anything runs** — `npm test`, `npm run dev` and the build all fail during module
+load, before a single test executes, and the failure names the env schema rather
+than the worktree, which is what makes it cost half an hour the first time.
+`AUTH_SECRET` is optional to the schema but required by Auth.js as soon as a
+request hits it, so set both and stop thinking about it.
+
+For unit tests the values only have to be present and well-formed; nothing dials
+them. `.github/workflows/CI.yml` uses exactly this, and copying it into a
+worktree's `.env.local` is enough to run `npm test`:
+
+```
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/vocion_test
+AUTH_SECRET=<openssl rand -base64 32>
+```
+
+A real database is only needed for `npm run dev`, `npm run db:migrate` and the
+E2E suite. Copying your primary checkout's `.env.local` works too — but read it
+first: it points at whatever database that checkout uses, and migrating from a
+worktree will migrate that one.
+
 ## Before you push
 
 Run these locally (the pre-commit hook also handles auto-fix + type check +

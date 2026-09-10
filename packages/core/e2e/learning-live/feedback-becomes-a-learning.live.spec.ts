@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process';
 import process from 'node:process';
 import { expect, test } from '@playwright/test';
 import { Client } from 'pg';
+import { ensureBootstrapAdmin } from '../support/bootstrap-admin';
 
 /**
  * The whole feedback-to-learning loop against a REAL model, in the running app.
@@ -81,38 +81,6 @@ function databaseUrl(): string {
 }
 
 /**
- * Creates the account, its default project and the admin user — the same
- * command an operator runs on a real box. Already exists: the script exits
- * non-zero saying so, and the sign-in below still works.
- */
-function createBootstrapAdmin(): void {
-  try {
-    execFileSync(
-      'npm',
-      [
-        'run',
-        'user:create',
-        '--silent',
-        '--',
-        '--email',
-        ADMIN.email,
-        '--name',
-        ADMIN.name,
-        '--account',
-        ADMIN.account,
-        '--password',
-        ADMIN.password,
-        '--role',
-        'admin',
-      ],
-      { stdio: 'pipe' },
-    );
-  } catch (error) {
-    console.warn(`[live learning spec] user:create made no user: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-/**
  * Gives the admin's org one learning step and clears anything a previous run of
  * this spec left in it. Without a step there is nowhere for a rule to go and
  * the recorder skips every job, so this is a hard prerequisite rather than
@@ -170,7 +138,7 @@ async function seedLearningStep(): Promise<string> {
 test('a reviewer\'s feedback becomes a learning, and a restatement of it does not', async ({ page }) => {
   test.slow();
 
-  createBootstrapAdmin();
+  ensureBootstrapAdmin(ADMIN, 'live learning spec');
   await seedLearningStep();
 
   await page.goto('/sign-in');
