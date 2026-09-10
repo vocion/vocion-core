@@ -330,7 +330,7 @@ export const LeadView = (props: {
 
       <LeadContext
         row={lead}
-        railTop={articles.length > 0 && (
+        railArticles={articles.length > 0 && (
           <div>
             <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
               Reference articles
@@ -353,7 +353,7 @@ export const LeadView = (props: {
             </ul>
           </div>
         )}
-        railBottom={<Timeline lead={lead} />}
+        railTimeline={<Timeline lead={lead} />}
       />
 
       {/* Beneath the review brief: the call prep, once the lead has left the
