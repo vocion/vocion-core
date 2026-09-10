@@ -12,8 +12,8 @@ import { RegenerateBriefControl } from './RegenerateBriefControl';
  *
  * `LeadContext` is the two-column grid: the written brief (with the rewrite
  * note, the failure state, and the Regenerate control) beside the evidence
- * rail (claims, missing, confidence). The rail takes optional `railTop` /
- * `railBottom` slots for surface-specific cards (reference articles, the
+ * rail (confidence, CRM context, missing). The rail takes optional
+ * `railTimeline` / `railArticles` slots for surface-specific cards (the
  * timeline) so the shared parts stay one implementation.
  */
 
@@ -72,7 +72,23 @@ export const LANE_PILL: Record<string, { status: 'pending' | 'approved' | 'pause
 };
 
 /**
- * The written brief: rewrite note, sections or the failure, Regenerate.
+ * The one section the rail renders by name instead of the prose column.
+ *
+ * The settled rail order (Valerie, 2026-09-02) reads Confidence, Timeline,
+ * CRM context, Missing, Reference articles: everything structured, plus this
+ * one prose section, because the CRM facts belong beside the other evidence
+ * rather than inside the brief's argument. The spec names the seam and the
+ * choice (guided-review-chat.md §7): hard-code this ONE section name in the
+ * rail, or promote the CRM facts to structured fields. This is the first
+ * option; if a second name ever appears here, take the second.
+ * @param heading - A section heading from the skill's output.
+ */
+const isCrmContext = (heading: string): boolean => heading.trim().toLowerCase() === 'crm context';
+
+/**
+ * The written brief: rewrite note, sections or the failure, then the claims
+ * as the sections' receipts, then Regenerate. Claims close the left column
+ * (Valerie, 2026-09-02): the prose argues, the claims are what it rests on.
  * @param root0
  * @param root0.row
  */
@@ -108,7 +124,7 @@ const BriefZone = ({ row }: { row: LeadDossier }) => (
         ? <p className="text-muted-foreground">No brief recorded.</p>
         : (
             <div className="flex flex-col gap-4">
-              {row.sections.map(section => (
+              {row.sections.filter(section => !isCrmContext(section.heading)).map(section => (
                 <section key={section.heading}>
                   <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                     {section.heading}
@@ -132,61 +148,158 @@ const BriefZone = ({ row }: { row: LeadDossier }) => (
           )}
 
     <div className="mt-4">
+      <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        Claims
+      </h3>
+      {row.claims.length === 0
+        ? <p className="text-muted-foreground">No claims recorded.</p>
+        : (
+            <ul className="flex flex-col gap-2">
+              {row.claims.map(claim => (
+                <li key={`${claim.kind}-${claim.source}-${claim.text}`}>
+                  <div>{claim.text}</div>
+                  {/* Every claim carries its kind and where it came from —
+                      an unsourced claim is not a claim, and a fact and an
+                      inference are not the same thing. */}
+                  <div className="text-[11px] text-muted-foreground">
+                    {claim.kind}
+                    {' · '}
+                    {isUrl(claim.source)
+                      ? (
+                          <a
+                            href={claim.source}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline underline-offset-2 hover:text-foreground"
+                          >
+                            {claim.source}
+                          </a>
+                        )
+                      : claim.source}
+                    {claim.date ? ` · ${claim.date}` : ''}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+    </div>
+
+    <div className="mt-4">
       <RegenerateBriefControl briefId={row.id} contactName={row.contactName} />
     </div>
   </div>
 );
 
+/** The handoff trigger, as the page says it. */
+export const HANDOFF_TRIGGER_LABEL: Record<string, string> = {
+  reply: 'Replied',
+  meeting: 'Meeting booked',
+  intent: 'Intent',
+  routed: 'Routed by a reviewer',
+};
+
 /**
- * Claims, missing, confidence — with slots above and below for surface-specific cards.
+ * The call prep written when the lead left the agent (ticket 055). Rendered
+ * beneath the review brief, read-only, through the same section markup, and
+ * headed by what triggered it and when. Nothing here is decided: the brief is
+ * already saved and already on the contact in HubSpot (056); this is the
+ * platform's own copy.
  * @param props
- * @param props.row
- * @param props.top
- * @param props.bottom
+ * @param props.sections
+ * @param props.trigger
+ * @param props.at - ISO timestamp the handoff brief was saved.
  */
-const EvidenceRail = (props: { row: LeadDossier; top?: React.ReactNode; bottom?: React.ReactNode }) => {
+export const HandoffBriefZone = (props: {
+  sections: Array<{ heading: string; body: string }>;
+  trigger: string | null;
+  at: string | null;
+}) => {
+  if (props.sections.length === 0) {
+    return null;
+  }
+  const meta = [
+    props.trigger ? HANDOFF_TRIGGER_LABEL[props.trigger] ?? props.trigger : null,
+    props.at ? shortDate(props.at) : null,
+  ].filter(Boolean).join(' · ');
+  return (
+    <section
+      aria-label="Handoff brief"
+      className="mt-6 rounded-md border border-border bg-muted/30 p-4"
+    >
+      <div className="mb-3 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+        Handoff brief
+        {meta ? ` · ${meta}` : ''}
+      </div>
+      <div className="flex flex-col gap-4">
+        {props.sections.map(section => (
+          <section key={section.heading}>
+            <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              {section.heading}
+            </h3>
+            <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:whitespace-pre-line">
+              <Markdown remarkPlugins={[remarkGfm]}>{section.body}</Markdown>
+            </div>
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+/**
+ * The evidence rail: Confidence, the timeline slot, CRM context, Missing,
+ * and the reference-articles slot, in the settled order.
+ * @param props
+ * @param props.row - The dossier fields.
+ * @param props.timeline - The Arrived/MQL/Briefed/Decided card.
+ * @param props.articles - The reference-articles card.
+ */
+const EvidenceRail = (props: { row: LeadDossier; timeline?: React.ReactNode; articles?: React.ReactNode }) => {
   const { row } = props;
   const level = confidenceLevel(row.confidence);
+  const crmContext = row.sections.find(section => isCrmContext(section.heading));
   return (
     <div className="flex flex-col gap-4">
-      {props.top}
+      {/* The settled order (Valerie, 2026-09-02): the verdict first, then when,
+          then the CRM record, then what research could not reach, then what it
+          read. Claims left this rail for the bottom of the prose column. */}
+      {level && (
+        <div>
+          <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Confidence
+            {' '}
+            <button
+              type="button"
+              aria-label="How well the evidence supports this brief and its angle"
+              title="How well the evidence supports this brief and its angle"
+              className="cursor-default font-normal tracking-normal normal-case"
+            >
+              &#9432;
+            </button>
+          </h3>
+          <p>
+            {row.confidence?.toFixed(2)}
+            {' · '}
+            {level}
+          </p>
+        </div>
+      )}
 
-      <div>
-        <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-          Claims
-        </h3>
-        {row.claims.length === 0
-          ? <p className="text-muted-foreground">No claims recorded.</p>
-          : (
-              <ul className="flex flex-col gap-2">
-                {row.claims.map(claim => (
-                  <li key={`${claim.kind}-${claim.source}-${claim.text}`}>
-                    <div>{claim.text}</div>
-                    {/* Every claim carries its kind and where it came from —
-                        an unsourced claim is not a claim, and a fact and an
-                        inference are not the same thing. */}
-                    <div className="text-[11px] text-muted-foreground">
-                      {claim.kind}
-                      {' · '}
-                      {isUrl(claim.source)
-                        ? (
-                            <a
-                              href={claim.source}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="underline underline-offset-2 hover:text-foreground"
-                            >
-                              {claim.source}
-                            </a>
-                          )
-                        : claim.source}
-                      {claim.date ? ` · ${claim.date}` : ''}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-      </div>
+      {props.timeline}
+
+      {crmContext && (
+        <div>
+          <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            {crmContext.heading}
+          </h3>
+          <div
+            data-comment-field={crmContext.heading}
+            className="prose prose-sm max-w-none dark:prose-invert [&_p]:whitespace-pre-line"
+          >
+            <Markdown remarkPlugins={[remarkGfm]}>{crmContext.body}</Markdown>
+          </div>
+        </div>
+      )}
 
       {row.missing.length > 0 && (
         <div>
@@ -199,35 +312,20 @@ const EvidenceRail = (props: { row: LeadDossier; top?: React.ReactNode; bottom?:
         </div>
       )}
 
-      {level && (
-        <div>
-          <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Confidence
-          </h3>
-          <p>
-            {row.confidence?.toFixed(2)}
-            {' · '}
-            {level}
-          </p>
-          <p className="mt-1 text-[13px] text-muted-foreground">
-            How well the evidence supports this brief and its angle, not a prediction that the
-            lead replies. The reason is in the brief's own confidence section.
-          </p>
-        </div>
-      )}
-
-      {props.bottom}
+      {props.articles}
     </div>
   );
 };
 
 export const LeadContext = (props: {
   row: LeadDossier;
-  railTop?: React.ReactNode;
-  railBottom?: React.ReactNode;
+  /** The Arrived/MQL/Briefed/Decided card, second in the rail after Confidence. */
+  railTimeline?: React.ReactNode;
+  /** The reference-articles card, closing the rail. */
+  railArticles?: React.ReactNode;
 }) => (
   <div className="grid gap-6 text-sm @2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
     <BriefZone row={props.row} />
-    <EvidenceRail row={props.row} top={props.railTop} bottom={props.railBottom} />
+    <EvidenceRail row={props.row} timeline={props.railTimeline} articles={props.railArticles} />
   </div>
 );

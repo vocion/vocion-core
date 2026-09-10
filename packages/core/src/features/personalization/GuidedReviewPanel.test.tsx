@@ -5,7 +5,7 @@ import { page, userEvent } from 'vitest/browser';
 
 vi.mock('@/libs/Orpc', () => ({
   client: {
-    review: { rewriteDraft: vi.fn(), decideAction: vi.fn(), snoozeAction: vi.fn() },
+    review: { rewriteDraft: vi.fn(), decideAction: vi.fn(), snoozeAction: vi.fn(), actionStatus: vi.fn() },
   },
 }));
 
@@ -36,22 +36,25 @@ const RUN = {
  * Harness exposing the same hook the dock owns, plus an ask box.
  * @param root0
  * @param root0.onDecided
+ * @param root0.pendingComments
  */
-function Harness({ onDecided }: { onDecided?: () => void } = {}) {
+function Harness({ onDecided, pendingComments }: { onDecided?: () => void; pendingComments?: number } = {}) {
   const guided = useGuidedReview({ run: RUN, ...(onDecided ? { onDecided } : {}) });
   return (
     <div>
       <button type="button" onClick={() => void guided.askAbout('make send 1 shorter')}>ask revise 1</button>
       <button type="button" onClick={() => void guided.askAbout('what is this based on?')}>ask question</button>
-      <GuidedReviewPanel run={RUN} guided={guided} />
+      <GuidedReviewPanel run={RUN} guided={guided} {...(pendingComments !== undefined ? { pendingComments } : {})} />
     </div>
   );
 }
 
 beforeEach(() => {
-  vi.mocked(client.review.rewriteDraft).mockReset().mockResolvedValue({ body: 'tighter one', input: {} } as never);
+  localStorage.clear();
+  vi.mocked(client.review.rewriteDraft).mockReset().mockResolvedValue({ body: 'tighter one', input: {}, prior: 'draft one body' } as never);
   vi.mocked(client.review.decideAction).mockReset().mockResolvedValue({ ok: true } as never);
   vi.mocked(client.review.snoozeAction).mockReset().mockResolvedValue({ ok: true } as never);
+  vi.mocked(client.review.actionStatus).mockReset().mockResolvedValue({ status: 'pending', decidedBy: null, decidedAt: null } as never);
 });
 
 describe('guided review', () => {
@@ -90,7 +93,9 @@ describe('guided review', () => {
     // The decision is withdrawn, and the revised send is back with its copy.
     await expect.element(page.getByText('All 2 sends reviewed')).not.toBeInTheDocument();
     await expect.element(page.getByText('Send 1 · v2 · revised')).toBeInTheDocument();
-    await expect.element(page.getByText('tighter one')).toBeInTheDocument();
+    await expect.element(page.getByText('tighter one').first()).toBeInTheDocument();
+    // The revision opens to its before and after, reading from the record.
+    await expect.element(page.getByText(/what changed/)).toBeInTheDocument();
 
     await userEvent.click(page.getByRole('button', { name: 'Looks good', exact: true }));
 
@@ -213,7 +218,59 @@ describe('guided review', () => {
 
     await userEvent.click(page.getByRole('button', { name: 'Snooze' }));
 
-    expect(client.review.snoozeAction).toHaveBeenCalledWith(expect.objectContaining({ id: 42 }));
+    // Snooze picks its date — the decision hides until a day the reviewer chose.
+    const day = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+    await page.getByLabelText('The date this card returns').fill(day);
+    await userEvent.click(page.getByRole('button', { name: 'Snooze until then' }));
+
+    expect(client.review.snoozeAction).toHaveBeenCalledWith(expect.objectContaining({ id: 42, until: new Date(`${day}T09:00:00`).toISOString() }));
     await expect.element(page.getByText('Snoozed')).toBeInTheDocument();
+  });
+
+  it('a regeneration over an earlier change discards it and the card says so', async () => {
+    await render(<Harness />);
+    await userEvent.click(page.getByRole('button', { name: 'ask revise 1' }));
+
+    await expect.element(page.getByText('Send 1 of 2 · Day 0 · v2 · revised')).toBeInTheDocument();
+
+    // A second rewrite regenerates from the original draft, discarding v2.
+    vi.mocked(client.review.rewriteDraft).mockResolvedValue({ body: 'regenerated one', input: {}, prior: 'draft one body', discardedEdit: 'tighter one' } as never);
+    await userEvent.click(page.getByRole('button', { name: 'ask revise 1' }));
+
+    await expect.element(page.getByText(/your earlier change to this send was discarded/)).toBeInTheDocument();
+    await expect.element(page.getByText('regenerated one').first()).toBeInTheDocument();
+  });
+
+  it('queued comment chips hold the decision and say why', async () => {
+    await render(<Harness pendingComments={2} />);
+    await userEvent.click(page.getByRole('button', { name: /Looks good · send 2 next/ }));
+    await userEvent.click(page.getByRole('button', { name: /Looks good · finish/ }));
+
+    await expect.element(page.getByText(/2 queued comments have/)).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Enroll' })).toBeDisabled();
+
+    expect(client.review.decideAction).not.toHaveBeenCalled();
+  });
+
+  it('the walk resumes where it left off when the panel remounts', async () => {
+    const first = await render(<Harness />);
+    await userEvent.click(page.getByRole('button', { name: /Looks good · send 2 next/ }));
+
+    await expect.element(page.getByText(/Send 2 of 2/)).toBeInTheDocument();
+
+    first.unmount();
+
+    await render(<Harness />);
+
+    await expect.element(page.getByText(/Send 2 of 2/)).toBeInTheDocument();
+  });
+
+  it('a run decided in another window resolves to the outcome, naming who and when', async () => {
+    vi.mocked(client.review.actionStatus).mockResolvedValue({ status: 'rejected', decidedBy: 'Jamie Rivera', decidedAt: '2026-09-03T10:00:00.000Z' } as never);
+
+    await render(<Harness />);
+
+    await expect.element(page.getByText('Decided elsewhere')).toBeInTheDocument();
+    await expect.element(page.getByText(/declined by Jamie Rivera/)).toBeInTheDocument();
   });
 });

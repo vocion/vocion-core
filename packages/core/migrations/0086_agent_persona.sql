@@ -1,4 +1,4 @@
--- 0084 — agent: the persona an agent wears when it answers (brief H-013).
+-- 0086 — agent: the persona an agent wears when it answers (brief H-013).
 --
 -- A channel binding carries one persona, so a channel has exactly one face.
 -- This puts a face on the agent instead, so the revenue agent answers as

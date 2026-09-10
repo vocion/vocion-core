@@ -308,13 +308,18 @@ export async function startMission(opts: {
  * @param template.successCriteria
  * @param template.workingNotes
  * @param executionPrompt
+ * @param triggerPayload
  */
 export function scheduledCheckBrief(
   template: { name: string; goal: string; successCriteria?: string[] | null; workingNotes?: string | null },
   executionPrompt?: string,
+  triggerPayload?: Record<string, unknown>,
 ): string {
+  const payloadKeys = triggerPayload ? Object.keys(triggerPayload) : [];
   return [
-    `Scheduled check of your standing mission "${template.name}".`,
+    payloadKeys.length > 0
+      ? `Event-triggered check of your standing mission "${template.name}".`
+      : `Scheduled check of your standing mission "${template.name}".`,
     `Charter: ${template.goal}`,
     template.successCriteria?.length
       ? `Responsibilities:\n${template.successCriteria.map(c => `- ${c}`).join('\n')}`
@@ -322,6 +327,12 @@ export function scheduledCheckBrief(
     template.workingNotes
       ? `WORKING NOTES from your previous checks (your memory — trust it):\n${template.workingNotes}`
       : 'WORKING NOTES: none yet — this is your first tracked check.',
+    // An event-when automation's payload is the whole reason this check is
+    // running (which lead replied, which meeting booked). It rides the brief
+    // verbatim so the orders can refer to it by key; a schedule fire has none.
+    payloadKeys.length > 0
+      ? `TRIGGER PAYLOAD, the event that started this check (JSON):\n${JSON.stringify(triggerPayload, null, 2)}`
+      : '',
     executionPrompt
       ? `YOUR ORDERS FOR THIS CHECK:\n${executionPrompt}`
       : `This is a periodic check, not a fresh project. Review the current state against your working notes, do ONLY what is needed right now (use your skills, propose actions for anything touching external systems), and finish with a short report. If nothing needs doing, say so in one paragraph and stop.`,

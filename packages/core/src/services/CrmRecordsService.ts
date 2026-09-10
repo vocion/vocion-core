@@ -31,7 +31,7 @@ const FACET_KEYS: Record<CrmObjectType, string[]> = {
 
 /** Metadata keys projected onto a returned row, per object type. */
 const ROW_KEYS: Record<CrmObjectType, string[]> = {
-  contacts: ['primaryEmail', 'company', 'jobTitle', 'lifecycleStage', 'ownerId', 'createdAt', 'originalSource', 'originalSourceDetail', 'emailDelivered', 'emailOpened', 'mqlEnteredAt'],
+  contacts: ['primaryEmail', 'company', 'jobTitle', 'lifecycleStage', 'ownerId', 'createdAt', 'originalSource', 'originalSourceDetail', 'emailDelivered', 'emailOpened', 'mqlEnteredAt', 'handoffReplyAt', 'handoffMeeting'],
   deals: ['amount', 'dealStageLabel', 'pipelineLabel', 'dealClosed', 'closeDate', 'ownerId', 'createdAt'],
   companies: ['domain', 'industry', 'employees', 'ownerId', 'createdAt'],
 };

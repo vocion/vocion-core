@@ -82,6 +82,22 @@ describe('saveHandoffBrief', () => {
     expect(row!.sections).toEqual(REVIEW_SECTIONS);
   });
 
+  it('records a booked meeting as the trigger', async () => {
+    await seedLead();
+
+    const result = await saveHandoffBrief(ORG, {
+      contactRef: REF,
+      trigger: 'meeting',
+      sections: [{ heading: 'Why they raised their hand', body: 'Booked a 30-minute call for Thursday.' }],
+    });
+
+    expect(result.saved).toBe(true);
+
+    const [row] = await db.select().from(leadBriefSchema);
+
+    expect(row!.handoffTrigger).toBe('meeting');
+  });
+
   it('an unknown lead saves nothing and says so, rather than failing silently', async () => {
     const result = await saveHandoffBrief(ORG, {
       contactRef: 'contacts:nobody',

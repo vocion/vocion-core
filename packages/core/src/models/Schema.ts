@@ -2335,6 +2335,30 @@ export const actionRunSchema = pgTable(
     expiresAt: timestamp('expires_at', { mode: 'date' }),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     executedAt: timestamp('executed_at', { mode: 'date' }),
+    /**
+     * Who took the human decision (user id) and when. `executedAt` is when the
+     * machine ran; these are when a person said yes or no, so a surface can
+     * tell a second reviewer "decided by X on Y" instead of just "decided".
+     */
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { mode: 'date' }),
+    /**
+     * The audit record of AI rewrites asked during review, newest last. The
+     * DRAFT itself is never touched by a rewrite (the reviewer carries the
+     * copy and passes it back on approve); this is the record of what was
+     * asked and what came back, so a recap and its before/after are readable
+     * after the fact. `discardedEdit` holds the body a regeneration replaced.
+     */
+    revisions: jsonb('revisions').$type<Array<{
+      contentId?: string;
+      step?: number;
+      version: number;
+      body: string;
+      ask?: string;
+      discardedEdit?: string;
+      at: string;
+      by?: string;
+    }>>(),
   },
   table => [
     index('action_run_org_status_idx').on(table.orgId, table.status),
@@ -2552,9 +2576,25 @@ export const leadBriefSchema = pgTable(
       heading: string;
       body: string;
     }>>().default([]).notNull(),
-    /** Why the lead left: 'reply' | 'intent' | 'routed'. */
+    /** Why the lead left: 'reply' | 'meeting' | 'intent' | 'routed'. */
     handoffTrigger: text('handoff_trigger'),
     handoffAt: timestamp('handoff_at', { mode: 'date' }),
+    /**
+     * The newest reply and meeting timestamps the handoff watcher has already
+     * seen on the CRM mirror for this lead (`HandoffTriggerService`). A mirror
+     * value newer than the stored one, and newer than the enrollment decision,
+     * is a trigger; anything equal or older is not. Null until the first watch
+     * after enrollment, which baselines without firing.
+     */
+    handoffReplySeenAt: timestamp('handoff_reply_seen_at', { mode: 'date' }),
+    handoffMeetingSeenAt: timestamp('handoff_meeting_seen_at', { mode: 'date' }),
+    /**
+     * First time the watcher looked at this lead after enrollment. A meeting
+     * signal that is a plain boolean has no date of its own, so "already true
+     * on the first watch" is baselined and only a flip seen on a later watch
+     * fires. Null until that first watch.
+     */
+    handoffWatchedAt: timestamp('handoff_watched_at', { mode: 'date' }),
     /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
     regenerateNote: text('regenerate_note'),
     /** Briefing tries so far. Three, then the lead surfaces with its error. */
