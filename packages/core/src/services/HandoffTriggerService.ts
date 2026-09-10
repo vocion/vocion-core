@@ -3,13 +3,15 @@
  *
  * A lead the reviewer enrolled is out of the agent's hands until the lead does
  * something: replies to a send, or books a meeting. Both show up on the
- * contact in HubSpot as timestamps (`hs_sales_email_last_replied`,
- * `hs_latest_meeting_activity`), the contacts sync mirrors them as metadata,
- * and this service diffs them after every sync against what it last saw on
- * the lead row. A timestamp that moved, and that postdates the enrollment
- * decision, is a trigger: one `lead.replied` or `lead.meeting_booked` event,
- * deduped on the timestamp itself, which the `handoff-on-*` automations turn
- * into a write-handoff-brief run (ticket 055).
+ * contact in HubSpot: the reply as a timestamp (`hs_sales_email_last_replied`),
+ * the meeting as whatever the portal carries, HubSpot's own meeting timestamp
+ * or a booking flag such as Metacto's Calendly boolean. The contacts sync
+ * mirrors both (the source config names the properties) and this service
+ * diffs them after every sync against what it last saw on the lead row. A
+ * timestamp that moved, or a flag that flipped, after the enrollment decision
+ * is a trigger: one `lead.replied` or `lead.meeting_booked` event, deduped on
+ * the observed moment, which the `handoff-on-*` automations turn into a
+ * write-handoff-brief run (ticket 055).
  *
  * The guarantees are structural:
  *
@@ -82,7 +84,25 @@ type WatchedRow = {
   createdAt: Date;
   handoffReplySeenAt: Date | null;
   handoffMeetingSeenAt: Date | null;
+  handoffWatchedAt: Date | null;
 };
+
+/**
+ * What the mirror says about the meeting signal. Portals differ: HubSpot's own
+ * `hs_latest_meeting_activity` is a timestamp, a Calendly-fed portal carries a
+ * boolean flag. Read either from the raw mirrored value.
+ * @param v - `handoffMeeting` off the mirror record.
+ */
+export function readMeetingSignal(v: unknown): { kind: 'flag'; set: boolean } | { kind: 'time'; at: Date | null } {
+  if (typeof v === 'boolean') {
+    return { kind: 'flag', set: v };
+  }
+  const s = typeof v === 'string' ? v.trim().toLowerCase() : null;
+  if (s === 'true' || s === 'false') {
+    return { kind: 'flag', set: s === 'true' };
+  }
+  return { kind: 'time', at: toDate(v) };
+}
 
 /**
  * The moment the lead left the agent's research and went to the sequence. A
@@ -117,10 +137,11 @@ export function classifySignal(observed: Date | null, seen: Date | null, baselin
  * @param orgId - Tenant.
  * @param opts
  * @param opts.allowedSourceSlugs - Restrict the mirror read to these HubSpot sources.
+ * @param opts.now
  */
 export async function detectHandoffTriggers(
   orgId: string,
-  opts: { allowedSourceSlugs?: string[] } = {},
+  opts: { allowedSourceSlugs?: string[]; now?: Date } = {},
 ): Promise<DetectHandoffTriggersResult> {
   const rows: WatchedRow[] = await db
     .select({
@@ -132,6 +153,7 @@ export async function detectHandoffTriggers(
       createdAt: leadBriefSchema.createdAt,
       handoffReplySeenAt: leadBriefSchema.handoffReplySeenAt,
       handoffMeetingSeenAt: leadBriefSchema.handoffMeetingSeenAt,
+      handoffWatchedAt: leadBriefSchema.handoffWatchedAt,
     })
     .from(leadBriefSchema)
     .where(and(
@@ -158,6 +180,7 @@ export async function detectHandoffTriggers(
   }
 
   const { emitEvent, LEAD_MEETING_BOOKED, LEAD_REPLIED } = await import('@/services/EventService');
+  const now = opts.now ?? new Date();
 
   for (const row of rows) {
     const rec = records.get(row.contactRef);
@@ -166,13 +189,40 @@ export async function detectHandoffTriggers(
       continue;
     }
     const baseline = enrollmentBaseline(row);
-    const signals: Array<{ trigger: HandoffTriggerKind; observed: Date | null; seen: Date | null; column: 'handoffReplySeenAt' | 'handoffMeetingSeenAt' }> = [
-      { trigger: 'reply', observed: toDate(rec.salesEmailLastRepliedAt), seen: row.handoffReplySeenAt, column: 'handoffReplySeenAt' },
-      { trigger: 'meeting', observed: toDate(rec.latestMeetingActivityAt), seen: row.handoffMeetingSeenAt, column: 'handoffMeetingSeenAt' },
-    ];
-    const set: Partial<Record<'handoffReplySeenAt' | 'handoffMeetingSeenAt', Date>> = {};
+    const firstWatch = row.handoffWatchedAt == null;
+    const set: Partial<Record<'handoffReplySeenAt' | 'handoffMeetingSeenAt' | 'handoffWatchedAt', Date | null>> = {};
+    if (firstWatch) {
+      set.handoffWatchedAt = now;
+    }
 
-    for (const s of signals) {
+    const fire = async (trigger: HandoffTriggerKind, observed: Date) => {
+      const observedAt = observed.toISOString();
+      const emitted = await emitEvent({
+        orgId,
+        type: trigger === 'reply' ? LEAD_REPLIED : LEAD_MEETING_BOOKED,
+        payload: {
+          leadBriefId: row.id,
+          contactRef: row.contactRef,
+          hubspotId: rec.hubspotId ?? row.contactRef.split(':')[1] ?? null,
+          contactName: row.contactName,
+          trigger,
+          observedAt,
+        },
+        dedupeKey: `handoff:${trigger}:${row.contactRef}:${observedAt}`,
+        invokedBy: 'handoff-watch',
+      });
+      result.triggered.push({ leadBriefId: row.id, contactRef: row.contactRef, trigger, observedAt: observed, deduped: emitted.deduped });
+    };
+
+    // Timestamp signals: the reply date, and a meeting date on portals that have one.
+    const timed: Array<{ trigger: HandoffTriggerKind; observed: Date | null; seen: Date | null; column: 'handoffReplySeenAt' | 'handoffMeetingSeenAt' }> = [
+      { trigger: 'reply', observed: toDate(rec.handoffReplyAt), seen: row.handoffReplySeenAt, column: 'handoffReplySeenAt' },
+    ];
+    const meeting = readMeetingSignal(rec.handoffMeeting);
+    if (meeting.kind === 'time') {
+      timed.push({ trigger: 'meeting', observed: meeting.at, seen: row.handoffMeetingSeenAt, column: 'handoffMeetingSeenAt' });
+    }
+    for (const s of timed) {
       const verdict = classifySignal(s.observed, s.seen, baseline);
       if (verdict === 'none') {
         continue;
@@ -182,22 +232,24 @@ export async function detectHandoffTriggers(
         result.baselined += 1;
         continue;
       }
-      const observedAt = s.observed!.toISOString();
-      const emitted = await emitEvent({
-        orgId,
-        type: s.trigger === 'reply' ? LEAD_REPLIED : LEAD_MEETING_BOOKED,
-        payload: {
-          leadBriefId: row.id,
-          contactRef: row.contactRef,
-          hubspotId: rec.hubspotId ?? row.contactRef.split(':')[1] ?? null,
-          contactName: row.contactName,
-          trigger: s.trigger,
-          observedAt,
-        },
-        dedupeKey: `handoff:${s.trigger}:${row.contactRef}:${observedAt}`,
-        invokedBy: 'handoff-watch',
-      });
-      result.triggered.push({ leadBriefId: row.id, contactRef: row.contactRef, trigger: s.trigger, observedAt: s.observed!, deduped: emitted.deduped });
+      await fire(s.trigger, s.observed!);
+    }
+
+    // A boolean meeting flag has no date of its own, so the rule is about
+    // flips: already set on the first watch is baselined (the booking may
+    // predate enrollment); set on a later watch, after being unset, fires.
+    // A flag that clears resets the memory, so a re-booking fires again.
+    if (meeting.kind === 'flag') {
+      if (meeting.set && row.handoffMeetingSeenAt == null) {
+        set.handoffMeetingSeenAt = now;
+        if (firstWatch) {
+          result.baselined += 1;
+        } else {
+          await fire('meeting', now);
+        }
+      } else if (!meeting.set && row.handoffMeetingSeenAt != null) {
+        set.handoffMeetingSeenAt = null;
+      }
     }
 
     if (Object.keys(set).length > 0) {

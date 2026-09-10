@@ -13,9 +13,10 @@ vi.mock('@/services/WorkflowService', () => ({
   startWorkflow: vi.fn(async () => ({ id: 777 })),
 }));
 
+const { eq } = await import('drizzle-orm');
 const { db } = await import('@/libs/DB');
 const { automationRunSchema, automationSchema, eventLogSchema, knowledgeDocumentSchema, knowledgeSourceSchema, leadBriefSchema } = await import('@/models/Schema');
-const { classifySignal, detectHandoffTriggers, watchForHandoffTriggers } = await import('@/services/HandoffTriggerService');
+const { classifySignal, detectHandoffTriggers, readMeetingSignal, watchForHandoffTriggers } = await import('@/services/HandoffTriggerService');
 const { LEAD_MEETING_BOOKED, LEAD_REPLIED } = await import('@/services/EventService');
 
 const ORG = 'org_handoff_watch';
@@ -29,20 +30,34 @@ async function seedMirror(): Promise<number> {
   return src!.id;
 }
 
-async function seedContact(sourceId: number, hubspotId: string, signals: { repliedAt?: string; meetingAt?: string }) {
+/**
+ * `meeting` is whatever the portal carries: a timestamp string, or "true"/"false" for a booking flag.
+ * @param sourceId
+ * @param hubspotId
+ * @param signals
+ * @param signals.repliedAt
+ * @param signals.meeting
+ */
+async function seedContact(sourceId: number, hubspotId: string, signals: { repliedAt?: string; meeting?: string }) {
   await db.insert(knowledgeDocumentSchema).values({
     orgId: ORG,
     sourceId,
     externalId: `contacts:${hubspotId}`,
     title: `Contact ${hubspotId}`,
-    contentHash: `hash-${hubspotId}-${signals.repliedAt ?? ''}-${signals.meetingAt ?? ''}`,
+    contentHash: `hash-${hubspotId}-${signals.repliedAt ?? ''}-${signals.meeting ?? ''}`,
     metadata: {
       objectType: 'contacts',
       hubspotId,
-      salesEmailLastRepliedAt: signals.repliedAt,
-      latestMeetingActivityAt: signals.meetingAt,
+      handoffReplyAt: signals.repliedAt,
+      handoffMeeting: signals.meeting,
     },
   });
+}
+
+async function setMirror(hubspotId: string, signals: { repliedAt?: string; meeting?: string }) {
+  await db.update(knowledgeDocumentSchema).set({
+    metadata: { objectType: 'contacts', hubspotId, handoffReplyAt: signals.repliedAt, handoffMeeting: signals.meeting },
+  }).where(eq(knowledgeDocumentSchema.externalId, `contacts:${hubspotId}`));
 }
 
 async function seedLead(hubspotId: string, over: Partial<typeof leadBriefSchema.$inferInsert> = {}) {
@@ -129,7 +144,7 @@ describe('detectHandoffTriggers', () => {
 
   it('fires lead.meeting_booked for a meeting, with the meeting column moving', async () => {
     const sourceId = await seedMirror();
-    await seedContact(sourceId, '77', { meetingAt: '2026-09-10T09:00:00.000Z' });
+    await seedContact(sourceId, '77', { meeting: '2026-09-10T09:00:00.000Z' });
     await seedLead('77');
 
     const result = await detectHandoffTriggers(ORG);
@@ -157,9 +172,7 @@ describe('detectHandoffTriggers', () => {
     expect(await db.select().from(eventLogSchema)).toHaveLength(0);
 
     // The lead replies after enrollment: the mirror moves.
-    await db.update(knowledgeDocumentSchema).set({
-      metadata: { objectType: 'contacts', hubspotId: '31', salesEmailLastRepliedAt: '2026-09-09T12:00:00.000Z' },
-    });
+    await setMirror('31', { repliedAt: '2026-09-09T12:00:00.000Z' });
 
     const second = await detectHandoffTriggers(ORG);
 
@@ -205,6 +218,102 @@ describe('detectHandoffTriggers', () => {
     const result = await detectHandoffTriggers(ORG);
 
     expect(result.triggered[0]?.observedAt.toISOString()).toBe('2026-09-09T15:30:00.000Z');
+  });
+});
+
+describe('readMeetingSignal', () => {
+  it('reads a booking flag from "true"/"false" or a boolean, and anything else as a timestamp', () => {
+    expect(readMeetingSignal('true')).toEqual({ kind: 'flag', set: true });
+    expect(readMeetingSignal('False')).toEqual({ kind: 'flag', set: false });
+    expect(readMeetingSignal(true)).toEqual({ kind: 'flag', set: true });
+    expect(readMeetingSignal('2026-09-10T09:00:00.000Z')).toEqual({ kind: 'time', at: new Date('2026-09-10T09:00:00.000Z') });
+    expect(readMeetingSignal(undefined)).toEqual({ kind: 'time', at: null });
+  });
+});
+
+describe('detectHandoffTriggers with a boolean meeting flag (Calendly)', () => {
+  const T1 = new Date('2026-09-09T10:00:00.000Z');
+  const T2 = new Date('2026-09-09T11:00:00.000Z');
+  const T3 = new Date('2026-09-09T12:00:00.000Z');
+
+  it('a flag already set on the first watch is baselined, not fired', async () => {
+    const sourceId = await seedMirror();
+    await seedContact(sourceId, '40', { meeting: 'true' });
+    await seedLead('40');
+
+    const result = await detectHandoffTriggers(ORG, { now: T1 });
+
+    expect(result).toMatchObject({ baselined: 1, triggered: [] });
+
+    const [row] = await db.select().from(leadBriefSchema);
+
+    expect(row?.handoffWatchedAt?.toISOString()).toBe(T1.toISOString());
+    expect(row?.handoffMeetingSeenAt?.toISOString()).toBe(T1.toISOString());
+  });
+
+  it('a flag that flips to true on a later watch fires once, stamped with the watch time', async () => {
+    const sourceId = await seedMirror();
+    await seedContact(sourceId, '41', { meeting: 'false' });
+    const lead = await seedLead('41');
+
+    const first = await detectHandoffTriggers(ORG, { now: T1 });
+
+    expect(first).toMatchObject({ baselined: 0, triggered: [] });
+
+    await setMirror('41', { meeting: 'true' });
+
+    const second = await detectHandoffTriggers(ORG, { now: T2 });
+
+    expect(second.triggered).toEqual([expect.objectContaining({ leadBriefId: lead.id, trigger: 'meeting', observedAt: T2, deduped: false })]);
+
+    const [logged] = await db.select().from(eventLogSchema);
+
+    expect(logged?.type).toBe(LEAD_MEETING_BOOKED);
+    expect(logged?.payload).toMatchObject({ contactRef: 'contacts:41', trigger: 'meeting', observedAt: T2.toISOString() });
+
+    // Still true on the next watch: nothing new.
+    const third = await detectHandoffTriggers(ORG, { now: T3 });
+
+    expect(third.triggered).toEqual([]);
+    expect(await db.select().from(eventLogSchema)).toHaveLength(1);
+  });
+
+  it('a flag that clears resets the memory, so a re-booking fires again', async () => {
+    const sourceId = await seedMirror();
+    await seedContact(sourceId, '42', { meeting: 'false' });
+    await seedLead('42');
+    await detectHandoffTriggers(ORG, { now: T1 });
+    await setMirror('42', { meeting: 'true' });
+    await detectHandoffTriggers(ORG, { now: T2 });
+    await setMirror('42', { meeting: 'false' });
+
+    await detectHandoffTriggers(ORG, { now: T2 });
+
+    const [cleared] = await db.select().from(leadBriefSchema);
+
+    expect(cleared?.handoffMeetingSeenAt).toBeNull();
+
+    await setMirror('42', { meeting: 'true' });
+
+    const again = await detectHandoffTriggers(ORG, { now: T3 });
+
+    expect(again.triggered).toEqual([expect.objectContaining({ trigger: 'meeting', observedAt: T3 })]);
+    expect(await db.select().from(eventLogSchema)).toHaveLength(2);
+  });
+
+  it('an absent flag on a lead with no meeting property changes nothing', async () => {
+    const sourceId = await seedMirror();
+    await seedContact(sourceId, '43', {});
+    await seedLead('43');
+
+    const result = await detectHandoffTriggers(ORG, { now: T1 });
+
+    expect(result).toMatchObject({ baselined: 0, triggered: [] });
+
+    const [row] = await db.select().from(leadBriefSchema);
+
+    expect(row?.handoffMeetingSeenAt).toBeNull();
+    expect(row?.handoffWatchedAt?.toISOString()).toBe(T1.toISOString());
   });
 });
 

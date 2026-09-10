@@ -2554,6 +2554,13 @@ export const leadBriefSchema = pgTable(
      */
     handoffReplySeenAt: timestamp('handoff_reply_seen_at', { mode: 'date' }),
     handoffMeetingSeenAt: timestamp('handoff_meeting_seen_at', { mode: 'date' }),
+    /**
+     * First time the watcher looked at this lead after enrollment. A meeting
+     * signal that is a plain boolean has no date of its own, so "already true
+     * on the first watch" is baselined and only a flip seen on a later watch
+     * fires. Null until that first watch.
+     */
+    handoffWatchedAt: timestamp('handoff_watched_at', { mode: 'date' }),
     /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
     regenerateNote: text('regenerate_note'),
     /** Briefing tries so far. Three, then the lead surfaces with its error. */
