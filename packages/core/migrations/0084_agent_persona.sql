@@ -1,0 +1,15 @@
+-- 0084 — agent: the persona an agent wears when it answers (brief H-013).
+--
+-- A channel binding carries one persona, so a channel has exactly one face.
+-- This puts a face on the agent instead, so the revenue agent answers as
+-- itself in whatever channel the question was asked in. Resolution order in
+-- the chat surface is: the binding's persona (an explicit channel override)
+-- if it sets one, else the answering agent's persona, else the app's own name
+-- and icon — so nothing that works today changes.
+--
+-- Nullable JSONB, no default: an agent without one posts exactly as it does
+-- today. Nullable ADD COLUMN is metadata-only — expand, per CONVENTIONS.md
+-- rule 2, with no backfill and nothing to contract.
+--
+-- Hand-written; idempotent.
+ALTER TABLE "agent" ADD COLUMN IF NOT EXISTS "persona" jsonb;

@@ -650,6 +650,16 @@ export const agentSchema = pgTable(
      * turn exists. Mirrors rev-ai's `suggestions: [{label, prompt}]`.
      */
     suggestions: jsonb('suggestions').$type<Array<{ label: string; prompt: string }>>().default([]).notNull(),
+    /**
+     * The face this agent wears on a chat surface: the name and avatar a
+     * Slack reply is posted under (`chat:write.customize`). A channel
+     * binding's own persona still wins — that is an explicit per-channel
+     * override — so this is what the agent looks like everywhere else.
+     * NULL means the app's own name and icon, as before personas existed.
+     * A persona is presentation only: it changes no identity and no
+     * authorisation, and must never imply a human.
+     */
+    persona: jsonb('persona').$type<{ displayName?: string; iconUrl?: string }>(),
     /** CSS color name for the agent's chat header / sidebar (v0.2). */
     accent: text('accent'),
     /** Short tagline shown above the chat title (v0.2). */

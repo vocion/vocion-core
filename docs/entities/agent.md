@@ -23,6 +23,7 @@ consults team leads, and team leads consult their specialists.
 | `icon` | string | — | Lucide icon name. |
 | `accent` | string | — | CSS color name for the chat header and sidebar. |
 | `eyebrow` | string | — | Short tagline above the chat title. |
+| `persona` | `{displayName?, iconUrl?}` | — | The name and avatar this agent's chat-surface replies are posted under. A channel binding's own persona still wins. See [Agents in Slack](../guides/slack.md). |
 | `active` | boolean | `true` | Set `false` to keep the file but hide the agent. |
 | `suggestions` | `{label, prompt}[]` | `[]` | Empty-state prompts shown in the chat UI. |
 

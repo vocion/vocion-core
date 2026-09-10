@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { chatChannelBindingSchema, conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
+const { agentSchema, chatChannelBindingSchema, conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
 const svc = await import('@/services/ChatSurfaceService');
 
 const ORG = 'org_chat';
@@ -24,10 +24,22 @@ function fakeAdapter(): ChatSurfaceAdapter & { replies: { channelId: string; thr
 
 const inbound: ChatInbound = { surface: 'slack', teamId: 'T1', channelId: 'C1', threadRef: '100.1', messageRef: '100.1', externalUserId: 'U42', text: 'how is the quarter?', isDirect: false };
 
+/**
+ * The answering agent's row — only the persona matters here.
+ * @param slug - Agent slug the binding points at.
+ * @param persona - The face it wears, if any.
+ * @param persona.displayName - Name its replies are posted under.
+ * @param persona.iconUrl - Avatar its replies are posted with.
+ */
+async function seedAgent(slug: string, persona?: { displayName?: string; iconUrl?: string }): Promise<void> {
+  await db.insert(agentSchema).values({ orgId: ORG, slug, name: slug, systemPrompt: 'you are a test', ...(persona ? { persona } : {}) });
+}
+
 beforeEach(async () => {
   await db.delete(conversationMessageSchema);
   await db.delete(conversationSchema);
   await db.delete(chatChannelBindingSchema);
+  await db.delete(agentSchema);
 });
 
 describe('bindings', () => {
@@ -129,6 +141,25 @@ describe('handleInbound', () => {
     // toEqual, not toMatchObject: an undefined key would still reach the adapter.
     expect(adapter.replies).toEqual([{ channelId: 'C1', threadRef: '100.1', text: 'up 12%' }]);
     expect(Object.keys(adapter.replies[0]!)).toEqual(['channelId', 'threadRef', 'text']);
+  });
+
+  it('wears the answering agent persona when the binding sets none, and lets a binding persona win', async () => {
+    await seedAgent('revenue-lead', { displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png' });
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const deps = { runAgent: vi.fn(async () => ({ response: 'up 12%', traceId: 't', toolCalls: [] })) as never, preflight: vi.fn(async () => ({ ok: true as const })) };
+
+    await svc.handleInbound(adapter, inbound, deps);
+
+    expect(adapter.replies[0]).toEqual({ channelId: 'C1', threadRef: '100.1', displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png', text: 'up 12%' });
+
+    // The channel says otherwise: the binding's override still wins, whole.
+    await db.delete(chatChannelBindingSchema);
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead', displayName: 'Front Desk' });
+
+    await svc.handleInbound(adapter, inbound, deps);
+
+    expect(adapter.replies[1]).toEqual({ channelId: 'C1', threadRef: '100.1', displayName: 'Front Desk', text: 'up 12%' });
   });
 
   it('refuses over-budget agents with a short reply and never runs the agent', async () => {

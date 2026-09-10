@@ -27,6 +27,7 @@ At https://api.slack.com/apps, **Create New App → From scratch**, in your work
 | `im:history` | receive direct messages |
 | `im:read`, `im:write` | open and read the DM channel |
 | `chat:write.customize` | optional — reply under a persona name and avatar (see below) |
+| `channels:read`, `groups:read` | receive `member_joined_channel` — the invite that triggers the introduction (public / private channels) |
 
 Install the app to the workspace and copy the **Bot User OAuth Token** (`xoxb-…`).
 **Basic Information → App Credentials:** copy the **Signing Secret**.
@@ -37,6 +38,8 @@ Install the app to the workspace and copy the **Bot User OAuth Token** (`xoxb-�
 SLACK_SIGNING_SECRET=…        # Basic Information → App Credentials
 SLACK_BOT_TOKEN=xoxb-…        # OAuth & Permissions → Bot User OAuth Token
 VOCION_SLACK_EVENTS=1
+SLACK_BOT_USER_ID=U0…           # optional — the bot's own user id, only used when a
+                                # delivery carries no `authorizations` block
 ```
 
 Restart the app. Requests are verified with Slack's v0 signature (HMAC-SHA256 over
@@ -47,8 +50,17 @@ request is a 401.
 
 **Event Subscriptions → Enable Events**, Request URL `https://<your-vocion-host>/api/webhooks/slack`.
 Slack sends a `url_verification` challenge; Vocion answers it once the signing secret is in place.
-Then **Subscribe to bot events:** `app_mention` and `message.im`. Save, reinstall if asked, and
-invite the bot to any channel it should answer in.
+Then **Subscribe to bot events:** `app_mention`, `message.im` and `member_joined_channel`. Save,
+reinstall if asked, and invite the bot to any channel it should answer in.
+
+Nothing else. In particular **not** `message.channels` or `message.groups`: those stream every
+message in every channel the bot is in to this endpoint, and `app_mention` already covers being
+spoken to. Reading a whole channel is a decision to take on its own merits, not a side effect of
+wanting the bot to notice it was invited.
+
+`member_joined_channel` fires for everyone who joins; the adapter keeps only the event whose
+joining member is the bot itself (`authorizations`, or `SLACK_BOT_USER_ID` when a delivery carries
+none) and ignores the rest.
 
 ## 4. Bind a channel to an agent
 
@@ -93,6 +105,39 @@ icon exactly as before; the adapter omits the keys rather than sending them empt
 A persona is a presentation detail. It changes no identity and no authorisation: the conversation,
 the audit trail and the review queue still record the agent slug and the Slack user id. Give the
 persona a name that reads as a person only if the surrounding product makes clear it is an agent.
+
+## 6. Give the agent a persona (optional)
+
+A binding gives a *channel* one face. A persona on the **agent** gives that agent its own face
+wherever it answers — authored in workspace YAML like everything else:
+
+```yaml
+slug: revenue-lead
+name: Revenue Lead
+persona:
+  displayName: Sterling Banks
+  iconUrl: https://www.vocion.ai/personas/sterling.png
+```
+
+`npm run workspace:apply` puts it on the agent row, and the next reply wears it.
+
+Resolution order for a reply: **the binding's persona if the channel sets one**, else the
+answering agent's persona, else the app's own name and icon. A persona resolves as a unit — a
+binding that sets only a `displayName` keeps the app's icon rather than borrowing the agent's,
+because half of one face on half of another is a third person nobody configured. Bindings that
+already carry a persona are unaffected.
+
+The rule that does not bend: a persona must never imply a human. Whatever face answers, the
+introduction says it is an agent, and the audit trail records the agent slug.
+
+## What happens when the bot is invited to a channel
+
+`member_joined_channel` for the bot's own user id is the discovery signal, and Vocion answers it
+with exactly one message: who answers here, and that mentioning it starts a thread. It runs no
+agent, creates no conversation and spends no budget. The channel resolves the same way a mention
+would — exact binding first, then the workspace `*` catch-all — so a channel nobody bound still
+introduces the default agent. With no binding at all, it stays silent rather than advertising an
+install that cannot answer.
 
 ## What happens on a message
 

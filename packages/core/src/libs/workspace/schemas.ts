@@ -236,6 +236,17 @@ export const AgentManifestSchema = z.object({
     label: z.string(),
     prompt: z.string(),
   })).default([]),
+  /**
+   * The face this agent wears when it answers on a chat surface — the name
+   * and avatar a Slack reply is posted under. A channel binding's own
+   * persona still wins; this is the agent everywhere else. Presentation
+   * only: it changes no identity and no authorisation, and must never imply
+   * a human. `iconUrl` must be a public https URL — Slack fetches it itself.
+   */
+  persona: z.object({
+    displayName: z.string().min(1).optional(),
+    iconUrl: z.string().url().optional(),
+  }).optional(),
   /** CSS color name for the agent's chat header / sidebar. */
   accent: z.string().optional(),
   /** Short tagline shown above the chat title. */
