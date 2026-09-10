@@ -17,7 +17,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 const { client } = await import('@/libs/Orpc');
-const { ChatDock, DOCK_WIDTH_CLASS } = await import('./ChatDock');
+const { ChatDock, DOCK_WIDTH_CLASS, isRecallAsk } = await import('./ChatDock');
 
 const AGENTS = [
   { slug: 'revops-lead', name: 'RevOps Lead', icon: 'bot' as const, placeholder: 'Ask about this lead…', role: 'lead' as const },
@@ -70,19 +70,35 @@ describe('ChatDock', () => {
     await expect.element(page.getByRole('textbox')).toHaveFocus();
   });
 
-  it('mounts the guided cards under the scope header, above the transcript', async () => {
+  it('puts the guided cards inline in the transcript, with the composer pinned to the bottom of the pane', async () => {
     await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />);
 
     const overview = await page.getByText('Enroll in: MSP Triage Nurture · 2 sends').element();
     const composer = await page.getByRole('textbox').element();
+    const aside = await page.getByRole('complementary', { name: 'Conversation about Pete Laverick' }).element();
 
-    // The cards sit above the message area and composer in document order —
-    // the work at hand first, the history scrolling beneath it.
+    // The cards are transcript content: inside the scrolling list, not a pane
+    // of their own, and nothing of the empty state shows beside them.
+    expect(overview.closest('.overflow-y-auto')).not.toBeNull();
+    expect(page.getByRole('heading', { level: 2 }).elements()).toHaveLength(0);
     expect(overview.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    const empty = await page.getByRole('heading', { level: 2 }).element();
+    // The composer is the bottom edge of the pane.
+    const paneBottom = aside.getBoundingClientRect().bottom;
+    const composerBottom = composer.closest('.sticky')!.getBoundingClientRect().bottom;
 
-    expect(overview.compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(Math.abs(paneBottom - composerBottom)).toBeLessThan(2);
+    // With nothing after the cards there is nothing to recall.
+    expect(page.getByRole('button', { name: 'Show my review cards' }).elements()).toHaveLength(0);
+  });
+
+  it('knows a question that asks for the cards back', () => {
+    for (const ask of ['what do I need to review?', 'What do I still have to decide', 'where was I?', 'show me the cards', 'what\'s left to review', 'bring the review back up', 'what is pending']) {
+      expect(isRecallAsk(ask), ask).toBe(true);
+    }
+    for (const notAsk of ['make send 2 shorter', 'who is Pete Laverick?', 'approve', 'what does Redpoint do']) {
+      expect(isRecallAsk(notAsk), notAsk).toBe(false);
+    }
   });
 
   it('opens to a third of the viewport, never under the old column width', async () => {

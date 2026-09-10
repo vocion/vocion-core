@@ -32,12 +32,19 @@ export type MessageListProps = {
   onShowSources?: () => void;
   /** Opens the Sources drawer focused on citation `[n]` when an inline marker is tapped. */
   onCitationClick?: (n: number) => void;
+  /**
+   * Non-message content that lives in the transcript at a position (058):
+   * the dock's guided review cards. `afterIndex` is the message the block
+   * follows; -1 puts it before the first message. Blocks scroll with the
+   * conversation and re-pin the view when they move, like a new message.
+   */
+  blocks?: Array<{ key: string; afterIndex: number; node: React.ReactNode }>;
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick }: MessageListProps) {
+export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [] }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
   // position changes must never themselves cause a re-render.
@@ -51,14 +58,16 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
     pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < PIN_THRESHOLD;
   }, []);
 
-  // A new message was added (the user just sent) — re-pin and jump down.
+  // A new message was added (the user just sent), or a block moved — re-pin
+  // and jump down.
+  const blocksKey = blocks.map(b => `${b.key}@${b.afterIndex}`).join('|');
   useEffect(() => {
     pinnedRef.current = true;
     const el = containerRef.current;
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages.length]);
+  }, [messages.length, blocksKey]);
 
   // Streaming content grew — follow it only while pinned. Instant, not
   // `smooth`: overlapping smooth animations are what made streaming look
@@ -74,22 +83,29 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
   }, [messages, streaming, activity]);
 
   const lastIdx = messages.length - 1;
+  const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i || (i === lastIdx && b.afterIndex > lastIdx)).map(b => <div key={b.key}>{b.node}</div>);
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="flex flex-1 flex-col gap-8 overflow-y-auto px-4 pt-16 pb-6 sm:px-6">
+    <div ref={containerRef} onScroll={handleScroll} className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto px-4 pt-16 pb-6 sm:px-6">
       <div className="mx-auto w-full max-w-4xl space-y-8">
-        {messages.map((msg, i) => msg.role === 'user'
-          ? <UserMessage key={i} content={msg.content} />
-          : (
-              <AgentMessage
-                key={i}
-                message={msg}
-                agentName={agentName}
-                streaming={streaming && i === lastIdx}
-                activity={i === lastIdx ? activity : undefined}
-                onShowSources={onShowSources}
-                onCitationClick={onCitationClick}
-              />
-            ))}
+        {blocksAfter(-1)}
+        {messages.map((msg, i) => (
+          <div key={i} className="space-y-8">
+            {msg.role === 'user'
+              ? <UserMessage content={msg.content} />
+              : (
+                  <AgentMessage
+                    message={msg}
+                    agentName={agentName}
+                    streaming={streaming && i === lastIdx}
+                    activity={i === lastIdx ? activity : undefined}
+                    onShowSources={onShowSources}
+                    onCitationClick={onCitationClick}
+                  />
+                )}
+            {blocksAfter(i)}
+          </div>
+        ))}
+        {messages.length === 0 && blocks.filter(b => b.afterIndex > -1).map(b => <div key={b.key}>{b.node}</div>)}
       </div>
     </div>
   );
