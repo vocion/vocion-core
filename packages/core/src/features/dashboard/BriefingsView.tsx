@@ -49,14 +49,16 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
   const [openHistory, setOpenHistory] = useState<number | null>(null);
 
   const g = groups[active];
-  if (!g) {
-    return <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">No teams configured yet.</div>;
-  }
-  const latest = g.briefs[0];
-  const history = g.briefs.slice(1);
-  const viewing = openHistory != null ? g.briefs.find(b => b.id === openHistory) ?? latest : latest;
+  const latest = g?.briefs[0];
+  const history = g?.briefs.slice(1) ?? [];
+  const viewing = openHistory != null ? g?.briefs.find(b => b.id === openHistory) ?? latest : latest;
 
   const regenerate = async () => {
+    // Only reachable from the rendered group, but `g` is optional now that the
+    // empty-state guard moved below the hooks.
+    if (!g) {
+      return;
+    }
     setRegen('assembling');
     setElapsed(0);
     baselineRef.current = g.briefs[0]?.id ?? null;
@@ -72,9 +74,10 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
 
   // Poll until the fresh brief lands, then pull it in automatically — no
   // manual refresh. Bounded at 5 minutes.
-  const teamSlug = g.teamSlug;
+  const teamSlug = g?.teamSlug ?? null;
+  const hasGroup = g != null;
   useEffect(() => {
-    if (regen !== 'assembling') {
+    if (regen !== 'assembling' || !hasGroup) {
       return;
     }
     const startedAt = Date.now();
@@ -90,13 +93,19 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
             setRegen('failed');
           }
         })
-        .catch(() => {});
+        .catch((error) => {
+          console.error('Briefing poll failed; will retry on the next tick.', error);
+        });
     }, 8000);
     return () => {
       clearInterval(tick);
       clearInterval(poll);
     };
-  }, [regen, teamSlug, router]);
+  }, [regen, teamSlug, hasGroup, router]);
+
+  if (!g) {
+    return <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">No teams configured yet.</div>;
+  }
 
   return (
     <div>
@@ -107,7 +116,9 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
             key={grp.teamSlug ?? '__rollup__'}
             type="button"
             onClick={() => {
-              setActive(i); setOpenHistory(null); setRegen('idle');
+              setActive(i);
+              setOpenHistory(null);
+              setRegen('idle');
             }}
             className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${i === active ? 'bg-brand-amber/15 text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground'}`}
           >

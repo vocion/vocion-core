@@ -8,7 +8,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { ReviewActionCard } from '@/features/review/ReviewActionCard';
 import { Link } from '@/libs/I18nNavigation';
 import { confidenceLevel } from './confidence';
-import { entranceLabel, LANE_PILL, LeadContext, shortDate } from './LeadContext';
+import { entranceLabel, HandoffBriefZone, LANE_PILL, LeadContext, shortDate } from './LeadContext';
 
 /**
  * The lead page body — one lead's whole record on its own URL. The header and
@@ -41,6 +41,10 @@ export type LeadRow = LeadDossier & {
   briefedAt: string | null;
   decidedAt: string | null;
   decidedBy: string | null;
+  /** The call prep written when the lead left the agent; empty until a handoff (055). */
+  handoffSections: Array<{ heading: string; body: string }>;
+  handoffTrigger: string | null;
+  handoffAt: string | null;
 };
 
 /** What the server resolved the lead's back-linked run into. */
@@ -351,6 +355,10 @@ export const LeadView = (props: {
         )}
         railTimeline={<Timeline lead={lead} />}
       />
+
+      {/* Beneath the review brief: the call prep, once the lead has left the
+          agent. Read-only; no decision lives here (055). */}
+      <HandoffBriefZone sections={lead.handoffSections} trigger={lead.handoffTrigger} at={lead.handoffAt} />
     </div>
   );
 };

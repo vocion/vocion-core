@@ -2,7 +2,7 @@ import process from 'node:process';
 import { parseArgs } from 'node:util';
 import { eq, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { applyWorkspace, getWorkspacePath, loadWorkspace, WorkspaceValidationError } from '@/libs/workspace';
+import { applyWorkspace, getWorkspacePath, loadWorkspace, WorkspaceTemplateError, WorkspaceValidationError } from '@/libs/workspace';
 import { projectSchema } from '@/models/Schema';
 import 'dotenv/config';
 
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
   try {
     loaded = loadWorkspace(contextPath);
   } catch (err) {
-    if (err instanceof WorkspaceValidationError) {
+    if (err instanceof WorkspaceValidationError || err instanceof WorkspaceTemplateError) {
       console.error(`\n✗ ${err.message}\n`);
       process.exit(2);
     }
@@ -98,6 +98,13 @@ async function main(): Promise<void> {
   console.log(`\n${result.dryRun ? '[dry-run] ' : ''}applied to org ${result.orgId}:`);
   for (const [kind, counts] of Object.entries(result.counts)) {
     console.log(`  ${kind.padEnd(12)} created=${counts.created}  updated=${counts.updated}  unchanged=${counts.unchanged}`);
+  }
+
+  if (result.warnings.length > 0) {
+    console.warn('\nwarnings:');
+    for (const w of result.warnings) {
+      console.warn(`  ${w.resource}/${w.slug}: ${w.message}`);
+    }
   }
 
   if (result.errors.length > 0) {

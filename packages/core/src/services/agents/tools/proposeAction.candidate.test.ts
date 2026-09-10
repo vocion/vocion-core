@@ -209,4 +209,38 @@ describe('the agent proposing a candidate', () => {
     expect(await candidateObjects()).toHaveLength(0);
     expect(await pendingRuns()).toHaveLength(0);
   });
+
+  it('refuses a proposal with no dedupOn, and says so plainly — not a raw validation dump', async () => {
+    // VEERIO-257 regression: `inputSchema.parse` throwing a ZodError used to
+    // reach the model as `Proposal failed: [{"code":"custom",...}]` — the
+    // hand-authored message buried in JSON. It must read like the precheck
+    // refusal above: a plain sentence naming the fix.
+    const tool = proposeActionTool(runtimeContext());
+    const proposal = proposalFor();
+    delete (proposal.action_input as { dedupOn?: string[] }).dedupOn;
+
+    const said = await tool.invoke(proposal);
+
+    expect(said).toContain('Proposal refused (VALIDATION_FAILED)');
+    expect(said).toMatch(/dedupOn must list at least one field/);
+    expect(said).not.toMatch(/"code":\s*"custom"/);
+    expect(await candidateObjects()).toHaveLength(0);
+    expect(await pendingRuns()).toHaveLength(0);
+  });
+
+  it('refuses a dedupOn nested inside fields, and says so plainly — not a raw validation dump', async () => {
+    const tool = proposeActionTool(runtimeContext());
+    // `proposalFor`'s override spreads into `fields`, so this is exactly the
+    // VEERIO-257 shape that reached production: the real identity list
+    // nested under `fields.dedupOn`, top-level `dedupOn` left as the
+    // playbook's example.
+    const proposal = proposalFor({ dedupOn: ['title'] });
+
+    const said = await tool.invoke(proposal);
+
+    expect(said).toContain('Proposal refused (VALIDATION_FAILED)');
+    expect(said).toMatch(/dedupOn found inside fields/);
+    expect(await candidateObjects()).toHaveLength(0);
+    expect(await pendingRuns()).toHaveLength(0);
+  });
 });

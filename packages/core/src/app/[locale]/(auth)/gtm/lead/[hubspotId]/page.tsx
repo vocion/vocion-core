@@ -148,6 +148,9 @@ export default async function LeadPage(props: {
     briefedAt: row.briefedAt?.toISOString() ?? null,
     decidedAt: row.decidedAt?.toISOString() ?? null,
     decidedBy: row.decidedBy,
+    handoffSections: row.handoffSections,
+    handoffTrigger: row.handoffTrigger,
+    handoffAt: row.handoffAt?.toISOString() ?? null,
   };
 
   // The dock: the agent conversation as a third column, scoped to this lead

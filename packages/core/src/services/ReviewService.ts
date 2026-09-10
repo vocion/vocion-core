@@ -596,6 +596,13 @@ export async function snooze(
     assignedBy: byUserId ?? null,
     ...(opts?.note !== undefined ? { note: opts.note } : {}),
   });
+  // The assignment row only ever holds the CURRENT snooze — the next one
+  // overwrites it — so the adoption event is the only record that a deferral
+  // happened at all. Awaited (not fired and forgotten) because
+  // `trackReviewSnooze` cannot reject and the caller is already awaiting a
+  // write; ordering it here means a snooze and its event land together.
+  const { trackReviewSnooze } = await import('@/services/adoption/attribution');
+  await trackReviewSnooze({ orgId, userId: byUserId ?? 'web' }, item, until);
 }
 
 /**
@@ -673,10 +680,13 @@ export async function decide(
         hint: opts?.note,
       }).catch(() => {});
       // The decision is training signal: record what a good/bad proposal
-      // looks like in the `crm-updates` learning step so agents check their
-      // next proposals against real operator judgment. Never blocks the
-      // decision itself.
-      await recordActionDecisionLearning(item.id, orgId, action, opts?.reason ?? opts?.note).catch(() => {});
+      // looks like in the proposing agent's own learning step so it checks
+      // its next proposals against real operator judgment. Never blocks the
+      // decision itself — but a failure here is silently lost learning
+      // signal, so it is logged rather than swallowed.
+      await recordActionDecisionLearning(item.id, orgId, action, opts?.reason ?? opts?.note).catch((error) => {
+        console.warn(`[ReviewService] could not record decision-learning rule for action run ${item.id}`, error);
+      });
   }
 }
 
@@ -735,11 +745,20 @@ const SIGNAL_TO_DECISION = {
 export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string }): Promise<void> {
   try {
     const [run] = await db
-      .select({ invokedBy: actionRunSchema.invokedBy, actionId: actionRunSchema.actionId })
+      .select({
+        invokedBy: actionRunSchema.invokedBy,
+        actionId: actionRunSchema.actionId,
+        proposal: actionRunSchema.proposal,
+      })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
       .limit(1);
-    const agentSlug = run?.invokedBy?.startsWith('agent:') ? run.invokedBy.slice('agent:'.length) : undefined;
+    // An in-process agent turn stamps `agent:<slug>` on invokedBy. A proposal
+    // made over the API stamps the caller there instead and puts the agent in
+    // the proposal envelope, so both have to be read.
+    const agentSlug = run?.invokedBy?.startsWith('agent:')
+      ? run.invokedBy.slice('agent:'.length)
+      : run?.proposal?.agentSlug ?? undefined;
     const { track } = await import('@/services/adoption/track');
     // Scope dimensions travel together: userId (individual) + orgId (workspace)
     // on the actor, actionId (action type) in meta.
@@ -748,8 +767,70 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
       resource: ['action_run', opts.runId],
       meta: { kind: 'action', decision: SIGNAL_TO_DECISION[opts.signal], ...(run?.actionId ? { actionId: run.actionId } : {}), ...(opts.hint ? { hint: opts.hint } : {}) },
     });
+    await queueSignalForLearning(opts, agentSlug);
   } catch {
     /* signal capture never blocks the decision */
+  }
+}
+
+/** Which signals mean "the agent got this wrong" vs "the agent got this right". */
+const SIGNAL_POLARITY = {
+  approve: 'reinforce',
+  save: 'reinforce',
+  edit: 'correct',
+  reject: 'correct',
+  rewrite: 'correct',
+  skip: null,
+} as const;
+
+/**
+ * Queue a triage signal for the feedback classifier, so a reaction to an
+ * agent's proposal can become a learning candidate.
+ *
+ * Two rules decide whether anything is queued:
+ *
+ * - **There has to be text.** A bare click says the reviewer disagreed but not
+ *   what the agent should do differently, and asking a model to invent the
+ *   reason produces rules nobody stated. The signal is still counted in the
+ *   adoption metrics either way — this only governs whether a rule can be
+ *   proposed from it.
+ * - **`skip` never queues.** Skipping leaves the item pending; the reviewer has
+ *   not judged it yet.
+ *
+ * Idempotent on (run, signal): re-deciding an item does not queue a second job.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.signal
+ * @param opts.userId
+ * @param opts.hint
+ * @param agentSlug - The agent that proposed the action, when known.
+ */
+async function queueSignalForLearning(
+  opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string },
+  agentSlug: string | undefined,
+): Promise<void> {
+  const polarity = SIGNAL_POLARITY[opts.signal];
+  const note = opts.hint?.trim();
+  if (!polarity || !note) {
+    return;
+  }
+  try {
+    const { enqueue } = await import('@/services/FeedbackWorkerService');
+    await enqueue({
+      orgId: opts.orgId,
+      source: 'review',
+      externalId: `action_run:${opts.runId}:${opts.signal}`,
+      payload: {
+        text: note,
+        agentSlug,
+        sourceRunId: opts.runId,
+        submittedBy: opts.userId,
+        polarityHint: polarity,
+      },
+    });
+  } catch (error) {
+    console.error(`[ReviewService] could not queue the ${opts.signal} signal on action run ${opts.runId} for learning`, error);
   }
 }
 
@@ -869,11 +950,39 @@ export async function rewriteDraft(opts: {
   return { input: { ...input, [key]: rewritten }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}) };
 }
 
+/** Learning step a proposal trains when its agent declares no `learningSteps` of its own. */
+const FALLBACK_LEARNING_STEP = 'crm-updates';
+
+/**
+ * Which learning step a proposing agent's decision-training rule gets filed
+ * under. Reads the agent's own `learningSteps` (workspace-authored — see
+ * `agentSchema.learningSteps` in models/Schema.ts) and takes the first one
+ * declared, so an agent outside the CRM domain (an event-ingestion agent
+ * proposing calendar candidates, say) trains its own bucket instead of one
+ * a different domain's agents read. Falls back to {@link FALLBACK_LEARNING_STEP}
+ * only when the agent declares no steps at all, and warns when it does —
+ * a workspace missing that declaration is either mid-migration or an agent
+ * that was never given one.
+ * @param orgId
+ * @param agentSlug
+ */
+async function resolveLearningStepForAgent(orgId: string, agentSlug: string): Promise<string> {
+  const { getAgent } = await import('./AgentService');
+  const agent = await getAgent(orgId, agentSlug);
+  const declaredSteps = agent?.learningSteps ?? [];
+  if (declaredSteps.length > 0) {
+    return declaredSteps[0]!;
+  }
+  console.warn(`[ReviewService] agent "${agentSlug}" declares no learningSteps; filing its decision-training rule under the fallback step "${FALLBACK_LEARNING_STEP}"`);
+  return FALLBACK_LEARNING_STEP;
+}
+
 /**
  * Approve/reject on a proposed action → a learning rule. This is the capture
  * side of the trust ladder: accumulated decisions teach agents which update
  * classes are safe (approved) vs which need stronger evidence (rejected).
- * No-ops quietly when the workspace has no `crm-updates` learning step.
+ * No-ops quietly when the proposing agent's learning step (see
+ * {@link resolveLearningStepForAgent}) does not exist in the workspace yet.
  * @param runId
  * @param orgId
  * @param decision
@@ -898,19 +1007,26 @@ async function recordActionDecisionLearning(
   if (!run || !run.invokedBy?.startsWith('agent:')) {
     return; // only agent proposals train agents
   }
-  const input = (run.input ?? {}) as { objectType?: string; properties?: Record<string, unknown> };
-  const props = Object.keys(input.properties ?? {}).join(', ') || 'n/a';
+  const agentSlug = run.invokedBy.slice('agent:'.length);
+  const stepName = await resolveLearningStepForAgent(orgId, agentSlug);
+  // The candidate's actual data lives under `fields` (see
+  // libs/actions/objects-propose-candidate.ts `CandidateInput.fields`) — the
+  // `properties` key this used to read was always undefined, which is why
+  // every rule used to read "updating [n/a]".
+  const input = (run.input ?? {}) as { objectType?: string; fields?: Record<string, unknown> };
+  const fieldNames = Object.keys(input.fields ?? {}).join(', ') || 'n/a';
   const conf = run.proposal?.confidence != null ? ` (confidence ${run.proposal.confidence})` : '';
   const rationale = run.proposal?.rationale ? ` Rationale was: ${run.proposal.rationale.slice(0, 140)}` : '';
   const ruleText = decision === 'approve'
-    ? `APPROVED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${props}].${rationale} — this class of update matched operator judgment; similar evidence justifies similar proposals.`
-    : `REJECTED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${props}].${reason ? ` Operator reason: ${reason.slice(0, 120)}.` : ''}${rationale} — do not propose this class again without stronger evidence.`;
+    ? `APPROVED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${fieldNames}].${rationale} — this class of update matched operator judgment; similar evidence justifies similar proposals.`
+    : `REJECTED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${fieldNames}].${reason ? ` Operator reason: ${reason}.` : ''}${rationale} — do not propose this class again without stronger evidence.`;
   const { addLearning } = await import('./LearningsService');
   await addLearning({
     orgId,
-    stepName: 'crm-updates',
+    stepName,
     ruleText,
     source: `action_run:${runId}`,
     createdBy: 'review-decision',
+    agentSlug,
   });
 }

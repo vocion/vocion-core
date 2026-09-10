@@ -12,8 +12,24 @@
  *     own key. Vocion encrypts it at rest and later decrypts it to call *out*
  *     to that platform on the org's behalf, so the org's own account is billed.
  *
+ * A second axis crosses that one — how many credentials an org may hold for a
+ * platform, and therefore how a caller finds the right one:
+ *
+ *   - **One live** (`openai`, `anthropic`, `aws`, …). At most one live
+ *     credential per org, so a caller asks for "the org's Anthropic key" and
+ *     gets a single deterministic row. Saving a second key replaces the first.
+ *   - **Many** (`vocion`, and the connector platforms `jira`, `strapi`,
+ *     `hubspot`, `granola`). As many live credentials as the workspace wants,
+ *     told apart by `name`. A caller names the one it wants by row id, which is
+ *     what lets one Strapi install sync against staging while another uses
+ *     production.
+ *
  * Adding a platform means adding a descriptor here. Nothing else in the
- * service, router or UI enumerates platforms.
+ * service, router or UI enumerates platforms — with one deliberate exception:
+ * `api_token_org_platform_live_idx` has to spell the `many` platform ids out in
+ * SQL, because a partial index cannot call into TypeScript. {@link
+ * MANY_CREDENTIAL_PLATFORM_IDS} is the list to keep it in step with, and
+ * `registry.test.ts` fails if the two drift.
  */
 
 import type { LLMProviderName } from '@vocion/sdk';
@@ -26,7 +42,20 @@ export type CredentialPlatformId
     | 'vertex'
     | 'azure-openai'
     | 'aws'
-    | 'custom';
+    | 'custom'
+  // Connector platforms. One per API-key connector, so a workspace types its
+  // Jira or Strapi key once and every connector install can point at it.
+    | 'granola'
+    | 'hubspot'
+    | 'jira'
+    | 'strapi'
+  // One credential, several connectors. A Google OAuth client is consented
+  // once and its refresh token then serves Gmail, Drive, Calendar, Analytics
+  // and Ads together; a Slack bot token reads every channel the workspace
+  // syncs; a Zoom server-to-server app covers the whole account.
+    | 'google'
+    | 'slack'
+    | 'zoom';
 
 /**
  * Where a platform's secret comes from.
@@ -35,6 +64,22 @@ export type CredentialPlatformId
  * platform's own key.
  */
 export type KeySource = 'minted' | 'supplied';
+
+/**
+ * How many credentials an org may hold for a platform, and therefore how a
+ * caller finds the right one.
+ *
+ * `one-live` — at most one live credential. A caller asks for "the org's
+ * Anthropic key" and gets a single deterministic row, so `name` is only a
+ * label. Saving a second key replaces the first. Every LLM platform, plus
+ * `aws` and `custom`.
+ *
+ * `many` — as many live credentials as the workspace wants, told apart by
+ * `name`. A caller names the one it wants by row id, which is what lets one
+ * install sync against "Strapi — staging" while another uses
+ * "Strapi — prod". Every connector platform.
+ */
+export type CredentialsPerOrg = 'one-live' | 'many';
 
 /**
  * One input a platform's credential is made of.
@@ -58,6 +103,13 @@ export type CredentialField = {
    * shown back in full; a secret one is never readable again after saving.
    */
   secret: boolean;
+  /**
+   * Whether the credential is complete without this value. Google Ads needs a
+   * developer token alongside the OAuth set that the other four Google
+   * connectors do not, so the shared Google credential carries it as an extra
+   * a workspace fills in only if it syncs Ads.
+   */
+  optional?: boolean;
 };
 
 export type CredentialPlatform = {
@@ -65,6 +117,35 @@ export type CredentialPlatform = {
   /** Name shown in the platform selector. */
   label: string;
   keySource: KeySource;
+  /**
+   * Whether the org may hold one live credential here or many. See
+   * {@link CredentialsPerOrg}. The database mirrors this in
+   * `api_token_org_platform_live_idx`, which only constrains `one-live`
+   * platforms.
+   */
+  credentialsPerOrg: CredentialsPerOrg;
+  /**
+   * The source connectors whose installs authenticate with this platform's
+   * credential, empty when no connector does. This is the bridge from "the
+   * Jira connector needs a key" back to "look at the org's `jira`
+   * credentials".
+   *
+   * Usually one. Several when a single grant covers several connectors: one
+   * Google OAuth consent yields a refresh token that Gmail, Drive, Calendar,
+   * Analytics and Ads all authenticate with.
+   */
+  connectorSlugs: readonly string[];
+  /**
+   * Whether two sources may point at the same stored credential.
+   *
+   * False for a credential issued for one place — a Strapi token is worthless
+   * against any instance but the one that minted it, so offering it to a
+   * second install would only produce a failing sync. True for an
+   * account-wide grant: one Slack bot token reads every channel, and a
+   * workspace syncing five channels should type it once rather than five
+   * times.
+   */
+  credentialsShareable: boolean;
   /**
    * The LLM provider this platform's key authenticates, or `null` when the
    * platform is not an LLM provider at all (`vocion`, `custom`). Outbound
@@ -108,6 +189,9 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     id: 'vocion',
     label: 'Vocion',
     keySource: 'minted',
+    credentialsPerOrg: 'many',
+    connectorSlugs: [],
+    credentialsShareable: false,
     llmProvider: null,
     keyPattern: null,
     keyShapeHint: 'generated by Vocion',
@@ -118,6 +202,9 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     id: 'openai',
     label: 'OpenAI',
     keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
     llmProvider: 'openai',
     // OpenAI keys begin `sk-` and carry a long opaque tail. Project and
     // service-account keys (`sk-proj-…`, `sk-svcacct-…`) match the same shape.
@@ -130,6 +217,9 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     id: 'anthropic',
     label: 'Anthropic',
     keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
     llmProvider: 'anthropic',
     keyPattern: /^sk-ant-[\w-]{16,}$/i,
     keyShapeHint: 'starts with "sk-ant-" followed by at least 16 more characters',
@@ -140,6 +230,9 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     id: 'vertex',
     label: 'Google Vertex AI',
     keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
     // A Vertex credential is a service-account JSON document or a short-lived
     // access token depending on how the customer authenticates, so there is no
     // single shape worth enforcing.
@@ -153,6 +246,9 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     id: 'azure-openai',
     label: 'Azure OpenAI',
     keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
     llmProvider: 'azure-openai',
     // Azure resource keys are 32+ hex-ish characters with no prefix.
     keyPattern: /^[A-Z0-9]{32,}$/i,
@@ -164,6 +260,9 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     id: 'aws',
     label: 'AWS',
     keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
     // Maps to `bedrock`, the Amazon Bedrock model provider. This is the one
     // platform whose credential is a pair rather than a single key, so it is
     // also the one platform `resolveOrgProviderKey` cannot serve — that helper
@@ -204,10 +303,217 @@ const PLATFORMS: readonly CredentialPlatform[] = [
       },
     ],
   },
+  /* ---------------------------------------------------------------- */
+  /* Connector platforms — a workspace may hold several of each.        */
+  /* ---------------------------------------------------------------- */
+  {
+    id: 'granola',
+    label: 'Granola',
+    keySource: 'supplied',
+    credentialsPerOrg: 'many',
+    connectorSlugs: ['granola'],
+    credentialsShareable: false,
+    llmProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'any non-empty API key',
+    helpText: 'A Granola API key. The Granola connector reads meeting notes with it.',
+    // Named `token` because that is the key the connector reads out of
+    // `ctx.credentials`. The field name is the storage contract between the two.
+    fields: [{ name: 'token', label: 'API key', pattern: null, shapeHint: 'is any non-empty API key', secret: true }],
+  },
+  {
+    id: 'hubspot',
+    label: 'HubSpot',
+    keySource: 'supplied',
+    credentialsPerOrg: 'many',
+    connectorSlugs: ['hubspot'],
+    credentialsShareable: false,
+    llmProvider: null,
+    // Private-app tokens are `pat-<region>-<uuid>` today, but older keys and
+    // OAuth access tokens reach this field too, so no shape is enforced.
+    keyPattern: null,
+    keyShapeHint: 'any non-empty token',
+    helpText: 'A HubSpot private-app token, from Settings → Integrations → Private Apps. Needs CRM object read access.',
+    // Named `token` to match what the connector reads out of `ctx.credentials`.
+    fields: [{ name: 'token', label: 'Private-app token', pattern: null, shapeHint: 'is any non-empty token', secret: true }],
+  },
+  {
+    id: 'jira',
+    label: 'Jira',
+    keySource: 'supplied',
+    credentialsPerOrg: 'many',
+    connectorSlugs: ['jira'],
+    credentialsShareable: false,
+    llmProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an Atlassian account email plus its API token',
+    helpText: 'An Atlassian API token, from id.atlassian.com → Security → API tokens. Jira authenticates the token together with the email it was issued to.',
+    fields: [
+      {
+        name: 'email',
+        label: 'Atlassian account email',
+        pattern: /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/,
+        shapeHint: 'is an email address',
+        // Half of Jira's basic-auth pair and not a secret — Atlassian puts it
+        // in the request in the clear. Non-secret so the form keeps it
+        // readable and the stored-key hint lands on the token instead.
+        secret: false,
+      },
+      {
+        name: 'apiToken',
+        label: 'API token',
+        pattern: null,
+        shapeHint: 'is any non-empty token',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'strapi',
+    label: 'Strapi',
+    keySource: 'supplied',
+    credentialsPerOrg: 'many',
+    connectorSlugs: ['strapi'],
+    credentialsShareable: false,
+    llmProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an instance URL plus its API token',
+    helpText: 'A Strapi API token, from Settings → API Tokens. Read-only is enough. A token only works against the instance that issued it, so the instance URL is kept with it.',
+    fields: [
+      {
+        name: 'baseUrl',
+        label: 'Instance URL',
+        pattern: /^https?:\/\/\S+$/i,
+        shapeHint: 'starts with http:// or https://',
+        // Part of the credential rather than connector configuration: the
+        // token is worthless against any other instance, so the two rotate
+        // together. Non-secret, so the form and the credential list can show
+        // it in full — which is also how one Strapi credential is told apart
+        // from another.
+        secret: false,
+      },
+      {
+        name: 'token',
+        label: 'API token',
+        pattern: null,
+        shapeHint: 'is any non-empty token',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'google',
+    label: 'Google',
+    keySource: 'supplied',
+    credentialsPerOrg: 'many',
+    connectorSlugs: ['gmail', 'drive', 'google-calendar', 'ga4', 'google-ads'],
+    // One OAuth consent covers every Google connector the workspace ticked, so
+    // the same credential is meant to be pointed at by several sources.
+    credentialsShareable: true,
+    llmProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'an OAuth client id and secret plus the refresh token they minted',
+    helpText: 'A Google OAuth client and the refresh token it minted, from `npm run google:oauth`. Gmail, Drive, Calendar, Analytics and Ads all authenticate with it. A refresh token keeps working; a bare access token expires in about an hour.',
+    fields: [
+      {
+        name: 'clientId',
+        label: 'OAuth client ID',
+        pattern: null,
+        shapeHint: 'is the client ID from the Google Cloud console',
+        // Half of the OAuth client pair and not a secret — it travels in the
+        // consent URL in the clear. Shown in full so two Google credentials
+        // can be told apart by the project they belong to.
+        secret: false,
+      },
+      {
+        name: 'clientSecret',
+        label: 'OAuth client secret',
+        pattern: null,
+        shapeHint: 'is the client secret from the Google Cloud console',
+        secret: true,
+      },
+      {
+        name: 'refreshToken',
+        label: 'Refresh token',
+        pattern: null,
+        shapeHint: 'is the refresh token the consent returned',
+        secret: true,
+      },
+      {
+        name: 'developerToken',
+        label: 'Google Ads developer token',
+        pattern: null,
+        shapeHint: 'is the developer token from the Google Ads manager account',
+        secret: true,
+        // Only the Ads connector sends it. Leaving it blank is right for a
+        // workspace syncing Gmail, Drive, Calendar or Analytics.
+        optional: true,
+      },
+    ],
+  },
+  {
+    id: 'slack',
+    label: 'Slack',
+    keySource: 'supplied',
+    credentialsPerOrg: 'many',
+    connectorSlugs: ['slack'],
+    // A bot token reads every channel it was invited to, and one source syncs
+    // one channel, so a workspace watching several channels shares one token.
+    credentialsShareable: true,
+    llmProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Slack bot or user token, usually starting "xoxb-"',
+    helpText: 'A Slack bot token, from your Slack app → OAuth & Permissions. Needs channels:history and channels:read, and the bot has to be in each channel you sync.',
+    // Named `token` because that is the key the connector reads out of
+    // `ctx.credentials`. The field name is the storage contract between the two.
+    fields: [{ name: 'token', label: 'Bot token', pattern: null, shapeHint: 'is any non-empty token', secret: true }],
+  },
+  {
+    id: 'zoom',
+    label: 'Zoom',
+    keySource: 'supplied',
+    credentialsPerOrg: 'many',
+    connectorSlugs: ['zoom'],
+    // A server-to-server app authenticates for the whole Zoom account, so
+    // several sources scoped to different people share one set.
+    credentialsShareable: true,
+    llmProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a Zoom account ID plus the app\'s client ID and secret',
+    helpText: 'A Zoom server-to-server OAuth app, from the Zoom App Marketplace → Develop → Build App. Needs user:read:admin and cloud_recording:read:admin. All three values are on the app\'s Credentials page.',
+    fields: [
+      {
+        name: 'accountId',
+        label: 'Account ID',
+        pattern: null,
+        shapeHint: 'is the account ID on the app\'s Credentials page',
+        // Identifies the Zoom account rather than authenticating it, so it is
+        // shown in full and tells two Zoom credentials apart.
+        secret: false,
+      },
+      {
+        name: 'clientId',
+        label: 'Client ID',
+        pattern: null,
+        shapeHint: 'is the client ID on the app\'s Credentials page',
+        secret: false,
+      },
+      {
+        name: 'clientSecret',
+        label: 'Client secret',
+        pattern: null,
+        shapeHint: 'is the client secret on the app\'s Credentials page',
+        secret: true,
+      },
+    ],
+  },
   {
     id: 'custom',
     label: 'Other platform',
     keySource: 'supplied',
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: [],
+    credentialsShareable: false,
     llmProvider: null,
     keyPattern: null,
     keyShapeHint: 'any non-empty credential',
@@ -320,6 +626,9 @@ export function validatePlatformCredential(
   for (const field of platform.fields) {
     const value = (rawValues[field.name] ?? '').trim();
     if (value.length === 0) {
+      if (field.optional === true) {
+        continue;
+      }
       throw new CredentialValidationError(`Enter the ${field.label}.`);
     }
     if (field.pattern && !field.pattern.test(value)) {
@@ -331,13 +640,67 @@ export function validatePlatformCredential(
 }
 
 /**
+ * Every platform an org may hold more than one live credential for — the list
+ * `api_token_org_platform_live_idx` carves out of its uniqueness rule.
+ *
+ * Derived from the descriptors rather than written out again, so a new
+ * connector platform cannot be added without this list following. The
+ * migration's SQL copy of the same list is checked against this one by
+ * `registry.test.ts`.
+ */
+export const MANY_CREDENTIAL_PLATFORM_IDS: readonly CredentialPlatformId[]
+  = PLATFORMS.filter(platform => platform.credentialsPerOrg === 'many').map(platform => platform.id);
+
+/**
+ * Whether an org may hold more than one live credential for `id`.
+ * @param id - The platform to ask about.
+ */
+export function holdsManyCredentials(id: CredentialPlatformId): boolean {
+  return getPlatform(id).credentialsPerOrg === 'many';
+}
+
+/**
+ * The platform whose credentials authenticate the `slug` connector, or `null`
+ * when that connector does not authenticate with a stored credential — every
+ * OAuth connector, and every connector that needs no auth at all.
+ * @param slug - A source connector slug, e.g. `strapi`.
+ */
+export function platformForConnectorSlug(slug: string): CredentialPlatform | null {
+  return PLATFORMS.find(platform => platform.connectorSlugs.includes(slug)) ?? null;
+}
+
+/**
+ * Whether two sources may point at the same stored credential for `id`.
+ *
+ * A credential issued for one place must not be, since the second source would
+ * only fail; an account-wide grant must be, or a workspace syncing five Slack
+ * channels would have to paste the same bot token five times.
+ * @param id - The platform to ask about.
+ */
+export function credentialsAreShareable(id: CredentialPlatformId): boolean {
+  return getPlatform(id).credentialsShareable;
+}
+
+/**
+ * The non-secret fields of a platform's credential, in form order. These are
+ * the values safe to show in full — an instance URL, an account email — and so
+ * the ones that tell two credentials for the same platform apart.
+ * @param platform - The platform whose credential is being described.
+ */
+export function visibleFields(platform: CredentialPlatform): readonly CredentialField[] {
+  return platform.fields.filter(field => !field.secret);
+}
+
+/**
  * The field whose value the list view should hint at — the last secret one, so
  * a pair like AWS hints at the secret access key rather than the access key id
  * that is already shown in full.
  * @param platform - The platform whose credential was stored.
  */
 export function hintField(platform: CredentialPlatform): CredentialField | undefined {
-  const secrets = platform.fields.filter(field => field.secret);
+  // Required only: an optional field may hold nothing, and a hint drawn from a
+  // blank value tells the list nothing about which credential this row is.
+  const secrets = platform.fields.filter(field => field.secret && field.optional !== true);
   return secrets[secrets.length - 1];
 }
 

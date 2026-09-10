@@ -42,7 +42,7 @@ const objectTypeActions: Record<string, ContextAction[]> = {
       label: 'Search Everything',
       skillSlug: 'search_everything',
       icon: <Globe className="size-3.5" />,
-      description: 'Search all sources: email, Slack, HubSpot, Drive, Zoom',
+      description: 'Search all connectors: email, Slack, HubSpot, Drive, Zoom',
     },
   ],
   // Generic actions for any call/meeting
@@ -63,7 +63,7 @@ const objectTypeActions: Record<string, ContextAction[]> = {
       label: 'Search Everything',
       skillSlug: 'search_everything',
       icon: <Globe className="size-3.5" />,
-      description: 'Search all sources: email, Slack, HubSpot, Drive, Zoom',
+      description: 'Search all connectors: email, Slack, HubSpot, Drive, Zoom',
     },
   ],
 };

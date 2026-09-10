@@ -6,4 +6,5 @@ export { getWorkspacePath } from './reader';
 export * from './schemas';
 export { computeWorkspaceSha } from './sha';
 export { assertTeams, effectiveTeamSlug } from './teams';
+export { allowlistedTemplateVariableNames, readWorkspaceTextFile, substituteEnvTokens, TEMPLATE_VARS_ALLOWLIST_NAME, WorkspaceTemplateError } from './template-vars';
 export { deleteResource, slugToDirname, writeAgent, type WriteAgentInput, writeObjectType, type WriteObjectTypeInput, writeSkill, type WriteSkillInput, type WrittenResource } from './writer';

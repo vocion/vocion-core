@@ -1,0 +1,7 @@
+name: Frontline
+description: >-
+  First touch on every ticket — triage, tagging, and the first reply
+  draft. Handles roughly 190 inbound tickets a week; nothing it writes
+  is sent without a human approving it.
+lead: frontline-lead
+# No accountableUser: inherits the workspace default (labeled as inherited).

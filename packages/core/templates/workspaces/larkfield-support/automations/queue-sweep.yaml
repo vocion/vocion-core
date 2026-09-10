@@ -1,0 +1,16 @@
+slug: queue-sweep
+name: Weekday queue sweep
+description: >-
+  The only place time lives. Wakes the Support Director every weekday
+  morning to check the standing mission.
+status: active
+agent: support-director
+when:
+  schedule: '0 13 * * 1-5'
+do:
+  checkMission: keep-the-queue-clear
+  prompt: >-
+    Check the queue. Report what breached the 4-business-hour first
+    response overnight, what is about to, and everything sitting in the
+    review queue waiting on a human — with how long it has waited.
+    Drive the breaches to a draft; do not send anything.
