@@ -1,5 +1,7 @@
-import { os } from '@orpc/server';
+import type { WorkflowRunSummary } from '@/services/WorkflowService';
+import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
+import { logger } from '@/libs/Logger';
 import { trackReviewDecision } from '@/services/adoption/attribution';
 import {
   cancelWorkflow,
@@ -7,6 +9,7 @@ import {
   listWorkflowRuns,
   resumeWorkflow,
   submitWorkflowRunFeedback,
+  WorkflowRunNotResumableError,
 } from '@/services/WorkflowService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -371,7 +374,19 @@ export const resume = os
   .input(ResumeInput)
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
-    const run = await resumeWorkflow(input.id, orgId, input.input !== undefined ? { input: input.input } : undefined);
+    let run: WorkflowRunSummary;
+    try {
+      run = await resumeWorkflow(input.id, orgId, input.input !== undefined ? { input: input.input } : undefined);
+    } catch (err) {
+      if (err instanceof WorkflowRunNotResumableError) {
+        // Someone else's click, or a stale page, got there first. The
+        // reply deliberately omits the run id and the raw status, so this
+        // log line is the only place that detail survives.
+        logger.warn('workflow resume lost the claim race or the run moved on', { runId: input.id, orgId, reason: err.message });
+        throw new ORPCError('CONFLICT', { message: 'This run is no longer resumable — someone may have already approved it, or it has moved on.' });
+      }
+      throw err;
+    }
     void trackReviewDecision({ orgId, userId }, { kind: 'workflow', id: input.id }, 'approved');
     return run;
   });

@@ -53,6 +53,19 @@ export type WorkflowRunSummary = {
   completedAt: Date | null;
 };
 
+/**
+ * Raised when the run is no longer `paused` — another resume claimed it, or
+ * it completed, failed or was cancelled since this caller read it. Carries
+ * the reason so the route can log it and tell the reviewer something better
+ * than "something went wrong".
+ */
+export class WorkflowRunNotResumableError extends Error {
+  constructor(runId: number, reason: string) {
+    super(`workflow_run ${runId} is not resumable: ${reason}`);
+    this.name = 'WorkflowRunNotResumableError';
+  }
+}
+
 export async function startWorkflow(opts: StartWorkflowOpts): Promise<WorkflowRunSummary> {
   const workflow = await db.query.workflowSchema.findFirst({
     where: and(eq(workflowSchema.orgId, opts.orgId), eq(workflowSchema.slug, opts.slug)),
@@ -90,7 +103,7 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
     throw new Error(`workflow_run ${runId} not found`);
   }
   if (run.status !== 'paused') {
-    throw new Error(`workflow_run ${runId} is ${run.status}; nothing to resume`);
+    throw new WorkflowRunNotResumableError(runId, `status is ${run.status}, not paused`);
   }
 
   // Mark the current (approve | ask) step complete and advance the cursor —
@@ -120,7 +133,13 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
     };
   }
 
-  await db.update(workflowRunSchema)
+  // The `paused` check above cannot decide this on its own: two concurrent
+  // resumes both read before either writes, so both would reach here and
+  // run the same steps twice. Keeping the predicate inside the UPDATE hands
+  // the decision to Postgres, whose row lock makes the loser re-evaluate
+  // against the winner's committed row and match nothing. Zero rows back is
+  // how it learns it lost. Same claim as SourceSyncService.beginSync.
+  const claimed = await db.update(workflowRunSchema)
     .set({
       status: 'running',
       pauseReason: null,
@@ -128,7 +147,16 @@ export async function resumeWorkflow(runId: number, orgId: string, payload?: { i
       stepResults,
       currentStep: currentIdx + 1,
     })
-    .where(eq(workflowRunSchema.id, runId));
+    .where(and(
+      eq(workflowRunSchema.id, runId),
+      eq(workflowRunSchema.orgId, orgId),
+      eq(workflowRunSchema.status, 'paused'),
+    ))
+    .returning({ id: workflowRunSchema.id });
+
+  if (claimed.length === 0) {
+    throw new WorkflowRunNotResumableError(runId, 'another request already resumed it, or its status changed since this request read it');
+  }
 
   return runLoop(runId);
 }
