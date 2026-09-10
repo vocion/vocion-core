@@ -5,7 +5,10 @@
  * surface (the review queue and the personalization console decide the same
  * run — ticket 023's rule).
  *
- * Approving ("Enroll") persists the reviewer's edited sends, enrolls the
+ * Approving ("Enroll") persists the reviewer's edited sends, writes them into
+ * the contact's Personalized Nurture slots when the sequence is a ladder rung
+ * (the ladder sends whatever those properties hold, so this happens BEFORE
+ * the enrollment and a failed write stops it; ticket 060), enrolls the
  * contact into the recommended existing sequence in HubSpot, stages the
  * approved personalized copy on the contact as a note (the sequences API
  * carries no per-enrollment copy), and moves the lead's lane to
@@ -49,6 +52,26 @@ function entranceLabel(value: string): string {
 
 const DATE_FORMAT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
+/**
+ * The contacts source's config: the portal id for deep links and the nurture
+ * slot names. Absent source, absent keys, both read as defaults.
+ * @param orgId
+ */
+async function contactsSourceConfig(orgId: string): Promise<{ portalId?: string | number; nurtureSlots?: unknown }> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { knowledgeSourceSchema } = await import('@/models/Schema');
+  const [source] = await db
+    .select({ configJson: knowledgeSourceSchema.configJson })
+    .from(knowledgeSourceSchema)
+    .where(and(
+      eq(knowledgeSourceSchema.orgId, orgId),
+      eq(knowledgeSourceSchema.slug, 'hubspot-contacts'),
+    ))
+    .limit(1);
+  return (source?.configJson as { portalId?: string | number; nurtureSlots?: unknown } | null) ?? {};
+}
+
 export const personalizationEnrollAction: Action<typeof enrollInput> = {
   id: 'personalization.enroll',
   name: 'Enroll MQL in sequence',
@@ -80,7 +103,8 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
   async reviewCard(ctx, input) {
     const { and, eq } = await import('drizzle-orm');
     const { db } = await import('@/libs/DB');
-    const { knowledgeSourceSchema, leadBriefSchema } = await import('@/models/Schema');
+    const { leadBriefSchema } = await import('@/models/Schema');
+    const { isNurtureSequence, readNurtureSlotsConfig } = await import('@/libs/hubspot/nurtureSlots');
 
     const [lead] = await db
       .select()
@@ -94,15 +118,8 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     // Contact deep link needs the portal id, read from the contacts source.
     const hubspotId = input.contactRef.split(':')[1];
     let contactHref: string | undefined;
-    const [source] = await db
-      .select({ configJson: knowledgeSourceSchema.configJson })
-      .from(knowledgeSourceSchema)
-      .where(and(
-        eq(knowledgeSourceSchema.orgId, ctx.orgId),
-        eq(knowledgeSourceSchema.slug, 'hubspot-contacts'),
-      ))
-      .limit(1);
-    const portalId = (source?.configJson as { portalId?: string | number } | null)?.portalId;
+    const sourceCfg = await contactsSourceConfig(ctx.orgId);
+    const portalId = sourceCfg.portalId;
     if (portalId && hubspotId) {
       contactHref = `https://app.hubspot.com/contacts/${portalId}/record/0-1/${hubspotId}`;
     }
@@ -154,7 +171,11 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
         subject: s.subject,
         body: s.body,
       })),
-      fields: [],
+      // A ladder rung says so on the card: Enroll puts these sends on the
+      // contact's nurture slots, which is what the sequence will send.
+      fields: isNurtureSequence(input.sequenceName, readNurtureSlotsConfig(sourceCfg.nurtureSlots))
+        ? [{ label: 'On Enroll', value: `${sends.length} ${sends.length === 1 ? 'send is' : 'sends are'} written to the contact's nurture slots, then the contact is enrolled` }]
+        : [],
       // The lead's own page — the card and the research land on one URL.
       links: [{ label: 'View Research', href: hubspotId ? `/gtm/lead/${hubspotId}` : '/gtm/personalization' }],
       verbs: { approve: 'Enroll', reject: 'Decline' },
@@ -216,6 +237,21 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       client = resolved.client;
     }
 
+    // A ladder rung sends whatever the contact's nurture slots hold, so the
+    // approved sends go onto the contact FIRST, and a failed write stops the
+    // enrollment: an enrolled contact with empty slots receives empty emails.
+    const { isNurtureSequence, nurtureSlotProperties, readNurtureSlotsConfig, writeNurtureSlots } = await import('@/libs/hubspot/nurtureSlots');
+    const slotsCfg = readNurtureSlotsConfig((await contactsSourceConfig(ctx.orgId)).nurtureSlots);
+    let slotsWritten = 0;
+    if (isNurtureSequence(input.sequenceName, slotsCfg)) {
+      const properties = nurtureSlotProperties(input.sends, slotsCfg);
+      const written = await writeNurtureSlots(client, hubspotId, properties);
+      if (!written.ok) {
+        throw new Error(`Not enrolled: the nurture slots could not be written to the contact (${written.message}), and "${input.sequenceName}" would send empty emails`);
+      }
+      slotsWritten = input.sends.length;
+    }
+
     // The enrollment: the lead is pushed into the recommended EXISTING
     // sequence. Throw-on-failure — the run records failed with the message.
     const { enrollContact, stageSendsAsNote } = await import('@/libs/hubspot/sequences');
@@ -265,6 +301,7 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       contactRef: input.contactRef,
       senderEmail: input.senderEmail,
       sendCount: input.sends.length,
+      nurtureSlotsWritten: slotsWritten,
       sendsStagedAsNote: note.ok,
       noteId: note.ok ? note.data.noteId : null,
       ...(note.ok ? {} : { noteError: note.message }),

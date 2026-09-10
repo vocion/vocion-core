@@ -212,6 +212,88 @@ describe('Enroll (approve → execute)', () => {
   });
 });
 
+describe('Enroll into a Personalized Nurture rung', () => {
+  const RUNG = { sequenceId: 'seq-pn3', sequenceName: 'Personalized Nurture · 3 Steady' };
+  const FOUR_SENDS = [1, 2, 3, 4].map(n => ({ step: n, subject: `Subject ${n}`, body: `Body ${n}` }));
+
+  it('writes the approved sends into the contact\'s slots BEFORE enrolling, and says so in the result', async () => {
+    await seedLead();
+    const calls: Array<{ method: string; url: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ method: init?.method ?? 'GET', url: String(url), body: init?.body ? JSON.parse(init.body) : {} });
+      return res({ id: String(url).includes('/enrollments') ? 'enr-9' : 'ok' });
+    }));
+
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput({ ...RUNG, sends: FOUR_SENDS }) });
+    const executed = await executeAction(proposed.runId!, ORG, { reviewedBy: 'user_andrew' });
+
+    expect(executed.status).toBe('done');
+    expect(executed.result).toMatchObject({ enrolled: true, nurtureSlotsWritten: 4 });
+
+    const patchIdx = calls.findIndex(c => c.method === 'PATCH' && c.url.includes('/crm/v3/objects/contacts/9412'));
+    const enrollIdx = calls.findIndex(c => c.url.includes('/enrollments'));
+
+    expect(patchIdx).toBeGreaterThanOrEqual(0);
+    expect(patchIdx).toBeLessThan(enrollIdx);
+
+    const props = calls[patchIdx]!.body.properties as Record<string, string>;
+
+    expect(props).toMatchObject({ pn_email_1_subject: 'Subject 1', pn_email_1_body: 'Body 1', pn_email_4_subject: 'Subject 4', pn_email_4_body: 'Body 4' });
+    expect(props.pn_generated_at).toMatch(/^\d{13}$/);
+  });
+
+  it('a failed slot write stops the enrollment: no enrollment call, the run fails, the lane stays', async () => {
+    await seedLead();
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string }) => {
+      calls.push(`${init?.method ?? 'GET'} ${String(url)}`);
+      if (init?.method === 'PATCH') {
+        return res({ message: 'property pn_email_1_subject does not exist' }, false, 400);
+      }
+      return res({ id: 'x' });
+    }));
+
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput({ ...RUNG, sends: FOUR_SENDS }) });
+    const executed = await executeAction(proposed.runId!, ORG);
+
+    expect(executed.status).toBe('failed');
+    expect(calls.some(c => c.includes('/enrollments'))).toBe(false);
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, proposed.runId!));
+
+    expect(run?.error).toContain('would send empty emails');
+
+    const [lead] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, CONTACT));
+
+    expect(lead?.status).toBe('ready_for_review');
+  });
+
+  it('a general sequence writes no slots', async () => {
+    await seedLead();
+    const methods: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { method?: string }) => {
+      methods.push(init?.method ?? 'GET');
+      return res({ id: 'x' });
+    }));
+
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput() });
+    const executed = await executeAction(proposed.runId!, ORG);
+
+    expect(executed.status).toBe('done');
+    expect(executed.result).toMatchObject({ nurtureSlotsWritten: 0 });
+    expect(methods).not.toContain('PATCH');
+  });
+
+  it('the card says the sends go onto the slots at Enroll for a rung, and nothing for a general sequence', async () => {
+    await seedLead();
+    const rung = await personalizationEnrollAction.reviewCard!({ orgId: ORG }, enrollInput({ ...RUNG, sends: FOUR_SENDS }) as never);
+    const general = await personalizationEnrollAction.reviewCard!({ orgId: ORG }, enrollInput() as never);
+
+    expect(rung.fields).toEqual([{ label: 'On Enroll', value: expect.stringContaining('4 sends are written to the contact\'s nurture slots') }]);
+    expect(general.fields).toEqual([]);
+  });
+});
+
 describe('Decline (reject)', () => {
   it('moves the lane to held and stamps who declined', async () => {
     await seedLead();

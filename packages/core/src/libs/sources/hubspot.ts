@@ -16,6 +16,7 @@ import type { StageInfo } from '@/libs/hubspot/client';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
 import { createHubspotClient, hubspotNumeric, tokenFromCredentials } from '@/libs/hubspot/client';
+import { DEFAULT_NURTURE_SLOTS, nurtureSlotsSchema } from '@/libs/hubspot/nurtureSlots';
 
 const OBJECT_TYPES = ['contacts', 'deals', 'companies'] as const;
 
@@ -73,6 +74,8 @@ const hubspotConfigSchema = z.object({
   properties: z.array(z.string()).optional(),
   /** Which contact properties carry the reply and meeting signals. See `handoffSignalsSchema`. */
   handoffSignals: handoffSignalsSchema.default(DEFAULT_HANDOFF_SIGNALS),
+  /** The nurture ladder's token slots, written at Enroll. See `libs/hubspot/nurtureSlots.ts`. */
+  nurtureSlots: nurtureSlotsSchema.default(DEFAULT_NURTURE_SLOTS),
   /** Override for testing / EU data residency. */
   baseUrl: z.string().url().default('https://api.hubapi.com'),
   /** HubSpot portal (account) id — enables record deep links on review cards. */
