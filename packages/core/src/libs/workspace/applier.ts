@@ -1,6 +1,7 @@
 import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { withManifestDir } from '@/libs/sources/manifestDir';
 import { getConnector } from '@/libs/sources/registry';
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
@@ -34,6 +35,14 @@ export type ApplyResult = {
     teams: ResourceCounts;
   };
   errors: Array<{ resource: string; slug: string; message: string }>;
+  /**
+   * Non-fatal problems worth a human's attention but not worth failing the
+   * apply over — an agent's authored lists (playbooks, skills, object
+   * types, learning steps) going from non-empty to empty is the one case
+   * today (see {@link warnEmptiedAgentLists}). Distinct from `errors`: an
+   * apply with only warnings still reports `status: 'applied'`.
+   */
+  warnings: Array<{ resource: string; slug: string; message: string }>;
   versionId: number | null;
 };
 
@@ -43,6 +52,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   const defaults = loaded.manifest.defaults ?? {};
 
   const errors: ApplyResult['errors'] = [];
+  const warnings: ApplyResult['warnings'] = [];
   const counts: ApplyResult['counts'] = {
     agents: blank(),
     skills: blank(),
@@ -93,18 +103,10 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
 
   for (const agent of loaded.agents) {
     try {
-      const outcome = await upsertAgent(orgId, agent, defaults, dryRun, loaded.teams);
+      const outcome = await upsertAgent(orgId, agent, defaults, dryRun, loaded.teams, warnings);
       bump(counts.agents, outcome);
-      // provider: agentcore — provision/refresh the AWS-managed harness
-      // after the row lands, and record the ARN the invoke adapter reads.
-      // Skills upserted above, so the inline tool catalog is current.
-      if (!dryRun && agent.harness?.provider === 'agentcore') {
-        const { syncAgentCoreHarness } = await import('@/services/agents/providers/agentcore');
-        const arn = await syncAgentCoreHarness(orgId, agent.slug);
-        await db
-          .update(agentSchema)
-          .set({ harnessArn: arn })
-          .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agent.slug)));
+      if (!dryRun) {
+        await reconcileManagedHarness(orgId, agent, errors);
       }
     } catch (err) {
       errors.push({ resource: 'agent', slug: agent.slug, message: (err as Error).message });
@@ -263,6 +265,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     dryRun,
     counts,
     errors,
+    warnings,
     versionId,
   };
 }
@@ -425,7 +428,14 @@ async function upsertObjectType(orgId: string, ot: LoadedObjectType, dryRun: boo
   return 'updated';
 }
 
-async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?: string; temperature?: string }, dryRun: boolean, teams: LoadedTeam[] = []): Promise<UpsertOutcome> {
+async function upsertAgent(
+  orgId: string,
+  agent: LoadedAgent,
+  defaults: { model?: string; temperature?: string },
+  dryRun: boolean,
+  teams: LoadedTeam[] = [],
+  warnings: ApplyResult['warnings'] = [],
+): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
     .from(agentSchema)
@@ -477,10 +487,48 @@ async function upsertAgent(orgId: string, agent: LoadedAgent, defaults: { model?
     return 'unchanged';
   }
 
+  warnEmptiedAgentLists(agent.slug, existing, payload, warnings);
+
   if (!dryRun) {
     await db.update(agentSchema).set(payload).where(eq(agentSchema.id, existing.id));
   }
   return 'updated';
+}
+
+/** The agent lists a dropped-to-empty apply is worth warning about. */
+const AGENT_LIST_FIELDS = ['playbookSlugs', 'skillSlugs', 'objectTypeSlugs', 'learningSteps'] as const;
+
+/**
+ * Warn when this apply would empty out one of an agent's authored lists
+ * (playbooks, skills, object types, or learning steps) that held entries
+ * before. An apply from a branch that is simply missing those workspace
+ * files — rather than one that deliberately cleared the list — produces
+ * exactly this: `updated=1` with no other sign anything is wrong, and the
+ * agent silently loses every playbook/skill/object type/learning step it
+ * had. This does not block the apply — the new, empty list may be exactly
+ * what was authored — it only makes sure a human sees it.
+ * @param slug - The agent's slug, so the warning names who is affected.
+ * @param existing - The agent row as it stood before this apply.
+ * @param payload - The row this apply is about to write.
+ * @param warnings - The apply's running warnings list; pushed into in place.
+ */
+function warnEmptiedAgentLists(
+  slug: string,
+  existing: typeof agentSchema.$inferSelect,
+  payload: Record<string, unknown>,
+  warnings: ApplyResult['warnings'],
+): void {
+  const emptied = AGENT_LIST_FIELDS.filter((field) => {
+    const before = existing[field] ?? [];
+    const after = (payload[field] as string[] | undefined) ?? [];
+    return before.length > 0 && after.length === 0;
+  });
+  if (emptied.length === 0) {
+    return;
+  }
+  const message = `agent "${slug}" apply emptied ${emptied.join(', ')} — was non-empty before this apply; check whether this branch is simply missing those workspace files rather than intentionally clearing them`;
+  console.warn(`[workspace apply] ${message}`);
+  warnings.push({ resource: 'agent', slug, message });
 }
 
 /**
@@ -512,6 +560,86 @@ async function resolveAccountableUser(
     return null;
   }
   return row.id;
+}
+
+/**
+ * Bring AWS's managed harness in line with what the agent now asks for.
+ *
+ * Two directions, and only the first used to exist:
+ *
+ * - **On** `aws-managed-harness`: provision or refresh the harness and record
+ *   the ARN the invoke adapter reads. Skills are upserted before this, so the
+ *   inline tool catalog is current.
+ * - **Off** it: delete the harness the row points at and clear the ARN.
+ *   Without this the harness stayed `READY` after an agent moved to
+ *   `agentcore-container` — AWS's harness image, still chargeable, still
+ *   reachable by ARN, while every turn went to our own container. It is
+ *   invisible from the app, so the only way to find one was to read the
+ *   AgentCore console.
+ *
+ * The teardown is addressed by the ARN on the row, never by a name lookup, so
+ * it can only ever reach the harness this org's own row points at — including
+ * an agent provisioned before harness names carried an org, whose bare
+ * `vocion_<slug>` name a lookup could match for a different org.
+ *
+ * `runsOn` is already canonical here — `AgentManifestSchema` folds the
+ * pre-rename spellings (`provider:`, `agentcore`, `runtime`) into the three
+ * current names at parse time, which `harness-target.test.ts` pins — so a
+ * plain comparison is enough and no normalisation belongs in this layer.
+ *
+ * Failures land in `errors` rather than throwing: an unreachable AgentCore
+ * control plane must not stop the rest of a workspace apply, and a harness
+ * left behind is a cost and hygiene problem, not a correctness one.
+ * @param orgId - Tenant the agent belongs to.
+ * @param agent - The agent as authored in workspace YAML.
+ * @param errors - Apply-level error list, appended to on failure.
+ */
+async function reconcileManagedHarness(
+  orgId: string,
+  agent: LoadedAgent,
+  errors: ApplyResult['errors'],
+): Promise<void> {
+  if (agent.harness?.runsOn === 'aws-managed-harness') {
+    const { syncAgentCoreHarness } = await import('@/services/agents/providers/agentcore');
+    const arn = await syncAgentCoreHarness(orgId, agent.slug);
+    await db
+      .update(agentSchema)
+      .set({ harnessArn: arn })
+      .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agent.slug)));
+    return;
+  }
+
+  // Nothing to tear down unless this agent is recorded as having a harness.
+  // Checked against the row rather than the previous YAML, because the YAML
+  // that put it there may be long gone from the workspace.
+  const [row] = await db
+    .select({ harnessArn: agentSchema.harnessArn })
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agent.slug)));
+  if (!row?.harnessArn) {
+    return;
+  }
+
+  try {
+    const { deleteAgentCoreHarness } = await import('@/services/agents/providers/agentcore');
+    // Addressed by the stored ARN, so this can only ever reach the harness
+    // this org's own row points at.
+    const { deleted, harnessId } = await deleteAgentCoreHarness(row.harnessArn);
+    await db
+      .update(agentSchema)
+      .set({ harnessArn: null })
+      .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agent.slug)));
+    console.warn(
+      `workspace: ${agent.slug} left aws-managed-harness — harness ${harnessId} ${deleted ? 'deleted' : 'was already gone'}, cleared harnessArn`,
+    );
+  } catch (err) {
+    // The ARN stays on the row so the next apply tries again.
+    errors.push({
+      resource: 'agent',
+      slug: agent.slug,
+      message: `left aws-managed-harness but its harness could not be deleted: ${(err as Error).message}`,
+    });
+  }
 }
 
 async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, errors: ApplyResult['errors']): Promise<UpsertOutcome> {
@@ -866,11 +994,17 @@ async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean): 
   // Store the connector slug in config_json under `_connector` so
   // SourceSyncService.runSync can route to the right connector. This
   // matches the convention used by the addSource() picker path.
+  //
+  // `_manifestDir` records the directory of the workspace manifest that
+  // declared this source, so a connector resolves relative path options
+  // against the manifest rather than against WORKSPACE_PATH. For a
+  // manifest at the workspace root the two are the same path, which is
+  // why this is backwards compatible.
   const payload = {
     orgId,
     slug: src.slug,
     kind: 'plugin' as const,
-    configJson: { ...src.config, _connector: src.kind } as Record<string, unknown>,
+    configJson: withManifestDir({ ...src.config, _connector: src.kind }, src.manifestDir) as Record<string, unknown>,
     accessPolicy: src.access ?? null,
     enabled: String(src.enabled),
   };

@@ -31,6 +31,7 @@
  */
 
 import type { IngestDoc } from './IngestionService';
+import type { SourceSyncCompletedPayload } from '@/services/EventService';
 import { and, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getConnector } from '@/libs/sources/registry';
@@ -41,7 +42,7 @@ import {
   ingestDocument,
   markSourceSynced,
 } from './IngestionService';
-import { getCredentialsForSource } from './SourceCredentialService';
+import { getCredentialsForConnector } from './SourceCredentialService';
 
 /**
  * Log, loading the logger only when it's needed.
@@ -483,6 +484,50 @@ export async function finishSync(
     ));
 }
 
+/**
+ * Tell the rest of the system a sync finished.
+ *
+ * Fresh knowledge is the event most workspaces want to hang work off — reindex
+ * a summary, notify a channel, re-run a mission check against what just landed
+ * — and `AutomationManifestSchema` has always accepted `when: { event }` for
+ * exactly that. Nothing in the sync path ever emitted one, so those automations
+ * were declared, validated, stored, and never fired. This is the emitter.
+ *
+ * Two deliberate choices:
+ *
+ *   - **Never fails the sync.** The documents are already ingested and the
+ *     checkpoint already says `completed`. Throwing here would turn a good sync
+ *     into a failed one and, worse, invite a retry that re-walks the source.
+ *     A dispatch failure is logged and swallowed.
+ *   - **Imported lazily**, like the two API-route emitters. `EventService`
+ *     pulls in the workflow and automation runners; this module sits in the
+ *     import chain of CLI scripts that tsx compiles as CommonJS, where a
+ *     top-level await anywhere downstream is fatal (see `log` above).
+ *
+ * The dedupe key is the run's cutoff, so a redelivered emit for the same run
+ * is a no-op while the next run's event still gets through.
+ * @param orgId - Org that owns the source.
+ * @param payload - The completed run, as subscribers see it.
+ */
+async function announceSyncCompleted(orgId: string, payload: SourceSyncCompletedPayload): Promise<void> {
+  try {
+    const { emitEvent, SOURCE_SYNC_COMPLETED } = await import('@/services/EventService');
+    await emitEvent({
+      orgId,
+      type: SOURCE_SYNC_COMPLETED,
+      payload,
+      dedupeKey: `source-sync:${payload.sourceId}:${payload.completedAt}`,
+      invokedBy: 'source-sync',
+    });
+  } catch (err) {
+    log('error', 'sync completed but its event could not be dispatched', {
+      sourceId: payload.sourceId,
+      orgId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export async function runSync(opts: {
   orgId: string;
   sourceId: number;
@@ -512,13 +557,32 @@ export async function runSync(opts: {
     throw new Error(`source ${opts.sourceId} references unknown connector: ${connectorSlug}`);
   }
 
-  const { since, cursor } = await beginSync(opts.sourceId, opts.orgId, !!opts.incremental);
   // Resolve decrypted credentials from the vault so token/OAuth connectors can
-  // authenticate. Credentials are per-CONNECTOR, not per-source — one HubSpot
-  // token serves the deals/contacts/companies sources alike — so look up by the
-  // connector slug (config._connector), not the source slug. Undefined for
-  // connectors that need none (e.g. `web`).
-  const credentials = await getCredentialsForSource(opts.orgId, connectorSlug);
+  // authenticate. Two shapes of answer, and this row says which:
+  //
+  //   - `api_token_id` set — the stored workspace credential this connector
+  //     names. Per connector row, so a Strapi against staging and one against
+  //     production each authenticate with their own key.
+  //   - otherwise — the OAuth grant on the org's install of this connector
+  //     (config._connector), which one grant serves for every source row of
+  //     that kind: one HubSpot grant covers deals, contacts and companies.
+  //
+  // Undefined for connectors that need no credential (e.g. `web`).
+  //
+  // Before `beginSync`, deliberately. A credential that has been revoked or
+  // has expired throws here, and claiming the checkpoint first would leave a
+  // run marked `running` that nothing ever finishes — a spinner on the
+  // connectors page with no failure behind it. Failing before any run is
+  // claimed also keeps a broken credential out of the sync history, where it
+  // would read as an attempt that went wrong rather than one that never
+  // started.
+  const credentials = await getCredentialsForConnector({
+    orgId: opts.orgId,
+    connectorSlug,
+    apiTokenId: row.apiTokenId,
+  });
+
+  const { since, cursor } = await beginSync(opts.sourceId, opts.orgId, !!opts.incremental);
   const cutoff = new Date();
   const result: SyncResult = {
     sourceId: opts.sourceId,
@@ -817,6 +881,25 @@ export async function runSync(opts: {
       watermark: wholeSourceWasRead ? cutoff : undefined,
       failures: failuresForCheckpoint(),
     });
+    await announceSyncCompleted(opts.orgId, {
+      sourceId: opts.sourceId,
+      sourceSlug: row.slug,
+      connector: connectorSlug,
+      incremental: !!opts.incremental,
+      created: result.created,
+      updated: result.updated,
+      unchanged: result.unchanged,
+      tombstoned: result.tombstoned,
+      errors: result.errors,
+      completedAt: cutoff.toISOString(),
+    });
+    // A fresh HubSpot contacts mirror is when a reply or a booked meeting
+    // becomes visible. The watch is lazy-imported and never fails the sync,
+    // like the announcement above (ticket 055).
+    if (connectorSlug === 'hubspot' && ((config.objectType as string | undefined) ?? 'contacts') === 'contacts') {
+      const { watchForHandoffTriggers } = await import('@/services/HandoffTriggerService');
+      await watchForHandoffTriggers(opts.orgId, log);
+    }
     return result;
   } catch (err) {
     // Wait here too, for the same reason.

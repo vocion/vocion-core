@@ -82,6 +82,9 @@ function lead(over: Partial<LeadRow> & Pick<LeadRow, 'id' | 'contactName'>): Lea
     briefedAt: '2026-09-01T14:00:00.000Z',
     decidedAt: null,
     decidedBy: null,
+    handoffSections: [],
+    handoffTrigger: null,
+    handoffAt: null,
     ...over,
   };
 }
@@ -118,6 +121,42 @@ describe('LeadDetail', () => {
 
     // The back door to the queue.
     await expect.element(page.getByRole('link', { name: 'Personalization' })).toBeVisible();
+  });
+
+  it('renders the handoff brief beneath the review brief, headed by trigger and time, with nothing to decide', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({
+          id: 88201,
+          contactName: 'Pete Laverick',
+          status: 'handed_off',
+          handoffSections: [
+            { heading: 'Where the thread stands', body: 'Two sends, one reply on Day 4.' },
+            { heading: 'Hypotheses to test', body: '- Affiliate compliance is manual today. Medium.' },
+          ],
+          handoffTrigger: 'reply',
+          handoffAt: '2026-09-09T15:30:00.000Z',
+        })}
+        contactHref={null}
+        runState={NO_RUN}
+      />,
+    );
+
+    const zone = page.getByRole('region', { name: 'Handoff brief' });
+
+    await expect.element(zone).toBeVisible();
+    await expect.element(zone.getByText('Handoff brief · Replied · Sep 9')).toBeVisible();
+    await expect.element(zone.getByText('Two sends, one reply on Day 4.')).toBeVisible();
+    await expect.element(zone.getByText('Affiliate compliance is manual today. Medium.')).toBeVisible();
+    // The review brief is still above it, and no decision surface appears.
+    await expect.element(page.getByText('Pete Laverick, CEO at Incline Gaming Marketing Inc.')).toBeVisible();
+    expect(page.getByRole('button', { name: 'Enroll' }).elements()).toHaveLength(0);
+  });
+
+  it('shows no handoff zone until a handoff brief exists', async () => {
+    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Pete Laverick' })} contactHref={null} runState={NO_RUN} />);
+
+    expect(page.getByRole('region', { name: 'Handoff brief' }).elements()).toHaveLength(0);
   });
 
   it('lists each reference article once, however many claims cite it', async () => {

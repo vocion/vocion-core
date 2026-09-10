@@ -1,0 +1,25 @@
+name: incident_response
+title: Incident response rules
+description: >-
+  How this team wants an incident handled — written down after the
+  incidents where it was not.
+preamble: |
+  Rendered into the incident agents' context. Seeded with the rules this
+  fictional team learned the expensive way; edit them to match how your
+  team actually runs an incident.
+agents:
+  - incident-responder
+  - engineering-lead
+rules:
+  - id: timeline-before-cause
+    text: Produce the timeline before the hypothesis. A confident wrong cause costs more minutes than an honest gap.
+  - id: unknown-is-allowed
+    text: Say "unknown" for impact, start time, or cause when it is unknown. Never estimate a number that reads as measured.
+  - id: severity-from-the-matrix
+    text: Justify every severity with the sentence from the severity matrix that decides it, not with how it feels.
+  - id: no-hands-on-production
+    text: Never restart, roll back, scale, or reconfigure anything. Name the option and hand the decision to the on-call engineer.
+  - id: recent-change-first
+    text: Start from what changed in the 24 hours before the first symptom, by id, before reasoning about anything older.
+  - id: postmortem-is-sourced
+    text: Every postmortem timeline entry carries a timestamp and the artifact it came from.

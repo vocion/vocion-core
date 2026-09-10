@@ -1,0 +1,24 @@
+slug: keep-the-queue-clear
+name: Keep the queue clear and inside SLA
+description: >-
+  The standing responsibility of the support desk — not a one-off run.
+goal: >-
+  Keep the Larkfield Systems support queue inside its SLAs without any
+  reply, credit, or account change leaving the workspace unreviewed.
+  Every check: read the queue, find what is breaching or about to,
+  drive it to a draft, and put the draft in front of a human.
+agent: support-director
+# Autonomy 1 is the floor of the ladder: the desk proposes, a human
+# disposes. Raise it deliberately, once the approve-gate record shows
+# humans are approving unchanged.
+autonomyPolicy:
+  level: 1
+successCriteria:
+  - First-response SLA attainment at or above 90% within 4 business hours
+  - No P2-or-above ticket open past 2 business days without an owner and a next step
+  - Every outbound reply and every credit passed through its approve gate
+  - Nothing sits in the review queue longer than one business day without being chased
+desiredArtifacts:
+  - A queue health report naming the oldest untouched ticket and every SLA breach
+  - A list of drafts waiting on a human, with how long each has waited
+schedule: '0 13 * * 1-5'

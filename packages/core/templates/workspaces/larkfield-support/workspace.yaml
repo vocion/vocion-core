@@ -1,0 +1,17 @@
+version: 1
+# Placeholder — `workspace:apply --project <id>` resolves this to the live
+# project id at apply time.
+orgId: proj_larkfield_support
+name: Larkfield Systems — Support
+description: >-
+  Sample support workspace for Larkfield Systems, a fictional B2B
+  scheduling product sold to mid-market field-service companies. Three
+  teams under one workspace lead, and every outbound reply or account
+  credit stops at an approve gate before it leaves the building.
+lead: support-director
+# accountableUser is deliberately omitted: a CLI apply may add
+# `accountableUser: <email>` so the workspace-default owner is a real
+# person in YOUR account. Teams without their own owner inherit it.
+defaults:
+  model: gpt-5.4-mini
+  temperature: '0.3'

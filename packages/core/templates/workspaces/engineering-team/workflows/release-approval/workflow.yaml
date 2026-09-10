@@ -1,0 +1,58 @@
+slug: release-approval
+name: Release — approval before the notes go out
+description: >-
+  The house gate for a release: the checklist is walked, the notes are
+  drafted, and a human reads both before anything is announced.
+agent: release-manager
+trigger:
+  type: manual
+inputSchema:
+  type: object
+  properties:
+    version:
+      type: string
+      description: The version being released, e.g. 2.14.0
+    notes:
+      type: string
+      description: Draft release notes, if the caller already has them
+    to:
+      type: string
+      description: Where the release announcement goes
+  required:
+    - version
+steps:
+  # Live data first: notes written against a stale index miss the pull
+  # request that merged an hour ago and change the migration story.
+  - name: refresh-repo
+    type: sync
+    sources:
+      - pull-requests
+      - handbook
+
+  # An `ask` with a `default` never pauses when the caller already
+  # supplied the text — the same definition serves an automated caller
+  # and a person starting the run by hand.
+  - name: release-notes
+    type: ask
+    prompt: >-
+      Paste the release notes for this version (or accept the drafted
+      ones).
+    default: '{{input.notes}}'
+    outputAs: release-notes
+
+  - name: approve-release
+    type: approve
+    prompt: >-
+      Approve these release notes before they are announced. Check that
+      every migration and irreversible step is named at the top, that
+      each entry cites its pull request, and that no performance or
+      availability number appears that is not measured.
+    reviews: release-notes
+
+  - name: announce-release
+    type: action
+    action: gmail.send
+    input:
+      to: '{{input.to}}'
+      subject: 'Cobalt platform {{input.version}} is out'
+      body: '{{steps.approve-release.output.body}}'

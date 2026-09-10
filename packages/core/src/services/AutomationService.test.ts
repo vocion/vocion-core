@@ -138,6 +138,36 @@ describe('fireAutomation', () => {
     }));
   });
 
+  it('hands an event fire\'s payload to the scheduled-check brief, so the check knows what it was fired for', async () => {
+    const { scheduledCheckBrief } = await import('@/services/MissionService');
+    await seedAutomation(
+      'handoff-on-reply',
+      { event: 'lead.replied' },
+      { checkMission: 'increase-discovery-calls', prompt: 'Write the handoff brief for the lead in the payload.' },
+    );
+
+    await fireAutomation(ORG, 'handoff-on-reply', { input: { contactRef: 'contacts:9412', trigger: 'reply' } });
+
+    expect(vi.mocked(scheduledCheckBrief)).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'No Lead Goes Cold' }),
+      'Write the handoff brief for the lead in the payload.',
+      expect.objectContaining({ contactRef: 'contacts:9412', trigger: 'reply' }),
+    );
+  });
+
+  it('a schedule fire with fixed do.input still reads as a scheduled check: no payload reaches the brief', async () => {
+    const { scheduledCheckBrief } = await import('@/services/MissionService');
+    await seedAutomation(
+      'nightly-sweep',
+      { schedule: '0 2 * * *' },
+      { checkMission: 'increase-discovery-calls', prompt: 'Sweep.', input: { sinceDays: 3 } },
+    );
+
+    await fireAutomation(ORG, 'nightly-sweep');
+
+    expect(vi.mocked(scheduledCheckBrief)).toHaveBeenCalledWith(expect.anything(), 'Sweep.', undefined);
+  });
+
   it('records the failure and still rethrows when the do throws', async () => {
     await seedAutomation('broken', { schedule: '0 * * * *' }, { job: 'no-such-job' });
 

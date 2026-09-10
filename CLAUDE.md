@@ -10,7 +10,7 @@ Vocion is a multi-tenant SaaS application built on Next.js 16. It provides conte
 - **Retrieval:** Native first-party — pgvector (HNSW cosine) + Postgres FTS (tsvector + ts_rank), reciprocal rank fusion, optional LLM rerank. No third-party retrieval engine.
 - **Connectors:** First-party `SourceConnector` interface (`libs/sources/`). Sync orchestrated by `SourceSyncService` (Temporal async workflow queued). Built-in: `web`. Demo: `local-files` (see Phase B).
 - **Styling:** Tailwind CSS 4 + Shadcn UI (Radix primitives)
-- **Auth:** NextAuth (v0.3+) with multi-tenancy via accounts/projects + RBAC
+- **Auth:** Auth.js / NextAuth v5 (`next-auth` ^5.0.0-beta + `@auth/drizzle-adapter`) with multi-tenancy via accounts/projects + RBAC. Config: `src/libs/Auth.ts`; RPC guards: `src/routers/AuthGuards.ts`.
 - **Database:** PostgreSQL (Docker Compose; pgvector/pgvector:pg16) + Drizzle ORM
 - **Payments:** Stripe (optional, subscriptions)
 - **API:** oRPC (end-to-end type-safe RPC)
@@ -76,7 +76,7 @@ src/
 │   ├── (marketing)/       # Landing page (public)
 │   ├── (auth)/            # Authenticated pages
 │   │   ├── dashboard/     # Dashboard, todos, billing, settings
-│   │   └── (center)/      # Clerk sign-in/sign-up
+│   │   └── (center)/      # sign-in/sign-up (first-party Auth.js forms)
 │   ├── rpc/               # oRPC API routes
 │   └── webhook/           # Stripe webhook handler
 ├── components/ui/         # Shadcn UI components
@@ -115,21 +115,67 @@ Every operation run + agent run + eval run stamps the active `workspace_sha` so 
 
 ## Agent runtime (v0.2)
 
-Agents run on **LangChain.js + `deepagents@1.10`**. The runtime gives you subagents (declared per-agent in YAML), a per-request virtual filesystem mounting playbooks at `/playbooks/<slug>/` and rendered learnings at `/learnings/<step>.md`, built-in `write_todos` + filesystem tools, and SSE streaming with 15s keepalives. See [`docs/internal/adr/0001-langchain-deepagents.md`](./docs/internal/adr/0001-langchain-deepagents.md).
+Agents run on **LangChain.js + `deepagents@1.10`**. The runtime gives you subagents (declared per-agent in YAML), a per-request virtual filesystem mounting playbooks at `/playbooks/<slug>/` and rendered learnings at `/learnings/<step>.md`, built-in `write_todos` + filesystem tools, and SSE streaming with 15s keepalives. See [`docs/adr/0001-langchain-deepagents.md`](./docs/adr/0001-langchain-deepagents.md).
 
 Opt in by setting `VOCION_AGENT_RUNTIME=deepagents` and pointing the chat at `/rpc/agent/stream`. Default model: `claude-sonnet-4-6` (main) + `claude-haiku-4-5-20251001` (classifier). Override per-role via `VOCION_LLM_MODEL_MAIN` etc.
 
-## BYOA agent runtime (harness provider `runtime`)
+## BYOA agent runtime (`harness.runsOn: agentcore-container`)
 
-The same deepagents loop also ships as a standalone artifact — **`packages/agent-runtime`** — with the BYOA HTTP contract (`POST /invocations` SSE + `GET /ping`), hostable on a laptop or AWS Bedrock AgentCore Runtime (same bundle). Three execution layers now share one event contract, selected per agent via `harness.provider` in workspace YAML (`local` | `agentcore` | `runtime`) or fleet-wide via `VOCION_AGENT_PROVIDER`:
+> Conceptual explanation for humans — the loop vs the model vs the AWS account, what AgentCore actually is, and when `agentcore` is the right choice — lives in `docs/agent-execution.md`. Keep the two in sync when this section changes.
+
+The same deepagents loop also ships as a standalone artifact — **`packages/agent-runtime`** — with the BYOA HTTP contract (`POST /invocations` SSE + `GET /ping`), hostable on a laptop or AWS Bedrock AgentCore Runtime (same bundle). Three execution layers share one event contract, selected per agent via `harness.runsOn` in workspace YAML or fleet-wide via `VOCION_AGENT_PROVIDER`.
+
+**`harness.runsOn` has three values, and two of them are AWS Bedrock AgentCore** — it is a product family, and they are different services inside it. Renamed from `harness.provider` (`local` / `runtime` / `agentcore`) because the old names hid that. Old spellings still parse everywhere — YAML, `VOCION_AGENT_PROVIDER`, and pre-rename `harness_config` rows — via `services/agents/harnessTarget.ts`.
+
+| | `in-process` (was `local`) | `agentcore-container` (was `runtime`) | `aws-managed-harness` (was `agentcore`) |
+|---|---|---|---|
+| Whose loop | ours (deepagents) | ours, same code | **AWS's** |
+| Runs in | this process | our container on AgentCore Runtime | AWS's managed harness |
+| Tools | in-process | ~30, called back to `/api/internal/agent-tools` | one, `search_knowledge`, as an `inline_function` |
+| Subagents / playbooks / HITL gates | yes | yes | none |
+| Default for | everything not on Bedrock | Bedrock agents | nothing — opt in |
+
+Neither AgentCore path is a model gateway: inference is a direct Bedrock Converse call on all three. AgentCore is hosting plus Memory. **No client is on `aws-managed-harness` today.** `Veerio-Life/veerio-vocion` was the one — `event-ingestion-lead` moved to `agentcore-container` on 2026-09-08, its harness was deleted, and the parent stopped creating `VocionAgentCoreHarnessRole` on every deploy. Removing the path is now a product decision rather than a mistake, so decide it deliberately; until then it stays supported, and `applier.ts` deprovisions a harness when an agent leaves it (see `managed-harness-reconcile.test.ts`) so choosing the container never leaves AWS's harness running.
 
 - The artifact is **generic**: agent definitions travel in the invocation payload (compiled from the agent row per request), so `workspace:apply` stays a DB sync and agent edits never redeploy anything.
 - **Tools execute in core**, not the artifact: catalog entries POST back to `/api/internal/agent-tools` with a signed `TenantClaim` (`services/agents/claims.ts`) — orgId/user ACLs come only from the verified claim (`services/agents/toolEndpoint.ts`; cross-tenant test suite in `toolEndpoint.test.ts`). Single tool registry: `services/agents/tools/registry.ts`.
 - Core targets the artifact via `VOCION_AGENT_RUNTIME_ARN` (deployed, SigV4) or `VOCION_AGENT_RUNTIME_URL` (local HTTP, default `:8080`). Budget charging rides `usage` events back from the artifact.
+- **Bedrock implies `agentcore-container`**: an agent with `harness.modelProvider: bedrock` and NO `harness.runsOn` is dispatched to the container — `defaultHarnessTargetFor` in `AgentService.ts`. Choosing the vendor also chooses where the loop runs, since on a deployed installation the artifact IS AgentCore Runtime. `runsOn: in-process` next to it opts back out, `VOCION_AGENT_PROVIDER` still overrides fleet-wide, and `VOCION_DISABLE_RUNTIME=1` still forces the in-process loop. `harness.runsOn` is deliberately NOT defaulted in `libs/workspace/schemas.ts` — a stored value would make this default unreachable for every workspace-applied agent, so **agents applied before this change need one `workspace:apply` to pick it up**.
+- **Bedrock credentials cross the transport**: the artifact has no DB and no KMS grant, so core mints a short-lived STS session from the org's stored AWS key (`mintBedrockSessionForRuntime`) and sends it in the payload's `aws` block; the artifact's model client reads it through a per-invocation ref (`packages/agent-runtime/src/model.ts`), so spend lands on the customer's account and the cached graph never signs with a previous caller's credential. No stored key means no block and the artifact falls through to its own chain — the platform's account. A stored key that STS refuses throws rather than falling back, because falling back would silently move that org's spend onto us. `VOCION_BEDROCK_SESSION_SECONDS` tunes the session (default 3600). The graph cache is partitioned by `orgId` for the same reason.
 - **Cutover status**: `sales-assistant` runs on `provider: runtime` (workspace YAML). Dev therefore needs the artifact running — `npm run dev:agent-runtime` (:8080) — or set `VOCION_DISABLE_RUNTIME=1` to force the in-process loop (symmetric to `VOCION_DISABLE_AGENTCORE`).
 - **AgentCore Memory (Phase 5, live)**: when `VOCION_AGENTCORE_MEMORY_ID` is set (core = flag only; the artifact needs it plus AWS creds), runtime-provider conversations with a persisted `conversation_id` get a Memory session (`vocion-conv-<id>-<org>`); the loop loads history from Memory and appends each completed turn (`packages/agent-runtime/src/memory.ts`). Default is belt-and-suspenders — payload history still rides along and the richer source wins; `VOCION_MEMORY_AUTHORITATIVE=1` omits payload history (verified live: turn answered from Memory alone). Postgres stays the system of record for the UI; Memory failures degrade silently to payload history.
 - **Long-term memory (live)**: the store runs two extraction strategies — `vocion_facts` (semantic) + `vocion_preferences` — namespaced `/facts/{actorId}` and `/preferences/{actorId}`. Each turn, the loop retrieves relevant records for the actor and injects them as a context preamble, so recall crosses conversations (verified live: a preference stated in one conversation was recalled in a brand-new one ~50s later, post-extraction). Strategies are provisioned idempotently by `infra/agentcore/provision.sh`.
-- Infra: `infra/agentcore/{provision,deploy-runtime,smoke-invoke}.sh` (ENV=dev, profile `metacto`, us-west-2). E2E: `src/scripts/smoke-runtime.ts` (`--provider` to force a specific provider). CI deploy: `.github/workflows/deploy-agent-runtime.yml` — inert until `provision-ci-role.sh` is run and `AWS_DEPLOY_ROLE_ARN` is set as a repo secret (deliberate human step: it creates GitHub↔AWS federated trust). See `packages/agent-runtime/README.md`.
+- Infra: `infra/agentcore/{provision,deploy-runtime,smoke-invoke}.sh` (ENV and AWS_PROFILE per client account, us-west-2). E2E: `src/scripts/smoke-runtime.ts` (`--provider` to force a specific provider). Core never deploys: it holds no AWS account, so the parent project that owns the account calls these scripts, from an operator machine or from its own pipeline (`provision-ci-role.sh` mints the GitHub-OIDC role for that — `TRUSTED_REPO` names the project allowed to assume it). See `packages/agent-runtime/README.md` and `docs/deployment/parent-project-pattern.md`.
+
+## Deploying into a client account: a deploy is two deploys
+
+Core never deploys — the parent project holding the AWS account does — and the
+thing parent projects get wrong is that there are **two** independent deploys:
+
+1. **The app box.** Sync the checkout to `main`, re-run the parent's bootstrap,
+   health-gate the URL. This is what a parent's CI usually automates.
+2. **The agent runtime container.** `infra/agentcore/deploy-runtime.sh` builds
+   the arm64 image from `packages/agent-runtime`, pushes it to ECR and updates
+   the AgentCore Runtime. Automating this needs a GitHub-OIDC role, so most
+   parents run it by hand — and then forget it.
+
+Deploy 1 without deploy 2 is half a deploy: the app runs new code while the
+agent loop runs old code, and nothing says so. After every pin bump, check
+whether the artifact moved — the deployed image's tag carries the core commit
+it was built from, so this is mechanical:
+
+```bash
+aws ssm get-parameter --name "/vocion/agentcore/<env>/runtime-image" \
+  --query 'Parameter.Value' --output text
+git diff --stat <that-commit>..HEAD -- packages/agent-runtime
+```
+
+Empty diff, container is current. Any output, every environment needs deploy 2.
+Editing an agent never does: the artifact is generic.
+
+The parent-project checklist, the one-time OIDC role and a `CLAUDE.md` snippet
+to paste into a new client project are in
+`docs/deployment/parent-project-pattern.md`.
 
 ## Background worker
 
@@ -141,7 +187,28 @@ ENABLE_FEEDBACK_WORKER=1 npm run worker:serve
 docker compose --profile worker up -d
 ```
 
-Opt-in via the env flag. Drains `feedback_job` rows queued by Drive webhooks, classifies via Haiku, and writes the classification back. A classification that proposes rule text becomes a **learning candidate** — a suggestion in a queue, never an applied rule. A person adopts or rejects it at `/dashboard/learnings` or over `/api/v1/learning-candidates`; the worker never commits a learning itself.
+Opt-in via the env flag. Drains `feedback_job` rows and classifies each via Haiku, then writes the classification back.
+
+Jobs arrive from Drive comment webhooks, `POST /api/v1/feedback`, and **the review queue**: rejecting, editing or rewriting an agent-proposed action queues the reviewer's reason, and approving with a note queues that too (`source: 'review'`). A bare click queues nothing — it is counted in the adoption metrics, but there is no text to learn a rule from. Workflow and mission run feedback queues its note the same way.
+
+A classification that proposes rule text goes to `services/feedback/ruleRecorder.ts`, which decides between two outcomes:
+
+- **New idea** → a pending `learning_candidate`, carrying `polarity` (`correct` = change this, `reinforce` = keep doing this) plus one `learning_feedback_occurrence` holding the note and who wrote it.
+- **Already said** → no new row. The matching candidate or adopted rule has its `occurrence_count` raised and the occurrence recorded, so "five people asked for this" is visible without five queue entries.
+
+Duplicates are judged by one Haiku call over a shortlist (`services/feedback/duplicateDetection.ts`) — trigram overlap orders the shortlist, recency fills the rest of it, and the model decides. It fails open: an unparseable or failed judgement treats the rule as new, because a duplicate in the queue is mergeable and dropped feedback is gone.
+
+Testing the loop: `npx playwright test --project=learning` covers ingestion (which reviewer signals reach the queue) with no model at all. The two model steps — classifying the note and judging duplicates — are covered against a real model by an opt-in project that is only defined when `LIVE_MODEL_E2E` is set, so a plain test run never calls out:
+
+```bash
+# 1. the worker, pointed at the same database the app uses
+AWS_PROFILE=veerio AWS_REGION=us-west-2 VOCION_LLM_PROVIDER_CLASSIFIER=bedrock \
+  ENABLE_FEEDBACK_WORKER=1 npm run worker:serve
+# 2. the spec
+LIVE_MODEL_E2E=1 DATABASE_URL=... npx playwright test --project=learning-live
+```
+
+Still never auto-committed: a person adopts or rejects every candidate at `/dashboard/learnings` or over `/api/v1/learning-candidates`. Both outcomes now land on the adoption stream (`learning.candidate_created`, `learning.candidate_duplicate`, `learning.candidate_decided`).
 
 ## Evals + budgets
 
@@ -208,7 +275,7 @@ goes through `resolveAwsCredentials` with the fallback off.
 
 **Per-agent vendor, per-workspace embeddings.** `harness.modelProvider` in agent
 YAML (`anthropic` | `openai` | `bedrock`) picks the vendor for one agent's chat
-model — a different axis from `harness.provider`, which picks where the loop
+model — a different axis from `harness.runsOn`, which picks where the loop
 executes. Embeddings are **not** per-agent: `defaults.embeddingProvider` /
 `defaults.embeddingModel` in `workspace.yaml` land on `project.embeddingConfig`
 and apply workspace-wide. That asymmetry is deliberate. A query vector is only
@@ -229,39 +296,68 @@ rotated or revoked key then takes effect on the next call with nothing to
 invalidate. Any new outbound path gets a test that runs two orgs in sequence and
 asserts each got its own key.
 
-**Only `CredentialValidationError` may reach a client.** Those messages are
-authored in the platform registry and name no secret. Any other failure carries
-whatever text the database or the vault produced; log it and return something
-generic.
+**Only `CredentialValidationError` and `VaultDecryptionError` may reach a
+client.** Both are written for a person and name no secret — the first from the
+platform registry, the second from the vault, which is why that type exists at
+all. Anything else carries whatever the database or vault produced: log it with
+its `cause` and return something generic.
 
 Supplied keys never take a Vocion-side expiry — the vendor owns the lifetime.
 
 Encryption at rest is `VOCION_CREDENTIAL_VAULT`: `local` (wrapping key in
 `VOCION_CREDENTIAL_VAULT_KEY`, same database as the wrapped key — development
-only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`).
+only) or `kms` (AWS KMS under `VOCION_KMS_KEY_ARN`). On `local` with
+`NODE_ENV=production`, an unset `VOCION_CREDENTIAL_VAULT_KEY` throws rather than
+falling back to a per-process ephemeral key, which would orphan every
+credential stored under the previous one.
 
 ## Multi-Tenancy
 
-- Clerk organizations provide multi-tenancy
-- Each org has its own Stripe subscription stored in the `organization` DB table
-- Data is scoped by org (via `auth()` orgId)
+- Tenancy is first-party, not delegated to an identity provider: a
+  `tenant_account` owns one or more `project` rows (`src/models/Schema.ts`)
+- Every Auth.js session carries `{ user: { id, accountId, projectId, role } }`
+  (`src/libs/Auth.ts`); the active project is held in a `vocion_active_project`
+  cookie that the JWT callback honors on the next issue
+- Data is scoped by project (via `auth()` → `projectId`). `guardAuth` in
+  `src/routers/AuthGuards.ts` still returns `orgId` as an alias of `projectId`
+  because the business-content tables keep their `org_id` column for now
 - Roles: `org:admin`, `org:member` (defined in `src/types/Auth.ts`)
-- Enable organizations in Clerk Dashboard > Organization management > Settings
+- Nothing to enable in a provider dashboard: set `AUTH_SECRET` and run the
+  migrations. `VOCION_AUTH_PROVIDER` defaults to `local` (`src/libs/Env.ts`)
 
 ## Database Schema
 
-- **organization** - Clerk org ID, Stripe subscription fields, timestamps
+- **tenant_account** / **project** - first-party tenancy; Stripe subscription
+  fields live on `tenant_account`
+- **user** / **auth_account** / **session** / **verification_token** - Auth.js
+  tables, wired through `@auth/drizzle-adapter` in `src/libs/Auth.ts`
+- **account_membership** - user ↔ account membership and role
+- **organization** - legacy tenancy row (plain text id, Stripe subscription
+  fields, timestamps); superseded by `tenant_account` / `project`
 - **todo** - Sample CRUD entity scoped to user/org
 
 To modify: edit `src/models/Schema.ts`, then `npm run db:generate && npm run db:migrate`.
 
+Migration conventions — index builds that must not take a write lock, and the
+expand-and-contract rule for column changes — are in
+`packages/core/migrations/CONVENTIONS.md`. `npm run check:migrations` enforces
+the index rule and runs in CI.
+
 ## Environment Setup
 
-Copy `.env.example` to `.env.local` and fill in your keys. Required 3rd-party services:
-1. **Clerk** - Auth (publishable key + secret key)
-3. **PostgreSQL** - Database (local via Docker or PGLite, production via Neon/Supabase/etc.)
+Copy `.env.example` to `.env.local` and fill in your keys. Required:
+
+1. **`AUTH_SECRET`** - Auth.js session signing secret. Required whenever
+   `VOCION_AUTH_PROVIDER` is unset or `local`, which is the default
+   (`src/libs/Env.ts`). Generate one with `openssl rand -base64 32`. Auth is
+   self-contained — there is no 3rd-party auth service to sign up for.
+2. **PostgreSQL** - Database (local via Docker or PGLite, production via Neon/Supabase/etc.)
 
 Optional: Stripe (payments), Sentry, Better Stack, Checkly, Crowdin.
+
+`VOCION_AUTH_PROVIDER` also accepts `clerk`, which reads `CLERK_SECRET_KEY` and
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`. That path is reserved for the hosted
+product and is **not wired in core** — leave the variable at its default.
 
 ## Key Directories (Infrastructure)
 
@@ -280,6 +376,25 @@ requirements/                       # Product specs and case studies
 ├── sales-assistant-*.md                   # the Sales Assistant sales agent case study
 └── ...
 ```
+
+## Git history
+
+- **After a history rewrite, reset to the remote — never pull or merge.** On
+  2026-09-09 `docs/internal/` was purged from this repo's history and every
+  branch was force-pushed, leaving every checkout on commits that no longer
+  exist. Merging then reconciles two unrelated histories and re-adds every
+  purged file, since the local side still has them. Tells: an absurd
+  `git rev-list --count HEAD..origin/main`, or `forced-update` in
+  `git reflog show origin/main`.
+- **`git reset --hard origin/<branch>` is the user's call. Ask first, every
+  time.** Two checks before it: `git status` clean, since `--hard` discards
+  uncommitted work too; and your commits visibly present in
+  `git log --oneline origin/<branch>` — read and match them yourself. If either
+  fails it is recovery, not routine: unpushed commits need cherry-picking onto
+  the new base, and a branch with no remote exists nowhere else.
+- **A purge unpublishes nothing.** Clones and forks keep the files, and GitHub
+  serves the old commits by SHA until it garbage collects. Treat the exposure
+  as having happened.
 
 ## Conventions
 

@@ -190,6 +190,62 @@ const BriefZone = ({ row }: { row: LeadDossier }) => (
   </div>
 );
 
+/** The handoff trigger, as the page says it. */
+export const HANDOFF_TRIGGER_LABEL: Record<string, string> = {
+  reply: 'Replied',
+  meeting: 'Meeting booked',
+  intent: 'Intent',
+  routed: 'Routed by a reviewer',
+};
+
+/**
+ * The call prep written when the lead left the agent (ticket 055). Rendered
+ * beneath the review brief, read-only, through the same section markup, and
+ * headed by what triggered it and when. Nothing here is decided: the brief is
+ * already saved and already on the contact in HubSpot (056); this is the
+ * platform's own copy.
+ * @param props
+ * @param props.sections
+ * @param props.trigger
+ * @param props.at - ISO timestamp the handoff brief was saved.
+ */
+export const HandoffBriefZone = (props: {
+  sections: Array<{ heading: string; body: string }>;
+  trigger: string | null;
+  at: string | null;
+}) => {
+  if (props.sections.length === 0) {
+    return null;
+  }
+  const meta = [
+    props.trigger ? HANDOFF_TRIGGER_LABEL[props.trigger] ?? props.trigger : null,
+    props.at ? shortDate(props.at) : null,
+  ].filter(Boolean).join(' · ');
+  return (
+    <section
+      aria-label="Handoff brief"
+      className="mt-6 rounded-md border border-border bg-muted/30 p-4"
+    >
+      <div className="mb-3 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+        Handoff brief
+        {meta ? ` · ${meta}` : ''}
+      </div>
+      <div className="flex flex-col gap-4">
+        {props.sections.map(section => (
+          <section key={section.heading}>
+            <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              {section.heading}
+            </h3>
+            <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:whitespace-pre-line">
+              <Markdown remarkPlugins={[remarkGfm]}>{section.body}</Markdown>
+            </div>
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+};
+
 /**
  * The evidence rail: Confidence, the timeline slot, CRM context, Missing,
  * and the reference-articles slot, in the settled order.

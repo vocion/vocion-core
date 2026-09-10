@@ -1,0 +1,17 @@
+# The autonomy ladder for this desk. Every rule ships DISABLED: the
+# workspace starts at "a human sees everything", and a person raises one
+# action at a time by flipping `enabled` after the approve-gate record
+# earns it. Disabling a rule reverts it without deleting the history.
+#
+# A rule only ever applies to a proposal whose confidence is at or above
+# the threshold, and everything auto-approved still lands in the review
+# queue's auto-executed list.
+rules:
+  # The first rung most desks earn: recording a note on the account.
+  - action: hubspot.update
+    autoApproveAbove: 0.95
+    enabled: false
+  # Sending mail to a customer is the last rung, and 0.99 is deliberate.
+  - action: gmail.send
+    autoApproveAbove: 0.99
+    enabled: false

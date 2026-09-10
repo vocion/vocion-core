@@ -71,8 +71,8 @@ export default defineConfig<ChromaticConfig>({
       dependencies: ['setup'],
     },
     // The headless usage-video tour (F1 storyboard). Self-seeding: signs up
-    // the first-run admin on a FRESH PGlite DB, so no Clerk setup project
-    // and no dependencies. One long cinematic spec — generous timeout.
+    // the first-run admin on a FRESH PGlite DB, so no `setup` project
+    // dependency. One long cinematic spec — generous timeout.
     // Run with: npx playwright test --project=tour  (see e2e/tour/README.md)
     {
       name: 'tour',
@@ -82,7 +82,7 @@ export default defineConfig<ChromaticConfig>({
       use: { ...devices['Desktop Chrome'], video: 'on', trace: 'off' },
     },
     // The review-queue end-to-end specs. Self-seeding like `tour` (the sign-up
-    // route is invite-only), so no Clerk setup project and no dependencies.
+    // route is invite-only), so no `setup` project dependency.
     // Run with: npx playwright test --project=queue
     {
       name: 'queue',
@@ -90,9 +90,33 @@ export default defineConfig<ChromaticConfig>({
       timeout: 120 * 1000,
       use: { ...devices['Desktop Chrome'] },
     },
+    // The feedback-to-learning loop end to end. Self-seeding like `queue`.
+    // Run with: npx playwright test --project=learning
+    {
+      name: 'learning',
+      testDir: './e2e/learning',
+      timeout: 120 * 1000,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // The same loop against a REAL model, end to end. Defined only when
+    // LIVE_MODEL_E2E is set, so `npx playwright test` — locally or in CI —
+    // never spends money or reaches an external service by default.
+    // Run with:
+    //   LIVE_MODEL_E2E=1 DATABASE_URL=... npx playwright test --project=learning-live
+    ...(process.env.LIVE_MODEL_E2E
+      ? [
+          {
+            name: 'learning-live',
+            testDir: './e2e/learning-live',
+            // Each assertion waits on a queue round trip plus two model calls.
+            timeout: 300 * 1000,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
     // The API credentials matrix (platforms, validation, expiry rules).
     // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
-    // so no Clerk setup project and no dependencies.
+    // so no `setup` project dependency.
     // Run with: npx playwright test --project=credentials
     {
       name: 'credentials',
@@ -101,6 +125,15 @@ export default defineConfig<ChromaticConfig>({
       // Turbopack compiles of the sign-in, dashboard and credentials routes.
       timeout: 120 * 1000,
       use: { ...devices['Desktop Chrome'] },
+    },
+    // VEERIO-252 — mission-run report routes, real HTTP against a real
+    // running app. No browser: uses Playwright's `request` fixture only, so
+    // it never depends on the `setup` (Clerk) project.
+    // Run with: npx playwright test --project=mission-runs
+    {
+      name: 'mission-runs',
+      testDir: './e2e/mission-runs',
+      timeout: 60 * 1000,
     },
     ...(process.env.CI
       ? [

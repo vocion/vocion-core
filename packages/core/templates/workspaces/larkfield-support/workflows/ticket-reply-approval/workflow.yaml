@@ -1,0 +1,56 @@
+slug: ticket-reply-approval
+name: Ticket reply — approval before send
+description: >-
+  The house gate: a drafted reply is read by a human before it reaches
+  the customer. Approve sends it; reject drops it.
+agent: frontline-lead
+trigger:
+  type: manual
+inputSchema:
+  type: object
+  properties:
+    ticketId:
+      type: string
+      description: Larkfield ticket id, e.g. LKF-2291
+    draft:
+      type: string
+      description: The reply body, if the caller already has one
+    to:
+      type: string
+      description: Customer email address on the ticket
+  required:
+    - ticketId
+steps:
+  # Live data first: a reply written against a stale index is how you
+  # tell someone to try a workaround they already told you failed.
+  - name: refresh-desk
+    type: sync
+    sources:
+      - helpdesk
+      - handbook
+
+  # An `ask` with a `default` never pauses when the caller already
+  # supplied the text — the same definition serves an automated caller
+  # and a person starting the run by hand.
+  - name: reply-draft
+    type: ask
+    prompt: >-
+      Paste the reply draft for this ticket (or accept the drafted one).
+    default: '{{input.draft}}'
+    outputAs: reply-draft
+
+  - name: review-reply
+    type: approve
+    prompt: >-
+      Approve this reply before it is sent to the customer. Check that
+      every step is in the handbook, that nothing promises a credit, a
+      refund, or a delivery date, and that the tone matches the plan.
+    reviews: reply-draft
+
+  - name: send-reply
+    type: action
+    action: gmail.send
+    input:
+      to: '{{input.to}}'
+      subject: 'Re: {{input.ticketId}}'
+      body: '{{steps.review-reply.output.body}}'

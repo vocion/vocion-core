@@ -6,6 +6,11 @@
  * The content below them defaults to the same cap, which suits a form, but a
  * table with more than a handful of columns needs the whole card — otherwise it
  * scrolls sideways inside a mostly empty page. `fullWidthContent` is for those.
+ * @param props
+ * @param props.title
+ * @param props.description
+ * @param props.fullWidthContent
+ * @param props.children
  */
 export const DashboardSection = (props: {
   title: string;

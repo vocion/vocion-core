@@ -18,6 +18,7 @@
  * scripts/worker-serve.ts). Opt-in via ENABLE_FEEDBACK_WORKER=1.
  */
 
+import type { Classification } from './feedback/classifier';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { feedbackJobSchema } from '@/models/Schema';
@@ -32,6 +33,21 @@ export type FeedbackPayload = {
   artifactTitle?: string;
   /** Which artifact/operation/run this feedback targets. */
   targetSlug?: string;
+  /**
+   * The agent whose output drew the feedback. Set by review-queue and run
+   * feedback, absent for a comment on a document nobody attributed.
+   */
+  agentSlug?: string;
+  /** The run being reacted to — an action, workflow or mission run id. */
+  sourceRunId?: number;
+  /** Who gave the feedback, so the resulting rule can name its evidence. */
+  submittedBy?: string;
+  /**
+   * What the surface already knows about the direction of the feedback: a
+   * rejection is a correction, a thumbs-up is reinforcement. The classifier
+   * still has the final say — this is the prior, not the answer.
+   */
+  polarityHint?: 'correct' | 'reinforce';
 };
 
 /* ------------------------------------------------------------------ */
@@ -42,7 +58,7 @@ export type FeedbackPayload = {
  * Where a piece of feedback came from. `api` is an external client posting to
  * `/api/v1/feedback` — an admin panel outside Vocion, typically.
  */
-export type FeedbackSource = 'drive' | 'slack' | 'manual' | 'api';
+export type FeedbackSource = 'drive' | 'slack' | 'manual' | 'api' | 'review';
 
 export async function enqueue(opts: {
   orgId: string;
@@ -162,12 +178,13 @@ export async function runOnce(): Promise<boolean> {
             bucket: classification.bucket,
             editSummary: classification.edit_summary,
             ruleText: classification.rule_text,
+            polarity: classification.polarity ?? payload.polarityHint,
             targetSlug: payload.targetSlug,
           })}::jsonb
       WHERE id = ${row.id}
     `);
 
-    await recordLearningCandidate(row.id, row.org_id, classification.rule_text, payload.targetSlug);
+    await recordLearningCandidate(row.id, row.org_id, classification, payload);
     return true;
   } catch (err) {
     const msg = (err as Error).message ?? 'classifier failed';
@@ -181,36 +198,46 @@ export async function runOnce(): Promise<boolean> {
 }
 
 /**
- * Turn a classification that proposed a rule into a pending learning candidate.
+ * Turn a classification that proposed a rule into queue state.
  *
  * Still no auto-commit: a candidate is a suggestion sitting in a queue, and only
- * a person approving it writes a real `learning` row. A candidate needs a step
- * to attach to, so feedback that names no target is classified and left alone.
+ * a person approving it writes a real `learning` row. `recordProposedRule` owns
+ * what happens next — a new candidate, or an occurrence bump on a rule that
+ * already says the same thing.
+ *
+ * Feedback that names no learning step is no longer dropped: the recorder falls
+ * back to the org's first step, which is what makes review-queue feedback (which
+ * knows about actions, not steps) usable at all.
  *
  * A failure here must not fail the job — the classification is already saved,
  * and losing the candidate is recoverable while re-running the classifier costs
  * another model call.
  * @param feedbackJobId
  * @param orgId
- * @param ruleText
- * @param targetSlug - The learning step the rule would attach to.
+ * @param classification - What the classifier decided.
+ * @param payload - The queued job's payload, for evidence and attribution.
  */
 async function recordLearningCandidate(
   feedbackJobId: number,
   orgId: string,
-  ruleText: string | undefined,
-  targetSlug: string | undefined,
+  classification: Classification,
+  payload: FeedbackPayload,
 ): Promise<void> {
-  if (!ruleText?.trim() || !targetSlug) {
+  if (!classification.rule_text?.trim()) {
     return;
   }
   try {
-    const { createCandidate } = await import('@/services/LearningCandidateService');
-    await createCandidate({
+    const { recordProposedRule } = await import('@/services/feedback/ruleRecorder');
+    await recordProposedRule({
       orgId,
-      stepName: targetSlug,
-      ruleText,
+      ruleText: classification.rule_text,
+      polarity: classification.polarity ?? payload.polarityHint ?? 'correct',
+      stepName: payload.targetSlug,
+      note: payload.text,
+      agentSlug: payload.agentSlug,
       sourceFeedbackJobId: feedbackJobId,
+      sourceRunId: payload.sourceRunId,
+      submittedBy: payload.submittedBy,
     });
   } catch (error) {
     console.error(`[FeedbackWorkerService] could not record a learning candidate for job ${feedbackJobId}`, error);

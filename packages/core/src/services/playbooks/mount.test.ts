@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
@@ -36,7 +36,22 @@ writeFileSync(join(WORKSPACE, 'skills', 'write-lead-brief', 'examples.md'), 'an 
 mkdirSync(join(WORKSPACE, 'playbooks', 'house-style'), { recursive: true });
 writeFileSync(join(WORKSPACE, 'playbooks', 'house-style', 'SKILL.md'), PLAYBOOK_BODY);
 
+/** A second workspace whose playbook names a per-deployment API URL. */
+const TEMPLATED_WORKSPACE = join(ROOT, 'workspace', 'templated');
+mkdirSync(join(TEMPLATED_WORKSPACE, 'playbooks', 'house-style'), { recursive: true });
+writeFileSync(
+  join(TEMPLATED_WORKSPACE, 'playbooks', 'house-style', 'SKILL.md'),
+  '# House style\n\nFetch {{env.VEERIO_API_URL}}/api/sources.\n',
+);
+mkdirSync(join(TEMPLATED_WORKSPACE, 'skills', 'pipeline-health'), { recursive: true });
+writeFileSync(
+  join(TEMPLATED_WORKSPACE, 'skills', 'pipeline-health', 'SKILL.md'),
+  '# Pipeline health\n\nCall {{env.VEERIO_API_URL}}/api/pipeline.\n',
+);
+
 const ORIGINAL_PATH = process.env.WORKSPACE_PATH;
+const ORIGINAL_ALLOWLIST = process.env.WORKSPACE_TEMPLATE_VARS;
+const ORIGINAL_API_URL = process.env.VEERIO_API_URL;
 
 beforeEach(async () => {
   await db.delete(playbookSchema);
@@ -62,16 +77,43 @@ beforeEach(async () => {
       contentSha: 'sha-house-style',
       sourceFiles: [],
     },
+    {
+      orgId: ORG,
+      slug: 'pipeline-health',
+      name: 'Pipeline health',
+      description: 'A base-pack skill the workspace also carries a copy of.',
+      kind: 'skill',
+      origin: 'override',
+      contentSha: 'sha-pipeline-health',
+      sourceFiles: [],
+    },
   ]);
+});
+
+/**
+ * Put one env var back the way the test process found it.
+ * @param name - the variable to restore.
+ * @param original - its value before the test touched it, or undefined.
+ */
+function restoreEnvVar(name: string, original: string | undefined): void {
+  if (original === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = original;
+  }
+}
+
+afterEach(() => {
+  restoreEnvVar('WORKSPACE_PATH', ORIGINAL_PATH);
+  restoreEnvVar('WORKSPACE_TEMPLATE_VARS', ORIGINAL_ALLOWLIST);
+  restoreEnvVar('VEERIO_API_URL', ORIGINAL_API_URL);
 });
 
 afterAll(async () => {
   await db.delete(playbookSchema);
-  if (ORIGINAL_PATH === undefined) {
-    delete process.env.WORKSPACE_PATH;
-  } else {
-    process.env.WORKSPACE_PATH = ORIGINAL_PATH;
-  }
+  restoreEnvVar('WORKSPACE_PATH', ORIGINAL_PATH);
+  restoreEnvVar('WORKSPACE_TEMPLATE_VARS', ORIGINAL_ALLOWLIST);
+  restoreEnvVar('VEERIO_API_URL', ORIGINAL_API_URL);
   rmSync(ROOT, { recursive: true, force: true });
 });
 
@@ -115,6 +157,47 @@ describe('mountSkills', () => {
     const files = await mountSkills({ orgId: ORG, skillSlugs: ['write-lead-brief'], playbookSlugs: [] });
 
     expect(Object.keys(files)).toHaveLength(0);
+  });
+
+  it('resolves an {{env.NAME}} token before the agent ever sees the body', async () => {
+    process.env.WORKSPACE_PATH = TEMPLATED_WORKSPACE;
+    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
+    process.env.VEERIO_API_URL = 'https://api-dev.veerio.app';
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: [], playbookSlugs: ['house-style'] });
+
+    expect(files['/playbooks/house-style/SKILL.md']).toContain('https://api-dev.veerio.app/api/sources');
+    expect(files['/playbooks/house-style/SKILL.md']).not.toContain('{{');
+  });
+
+  it('refuses to mount rather than serve a raw token when the variable is missing', async () => {
+    process.env.WORKSPACE_PATH = TEMPLATED_WORKSPACE;
+    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
+    delete process.env.VEERIO_API_URL;
+
+    await expect(
+      mountSkills({ orgId: ORG, skillSlugs: [], playbookSlugs: ['house-style'] }),
+    ).rejects.toThrow(/VEERIO_API_URL/);
+  });
+
+  it('an override row whose workspace copy has an unresolvable token fails instead of quietly serving the base copy', async () => {
+    // The base pack has a pipeline-health skill, so a silent fallback
+    // here would hand the agent the WRONG body and look like success.
+    process.env.WORKSPACE_PATH = TEMPLATED_WORKSPACE;
+    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
+    delete process.env.VEERIO_API_URL;
+
+    await expect(
+      mountSkills({ orgId: ORG, skillSlugs: ['pipeline-health'], playbookSlugs: [] }),
+    ).rejects.toThrow(/VEERIO_API_URL/);
+  });
+
+  it('falls back to the base copy when the workspace file is simply absent', async () => {
+    process.env.WORKSPACE_PATH = join(ROOT, 'nowhere');
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: ['pipeline-health'], playbookSlugs: [] });
+
+    expect(files['/skills/pipeline-health/SKILL.md']).toContain('pipeline');
   });
 
   it('never mounts a slug the caller did not name as the right kind', async () => {

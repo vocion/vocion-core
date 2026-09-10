@@ -195,7 +195,7 @@ export default async function ModelsPage(props: { params: Promise<{ locale: stri
           </section>
           <section className="rounded-lg border border-border p-5">
             <div className="text-sm font-semibold">Training set on disk</div>
-            <p className="mt-1 text-xs text-muted-foreground">{r.bucket ? `s3://${r.bucket} — per template, good/ and bad/. Approved dataset.add_example decisions land here; the next training run picks them up.` : 'No s3 source in this workspace.'}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{r.bucket ? `s3://${r.bucket} — per template, good/ and bad/. Approved dataset.add_example decisions land here; the next training run picks them up.` : 'No s3 connector in this workspace.'}</p>
             {r.trainingSet && (
               <table className="mt-3 w-full text-left text-[13px]">
                 <thead>

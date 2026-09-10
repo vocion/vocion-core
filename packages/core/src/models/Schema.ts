@@ -1,3 +1,4 @@
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 import { bigint, boolean, check, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
@@ -22,6 +23,12 @@ const tsvector = customType<{ data: string; driverData: string }>({
 // The generated migration file will reflect your schema changes.
 // It automatically run the command `db-server:file`, which apply the migration before Next.js starts in development mode,
 // Alternatively, if your database is running, you can run `npm run db:migrate` and there is no need to restart the server.
+
+// Before hand-writing a migration, read packages/core/migrations/CONVENTIONS.md.
+// An index on a table that already exists must not use a plain `CREATE INDEX` —
+// it blocks every write to that table until the build finishes — and column
+// changes go through expand and contract across releases. `npm run
+// check:migrations` enforces the index rule and runs in CI.
 
 /* ==================================================================== */
 /* Phase 1 — Auth + Tenancy                                              */
@@ -561,7 +568,22 @@ export const agentSchema = pgTable(
      * existing hitl_gate machinery) before executing.
      */
     harnessConfig: jsonb('harness_config').$type<{
-      /** Which harness executes this agent: 'local' (in-process deepagents loop, default), 'agentcore' (AWS AgentCore managed harness), or 'runtime' (BYOA agent-runtime artifact). */
+      /**
+       * Which machinery runs this agent's turn:
+       *   - 'in-process' — our deepagents loop, in this process
+       *   - 'agentcore-container' — the same loop, in our container on AWS
+       *     AgentCore Runtime
+       *   - 'aws-managed-harness' — AWS owns the loop; the agent is reduced to
+       *     configuration and one tool
+       *
+       * Left unset by workspace:apply on purpose — `defaultHarnessTargetFor`
+       * derives it from `modelProvider`, and a stored value would shadow that.
+       */
+      runsOn?: 'in-process' | 'agentcore-container' | 'aws-managed-harness' | 'external-worker';
+      /**
+       * Pre-rename spelling of `runsOn`, kept for rows written before the
+       * rename. Read through `normalizeHarnessTarget`, never written.
+       */
       provider?: 'local' | 'agentcore' | 'runtime';
       interrupts?: string[];
       maxTokens?: number;
@@ -1103,6 +1125,13 @@ export const learningSchema = pgTable(
     /** Where the rule came from: 'manual', 'feedback:<id>', 'self-improver:<run_id>', etc. */
     source: text('source'),
     createdBy: text('created_by'),
+    /**
+     * How many separate pieces of feedback asked for this rule — the count
+     * carried over from the candidate on approval, plus every later piece of
+     * feedback that restated an already-adopted rule. A rule people keep
+     * asking for is worth surfacing differently from one asked for once.
+     */
+    occurrenceCount: integer('occurrence_count').default(1).notNull(),
     /** Optional last-applied timestamp for staleness UI; updated when the agent reads the step. */
     lastUsedAt: timestamp('last_used_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -1159,7 +1188,13 @@ export const conversationSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
-    uniqueIndex('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
+    // Not unique. It serves `listConversations`, which filters on org and agent
+    // and sorts by `updated_at` — a sort key, not an identity. Uniqueness only
+    // meant that two conversations with one agent landing in the same
+    // millisecond could not both exist, which two people opening a chat at once
+    // would hit, and which `$onUpdate` could reproduce on two rows bumped
+    // together.
+    index('conversation_org_agent_updated_idx').on(table.orgId, table.agentSlug, table.updatedAt),
     index('conversation_org_scope_idx').on(table.orgId, table.scopeRef, table.updatedAt),
   ],
 );
@@ -1672,6 +1707,53 @@ export const knowledgeSourceSchema = pgTable(
      * with no human in the loop (schedules) keep team access.
      */
     accessPolicy: jsonb('access_policy').$type<{ visibility?: 'org' | 'restricted'; users?: string[] }>(),
+    /**
+     * The stored API credential this connector authenticates with, or `null`
+     * when it does not use one.
+     *
+     * On the connector row rather than on `source_install`, because an install
+     * is unique per (org, connector slug) and a workspace may run several
+     * connectors of the same kind — a Strapi against staging and another
+     * against production. Holding the link here is what lets each of them use
+     * its own credential instead of all of them sharing the install's.
+     *
+     * Unique where set (`knowledge_source_api_token_live_idx`): one credential
+     * belongs to one connector. A key is issued for the single instance or
+     * account its connector talks to, so a second connector naming it is
+     * somebody having picked the wrong row — and revoking it would then take
+     * down a connector nobody was looking at.
+     *
+     * Null for every OAuth connector, which keeps its grant in
+     * `source_credential`: a grant is issued to one installation, carries a
+     * refresh token, and is not a value a person pastes, so there is nothing to
+     * share. Null too for the connectors that need no auth at all, and for an
+     * API-key connector created before this column existed and not yet
+     * migrated.
+     *
+     * `restrict` on delete because a credential a connector is using must not
+     * vanish underneath it. Retiring one means revoking the row, which leaves
+     * the connector pointing at a revoked credential and lets it report a
+     * broken credential rather than failing its next sync for no stated
+     * reason.
+     */
+    // `api_token` is declared further down this file, and drizzle only calls
+    // this back when it builds the table metadata — which is what the
+    // `AnyPgColumn` return type documents.
+    // eslint-disable-next-line ts/no-use-before-define
+    apiTokenId: text('api_token_id').references((): AnyPgColumn => apiTokenSchema.id, { onDelete: 'restrict' }),
+    /**
+     * Whether this source is the only one allowed to hold `api_token_id`.
+     *
+     * Decided by the credential's platform at link time and written here so
+     * the database can enforce it: a partial unique index cannot look up a
+     * platform descriptor, but it can read a boolean on the row. True for a
+     * credential issued for one place — a Strapi token is worthless against
+     * any instance but the one that minted it. False for an account-wide
+     * grant, where sharing is the point: one Google refresh token serves
+     * Gmail, Drive and Calendar, and one Slack bot token every channel the
+     * workspace syncs.
+     */
+    apiTokenExclusive: boolean('api_token_exclusive').default(false).notNull(),
     enabled: text('enabled').default('true').notNull(),
     lastSyncedAt: timestamp('last_synced_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -1682,6 +1764,26 @@ export const knowledgeSourceSchema = pgTable(
   },
   table => [
     uniqueIndex('knowledge_source_org_slug_idx').on(table.orgId, table.slug),
+    // Unique only over the links that claim exclusivity. It used to cover every
+    // link, back when every stored credential was issued for one place. That
+    // stopped being true once a platform could serve several connectors — one
+    // Google refresh token is meant to be held by Gmail, Drive and Calendar at
+    // once — so the rule narrowed to the rows that still want it rather than
+    // being given up. `api_token_exclusive` is what a partial index can read in
+    // place of the platform descriptor that actually decides.
+    //
+    // This is the rule, not the pre-check in `linkSourceToStoredCredential`:
+    // two people picking one credential at the same moment both pass that
+    // check, and this index is what refuses the second write.
+    uniqueIndex('knowledge_source_api_token_exclusive_idx')
+      .on(table.apiTokenId)
+      .where(sql`${table.apiTokenId} is not null and ${table.apiTokenExclusive}`),
+    // Plain lookup index for the column, covering the shared links the unique
+    // one above leaves out. Partial, so the many sources naming no credential
+    // are not all indexed on one null.
+    index('knowledge_source_api_token_live_idx')
+      .on(table.apiTokenId)
+      .where(sql`${table.apiTokenId} is not null`),
   ],
 );
 
@@ -1712,6 +1814,20 @@ export const learningCandidateSchema = pgTable(
     sourceFeedbackJobId: integer('source_feedback_job_id').references(() => feedbackJobSchema.id, { onDelete: 'set null' }),
     /** The run the feedback was about, when there was one. */
     sourceRunId: integer('source_run_id'),
+    /**
+     * 'correct' (the agent should change what it does) or 'reinforce' (the
+     * agent should keep doing something a reviewer praised). Correction is the
+     * default because every candidate that existed before positive feedback
+     * was collected came from someone disagreeing.
+     */
+    polarity: text('polarity').default('correct').notNull(),
+    /**
+     * How many separate pieces of feedback asked for this rule. New feedback
+     * that restates a pending candidate increments this instead of inserting a
+     * second row, so the queue can be ordered by weight of evidence. See
+     * `learningFeedbackOccurrenceSchema` for the individual submissions.
+     */
+    occurrenceCount: integer('occurrence_count').default(1).notNull(),
     /** 'pending' | 'approved' | 'rejected'. */
     status: text('status').default('pending').notNull(),
     /** Required when rejecting — a rejection with no reason teaches nobody anything. */
@@ -1731,6 +1847,66 @@ export const learningCandidateSchema = pgTable(
     orgStatusIdx: index('learning_candidate_org_status_idx').on(table.orgId, table.status),
   }),
 );
+
+/**
+ * One row per piece of feedback that landed on a proposed or adopted rule.
+ *
+ * The first submission creates a candidate and one occurrence. Every later
+ * submission that says substantively the same thing adds an occurrence and
+ * increments the target's `occurrenceCount` — it does not create a second
+ * candidate. That is what lets the queue answer "how many people asked for
+ * this, and who" without showing the same idea five times.
+ *
+ * Exactly one of `candidateId` / `learningId` is set: feedback attaches to a
+ * pending suggestion, or to a rule that has already been adopted.
+ */
+export const learningFeedbackOccurrenceSchema = pgTable(
+  'learning_feedback_occurrence',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Set when the feedback landed on a candidate still awaiting a decision. */
+    candidateId: integer('candidate_id').references(() => learningCandidateSchema.id, { onDelete: 'cascade' }),
+    /** Set when the feedback restated a rule that is already adopted. */
+    learningId: integer('learning_id').references(() => learningSchema.id, { onDelete: 'cascade' }),
+    /** 'correct' or 'reinforce' — the polarity of this individual submission. */
+    polarity: text('polarity').notNull(),
+    /** What the person actually wrote, kept so a reviewer can read the evidence. */
+    note: text('note'),
+    /** The agent whose recommendation drew the feedback, when there was one. */
+    agentSlug: text('agent_slug'),
+    sourceFeedbackJobId: integer('source_feedback_job_id').references(() => feedbackJobSchema.id, { onDelete: 'set null' }),
+    /** The run being reacted to — an action run, workflow run or mission run id. */
+    sourceRunId: integer('source_run_id'),
+    submittedBy: text('submitted_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('learning_feedback_occurrence_candidate_idx').on(table.orgId, table.candidateId),
+    index('learning_feedback_occurrence_learning_idx').on(table.orgId, table.learningId),
+    // A row with neither target is an orphan nothing would ever read; a row
+    // with both would be counted twice. Declared here as well as in migration
+    // 0077 so `drizzle-kit generate` does not later propose dropping it.
+    check(
+      'learning_feedback_occurrence_target_ck',
+      sql`(
+        (${table.candidateId} is not null and ${table.learningId} is null)
+        or (${table.candidateId} is null and ${table.learningId} is not null)
+      )`,
+    ),
+  ],
+);
+
+export const learningFeedbackOccurrenceRelations = relations(learningFeedbackOccurrenceSchema, ({ one }) => ({
+  candidate: one(learningCandidateSchema, {
+    fields: [learningFeedbackOccurrenceSchema.candidateId],
+    references: [learningCandidateSchema.id],
+  }),
+  rule: one(learningSchema, {
+    fields: [learningFeedbackOccurrenceSchema.learningId],
+    references: [learningSchema.id],
+  }),
+}));
 
 export const knowledgeDocumentSchema = pgTable(
   'knowledge_document',
@@ -1892,6 +2068,16 @@ export const sourceSyncCheckpointSchema = pgTable(
  *     so the org's own account is billed. These rows never authenticate anybody
  *     into* Vocion; `verifyToken` refuses them outright.
  *
+ * A supplied key is found one of two ways, decided per platform by
+ * `credentialsPerOrg` in the registry. An LLM platform has at most one live row
+ * per org and callers resolve it implicitly — "the org's Anthropic key". A
+ * connector platform (`jira`, `strapi`, `hubspot`, `granola`, `google`, `slack`,
+ * `zoom`) may hold as many
+ * live rows as the workspace wants, told apart by `name`, and a
+ * `knowledge_source.api_token_id` names the one that connector uses.
+ * `api_token_org_platform_live_idx` enforces the cap for the first kind and
+ * exempts the second.
+ *
  * The `api_token_shape_ck` constraint keeps the two shapes from mixing, and the
  * `api_token_platform_immutable_tg` trigger (migration 0069) stops a row
  * crossing from one to the other after it is written. The trigger is needed
@@ -1947,14 +2133,22 @@ export const apiTokenSchema = pgTable(
   },
   table => [
     index('api_token_org_idx').on(table.orgId),
-    // One live credential per third-party platform per org, so resolving "the
-    // org's OpenAI key" is a single deterministic row rather than a guess.
-    // Revoked rows are excluded, which is what makes rotation possible: revoke
-    // the old key, store a new one. `vocion` rows are excluded too — an org is
-    // meant to hold as many Vocion tokens as it has integrations.
+    // One live credential per platform per org, for the platforms a caller
+    // resolves implicitly: "the org's OpenAI key" has to be a single
+    // deterministic row rather than a guess. Revoked rows are excluded, which
+    // is what makes rotation possible: revoke the old key, store a new one.
+    //
+    // The excluded platforms are the ones a caller names by row id instead.
+    // `vocion` — an org holds as many API tokens as it has integrations — and
+    // the connector platforms, where "Strapi — staging" and "Strapi — prod"
+    // are both live at once and each connector install points at the one it
+    // wants. The list is spelled out because a partial index cannot call into
+    // TypeScript; `MANY_CREDENTIAL_PLATFORM_IDS` in
+    // `src/libs/platforms/registry.ts` is the copy application code reads, and
+    // `registry.test.ts` fails if the two drift.
     uniqueIndex('api_token_org_platform_live_idx')
       .on(table.orgId, table.platform)
-      .where(sql`${table.revokedAt} is null and ${table.platform} <> 'vocion'`),
+      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom')`),
     // The two credential shapes must never mix. A `vocion` row carries a secret
     // hash, and either a complete set of encryption columns or none of them —
     // none being a token issued before minted tokens were stored encrypted.
@@ -2102,7 +2296,20 @@ export const actionRunSchema = pgTable(
      * Agent-proposal envelope: confidence (0–1), rationale, evidence doc uris.
      * Surfaced in the review queue + daily brief; feeds the trust ladder.
      */
-    proposal: jsonb('proposal').$type<{ confidence?: number; rationale?: string; evidence?: string[]; autoApproved?: boolean; autoApprovedThreshold?: number }>(),
+    proposal: jsonb('proposal').$type<{
+      confidence?: number;
+      rationale?: string;
+      evidence?: string[];
+      autoApproved?: boolean;
+      autoApprovedThreshold?: number;
+      /**
+       * Which agent's judgement this proposal represents. `invokedBy` cannot
+       * always answer that: a proposal made over the API records the human or
+       * token that called in, so without this the action has no agent and
+       * drops out of every per-agent metric and learning attribution.
+       */
+      agentSlug?: string;
+    }>(),
     /**
      * Idempotency/upsert key for agent-suggested actions — the review-card
      * system keys on (object type + object id + action slug), e.g.
@@ -2184,9 +2391,12 @@ export const userActivityEventSchema = pgTable(
     // a run legitimately receives multiple review.decided signals (rewritten →
     // skipped → approved) and the narrower index silently dropped all but the
     // first (0047).
+    // `review.snoozed` is exempt entirely: an item can be deferred any number
+    // of times and no metadata field tells one deferral from the next, so
+    // uniqueness here would drop every snooze after the first (0079).
     uniqueIndex('user_activity_event_resource_idx')
       .on(table.orgId, table.eventType, table.resourceType, table.resourceId, sql`(coalesce(${table.metadata}->>'decision',''))`)
-      .where(sql`resource_id IS NOT NULL`),
+      .where(sql`resource_id IS NOT NULL AND event_type <> 'review.snoozed'`),
   ],
 );
 
@@ -2332,9 +2542,25 @@ export const leadBriefSchema = pgTable(
       heading: string;
       body: string;
     }>>().default([]).notNull(),
-    /** Why the lead left: 'reply' | 'intent' | 'routed'. */
+    /** Why the lead left: 'reply' | 'meeting' | 'intent' | 'routed'. */
     handoffTrigger: text('handoff_trigger'),
     handoffAt: timestamp('handoff_at', { mode: 'date' }),
+    /**
+     * The newest reply and meeting timestamps the handoff watcher has already
+     * seen on the CRM mirror for this lead (`HandoffTriggerService`). A mirror
+     * value newer than the stored one, and newer than the enrollment decision,
+     * is a trigger; anything equal or older is not. Null until the first watch
+     * after enrollment, which baselines without firing.
+     */
+    handoffReplySeenAt: timestamp('handoff_reply_seen_at', { mode: 'date' }),
+    handoffMeetingSeenAt: timestamp('handoff_meeting_seen_at', { mode: 'date' }),
+    /**
+     * First time the watcher looked at this lead after enrollment. A meeting
+     * signal that is a plain boolean has no date of its own, so "already true
+     * on the first watch" is baselined and only a flip seen on a later watch
+     * fires. Null until that first watch.
+     */
+    handoffWatchedAt: timestamp('handoff_watched_at', { mode: 'date' }),
     /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
     regenerateNote: text('regenerate_note'),
     /** Briefing tries so far. Three, then the lead surfaces with its error. */
@@ -2404,3 +2630,103 @@ export const leadBriefSchema = pgTable(
 // Re-export `sql` so callers can build the GENERATED-ALWAYS-AS-STORED
 // tsvector expression in raw migrations. Not used at query-time.
 export { sql };
+
+/* ------------------------------------------------------------------ */
+/* Worker runs — long-running agent runs executed OUTSIDE the app       */
+/* (ADR 0004, `harness.runsOn: external-worker`)                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A long-running agent run executed by a process Vocion does NOT host. Vocion
+ * is the control plane: it queues the run, hands out a lease, records
+ * heartbeats, checkpoints and cost, and reaps a run whose lease lapses. The
+ * worker owns its own working state (files, git, its own store); this row
+ * holds only what a human or another agent needs to see about it.
+ *
+ * Modelled on `source_sync_checkpoint` — the one resumable-work table before
+ * it — plus the columns a lease protocol needs. Status is text on purpose: a
+ * new state is a code change, not a migration.
+ */
+export const workerRunSchema = pgTable(
+  'worker_run',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    agentSlug: text('agent_slug').notNull(),
+    /** `queued` | `running` | `paused` | `awaiting_review` | `completed` | `failed` | `cancelled` | `lost` */
+    status: text('status').default('queued').notNull(),
+    /** What the worker was asked to do — free-form, worker-defined. */
+    input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
+    /** Whoever holds the lease. Set on claim; a re-claim after `lost` bumps `attempt`. */
+    workerId: text('worker_id'),
+    attempt: integer('attempt').default(0).notNull(),
+    leaseSeconds: integer('lease_seconds').default(300).notNull(),
+    leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date' }),
+    heartbeatAt: timestamp('heartbeat_at', { mode: 'date' }),
+    claimedAt: timestamp('claimed_at', { mode: 'date' }),
+    /** Hard deadline, echoed to the worker on every heartbeat. */
+    endsAt: timestamp('ends_at', { mode: 'date' }),
+    completedAt: timestamp('completed_at', { mode: 'date' }),
+    /** Coarse, worker-defined progress for the run page — not a token stream. */
+    progress: jsonb('progress').$type<Record<string, unknown>>().default({}).notNull(),
+    /** Opaque worker-defined resume position. */
+    cursor: text('cursor'),
+    counts: jsonb('counts').$type<Record<string, number>>().default({}).notNull(),
+    tokens: integer('tokens').default(0).notNull(),
+    cents: integer('cents').default(0).notNull(),
+    /** Per-run dollar cap in cents; the heartbeat reports what is left. */
+    capCents: integer('cap_cents'),
+    /** A human asked the run to stop; the worker learns it on its next heartbeat. */
+    stopRequested: boolean('stop_requested').default(false).notNull(),
+    result: jsonb('result').$type<Record<string, unknown>>(),
+    error: text('error'),
+    /** Non-fatal failures the worker carried on past, capped by the service. */
+    failures: jsonb('failures').$type<{ scope: string; message: string; at: string }[]>().default([]).notNull(),
+    workspaceSha: text('workspace_sha'),
+    langfuseTraceId: text('langfuse_trace_id'),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('worker_run_org_status_idx').on(table.orgId, table.status),
+    index('worker_run_org_agent_idx').on(table.orgId, table.agentSlug),
+    index('worker_run_lease_idx').on(table.status, table.leaseExpiresAt),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Chat surfaces — which agent answers in which channel (item 025)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Binds a chat-platform channel to an agent. The inbound event carries only a
+ * channel id, so this row is how an event finds its org AND its agent — the
+ * unique key is (surface, channel, team), not per org. `channel_id = '*'` with
+ * a `team_id` is the per-workspace catch-all that direct messages resolve to.
+ */
+export const chatChannelBindingSchema = pgTable(
+  'chat_channel_binding',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** `slack` today. */
+    surface: text('surface').notNull(),
+    teamId: text('team_id'),
+    channelId: text('channel_id').notNull(),
+    agentSlug: text('agent_slug').notNull(),
+    /**
+     * Persona the replies in this channel wear (migration 0083). Null means the
+     * app's own name and icon — i.e. exactly today's behaviour.
+     */
+    displayName: text('display_name'),
+    /** Public https URL of the persona avatar; Slack fetches it per message. */
+    iconUrl: text('icon_url'),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('chat_channel_binding_surface_channel_idx').on(table.surface, table.channelId, table.teamId),
+    index('chat_channel_binding_org_idx').on(table.orgId),
+  ],
+);

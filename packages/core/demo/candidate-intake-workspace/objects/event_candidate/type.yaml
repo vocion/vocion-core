@@ -12,10 +12,10 @@ schema:
   propertyOrder: [title, start, end, venue, address, price, ticket_url]
   required: [title, start, venue]
   properties:
-    title: { type: string, description: The event name as the listing gives it }
-    start: { type: string, description: Local start time, ISO 8601, e.g. 2026-09-19T19:30 }
-    end: { type: string, description: Local end time, ISO 8601. Omit when the listing gives none }
-    venue: { type: string, description: Venue name as written }
-    address: { type: string }
-    price: { type: string, description: As written, e.g. "Free" or "$15 adv / $20 door" }
-    ticket_url: { type: string, description: Where a person buys a ticket }
+    title: {type: string, description: The event name as the listing gives it}
+    start: {type: string, description: Local start time, ISO 8601, e.g. 2026-09-19T19:30}
+    end: {type: string, description: Local end time, ISO 8601. Omit when the listing gives none}
+    venue: {type: string, description: Venue name as written}
+    address: {type: string}
+    price: {type: string, description: As written, e.g. "Free" or "$15 adv / $20 door"}
+    ticket_url: {type: string, description: Where a person buys a ticket}

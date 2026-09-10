@@ -5,7 +5,9 @@
 - [**Getting started — build an agent workforce from zero**](./getting-started.md) — the tutorial. Explains the configuration-driven model, then builds a complete workforce file by file, with a worked example of every entity type. Read this first.
 - [**Workspaces (workspace-as-code)**](./workspace.md) — what a workspace is, how to create one, how to author and apply changes, and how base packs layer underneath.
 - [**Entity reference**](#entity-reference) — every authored file type, field by field.
+- [**Where an agent turn runs**](./agent-execution.md) — the loop, the model, and the AWS account, kept apart. Read it before touching `harness.runsOn`, `harness.modelProvider`, or anything named AgentCore. Includes what the `provider` → `runsOn` rename changes for an existing workspace (nothing, unless you want it to).
 - [**Object model**](./object-model.md) — the lookup table: where each object is authored, its schema symbol, its table, its runtime, its UI surface. Includes runtime-only objects (tool calls, runs, events).
+- [**Review operations in the base pack**](./review-ops.md) — the review-queue agents and approval-drafting skills that ship in `core@2.1.0`, how to activate them, and how to override one.
 
 ## Entity reference
 
