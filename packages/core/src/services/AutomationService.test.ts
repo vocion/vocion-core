@@ -155,6 +155,19 @@ describe('fireAutomation', () => {
     );
   });
 
+  it('a schedule fire with fixed do.input still reads as a scheduled check: no payload reaches the brief', async () => {
+    const { scheduledCheckBrief } = await import('@/services/MissionService');
+    await seedAutomation(
+      'nightly-sweep',
+      { schedule: '0 2 * * *' },
+      { checkMission: 'increase-discovery-calls', prompt: 'Sweep.', input: { sinceDays: 3 } },
+    );
+
+    await fireAutomation(ORG, 'nightly-sweep');
+
+    expect(vi.mocked(scheduledCheckBrief)).toHaveBeenCalledWith(expect.anything(), 'Sweep.', undefined);
+  });
+
   it('records the failure and still rethrows when the do throws', async () => {
     await seedAutomation('broken', { schedule: '0 * * * *' }, { job: 'no-such-job' });
 
