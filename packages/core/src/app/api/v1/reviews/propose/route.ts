@@ -21,6 +21,15 @@ import { authApi, isErrorResponse, readJsonBody, writeApiErrorResponse } from '.
  * `already_decided` means a person judged this record before and nothing was
  * written — `runId`, `status` and `decidedAt` describe that earlier decision.
  * Only actions that opt in (`dedupAgainstDecided`) ever answer it.
+ *
+ * Re-posting a record whose CONTENT changed behaves three ways, depending on
+ * what moved. Changing a field the dedup key is built from makes it a
+ * different record, so it comes back `created`. Changing any other field
+ * while the item is still pending comes back `refreshed`, and the reviewer
+ * sees the new payload. Changing any other field after the item was decided
+ * comes back `already_decided` and the edit is dropped — nothing is stored
+ * and nobody is notified, so a caller that cares about late edits has to
+ * compare `decidedAt` itself and take it up outside the queue.
  * Requires the `approve` capability.
  * Auth: tenant API token or dashboard session.
  * @param req

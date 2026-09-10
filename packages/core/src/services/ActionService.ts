@@ -246,6 +246,11 @@ export async function proposeAction(input: {
     // Actions that opted in stop here rather than putting the same card back
     // in front of them — a listing page re-read every week would otherwise
     // re-propose everything ever approved or rejected on it.
+    //
+    // Note what this drops: a payload that changed since the decision is not
+    // written anywhere and nobody is told. See `dedupAgainstDecided` in
+    // `libs/actions/types.ts` for why that trade is made and what an action
+    // can do instead.
     const decided = await findDecidedRunForKey(input.orgId, dedupKey, action.dedupAgainstDecided);
     if (decided) {
       return { runId: decided.id, status: decided.status, outcome: 'already_decided', decidedAt: decided.decidedAt };

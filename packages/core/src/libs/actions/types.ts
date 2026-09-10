@@ -161,6 +161,24 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * passes `['done']`). `reproposeAfterDays` lets a decision go stale, so the
    * same record may be offered again once the decision is that old; omit it
    * and a decision stands for good.
+   *
+   * What happens when a record comes back CHANGED depends on which fields
+   * changed, and it is worth knowing before turning this on:
+   *
+   * - An identity field changed (whatever `dedupKeyFor` reads — for a
+   *   candidate, its `dedupOn` fields). That is a different key, so it is a
+   *   different record: a new card. An event moved to another night reads as
+   *   new, which is the intent.
+   * - Any other field changed, card still pending: the pending row is
+   *   refreshed in place and `onProposed` runs again, so the reviewer decides
+   *   on the new payload. One card, no duplicate.
+   * - Any other field changed, record already decided: the proposal is
+   *   blocked and **the change is dropped**. A price that moved on an event
+   *   someone already approved does not reach them, and no row records that
+   *   it was seen. That is the deliberate trade for a queue that does not
+   *   refill; an action that needs those late edits should either narrow
+   *   `statuses`, set `reproposeAfterDays`, or handle the update itself
+   *   rather than through the review queue.
    */
   dedupAgainstDecided?: {
     statuses?: Array<'done' | 'failed' | 'rejected'>;

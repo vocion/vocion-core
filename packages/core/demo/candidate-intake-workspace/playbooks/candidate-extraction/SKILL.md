@@ -87,6 +87,13 @@ queue item.
   exact record` and writes nothing. That is the normal answer on a page you
   have walked before, not a failure — so propose every record you find and
   read the answer, rather than trying to remember which ones were decided.
+- A record that came back with changed details behaves three ways. Change a
+  `dedupOn` field — the date, the venue — and it is a different record, so it
+  opens its own card. Change anything else while the card is still waiting
+  and the card is updated in place, so the reviewer sees the new details.
+  Change anything else after a person decided and the change is dropped: say
+  so in your summary if it looks like it matters, because nothing else will
+  surface it.
 
 ## What you must not do
 
