@@ -54,6 +54,19 @@ const COLLAPSE_KEY = 'vocion_chat_dock_collapsed';
 export const DOCK_WIDTH_CLASS = 'w-[max(24rem,33.333vw)]';
 
 /**
+ * A question that asks for the review cards back (058). The cards live inline
+ * in the transcript and scroll away with it; asking where you were, or what is
+ * left to decide, brings them back to the bottom. Matched on the client so
+ * the cards move at once; the question still goes to the agent, who answers
+ * it in words as well.
+ * @param text - What the person typed.
+ */
+export function isRecallAsk(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return /\b(?:what (?:do|should|did) i (?:still )?(?:need|have) to (?:review|decide|approve|look at)|what(?:'s| is) (?:left|pending|waiting|outstanding)(?: to (?:review|decide))?|where (?:was|am) i|show (?:me )?(?:the |my )?(?:review )?(?:cards?|sends?|review)|(?:bring|pull) (?:the |my )?(?:cards?|review) (?:back|up)|what do i (?:need to )?review)\b/.test(t);
+}
+
+/**
  * Stands in when no decision is waiting. Hooks cannot be called
  * conditionally, and a card with no content yields no sends, so the guided
  * flow simply has nothing to walk.
@@ -138,6 +151,13 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     run: run ?? EMPTY_RUN,
     ...(onDecided ? { onDecided } : {}),
   });
+  // Where in the transcript the guided cards sit (058): the index of the
+  // message they follow, -1 for the top. A revision or a recall moves them to
+  // the bottom; the cards are one live block, never duplicated.
+  const [cardAnchor, setCardAnchor] = useState(-1);
+  const lastMessageIndex = session.messages.length - 1;
+  const cardsScrolledAway = cardAnchor < lastMessageIndex;
+  const recallCards = () => setCardAnchor(lastMessageIndex);
 
   // The dock IS this page's agent surface: claim any entry-point request
   // (hotkey, titlebar, rail) by un-collapsing and taking focus (032 §6).
@@ -181,7 +201,16 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     const asked = run && typed ? await guided.askAbout(typed) : null;
     if (asked?.kind === 'revised') {
       session.setComposerValue('');
+      // The revised send is re-presented where the reviewer is looking: the
+      // bottom of the transcript.
+      recallCards();
       return;
+    }
+    // "What do I need to review?" brings the cards back under the answer the
+    // agent is about to give: the send adds a user turn and a reply, so the
+    // cards follow the reply.
+    if (run && typed && isRecallAsk(typed)) {
+      setCardAnchor(session.messages.length + 1);
     }
     const quoted = pendingNotes
       .map((c, i) => `${i + 1}. “${c.anchor.quote}” — ${c.note}`)
@@ -222,7 +251,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     <aside
       ref={asideRef}
       aria-label={scopeRef ? `Conversation about ${scopeLabel}` : 'Conversation'}
-      className={`sticky top-0 z-30 flex h-screen ${DOCK_WIDTH_CLASS} shrink-0 flex-col border-l border-border bg-background max-[1199px]:fixed max-[1199px]:inset-y-0 max-[1199px]:right-0 max-[1199px]:shadow-2xl`}
+      // Under the sticky 4rem header, the rest of the viewport: the composer
+      // is always the bottom edge of the pane (058).
+      className={`sticky top-16 z-30 flex h-[calc(100dvh-4rem)] ${DOCK_WIDTH_CLASS} shrink-0 flex-col border-l border-border bg-background max-[1199px]:fixed max-[1199px]:right-0 max-[1199px]:bottom-0 max-[1199px]:shadow-2xl`}
     >
       {/* Scope header — names what this conversation is about, with the one
           link back to everything (032 §3.1). */}
@@ -259,36 +290,44 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
         </button>
       </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Kept mounted after a decision so the outcome card can state what
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* The guided cards live in the transcript, at `cardAnchor` (058). Kept
+            mounted after a decision so the outcome card can state what
             happened — hiding the flow the moment it is decided would drop the
-            one card that says so. Sits under the scope header, above the
-            transcript: the cards are the work at hand, the history scrolls
-            beneath them. */}
-        {run && (!guided.state.decided || guided.outcome) && (
-          <div className="max-h-[55%] shrink-0 overflow-y-auto border-b border-border bg-muted/20">
-            <GuidedReviewPanel run={run} guided={guided} pendingComments={comments?.open.length ?? 0} />
-          </div>
-        )}
-
-        {session.messages.length === 0
-          ? (
-              <EmptyState
-                greeting={session.emptyGreeting}
-                suggestions={session.emptyChips}
-                suggestionsLoading={session.emptyChipsLoading}
-                onPick={session.handlePickSuggestion}
-                disabled={!session.booted}
-              />
-            )
-          : (
-              <MessageList
-                messages={session.messages}
-                agentName={session.agent.name}
-                streaming={session.isStreaming}
-                activity={session.activity}
-              />
-            )}
+            one card that says so. */}
+        {(() => {
+          const showCards = run && (!guided.state.decided || guided.outcome);
+          const cardBlocks = showCards
+            ? [{
+                key: 'guided',
+                afterIndex: Math.min(cardAnchor, Math.max(lastMessageIndex, -1)),
+                node: (
+                  <div className="rounded-xl border border-border bg-muted/20">
+                    <GuidedReviewPanel run={run} guided={guided} pendingComments={comments?.open.length ?? 0} />
+                  </div>
+                ),
+              }]
+            : [];
+          return session.messages.length === 0 && cardBlocks.length === 0
+            ? (
+                <EmptyState
+                  greeting={session.emptyGreeting}
+                  suggestions={session.emptyChips}
+                  suggestionsLoading={session.emptyChipsLoading}
+                  onPick={session.handlePickSuggestion}
+                  disabled={!session.booted}
+                />
+              )
+            : (
+                <MessageList
+                  messages={session.messages}
+                  agentName={session.agent.name}
+                  streaming={session.isStreaming}
+                  activity={session.activity}
+                  blocks={cardBlocks}
+                />
+              );
+        })()}
 
         {session.pendingHitl && (
           <HitlGate
@@ -297,6 +336,20 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             onReject={session.handleRejectHitl}
             disabled={session.isStreaming}
           />
+        )}
+
+        {/* The cards have scrolled up behind newer turns: one click brings
+            them back to the bottom, the same as asking for them (058). */}
+        {run && !guided.state.decided && cardsScrolledAway && (
+          <div className="px-4 pt-2 sm:px-6">
+            <button
+              type="button"
+              onClick={recallCards}
+              className="rounded-full border border-border px-3 py-1 text-xs font-medium text-foreground/80 transition hover:bg-muted"
+            >
+              Show my review cards
+            </button>
+          </div>
         )}
 
         {comments && (
