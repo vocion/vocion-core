@@ -228,7 +228,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, run, onDecided }: ChatDoc
             beneath them. */}
         {run && (!guided.state.decided || guided.outcome) && (
           <div className="max-h-[55%] shrink-0 overflow-y-auto border-b border-border bg-muted/20">
-            <GuidedReviewPanel run={run} guided={guided} />
+            <GuidedReviewPanel run={run} guided={guided} pendingComments={comments?.open.length ?? 0} />
           </div>
         )}
 
