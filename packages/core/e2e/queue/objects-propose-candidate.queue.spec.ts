@@ -1,6 +1,5 @@
-import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
-import { tolerateExistingUser } from '../../tests/TestUtils';
+import { ensureBootstrapAdmin } from '../support/bootstrap-admin';
 
 /**
  * objects.propose_candidate end to end — the path an ingestion agent and an
@@ -89,47 +88,8 @@ function openMic(over: Record<string, unknown> = {}) {
   };
 }
 
-/**
- * Creates the account, its default project and the admin user directly in the
- * database — the same command an operator runs on a real box. Re-running the
- * spec against a database that already has the user is fine: the script exits
- * non-zero saying so, and the sign-in below still works.
- */
-function createBootstrapAdmin(): void {
-  try {
-    execFileSync(
-      'npm',
-      [
-        'run',
-        'user:create',
-        '--silent',
-        '--',
-        '--email',
-        ADMIN.email,
-        '--name',
-        ADMIN.name,
-        '--account',
-        ADMIN.account,
-        '--password',
-        ADMIN.password,
-        '--role',
-        'admin',
-      ],
-      // No DATABASE_URL of our own: the script wraps itself in `dotenv -c`, so
-      // it reads the same .env.local the app under test reads. Naming a
-      // database here would seed the admin into one database while the server
-      // signs in against another.
-      { stdio: 'pipe' },
-    );
-  } catch (error) {
-    // "Already exists" is the normal case on a database that already has the
-    // admin; anything else is rethrown with the script's own last stderr line.
-    tolerateExistingUser(error, '[queue spec]');
-  }
-}
-
 test('one record, one review item: propose, re-propose, decide, and link what the panel published', async ({ page, baseURL }) => {
-  createBootstrapAdmin();
+  ensureBootstrapAdmin(ADMIN, 'queue spec');
 
   await page.goto('/sign-in');
   await page.getByLabel('Email').fill(ADMIN.email);
