@@ -85,6 +85,12 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   await page.waitForLoadState('networkidle');
 
   // ── Shot 1 — fresh workspace: the Teams empty state is honest + self-solving ──
+  // Teams lives in the sidebar's manage view, not the default work view, since
+  // the configurable-surfaces nav landed. A visitor gets there the same way:
+  // the workspace button at the foot of the sidebar, then "Manage workspace".
+  await page.getByRole('button', { name: 'Workspace and settings' }).click();
+  await page.getByRole('menuitem', { name: 'Manage workspace' }).click();
+
   await page.getByRole('link', { name: 'Teams', exact: true }).click();
   await page.waitForURL('**/dashboard/teams');
 

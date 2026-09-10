@@ -4,8 +4,10 @@
  * E2E spec (`e2e/mission-runs/mission-run-reports.spec.ts`).
  *
  * Builds, in the database the running app is actually pointed at:
- *   - a mission belonging to the existing `wt252` project (found by slug —
- *     bootstrap already seeded it, see the umbrella CLAUDE.md)
+ *   - its own tenant account + project ("e2e-mission-runs-primary"), so the
+ *     spec runs against a fresh database (CI boots an empty PGlite) as well as
+ *     a developer's, and never competes with whatever else lives there
+ *   - a mission belonging to that project
  *   - three runs on that mission: two completed runs with a populated
  *     `plan.tasks[0].output`, and one run whose `plan` column is a literal
  *     `null` (a row a hand edit or a pre-`tasks` write could leave behind),
@@ -29,7 +31,7 @@
  * Usage: npx dotenv -c -- npx tsx e2e/mission-runs/support/seed-mission-run-fixtures.ts
  */
 import process from 'node:process';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import {
   missionRunSchema,
@@ -40,53 +42,67 @@ import {
 import { issueToken } from '@/services/ApiTokenService';
 import 'dotenv/config';
 
-const PRIMARY_PROJECT_SLUG = 'wt252';
+const PRIMARY_ACCOUNT_SLUG = 'e2e-mission-runs-primary';
+const PRIMARY_PROJECT_SLUG = 'e2e-mission-runs-primary';
 const MISSION_SLUG = 'e2e-nightly-source-refresh';
 const CROSS_ORG_ACCOUNT_SLUG = 'e2e-cross-org-mission-runs';
 const CROSS_ORG_PROJECT_SLUG = 'e2e-cross-org-mission-runs';
 const TOKEN_NAME_PRIMARY = 'e2e mission-run reports (primary org)';
 const TOKEN_NAME_OTHER = 'e2e mission-run reports (other org)';
 
-async function findPrimaryProject() {
-  const [project] = await db
+/**
+ * Delete one of this script's projects and everything scoped to it. Order
+ * matters: runs before missions (FK `mission_run.mission_id` references
+ * `mission`), then the project, then the account (FK `project.account_id`
+ * references `tenant_account`). Tokens carry `org_id` without a foreign key,
+ * so a stale token from an earlier run is left behind and simply stops
+ * resolving to a project.
+ * @param projectSlug - Slug of the project to remove, if it exists.
+ * @param accountSlug - Slug of the account that owns it.
+ */
+async function deleteProjectAndAccount(projectSlug: string, accountSlug: string): Promise<void> {
+  const [existing] = await db
     .select({ id: projectSchema.id })
     .from(projectSchema)
-    .where(eq(projectSchema.slug, PRIMARY_PROJECT_SLUG))
+    .where(eq(projectSchema.slug, projectSlug))
     .limit(1);
-  if (!project) {
-    throw new Error(`no project with slug "${PRIMARY_PROJECT_SLUG}" — expected the worktree's seeded demo project`);
+  if (existing) {
+    await db.delete(missionRunSchema).where(eq(missionRunSchema.orgId, existing.id));
+    await db.delete(missionSchema).where(eq(missionSchema.orgId, existing.id));
+    await db.delete(projectSchema).where(eq(projectSchema.id, existing.id));
   }
-  return project.id;
+  await db.delete(tenantAccountSchema).where(eq(tenantAccountSchema.slug, accountSlug));
 }
 
 /**
- * Delete this script's own fixture rows so reruns start clean. Order matters:
- * runs before the mission (FK `mission_run.mission_id` references `mission`),
- * project before account (FK `project.account_id` references `tenant_account`).
- * @param orgId - The primary org's id, to scope the mission delete.
+ * Delete this script's own fixture rows so reruns start clean: both the
+ * primary project and the cross-org one, each with its account.
  */
-async function resetFixtures(orgId: string): Promise<void> {
-  const [existingMission] = await db
-    .select({ id: missionSchema.id })
-    .from(missionSchema)
-    .where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.slug, MISSION_SLUG)))
-    .limit(1);
-  if (existingMission) {
-    await db.delete(missionRunSchema).where(eq(missionRunSchema.missionId, existingMission.id));
-    await db.delete(missionSchema).where(eq(missionSchema.id, existingMission.id));
-  }
+async function resetFixtures(): Promise<void> {
+  await deleteProjectAndAccount(PRIMARY_PROJECT_SLUG, PRIMARY_ACCOUNT_SLUG);
+  await deleteProjectAndAccount(CROSS_ORG_PROJECT_SLUG, CROSS_ORG_ACCOUNT_SLUG);
+}
 
-  const [existingOtherProject] = await db
-    .select({ id: projectSchema.id })
-    .from(projectSchema)
-    .where(eq(projectSchema.slug, CROSS_ORG_PROJECT_SLUG))
-    .limit(1);
-  if (existingOtherProject) {
-    await db.delete(missionRunSchema).where(eq(missionRunSchema.orgId, existingOtherProject.id));
-    await db.delete(missionSchema).where(eq(missionSchema.orgId, existingOtherProject.id));
-    await db.delete(projectSchema).where(eq(projectSchema.id, existingOtherProject.id));
-  }
-  await db.delete(tenantAccountSchema).where(eq(tenantAccountSchema.slug, CROSS_ORG_ACCOUNT_SLUG));
+/**
+ * The project the mission and its runs belong to. Created here rather than
+ * looked up: CI runs the suite against an empty in-memory database, so there
+ * is no pre-seeded project to find.
+ */
+async function createPrimaryProject(): Promise<string> {
+  const accountId = `acct-e2e-mission-runs-${Date.now()}`;
+  await db.insert(tenantAccountSchema).values({
+    id: accountId,
+    name: 'E2E Mission Runs',
+    slug: PRIMARY_ACCOUNT_SLUG,
+  });
+  const projectId = `proj-e2e-mission-runs-${Date.now()}`;
+  await db.insert(projectSchema).values({
+    id: projectId,
+    accountId,
+    slug: PRIMARY_PROJECT_SLUG,
+    name: 'E2E Mission Runs',
+  });
+  return projectId;
 }
 
 async function createCrossOrgProject(): Promise<string> {
@@ -107,10 +123,10 @@ async function createCrossOrgProject(): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const primaryOrgId = await findPrimaryProject();
-  console.error(`[seed-mission-run-fixtures] primary org (project "${PRIMARY_PROJECT_SLUG}"): ${primaryOrgId}`);
+  await resetFixtures();
 
-  await resetFixtures(primaryOrgId);
+  const primaryOrgId = await createPrimaryProject();
+  console.error(`[seed-mission-run-fixtures] primary org (project "${PRIMARY_PROJECT_SLUG}"): ${primaryOrgId}`);
 
   const [mission] = await db
     .insert(missionSchema)

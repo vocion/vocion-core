@@ -2,7 +2,10 @@ import { faker } from '@faker-js/faker';
 import test, { expect } from '@playwright/test';
 import { signIn } from '../TestUtils';
 
-test.describe('Todo', () => {
+// Skipped for the same reason as tests/integration/Todo.spec.ts: the todo
+// feature was deleted (`8765c5f8 refactor(nav): sidebar reorg + delete orphan
+// routes`), so the "Todos" nav link these tests click no longer exists.
+test.describe.skip('Todo', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page);
 

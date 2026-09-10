@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
+import { tolerateExistingUser } from '../../tests/TestUtils';
 
 /**
  * API credentials page — the platform matrix, end to end.
@@ -61,14 +62,13 @@ function createBootstrapAdmin(): void {
         '--role',
         'admin',
       ],
-      { stdio: 'inherit' },
+      // stderr is captured so a failure can be classified below.
+      { stdio: ['ignore', 'inherit', 'pipe'] },
     );
   } catch (error) {
-    // Expected on a database that already ran this spec: the script refuses to
-    // overwrite an existing user and exits non-zero. Every test below signs in
-    // rather than signs up, so the run is still valid — and a genuine failure
-    // here surfaces as that sign-in failing, with this line naming the cause.
-    console.warn(`[credentials spec] create-local-user made no user: ${error instanceof Error ? error.message : String(error)}`);
+    // "Already exists" is the normal case on a database that already ran this
+    // spec; anything else is rethrown with the script's own last stderr line.
+    tolerateExistingUser(error, '[credentials spec]');
   }
 }
 
@@ -164,6 +164,7 @@ test.describe('the platform selector decides which controls exist', () => {
       // new connector lands here as well, on purpose: the selector is the one
       // place a platform becomes reachable, so a silent addition is worth a
       // failing assertion.
+      'Apollo',
       'Granola',
       'HubSpot',
       'Jira',

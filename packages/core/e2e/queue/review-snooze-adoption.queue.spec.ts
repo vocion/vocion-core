@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
+import { tolerateExistingUser } from '../../tests/TestUtils';
 
 /**
  * Snoozing is measurable — the path from the review card's Snooze button to a
@@ -113,10 +114,9 @@ function createBootstrapAdmin(): void {
       { stdio: 'pipe' },
     );
   } catch (error) {
-    // Expected on a local database that already has the admin — the script
-    // exits non-zero rather than overwriting. Any other cause shows up as the
-    // sign-in failing below, with this line naming it.
-    console.warn(`[snooze spec] user:create made no user: ${error instanceof Error ? error.message : String(error)}`);
+    // "Already exists" is the normal case on a database that already has the
+    // admin; anything else is rethrown with the script's own last stderr line.
+    tolerateExistingUser(error, '[snooze spec]');
   }
 }
 

@@ -209,7 +209,12 @@ jobs:
 
     name: Run E2E tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Playwright caps itself at 8 minutes (globalTimeout in
+    # packages/core/playwright.config.ts) and stops at the first failure, so
+    # this is the 8 plus setup, Chromatic and the artifact upload. It used to
+    # be 10 with no Playwright cap, and a red run hit this limit before
+    # Playwright could print its summary.
+    timeout-minutes: 15
     needs: [build]
 
     steps:
@@ -235,9 +240,13 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_e2e
           AUTH_SECRET: ci-only-secret-not-used-outside-ci
 
+      # Playwright's outputDir is relative to its config, so the traces land in
+      # packages/core/test-results, not at the repo root. Runs on failure too:
+      # that is when the traces matter.
       - name: Fix test results permission # Give permissions to test results needed by Chromatic
+        if: always()
         run: |
-          sudo chmod -R 777 test-results
+          if [ -d packages/core/test-results ]; then sudo chmod -R 777 packages/core/test-results; fi
 
       - name: Run visual regression tests
         uses: chromaui/action@v15
@@ -247,12 +256,17 @@ jobs:
           outputDir: storybook-static
           projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
 
+      # Same path note as the chmod step. `error` rather than the default
+      # `warn`: with traces on for every test, an empty directory means the run
+      # never reached Playwright, which is worth a red step, and a silent
+      # "No files were found" hid the wrong path for a long time.
       - name: Upload test results
         uses: actions/upload-artifact@v6
         if: always()
         with:
           name: test-results
-          path: test-results/
+          path: packages/core/test-results/
+          if-no-files-found: error
           retention-days: 7
 
   synchronize-with-crowdin:
