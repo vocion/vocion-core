@@ -52,6 +52,8 @@ export const listPendingActionsRoute = os
   .input(z.object({
     actionIds: z.array(z.string().min(1)).max(50).optional(),
     limit: z.number().int().positive().max(200).optional(),
+    /** Rows to skip, so the Up-next rail can grow the loaded queue a page at a time. */
+    offset: z.number().int().nonnegative().optional(),
   }).optional())
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
@@ -84,8 +86,11 @@ export const listPendingActionsRoute = os
         .from(actionRunSchema)
         .leftJoin(reviewAssignmentSchema, assignment)
         .where(where)
-        .orderBy(desc(actionRunSchema.createdAt))
-        .limit(input?.limit ?? 50),
+        // id breaks ties, so two rows created in the same tick keep a stable
+        // order across pages and never repeat or vanish between them.
+        .orderBy(desc(actionRunSchema.createdAt), desc(actionRunSchema.id))
+        .limit(input?.limit ?? 50)
+        .offset(input?.offset ?? 0),
       db
         .select({ n: sql<number>`count(*)::int` })
         .from(actionRunSchema)

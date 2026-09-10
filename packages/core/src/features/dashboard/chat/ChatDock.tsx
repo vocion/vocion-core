@@ -12,6 +12,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
+import { publishDockOpen } from './dockState';
 import { EmptyState } from './EmptyState';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
@@ -223,6 +224,13 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       await comments?.applyComments(pendingNotes.map(c => c.id));
     }
   };
+
+  // Tell the page beside the dock whether it has the room (the review queue
+  // folds its Up-next rail while the dock is open). Closed again on unmount.
+  useEffect(() => {
+    publishDockOpen(!collapsed);
+    return () => publishDockOpen(false);
+  }, [collapsed]);
 
   const setCollapsedPersisted = (next: boolean) => {
     setCollapsed(next);

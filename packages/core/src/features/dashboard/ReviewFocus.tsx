@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { TokenSelect } from '@/components/ui/token-select';
 import { ReviewActionCard } from '@/features/review/ReviewActionCard';
 import { client } from '@/libs/Orpc';
+import { useDockOpen } from './chat/dockState';
+import { upNextPage } from './upNextPage';
 
 /** One card type pending for the org, with its real count and registered name. */
 type ReviewType = { actionId: string; label: string; count: number };
@@ -151,6 +153,48 @@ export function ReviewFocus() {
 
   const queue = [...items.filter(i => !skipped.has(i.id)), ...items.filter(i => skipped.has(i.id))];
   const current = (pinnedId != null && items.find(i => i.id === pinnedId)) || queue[0];
+  // The Up-next rail gives way to the conversation dock: folded to its header
+  // while the dock is open, unless the person opens it by hand; the hand
+  // choice resets when the dock changes (Valerie, 2026-09-10). "+N more"
+  // grows the list by a page of fifty per click.
+  const dockOpen = useDockOpen();
+  const [railChoice, setRailChoice] = useState<boolean | null>(null);
+  const [railExpansions, setRailExpansions] = useState(0);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setRailChoice(null);
+  }, [dockOpen]);
+  const railFolded = railChoice ?? dockOpen;
+  const [loadingMore, setLoadingMore] = useState(false);
+  /**
+   * "+N more": widen the rail's window by a page and, when the loaded queue is
+   * shorter than the queue itself, fetch the next page from the server and
+   * append it (deduped by id, since the queue can move under us).
+   */
+  const showMoreUpNext = useCallback(async () => {
+    setRailExpansions(n => n + 1);
+    if (items.length >= total || loadingMore) {
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      const chosen = typeKey === '' ? [] : typeKey.split(',');
+      const page = await client.review.listPendingActions({
+        ...(chosen.length > 0 ? { actionIds: chosen } : {}),
+        limit: 50,
+        offset: items.length,
+      });
+      setItems((prev) => {
+        const seen = new Set(prev.map(i => i.id));
+        return [...prev, ...(page.items as ActionRun[]).filter(i => !seen.has(i.id))];
+      });
+      setTotal(page.total);
+    } catch {
+      /* the window still widened over what is loaded; the next click retries */
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [items.length, total, loadingMore, typeKey]);
   const desc = current ? describeAction(current) : null;
 
   // Editable working copy of the item's human fields.
@@ -423,37 +467,67 @@ export function ReviewFocus() {
           )}
         </div>
 
-        {/* Up-next rail — jump anywhere; Back returns. */}
-        {queue.length > 1 && (
-          <aside className="hidden w-64 shrink-0 lg:block">
-            <div className="mb-2 px-1 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">Up next</div>
-            <ul className="space-y-1.5">
-              {queue.filter(i => i.id !== current.id).slice(0, 8).map((item) => {
-                const d = describeAction(item);
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => goTo(item.id)}
-                      className="group flex w-full items-center gap-2 rounded-lg border border-border/60 px-2.5 py-2 text-left text-xs transition hover:border-brand-amber/40"
-                    >
-                      <span className="min-w-0 flex-1 truncate">{d.title}</span>
-                      <ArrowRight className="size-3 shrink-0 text-muted-foreground/50 transition group-hover:text-brand-amber-deep" aria-hidden />
-                    </button>
-                  </li>
-                );
-              })}
-              {queue.length > 9 && (
-                <li className="px-2.5 text-[11px] text-muted-foreground/60">
-                  +
-                  {queue.length - 9}
-                  {' '}
-                  more
-                </li>
+        {/* Up-next rail — jump anywhere; Back returns. Folds to its header
+            while the dock is open; "+N more" pages the list by fifty. */}
+        {queue.length > 1 && (() => {
+          const others = queue.filter(i => i.id !== current.id);
+          // Counted against the whole queue, not just what is loaded: "+141
+          // more" with 150 in the queue, however many rows the page holds.
+          const upNextTotal = Math.max(total - 1, others.length);
+          const { shown, remaining } = upNextPage(upNextTotal, railExpansions);
+          return (
+            <aside aria-label="Up next" className={`hidden shrink-0 lg:block ${railFolded ? 'w-auto' : 'w-64'}`}>
+              <div className="mb-2 flex items-center gap-2 px-1 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+                <span>
+                  Up next
+                  {railFolded ? ` · ${upNextTotal}` : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRailChoice(!railFolded)}
+                  className="rounded px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-muted-foreground normal-case transition hover:bg-muted hover:text-foreground"
+                  aria-expanded={!railFolded}
+                >
+                  {railFolded ? 'Show' : 'Hide'}
+                </button>
+              </div>
+              {!railFolded && (
+                <ul className="space-y-1.5">
+                  {others.slice(0, shown).map((item) => {
+                    const d = describeAction(item);
+                    return (
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          onClick={() => goTo(item.id)}
+                          className="group flex w-full items-center gap-2 rounded-lg border border-border/60 px-2.5 py-2 text-left text-xs transition hover:border-brand-amber/40"
+                        >
+                          <span className="min-w-0 flex-1 truncate">{d.title}</span>
+                          <ArrowRight className="size-3 shrink-0 text-muted-foreground/50 transition group-hover:text-brand-amber-deep" aria-hidden />
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {remaining > 0 && (
+                    <li>
+                      <button
+                        type="button"
+                        onClick={() => void showMoreUpNext()}
+                        disabled={loadingMore}
+                        className="w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-60"
+                      >
+                        +
+                        {remaining}
+                        {' '}
+                        more
+                      </button>
+                    </li>
+                  )}
+                </ul>
               )}
-            </ul>
-          </aside>
-        )}
+            </aside>
+          );
+        })()}
       </div>
     </>
   );
