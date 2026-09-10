@@ -3,7 +3,9 @@ import { Buffer } from 'node:buffer';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
- * Slack as a chat surface. Events API in (`app_mention`, `message.im`),
+ * Slack as a chat surface. Events API in (`app_mention`, `message.im`,
+ * `member_joined_channel` for the bot itself — never `message.channels` or
+ * `message.groups`, which would stream every message in every channel),
  * `chat.postMessage` out, both over plain `fetch` like `libs/sources/slack.ts`
  * — no Slack SDK, by house precedent.
  *
@@ -75,10 +77,25 @@ export function stripMentions(text: string): string {
 }
 
 /**
+ * The bot's own Slack user id for this delivery. Slack stamps every
+ * `event_callback` with the identities it was delivered for, so the envelope
+ * usually answers this itself; `SLACK_BOT_USER_ID` is the fallback for the
+ * events (and the tests) that carry no `authorizations` block.
+ * @param env - The envelope.
+ * @param configured - Deployment-configured bot user id, if any.
+ */
+function botUserIdFor(env: SlackEnvelope, configured?: string): string | undefined {
+  const authed = env.authorizations?.find(a => a.is_bot && a.user_id)?.user_id;
+  return authed ?? (configured || undefined);
+}
+
+/**
  * Classify an Events API envelope.
  * @param payload - Parsed JSON body.
+ * @param configuredBotUserId - Bot user id from the environment, used when the
+ * envelope carries no `authorizations` block.
  */
-export function parseSlackPayload(payload: unknown): ChatParse {
+export function parseSlackPayload(payload: unknown, configuredBotUserId?: string): ChatParse {
   const env = (payload ?? {}) as SlackEnvelope;
   if (env.type === 'url_verification' && typeof env.challenge === 'string') {
     return { kind: 'challenge', challenge: env.challenge };
@@ -87,6 +104,19 @@ export function parseSlackPayload(payload: unknown): ChatParse {
     return { kind: 'ignore', reason: `envelope type ${env.type ?? 'unknown'}` };
   }
   const ev = env.event;
+  // The bot being added to a channel is the discovery signal, and it is the
+  // one event with no `ts` and no human sender — so it is classified before
+  // the message-shaped checks below, which would drop it as incomplete.
+  if (ev.type === 'member_joined_channel') {
+    const botUserId = botUserIdFor(env, configuredBotUserId);
+    if (!ev.channel || !ev.user) {
+      return { kind: 'ignore', reason: 'incomplete join event' };
+    }
+    if (!botUserId || ev.user !== botUserId) {
+      return { kind: 'ignore', reason: 'another member joined' };
+    }
+    return { kind: 'joined', join: { surface: 'slack', teamId: env.team_id ?? null, channelId: ev.channel, botUserId } };
+  }
   if (ev.bot_id || ev.subtype) {
     return { kind: 'ignore', reason: ev.bot_id ? 'bot message' : `subtype ${ev.subtype}` };
   }
@@ -124,7 +154,9 @@ export function parseSlackPayload(payload: unknown): ChatParse {
  * app, N faces. Without a persona the payload is byte-identical to what it was
  * before personas existed: the keys are omitted, never sent as null, because
  * Slack treats an explicit empty `username` as a name and posts blank.
- * @param target - Channel + thread, and optionally the persona to post as.
+ * A target with no `threadRef` posts to the channel itself rather than into a
+ * thread — the channel-join introduction, which has no thread to answer in.
+ * @param target - Channel, optionally a thread, and optionally the persona to post as.
  * @param text - Plain text (Slack mrkdwn is fine).
  * @param token - Bot token.
  * @param baseUrl - Overridable for tests.
@@ -133,7 +165,10 @@ export async function postSlackReply(target: ChatReplyTarget, text: string, toke
   if (!token) {
     throw new Error('SLACK_BOT_TOKEN is not set; cannot reply');
   }
-  const payload: Record<string, string> = { channel: target.channelId, thread_ts: target.threadRef, text };
+  const payload: Record<string, string> = { channel: target.channelId, text };
+  if (target.threadRef) {
+    payload.thread_ts = target.threadRef;
+  }
   if (target.displayName) {
     payload.username = target.displayName;
   }
@@ -157,6 +192,6 @@ export async function postSlackReply(target: ChatReplyTarget, text: string, toke
 export const slackSurface: ChatSurfaceAdapter = {
   id: 'slack',
   verify: (rawBody, headers) => verifySlackSignature(rawBody, headers, process.env.SLACK_SIGNING_SECRET),
-  parse: parseSlackPayload,
+  parse: payload => parseSlackPayload(payload, process.env.SLACK_BOT_USER_ID),
   reply: (target, text) => postSlackReply(target, text, process.env.SLACK_BOT_TOKEN),
 };
