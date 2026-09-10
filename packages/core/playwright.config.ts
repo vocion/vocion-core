@@ -42,6 +42,11 @@ export default defineConfig<ChromaticConfig>({
     env: {
       NEXT_PUBLIC_SENTRY_DISABLED: 'true',
       NEXT_PUBLIC_APP_URL: baseURL,
+      // Auth.js only trusts the request host when AUTH_URL or AUTH_TRUST_HOST
+      // is set, or when NODE_ENV is not production (@auth/core lib/utils/env.js).
+      // `next dev` gets the last fallback; CI runs `next start`, so without this
+      // every /api/auth call answers UntrustedHost and the browser specs time out.
+      AUTH_URL: baseURL,
       PORT,
     },
   },
