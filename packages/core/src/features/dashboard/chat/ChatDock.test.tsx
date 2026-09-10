@@ -17,7 +17,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 const { client } = await import('@/libs/Orpc');
-const { ChatDock } = await import('./ChatDock');
+const { ChatDock, DOCK_WIDTH_CLASS } = await import('./ChatDock');
 
 const AGENTS = [
   { slug: 'revops-lead', name: 'RevOps Lead', icon: 'bot' as const, placeholder: 'Ask about this lead…', role: 'lead' as const },
@@ -83,6 +83,68 @@ describe('ChatDock', () => {
     const empty = await page.getByRole('heading', { level: 2 }).element();
 
     expect(overview.compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('opens to a third of the viewport, never under the old column width', async () => {
+    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
+
+    const aside = page.getByRole('complementary', { name: 'Conversation about Pete Laverick' });
+
+    await expect.element(aside).toBeVisible();
+    expect(DOCK_WIDTH_CLASS).toBe('w-[max(24rem,33.333vw)]');
+    expect(aside.element().className).toContain(DOCK_WIDTH_CLASS);
+  });
+
+  it('carries the chat menu in its header: new chat, recent threads, which agent', async () => {
+    vi.mocked(client.conversations.list).mockResolvedValue([
+      { id: 7, title: 'Earlier about the queue', messageCount: 4, updatedAt: new Date().toISOString() },
+    ] as never);
+    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
+
+    await userEvent.click(page.getByRole('button', { name: 'Chat options' }));
+
+    await expect.element(page.getByRole('menuitem', { name: /New chat/ })).toBeVisible();
+    await expect.element(page.getByRole('menuitem', { name: /Earlier about the queue/ })).toBeVisible();
+  });
+
+  it('without a scope it is the everything conversation, collapsed by default when the page says so', async () => {
+    await render(<ChatDock agents={AGENTS} scopeLabel="Everything" pageContext={{ path: '/dashboard/review', title: 'Review' }} defaultCollapsed />);
+
+    await expect.element(page.getByRole('button', { name: 'Open the conversation' })).toBeVisible();
+    expect(page.getByRole('complementary').elements()).toHaveLength(0);
+    // Not scoped: the global pointer, never the per-record lookup.
+    expect(vi.mocked(client.conversations.latestForScope)).not.toHaveBeenCalled();
+
+    await userEvent.click(page.getByRole('button', { name: 'Open the conversation' }));
+
+    await expect.element(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
+    await expect.element(page.getByText('Everything')).toBeVisible();
+  });
+
+  it('a stored choice wins over the page default, in both directions', async () => {
+    localStorage.setItem(COLLAPSE_KEY, '0');
+    await render(<ChatDock agents={AGENTS} scopeLabel="Everything" defaultCollapsed />);
+
+    await expect.element(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
+  });
+
+  it('sends where the person is with each turn when unscoped, and never when scoped', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response('', { status: 500 });
+    }));
+    try {
+      await render(<ChatDock agents={AGENTS} scopeLabel="Everything" pageContext={{ path: '/dashboard/review', title: 'Review' }} />);
+      await userEvent.fill(page.getByRole('textbox'), 'what is waiting?');
+      await userEvent.keyboard('{Enter}');
+
+      await expect.poll(() => calls.length).toBe(1);
+
+      expect(calls[0]).toMatchObject({ message: 'what is waiting?', page_context: { path: '/dashboard/review', title: 'Review' } });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('renders nothing when there are no agents', async () => {

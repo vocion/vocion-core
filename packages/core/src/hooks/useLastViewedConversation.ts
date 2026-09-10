@@ -36,7 +36,7 @@ function writeLocal(next: LastViewedConversation) {
 }
 
 /**
- * The single source of truth ChatShell (full page) and ChatBubble both read
+ * The single source of truth ChatShell (full page) and the dock both read
  * on mount and write to on every view change, so opening either surface
  * always resumes the conversation that was last viewed on the other.
  * Server state wins when reachable; localStorage is the offline fallback.
@@ -57,7 +57,7 @@ export function useLastViewedConversation() {
           // `updatedAt` can arrive as a `Date` object or a string depending
           // on oRPC's serialization — normalize to an ISO string so both
           // localStorage and hook state stay consistently JSON-serializable
-          // (same defensive pattern as ChatBubbleHistoryPanel's ConversationSummary).
+          // (defensive: a row missing fields is skipped, never thrown on).
           const normalized: LastViewedConversation = {
             ...serverState,
             updatedAt: new Date(serverState.updatedAt).toISOString(),
