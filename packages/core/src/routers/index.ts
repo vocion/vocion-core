@@ -83,6 +83,7 @@ import {
   getWorkflowRunRoute,
   listAutoExecutedRoute,
   listPendingActionsRoute,
+  listPendingActionTypesRoute,
   listWorkflowRunsRoute,
   proposeFromRecommendationRoute,
   recordSignalRoute,
@@ -213,6 +214,7 @@ export const router = {
   },
   review: {
     listPendingActions: listPendingActionsRoute,
+    listPendingActionTypes: listPendingActionTypesRoute,
     listAutoExecuted: listAutoExecutedRoute,
     decideAction: decideActionRoute,
     snoozeAction: snoozeActionRoute,

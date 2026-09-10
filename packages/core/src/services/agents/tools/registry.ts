@@ -17,6 +17,11 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { z } from 'zod';
 import { withToolCallRecord } from '../toolCallRecord';
+import { apolloAccountTools } from './apolloAccount';
+import { apolloCompanyTools } from './apolloCompanies';
+import { apolloInScope } from './apolloDirect';
+import { apolloListTools } from './apolloLists';
+import { apolloPeopleTools } from './apolloPeople';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
@@ -72,6 +77,26 @@ function hubspotDirectTools(ctx: RuntimeContext): StructuredToolInterface[] {
   ];
 }
 
+/**
+ * The Apollo tool set — live prospecting and enrichment, never a mirror.
+ * Present for any agent with an apollo source in scope (and, when a per-user
+ * ACL is set, only when it also allows one). The two list WRITES need
+ * `harness.grantTools` on top of that, because an Apollo list can feed a live
+ * cadence: `apolloListTools` holds that second gate.
+ * @param ctx
+ */
+function apolloTools(ctx: RuntimeContext): StructuredToolInterface[] {
+  if (!apolloInScope(ctx)) {
+    return [];
+  }
+  return [
+    ...apolloPeopleTools(ctx),
+    ...apolloCompanyTools(ctx),
+    ...apolloListTools(ctx),
+    ...apolloAccountTools(ctx),
+  ];
+}
+
 export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
   return [
     searchKnowledgeTool(ctx),
@@ -101,6 +126,8 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // Source-gated — empty unless a HubSpot source is in the agent's scope.
     ...crmTools(ctx),
     ...hubspotDirectTools(ctx),
+    // Source-gated — empty unless an Apollo source is in the agent's scope.
+    ...apolloTools(ctx),
     // Source-gated read-through caches (zoom / gmail sources in scope).
     ...zoomTools(ctx),
     ...gmailTools(ctx),

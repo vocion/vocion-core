@@ -46,6 +46,7 @@
 import type { SourceConnector, SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
+import { InspectInputError } from './inspect';
 
 const DEFAULT_PAGE_SIZE = 100;
 
@@ -318,6 +319,36 @@ export const strapiConnector: SourceConnector<typeof strapiConfigSchema> = {
   icon: 'Database',
   authKind: 'apikey',
   configSchema: strapiConfigSchema,
+
+  /**
+   * Validate what the dialog typed, then look at the instance. The validation
+   * lives here rather than in the route because the messages are Strapi's own:
+   * a token is worthless without the instance it was issued for, and a pasted
+   * bare hostname earns "must start with http:// or https://".
+   * @param root0
+   * @param root0.config
+   * @param root0.credentials
+   * @param root0.options
+   */
+  async inspect({ config, credentials, options }) {
+    const baseUrl = typeof credentials.baseUrl === 'string'
+      ? credentials.baseUrl.trim()
+      : (typeof config.baseUrl === 'string' ? config.baseUrl.trim() : '');
+    const token = typeof credentials.token === 'string' ? credentials.token.trim() : '';
+    if (baseUrl === '' || token === '') {
+      throw new InspectInputError('A base URL and an API token are both required');
+    }
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      throw new InspectInputError('The base URL must start with http:// or https://');
+    }
+    const collections = Array.isArray(options.collections)
+      ? options.collections
+          .filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
+          .map(entry => entry.trim())
+      : [];
+    return inspectStrapiInstance({ baseUrl, token, collections });
+  },
+
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const token = (ctx.credentials?.token ?? ctx.credentials?.apiToken) as string | undefined;
     if (!token) {

@@ -37,23 +37,31 @@ const FeedbackInput = z.object({
   note: z.string().optional(),
 });
 
-/** Pending action proposals (the sweep's CRM updates) with confidence envelopes. */
-export const listPendingActionsRoute = os.handler(async () => {
-  const { orgId } = await guardAuth();
-  const { db } = await import('@/libs/DB');
-  const { actionRunSchema, reviewAssignmentSchema } = await import('@/models/Schema');
-  const { and, desc, eq, gt, isNull, lte, or } = await import('drizzle-orm');
-  const { getAction } = await import('@/libs/actions/registry');
-  const now = new Date();
-  const rows = await db
-    .select({ run: actionRunSchema })
-    .from(actionRunSchema)
-    .leftJoin(reviewAssignmentSchema, and(
-      eq(reviewAssignmentSchema.orgId, orgId),
-      eq(reviewAssignmentSchema.kind, 'action'),
-      eq(reviewAssignmentSchema.runId, actionRunSchema.id),
-    ))
-    .where(and(
+/**
+ * Pending action proposals (the sweep's CRM updates) with confidence
+ * envelopes, optionally narrowed to one or more card types.
+ *
+ * `actionIds` is pushed into the WHERE clause, so a filtered feed draws its
+ * whole window from the matching rows: production holds 557 pending items
+ * against a window of 50, and the 46 `personalization.enroll` cards the
+ * personalization lane exists to produce were reachable only by luck of
+ * ordering. `total` is the count of matching rows regardless of the window, so
+ * a filtered queue can say how much work it holds.
+ */
+export const listPendingActionsRoute = os
+  .input(z.object({
+    actionIds: z.array(z.string().min(1)).max(50).optional(),
+    limit: z.number().int().positive().max(200).optional(),
+  }).optional())
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const { db } = await import('@/libs/DB');
+    const { actionRunSchema, reviewAssignmentSchema } = await import('@/models/Schema');
+    const { and, desc, eq, gt, inArray, isNull, lte, or, sql } = await import('drizzle-orm');
+    const { getAction } = await import('@/libs/actions/registry');
+    const now = new Date();
+    const actionIds = input?.actionIds;
+    const where = and(
       eq(actionRunSchema.orgId, orgId),
       eq(actionRunSchema.status, 'pending'),
       // Drop stale suggestions — expired items fall out of the queue.
@@ -62,20 +70,53 @@ export const listPendingActionsRoute = os.handler(async () => {
       // predicate ReviewService.routingFilters applies, on every surface that
       // consumes this feed.
       or(isNull(reviewAssignmentSchema.snoozedUntil), lte(reviewAssignmentSchema.snoozedUntil, now)),
-    ))
-    .orderBy(desc(actionRunSchema.createdAt))
-    .limit(50);
-  // Structured cards: an action that defines one presents itself consistently
-  // everywhere the queue renders. Best-effort — a presenter error falls back
-  // to the generic card, never blocks the queue.
-  return Promise.all(rows.map(async ({ run: row }) => {
-    const presenter = getAction(row.actionId)?.reviewCard;
-    if (!presenter) {
-      return row;
-    }
-    const card = await presenter({ orgId }, row.input).catch(() => undefined);
-    return card ? { ...row, card } : row;
-  }));
+      // An empty array is "nothing of that type", never "everything".
+      ...(actionIds ? [inArray(actionRunSchema.actionId, actionIds.length > 0 ? actionIds : [''])] : []),
+    );
+    const assignment = and(
+      eq(reviewAssignmentSchema.orgId, orgId),
+      eq(reviewAssignmentSchema.kind, 'action'),
+      eq(reviewAssignmentSchema.runId, actionRunSchema.id),
+    );
+    const [rows, [counted]] = await Promise.all([
+      db
+        .select({ run: actionRunSchema })
+        .from(actionRunSchema)
+        .leftJoin(reviewAssignmentSchema, assignment)
+        .where(where)
+        .orderBy(desc(actionRunSchema.createdAt))
+        .limit(input?.limit ?? 50),
+      db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(actionRunSchema)
+        .leftJoin(reviewAssignmentSchema, assignment)
+        .where(where),
+    ]);
+    // Structured cards: an action that defines one presents itself consistently
+    // everywhere the queue renders. Best-effort — a presenter error falls back
+    // to the generic card, never blocks the queue.
+    const items = await Promise.all(rows.map(async ({ run: row }) => {
+      const presenter = getAction(row.actionId)?.reviewCard;
+      if (!presenter) {
+        return row;
+      }
+      const card = await presenter({ orgId }, row.input).catch(() => undefined);
+      return card ? { ...row, card } : row;
+    }));
+    return { items, total: Number(counted?.n ?? 0) };
+  });
+
+/**
+ * The card types pending for this org, each with its real count and its
+ * registered display name.
+ *
+ * Driven by what is present, so a newly registered action type appears as a
+ * chip with no UI change.
+ */
+export const listPendingActionTypesRoute = os.handler(async () => {
+  const { orgId } = await guardAuth();
+  const { pendingActionTypes } = await import('@/services/ReviewService');
+  return pendingActionTypes(orgId);
 });
 
 /** Recently auto-executed proposals (trust-ladder audit surface). */

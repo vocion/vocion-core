@@ -1,7 +1,7 @@
 /**
  * ActivityService — ONE stream for everything the team did, regardless of
- * what produced it: mission checks/briefs, workflow runs, event fires, and
- * source syncs. Backs /dashboard/activity (the "observe" surface in the
+ * what produced it: automation runs, mission checks/briefs, workflow runs,
+ * event fires, and source syncs. Backs /dashboard/activity (the "observe" surface in the
  * Chat · Review · Activity · Search daily-driver hierarchy).
  *
  * Read-only aggregation — each row links back to its native detail page.
@@ -9,8 +9,10 @@
 
 import type { SQL } from 'drizzle-orm';
 import { and, desc, eq, sql } from 'drizzle-orm';
+import { summarizeResult } from '@/features/dashboard/automationResult';
 import { db } from '@/libs/DB';
 import {
+  automationRunSchema,
   eventLogSchema,
   knowledgeSourceSchema,
   missionRunSchema,
@@ -21,7 +23,7 @@ import {
   workflowSchema,
 } from '@/models/Schema';
 
-export type ActivityKind = 'mission' | 'workflow' | 'event' | 'sync' | 'tool';
+export type ActivityKind = 'mission' | 'workflow' | 'event' | 'sync' | 'tool' | 'automation';
 
 export type ActivityItem = {
   kind: ActivityKind;
@@ -78,8 +80,9 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
   const workflowWhere = (): SQL | undefined => (slug ? and(eq(workflowRunSchema.orgId, orgId), eq(workflowSchema.slug, slug)) : eq(workflowRunSchema.orgId, orgId));
   const eventWhere = (): SQL | undefined => (slug ? and(eq(eventLogSchema.orgId, orgId), eq(eventLogSchema.type, slug)) : eq(eventLogSchema.orgId, orgId));
   const syncWhere = (): SQL | undefined => (slug ? and(eq(sourceSyncCheckpointSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, slug)) : eq(sourceSyncCheckpointSchema.orgId, orgId));
+  const automationWhere = (): SQL | undefined => (slug ? and(eq(automationRunSchema.orgId, orgId), eq(automationRunSchema.slug, slug)) : eq(automationRunSchema.orgId, orgId));
 
-  const [missionRuns, workflowRuns, events, syncs, toolCalls] = await Promise.all([
+  const [missionRuns, workflowRuns, events, syncs, toolCalls, automationRuns] = await Promise.all([
     need('mission')
       ? db
           .select({
@@ -147,6 +150,17 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
           .orderBy(desc(toolCallSchema.createdAt))
           .limit(limit)
       : [],
+    // A fire that failed BEFORE dispatch produced no mission run and no
+    // workflow run, so it left no trace in this stream at all. The
+    // `automation_run` row is the only evidence it happened.
+    need('automation')
+      ? db
+          .select()
+          .from(automationRunSchema)
+          .where(automationWhere())
+          .orderBy(desc(automationRunSchema.startedAt))
+          .limit(limit)
+      : [],
   ]);
 
   const items: ActivityItem[] = [
@@ -198,6 +212,17 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
           t.durationMs != null && t.durationMs > 0 ? `${(t.durationMs / 1000).toFixed(1)}s` : null,
           previewInput(t.input),
         ].filter(Boolean).join(' · ') || undefined),
+    })),
+    ...automationRuns.map((a): ActivityItem => ({
+      kind: 'automation',
+      key: `automation-${a.id}`,
+      title: `Automation: ${a.slug}`,
+      slug: a.slug,
+      status: a.status === 'ok' ? 'completed' : a.status === 'error' ? 'failed' : 'running',
+      invokedBy: a.invokedBy,
+      href: `/dashboard/automation/${a.slug}`,
+      at: a.startedAt,
+      detail: a.error ?? summarizeResult(a.result) ?? undefined,
     })),
     ...syncs.map((s): ActivityItem => ({
       kind: 'sync',

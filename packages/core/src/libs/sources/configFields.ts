@@ -312,6 +312,18 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     },
   ],
 
+  // Apollo is queried live and syncs nothing, so there is nothing to ask for
+  // beyond the API host — the key itself is the credential, taken by Connect.
+  'apollo': [
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://api.apollo.io',
+    },
+  ],
+
   'granola': [
     {
       key: 'pastDays',

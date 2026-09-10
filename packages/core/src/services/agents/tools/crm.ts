@@ -130,6 +130,10 @@ async function run(ctx: RuntimeContext, objectType: CrmObjectType, args: ToolArg
     unavailable_fields: result.unavailableFields,
     ...(result.createdAfter ? { created_after_applied: result.createdAfter } : {}),
     as_of: result.asOf ? result.asOf.toISOString() : null,
+    // A count over a mirror that stopped syncing is a true number answering a
+    // different question. Say so in the payload, next to the number, so the
+    // report cannot present "0 in scope" and "0 synced since Tuesday" alike.
+    ...(result.freshness.stale ? { mirror_stale: true, mirror_staleness: result.freshness.reason } : {}),
     sources_read: result.sources,
     ...(result.hasMore
       ? { next_offset: result.offset + result.returned, note: `Showing ${result.returned} of ${result.total}. Report the TOTAL, not the page size; pass offset=${result.offset + result.returned} for the next page.` }
@@ -138,7 +142,7 @@ async function run(ctx: RuntimeContext, objectType: CrmObjectType, args: ToolArg
   }, null, 2);
 }
 
-const FRESHNESS = 'Reads the synced CRM mirror, so `as_of` is the last sync time — call freshen_source("hubspot") first if the question implies "right now".';
+const FRESHNESS = 'Reads the synced CRM mirror, so `as_of` is the last sync time — call freshen_source("hubspot") first if the question implies "right now". When `mirror_stale` is present the mirror has fallen behind its own sync schedule: report `mirror_staleness` alongside the count, because records created since that sync are not in it.';
 const HONESTY = 'Anything listed in `unavailable_fields` is NOT synced for these records: say the field is unavailable rather than estimating it. Report `total` (the exact COUNT), never the number of records shown.';
 const ROUTING = 'Routing: FETCHING a record goes to the source, COUNTING goes here (the mirror). One specific person → hubspot_get_contact; find people by name → hubspot_search_contacts; one account, its deals, or its activity → hubspot_get_company / hubspot_company_deals / hubspot_company_activity; how many / how much / broken down by → the hubspot_count_* tools.';
 
