@@ -167,8 +167,9 @@ async function dispatchDo(
     orgId,
     missionSlug,
     // The automation's authored execution prompt rides the brief; the mission
-    // charter + working notes stay attached as standing context.
-    brief: scheduledCheckBrief(template, doCfg.prompt),
+    // charter + working notes stay attached as standing context. An event
+    // fire's payload rides it too, so the check knows what it was fired for.
+    brief: scheduledCheckBrief(template, doCfg.prompt, input),
     title: `Check: ${template.name}`,
     mode: 'check',
     invokedBy,

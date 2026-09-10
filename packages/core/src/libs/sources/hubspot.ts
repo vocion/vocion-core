@@ -38,6 +38,12 @@ const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
     'hs_email_delivered',
     'hs_email_open',
     'hs_email_click',
+    // The two signals the handoff watcher diffs after each sync: when the
+    // contact last replied to a sales email, and their latest meeting activity.
+    // Verify both names against the portal's contact properties on first
+    // deploy; a portal that lacks one simply yields null and never triggers.
+    'hs_sales_email_last_replied',
+    'hs_latest_meeting_activity',
     // The MQL stage-entry date, both spellings: the v2 pipeline property and
     // the legacy per-stage date. Whichever the portal carries wins in toDoc.
     'hs_v2_date_entered_marketingqualifiedlead',
@@ -148,6 +154,10 @@ function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageI
       emailDelivered: hubspotNumeric(props.hs_email_delivered),
       emailOpened: hubspotNumeric(props.hs_email_open),
       emailClicked: hubspotNumeric(props.hs_email_click),
+      // Handoff signals (ticket 055). Metadata-only like the counters, so a
+      // reply landing never re-embeds the record.
+      salesEmailLastRepliedAt: props.hs_sales_email_last_replied ?? undefined,
+      latestMeetingActivityAt: props.hs_latest_meeting_activity ?? undefined,
       // When the contact ENTERED the MQL stage — the date the arrival window
       // cannot see (it filters on createdate). Whichever spelling the portal
       // carries; absent on rows synced before the widening until a full sync.

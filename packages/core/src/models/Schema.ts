@@ -2542,9 +2542,18 @@ export const leadBriefSchema = pgTable(
       heading: string;
       body: string;
     }>>().default([]).notNull(),
-    /** Why the lead left: 'reply' | 'intent' | 'routed'. */
+    /** Why the lead left: 'reply' | 'meeting' | 'intent' | 'routed'. */
     handoffTrigger: text('handoff_trigger'),
     handoffAt: timestamp('handoff_at', { mode: 'date' }),
+    /**
+     * The newest reply and meeting timestamps the handoff watcher has already
+     * seen on the CRM mirror for this lead (`HandoffTriggerService`). A mirror
+     * value newer than the stored one, and newer than the enrollment decision,
+     * is a trigger; anything equal or older is not. Null until the first watch
+     * after enrollment, which baselines without firing.
+     */
+    handoffReplySeenAt: timestamp('handoff_reply_seen_at', { mode: 'date' }),
+    handoffMeetingSeenAt: timestamp('handoff_meeting_seen_at', { mode: 'date' }),
     /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
     regenerateNote: text('regenerate_note'),
     /** Briefing tries so far. Three, then the lead surfaces with its error. */

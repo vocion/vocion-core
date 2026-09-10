@@ -38,6 +38,7 @@ import { resolvedModelId } from '@/libs/llm';
 import {
   claimBriefToDraft,
   claimLeadToBrief,
+  leadBriefByRef,
   leadLedger,
   MAX_BRIEF_ATTEMPTS,
   MAX_DRAFT_ATTEMPTS,
@@ -59,6 +60,7 @@ export const PERSONALIZATION_TOOL_NAMES = [
   'reconcile_mql_window',
   'next_lead_to_brief',
   'save_lead_brief',
+  'get_lead_brief',
   'save_handoff_brief',
   'record_brief_failure',
   'next_brief_to_draft',
@@ -250,14 +252,37 @@ export function saveHandoffBriefTool(ctx: RuntimeContext) {
     },
     {
       name: 'save_handoff_brief',
-      description: 'Save the call prep for a lead LEAVING your care, at the end of the write-handoff-brief skill. Call it EXACTLY ONCE per handoff. It writes the handoff sections and the trigger and NOTHING else: the review brief, its claims, its confidence and the lead\'s lane are left exactly as they were, because that brief recorded a decision that has already been taken. This is prep for a person about to have a conversation, not a re-review of the copy — write where the thread stands, what the lead actually did, the one or two hypotheses worth testing live, and what to ask first. It does not send anything: the HubSpot note is written when a person ACCEPTS the handoff.',
+      description: 'Save the call prep for a lead LEAVING your care, at the end of the write-handoff-brief skill. Call it EXACTLY ONCE per handoff. It writes the handoff sections and the trigger and NOTHING else: the review brief, its claims, its confidence and the lead\'s lane are left exactly as they were, because that brief recorded a decision that has already been taken. This is prep for a person about to have a conversation, not a re-review of the copy — write where the thread stands, what the lead actually did, the one or two hypotheses worth testing live, and what to ask first. It does not send anything and never writes to the CRM itself: the platform owns the HubSpot note.',
       schema: z.object({
         contact_ref: z.string().min(1).describe('The lead\'s CRM mirror ref, e.g. "contacts:9412".'),
-        trigger: z.enum(['reply', 'intent', 'routed']).describe('Why the lead left: "reply" (they answered), "intent" (pages or files crossed the threshold), "routed" (a reviewer sent it to a person).'),
+        trigger: z.enum(['reply', 'meeting', 'intent', 'routed']).describe('Why the lead left: "reply" (they answered a send), "meeting" (a meeting was booked), "intent" (pages or files crossed the threshold; not detected yet), "routed" (a reviewer sent it to a person). Use the trigger named in the payload that started this run.'),
         sections: z.array(z.object({
           heading: z.string().min(1).describe('Section heading, e.g. "Where the thread stands".'),
           body: z.string().min(1).describe('The written section. Bullet lists where the content is a list — this is read in two minutes before a call.'),
         })).min(1).describe('The handoff brief\'s sections in the order the skill lists them. Quote a reply verbatim rather than paraphrasing it.'),
+      }),
+    },
+  );
+}
+
+export function getLeadBriefTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const record = await leadBriefByRef(ctx.orgId, args.contact_ref);
+      if (!record) {
+        return JSON.stringify({
+          error: 'not_on_ledger',
+          message: 'No lead row carries that contact_ref. Use the exact `contactRef` from the trigger payload or the lead ledger.',
+          contact_ref: args.contact_ref,
+        }, null, 2);
+      }
+      return JSON.stringify(record, null, 2);
+    },
+    {
+      name: 'get_lead_brief',
+      description: 'Read ONE lead\'s saved record by CRM ref: identity, the review brief\'s sections, claims and missing list, the approved sends, the recommended sequence, when and by whom Enroll was decided, and any earlier handoff brief. Read-only. Use it at the start of the write-handoff-brief skill to load what exists; it does not read HubSpot live, so pair it with hubspot_contact_emails for the reply itself.',
+      schema: z.object({
+        contact_ref: z.string().min(1).describe('The lead\'s CRM mirror ref, e.g. "contacts:9412".'),
       }),
     },
   );
@@ -406,6 +431,7 @@ export function personalizationTools(ctx: RuntimeContext) {
     reconcileMqlWindowTool(ctx),
     nextLeadToBriefTool(ctx),
     saveLeadBriefTool(ctx),
+    getLeadBriefTool(ctx),
     saveHandoffBriefTool(ctx),
     recordBriefFailureTool(ctx),
     nextBriefToDraftTool(ctx),
