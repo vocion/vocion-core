@@ -218,10 +218,10 @@ export function saveLeadBriefTool(ctx: RuntimeContext) {
         sections: z.array(z.object({
           heading: z.string().min(1).describe('Section heading, e.g. "Prospect", "Recommended Angle".'),
           body: z.string().min(1).describe('The written section as prose or markdown. This is what the reviewer reads.'),
-        })).min(1).describe('The brief\'s written sections in the order the skill lists them, from Prospect through Brief Confidence. Do not collapse them into one blob.'),
+        })).min(1).describe('The brief\'s written sections in the order the skill lists them, from Prospect through Brief Confidence: review material only. No "Workflow Hypotheses" and no "If They Reply" section; that call prep is written at handoff. Do not collapse them into one blob.'),
         claims: z.array(z.object({
           text: z.string().min(1).describe('The claim itself, one sentence.'),
-          kind: z.string().min(1).describe('"Fact" or "Inference". A hypothesis belongs in the Workflow Hypotheses section, not here.'),
+          kind: z.string().min(1).describe('"Fact" or "Inference". Never a hypothesis: the review brief carries no hypotheses section (they are formed at handoff by the write-handoff-brief skill), so a hypothesis is neither a claim nor a section here.'),
           source: z.string().min(1).describe('An openable source: a URL, or the CRM record ref when the claim came off the mirror.'),
           date: z.string().optional().describe('Source date where the source carries one, ISO or as printed.'),
         })).describe('The meaningful claims from Research That Matters, each with where it came from. An unsourced claim is not a claim; leave it out rather than sourcing it to nothing.'),
