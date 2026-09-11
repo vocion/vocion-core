@@ -1,0 +1,27 @@
+packages/core/src/services/EventService.dispatch.test.ts
+  s_3cdb38fcbab078::t_b20fe74df574e0 92
+  s_3cdb38fcbab078::t_d36b031cbbbc9f 1-91,93-97
+packages/core/src/libs/actions/personalization-enroll.ts
+  s_3cdb38fcbab078::t_2ed3a8e874d2d9 237-240
+packages/core/src/services/EventService.ts
+  s_3cdb38fcbab078::t_1a21c589ad6c9a 28-36
+  s_3cdb38fcbab078::t_2eb92379cb7e8b 189,199-220
+packages/core/src/app/api/v1/personalization/briefs/[id]/regenerate/route.ts
+  s_3cdb38fcbab078::t_2ed3a8e874d2d9 55-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3db0cb04c12cfa0467ebdae436c6213aabb52b38",
+  "prompts": {},
+  "sessions": {
+    "s_3cdb38fcbab078": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e357338-522a-4343-8758-1f5cdec0e124",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
