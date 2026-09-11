@@ -1,0 +1,51 @@
+packages/core/src/app/api/v1/reviews/signal/route.ts
+  s_3cdb38fcbab078::t_d63ff3bfc91676 11
+packages/core/src/libs/actions/types.ts
+  s_3cdb38fcbab078::t_0add48c99c1f0d 248-257
+  s_3cdb38fcbab078::t_854df1e86c7db1 77-83
+packages/core/src/services/adoption/events.ts
+  s_3cdb38fcbab078::t_ad2c41cdf8265c 61-66,72
+packages/core/src/routers/index.ts
+  s_3cdb38fcbab078::t_587df8cfcc0f78 90
+  s_3cdb38fcbab078::t_39910eb51a3c98 222
+packages/core/src/libs/actions/personalization-enroll.ts
+  s_3cdb38fcbab078::t_d287a7b4376c0f 203-206,208-238
+  s_3cdb38fcbab078::t_e6ad0761d24be9 207
+packages/core/src/libs/actions/personalization-enroll.test.ts
+  s_3cdb38fcbab078::t_a77f9fec830e66 323-368
+packages/core/src/routers/Review.ts
+  s_3cdb38fcbab078::t_630987b8029980 105-106,108-109,114
+  s_3cdb38fcbab078::t_4b2debeec8ae29 317-363
+  s_3cdb38fcbab078::t_e17501a47a8e4e 191
+packages/core/src/app/[locale]/(auth)/gtm/lead/[hubspotId]/page.tsx
+  s_3cdb38fcbab078::t_4e0b3d4e620ca9 101-104,116
+packages/core/src/services/ReviewService.ts
+  s_3cdb38fcbab078::t_89f86dfb457040 784,793
+  s_3cdb38fcbab078::t_19774d53a32f2f 847-849
+packages/core/src/services/ReviewService.learning.test.ts
+  s_3cdb38fcbab078::t_c9cc506643a089 136-151
+packages/core/e2e/learning/review-signal-to-feedback.learning.spec.ts
+  s_3cdb38fcbab078::t_5baa249780160d 144-158
+packages/core/src/routers/Review.regenerate.test.ts
+  s_3cdb38fcbab078::t_6c96bd39f70bea 1-23,39-120,122-130,132-167
+  s_3cdb38fcbab078::t_d87029a35dcf31 24-38
+  s_3cdb38fcbab078::t_c0e38c5d93dc01 121,131
+packages/core/src/services/writeApi.ts
+  s_3cdb38fcbab078::t_de867854efcb99 286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "82354c3bf59aa307778298d86e85912c3cd3bcd5",
+  "prompts": {},
+  "sessions": {
+    "s_3cdb38fcbab078": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e357338-522a-4343-8758-1f5cdec0e124",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
