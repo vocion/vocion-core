@@ -127,8 +127,11 @@ const DecisionMasthead = ({ run }: { run: ReviewCardRun }) => {
   const percent = typeof run.proposal?.confidence === 'number'
     ? `${Math.round(run.proposal.confidence * 100)}%`
     : null;
+  // max-w-5xl, matching the card below: the decision zone fills the width the
+  // collapsed dock returns to the page instead of hugging a 768px column
+  // beside empty space (Valerie, 2026-09-10).
   return (
-    <div className="max-w-3xl border-b border-border pb-4">
+    <div className="max-w-5xl border-b border-border pb-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {card.system && (
           <span className="rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
@@ -297,7 +300,10 @@ export const LeadView = (props: {
         ? (props.guided
             ? <DecisionMasthead run={run} />
             : (
-                <div className="max-w-3xl">
+                // The card takes the width the page actually has: with the
+                // dock collapsed the column is the whole page, and a 768px cap
+                // left the card narrow beside dead space (Valerie, 2026-09-10).
+                <div className="max-w-5xl">
                   <ReviewActionCard run={run} onDecided={props.onDecided} />
                 </div>
               ))
