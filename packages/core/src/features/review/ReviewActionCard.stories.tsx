@@ -51,6 +51,9 @@ export const MqlEnrollment: Story = {
         fields: [],
         links: [{ label: 'View Research', href: '/gtm/lead/9412' }],
         verbs: { approve: 'Enroll', reject: 'Decline' },
+        // Stamped by the server from the action's declared capability: the
+        // one feedback field powers Regenerate as well as the decision note.
+        canRegenerate: true,
       },
     },
   },

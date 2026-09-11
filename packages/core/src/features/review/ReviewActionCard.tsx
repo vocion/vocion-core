@@ -2,7 +2,7 @@
 
 import type { ContentEdit } from './contentKinds';
 import type { ReviewCard, ReviewContentEdit } from '@/libs/actions/types';
-import { AlarmClock, Check, Loader2, Sparkles, X } from 'lucide-react';
+import { AlarmClock, Check, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { client } from '@/libs/Orpc';
@@ -12,9 +12,10 @@ import { contentKindRenderer } from './contentKinds';
  * The reusable review card — ONE template every object type renders through,
  * on every surface that decides the run (the review queue and the domain
  * consoles). The presenter supplies WHAT (the `ReviewCard`); this shell owns
- * HOW: zone layout, inline content editing, the note, snooze, and the decide
- * path. Confidence and the lane status render from the run itself, never from
- * the presenter, so no object type can omit them. Absent zones collapse.
+ * HOW: zone layout, inline content editing, the ONE feedback field, snooze,
+ * regenerate, and the decide path. Confidence and the lane status render from
+ * the run itself, never from the presenter, so no object type can omit them.
+ * Absent zones collapse.
  */
 
 export type ReviewCardRun = {
@@ -26,9 +27,6 @@ export type ReviewCardRun = {
   proposal: { confidence?: number; rationale?: string } | null;
   card: ReviewCard;
 };
-
-/** Actions whose Decline requires a reason (the note doubles as it). */
-const REJECT_NEEDS_NOTE = new Set(['personalization.enroll']);
 
 /** The run status, as the lane label a reviewer reads. */
 const STATUS_LABEL: Record<string, string> = {
@@ -64,16 +62,14 @@ const fieldClass = 'w-full rounded-md border border-border bg-background px-2.5 
 
 export function ReviewActionCard(props: {
   run: ReviewCardRun;
-  /** Fired after a decision or snooze lands, so the surface can drop/refresh the item. */
-  onDecided?: (outcome: 'approve' | 'reject' | 'snooze') => void;
+  /** Fired after a decision, snooze or regenerate lands, so the surface can drop/refresh the item. */
+  onDecided?: (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => void;
 }) {
   const { run, onDecided } = props;
   const card = run.card;
   const [contentEdits, setContentEdits] = useState<Record<string, ContentEdit>>({});
   const [propertyEdits, setPropertyEdits] = useState<Record<string, string>>({});
   const [note, setNote] = useState('');
-  const [steer, setSteer] = useState('');
-  const [steering, setSteering] = useState(false);
   const [busy, setBusy] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
@@ -81,7 +77,6 @@ export function ReviewActionCard(props: {
   useEffect(() => {
     setContentEdits({});
     setNote('');
-    setSteer('');
     setSnoozeOpen(false);
     const properties = (run.input.properties ?? {}) as Record<string, unknown>;
     setPropertyEdits(Object.fromEntries(Object.entries(properties).map(([k, v]) => [k, str(v)])));
@@ -89,8 +84,6 @@ export function ReviewActionCard(props: {
 
   const pct = run.proposal?.confidence !== undefined ? Math.round(run.proposal.confidence * 100) : null;
   const hasProperties = run.input.properties !== undefined && (card.content?.length ?? 0) === 0;
-  const rejectNeedsNote = REJECT_NEEDS_NOTE.has(run.actionId);
-  const firstEmailId = card.content?.find(c => c.kind === 'email')?.id;
 
   const buildDecision = () => {
     const edits: ReviewContentEdit[] = Object.entries(contentEdits).map(([id, e]) => ({ id, ...e }));
@@ -132,21 +125,16 @@ export function ReviewActionCard(props: {
     }
   };
 
-  // Steer — AI rewrite of the draft's long text; lands in the first email
-  // item's body (or the notes property) for the reviewer to re-review.
-  const canSteer = firstEmailId !== undefined && typeof run.input.body === 'string';
-  const onSteer = async () => {
-    setSteering(true);
+  // Regenerate — re-run the work behind the run with the feedback as the
+  // instruction. The run stays pending and the next pass updates the same
+  // queue item, so the surface advances the way a decision does.
+  const regenerateRun = async () => {
+    setBusy(true);
     try {
-      const res = await client.review.rewriteDraft({ runId: run.id, hint: steer.trim() || undefined });
-      if (firstEmailId) {
-        setContentEdits(e => ({ ...e, [firstEmailId]: { ...e[firstEmailId], body: res.body } }));
-      }
-      setSteer('');
-    } catch {
-      /* keep current text */
+      await client.review.regenerateAction({ id: run.id, feedback: note.trim() });
+      onDecided?.('regenerate');
     } finally {
-      setSteering(false);
+      setBusy(false);
     }
   };
 
@@ -208,15 +196,26 @@ export function ReviewActionCard(props: {
           </dl>
         )}
 
-        {/* C · Recommendation */}
+        {/* C · Recommendation — with the evidence links as buttons beside the
+            claim they support, so View Research sits with the recommendation
+            it justifies instead of a small link at the card's bottom. */}
         {card.recommendation && (
           <div className="border-t border-border/60 px-5 py-4">
             <div className="flex items-start gap-3 rounded-xl bg-muted/50 p-4">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-amber-tint text-brand-amber-deep"><Sparkles className="size-4" aria-hidden /></span>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">Recommended action</div>
                 <div className="text-base font-bold break-words">{card.recommendation.headline}</div>
                 {card.recommendation.detail && <p className="mt-1 text-sm break-words text-foreground/80">{card.recommendation.detail}</p>}
+                {card.links && card.links.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {card.links.map(l => (
+                      <Button key={l.href} size="sm" variant="outline" asChild>
+                        <a href={l.href}>{l.label}</a>
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -244,32 +243,11 @@ export function ReviewActionCard(props: {
                     onEdit={item.kind === 'email'
                       ? patch => setContentEdits(e => ({ ...e, [item.id]: { ...e[item.id], ...patch } }))
                       : undefined}
-                    disabled={busy || steering}
+                    disabled={busy}
                   />
                 );
               })}
             </div>
-            {canSteer && (
-              <div className="mt-3 flex items-center gap-2">
-                <input
-                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-brand-amber"
-                  placeholder="Steer the agent — e.g. shorter, firmer ask"
-                  value={steer}
-                  onChange={ev => setSteer(ev.target.value)}
-                  disabled={busy || steering}
-                  onKeyDown={(ev) => {
-                    if (ev.key === 'Enter') {
-                      ev.preventDefault();
-                      void onSteer();
-                    }
-                  }}
-                />
-                <Button size="sm" variant="outline" onClick={() => void onSteer()} disabled={busy || steering}>
-                  {steering ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                  Rewrite
-                </Button>
-              </div>
-            )}
           </div>
         )}
 
@@ -322,8 +300,9 @@ export function ReviewActionCard(props: {
           </div>
         )}
 
-        {/* E · Evidence links */}
-        {card.links && card.links.length > 0 && (
+        {/* E · Evidence links — fallback placement, for cards with no
+            recommendation zone to carry them. */}
+        {!card.recommendation && card.links && card.links.length > 0 && (
           <div className="flex flex-wrap gap-4 border-t border-border/60 px-5 py-3">
             {card.links.map(l => (
               <a key={l.href} href={l.href} className="text-sm font-semibold underline decoration-border underline-offset-4 transition hover:decoration-foreground">{l.label}</a>
@@ -331,34 +310,43 @@ export function ReviewActionCard(props: {
           </div>
         )}
 
-        {/* F · Note for the agent — rides every verb. */}
+        {/* F · Feedback — ONE field doing three jobs with one piece of text:
+            the instruction when Regenerate is clicked, the note riding an
+            enroll/decline/snooze, and in every case a learning signal.
+            Optional on every verb; Regenerate alone requires it, because a
+            regeneration without instructions is a coin flip. */}
         <div className="border-t border-border/60 px-5 py-4">
           <label className="block">
             <span className="mb-1 block text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
-              Note for the agent
+              Feedback
               {' '}
-              <span className="font-normal tracking-normal normal-case">{rejectNeedsNote ? '(required to decline)' : '(optional)'}</span>
+              <span className="font-normal tracking-normal normal-case">(optional)</span>
             </span>
             <textarea
               className={`${fieldClass} min-h-16 resize-y`}
-              placeholder="Add feedback with your decision..."
+              placeholder={card.canRegenerate
+                ? 'What should change? Regenerate uses this as instructions; a decision carries it as a note for the agent.'
+                : 'Add feedback with your decision...'}
               value={note}
               onChange={ev => setNote(ev.target.value)}
               disabled={busy}
             />
           </label>
+          {card.canRegenerate && (
+            <div className="mt-2 flex items-center justify-end gap-2">
+              {!note.trim() && <span className="text-[11px] text-muted-foreground">Type feedback to regenerate</span>}
+              <Button size="sm" variant="outline" onClick={() => void regenerateRun()} disabled={busy || !note.trim()}>
+                {busy ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+                Regenerate
+              </Button>
+            </div>
+          )}
         </div>
-
-        {/* Raw payload demoted to a drill — never the surface. */}
-        <details className="border-t border-border/60 px-5 py-2">
-          <summary className="cursor-pointer text-[11px] text-muted-foreground transition hover:text-foreground">raw payload</summary>
-          <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[11px] break-words whitespace-pre-wrap">{JSON.stringify(run.input, null, 2)}</pre>
-        </details>
       </div>
 
       {/* G · Actions — detached below the card. */}
       <div className="relative mt-3 flex items-stretch gap-2">
-        <Button variant="outline" className="flex-1" onClick={() => void decideRun('reject')} disabled={busy || (rejectNeedsNote && !note.trim())}>
+        <Button variant="outline" className="flex-1" onClick={() => void decideRun('reject')} disabled={busy}>
           <X className="size-3.5" />
           {card.verbs?.reject ?? 'Reject'}
         </Button>

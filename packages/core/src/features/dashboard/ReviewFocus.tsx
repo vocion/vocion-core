@@ -17,7 +17,8 @@ type ReviewType = { actionId: string; label: string; count: number };
 /**
  * Review — FOCUS MODE with a human header. Every item leads with WHAT is
  * being approved in plain language (the action, the system it touches, the
- * concrete changes) — the raw payload is a drill, never the surface.
+ * concrete changes). No raw payload anywhere on the surface: the run record
+ * in the database is the debugging surface.
  *
  * An action that presents a structured card renders through the shared
  * `ReviewActionCard` template — the same card, editing, note, snooze and
@@ -438,12 +439,6 @@ export function ReviewFocus() {
                   Rewrite
                 </Button>
               </div>
-
-              {/* Raw payload demoted to a drill — never the surface. */}
-              <details className="mt-3">
-                <summary className="cursor-pointer text-[11px] text-muted-foreground transition hover:text-foreground">raw payload</summary>
-                <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[11px] break-words whitespace-pre-wrap">{JSON.stringify(current.input, null, 2)}</pre>
-              </details>
 
               <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <Button size="sm" variant="ghost" onClick={onSkip} disabled={busy}>
