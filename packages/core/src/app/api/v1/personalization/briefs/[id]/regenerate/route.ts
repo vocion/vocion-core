@@ -52,6 +52,9 @@ export async function POST(
     type: PERSONALIZATION_BRIEF_REGENERATE_REQUESTED,
     payload: { briefId, contactRef: result.contactRef, contactName: result.contactName, note },
     invokedBy: userId,
+    // The subscribed automation runs a whole agent pass; a reviewer's click
+    // must not hold this request open for it.
+    dispatchMode: 'background',
   });
 
   return NextResponse.json(result);

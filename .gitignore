@@ -81,8 +81,8 @@ infra/aws/.env.production
 # agent-runtime build artifacts
 packages/agent-runtime/dist/
 
-.env*
 
 # Internal, MetaCTO-only planning/strategy/case-study docs. The repo is public;
 # docs/internal/README.md says "Not public". Distributed privately, not here.
 docs/internal/
+config.bat

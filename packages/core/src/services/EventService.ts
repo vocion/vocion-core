@@ -25,6 +25,15 @@ export type EmitEventInput = {
   /** Provider-namespaced idempotency key; a repeat no-ops. */
   dedupeKey?: string;
   invokedBy?: string;
+  /**
+   * How a subscribed automation's work runs. `inline` (the default) awaits the
+   * whole fire, which for a mission check is the entire agent pass: right for
+   * a worker with nobody waiting, wrong inside a request. `background` records
+   * the fire, answers with its `automationRunId`, and completes the pass after
+   * the response (Next's `after`), so a click that emits an event is never
+   * held open for minutes. Only a caller in a request scope may pass it.
+   */
+  dispatchMode?: 'inline' | 'background';
 };
 
 /**
@@ -177,7 +186,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
   // {do: workflow | checkMission}). The workflow-embedded triggers above
   // remain as a deprecated legacy path.
   const { automationSchema } = await import('@/models/Schema');
-  const { fireAutomation } = await import('@/services/AutomationService');
+  const { beginAutomationFire, completeAutomationFire, fireAutomation } = await import('@/services/AutomationService');
   const automations = await db
     .select()
     .from(automationSchema)
@@ -187,11 +196,28 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
       continue;
     }
     try {
-      const res = await fireAutomation(input.orgId, a.slug, {
-        input: payload,
-        invokedBy: input.invokedBy ?? `event:${input.type}`,
-      });
-      triggered.push({ slug: `automation:${a.slug}`, runId: res.runId });
+      if (input.dispatchMode === 'background') {
+        // The fire's row exists before we answer; the pass itself runs after
+        // the response. A mission check holds an agent loop for minutes, and
+        // the caller here is a request a person is waiting on.
+        const pending = await beginAutomationFire(input.orgId, a.slug, {
+          input: payload,
+          invokedBy: input.invokedBy ?? `event:${input.type}`,
+        });
+        const { after } = await import('next/server');
+        after(async () => {
+          await completeAutomationFire(pending).catch(() => {
+            /* recorded on the run row by completeAutomationFire */
+          });
+        });
+        triggered.push({ slug: `automation:${a.slug}`, runId: pending.automationRunId });
+      } else {
+        const res = await fireAutomation(input.orgId, a.slug, {
+          input: payload,
+          invokedBy: input.invokedBy ?? `event:${input.type}`,
+        });
+        triggered.push({ slug: `automation:${a.slug}`, runId: res.runId });
+      }
     } catch {
       // Same tolerance as workflows above - one bad automation never drops the event.
     }
