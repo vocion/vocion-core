@@ -234,6 +234,10 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       type: PERSONALIZATION_BRIEF_REGENERATE_REQUESTED,
       payload: { briefId: lead.id, contactRef: result.contactRef, contactName: result.contactName, note: feedback },
       invokedBy: ctx.reviewedBy ?? ctx.invokedBy ?? 'review',
+      // The subscribed automation runs a whole agent pass; the reviewer's
+      // click must not hold the request open for it. The pass runs after the
+      // response and the card advances at once.
+      dispatchMode: 'background',
     });
   },
   // Decline: lane → held, with the decision stamped. The reason lands on the
