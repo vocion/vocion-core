@@ -98,8 +98,10 @@ export default async function LeadPage(props: {
         runState.snoozedUntil = found.snoozedUntil!.toISOString();
       } else if (!expired) {
         // Best-effort, like the feed: a presenter error means no card, never
-        // a broken page.
-        const presenter = getAction(found.run.actionId)?.reviewCard;
+        // a broken page. `canRegenerate` is stamped from the action's declared
+        // capability, the same as the queue's feed.
+        const action = getAction(found.run.actionId);
+        const presenter = action?.reviewCard;
         const card = presenter
           ? await presenter({ orgId }, found.run.input as never).catch(() => undefined)
           : undefined;
@@ -111,7 +113,7 @@ export default async function LeadPage(props: {
             input: found.run.input as Record<string, unknown>,
             invokedBy: found.run.invokedBy,
             proposal: found.run.proposal,
-            card,
+            card: { ...card, canRegenerate: action?.regenerate !== undefined },
           } satisfies ReviewCardRun;
         }
       }

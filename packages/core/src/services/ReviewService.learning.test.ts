@@ -133,6 +133,22 @@ describe('recordActionSignal', () => {
     expect(jobs.every(job => (job.payload as { polarityHint?: string }).polarityHint === 'correct')).toBe(true);
   });
 
+  it('treats a regenerate as a correction, distinct from a rewrite, and queues it once', async () => {
+    const runId = await makePendingAction();
+
+    await recordActionSignal({ orgId: ORG, runId, signal: 'regenerate', userId: REVIEWER, hint: 'lead with the compliance angle' });
+    await recordActionSignal({ orgId: ORG, runId, signal: 'regenerate', userId: REVIEWER, hint: 'saying it twice' });
+
+    const jobs = await db.select().from(feedbackJobSchema);
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.externalId).toBe(`action_run:${runId}:regenerate`);
+    expect(jobs[0]?.payload).toMatchObject({
+      text: 'lead with the compliance angle',
+      polarityHint: 'correct',
+    });
+  });
+
   it('queues one job however many times the same decision is recorded', async () => {
     const runId = await makePendingAction();
 

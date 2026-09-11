@@ -58,15 +58,18 @@ export const ADOPTION_EVENTS = {
    * One event for every HITL approval surface; the run kind travels in
    * metadata. `decision` is the TYPED triage signal — approve/edit/reject are
    * terminal; skip/save leave the item pending; rewrite = the human asked AI
-   * to redo the draft (a strong tone/quality signal). These feed confidence +
-   * alignment scoring and the per-user tone prompt. `hint` carries a rewrite
-   * instruction ("shorter", "warmer") when present.
+   * to redo one draft's wording (a strong tone/quality signal); regenerated =
+   * the human sent the whole work back to be done again, with instructions —
+   * kept distinct from rewritten so the metrics can tell a tone touch-up from
+   * a full re-do. These feed confidence + alignment scoring and the per-user
+   * tone prompt. `hint` carries the rewrite or regenerate instruction
+   * ("shorter", "warmer") when present.
    */
   'review.decided': {
     agent: true,
     meta: z.object({
       kind: runKind,
-      decision: z.enum(['approved', 'edited', 'rejected', 'skipped', 'saved', 'rewritten']),
+      decision: z.enum(['approved', 'edited', 'rejected', 'skipped', 'saved', 'rewritten', 'regenerated']),
       // Scope dimensions for learnings/tone: the event's userId = individual,
       // orgId = workspace, and actionId = action type. Together they let
       // downstream scoring attribute a signal to a person, an action class, or

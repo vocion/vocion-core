@@ -141,6 +141,21 @@ test('a reviewer\'s reason reaches the feedback queue, and a bare click does not
   expect(approvalJob, 'the approval note was not queued for the classifier').toBeTruthy();
   expect(approvalJob?.payload.polarityHint).toBe('reinforce');
 
+  // ── A regenerate instruction is a correction, queued once ────────────────
+  await api.post('/api/v1/reviews/signal', {
+    data: { id: runId, signal: 'regenerate', hint: `lead with the compliance angle (${RUN_TAG})` },
+  });
+  await api.post('/api/v1/reviews/signal', {
+    data: { id: runId, signal: 'regenerate', hint: 'saying it twice' },
+  });
+
+  const afterRegenerate = await listReviewJobs();
+  const regenerateJobs = afterRegenerate.filter(job => job.externalId === `action_run:${runId}:regenerate`);
+
+  expect(regenerateJobs, 'the regenerate instruction was not queued for the classifier').toHaveLength(1);
+  expect(regenerateJobs[0]?.payload.text).toContain(RUN_TAG);
+  expect(regenerateJobs[0]?.payload.polarityHint).toBe('correct');
+
   // ── A bare click is measured, but proposes no rule ───────────────────────
   const second = await api.post('/api/v1/reviews/propose', {
     data: {

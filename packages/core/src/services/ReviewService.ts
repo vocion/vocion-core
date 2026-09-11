@@ -781,7 +781,7 @@ function trackDecision(
 }
 
 /** Every distinct triage decision on an agent-suggested action. */
-export type ActionSignal = 'approve' | 'edit' | 'reject' | 'skip' | 'save' | 'rewrite';
+export type ActionSignal = 'approve' | 'edit' | 'reject' | 'skip' | 'save' | 'rewrite' | 'regenerate';
 
 const SIGNAL_TO_DECISION = {
   approve: 'approved',
@@ -790,6 +790,7 @@ const SIGNAL_TO_DECISION = {
   skip: 'skipped',
   save: 'saved',
   rewrite: 'rewritten',
+  regenerate: 'regenerated',
 } as const;
 
 /**
@@ -843,6 +844,9 @@ const SIGNAL_POLARITY = {
   edit: 'correct',
   reject: 'correct',
   rewrite: 'correct',
+  // Distinct from `rewrite` so the adoption metrics can tell a tone touch-up
+  // from a full re-do; both mean "change this".
+  regenerate: 'correct',
   skip: null,
 } as const;
 

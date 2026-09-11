@@ -320,3 +320,49 @@ describe('Decline (reject)', () => {
     expect(lead?.decidedBy).toBe('user_jamie');
   });
 });
+
+describe('Regenerate', () => {
+  it('sends the linked brief back to queued with the feedback as its instruction, run left pending', async () => {
+    await seedLead();
+
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput(),
+    });
+
+    await personalizationEnrollAction.regenerate!(
+      { orgId: ORG, reviewedBy: 'user_jamie' },
+      enrollInput() as never,
+      proposed.runId!,
+      'lead with the compliance angle',
+    );
+
+    const [lead] = await db
+      .select()
+      .from(leadBriefSchema)
+      .where(and(eq(leadBriefSchema.orgId, ORG), eq(leadBriefSchema.contactRef, CONTACT)));
+
+    // Back in line for the next pass, carrying the instruction; the run link
+    // is cleared so the next drafting pass re-links the same pending item.
+    expect(lead?.status).toBe('queued');
+    expect(lead?.regenerateNote).toBe('lead with the compliance angle');
+    expect(lead?.reviewActionRunId).toBeNull();
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, proposed.runId!));
+
+    expect(run?.status).toBe('pending');
+  });
+
+  it('refuses a run no brief is linked to, so a stray card cannot reset another lead', async () => {
+    await seedLead();
+
+    await expect(personalizationEnrollAction.regenerate!(
+      { orgId: ORG, reviewedBy: 'user_jamie' },
+      enrollInput() as never,
+      424242,
+      'anything',
+    )).rejects.toThrow(/no lead brief is linked/);
+  });
+});
