@@ -283,7 +283,7 @@ export async function apiSnoozeReview(
   return { ok: true, reviews };
 }
 
-const ACTION_SIGNALS: ReviewService.ActionSignal[] = ['approve', 'edit', 'reject', 'skip', 'save', 'rewrite'];
+const ACTION_SIGNALS: ReviewService.ActionSignal[] = ['approve', 'edit', 'reject', 'skip', 'save', 'rewrite', 'regenerate'];
 
 export type SignalInput = { id: number; signal: string; hint?: string };
 

@@ -102,14 +102,16 @@ export const listPendingActionsRoute = os
     ]);
     // Structured cards: an action that defines one presents itself consistently
     // everywhere the queue renders. Best-effort — a presenter error falls back
-    // to the generic card, never blocks the queue.
+    // to the generic card, never blocks the queue. `canRegenerate` is stamped
+    // here from the action's declared capability, never by the presenter.
     const items = await Promise.all(rows.map(async ({ run: row }) => {
-      const presenter = getAction(row.actionId)?.reviewCard;
+      const action = getAction(row.actionId);
+      const presenter = action?.reviewCard;
       if (!presenter) {
         return row;
       }
       const card = await presenter({ orgId }, row.input).catch(() => undefined);
-      return card ? { ...row, card } : row;
+      return card ? { ...row, card: { ...card, canRegenerate: action?.regenerate !== undefined } } : row;
     }));
     return { items, total: Number(counted?.n ?? 0) };
   });
@@ -186,7 +188,7 @@ export const proposeFromRecommendationRoute = os
 export const recordSignalRoute = os
   .input(z.object({
     runId: z.number().int().positive(),
-    signal: z.enum(['approve', 'edit', 'reject', 'skip', 'save', 'rewrite']),
+    signal: z.enum(['approve', 'edit', 'reject', 'skip', 'save', 'rewrite', 'regenerate']),
     hint: z.string().max(300).optional(),
   }))
   .handler(async ({ input }) => {
@@ -309,6 +311,53 @@ export const decideActionRoute = os
       reviewedBy: userId,
       editedInput: input.decision === 'approve' ? editedInput : undefined,
     });
+    return { ok: true };
+  });
+
+/**
+ * Regenerate a pending action's work, guided by the reviewer's feedback. Only
+ * actions that declare the `regenerate` capability accept it; the action owns
+ * what regenerating means for its domain (personalization.enroll sends the
+ * brief back to be researched and drafted again). The run stays pending — the
+ * next pass updates the same queue item through the dedup key — and the
+ * feedback is recorded as a `regenerate` learning signal, so the same text
+ * improves the very next pass immediately while the learning loop distills
+ * the durable rule.
+ */
+export const regenerateActionRoute = os
+  .input(z.object({
+    id: z.number().int().positive(),
+    /** What should change. Required: a regeneration without instructions is a coin flip. */
+    feedback: z.string().trim().min(1).max(2000),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { db } = await import('@/libs/DB');
+    const { actionRunSchema } = await import('@/models/Schema');
+    const { and, eq } = await import('drizzle-orm');
+    const { getAction } = await import('@/libs/actions/registry');
+    const [run] = await db
+      .select({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, status: actionRunSchema.status })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
+      .limit(1);
+    if (!run || run.status !== 'pending') {
+      throw ApiError.notFound(`no pending action ${input.id}`);
+    }
+    const action = getAction(run.actionId);
+    if (!action?.regenerate) {
+      throw ApiError.badRequest(`${run.actionId} does not support regeneration`);
+    }
+    await action.regenerate(
+      { orgId, reviewedBy: userId ?? undefined },
+      run.input as never,
+      input.id,
+      input.feedback,
+    );
+    // The feedback is a learning signal with the full existing pipeline behind
+    // it: feedback job, classifier, duplicate detection, learning candidate.
+    const { recordActionSignal } = await import('@/services/ReviewService');
+    await recordActionSignal({ orgId, runId: input.id, signal: 'regenerate', userId: userId ?? undefined, hint: input.feedback });
     return { ok: true };
   });
 

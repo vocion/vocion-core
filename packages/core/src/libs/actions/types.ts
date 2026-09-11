@@ -74,6 +74,13 @@ export type ReviewCard = {
   summary?: string;
   /** Recommended next action — what approving does. */
   nextAction?: string;
+  /**
+   * Whether the card offers Regenerate. Stamped by the SERVER from the
+   * action's declared `regenerate` capability at card-build time — never set
+   * by a presenter, so no object type can claim a capability its action does
+   * not implement.
+   */
+  canRegenerate?: boolean;
 };
 
 /**
@@ -238,6 +245,16 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * domain record's lane (e.g. lead_brief → held). Must be idempotent.
    */
   onRejected?: (ctx: ActionContext, input: z.infer<S>, runId: number, reason?: string) => Promise<void>;
+  /**
+   * Re-run the work behind a pending run, guided by the reviewer's feedback.
+   * The action owns what "regenerate" means for its domain (e.g. send the
+   * lead's brief back to be researched and drafted again), the same way
+   * `applyContentEdits` owns its input mapping. The run itself stays pending:
+   * the next pass updates the same queue item through the dedup key, so the
+   * reviewer meets the regenerated version, never a duplicate. Declaring this
+   * is what puts the Regenerate button on the card (`ReviewCard.canRegenerate`).
+   */
+  regenerate?: (ctx: ActionContext, input: z.infer<S>, runId: number, feedback: string) => Promise<void>;
   /** Do the write. Returns a result object persisted on the action_run. */
   execute: (ctx: ActionContext, input: z.infer<S>) => Promise<Record<string, unknown>>;
 };

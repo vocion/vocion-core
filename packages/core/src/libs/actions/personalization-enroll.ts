@@ -200,6 +200,42 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       }),
     };
   },
+  // Regenerate: send the brief back to be researched and drafted again, with
+  // the reviewer's feedback as the instruction the next pass reads. The run
+  // stays pending — the next drafting pass updates the same queue item through
+  // the dedup key, so the reviewer meets the regenerated version, no duplicate.
+  async regenerate(ctx, _input, runId, feedback) {
+    const { and, eq } = await import('drizzle-orm');
+    const { db } = await import('@/libs/DB');
+    const { leadBriefSchema } = await import('@/models/Schema');
+    const { regenerateBrief } = await import('@/services/PersonalizationQueueService');
+    const [lead] = await db
+      .select({ id: leadBriefSchema.id })
+      .from(leadBriefSchema)
+      .where(and(
+        eq(leadBriefSchema.orgId, ctx.orgId),
+        eq(leadBriefSchema.reviewActionRunId, runId),
+      ))
+      .limit(1);
+    if (!lead) {
+      throw new Error(`no lead brief is linked to action run ${runId} — the brief may already be regenerating`);
+    }
+    const result = await regenerateBrief(ctx.orgId, { id: lead.id, note: feedback });
+    if (!result.regenerated) {
+      throw new Error(`lead brief ${lead.id} could not be sent back for regeneration`);
+    }
+    // The event is what makes Regenerate immediate: the workspace's
+    // regenerate-brief-on-request automation subscribes to it and briefs this
+    // one lead now, rather than on the next scheduled pass — the same event
+    // the brief page's Regenerate emits.
+    const { emitEvent, PERSONALIZATION_BRIEF_REGENERATE_REQUESTED } = await import('@/services/EventService');
+    await emitEvent({
+      orgId: ctx.orgId,
+      type: PERSONALIZATION_BRIEF_REGENERATE_REQUESTED,
+      payload: { briefId: lead.id, contactRef: result.contactRef, contactName: result.contactName, note: feedback },
+      invokedBy: ctx.reviewedBy ?? ctx.invokedBy ?? 'review',
+    });
+  },
   // Decline: lane → held, with the decision stamped. The reason lands on the
   // action_run and the assignment note through the decide path.
   async onRejected(ctx, input, _runId, _reason) {

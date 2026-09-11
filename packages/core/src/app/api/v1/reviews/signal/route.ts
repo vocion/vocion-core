@@ -8,7 +8,7 @@ import { authApi, isErrorResponse, readJsonBody, writeApiErrorResponse } from '.
  * Record a triage signal on a pending action without deciding it — the API
  * twin of the dashboard's Skip and Save-for-later buttons. Body:
  * `{ id, signal, hint? }` where `signal` is one of `approve`, `edit`,
- * `reject`, `skip`, `save`, `rewrite`.
+ * `reject`, `skip`, `save`, `rewrite`, `regenerate`.
  *
  * `signal` shares some words with the `action` field of
  * `POST /api/v1/reviews/decide`, but means something different: this endpoint
