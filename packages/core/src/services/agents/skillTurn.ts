@@ -166,7 +166,14 @@ export async function runSkillTurn<T>(opts: SkillTurnOptions<T>): Promise<SkillT
   ].join('\n\n');
 
   const contextBlocks = (opts.context ?? []).map(c => `## ${c.title}\n\n${c.body}`).join('\n\n');
-  const user = contextBlocks ? `${contextBlocks}\n\n## Task\n\n${opts.task}` : opts.task;
+  // The JSON-only rule rides at the END of the request too: with a long
+  // composed context, a rule stated only in the system prompt loses to
+  // recency and the model prefaces its JSON with prose — observed locally,
+  // costing a corrective retry (~6s of the 20s budget).
+  const jsonReminder = 'Answer with ONLY the JSON object. No preamble, no prose, no code fences.';
+  const user = contextBlocks
+    ? `${contextBlocks}\n\n## Task\n\n${opts.task}\n\n${jsonReminder}`
+    : `${opts.task}\n\n${jsonReminder}`;
 
   const trace = traceFor({
     feature: FEATURES.SKILL_TURN,
