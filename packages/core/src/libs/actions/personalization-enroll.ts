@@ -82,20 +82,25 @@ async function contactsSourceConfig(orgId: string): Promise<{ portalId?: string 
 const regenerateTurnOutput = z.object({
   /** True when the note invalidates the research itself — the full pass takes over. */
   needsResearch: z.boolean(),
-  /** Why it needs research (required with needsResearch), or the recommendation's reason otherwise. */
-  reason: z.string().optional(),
+  /**
+   * Why it needs research (required with needsResearch), or the
+   * recommendation's reason otherwise. Absent fields are `.nullish()`
+   * throughout: a model answering `needsResearch` naturally writes
+   * `"sends": null`, and refusing the null costs a corrective retry.
+   */
+  reason: z.string().nullish(),
   sends: z.array(z.object({
-    day: z.number().int().min(0).optional(),
+    day: z.number().int().min(0).nullish(),
     subject: z.string().min(1),
     body: z.string().min(1),
-  })).min(1).max(10).optional(),
+  })).min(1).max(10).nullish(),
   recommendedSequence: z.object({
     id: z.string().min(1),
     name: z.string().min(1),
-    reason: z.string().optional(),
-  }).optional(),
-  senderEmail: z.string().min(1).optional(),
-  hubspotUserId: z.string().optional(),
+    reason: z.string().nullish(),
+  }).nullish(),
+  senderEmail: z.string().min(1).nullish(),
+  hubspotUserId: z.string().nullish(),
 }).superRefine((v, sctx) => {
   if (!v.needsResearch) {
     if (!v.sends || v.sends.length === 0) {
@@ -203,7 +208,7 @@ async function regenerateSequenceCopy(opts: {
 
   if (output.needsResearch) {
     logger.info('regenerate fast path routed to research', { orgId: ctx.orgId, contactRef: input.contactRef, reason: output.reason, durationMs });
-    return { done: false, reason: output.reason };
+    return { done: false, reason: output.reason ?? undefined };
   }
 
   // The same terminal write as the hourly pass: validate the sequence against
@@ -212,8 +217,13 @@ async function regenerateSequenceCopy(opts: {
   const { saveDraftSequence } = await import('@/services/PersonalizationQueueService');
   const saved = await saveDraftSequence(ctx.orgId, {
     contactRef: input.contactRef,
-    sends: output.sends!,
-    recommendedSequence: output.recommendedSequence!,
+    // Nulls normalized away: the persisted shape carries a key or nothing.
+    sends: output.sends!.map(s => ({ subject: s.subject, body: s.body, ...(s.day != null ? { day: s.day } : {}) })),
+    recommendedSequence: {
+      id: output.recommendedSequence!.id,
+      name: output.recommendedSequence!.name,
+      ...(output.recommendedSequence!.reason != null ? { reason: output.recommendedSequence!.reason } : {}),
+    },
     senderEmail: output.senderEmail ?? input.senderEmail,
     hubspotUserId: output.hubspotUserId ?? input.hubspotUserId,
   });
