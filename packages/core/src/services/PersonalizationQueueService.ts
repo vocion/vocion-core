@@ -937,13 +937,14 @@ export async function regenerateBrief(
       skippedReason: null,
       // Drafts hang off the brief, so a rewrite clears them too. A pending
       // enroll item is not cancelled here: the next drafting pass updates it
-      // in place through the dedup key and re-links it.
+      // in place through the dedup key. `reviewActionRunId` is KEPT — the
+      // run is mid-regeneration, not gone, and nulling it made the lead page
+      // lose its card for the whole pass.
       draftSequence: [],
       recommendedSequence: null,
       draftAttempts: 0,
       lastDraftAttemptAt: null,
       draftError: null,
-      reviewActionRunId: null,
       regenerateNote: opts.note,
       // Back to the stamp that means "no research pass behind this row".
       briefVersion: QUEUE_BRIEF_VERSION,
@@ -1010,8 +1011,11 @@ function draftEligible(orgId: string, floor: Date, contactRef?: string) {
     ...(contactRef ? [eq(leadBriefSchema.contactRef, contactRef)] : []),
     // A failed brief never gets drafts: drafting requires written sections.
     sql`jsonb_array_length(${leadBriefSchema.sections}) > 0`,
+    // Empty drafts are the "not yet surfaced" test. A lead with a pending
+    // card has its sends saved, so this alone excludes it; a regenerating
+    // lead KEEPS its `reviewActionRunId` with the drafts wiped, and must
+    // still be claimable — the redraft updates that same run in place.
     sql`jsonb_array_length(${leadBriefSchema.draftSequence}) = 0`,
-    isNull(leadBriefSchema.reviewActionRunId),
     lt(leadBriefSchema.draftAttempts, MAX_DRAFT_ATTEMPTS),
     or(isNull(leadBriefSchema.lastDraftAttemptAt), lt(leadBriefSchema.lastDraftAttemptAt, floor)),
   );

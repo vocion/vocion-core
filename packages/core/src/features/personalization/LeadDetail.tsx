@@ -304,7 +304,7 @@ export const LeadView = (props: {
                 // dock collapsed the column is the whole page, and a 768px cap
                 // left the card narrow beside dead space (Valerie, 2026-09-10).
                 <div className="max-w-5xl">
-                  <ReviewActionCard run={run} onDecided={props.onDecided} />
+                  <ReviewActionCard run={run} onDecided={props.onDecided} onRegenerated={props.onDecided} />
                 </div>
               ))
         : (lead.draftSequence.length > 0 || line || lead.draftError) && (

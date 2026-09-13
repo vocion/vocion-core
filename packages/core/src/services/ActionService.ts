@@ -237,6 +237,12 @@ export async function proposeAction(input: {
           input: parsed as Record<string, unknown>,
           proposal: input.proposal ?? null,
           expiresAt: input.expiresAt ?? null,
+          // The refresh is the completion edge of a regeneration: the new
+          // payload landing on the same pending run clears the in-flight
+          // stamp, whichever path (scoped turn or full agent pass) produced
+          // it, and the card re-enables in place.
+          regeneratingSince: null,
+          regenerateNote: null,
         })
         .where(eq(actionRunSchema.id, existing.id));
       // Keep the action's own domain row in step with the refreshed payload.

@@ -43,9 +43,18 @@ vi.mock('@/libs/actions/registry', () => ({
 }));
 
 // The signal capture is ReviewService.learning.test.ts's job; here only the
-// fact that the route records it, with the feedback as the hint.
+// fact that the route records it, with the feedback as the hint. `decide` is
+// mocked so the decide-guard tests below never reach the real decide path.
 vi.mock('@/services/ReviewService', () => ({
   recordActionSignal: vi.fn(async () => {}),
+  decide: vi.fn(async () => {}),
+}));
+
+// `after` keeps the background dispatch alive past the response; captured so
+// each test can await the deferred work and assert what it left behind.
+const afterWork: unknown[] = [];
+vi.mock('next/server', () => ({
+  after: vi.fn((work: unknown) => afterWork.push(work)),
 }));
 
 const { db } = await import('@/libs/DB');
@@ -53,7 +62,26 @@ const { actionRunSchema } = await import('@/models/Schema');
 const { guardAuth } = await import('./AuthGuards');
 const { getAction } = await import('@/libs/actions/registry');
 const { recordActionSignal } = await import('@/services/ReviewService');
-const { regenerateActionRoute } = await import('./Review');
+const { decideActionRoute, regenerateActionRoute } = await import('./Review');
+
+/** Await everything the route parked behind the response. */
+async function drainAfter(): Promise<void> {
+  await Promise.all(afterWork.splice(0).map(w => (typeof w === 'function' ? (w as () => Promise<void>)() : w)));
+}
+
+/**
+ * The run's regenerating stamp, straight from the row.
+ * @param runId
+ */
+async function stampOf(runId: number): Promise<{ regeneratingSince: Date | null; regenerateNote: string | null }> {
+  const { eq } = await import('drizzle-orm');
+  const [row] = await db
+    .select({ regeneratingSince: actionRunSchema.regeneratingSince, regenerateNote: actionRunSchema.regenerateNote })
+    .from(actionRunSchema)
+    .where(eq(actionRunSchema.id, runId))
+    .limit(1);
+  return row!;
+}
 
 const ORG = 'org_regen_test';
 
@@ -89,6 +117,7 @@ async function makeRun(over: Partial<typeof actionRunSchema.$inferInsert> = {}):
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  afterWork.length = 0;
   await db.delete(actionRunSchema);
   vi.mocked(guardAuth).mockResolvedValue({
     userId: 'usr-1',
@@ -142,7 +171,7 @@ describe('regenerateAction route', () => {
     expect(recordActionSignal).not.toHaveBeenCalled();
   });
 
-  it('dispatches to the action\'s handler and records the feedback as a regenerate signal', async () => {
+  it('stamps the run, dispatches in the background, and records the feedback as a regenerate signal', async () => {
     const regenerate = vi.fn(async () => {});
     vi.mocked(getAction).mockReturnValue({ regenerate } as unknown as ReturnType<typeof getAction>);
     const runId = await makeRun();
@@ -150,6 +179,16 @@ describe('regenerateAction route', () => {
     const res = await call<{ ok: boolean }>(regenerateActionRoute, { id: runId, feedback: 'lead with the compliance angle' });
 
     expect(res).toEqual({ ok: true });
+
+    // Server truth first: the stamp is on the row before the response, so a
+    // reload in any window shows the disabled card immediately.
+    const stamped = await stampOf(runId);
+
+    expect(stamped.regeneratingSince).toBeInstanceOf(Date);
+    expect(stamped.regenerateNote).toBe('lead with the compliance angle');
+
+    await drainAfter();
+
     expect(regenerate).toHaveBeenCalledWith(
       { orgId: ORG, reviewedBy: 'usr-1' },
       { contactRef: 'contacts:9412' },
@@ -163,5 +202,76 @@ describe('regenerateAction route', () => {
       userId: 'usr-1',
       hint: 'lead with the compliance angle',
     });
+  });
+
+  it('refuses a double-fire while the stamp is fresh', async () => {
+    const regenerate = vi.fn(async () => {});
+    vi.mocked(getAction).mockReturnValue({ regenerate } as unknown as ReturnType<typeof getAction>);
+    const runId = await makeRun({ regeneratingSince: new Date(), regenerateNote: 'first click' });
+
+    await expect(call(regenerateActionRoute, { id: runId, feedback: 'second click' })).rejects.toMatchObject({ code: 'bad-request' });
+
+    expect(regenerate).not.toHaveBeenCalled();
+
+    // The first click's stamp stands untouched.
+    const stamp = await stampOf(runId);
+
+    expect(stamp.regenerateNote).toBe('first click');
+  });
+
+  it('accepts a regenerate once the stamp has gone stale, restamping it', async () => {
+    const regenerate = vi.fn(async () => {});
+    vi.mocked(getAction).mockReturnValue({ regenerate } as unknown as ReturnType<typeof getAction>);
+    const staleSince = new Date(Date.now() - 20 * 60_000);
+    const runId = await makeRun({ regeneratingSince: staleSince, regenerateNote: 'the wedged one' });
+
+    const res = await call<{ ok: boolean }>(regenerateActionRoute, { id: runId, feedback: 'try again' });
+
+    expect(res).toEqual({ ok: true });
+
+    const stamp = await stampOf(runId);
+
+    expect(stamp.regeneratingSince!.getTime()).toBeGreaterThan(staleSince.getTime());
+    expect(stamp.regenerateNote).toBe('try again');
+  });
+
+  it('clears the stamp when the dispatched work fails, so the card re-enables', async () => {
+    const regenerate = vi.fn(async () => {
+      throw new Error('no lead brief is linked');
+    });
+    vi.mocked(getAction).mockReturnValue({ regenerate } as unknown as ReturnType<typeof getAction>);
+    const runId = await makeRun();
+
+    await call(regenerateActionRoute, { id: runId, feedback: 'shorter' });
+    await drainAfter();
+
+    const stamp = await stampOf(runId);
+
+    expect(stamp.regeneratingSince).toBeNull();
+  });
+});
+
+describe('decideAction route: the regenerating guard', () => {
+  it('400s a decide while the stamp is fresh — approving mid-regeneration would enroll stale copy', async () => {
+    const runId = await makeRun({ regeneratingSince: new Date() });
+
+    await expect(call(decideActionRoute, { id: runId, decision: 'approve' })).rejects.toMatchObject({ code: 'bad-request' });
+    await expect(call(decideActionRoute, { id: runId, decision: 'reject' })).rejects.toMatchObject({ code: 'bad-request' });
+
+    const { decide } = await import('@/services/ReviewService');
+
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('lets a decide through once the stamp is stale — a wedged pass never locks the card', async () => {
+    const runId = await makeRun({ regeneratingSince: new Date(Date.now() - 20 * 60_000) });
+
+    const res = await call<{ ok: boolean }>(decideActionRoute, { id: runId, decision: 'approve' });
+
+    expect(res).toEqual({ ok: true });
+
+    const { decide } = await import('@/services/ReviewService');
+
+    expect(decide).toHaveBeenCalled();
   });
 });

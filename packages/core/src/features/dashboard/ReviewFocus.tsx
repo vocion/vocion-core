@@ -36,6 +36,9 @@ type ActionRun = {
   invokedBy: string | null;
   createdAt: string | Date;
   proposal: { confidence?: number; rationale?: string } | null;
+  /** In-flight regeneration stamp — the card disables itself on this server truth. */
+  regeneratingSince?: Date | string | null;
+  regenerateNote?: string | null;
   /** Structured presentation, when the action defines one (server-built). */
   card?: ReviewCard;
 };
@@ -289,13 +292,26 @@ export function ReviewFocus() {
   };
 
   // The shared card owns its own decide/snooze; this just drops the item.
-  const onCardDecided = () => {
+  // A regenerate is NOT a decision: the card holds its place — pinned, so the
+  // queue cannot advance past it — and neither the queue count nor the
+  // decided counter moves.
+  const onCardDecided = (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => {
     if (!current) {
+      return;
+    }
+    if (outcome === 'regenerate') {
+      setPinnedId(current.id);
       return;
     }
     setItems(prev => prev.filter(i => i.id !== current.id));
     setPinnedId(null);
     setDecided(d => d + 1);
+  };
+
+  // The regeneration completed: refetch so the SAME pinned card re-renders
+  // with the new content — same run id, no duplicate, no queue shuffle.
+  const onCardRegenerated = () => {
+    void refresh();
   };
 
   const onSteer = async () => {
@@ -372,7 +388,7 @@ export function ReviewFocus() {
           </div>
 
           {current.card && (
-            <ReviewActionCard run={{ ...current, card: current.card }} onDecided={onCardDecided} />
+            <ReviewActionCard run={{ ...current, card: current.card }} onDecided={onCardDecided} onRegenerated={onCardRegenerated} />
           )}
 
           {!current.card && (

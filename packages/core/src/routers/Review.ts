@@ -216,6 +216,8 @@ export const actionStatusRoute = os
         status: actionRunSchema.status,
         decidedBy: actionRunSchema.decidedBy,
         decidedAt: actionRunSchema.decidedAt,
+        regeneratingSince: actionRunSchema.regeneratingSince,
+        regenerateNote: actionRunSchema.regenerateNote,
         name: userSchema.name,
         email: userSchema.email,
       })
@@ -230,6 +232,10 @@ export const actionStatusRoute = os
       status: row.status,
       decidedBy: row.name ?? row.email ?? row.decidedBy,
       decidedAt: row.decidedAt?.toISOString() ?? null,
+      // The in-flight regeneration stamp, so the card can hold itself
+      // disabled on server truth rather than on the click that started it.
+      regeneratingSince: row.regeneratingSince?.toISOString() ?? null,
+      regenerateNote: row.regenerateNote,
     };
   });
 
@@ -285,6 +291,25 @@ export const decideActionRoute = os
     const { orgId, userId } = await guardAuth();
     const { decide } = await import('@/services/ReviewService');
 
+    // A run mid-regeneration cannot be decided: an approve would execute the
+    // stale copy, and the re-propose landing moments later would duplicate
+    // the card. The guard expires with the stamp's staleness window, so a
+    // wedged regeneration never locks the run for good.
+    {
+      const { db } = await import('@/libs/DB');
+      const { actionRunSchema } = await import('@/models/Schema');
+      const { and, eq } = await import('drizzle-orm');
+      const { isRegeneratingFresh } = await import('@/libs/actions/regenerating');
+      const [run] = await db
+        .select({ regeneratingSince: actionRunSchema.regeneratingSince })
+        .from(actionRunSchema)
+        .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
+        .limit(1);
+      if (run && isRegeneratingFresh(run.regeneratingSince)) {
+        throw ApiError.badRequest('This card is being regenerated — it re-enables when the new version lands.');
+      }
+    }
+
     // Typed-content edit-then-approve: the ACTION owns the mapping from card
     // content back to its input, so the client never reverse-engineers input
     // shapes. The mapped input is re-validated in ActionService like any edit.
@@ -336,8 +361,14 @@ export const regenerateActionRoute = os
     const { actionRunSchema } = await import('@/models/Schema');
     const { and, eq } = await import('drizzle-orm');
     const { getAction } = await import('@/libs/actions/registry');
+    const { isRegeneratingFresh } = await import('@/libs/actions/regenerating');
     const [run] = await db
-      .select({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, status: actionRunSchema.status })
+      .select({
+        actionId: actionRunSchema.actionId,
+        input: actionRunSchema.input,
+        status: actionRunSchema.status,
+        regeneratingSince: actionRunSchema.regeneratingSince,
+      })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
       .limit(1);
@@ -348,12 +379,42 @@ export const regenerateActionRoute = os
     if (!action?.regenerate) {
       throw ApiError.badRequest(`${run.actionId} does not support regeneration`);
     }
-    await action.regenerate(
+    // One regeneration at a time: a second click while the stamp is fresh is
+    // a double-fire, refused. The stamp expiring on its own means a wedged
+    // run costs one staleness window, never the card.
+    if (isRegeneratingFresh(run.regeneratingSince)) {
+      throw ApiError.badRequest('This card is already regenerating — it re-enables when the new version lands.');
+    }
+
+    // Server truth first: every surface reads the stamp, so the card is
+    // disabled everywhere before any work runs.
+    await db
+      .update(actionRunSchema)
+      .set({ regeneratingSince: new Date(), regenerateNote: input.feedback })
+      .where(eq(actionRunSchema.id, input.id));
+
+    // The work dispatches in the background — the fast path is a model turn
+    // and the fallback a whole agent pass; the reviewer's click must not hold
+    // the request open for either. A dispatch failure unstamps, so the card
+    // re-enables instead of waiting out the staleness window.
+    const dispatch = action.regenerate(
       { orgId, reviewedBy: userId ?? undefined },
       run.input as never,
       input.id,
       input.feedback,
-    );
+    ).catch(async (err) => {
+      logger.warn('regenerate dispatch failed — clearing the stamp', { runId: input.id, orgId, error: err instanceof Error ? err.message : String(err) });
+      await db
+        .update(actionRunSchema)
+        .set({ regeneratingSince: null })
+        .where(eq(actionRunSchema.id, input.id))
+        .catch(() => {});
+    });
+    // Next's request context must survive the work: `after` keeps the promise
+    // alive past the response without holding the response for it.
+    const { after } = await import('next/server');
+    after(dispatch);
+
     // The feedback is a learning signal with the full existing pipeline behind
     // it: feedback job, classifier, duplicate detection, learning candidate.
     const { recordActionSignal } = await import('@/services/ReviewService');
