@@ -203,6 +203,15 @@ export const projectSchema = pgTable(
       provider?: 'openai' | 'bedrock';
       model?: string;
     }>(),
+    /**
+     * Which workspace skill regenerates each review-item type's card, keyed
+     * by action id (`personalization.enroll` → `regenerate-sequence-copy`).
+     * Authored as `defaults.regenerateSkills` in workspace.yaml; read by the
+     * scoped skill-turn executor, so core never hardcodes a workspace slug.
+     * NULL or a missing key = no fast path; the action's regenerate falls
+     * back to its full pass.
+     */
+    regenerateSkills: jsonb('regenerate_skills').$type<Record<string, string>>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

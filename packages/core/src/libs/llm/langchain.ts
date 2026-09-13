@@ -27,7 +27,7 @@ import { getReplayCache } from './replayCache';
  * a model for a new purpose; lets us swap a role's underlying model
  * without grep-replacing IDs across services.
  */
-export type ModelRole = 'main' | 'classifier' | 'embedder';
+export type ModelRole = 'main' | 'classifier' | 'embedder' | 'skillTurn';
 
 /** Provider tag — narrow alphabet so the env validation is straightforward. */
 export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock';
@@ -44,11 +44,17 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
     // calls should resolve to a different provider via env override
     // until we add a dedicated registry path.
     embedder: 'claude-haiku-4-5-20251001',
+    // The scoped skill-turn executor (one skill, read-only tools, structured
+    // output). Its own role so the latency/quality tradeoff is measured via
+    // VOCION_LLM_MODEL_SKILLTURN, not hardcoded; a bigger model buys
+    // first-time-right redrafts, not speed.
+    skillTurn: 'claude-sonnet-4-6',
   },
   openai: {
     main: 'gpt-4o',
     classifier: 'gpt-4o-mini',
     embedder: 'text-embedding-3-small',
+    skillTurn: 'gpt-4o',
   },
   // Bedrock model ids, unlike the other two providers', are not the plain model
   // names. These are the US cross-region inference profiles (the `us.` prefix),
@@ -67,6 +73,7 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
     // embedding path and reads its own env var, because Titan speaks
     // `InvokeModel` rather than Converse.
     embedder: 'amazon.titan-embed-text-v1',
+    skillTurn: 'us.anthropic.claude-sonnet-4-6',
   },
 };
 

@@ -617,6 +617,13 @@
       "when": 1787547900000,
       "tag": "0087_action_run_regenerating",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1787548000000,
+      "tag": "0088_project_regenerate_skills",
+      "breakpoints": true
     }
   ]
 }
