@@ -1,0 +1,21 @@
+packages/core/src/libs/actions/personalization-enroll.ts
+  s_eff1d3c156501c::t_dee55788f9fe52 85-91,93,96,100-103
+  s_eff1d3c156501c::t_53f58b08ad2527 211
+  s_eff1d3c156501c::t_5a74b938713aff 220-226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b4dd71a0282a782429adf0d783e63871904de256",
+  "prompts": {},
+  "sessions": {
+    "s_eff1d3c156501c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f64fbb69-438c-4484-8061-6cab0080c431",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
