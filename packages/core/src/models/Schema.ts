@@ -2333,6 +2333,17 @@ export const actionRunSchema = pgTable(
     decidedBy: text('decided_by'),
     decidedAt: timestamp('decided_at', { mode: 'date' }),
     /**
+     * Server truth for an in-flight regeneration: stamped by the regenerate
+     * route before the work dispatches, cleared by the dedup refresh that
+     * lands the new content (or by a failed fast-path turn). While fresh
+     * (under 15 minutes), every surface renders the run disabled and the
+     * decide/regenerate routes refuse it — a mid-regeneration approve would
+     * execute stale copy. Past staleness the guards expire on their own.
+     */
+    regeneratingSince: timestamp('regenerating_since', { mode: 'date' }),
+    /** The reviewer's instruction behind the in-flight regeneration, so every surface can show it. */
+    regenerateNote: text('regenerate_note'),
+    /**
      * The audit record of AI rewrites asked during review, newest last. The
      * DRAFT itself is never touched by a rewrite (the reviewer carries the
      * copy and passes it back on approve); this is the record of what was

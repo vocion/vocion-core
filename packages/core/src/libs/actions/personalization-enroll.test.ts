@@ -345,10 +345,11 @@ describe('Regenerate', () => {
       .where(and(eq(leadBriefSchema.orgId, ORG), eq(leadBriefSchema.contactRef, CONTACT)));
 
     // Back in line for the next pass, carrying the instruction; the run link
-    // is cleared so the next drafting pass re-links the same pending item.
+    // is KEPT — the run is mid-regeneration, not gone, so the lead page keeps
+    // its card and the redraft updates the same pending item in place.
     expect(lead?.status).toBe('queued');
     expect(lead?.regenerateNote).toBe('lead with the compliance angle');
-    expect(lead?.reviewActionRunId).toBeNull();
+    expect(lead?.reviewActionRunId).toBe(proposed.runId);
 
     const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, proposed.runId!));
 

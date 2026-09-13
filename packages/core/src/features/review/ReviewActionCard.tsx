@@ -2,9 +2,10 @@
 
 import type { ContentEdit } from './contentKinds';
 import type { ReviewCard, ReviewContentEdit } from '@/libs/actions/types';
-import { AlarmClock, Check, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
+import { AlarmClock, Check, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
 import { contentKindRenderer } from './contentKinds';
 
@@ -26,6 +27,10 @@ export type ReviewCardRun = {
   invokedBy: string | null;
   proposal: { confidence?: number; rationale?: string } | null;
   card: ReviewCard;
+  /** Server truth for an in-flight regeneration — Date on the feed, ISO over RPC. */
+  regeneratingSince?: Date | string | null;
+  /** The reviewer's instruction the regeneration is answering. */
+  regenerateNote?: string | null;
 };
 
 /** The run status, as the lane label a reviewer reads. */
@@ -64,14 +69,20 @@ export function ReviewActionCard(props: {
   run: ReviewCardRun;
   /** Fired after a decision, snooze or regenerate lands, so the surface can drop/refresh the item. */
   onDecided?: (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => void;
+  /** Fired when an in-flight regeneration completes, so the surface can refetch the new content. */
+  onRegenerated?: () => void;
 }) {
-  const { run, onDecided } = props;
+  const { run, onDecided, onRegenerated } = props;
   const card = run.card;
   const [contentEdits, setContentEdits] = useState<Record<string, ContentEdit>>({});
   const [propertyEdits, setPropertyEdits] = useState<Record<string, string>>({});
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  // The in-flight regeneration, as the SERVER knows it: seeded from the run
+  // row (a reload mid-regeneration shows the same disabled card) and kept
+  // current by the status poll below. `since` is an ISO string throughout.
+  const [regen, setRegen] = useState<{ since: string; note: string | null } | null>(null);
 
   // Reset the working copy when the surface moves to another run.
   useEffect(() => {
@@ -81,6 +92,58 @@ export function ReviewActionCard(props: {
     const properties = (run.input.properties ?? {}) as Record<string, unknown>;
     setPropertyEdits(Object.fromEntries(Object.entries(properties).map(([k, v]) => [k, str(v)])));
   }, [run.id]);
+
+  // Server truth seeds the state whenever the surface hands us a (re)fetched
+  // run — including the reload and second-window cases.
+  const runStamp = run.regeneratingSince == null
+    ? null
+    : typeof run.regeneratingSince === 'string' ? run.regeneratingSince : run.regeneratingSince.toISOString();
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setRegen(runStamp ? { since: runStamp, note: run.regenerateNote ?? null } : null);
+  }, [run.id, runStamp]);
+
+  // While a regeneration is in flight, poll the run every 5s (and on window
+  // focus): the stamp clearing is the completion edge — the surface refetches
+  // and the SAME card re-enables with the new content, feedback box cleared.
+  useEffect(() => {
+    if (!regen) {
+      return;
+    }
+    let alive = true;
+    const check = async () => {
+      try {
+        const s = await client.review.actionStatus({ id: run.id });
+        if (!alive) {
+          return;
+        }
+        if (s.regeneratingSince == null) {
+          setRegen(null);
+          setNote('');
+          onRegenerated?.();
+        } else {
+          // A fresh object each poll, so staleness re-renders on schedule.
+          setRegen({ since: s.regeneratingSince, note: s.regenerateNote ?? null });
+        }
+      } catch {
+        /* transient — the next tick retries */
+      }
+    };
+    const timer = setInterval(() => void check(), 5_000);
+    const onFocus = () => void check();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [regen !== null, run.id]);
+
+  // Fresh stamp = hold the card; a stale one (a wedged pass) re-enables it
+  // with a caution, matching the server guards expiring.
+  const regenerating = regen !== null && isRegeneratingFresh(regen.since);
+  const regenStale = regen !== null && !regenerating;
+  const held = busy || regenerating;
 
   const pct = run.proposal?.confidence !== undefined ? Math.round(run.proposal.confidence * 100) : null;
   const hasProperties = run.input.properties !== undefined && (card.content?.length ?? 0) === 0;
@@ -126,12 +189,15 @@ export function ReviewActionCard(props: {
   };
 
   // Regenerate — re-run the work behind the run with the feedback as the
-  // instruction. The run stays pending and the next pass updates the same
-  // queue item, so the surface advances the way a decision does.
+  // instruction. The card HOLDS ITS PLACE: the server stamps the run, this
+  // card disables itself on that truth, and the poll re-enables it in place
+  // when the new content lands — same run id, zero duplicates.
   const regenerateRun = async () => {
     setBusy(true);
     try {
-      await client.review.regenerateAction({ id: run.id, feedback: note.trim() });
+      const instruction = note.trim();
+      await client.review.regenerateAction({ id: run.id, feedback: instruction });
+      setRegen({ since: new Date().toISOString(), note: instruction });
       onDecided?.('regenerate');
     } finally {
       setBusy(false);
@@ -140,7 +206,34 @@ export function ReviewActionCard(props: {
 
   return (
     <div data-testid="review-action-card">
-      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <div className={`overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition ${regenerating ? 'opacity-90' : ''}`}>
+        {/* Regenerating — server truth: the card stays mounted and disabled
+            with the instruction visible, on every surface and across reloads.
+            Past staleness the hold expires and the banner flips to a caution. */}
+        {regenerating && (
+          <div className="flex items-start gap-2.5 border-b border-border/60 bg-brand-amber-tint/60 px-5 py-3" data-testid="regenerating-banner">
+            <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
+            <div className="min-w-0 text-sm">
+              <span className="font-semibold">Regenerating…</span>
+              <span className="text-muted-foreground"> the card re-enables here when the new version lands.</span>
+              {regen?.note && (
+                <p className="mt-0.5 truncate text-[13px] text-muted-foreground" title={regen.note}>
+                  “
+                  {regen.note}
+                  ”
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+        {regenStale && (
+          <div className="flex items-start gap-2.5 border-b border-border/60 bg-amber-500/10 px-5 py-3" data-testid="regenerating-stale-banner">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+            <p className="min-w-0 text-sm text-muted-foreground">
+              This regeneration is taking longer than expected. The card is decidable again; the regenerated version updates it if it still arrives.
+            </p>
+          </div>
+        )}
         {/* A · Header — system, lane status + confidence from the RUN, title, subject. */}
         <div className="p-5">
           <div className="flex items-start justify-between gap-3">
@@ -243,7 +336,7 @@ export function ReviewActionCard(props: {
                     onEdit={item.kind === 'email'
                       ? patch => setContentEdits(e => ({ ...e, [item.id]: { ...e[item.id], ...patch } }))
                       : undefined}
-                    disabled={busy}
+                    disabled={held}
                   />
                 );
               })}
@@ -285,13 +378,13 @@ export function ReviewActionCard(props: {
                     ? (
                         <label key={k} className="block">
                           <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{k}</span>
-                          <textarea className={`${fieldClass} min-h-24 resize-y leading-relaxed`} value={v} onChange={ev => setPropertyEdits(e => ({ ...e, [k]: ev.target.value }))} disabled={busy} />
+                          <textarea className={`${fieldClass} min-h-24 resize-y leading-relaxed`} value={v} onChange={ev => setPropertyEdits(e => ({ ...e, [k]: ev.target.value }))} disabled={held} />
                         </label>
                       )
                     : (
                         <label key={k} className="block">
                           <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{k}</span>
-                          <input className={fieldClass} value={v} onChange={ev => setPropertyEdits(e => ({ ...e, [k]: ev.target.value }))} disabled={busy} />
+                          <input className={fieldClass} value={v} onChange={ev => setPropertyEdits(e => ({ ...e, [k]: ev.target.value }))} disabled={held} />
                         </label>
                       )
                 ))}
@@ -329,15 +422,15 @@ export function ReviewActionCard(props: {
                 : 'Add feedback with your decision...'}
               value={note}
               onChange={ev => setNote(ev.target.value)}
-              disabled={busy}
+              disabled={held}
             />
           </label>
           {card.canRegenerate && (
             <div className="mt-2 flex items-center justify-end gap-2">
-              {!note.trim() && <span className="text-[11px] text-muted-foreground">Type feedback to regenerate</span>}
-              <Button size="sm" variant="outline" onClick={() => void regenerateRun()} disabled={busy || !note.trim()}>
-                {busy ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-                Regenerate
+              {!regenerating && !note.trim() && <span className="text-[11px] text-muted-foreground">Type feedback to regenerate</span>}
+              <Button size="sm" variant="outline" onClick={() => void regenerateRun()} disabled={held || !note.trim()}>
+                {busy || regenerating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+                {regenerating ? 'Regenerating…' : 'Regenerate'}
               </Button>
             </div>
           )}
@@ -346,22 +439,22 @@ export function ReviewActionCard(props: {
 
       {/* G · Actions — detached below the card. */}
       <div className="relative mt-3 flex items-stretch gap-2">
-        <Button variant="outline" className="flex-1" onClick={() => void decideRun('reject')} disabled={busy}>
+        <Button variant="outline" className="flex-1" onClick={() => void decideRun('reject')} disabled={held}>
           <X className="size-3.5" />
           {card.verbs?.reject ?? 'Reject'}
         </Button>
-        <Button variant="outline" className="flex-1" onClick={() => setSnoozeOpen(o => !o)} disabled={busy}>
+        <Button variant="outline" className="flex-1" onClick={() => setSnoozeOpen(o => !o)} disabled={held}>
           <AlarmClock className="size-3.5" />
           Snooze
         </Button>
-        <Button className="flex-[1.6]" onClick={() => void decideRun('approve')} disabled={busy}>
+        <Button className="flex-[1.6]" onClick={() => void decideRun('approve')} disabled={held}>
           {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
           {card.verbs?.approve ?? 'Approve'}
         </Button>
         {snoozeOpen && (
           <div className="absolute right-0 bottom-full z-10 mb-2 flex gap-1 rounded-lg border border-border bg-card p-1.5 shadow-md">
             {SNOOZES.map(s => (
-              <Button key={s.days} size="sm" variant="ghost" onClick={() => void snoozeRun(s.days)} disabled={busy}>
+              <Button key={s.days} size="sm" variant="ghost" onClick={() => void snoozeRun(s.days)} disabled={held}>
                 {s.label}
               </Button>
             ))}

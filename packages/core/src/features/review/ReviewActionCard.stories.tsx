@@ -139,3 +139,35 @@ export const DiscoveryProposal: Story = {
     },
   },
 };
+
+/**
+ * Mid-regeneration — server truth (`regeneratingSince` fresh). The card stays
+ * mounted, every control disabled, the reviewer's instruction visible in the
+ * banner. The poll re-enables the same card in place when the stamp clears.
+ */
+export const Regenerating: Story = {
+  args: {
+    run: {
+      ...MqlEnrollment.args!.run!,
+      id: 5,
+      regeneratingSince: new Date().toISOString(),
+      regenerateNote: 'Send 2 is too pushy — soften the ask and mention the AI-readiness guide instead.',
+    },
+  },
+};
+
+/**
+ * A stale stamp (past the 15-minute window): the hold expires on its own, the
+ * banner flips to a caution, and the card is decidable again — a wedged pass
+ * never locks the card for good.
+ */
+export const RegenerationStale: Story = {
+  args: {
+    run: {
+      ...MqlEnrollment.args!.run!,
+      id: 6,
+      regeneratingSince: new Date(Date.now() - 20 * 60_000).toISOString(),
+      regenerateNote: 'Send 2 is too pushy — soften the ask.',
+    },
+  },
+};

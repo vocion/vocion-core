@@ -113,6 +113,9 @@ export default async function LeadPage(props: {
             input: found.run.input as Record<string, unknown>,
             invokedBy: found.run.invokedBy,
             proposal: found.run.proposal,
+            // ISO across the server/client boundary, like the dates above.
+            regeneratingSince: found.run.regeneratingSince?.toISOString() ?? null,
+            regenerateNote: found.run.regenerateNote,
             card: { ...card, canRegenerate: action?.regenerate !== undefined },
           } satisfies ReviewCardRun;
         }

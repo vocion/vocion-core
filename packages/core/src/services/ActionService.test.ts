@@ -241,6 +241,24 @@ describe('proposing against an already-decided run', () => {
     expect(await db.select().from(actionRunSchema)).toHaveLength(1);
   });
 
+  it('the refresh is the completion edge of a regeneration: it clears the stamp', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    // Mid-regeneration, as the regenerate route leaves the row.
+    await db
+      .update(actionRunSchema)
+      .set({ regeneratingSince: new Date(), regenerateNote: 'tone it down' })
+      .where(eq(actionRunSchema.id, first.runId));
+
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(second.outcome).toBe('refreshed');
+
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, first.runId));
+
+    expect(row!.regeneratingSince).toBeNull();
+    expect(row!.regenerateNote).toBeNull();
+  });
+
   it('creates no second card for a candidate a moderator already rejected', async () => {
     const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
     await rejectAction(first.runId, ORG, 'not for us', { reviewedBy: 'user-lili' });
