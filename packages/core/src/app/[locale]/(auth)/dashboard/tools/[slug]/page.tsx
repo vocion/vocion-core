@@ -1,10 +1,16 @@
-import { ArrowLeft, Bot, Check, FileCode2, TriangleAlert, Wrench } from 'lucide-react';
+import { ArrowLeft, Bot, FileCode2, Wrench } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { liveCredentialName, memberKeyExplanation } from '@/features/tools/keyExplanations';
+import { ReadinessBadge } from '@/features/tools/ReadinessBadge';
+import { ToolProviderKeyCard } from '@/features/tools/ToolProviderKeyCard';
 import { Link } from '@/libs/I18nNavigation';
-import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
+import { platformForToolProvider } from '@/libs/platforms/registry';
+import { BUILTIN_TOOLS, capabilityStatus } from '@/libs/tools/catalog';
+import { ORG_ROLE } from '@/types/Auth';
+import { requireOrganization } from '@/utils/Auth';
 
 const CATEGORY_LABELS: Record<string, string> = {
   research: 'Research the web',
@@ -30,8 +36,33 @@ export default async function ToolDetailPage(props: {
   if (!tool) {
     notFound();
   }
-  const status = capabilityStatuses().find(s => s.capability === tool.capability);
+  const { orgId, has } = await requireOrganization();
+  // Only this tool's capability: resolving a status decrypts the org's key
+  // for it, and the other four are not on this page.
+  const status = await capabilityStatus(tool.capability, orgId);
   const isReady = status?.ready ?? true;
+
+  // A provider that bills someone has a credential platform behind it; the
+  // builtin extractor and the calculator do not, and get no key card.
+  const platform = status ? platformForToolProvider(status.provider) : null;
+  // The status already looked the credential up to decide readiness, and it
+  // carries the mask back, so the page does not query a second time. The
+  // secret itself never reaches the page either way.
+  const storedKeyHint = status?.storedKeyHint ?? null;
+  const canManageKeys = has({ role: ORG_ROLE.ADMIN });
+  // The credential store would not answer, so we do not know whether this
+  // workspace holds a key. Everything below that offers to store one is
+  // suppressed in that state — see `keyStateUnknown` where it is used.
+  const keyStateUnknown = status?.keySource === 'unknown';
+  // Only when there is a key to replace, and only for the admin who can
+  // replace it — nobody else's view depends on what it is called.
+  const storedKeyName = platform && canManageKeys && storedKeyHint !== null
+    ? await liveCredentialName(orgId, platform.id)
+    : null;
+  // A provider that bills someone but has no platform yet — E2B, whose
+  // integration is not built — would otherwise sit on "Needs key" with
+  // nothing to click and no reason given.
+  const perOrgKeysUnsupported = !platform && !isReady;
 
   return (
     <>
@@ -54,19 +85,13 @@ export default async function ToolDetailPage(props: {
             <div>
               <div>{tool.title}</div>
               <div className="mt-0.5 flex items-center gap-2 text-sm font-normal">
-                {isReady
-                  ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                        <Check className="size-3" />
-                        Ready
-                      </span>
-                    )
-                  : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-                        <TriangleAlert className="size-3" />
-                        Needs key
-                      </span>
-                    )}
+                <ReadinessBadge ready={isReady} keyStateUnknown={keyStateUnknown} />
+                {status?.keySource === 'workspace' && (
+                  <span className="text-xs text-muted-foreground">On this workspace's key</span>
+                )}
+                {status?.keySource === 'server' && (
+                  <span className="text-xs text-muted-foreground">On the Vocion server key</span>
+                )}
                 <span className="font-mono text-xs text-muted-foreground">{tool.name}</span>
                 <Badge variant="outline" className="text-[10px]">{CATEGORY_LABELS[tool.category] ?? tool.category}</Badge>
               </div>
@@ -75,6 +100,70 @@ export default async function ToolDetailPage(props: {
         )}
         description={tool.description}
       />
+
+      {platform && keyStateUnknown && (
+        <p className="mb-6 rounded-lg border border-border bg-background p-4 text-xs text-muted-foreground">
+          This workspace's
+          {' '}
+          {platform.label}
+          {' '}
+          key could not be read just now, so there is nothing reliable to show
+          about it — and saving a new one is held back on purpose. Replacing a
+          key revokes whatever is on file, and doing that without being able to
+          see what is there is how a working credential disappears. Try again
+          in a moment.
+        </p>
+      )}
+
+      {platform && canManageKeys && !keyStateUnknown && (
+        <div className="mb-6">
+          <ToolProviderKeyCard
+            platformId={platform.id}
+            platformLabel={platform.label}
+            helpText={platform.helpText}
+            fields={platform.fields.map(field => ({
+              name: field.name,
+              label: field.label,
+              shapeHint: field.shapeHint,
+              secret: field.secret,
+            }))}
+            storedKeyHint={storedKeyHint}
+            storedKeyName={storedKeyName}
+            serverHasKey={status?.keySource === 'server'}
+            sharedWithModelCalls={platform.llmProvider !== null}
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            This key is spent by
+            {' '}
+            <code className="font-mono">{status?.provider}</code>
+            , the provider this deployment runs for
+            {' '}
+            <code className="font-mono">{tool.capability}</code>
+            . A key for a different provider has no effect until the deployment switches to it.
+          </p>
+        </div>
+      )}
+
+      {platform && !canManageKeys && !keyStateUnknown && (
+        <p className="mb-6 rounded-lg border border-border bg-background p-4 text-xs text-muted-foreground">
+          {memberKeyExplanation(platform.label, storedKeyHint !== null, status?.keySource === 'server')}
+        </p>
+      )}
+
+      {perOrgKeysUnsupported && (
+        <p className="mb-6 rounded-lg border border-border bg-background p-4 text-xs text-muted-foreground">
+          This provider cannot take a per-workspace key yet — its integration is not built.
+          {(status?.missingEnv.length ?? 0) > 0 && (
+            <>
+              {' '}
+              Until it is, the capability runs only when the server sets
+              {' '}
+              <code className="font-mono">{status?.missingEnv.join(', ')}</code>
+              .
+            </>
+          )}
+        </p>
+      )}
 
       <section className="mb-6 rounded-md border border-border p-5">
         <h2 className="mb-3 text-base font-semibold">Parameters</h2>
