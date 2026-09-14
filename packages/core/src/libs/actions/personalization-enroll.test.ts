@@ -25,10 +25,19 @@ vi.mock('@/services/agents/skillTurn', () => ({
   runSkillTurn: vi.fn(),
 }));
 
+// The workflow bridge has its own unit tests (unenrollBridge.test.ts); here
+// only how execute routes on its answers. Default: not enrolled, so the
+// pre-existing enroll tests run unchanged.
+vi.mock('@/libs/hubspot/unenrollBridge', () => ({
+  readSequenceEnrollmentState: vi.fn(async () => ({ ok: true, data: { enrolled: false, latestSequenceId: null } })),
+  requestUnenroll: vi.fn(async () => ({ ok: true, data: { unenrolled: true, waitedMs: 100 } })),
+}));
+
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, eventLogSchema, leadBriefSchema, trustRuleSchema } = await import('@/models/Schema');
 const { executeAction, proposeAction, rejectAction } = await import('@/services/ActionService');
 const { regenerateSkillFor } = await import('./regenerateSkill');
+const { readSequenceEnrollmentState, requestUnenroll } = await import('@/libs/hubspot/unenrollBridge');
 const { runSkillTurn } = await import('@/services/agents/skillTurn');
 const { personalizationEnrollAction } = await import('./personalization-enroll');
 const { and, eq } = await import('drizzle-orm');
@@ -78,6 +87,8 @@ function res(body: unknown, ok = true, status = 200): Response {
 beforeEach(async () => {
   vi.mocked(regenerateSkillFor).mockResolvedValue(null);
   vi.mocked(runSkillTurn).mockReset();
+  vi.mocked(readSequenceEnrollmentState).mockReset().mockResolvedValue({ ok: true, data: { enrolled: false, latestSequenceId: null } });
+  vi.mocked(requestUnenroll).mockReset().mockResolvedValue({ ok: true, data: { unenrolled: true, waitedMs: 100 } });
   await db.delete(actionRunSchema);
   await db.delete(leadBriefSchema);
   await db.delete(trustRuleSchema);
@@ -223,6 +234,60 @@ describe('Enroll (approve → execute)', () => {
     const executed = await executeAction(proposed.runId!, ORG);
 
     expect(executed.status).toBe('failed');
+    expect(executed.error).toContain('403');
+
+    const [lead] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, CONTACT));
+
+    expect(lead?.status).toBe('ready_for_review');
+  });
+
+  it('a contact already in a sequence is unenrolled FIRST, then enrolled, and the result names what was replaced', async () => {
+    await seedLead();
+    vi.mocked(readSequenceEnrollmentState).mockResolvedValue({ ok: true, data: { enrolled: true, latestSequenceId: '307395867' } });
+    const calls: Array<{ url: string; method: string }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string }) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET' });
+      if (String(url).includes('/enrollments/contact/')) {
+        return res({ id: 'enr-old', sequenceId: '307395867', sequenceName: 'New Operational AI Inbound Sequence' });
+      }
+      if (String(url).includes('/enrollments')) {
+        return res({ id: 'enr-2' });
+      }
+      return res({ id: 'note-1' });
+    }));
+
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput() });
+    const executed = await executeAction(proposed.runId!, ORG, { reviewedBy: 'user_jamie' });
+
+    expect(executed.status).toBe('done');
+    expect(executed.result).toMatchObject({
+      enrolled: true,
+      replacedSequence: { sequenceId: '307395867', sequenceName: 'New Operational AI Inbound Sequence' },
+    });
+    expect(vi.mocked(requestUnenroll)).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ contactId: '9412' }));
+  });
+
+  it('an unenroll that does not complete stops the enrollment: run failed, nothing enrolled', async () => {
+    await seedLead();
+    vi.mocked(readSequenceEnrollmentState).mockResolvedValue({ ok: true, data: { enrolled: true, latestSequenceId: '307395867' } });
+    vi.mocked(requestUnenroll).mockResolvedValue({ ok: false, error: 'hubspot_error', status: 408, message: 'still enrolled after 180s' });
+    const posts: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string }) => {
+      if ((init?.method ?? 'GET') === 'POST') {
+        posts.push(String(url));
+      }
+      if (String(url).includes('/enrollments/contact/')) {
+        return res({ sequenceId: '307395867', sequenceName: 'New Operational AI Inbound Sequence' });
+      }
+      return res({});
+    }));
+
+    const proposed = await proposeAction({ orgId: ORG, actionId: 'personalization.enroll', principal: agent(), input: enrollInput() });
+    const executed = await executeAction(proposed.runId!, ORG);
+
+    expect(executed.status).toBe('failed');
+    expect(executed.error).toContain('New Operational AI Inbound Sequence');
+    expect(posts.filter(u => u.includes('/enrollments') && !u.includes('/enrollments/contact/'))).toHaveLength(0);
 
     const [lead] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, CONTACT));
 
