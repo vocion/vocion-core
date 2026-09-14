@@ -16,7 +16,9 @@ export default async function ToolsPage(props: {
   const { locale } = await props.params;
   setRequestLocale(locale);
 
-  const statuses = capabilityStatuses();
+  // No org passed yet: this is still the deployment's view of readiness. The
+  // page starts asking on the workspace's behalf when the key card lands.
+  const statuses = await capabilityStatuses();
   const statusByCapability = new Map(statuses.map(s => [s.capability, s]));
   const ready = statuses.filter(s => s.ready).length;
 

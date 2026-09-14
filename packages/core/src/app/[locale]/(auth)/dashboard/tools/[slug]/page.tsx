@@ -30,7 +30,8 @@ export default async function ToolDetailPage(props: {
   if (!tool) {
     notFound();
   }
-  const status = capabilityStatuses().find(s => s.capability === tool.capability);
+  const statuses = await capabilityStatuses();
+  const status = statuses.find(s => s.capability === tool.capability);
   const isReady = status?.ready ?? true;
 
   return (
