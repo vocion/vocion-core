@@ -50,7 +50,7 @@ export default async function ToolDetailPage(props: {
   // A provider that bills someone but has no platform yet — E2B, whose
   // integration is not built — would otherwise sit on "Needs key" with
   // nothing to click and no reason given.
-  const perOrgKeysUnsupported = !platform && (status?.missingEnv.length ?? 0) > 0;
+  const perOrgKeysUnsupported = !platform && !isReady;
 
   return (
     <>
@@ -131,19 +131,22 @@ export default async function ToolDetailPage(props: {
 
       {platform && !canManageKeys && (
         <p className="mb-6 rounded-lg border border-border bg-background p-4 text-xs text-muted-foreground">
-          {storedKeyHint === null
-            ? `This tool runs on a ${platform.label} key. Ask a workspace admin to add one under API credentials.`
-            : `This tool runs on this workspace's own ${platform.label} key. A workspace admin can change it under API credentials.`}
+          {memberKeyExplanation(platform.label, storedKeyHint !== null, status?.keySource === 'server')}
         </p>
       )}
 
       {perOrgKeysUnsupported && (
         <p className="mb-6 rounded-lg border border-border bg-background p-4 text-xs text-muted-foreground">
-          This provider cannot take a per-workspace key yet — its integration is not built. Until it
-          is, the capability runs only when the server sets
-          {' '}
-          <code className="font-mono">{status?.missingEnv.join(', ')}</code>
-          .
+          This provider cannot take a per-workspace key yet — its integration is not built.
+          {(status?.missingEnv.length ?? 0) > 0 && (
+            <>
+              {' '}
+              Until it is, the capability runs only when the server sets
+              {' '}
+              <code className="font-mono">{status?.missingEnv.join(', ')}</code>
+              .
+            </>
+          )}
         </p>
       )}
 
@@ -215,4 +218,30 @@ export default async function ToolDetailPage(props: {
       </div>
     </>
   );
+}
+
+/**
+ * What a member — someone who cannot open the key card — is told about the key
+ * this tool spends.
+ *
+ * Three states, not two. "The workspace has no key of its own" is not the same
+ * as "no key exists": a deployment that sets the server's env var runs this
+ * tool perfectly well, and asking that member to go find an admin would
+ * contradict the green "Ready" badge printed directly above this sentence.
+ * @param platformLabel - The vendor's name, e.g. `Tavily`.
+ * @param workspaceHasKey - Whether this workspace stored a key of its own.
+ * @param serverHasKey - Whether the deployment's own key is covering the call.
+ */
+function memberKeyExplanation(
+  platformLabel: string,
+  workspaceHasKey: boolean,
+  serverHasKey: boolean,
+): string {
+  if (workspaceHasKey) {
+    return `This tool runs on this workspace's own ${platformLabel} key. A workspace admin can change it under API credentials.`;
+  }
+  if (serverHasKey) {
+    return `This tool runs on the Vocion server's ${platformLabel} key. A workspace admin can put this workspace on its own key under API credentials.`;
+  }
+  return `This tool runs on a ${platformLabel} key. Ask a workspace admin to add one under API credentials.`;
 }

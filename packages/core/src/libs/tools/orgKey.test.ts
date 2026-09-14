@@ -9,7 +9,9 @@
  * The credential store is mocked; no test here touches the database or the
  * vault.
  */
+import type { CredentialToolProvider } from '@/libs/platforms/registry';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToolProviderKeyUnavailableError } from './types';
 
 const resolvePlatformKey = vi.fn<(orgId: string, platform: string) => Promise<string | null>>();
 const listPlatformCredentials = vi.fn<(orgId: string, platform: string) => Promise<unknown[]>>();
@@ -57,8 +59,36 @@ describe('resolveToolProviderKey', () => {
   });
 
   it('answers null without a lookup for a provider that has no platform', async () => {
-    await expect(resolveToolProviderKey('builtin', 'org_search')).resolves.toBeNull();
+    // Cast because the signature now rules this out at compile time, which is
+    // the point — the runtime guard stays for a provider name that reaches
+    // here from data rather than from a call site, and a silent fall-through
+    // to the deployment's account is what it prevents.
+    await expect(
+      resolveToolProviderKey('builtin' as CredentialToolProvider, 'org_search'),
+    ).resolves.toBeNull();
     expect(resolvePlatformKey).not.toHaveBeenCalled();
+  });
+
+  it('refuses rather than falls back when the stored key cannot be read', async () => {
+    // A ciphertext that no longer opens, or a credential store that is down.
+    // Answering null here would hand the call to the server's env var and bill
+    // the deployment for an org that may be holding a perfectly good key.
+    resolvePlatformKey.mockRejectedValue(new Error('vault: DEK and data have diverged'));
+
+    await expect(resolveToolProviderKey('tavily', 'org_search'))
+      .rejects
+      .toBeInstanceOf(ToolProviderKeyUnavailableError);
+  });
+
+  it('keeps the vault\'s own words out of the error it raises', async () => {
+    // The message travels into a tool result, which is read by the model and
+    // usually by the end user after it. Postgres and KMS text does not belong
+    // in either place.
+    resolvePlatformKey.mockRejectedValue(new Error('password authentication failed for user "vocion"'));
+
+    await expect(resolveToolProviderKey('brave', 'org_search'))
+      .rejects
+      .toThrow(/^the workspace's stored brave key could not be read$/);
   });
 
   it('keeps two orgs on their own keys', async () => {

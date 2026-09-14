@@ -24,7 +24,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { getBrowseProvider } from '@/libs/tools/browse/registry';
-import { ProviderNotConfiguredError } from '@/libs/tools/types';
+import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '@/libs/tools/types';
 
 export function fetchUrlTool(ctx: RuntimeContext) {
   return tool(
@@ -38,6 +38,12 @@ export function fetchUrlTool(ctx: RuntimeContext) {
         }
         return `# ${page.title}\n${page.url}\n\n${page.content}\n\n[Total length: ${page.content.length} characters.]`;
       } catch (err) {
+        if (err instanceof ToolProviderKeyUnavailableError) {
+          // Deliberately not falling through to the server's key: this org may
+          // hold one we simply could not read, and spending the deployment's
+          // account instead would bill the wrong party silently.
+          return `${err.message}. A workspace admin can re-enter it under API credentials.`;
+        }
         if (err instanceof ProviderNotConfiguredError) {
           return `Browse is not configured (${err.message}).`;
         }

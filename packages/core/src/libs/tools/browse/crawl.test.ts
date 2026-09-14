@@ -11,7 +11,7 @@
  */
 import type { BrowseProvider, Page } from './types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProviderNotConfiguredError } from '../types';
+import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '../types';
 import { bfsCrawl } from './crawl';
 
 const fetchPage = vi.fn<(url: string, opts?: { orgId?: string }) => Promise<Page | null>>();
@@ -67,5 +67,29 @@ describe('a crawl where one page fails', () => {
     const pages = await bfsCrawl(provider, START_URL, { maxDepth: 0, maxPages: 1 });
 
     expect(pages).toEqual([]);
+  });
+});
+
+describe('a crawl whose key cannot be read', () => {
+  it('stops instead of describing a site it never reached', async () => {
+    // The seed page fails, so the queue drains and the crawl would otherwise
+    // return zero pages — which `crawl_site` reports as "no readable pages".
+    // A credential problem dressed as an empty website is the worst of both:
+    // nobody fixes the key, and the model believes the site is bare.
+    fetchPage.mockRejectedValue(new ToolProviderKeyUnavailableError('firecrawl'));
+
+    await expect(bfsCrawl(provider, START_URL, { orgId: 'org_crawl' }))
+      .rejects
+      .toBeInstanceOf(ToolProviderKeyUnavailableError);
+  });
+
+  it('asks for the key once rather than once per queued page', async () => {
+    // The lookup is a database read plus a decrypt. Swallowing the failure
+    // would retry it for every one of the up-to-50 pages in the queue.
+    fetchPage.mockRejectedValue(new ToolProviderKeyUnavailableError('firecrawl'));
+
+    await expect(bfsCrawl(provider, START_URL, { maxPages: 50, orgId: 'org_crawl' })).rejects.toThrow();
+
+    expect(fetchPage).toHaveBeenCalledTimes(1);
   });
 });

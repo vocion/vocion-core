@@ -28,6 +28,29 @@ export class ProviderNotConfiguredError extends Error {
 }
 
 /**
+ * Thrown when the org's own key could not be read at all — the credential
+ * store was unreachable, or the stored ciphertext no longer opens.
+ *
+ * Distinct from {@link ProviderNotConfiguredError}, which means "nobody has a
+ * key". This one means "somebody might, and we could not find out", and the
+ * two need opposite handling: a missing key is a setup problem the workspace
+ * can fix, while an unreadable one must stop the call rather than quietly
+ * spend the deployment's account instead.
+ *
+ * It carries its own plain message on purpose. The underlying database or
+ * decryption error is logged where it happens and deliberately not repeated
+ * here, because a tool's failure text is handed straight to the model.
+ */
+export class ToolProviderKeyUnavailableError extends Error {
+  readonly provider: string;
+  constructor(provider: string) {
+    super(`the workspace's stored ${provider} key could not be read`);
+    this.name = 'ToolProviderKeyUnavailableError';
+    this.provider = provider;
+  }
+}
+
+/**
  * Where the key a capability is about to spend comes from.
  *
  * `workspace` — the org pasted its own key, so its account is billed.

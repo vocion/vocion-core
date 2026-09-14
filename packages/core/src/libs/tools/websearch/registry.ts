@@ -44,7 +44,10 @@ export async function webSearchStatus(orgId?: string): Promise<CapabilityStatus>
       capability: 'web_search',
       provider: 'anthropic',
       ready: false,
-      missingEnv: ['(provider not yet implemented)'],
+      // Empty, not a placeholder sentence: `missingEnv` is rendered to
+      // admins as the list of env vars to set, and there is no env var that
+      // would make this provider work. The pages read `ready` for the rest.
+      missingEnv: [],
       keySource: 'none',
     };
   }

@@ -12,8 +12,10 @@
  * key can ask without importing a sibling capability's registry.
  */
 
+import type { CredentialToolProvider } from '@/libs/platforms/registry';
 import { platformForToolProvider } from '@/libs/platforms/registry';
 import { listPlatformCredentials, resolvePlatformKey } from '@/services/ApiTokenService';
+import { ToolProviderKeyUnavailableError } from './types';
 
 /**
  * The org's stored key for whatever platform backs `provider`, or null when it
@@ -22,11 +24,19 @@ import { listPlatformCredentials, resolvePlatformKey } from '@/services/ApiToken
  * Null is the ordinary answer, not an error: an org that pasted no key is
  * meant to fall through to the server's env var. Callers take the result and
  * let the env var take over when it is null.
+ *
+ * A lookup that *fails* is the opposite answer and never null. An unreachable
+ * credential store or a ciphertext that will not open means this org might be
+ * holding a key we cannot see, and spending the deployment's account instead
+ * would bill the wrong party without saying so. That case raises
+ * {@link ToolProviderKeyUnavailableError}, whose message is safe to show —
+ * the underlying error is logged here and goes no further, because a tool's
+ * failure text is read by the model.
  * @param provider - The tool provider about to be called, e.g. `tavily`.
  * @param orgId - The org the call is being made for.
  */
 export async function resolveToolProviderKey(
-  provider: string,
+  provider: CredentialToolProvider,
   orgId: string,
 ): Promise<string | null> {
   const platform = platformForToolProvider(provider);
@@ -40,7 +50,12 @@ export async function resolveToolProviderKey(
     // refuses the same way, and AWS is why.
     return null;
   }
-  return resolvePlatformKey(orgId, platform.id);
+  try {
+    return await resolvePlatformKey(orgId, platform.id);
+  } catch (error) {
+    console.error('[tools/orgKey] could not read the org\'s stored key', { provider, orgId, error });
+    throw new ToolProviderKeyUnavailableError(provider);
+  }
 }
 
 /** What the catalog needs to know about a key without handling the key. */
@@ -70,6 +85,13 @@ export async function storedToolProviderCredential(
 ): Promise<StoredToolCredential | null> {
   const platform = platformForToolProvider(provider);
   if (!platform) {
+    return null;
+  }
+  if (platform.fields.length > 1) {
+    // The same refusal `resolveToolProviderKey` makes, for the same reason:
+    // a multi-field credential's first field is an identifier, not a secret,
+    // so no call could spend this row. Reporting it as a usable key here
+    // would light the catalog green for something that cannot run.
     return null;
   }
   const stored = await listPlatformCredentials(orgId, platform.id);

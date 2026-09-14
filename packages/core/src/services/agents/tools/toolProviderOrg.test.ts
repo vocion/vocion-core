@@ -10,6 +10,7 @@
  * vendor call. No network, no database.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToolProviderKeyUnavailableError } from '@/libs/tools/types';
 
 const search = vi.fn(async (_query: string, _opts?: { count?: number; orgId?: string }) => [
   { title: 'A page', url: 'https://example.com', snippet: 'text' },
@@ -71,5 +72,43 @@ describe('crawl_site', () => {
     await crawlSiteTool(ctx).invoke({ start_url: 'https://example.com', max_pages: 1 });
 
     expect(fetchPage).toHaveBeenCalledWith('https://example.com', { orgId: 'org_tools' });
+  });
+});
+
+describe('a key the workspace holds but we cannot read', () => {
+  const VAULT_TEXT = 'password authentication failed for user "vocion"';
+
+  it('tells web_search\'s caller what to fix without quoting the vault', async () => {
+    // Whatever this returns is pasted into the model's context and usually
+    // reaches the end user's answer after that. A Postgres or KMS line there
+    // is both useless to them and more than they should see.
+    search.mockRejectedValueOnce(new ToolProviderKeyUnavailableError('tavily'));
+
+    const result = await webSearchTool(ctx).invoke({ query: 'anything' });
+
+    expect(result).toContain('could not be read');
+    expect(result).toContain('API credentials');
+    expect(result).not.toContain(VAULT_TEXT);
+  });
+
+  it('does not quietly search on the server\'s key instead', async () => {
+    // The tempting "fallback" is the bug: this org may hold a working key we
+    // simply could not open, and spending the deployment's account for them
+    // bills the wrong party with nothing said.
+    search.mockRejectedValueOnce(new ToolProviderKeyUnavailableError('tavily'));
+
+    const result = await webSearchTool(ctx).invoke({ query: 'anything' });
+
+    expect(result).not.toContain('A page');
+    expect(search).toHaveBeenCalledTimes(1);
+  });
+
+  it('says the same thing from fetch_url', async () => {
+    fetchPage.mockRejectedValueOnce(new ToolProviderKeyUnavailableError('firecrawl'));
+
+    const result = await fetchUrlTool(ctx).invoke({ url: 'https://example.com/listing' });
+
+    expect(result).toContain('could not be read');
+    expect(result).not.toContain(VAULT_TEXT);
   });
 });
