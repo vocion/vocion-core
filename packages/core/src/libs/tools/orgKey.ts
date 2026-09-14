@@ -14,7 +14,7 @@
 
 import type { CredentialToolProvider } from '@/libs/platforms/registry';
 import { platformForToolProvider } from '@/libs/platforms/registry';
-import { listPlatformCredentials, resolvePlatformKey } from '@/services/ApiTokenService';
+import { spendablePlatformKey } from '@/services/ApiTokenService';
 import { ToolProviderKeyUnavailableError } from './types';
 
 /**
@@ -51,7 +51,7 @@ export async function resolveToolProviderKey(
     return null;
   }
   try {
-    return await resolvePlatformKey(orgId, platform.id);
+    return (await spendablePlatformKey(orgId, platform.id))?.key ?? null;
   } catch (error) {
     console.error('[tools/orgKey] could not read the org\'s stored key', { provider, orgId, error });
     throw new ToolProviderKeyUnavailableError(provider);
@@ -68,14 +68,18 @@ export type StoredToolCredential = {
  * The credential the org holds for `provider`, or null when it holds none the
  * next call could actually spend.
  *
- * Answers the readiness question the Tools catalog asks without decrypting
- * anything — the catalog has no business handling the secret itself.
+ * Asks `spendablePlatformKey` — the same question the call path asks — rather
+ * than deciding for itself whether a row looks usable. A row is only half the
+ * answer: the document behind it still has to carry a value under the field
+ * name the registry uses today, and a renamed field quietly ends that. Judging
+ * by the row alone put a green badge over keys no call could spend.
  *
- * Expiry is the subtlety. `listPlatformCredentials` keeps an expired row on
- * purpose, because the settings page has to show one, while the call path's
- * `resolvePlatformKey` treats an expired key as none. Counting an expired row
- * here would light the catalog up green for a key that no call can spend, so
- * expired rows are filtered out to match what the call would do.
+ * It throws the key away and keeps the mask. That means a readiness check now
+ * pays for a decrypt it used to skip, which is the price of the badge telling
+ * the truth; the secret goes no further than this function.
+ *
+ * A vault that will not open raises rather than answering null, and the
+ * catalog decides what to show — see `storedCredentialOrNone` in `./status`.
  * @param provider - The tool provider in question, e.g. `firecrawl`.
  * @param orgId - The org whose credentials to look at.
  */
@@ -87,16 +91,7 @@ export async function storedToolProviderCredential(
   if (!platform) {
     return null;
   }
-  if (platform.fields.length > 1) {
-    // The same refusal `resolveToolProviderKey` makes, for the same reason:
-    // a multi-field credential's first field is an identifier, not a secret,
-    // so no call could spend this row. Reporting it as a usable key here
-    // would light the catalog green for something that cannot run.
-    return null;
-  }
-  const stored = await listPlatformCredentials(orgId, platform.id);
-  const spendable = stored.find(credential =>
-    credential.expiresAt === null || credential.expiresAt.getTime() > Date.now());
+  const spendable = await spendablePlatformKey(orgId, platform.id);
   if (!spendable) {
     return null;
   }
