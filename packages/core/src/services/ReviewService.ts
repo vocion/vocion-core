@@ -241,7 +241,9 @@ async function listMissionPlane(orgId: string, opts: ListOptions, now: Date, cap
 async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?: number): Promise<PlaneResult> {
   const where = and(
     eq(actionRunSchema.orgId, orgId),
-    eq(actionRunSchema.status, PENDING_STATUS.action),
+    // Pending AND failed, matching listPendingActions: a failed execution is
+    // open work, not a decided card.
+    inArray(actionRunSchema.status, [PENDING_STATUS.action, 'failed']),
     // Stale suggestions drop out of the queue, matching the dashboard list.
     or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
     // In SQL, not over the fetched page: with 557 pending items and a window
@@ -316,7 +318,9 @@ export async function pendingActionTypes(orgId: string, opts: ListOptions = {}):
     .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
     .where(and(
       eq(actionRunSchema.orgId, orgId),
-      eq(actionRunSchema.status, PENDING_STATUS.action),
+      // Failed runs count as open work, matching the queue feed: an approved
+      // action whose execution threw still needs a human (see listPendingActions).
+      inArray(actionRunSchema.status, [PENDING_STATUS.action, 'failed']),
       or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
       ...routingFilters(opts, now),
     ))
@@ -669,6 +673,15 @@ export async function snooze(
 }
 
 /**
+ * What the decision did downstream. `execution` is set for approved actions
+ * only: a `failed` status there means the approval stood but the action threw,
+ * and the surface that clicked Approve must say so rather than look done.
+ */
+export type DecideResult = {
+  execution?: { status: 'pending' | 'done' | 'failed' | 'rejected'; error: string | null };
+};
+
+/**
  * Approve or reject a queued item — dispatches to the owning service so the
  * single queue and the per-kind logic stay in sync.
  * @param item
@@ -701,7 +714,7 @@ export async function decide(
      */
     externalRef?: { system: string; id: string };
   },
-): Promise<void> {
+): Promise<DecideResult> {
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
   switch (item.kind) {
     case 'workflow':
@@ -709,14 +722,15 @@ export async function decide(
         ? await resumeWorkflow(item.id, orgId)
         : await cancelWorkflow(item.id, orgId, opts?.reason);
       trackDecision(item, action, orgId, reviewedBy);
-      return;
+      return {};
     case 'mission':
       action === 'approve'
         ? await resumeMission(item.id, orgId)
         : await cancelMission(item.id, orgId, opts?.reason);
       trackDecision(item, action, orgId, reviewedBy);
-      return;
-    case 'action':
+      return {};
+    case 'action': {
+      let execution: DecideResult['execution'];
       if (action === 'approve') {
         // Edit-then-approve: if the operator edited the draft in the queue,
         // persist the edited payload FIRST (re-validated in ActionService),
@@ -724,7 +738,10 @@ export async function decide(
         if (opts?.editedInput) {
           await updateActionInput(item.id, orgId, opts.editedInput);
         }
-        await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
+        const outcome = await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
+        // An approve whose execution failed is NOT a completed decision to the
+        // person who clicked it — the outcome rides back so the surface says so.
+        execution = { status: outcome.status, error: outcome.error ?? null };
       } else {
         await rejectAction(item.id, orgId, opts?.reason ?? opts?.note, { reviewedBy });
       }
@@ -750,6 +767,8 @@ export async function decide(
       await recordActionDecisionLearning(item.id, orgId, action, opts?.reason ?? opts?.note).catch((error) => {
         console.warn(`[ReviewService] could not record decision-learning rule for action run ${item.id}`, error);
       });
+      return { execution };
+    }
   }
 }
 

@@ -39,6 +39,8 @@ type ActionRun = {
   /** In-flight regeneration stamp — the card disables itself on this server truth. */
   regeneratingSince?: Date | string | null;
   regenerateNote?: string | null;
+  /** The last execution failure — set on `failed` runs, which stay in the queue. */
+  error?: string | null;
   /** Structured presentation, when the action defines one (server-built). */
   card?: ReviewCard;
 };

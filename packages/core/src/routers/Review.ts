@@ -68,7 +68,12 @@ export const listPendingActionsRoute = os
     const actionIds = input?.actionIds;
     const where = and(
       eq(actionRunSchema.orgId, orgId),
-      eq(actionRunSchema.status, 'pending'),
+      // Failed runs stay in the queue: the approval stood, the execution
+      // threw, and a card that silently vanishes on failure hides exactly the
+      // work that needs a human (retry is just approve again — executeAction
+      // accepts a failed run). A failed enrollment sat invisible for three
+      // days before this.
+      inArray(actionRunSchema.status, ['pending', 'failed']),
       // Drop stale suggestions — expired items fall out of the queue.
       or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
       // Snoozed items are hidden until their date, then resurface — the same
@@ -330,13 +335,15 @@ export const decideActionRoute = os
       }
     }
 
-    await decide({ kind: 'action', id: input.id }, input.decision, orgId, {
+    const outcome = await decide({ kind: 'action', id: input.id }, input.decision, orgId, {
       reason: input.reason,
       note: input.note,
       reviewedBy: userId,
       editedInput: input.decision === 'approve' ? editedInput : undefined,
     });
-    return { ok: true };
+    // The execution outcome rides back so the card can SAY a failed execution
+    // failed — approve used to return bare `ok` and a HubSpot 400 was silent.
+    return { ok: true, execution: outcome?.execution ?? null };
   });
 
 /**
