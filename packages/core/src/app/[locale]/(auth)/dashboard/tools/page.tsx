@@ -11,6 +11,18 @@ const CATEGORY_LABELS: Record<string, string> = {
   compute: 'Compute',
 };
 
+/**
+ * Whose key each capability spends, in the words a workspace admin would use.
+ * `none` covers both "needs no key" and "nobody has one", which the readiness
+ * badge on the same card tells apart, so it says nothing rather than guessing.
+ */
+const KEY_SOURCE_LABELS: Record<string, string> = {
+  workspace: 'On this workspace\'s key',
+  server: 'On the Vocion server key',
+  unknown: 'Could not check this workspace\'s key',
+  none: '',
+};
+
 export default async function ToolsPage(props: {
   params: Promise<{ locale: string }>;
 }) {
@@ -28,7 +40,7 @@ export default async function ToolsPage(props: {
     <>
       <TitleBar
         title="Tools"
-        description="Built-in capabilities every agent can use out of the box — live web search, browsing, image generation, calculation, and artifacts. Providers are pluggable via env."
+        description="Built-in capabilities every agent can use out of the box — live web search, browsing, image generation, calculation, and artifacts. Paid providers run on this workspace's own key when it has stored one, and on the Vocion server key otherwise."
       />
 
       <div className="mb-6 grid grid-cols-3 gap-3">
@@ -52,6 +64,7 @@ export default async function ToolsPage(props: {
                 {tools.map((tool) => {
                   const status = statusByCapability.get(tool.capability);
                   const isReady = status?.ready ?? true;
+                  const keySourceLabel = KEY_SOURCE_LABELS[status?.keySource ?? 'none'];
                   return (
                     <Link
                       key={tool.name}
@@ -77,7 +90,16 @@ export default async function ToolsPage(props: {
                               )}
                         </span>
                       </div>
-                      <div className="mb-2 font-mono text-[11px] text-muted-foreground">{tool.name}</div>
+                      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <span className="font-mono">{tool.name}</span>
+                        {keySourceLabel !== '' && (
+                          <span>
+                            ·
+                            {' '}
+                            {keySourceLabel}
+                          </span>
+                        )}
+                      </div>
                       <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{tool.description}</p>
                       <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
                         <span>
