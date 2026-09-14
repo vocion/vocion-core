@@ -20,6 +20,8 @@ export const FEATURES = {
   WORKFLOW_STEP: 'workflow.step',
   /** Haiku-based feedback bucket classifier. */
   FEEDBACK_CLASSIFY: 'feedback.classify',
+  /** Haiku-based duplicate check between a proposed rule and existing ones. */
+  FEEDBACK_DEDUPE: 'feedback.dedupe',
   /** Emergent chip synthesis — mission × skills × tracker state → chips. */
   CHIP_SYNTHESIS: 'chat.chip-synthesis',
   /** OAuth token-refresh round-trips for Source plugins. */
@@ -32,6 +34,8 @@ export const FEATURES = {
   RETRIEVAL_INGEST: 'retrieval.ingest',
   /** Optional rerank pass over top-K hybrid candidates. */
   RETRIEVAL_RERANK: 'retrieval.rerank',
+  /** Scoped skill-turn executor — one skill, read-only tools, structured output. */
+  SKILL_TURN: 'skill.turn',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

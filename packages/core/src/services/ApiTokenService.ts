@@ -207,12 +207,23 @@ export type TokenSummary = {
 };
 
 /**
- * List an org's credentials, newest first. Revoked and expired rows are
- * included so the dashboard can show a credential's whole history, not just
- * live ones.
- * @param orgId
+ * List an org's credentials, newest first.
+ *
+ * Revoked rows are left out unless asked for. Replacing a key on a platform
+ * capped at one live credential revokes the old row rather than deleting it,
+ * so the history grows by one dead row on every rotation; showing all of them
+ * by default turns the page into a changelog of keys nobody can use. Expired
+ * rows are still listed, because an expiry is a thing an admin may want to
+ * notice and act on rather than a decision already taken.
+ * @param orgId - The org whose credentials to list.
+ * @param options - Listing options.
+ * @param options.includeRevoked - True to list revoked rows as well, for the
+ * audit view behind the dashboard's "show revoked" toggle.
  */
-export async function listTokens(orgId: string): Promise<TokenSummary[]> {
+export async function listTokens(
+  orgId: string,
+  options: { includeRevoked?: boolean } = {},
+): Promise<TokenSummary[]> {
   return db
     .select({
       id: apiTokenSchema.id,
@@ -228,7 +239,10 @@ export async function listTokens(orgId: string): Promise<TokenSummary[]> {
       revealable: sql<boolean>`(${apiTokenSchema.ciphertext} is not null)`.mapWith(Boolean),
     })
     .from(apiTokenSchema)
-    .where(eq(apiTokenSchema.orgId, orgId))
+    .where(and(
+      eq(apiTokenSchema.orgId, orgId),
+      options.includeRevoked ? undefined : isNull(apiTokenSchema.revokedAt),
+    ))
     .orderBy(desc(apiTokenSchema.createdAt));
 }
 

@@ -38,6 +38,7 @@ import { resolvedModelId } from '@/libs/llm';
 import {
   claimBriefToDraft,
   claimLeadToBrief,
+  leadBriefByRef,
   leadLedger,
   MAX_BRIEF_ATTEMPTS,
   MAX_DRAFT_ATTEMPTS,
@@ -59,6 +60,7 @@ export const PERSONALIZATION_TOOL_NAMES = [
   'reconcile_mql_window',
   'next_lead_to_brief',
   'save_lead_brief',
+  'get_lead_brief',
   'save_handoff_brief',
   'record_brief_failure',
   'next_brief_to_draft',
@@ -86,7 +88,7 @@ export function queueLeadTool(ctx: RuntimeContext) {
     },
     {
       name: 'queue_lead',
-      description: 'Put leads on the personalization queue (the /gtm/personalization page) — ONE call for the whole batch, passing every ref at once. Takes CRM mirror refs (the `ref` field from hubspot_count_contacts, e.g. "contacts:9412") and reads name, title, company, entrance source and email engagement from the mirror itself, so you never supply them and nothing can be invented. Phase 1 records NO research: claims, missing and the draft sequence stay empty and confidence stays null. Returns the counts first — requested, queued (rows actually written), alreadyQueued (already on the queue, which is what a re-fire looks like), notInMirror (refs with no CRM record), and queueTotal. Report `queued` and `alreadyQueued`, not the number of refs you sent. Running this twice on the same leads is a no-op by construction.',
+      description: 'Put leads on the personalization queue (the /gtm/personalization page) — ONE call for the whole batch, passing every ref at once. Takes CRM mirror refs (the `ref` field from hubspot_count_contacts, e.g. "contacts:9412") and reads name, title, company, entrance source and email engagement from the mirror itself, so you never supply them and nothing can be invented. Phase 1 records NO research: claims, missing and the draft sequence stay empty and confidence stays null. Returns the counts first — requested, queued (rows actually written), alreadyQueued (already on the queue, which is what a re-fire looks like), notInMirror (refs with no CRM record), and queueTotal. Report `queued` and `alreadyQueued`, not the number of refs you sent. Running this twice on the same leads is a no-op by construction. `asOf` is the last sync of the mirror the identities came from; when `mirrorStaleness` is set, quote it, because a thin batch over a mirror that stopped syncing is not a quiet week.',
       schema: z.object({
         contact_refs: z.array(z.string().min(1)).min(1).max(500).describe('CRM mirror refs from hubspot_count_contacts (`ref`), e.g. ["contacts:9412","contacts:9413"]. Send them all in one call.'),
         trigger_type: z.enum(['new', 'stale']).default('new').describe('Why the sweep picked the lead up. Phase 1 queues fresh arrivals, so "new".'),
@@ -143,7 +145,7 @@ export function reconcileMqlWindowTool(ctx: RuntimeContext) {
     },
     {
       name: 'reconcile_mql_window',
-      description: `Coverage check: recompute the window's arrivals from the CRM mirror (no writes) and diff them against the personalization queue. Returns arrivals, queued, and every unqueued lead BY NAME with why. Run this at the end of a queueing pass and report the gap count; if it is non-zero, queue what you missed and re-run. ${WINDOW_CAVEAT}`,
+      description: `Coverage check: recompute the window's arrivals from the CRM mirror (no writes) and diff them against the personalization queue. Returns arrivals, queued, and every unqueued lead BY NAME with why. Run this at the end of a queueing pass and report the gap count; if it is non-zero, queue what you missed and re-run. \`asOf\` is the mirror's last sync and \`mirrorStaleness\` is set when it has fallen behind its own schedule; quote it, because zero gaps against a frozen mirror is not full coverage. ${WINDOW_CAVEAT}`,
       schema: z.object({
         lifecycle_stages: z.array(z.string().min(1)).min(1).describe('Exact lifecycle stage strings, read from `facets.lifecycleStage` on a hubspot_count_contacts call — e.g. ["marketingqualifiedlead"]. Never pass a friendly label like "MQL"; it will be refused.'),
         since_days: z.number().positive().max(365).optional().describe('Trailing window in days, resolved on the SERVER clock (default 7). Use this rather than created_after; it does not require you to know today\'s date. Pass the SAME value the queueing pass used.'),
@@ -171,14 +173,14 @@ function briefVersionStamp(ctx: RuntimeContext, skillVersion: number): string {
 
 export function nextLeadToBriefTool(ctx: RuntimeContext) {
   return tool(
-    async () => {
-      const result = await claimLeadToBrief(ctx.orgId);
+    async (args) => {
+      const result = await claimLeadToBrief(ctx.orgId, args.contact_ref ? { contactRef: args.contact_ref } : {});
       return JSON.stringify(result, null, 2);
     },
     {
       name: 'next_lead_to_brief',
-      description: `Hand out the next queued lead that still needs a brief, OLDEST ARRIVAL FIRST. Call it, brief that one lead, save it, then call this again; stop when \`lead\` comes back null. Do NOT ask for more than one lead at a time and do not pick leads yourself from get_lead_ledger. Taking the lead COUNTS the try, so a lead you claim and then abandon has spent one of its ${MAX_BRIEF_ATTEMPTS} tries whatever you report. \`attempt\` is which try this is and \`attemptsRemaining\` is what is left. \`regenerateNote\` is a reviewer's instruction for the rewrite when present, and it is the most important input you have: follow it. \`waiting\` is how many unbriefed leads remain after this one, and \`surfaced\` names leads that just ran out of tries and moved to Review with their error. Nothing needing a brief means the sweep is done, which is the normal outcome on most runs.`,
-      schema: z.object({}),
+      description: `Hand out the next queued lead that still needs a brief, OLDEST ARRIVAL FIRST; or, with contact_ref, THAT lead and no other (a reviewer's Regenerate names one lead: claim it, brief it, stop; if it comes back null the lead is not eligible and you must not brief someone else instead). Call it, brief that one lead, save it, then call this again; stop when \`lead\` comes back null. Do NOT ask for more than one lead at a time and do not pick leads yourself from get_lead_ledger. Taking the lead COUNTS the try, so a lead you claim and then abandon has spent one of its ${MAX_BRIEF_ATTEMPTS} tries whatever you report. \`attempt\` is which try this is and \`attemptsRemaining\` is what is left. \`regenerateNote\` is a reviewer's instruction for the rewrite when present, and it is the most important input you have: follow it. \`waiting\` is how many unbriefed leads remain after this one, and \`surfaced\` names leads that just ran out of tries and moved to Review with their error. Nothing needing a brief means the sweep is done, which is the normal outcome on most runs.`,
+      schema: z.object({ contact_ref: z.string().min(1).optional().describe('Claim exactly this lead (its CRM mirror ref, e.g. "contacts:9412"), as a Regenerate names it. Omit to take the oldest queued lead.') }),
     },
   );
 }
@@ -216,10 +218,10 @@ export function saveLeadBriefTool(ctx: RuntimeContext) {
         sections: z.array(z.object({
           heading: z.string().min(1).describe('Section heading, e.g. "Prospect", "Recommended Angle".'),
           body: z.string().min(1).describe('The written section as prose or markdown. This is what the reviewer reads.'),
-        })).min(1).describe('The brief\'s written sections in the order the skill lists them, from Prospect through Brief Confidence. Do not collapse them into one blob.'),
+        })).min(1).describe('The brief\'s written sections in the order the skill lists them, from Prospect through Brief Confidence: review material only. No "Workflow Hypotheses" and no "If They Reply" section; that call prep is written at handoff. Do not collapse them into one blob.'),
         claims: z.array(z.object({
           text: z.string().min(1).describe('The claim itself, one sentence.'),
-          kind: z.string().min(1).describe('"Fact" or "Inference". A hypothesis belongs in the Workflow Hypotheses section, not here.'),
+          kind: z.string().min(1).describe('"Fact" or "Inference". Never a hypothesis: the review brief carries no hypotheses section (they are formed at handoff by the write-handoff-brief skill), so a hypothesis is neither a claim nor a section here.'),
           source: z.string().min(1).describe('An openable source: a URL, or the CRM record ref when the claim came off the mirror.'),
           date: z.string().optional().describe('Source date where the source carries one, ISO or as printed.'),
         })).describe('The meaningful claims from Research That Matters, each with where it came from. An unsourced claim is not a claim; leave it out rather than sourcing it to nothing.'),
@@ -250,14 +252,37 @@ export function saveHandoffBriefTool(ctx: RuntimeContext) {
     },
     {
       name: 'save_handoff_brief',
-      description: 'Save the call prep for a lead LEAVING your care, at the end of the write-handoff-brief skill. Call it EXACTLY ONCE per handoff. It writes the handoff sections and the trigger and NOTHING else: the review brief, its claims, its confidence and the lead\'s lane are left exactly as they were, because that brief recorded a decision that has already been taken. This is prep for a person about to have a conversation, not a re-review of the copy — write where the thread stands, what the lead actually did, the one or two hypotheses worth testing live, and what to ask first. It does not send anything: the HubSpot note is written when a person ACCEPTS the handoff.',
+      description: 'Save the call prep for a lead LEAVING your care, at the end of the write-handoff-brief skill. Call it EXACTLY ONCE per handoff. It writes the handoff sections and the trigger and NOTHING else: the review brief, its claims, its confidence and the lead\'s lane are left exactly as they were, because that brief recorded a decision that has already been taken. This is prep for a person about to have a conversation, not a re-review of the copy — write where the thread stands, what the lead actually did, the one or two hypotheses worth testing live, and what to ask first. It does not send anything and never writes to the CRM itself: the platform owns the HubSpot note.',
       schema: z.object({
         contact_ref: z.string().min(1).describe('The lead\'s CRM mirror ref, e.g. "contacts:9412".'),
-        trigger: z.enum(['reply', 'intent', 'routed']).describe('Why the lead left: "reply" (they answered), "intent" (pages or files crossed the threshold), "routed" (a reviewer sent it to a person).'),
+        trigger: z.enum(['reply', 'meeting', 'intent', 'routed']).describe('Why the lead left: "reply" (they answered a send), "meeting" (a meeting was booked), "intent" (pages or files crossed the threshold; not detected yet), "routed" (a reviewer sent it to a person). Use the trigger named in the payload that started this run.'),
         sections: z.array(z.object({
           heading: z.string().min(1).describe('Section heading, e.g. "Where the thread stands".'),
           body: z.string().min(1).describe('The written section. Bullet lists where the content is a list — this is read in two minutes before a call.'),
         })).min(1).describe('The handoff brief\'s sections in the order the skill lists them. Quote a reply verbatim rather than paraphrasing it.'),
+      }),
+    },
+  );
+}
+
+export function getLeadBriefTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const record = await leadBriefByRef(ctx.orgId, args.contact_ref);
+      if (!record) {
+        return JSON.stringify({
+          error: 'not_on_ledger',
+          message: 'No lead row carries that contact_ref. Use the exact `contactRef` from the trigger payload or the lead ledger.',
+          contact_ref: args.contact_ref,
+        }, null, 2);
+      }
+      return JSON.stringify(record, null, 2);
+    },
+    {
+      name: 'get_lead_brief',
+      description: 'Read ONE lead\'s saved record by CRM ref: identity, the review brief\'s sections, claims and missing list, the approved sends, the recommended sequence, when and by whom Enroll was decided, and any earlier handoff brief. Read-only. Use it at the start of the write-handoff-brief skill to load what exists; it does not read HubSpot live, so pair it with hubspot_contact_emails for the reply itself.',
+      schema: z.object({
+        contact_ref: z.string().min(1).describe('The lead\'s CRM mirror ref, e.g. "contacts:9412".'),
       }),
     },
   );
@@ -286,14 +311,14 @@ export function recordBriefFailureTool(ctx: RuntimeContext) {
 
 export function nextBriefToDraftTool(ctx: RuntimeContext) {
   return tool(
-    async () => {
-      const result = await claimBriefToDraft(ctx.orgId);
+    async (args) => {
+      const result = await claimBriefToDraft(ctx.orgId, args.contact_ref ? { contactRef: args.contact_ref } : {});
       return JSON.stringify(result, null, 2);
     },
     {
       name: 'next_brief_to_draft',
-      description: `Hand out the next BRIEFED lead that still needs its outreach drafted, OLDEST ARRIVAL FIRST, with the whole brief attached (sections, claims, missing, confidence) so you never re-read it elsewhere. Call it, draft that one lead per the draft-mql-sequence skill, save with save_draft_sequence, then call this again; stop when \`lead\` comes back null. Taking the lead COUNTS the try (${MAX_DRAFT_ATTEMPTS} total), same contract as next_lead_to_brief. Draft whatever the confidence says: a low score is drafted anyway and the reviewer's edits are the training signal. Leads whose briefing failed are never handed out here.`,
-      schema: z.object({}),
+      description: `Hand out the next BRIEFED lead that still needs its outreach drafted, OLDEST ARRIVAL FIRST (or, with contact_ref, THAT lead and no other, for a Regenerate), with the whole brief attached (sections, claims, missing, confidence) so you never re-read it elsewhere. Call it, draft that one lead per the draft-mql-sequence skill, save with save_draft_sequence, then call this again; stop when \`lead\` comes back null. Taking the lead COUNTS the try (${MAX_DRAFT_ATTEMPTS} total), same contract as next_lead_to_brief. Draft whatever the confidence says: a low score is drafted anyway and the reviewer's edits are the training signal. Leads whose briefing failed are never handed out here.`,
+      schema: z.object({ contact_ref: z.string().min(1).optional().describe('Claim exactly this briefed lead (its CRM mirror ref). Omit to take the oldest.') }),
     },
   );
 }
@@ -406,6 +431,7 @@ export function personalizationTools(ctx: RuntimeContext) {
     reconcileMqlWindowTool(ctx),
     nextLeadToBriefTool(ctx),
     saveLeadBriefTool(ctx),
+    getLeadBriefTool(ctx),
     saveHandoffBriefTool(ctx),
     recordBriefFailureTool(ctx),
     nextBriefToDraftTool(ctx),

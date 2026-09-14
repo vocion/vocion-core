@@ -16,6 +16,7 @@ const EVENT_LABELS: Record<string, string> = {
   'chat.conversation_created': 'Started a conversation',
   'chat.message_sent': 'Sent a message',
   'review.decided': 'Decided a review',
+  'review.snoozed': 'Snoozed a review',
   'review.feedback': 'Gave feedback',
   'learning.added': 'Added a learning',
 };
@@ -88,10 +89,11 @@ export function UserDetailPanel(props: { userId: string }) {
         <PeriodPicker value={days} onChange={setDays} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         <StatCard label="Sessions" value={u?.sessions ?? 0} definition="Activity clusters split at 30 minutes of idle" />
         <StatCard label="Messages" value={u?.messages ?? 0} hint={`${u?.conversations ?? 0} conversations`} />
         <StatCard label="Decisions" value={u?.decisions ?? 0} hint={`median ${formatDuration(detail.medianDecisionLatencyMs)}`} definition="Review approvals + rejections; median time from run creation to decision" />
+        <StatCard label="Snoozes" value={u?.snoozes ?? 0} definition="Queued items this person deferred instead of deciding on" />
         <StatCard label="Learnings" value={u?.learnings ?? 0} />
         <StatCard label="Feedback" value={u?.feedback ?? 0} />
       </div>

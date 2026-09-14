@@ -80,4 +80,4 @@ say what is missing rather than guessing intent.
 
 ## Related
 
-[Playbook](./playbook.md) · [Agent](./agent.md) · [Base pack](./base-pack.md) · ADR: `docs/internal/adr/0003-skill-playbook-operation.md`
+[Playbook](./playbook.md) · [Agent](./agent.md) · [Base pack](./base-pack.md) · ADR: `docs/adr/0003-skill-playbook-operation.md`

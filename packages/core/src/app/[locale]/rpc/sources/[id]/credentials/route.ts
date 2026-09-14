@@ -33,6 +33,7 @@
  */
 
 import { clerkAuth as auth } from '@/libs/Auth';
+import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { CredentialValidationError, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } from '@/services/ApiTokenService';
 import {
@@ -76,10 +77,13 @@ export async function GET(
   // setup offer a key the workspace already typed instead of asking again.
   const storedForPlatform = platform ? await listPlatformCredentials(orgId, platform.id) : [];
   const linkedCredentialId = await storedCredentialIdForSource(orgId, sourceId);
-  // One credential belongs to one connector, so a credential another connector
-  // holds is left out rather than offered and then refused. This connector's
-  // own is kept, since it is the current pick.
-  const takenElsewhere = new Set(await credentialIdsInUse(orgId, sourceId));
+  // A credential issued for one place belongs to one connector, so one another
+  // source already holds is left out rather than offered and then refused —
+  // this source's own is kept, since it is the current pick. A shareable
+  // credential is the opposite case: one Slack bot token is meant to serve
+  // every channel the workspace syncs, so nothing is filtered out.
+  const shareable = platform?.credentialsShareable === true;
+  const takenElsewhere = shareable ? new Set<string>() : new Set(await credentialIdsInUse(orgId, sourceId));
   const available = storedForPlatform.filter(credential => !takenElsewhere.has(credential.id));
   // The form's fields come from the platform descriptor rather than a copy kept
   // in the page, so Strapi's instance URL and Jira's email arrive without the
@@ -91,6 +95,10 @@ export async function GET(
     label: field.label,
     shapeHint: field.shapeHint,
     secret: field.secret,
+    // Sent so the form does not demand a value the credential is complete
+    // without — the Ads developer token on a Google credential a Gmail source
+    // is connecting.
+    optional: field.optional === true,
   }));
   try {
     const credentials = await getCredentialsForConnector({ orgId, connectorSlug, apiTokenId: linkedCredentialId });
@@ -123,8 +131,20 @@ export async function GET(
         error: err.message,
       });
     }
+    // Only `VaultDecryptionError` reaches the screen — its contract is that
+    // the message names a cause and a fix and holds no secret. A raw one can
+    // carry a constraint detail or a connection string. Log either way: the
+    // operator who can act on this reads the server log, not the browser.
+    const isSafeToShow = err instanceof VaultDecryptionError;
+    console.error('[rpc/sources/credentials] could not read credentials for connector', {
+      connectorSlug,
+      message: err instanceof Error ? err.message : String(err),
+      // The vault keeps Node's own wording out of the message it hands the
+      // dashboard. The log is where that half belongs.
+      cause: err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined,
+    });
     return Response.json(
-      { error: err instanceof Error ? err.message : String(err) },
+      { error: isSafeToShow ? err.message : 'Could not read the stored credential.' },
       { status: 500 },
     );
   }
@@ -191,7 +211,14 @@ export async function POST(
     // would replace the value of a credential another connector depends on,
     // and only then refuse to hand it over — leaving that connector on a key
     // nobody chose for it.
-    const heldBy = await connectorHoldingCredential(orgId, pickedCredentialId, sourceId);
+    //
+    // A shareable credential is exempt: several sources holding one Slack bot
+    // token is the arrangement, and rotating it is meant to move all of them
+    // onto the new value at once.
+    const shareableCredential = platform?.credentialsShareable === true;
+    const heldBy = shareableCredential
+      ? null
+      : await connectorHoldingCredential(orgId, pickedCredentialId, sourceId);
     if (heldBy !== null) {
       return Response.json({ error: credentialInUseMessage(heldBy) }, { status: 400 });
     }
@@ -306,11 +333,19 @@ export async function POST(
     });
     return Response.json({ ok: true, credentialId });
   } catch (err) {
+    // Same gate as the GET catch and the rotate and link branches. A raw
+    // message here can carry the vault's missing-key refusal — env-var names
+    // and a KMS ARN, operator remediation handed to whoever clicked Save.
+    const isSafeToShow = err instanceof VaultDecryptionError || err instanceof CredentialValidationError;
     const message = err instanceof Error ? err.message : String(err);
     console.error('[rpc/sources/credentials] could not store install credential', {
       connectorSlug,
       message,
+      cause: err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined,
     });
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json(
+      { error: isSafeToShow ? message : 'Could not save the credential.' },
+      { status: 500 },
+    );
   }
 }

@@ -27,10 +27,13 @@ export function DocsToc() {
       return;
     }
     const nodes = Array.from(article.querySelectorAll('h2[id], h3[id]')) as HTMLHeadingElement[];
-    setHeadings(nodes.map(h => ({
-      id: h.id,
-      text: h.innerText,
-      level: (h.tagName === 'H2' ? 2 : 3) as 2 | 3,
+    // The headings only exist once the article has rendered, so reading them
+    // here is the point of the effect — there is nothing to derive during render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHeadings(nodes.map(heading => ({
+      id: heading.id,
+      text: heading.textContent ?? '',
+      level: (heading.tagName === 'H2' ? 2 : 3) as 2 | 3,
     })));
 
     if (nodes.length === 0) {

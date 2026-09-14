@@ -39,11 +39,11 @@ function extractLinks(content: string): Array<{ href: string; line: number }> {
     if (inFence) {
       continue;
     }
-    const re = /\[([^\]]+)\]\(([^)]+)\)/g;
+    const re = /\[[^\]]+\]\(([^)]+)\)/g;
     let m: RegExpExecArray | null;
     // eslint-disable-next-line no-cond-assign
     while ((m = re.exec(line)) !== null) {
-      const href = (m[2] ?? '').trim();
+      const href = (m[1] ?? '').trim();
       if (href) {
         out.push({ href, line: i + 1 });
       }
@@ -53,7 +53,7 @@ function extractLinks(content: string): Array<{ href: string; line: number }> {
 }
 
 function isExternal(href: string): boolean {
-  return /^(https?:|mailto:|tel:|#)/i.test(href);
+  return /^(?:https?:|mailto:|tel:|#)/i.test(href);
 }
 
 function stripAnchor(href: string): string {

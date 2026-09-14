@@ -61,6 +61,7 @@ export default async function LearningStepDetailPage(props: Props) {
           source: r.source,
           createdBy: r.createdBy,
           createdAt: r.createdAt.toISOString(),
+          occurrenceCount: r.occurrenceCount,
         }))}
       />
     </>

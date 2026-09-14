@@ -171,7 +171,7 @@ npm install
 # Configure — copy the example and fill in the required keys
 cp packages/core/.env.example packages/core/.env.local
 #   DATABASE_URL
-#   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY + CLERK_SECRET_KEY   (auth)
+#   AUTH_SECRET                                            (auth.js / next-auth v5 — `openssl rand -base64 32`)
 #   OPENAI_API_KEY and/or ANTHROPIC_API_KEY                (models + embeddings)
 # Everything else in .env.example is optional and commented.
 #
@@ -179,6 +179,11 @@ cp packages/core/.env.example packages/core/.env.local
 # Dashboard > API credentials, and then every outbound call for that workspace
 # — models, embeddings, rerank, vision, images — bills its account, not yours.
 # You still want one here: it is what covers any workspace that supplies none.
+#
+# `VOCION_AUTH_PROVIDER` also accepts `clerk`, which reads `CLERK_SECRET_KEY`
+# and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`. That path is reserved for the
+# hosted product and is not wired in core (`src/libs/Env.ts`) — leave the
+# variable at its default (`local`).
 
 npm run dev:up          # Postgres + Langfuse + Temporal in Docker
 npm run db:migrate      # apply the schema
@@ -305,7 +310,7 @@ to write under, so you do not have to re-key the file per environment. Passing
 `--project` is the recommended path — the manifest's `orgId` matters only if you
 apply without it.
 
-**What you should see.** On first visit you land on the Clerk sign-in screen;
+**What you should see.** On first visit you land on the auth.js sign-in screen;
 sign in, then open `http://localhost:3000/dashboard/agents`. The Revenue
 Director is listed with the icon, accent and eyebrow you set. Open it, ask
 "how's the quarter?", and you get an answer with no data behind it yet — that is
@@ -927,7 +932,7 @@ opt into rather than copy.
 
 ```yaml
 # workspace.yaml — add to the manifest from Step 1
-extends: core@2.0.0 # pin a version; omit for no base layer at all
+extends: core@2.1.0 # pin a version; omit for no base layer at all
 use:
   # activating an agent pulls in the skills it declares, plus their playbooks
   agents: [revenue-director]
@@ -987,7 +992,7 @@ Terms this repo uses that are not obvious from the outside.
 |---|---|
 | **apply** | `workspace:apply` — reading the workspace files and writing them to the database. Nothing you edit takes effect until this runs. |
 | **`workspace_sha`** | The fingerprint of the workspace an output was produced under: the git commit when clean, `<sha>-dirty-<hash>` with uncommitted changes, `local-<hash>` outside git, plus `+core@<version>` when a base pack is pinned. Stamped on every tool call. |
-| **harness** | The machinery that actually runs an agent turn. `harness.provider` on an agent picks where that happens: `local` (in this app's process), `agentcore` (AWS AgentCore managed), `runtime` (the out-of-process `packages/agent-runtime` artifact). Leave it `local` until you have a reason. |
+| **harness** | The machinery that actually runs an agent turn. `harness.runsOn` on an agent picks which machinery does it: `in-process` (our harness, this app's process, no AgentCore), `agentcore-container` (our harness, in our container on AWS AgentCore Runtime), `aws-managed-harness` (AWS's harness instead of ours — one tool, no subagents or playbooks). Leave it out and it is chosen for you: a Bedrock agent gets `agentcore-container`, everything else `in-process`. Formerly `harness.provider` with values `local`/`runtime`/`agentcore`, both still accepted. Full explanation in [where an agent turn runs](./agent-execution.md). |
 | **deepagents** | The agent-loop library underneath (see ADR 0001). Its skills middleware is what lazy-loads a `SKILL.md` when the model decides to read it — which is why skills are files, not registered tools. |
 | **subagent / the `task` tool** | Helpers defined inline on an agent (`subagents:`). The parent hands work to one by calling its `task` tool. Not the same as a specialist, which is a full agent with its own file. |
 | **`propose_action`** | The built-in tool an agent uses to say "this should happen" for anything with an outside effect. It creates a pending row for `/dashboard/review` instead of doing the thing. |

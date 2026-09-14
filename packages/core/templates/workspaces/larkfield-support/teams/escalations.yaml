@@ -1,0 +1,6 @@
+name: Escalations
+description: >-
+  The hard half — outages, bugs with a workaround, and anything asking
+  for money back. Owns the credit-approval workflow.
+lead: escalations-lead
+# No accountableUser: inherits the workspace default (labeled as inherited).

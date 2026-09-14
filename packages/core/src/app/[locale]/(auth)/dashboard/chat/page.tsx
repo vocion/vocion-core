@@ -8,8 +8,9 @@ import { workspaceGreeting } from '@/services/chat/workspaceLabel';
 /**
  * Chat surface. Server-loads the project's agents from the DB so the
  * client-side ChatShell has a real list to pick from — no hardcoded
- * fallback. When the project has no agents authored, ChatShell renders
- * a "no agents yet" empty state pointing at the authoring path.
+ * fallback. A project with no agents authored still gets the virtual search
+ * entry, so the list is empty only when no workspace resolved at all; the
+ * shell renders an empty state for that instead of failing to pick a default.
  *
  * Deep-linkable: `?agent=<slug>` starts with that agent (unknown slugs fall
  * back to the workspace-coordinator default) and `?prompt=<text>` pre-fills

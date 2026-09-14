@@ -78,7 +78,7 @@ jobs:
               from the PR body — never bundled into the PR.
             - If the feature cannot be built safely, say so in a comment on
               the issue instead of opening a speculative PR.
-          claude_args: "--max-turns 80"
+          claude_args: --max-turns 80
 
       - name: Report shell status
         if: steps.guard.outputs.ready != 'true'

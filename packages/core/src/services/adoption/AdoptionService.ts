@@ -232,6 +232,8 @@ export type AdoptionUserRow = {
   conversations: number;
   messages: number;
   decisions: number;
+  /** Deferrals — items this user pushed out instead of deciding on. */
+  snoozes: number;
   learnings: number;
   feedback: number;
   distinctAgents: number;
@@ -268,6 +270,7 @@ export async function getUserRows(orgId: string, accountId: string | null, days:
         count(*) FILTER (WHERE event_type = 'chat.conversation_created') AS conversations,
         count(*) FILTER (WHERE event_type = 'chat.message_sent')         AS messages,
         count(*) FILTER (WHERE event_type = 'review.decided')            AS decisions,
+        count(*) FILTER (WHERE event_type = 'review.snoozed')            AS snoozes,
         count(*) FILTER (WHERE event_type = 'learning.added')            AS learnings,
         count(*) FILTER (WHERE event_type = 'review.feedback')           AS feedback,
         count(DISTINCT agent_slug)                                       AS distinct_agents,
@@ -317,6 +320,7 @@ export async function getUserRows(orgId: string, accountId: string | null, days:
       conversations: num(a?.conversations),
       messages: num(a?.messages),
       decisions: num(a?.decisions),
+      snoozes: num(a?.snoozes),
       learnings: num(a?.learnings),
       feedback: num(a?.feedback),
       distinctAgents: num(a?.distinct_agents),
@@ -344,8 +348,23 @@ export type AdoptionAgentRow = {
   messages: number;
   approvals: number;
   rejections: number;
-  /** approvals ÷ (approvals + rejections); null when no decisions. */
+  /**
+   * Edits and rewrites — the reviewer kept the action but changed the words.
+   * Counted as disagreement: "close, but not how I would have said it".
+   */
+  revisions: number;
+  /**
+   * approvals ÷ (approvals + rejections + revisions); null when no decisions.
+   * A reviewer who rewrites every draft before sending it is not agreeing with
+   * the agent, so a rate that ignored revisions read far too high.
+   */
   approvalRate: number | null;
+  /**
+   * Deferrals on this agent's runs. Deliberately outside `approvalRate` — a
+   * snoozed item is still pending, so counting it as a decision would judge
+   * work nobody has judged yet.
+   */
+  snoozes: number;
   feedbackUp: number;
   feedbackDown: number;
   learnings: number;
@@ -366,6 +385,8 @@ export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise
       count(*) FILTER (WHERE event_type = 'chat.message_sent')           AS messages,
       count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'approved') AS approvals,
       count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'rejected') AS rejections,
+      count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' IN ('edited', 'rewritten')) AS revisions,
+      count(*) FILTER (WHERE event_type = 'review.snoozed')              AS snoozes,
       count(*) FILTER (WHERE event_type = 'review.feedback' AND metadata ->> 'rating' = 'up')   AS feedback_up,
       count(*) FILTER (WHERE event_type = 'review.feedback' AND metadata ->> 'rating' = 'down') AS feedback_down,
       count(*) FILTER (WHERE event_type = 'learning.added')              AS learnings
@@ -377,6 +398,8 @@ export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise
   return result.map((r) => {
     const approvals = num(r.approvals);
     const rejections = num(r.rejections);
+    const revisions = num(r.revisions);
+    const decisions = approvals + rejections + revisions;
     return {
       agentSlug: String(r.agent_slug),
       reach: num(r.reach),
@@ -384,7 +407,9 @@ export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise
       messages: num(r.messages),
       approvals,
       rejections,
-      approvalRate: approvals + rejections > 0 ? approvals / (approvals + rejections) : null,
+      revisions,
+      approvalRate: decisions > 0 ? approvals / decisions : null,
+      snoozes: num(r.snoozes),
       feedbackUp: num(r.feedback_up),
       feedbackDown: num(r.feedback_down),
       learnings: num(r.learnings),

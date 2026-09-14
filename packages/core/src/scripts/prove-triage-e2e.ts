@@ -117,5 +117,9 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (e) => {
-  console.error(e); await cleanup().catch(() => {}); process.exit(1);
+  console.error(e);
+  await cleanup().catch((cleanupError) => {
+    console.error('Cleanup failed after the run already failed.', cleanupError);
+  });
+  process.exit(1);
 });

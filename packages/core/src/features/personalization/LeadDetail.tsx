@@ -8,7 +8,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { ReviewActionCard } from '@/features/review/ReviewActionCard';
 import { Link } from '@/libs/I18nNavigation';
 import { confidenceLevel } from './confidence';
-import { entranceLabel, LANE_PILL, LeadContext, shortDate } from './LeadContext';
+import { entranceLabel, HandoffBriefZone, LANE_PILL, LeadContext, shortDate } from './LeadContext';
 
 /**
  * The lead page body — one lead's whole record on its own URL. The header and
@@ -41,6 +41,10 @@ export type LeadRow = LeadDossier & {
   briefedAt: string | null;
   decidedAt: string | null;
   decidedBy: string | null;
+  /** The call prep written when the lead left the agent; empty until a handoff (055). */
+  handoffSections: Array<{ heading: string; body: string }>;
+  handoffTrigger: string | null;
+  handoffAt: string | null;
 };
 
 /** What the server resolved the lead's back-linked run into. */
@@ -123,8 +127,11 @@ const DecisionMasthead = ({ run }: { run: ReviewCardRun }) => {
   const percent = typeof run.proposal?.confidence === 'number'
     ? `${Math.round(run.proposal.confidence * 100)}%`
     : null;
+  // max-w-5xl, matching the card below: the decision zone fills the width the
+  // collapsed dock returns to the page instead of hugging a 768px column
+  // beside empty space (Valerie, 2026-09-10).
   return (
-    <div className="max-w-3xl border-b border-border pb-4">
+    <div className="max-w-5xl border-b border-border pb-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {card.system && (
           <span className="rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
@@ -293,8 +300,11 @@ export const LeadView = (props: {
         ? (props.guided
             ? <DecisionMasthead run={run} />
             : (
-                <div className="max-w-3xl">
-                  <ReviewActionCard run={run} onDecided={props.onDecided} />
+                // The card takes the width the page actually has: with the
+                // dock collapsed the column is the whole page, and a 768px cap
+                // left the card narrow beside dead space (Valerie, 2026-09-10).
+                <div className="max-w-5xl">
+                  <ReviewActionCard run={run} onDecided={props.onDecided} onRegenerated={props.onDecided} />
                 </div>
               ))
         : (lead.draftSequence.length > 0 || line || lead.draftError) && (
@@ -326,7 +336,7 @@ export const LeadView = (props: {
 
       <LeadContext
         row={lead}
-        railTop={articles.length > 0 && (
+        railArticles={articles.length > 0 && (
           <div>
             <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
               Reference articles
@@ -349,8 +359,12 @@ export const LeadView = (props: {
             </ul>
           </div>
         )}
-        railBottom={<Timeline lead={lead} />}
+        railTimeline={<Timeline lead={lead} />}
       />
+
+      {/* Beneath the review brief: the call prep, once the lead has left the
+          agent. Read-only; no decision lives here (055). */}
+      <HandoffBriefZone sections={lead.handoffSections} trigger={lead.handoffTrigger} at={lead.handoffAt} />
     </div>
   );
 };

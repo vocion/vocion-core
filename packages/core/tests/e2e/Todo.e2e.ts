@@ -1,13 +1,19 @@
 import { faker } from '@faker-js/faker';
 import test, { expect } from '@playwright/test';
-import { createOrganization, signIn } from '../TestUtils';
+import { signIn } from '../TestUtils';
 
-test.describe('Todo', () => {
+// Skipped for the same reason as tests/integration/Todo.spec.ts: the todo
+// feature was deleted (`8765c5f8 refactor(nav): sidebar reorg + delete orphan
+// routes`), so the "Todos" nav link these tests click no longer exists.
+test.describe.skip('Todo', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page);
 
-    // Create a new organization for each test, to make sure there is no data between tests
-    await createOrganization(page);
+    // Per-test isolation used to come from minting a fresh organization
+    // through a hosted auth provider's org switcher. auth.js has no such
+    // widget, and a project is not something a signed-in user can mint from
+    // the dashboard, so isolation now comes from the run's fresh
+    // `db-server:memory` database instead.
   });
 
   test.describe('Basic CRUD operations', () => {

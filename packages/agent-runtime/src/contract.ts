@@ -58,6 +58,21 @@ export type AgentEvent
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
     | { type: 'hitl_gate'; gate: HitlGatePayload }
+    /**
+     * One tool call failed — the endpoint refused it, timed out, or could not
+     * be reached. Distinct from `error`, which ends the turn: the loop carries
+     * on after a failed tool, and the model is handed the failure as that
+     * tool's output so it can react to it.
+     *
+     * It exists because that text was the ONLY signal, and nothing obliges a
+     * model to relay it — so an unreachable tool endpoint reads as a
+     * confident, ungrounded answer. The usual cause is a
+     * `VOCION_TOOL_ENDPOINT_URL` that AWS cannot reach, where every tool fails
+     * identically and the agent still answers from the model alone. A typed
+     * event gives core something to log and alert on that does not depend on
+     * the model's cooperation.
+     */
+    | { type: 'tool_error'; tool: string; message: string; status?: number }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
     /**
@@ -124,6 +139,27 @@ export type InvocationRequest = {
    * before.
    */
   memory?: { sessionId: string; actorId: string };
+  /**
+   * Temporary AWS credentials for the Bedrock model path, minted by core
+   * from the org's own stored access key.
+   *
+   * Present only when that org has stored one. Absent means "do not
+   * override" — the model client then resolves credentials from this
+   * process's own chain (execution role, or a Bedrock API key in
+   * `AWS_BEARER_TOKEN_BEDROCK`), which is the platform's account rather
+   * than the customer's.
+   *
+   * All three fields are required together: a temporary access key is
+   * rejected by AWS unless the session token proving STS issued it comes
+   * with it. Ignored entirely on the Anthropic model path.
+   */
+  aws?: {
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken: string;
+    /** ISO-8601 instant the session expires. Informational. */
+    expiresAt?: string;
+  };
 };
 
 /** Tool endpoint response: the tool's output plus any side-channel events it emitted. */

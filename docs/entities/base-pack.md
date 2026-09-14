@@ -21,15 +21,15 @@ into an empty organization once and then belong to the tenant.
 | Field | Type | Required | What it does |
 |---|---|---|---|
 | `name` | `core` | yes | Pack identity. Only `core` exists today. |
-| `version` | semver `x.y.z` | yes | The version a workspace pins with `extends: core@<version>`, and the value folded into `workspace_sha`. |
+| `version` | semver `x.y.z` | yes | The version a workspace pins with `extends: core@<version>`, and the value folded into `workspace_sha`. This is the **pack** version, not the `@vocion/core` release version — the two move independently. |
 | `description` | string | no | What the pack contains. |
 
 ## Example
 
 ```yaml
 name: core
-version: 2.0.0
-description: Reusable RevOps base pack — agents, skills, and playbooks.
+version: 2.1.0
+description: Reusable base layer — review-ops and commercial agents, skills, and playbooks.
 ```
 
 ## What a pack may contain
@@ -51,7 +51,7 @@ supply them.
 Activation happens only in the workspace's `workspace.yaml`, never in the pack:
 
 ```yaml
-extends: core@2.0.0 # pin the pack; omit for no base layer
+extends: core@2.1.0 # pin the pack; omit for no base layer
 use: # activate agents; their dependencies come along
   agents: [revenue-director]
   skills: [lead-triage] # a base skill no activated agent mounts
@@ -94,4 +94,4 @@ schema afterwards.
 
 ## Related
 
-[Workspace manifest](./workspace-manifest.md) · [Agent](./agent.md) · [authoring guide](../workspace.md)
+[Workspace manifest](./workspace-manifest.md) · [Agent](./agent.md) · [Review operations in the base pack](../review-ops.md) · [authoring guide](../workspace.md)

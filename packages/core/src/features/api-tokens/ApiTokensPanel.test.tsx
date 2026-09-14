@@ -1,13 +1,19 @@
 /**
- * The Key column of the API credentials table.
+ * The API credentials table: its Key column, and which rows it asks for.
  *
  * The thing a reviewer would notice being wrong here is the show button
  * appearing on a row that can never produce a value. A Vocion token issued
  * before minted tokens were stored encrypted holds a hash and nothing else, so
  * its row has to explain itself and offer a way forward instead of a button
  * that fails on click.
+ *
+ * The other is the revoked history. A rotation leaves the replaced row behind,
+ * so the panel must ask the server for live rows only until an admin turns on
+ * "show revoked" — and it must not claim the org has no credentials when what
+ * it has is revoked ones.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { ORPCError } from '@orpc/client';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 
@@ -18,7 +24,7 @@ const revealPlatformKey = vi.fn();
 vi.mock('@/libs/Orpc', () => ({
   client: {
     apiTokens: {
-      list: () => list(),
+      list: (input?: { includeRevoked?: boolean }) => list(input),
       listPlatforms: () => listPlatforms(),
       revealPlatformKey: (input: { tokenId: string }) => revealPlatformKey(input),
       create: vi.fn(),
@@ -29,6 +35,13 @@ vi.mock('@/libs/Orpc', () => ({
 }));
 
 const { ApiTokensPanel } = await import('./ApiTokensPanel');
+
+beforeEach(() => {
+  // Call history is asserted on, so it cannot carry over between tests.
+  list.mockReset();
+  listPlatforms.mockReset();
+  revealPlatformKey.mockReset();
+});
 
 const VOCION_PLATFORM = {
   id: 'vocion',
@@ -128,8 +141,38 @@ describe('the Key column', () => {
     await expect.element(page.getByText(TOKEN)).not.toBeInTheDocument();
   });
 
-  it('says why a reveal failed instead of leaving the row silent', async () => {
-    revealPlatformKey.mockRejectedValue(new Error('boom'));
+  it('shows the reason the server gave for a failed reveal', async () => {
+    // What a vault holding the wrong key sends back: a bad request whose
+    // message the route authored. It names the env var and the next step, and
+    // the row is the only place the admin will ever see it.
+    const vaultReason
+      = 'The stored credential could not be decrypted with the current vault key. '
+        + 'Set VOCION_CREDENTIAL_VAULT_KEY, then reconnect this source\'s credential.';
+    revealPlatformKey.mockRejectedValue(new ORPCError('bad-request', { message: vaultReason }));
+    await renderWithRow(tokenRow({ revealable: true }));
+
+    await userEvent.click(page.getByLabelText('Show key'));
+
+    await expect.element(page.getByText(vaultReason)).toBeVisible();
+  });
+
+  it('says nothing the route did not author', async () => {
+    // A refusal from the guard rather than the handler. Its wording was
+    // written for a log, so the row shows its own sentence instead.
+    revealPlatformKey.mockRejectedValue(new ORPCError('forbidden', { message: 'role check failed for usr-1 on org_acme' }));
+    await renderWithRow(tokenRow({ revealable: true }));
+
+    await userEvent.click(page.getByLabelText('Show key'));
+
+    await expect.element(page.getByText('Could not read that key.')).toBeVisible();
+    await expect.element(page.getByText(/role check failed/)).not.toBeInTheDocument();
+  });
+
+  it('falls back to a flat sentence when the failure carries no message', async () => {
+    // A rejection that is not an Error at all — what a transport gives back
+    // when it fails before the server ever answers. Nothing worth reading, but
+    // the row still cannot go quiet.
+    revealPlatformKey.mockRejectedValue({ status: 500 });
     await renderWithRow(tokenRow({ revealable: true }));
 
     await userEvent.click(page.getByLabelText('Show key'));
@@ -197,5 +240,56 @@ describe('saving a second credential for a platform', () => {
     await openCreateFormFor(STRAPI_PLATFORM);
 
     await expect.element(page.getByText(/can hold several Strapi credentials/)).toBeVisible();
+  });
+});
+
+describe('the show-revoked toggle', () => {
+  it('asks for live rows only on first load', async () => {
+    await renderWithRow(tokenRow({}));
+
+    expect(list).toHaveBeenCalledWith({ includeRevoked: false });
+  });
+
+  it('re-asks for the history when the admin turns it on', async () => {
+    await renderWithRow(tokenRow({}));
+
+    list.mockResolvedValue([
+      tokenRow({}),
+      tokenRow({ id: 'tok-2', name: 'Replaced key', revokedAt: new Date('2026-08-01') }),
+    ]);
+
+    await userEvent.click(page.getByLabelText('Show revoked'));
+
+    await expect.element(page.getByText('Replaced key')).toBeVisible();
+    expect(list).toHaveBeenLastCalledWith({ includeRevoked: true });
+  });
+
+  it('goes back to live rows when the admin turns it off again', async () => {
+    await renderWithRow(tokenRow({}));
+
+    await userEvent.click(page.getByLabelText('Show revoked'));
+    await userEvent.click(page.getByLabelText('Show revoked'));
+
+    expect(list).toHaveBeenLastCalledWith({ includeRevoked: false });
+  });
+
+  it('points at the toggle rather than claiming the org has no credentials', async () => {
+    list.mockResolvedValue([]);
+    listPlatforms.mockResolvedValue([VOCION_PLATFORM]);
+    render(<ApiTokensPanel />);
+
+    // An org whose only key was replaced would otherwise be told it never had
+    // one, with no hint that the history is a click away.
+    await expect.element(page.getByText(/Turn on .Show revoked./)).toBeVisible();
+  });
+
+  it('says plainly that there is nothing at all once the history is showing', async () => {
+    list.mockResolvedValue([]);
+    listPlatforms.mockResolvedValue([VOCION_PLATFORM]);
+    render(<ApiTokensPanel />);
+
+    await userEvent.click(page.getByLabelText('Show revoked'));
+
+    await expect.element(page.getByText('No API credentials yet.')).toBeVisible();
   });
 });

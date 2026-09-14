@@ -7,7 +7,7 @@ import { AppSidebar } from '@/features/dashboard/AppSidebar';
 import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
-import { ChatBubble } from '@/features/dashboard/chat/ChatBubble';
+import { PageDock } from '@/features/dashboard/chat/PageDock';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
@@ -73,8 +73,8 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // If the cookie is not set, default to open
   const defaultOpen = cookieStore.get(AppConfig.sidebarCookieName)?.value !== 'false';
 
-  // Agent picker options for the floating chat bubble. Empty outside an org —
-  // the bubble renders nothing rather than a picker with no agents in it.
+  // Agent picker options for the dock. Empty outside an org — the dock
+  // renders nothing rather than a picker with no agents in it.
   const agents = orgId ? (await loadChatAgentContext(orgId)).agents : [];
 
   return (
@@ -88,8 +88,15 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         <ShellBarActionsProvider>
           <AppSidebarHeader />
 
-          <div className="@container flex-1 px-4 py-4 sm:px-6">
-            {props.children}
+          {/* The page and, beside it, the one conversation surface (058): the
+              dock as a third column at a third of the screen, collapsed to a
+              button until opened. Record pages that mount their own scoped
+              dock inside `children` are skipped by PageDock. */}
+          <div className="flex flex-1 items-stretch">
+            <div className="@container min-w-0 flex-1 px-4 py-4 sm:px-6">
+              {props.children}
+            </div>
+            <PageDock agents={agents} />
           </div>
         </ShellBarActionsProvider>
         {(() => {
@@ -99,7 +106,6 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             : null;
         })()}
         <WorkspaceDriftBanner />
-        <ChatBubble agents={agents} />
         <AgentSurfaceHotkey />
       </SidebarInset>
     </SidebarProvider>

@@ -1,8 +1,9 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
 
 /**
  * Workspace pages — tenant-defined dashboard pages, declared entirely inside
@@ -163,7 +164,7 @@ export function readWorkspacePages(): { pages: PageManifest[]; issues: PageLoadI
   const issues: PageLoadIssue[] = [];
   for (const f of readdirSync(dir).filter(f => /\.ya?ml$/.test(f)).sort()) {
     try {
-      const raw = parseYaml(readFileSync(join(dir, f), 'utf8'));
+      const raw = parseYaml(readWorkspaceTextFile(join(dir, f)));
       const result = PageManifestSchema.safeParse(raw);
       if (!result.success) {
         issues.push({ file: f, message: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
@@ -192,7 +193,7 @@ export function readWorkspacePageContent(manifest: PageManifest): string | null 
     return null;
   }
   const file = join(dir, manifest.contentFile ?? `${manifest.slug}.md`);
-  return existsSync(file) ? readFileSync(file, 'utf8') : null;
+  return existsSync(file) ? readWorkspaceTextFile(file) : null;
 }
 
 // ---------------------------------------------------------------------------

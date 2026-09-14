@@ -52,6 +52,12 @@ export async function GET() {
       // null when it uses an OAuth grant or needs no credential. Setup offers
       // the workspace's existing credentials for this platform.
       credentialPlatform: platformForConnectorSlug(connectorSlug)?.id ?? null,
+      // A sync-less source has no run to start, so its row offers Test
+      // connection where a syncing source offers Sync now. `inspectable` says
+      // whether there is anything for that button to call.
+      syncless: connectorBySlug.get(connectorSlug)?.syncless === true,
+      inspectable: typeof connectorBySlug.get(connectorSlug)?.inspect === 'function',
+      inspectNote: connectorBySlug.get(connectorSlug)?.inspectNote ?? null,
       // The last run's state, so the page can show a sync it did not start —
       // another tab's, the scheduler's, or one still going after a reload.
       sync: syncState[s.id] ?? null,
@@ -64,6 +70,8 @@ export async function GET() {
     icon: c.icon,
     authKind: c.authKind,
     credentialPlatform: platformForConnectorSlug(c.slug)?.id ?? null,
+    syncless: c.syncless === true,
+    inspectable: typeof c.inspect === 'function',
   }));
   return Response.json({ sources: withStatus, connectors });
 }

@@ -47,6 +47,36 @@ describe('hubspotConnector', () => {
     expect(docs[0]!.content).toBe('Mara Okafor\nVP of Engineering at Acme\nmara@acme.com');
   });
 
+  it('always fetches the handoff signal properties for contacts and mirrors them as metadata, from whatever properties the config names', async () => {
+    const fetchMock = vi.fn(async () => res({
+      results: [{ id: '7', properties: { email: 'lead@acme.com', hs_sales_email_last_replied: '2026-09-09T15:30:00.000Z', meeting_booked__calendly_: 'true' } }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    // A workspace that pins its property list, and names a Calendly flag as the meeting signal.
+    const docs = await collect(hubspotConnector.sync(ctx({
+      config: { objectType: 'contacts', properties: ['email'], handoffSignals: { meetingProperty: 'meeting_booked__calendly_' } },
+    })));
+
+    const url = String((fetchMock.mock.calls[0] as unknown[])[0]);
+
+    expect(decodeURIComponent(url)).toContain('properties=email,hs_sales_email_last_replied,meeting_booked__calendly_');
+    expect(docs[0]!.metadata).toMatchObject({ handoffReplyAt: '2026-09-09T15:30:00.000Z', handoffMeeting: 'true' });
+  });
+
+  it('defaults the meeting signal to HubSpot\'s own meeting timestamp, and leaves deals alone', async () => {
+    const fetchMock = vi.fn(async () => res({ results: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await collect(hubspotConnector.sync(ctx()));
+    await collect(hubspotConnector.sync(ctx({ config: { objectType: 'deals' } })));
+
+    const [contactsUrl, dealsUrl] = fetchMock.mock.calls.map(c => decodeURIComponent(String((c as unknown[])[0])));
+
+    expect(contactsUrl).toContain('hs_sales_email_last_replied,hs_latest_meeting_activity');
+    expect(dealsUrl).not.toContain('hs_sales_email_last_replied');
+  });
+
   it('keeps content stable when volatile properties change (they are metadata-only)', async () => {
     const props = { firstname: 'Mara', lastname: 'Okafor', email: 'mara@acme.com', lifecyclestage: 'lead', hs_email_open: '2', hs_lastmodifieddate: '2026-06-01T00:00:00Z', hubspot_owner_id: '77' };
     vi.stubGlobal('fetch', vi.fn(async () => res({ results: [{ id: '1', properties: props }] })));

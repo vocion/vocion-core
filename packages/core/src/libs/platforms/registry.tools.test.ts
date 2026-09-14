@@ -73,7 +73,7 @@ describe('how a tool platform stores its key', () => {
   it.each(TOOL_PROVIDERS)('%s belongs to no connector and no model provider', (provider) => {
     const platform = getPlatform(provider);
 
-    expect(platform.connectorSlug).toBeNull();
+    expect(platform.connectorSlugs).toEqual([]);
     expect(platform.llmProvider).toBeNull();
   });
 });

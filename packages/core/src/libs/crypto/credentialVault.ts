@@ -15,7 +15,10 @@
  *                    var VOCION_CREDENTIAL_VAULT_KEY (base64, 32
  *                    bytes). Each `source_dek` row stores that key
  *                    directly. Loud warning if NODE_ENV=production
- *                    and KMS isn't configured.
+ *                    and KMS isn't configured, and it throws outright
+ *                    if VOCION_CREDENTIAL_VAULT_KEY is also unset — an ephemeral
+ *                    per-process key would silently orphan every
+ *                    credential stored under the previous one.
  *
  * Factory `buildCredentialVault()` chooses based on
  * `VOCION_CREDENTIAL_VAULT`:
@@ -52,6 +55,33 @@ export type CredentialVault = {
   /** Identifier exposed for telemetry / audit; either `kms` or `local`. */
   readonly kind: 'kms' | 'local';
 };
+
+/**
+ * A decryption failure whose message was written to be read by a person.
+ *
+ * The reveal and sync paths flatten every vault error into a fixed sentence,
+ * because a raw one can carry a constraint detail, a connection string or KMS
+ * output. That rule costs nothing until the vault has something genuinely
+ * useful to say — "the key that encrypted this is not the key you are holding,
+ * here is how to get it back" — and then it throws away the only sentence that
+ * would have saved the reader a trip through container logs.
+ *
+ * Throwing this type is a promise about the message inside it: it names a cause
+ * and a fix, and it contains no secret, no ciphertext and no infrastructure
+ * detail. Callers may show it as-is. Anything that cannot make that promise
+ * stays an ordinary `Error` and stays opaque on screen.
+ *
+ * The underlying failure belongs in `cause`, never in the message. Node's own
+ * wording is useful to whoever reads the log and useless to whoever is looking
+ * at the dashboard, and a message that quotes an error nobody vetted is one
+ * library upgrade away from breaking the promise above.
+ */
+export class VaultDecryptionError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'VaultDecryptionError';
+  }
+}
 
 /** Stable AES-256-GCM parameters. */
 export const AES_ALGORITHM = 'aes-256-gcm';

@@ -137,7 +137,9 @@ async function main(): Promise<void> {
   }
 
   if (command === 'list') {
-    const tokens = await listTokens(orgId);
+    // Revoked rows included: this command is the audit view, unlike the
+    // dashboard list, which hides them until an admin asks.
+    const tokens = await listTokens(orgId, { includeRevoked: true });
     if (tokens.length === 0) {
       console.warn(`no tokens for org ${orgId}`);
       return;

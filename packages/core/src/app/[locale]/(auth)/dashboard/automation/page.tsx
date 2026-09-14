@@ -1,8 +1,10 @@
 import { eq } from 'drizzle-orm';
-import { CalendarClock, Cog, Compass, Database, GitBranch, Zap } from 'lucide-react';
+import { CalendarClock, Cog, Compass, Database, GitBranch, History, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
+import { AutomationCardStatus } from '@/features/dashboard/AutomationCardStatus';
+import { checkResultOf } from '@/features/dashboard/automationResult';
 import { AutomationTestRun } from '@/features/dashboard/AutomationTestRun';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { cronToText } from '@/features/dashboard/TriggerBadge';
@@ -11,7 +13,14 @@ import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { knowledgeSourceSchema } from '@/models/Schema';
 import { listAgents } from '@/services/AgentService';
-import { automationOwnerAgentSlug, describeAutomationSchedule, listAutomationRuns, listAutomations } from '@/services/AutomationService';
+import {
+  automationOwnerAgentSlug,
+  automationSourceFreshness,
+  describeAutomationSchedule,
+  lastRunBySlug,
+  listAutomations,
+  scheduleHealth,
+} from '@/services/AutomationService';
 import { listMissions } from '@/services/MissionService';
 import { isEntityStatus } from '@/types/Status';
 
@@ -24,9 +33,11 @@ import { isEntityStatus } from '@/types/Status';
  *         judgment pass on a standing goal, optionally with an authored
  *         execution prompt), or run a built-in job (deterministic server code)
  *
- * The card states what the automation does (its authored description), the
- * parameters it runs with, and its last outcome — a schedule you can't inspect
- * or test is indistinguishable from one that isn't running.
+ * This page is the DEFINITION side: what the automation does, when it fires,
+ * who owns it, whether it is overdue, how fresh the data it reads is, and a
+ * Test run control. The HISTORY side is its own surface — the run log at
+ * `/dashboard/automation/runs`, and one automation's fires at
+ * `/dashboard/automation/<slug>`.
  *
  * Authored in workspace/<org>/automations/*.yaml. Source-sync crons are
  * listed below for completeness (they're connector config, not automations).
@@ -43,17 +54,34 @@ export default async function AutomationPage(props: {
     return null;
   }
 
-  const [missions, agents] = await Promise.all([listMissions(orgId), listAgents(orgId)]);
+  const [missions, agents, lastRuns] = await Promise.all([
+    listMissions(orgId),
+    listAgents(orgId),
+    lastRunBySlug(orgId),
+  ]);
   const missionAgentBySlug = new Map(missions.map(m => [m.slug, m.agentSlug]));
   const agentNameBySlug = new Map(agents.map(ag => [ag.slug, ag.name]));
 
   const automations = await Promise.all(
-    (await listAutomations(orgId)).map(async a => ({
-      ...a,
-      live: a.whenConfig.schedule ? await describeAutomationSchedule(orgId, a.slug) : null,
-      ownerSlug: automationOwnerAgentSlug(a, missionAgentBySlug),
-      runs: await listAutomationRuns(orgId, a.slug, 1),
-    })),
+    (await listAutomations(orgId)).map(async (a) => {
+      const live = a.whenConfig.schedule ? await describeAutomationSchedule(orgId, a.slug) : null;
+      const lastRun = lastRuns.get(a.slug) ?? null;
+      // The mirror slugs come from the last fire's own tool calls, so the
+      // freshness shown is of the data this work actually reads.
+      const mirrorSlugs = checkResultOf(lastRun?.result)?.mirror?.sources ?? [];
+      return {
+        ...a,
+        live,
+        ownerSlug: automationOwnerAgentSlug(a, missionAgentBySlug),
+        lastRun,
+        health: scheduleHealth({
+          cron: a.whenConfig.schedule ?? null,
+          lastFireAt: lastRun?.startedAt ?? null,
+          paused: live?.paused,
+        }),
+        freshness: await automationSourceFreshness(orgId, mirrorSlugs),
+      };
+    }),
   );
   const sources = await db.select().from(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, orgId));
   const syncing = sources.filter((s) => {
@@ -66,6 +94,16 @@ export default async function AutomationPage(props: {
       <TitleBar
         title="Automation"
         description="When things happen. Each automation binds a trigger — a schedule or an event — to a workflow run or a mission check."
+        actions={(
+          <Link
+            href="/dashboard/automation/runs"
+            title="Every fire, every automation"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+          >
+            <History className="size-3.5" />
+            Run log
+          </Link>
+        )}
       />
 
       {automations.length === 0
@@ -80,14 +118,15 @@ export default async function AutomationPage(props: {
             <div className="mb-6 flex flex-col gap-2">
               {automations.map((a) => {
                 const next = a.live?.nextActionTimes?.[0] ?? null;
-                const lastRun = a.runs[0] ?? null;
                 return (
                   <div key={a.slug} className="rounded-lg border border-border bg-background p-4">
                     <div className="flex flex-wrap items-start gap-3">
                       <CalendarClock className="mt-0.5 size-4 shrink-0 text-primary" />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium">{a.name}</span>
+                          <Link href={`/dashboard/automation/${a.slug}`} className="text-sm font-medium hover:underline">
+                            {a.name}
+                          </Link>
                           <StatusPill status={a.status && isEntityStatus(a.status) ? a.status : 'inactive'} />
                         </div>
 
@@ -148,12 +187,16 @@ export default async function AutomationPage(props: {
                         {a.whenConfig.schedule && !a.live && (
                           <div title="Temporal has no live schedule yet — run workspace:apply with Temporal up.">not scheduled yet</div>
                         )}
-                        <LastRun run={lastRun} />
+                        <AutomationCardStatus run={a.lastRun} health={a.health} freshness={a.freshness} slug={a.slug} />
                       </div>
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-start gap-3 border-t border-border pt-3">
-                      <AutomationTestRun slug={a.slug} supportsDay={false} />
+                      <AutomationTestRun
+                        slug={a.slug}
+                        kind={a.doConfig.checkMission ? 'mission_check' : a.doConfig.workflow ? 'workflow' : 'job'}
+                        supportsDay={false}
+                      />
                     </div>
                   </div>
                 );
@@ -266,46 +309,4 @@ function formatParam(v: unknown): string {
     return inner || '—';
   }
   return String(v);
-}
-
-/**
- * Last-run outcome. Without this a schedule that has never fired, one that ran
- * clean, and one that threw all render identically — which is exactly how
- * ticket 011 shipped.
- * @param props
- * @param props.run
- */
-function LastRun({ run }: { run: { status: string; startedAt: Date; dryRun: boolean; error: string | null; result: unknown } | null }) {
-  if (!run) {
-    return <div className="mt-1 text-muted-foreground/70">no runs recorded yet</div>;
-  }
-  const when = run.startedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  const summary = summarizeResult(run.result);
-  return (
-    <div className="mt-1">
-      <div className={run.status === 'error' ? 'text-red-600' : undefined}>
-        {run.status === 'error' ? 'last run failed' : 'last run'}
-        {' '}
-        {when}
-        {run.dryRun && ' (dry)'}
-      </div>
-      {summary && <div className="text-muted-foreground/70">{summary}</div>}
-      {run.error && <div className="max-w-56 truncate text-red-600" title={run.error}>{run.error}</div>}
-    </div>
-  );
-}
-
-/**
- * One-line result summary. Recognizes the sweep's counts, ignores anything else.
- * @param result
- */
-function summarizeResult(result: unknown): string | null {
-  if (!result || typeof result !== 'object') {
-    return null;
-  }
-  const r = result as { meetingsScanned?: number; matched?: number; classified?: number };
-  if (typeof r.meetingsScanned !== 'number') {
-    return null;
-  }
-  return `${r.meetingsScanned} scanned · ${r.matched ?? 0} matched · ${r.classified ?? 0} classified`;
 }

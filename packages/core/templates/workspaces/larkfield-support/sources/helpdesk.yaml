@@ -1,0 +1,13 @@
+slug: helpdesk
+name: Helpdesk tickets
+description: >-
+  The ticket corpus. Ships as local markdown files so the workspace is
+  useful with no credentials; point `kind` at a real helpdesk connector
+  when you have one, and nothing downstream changes.
+kind: local-files
+config:
+  directory: data/tickets
+  extensions:
+    - .md
+schedule: '0 * * * *'
+enabled: true

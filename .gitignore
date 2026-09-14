@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-node_modules/
+node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -82,3 +82,7 @@ infra/aws/.env.production
 packages/agent-runtime/dist/
 
 .env*
+
+# Internal, MetaCTO-only planning/strategy/case-study docs. The repo is public;
+# docs/internal/README.md says "Not public". Distributed privately, not here.
+docs/internal/

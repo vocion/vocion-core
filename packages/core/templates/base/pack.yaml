@@ -7,5 +7,5 @@
 # Authored exactly like a workspace so the loader reuses the same walkDir +
 # schemas. Ships agents/ (YAML), skills/ and playbooks/ (SKILL.md folders).
 name: core
-version: 2.0.0
-description: Reusable RevOps base pack. Agents, skills (SKILL.md units), and playbooks promoted from the core-vs-workspace audit; operations were converted to skills in 2.0.0.
+version: 2.1.0
+description: Reusable base layer of agents, skills (SKILL.md units), and playbooks covering review operations (queue triage, drafting for approval, queue health) and commercial delivery. Operations were converted to skills in 2.0.0; the review-ops agents and skills were added in 2.1.0.

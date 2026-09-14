@@ -12,7 +12,7 @@
 
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
-import { and, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
@@ -41,6 +41,19 @@ export type ListOptions = {
   includeSnoozed?: boolean;
   /** Restrict to one plane. Omit for the unified queue. */
   kind?: ReviewKind;
+  /**
+   * Restrict the action plane to these registered action ids
+   * (`personalization.enroll`, `hubspot.update`, …). Omit for every type.
+   *
+   * `kind` is the PLANE — workflow, mission, action — and a queue holding 557
+   * pending items can be 557 rows of one plane, which is exactly what
+   * production holds. This is the filter that separates them, and it runs in
+   * the WHERE clause so the per-plane `total` stays truthful under it.
+   *
+   * An empty array means "no action type matches", not "every type": that is
+   * what a caller asking for a type this org has never produced must get.
+   */
+  actionIds?: string[];
 };
 
 /** A page of the queue plus the total number of items the filters matched. */
@@ -231,6 +244,10 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     eq(actionRunSchema.status, PENDING_STATUS.action),
     // Stale suggestions drop out of the queue, matching the dashboard list.
     or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
+    // In SQL, not over the fetched page: with 557 pending items and a window
+    // of 50, filtering after the read would hand back whichever of the newest
+    // 50 happened to match and call it the total.
+    ...(opts.actionIds ? [inArray(actionRunSchema.actionId, opts.actionIds.length > 0 ? opts.actionIds : [''])] : []),
     ...routingFilters(opts, now),
   );
   const query = db
@@ -267,6 +284,52 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     return counted?.total ?? 0;
   });
   return { items, total };
+}
+
+/** One card type present in the pending queue, with its real count. */
+export type PendingActionType = {
+  actionId: string;
+  /** The action's own registered display name; the id itself when nothing is registered. */
+  label: string;
+  count: number;
+};
+
+/**
+ * The card types actually pending for this org, each with a true count.
+ *
+ * One GROUP BY, so a chip reads "Enroll 46" rather than counting whatever the
+ * current page happens to hold — with 557 pending items and a window of 50,
+ * those are different numbers. The list is driven by what is present, never a
+ * hardcoded set: the point of the card template is that a new object type
+ * registers without a UI change.
+ *
+ * Labels come from the action registry, so `personalization.enroll` renders as
+ * what its author called it and the slug stays available for the URL.
+ * @param orgId - Tenant.
+ * @param opts - The same routing filters the queue itself runs under, minus `actionIds`.
+ */
+export async function pendingActionTypes(orgId: string, opts: ListOptions = {}): Promise<PendingActionType[]> {
+  const now = new Date();
+  const rows = await db
+    .select({ actionId: actionRunSchema.actionId, n: sql<number>`count(*)::int` })
+    .from(actionRunSchema)
+    .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
+    .where(and(
+      eq(actionRunSchema.orgId, orgId),
+      eq(actionRunSchema.status, PENDING_STATUS.action),
+      or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
+      ...routingFilters(opts, now),
+    ))
+    .groupBy(actionRunSchema.actionId);
+
+  const { getAction } = await import('@/libs/actions/registry');
+  return rows
+    .map(row => ({
+      actionId: row.actionId,
+      label: getAction(row.actionId)?.name ?? row.actionId,
+      count: Number(row.n),
+    }))
+    .sort((a, b) => b.count - a.count || a.actionId.localeCompare(b.actionId));
 }
 
 /** An empty plane, for the kinds a `kind` filter excludes. */
@@ -596,6 +659,13 @@ export async function snooze(
     assignedBy: byUserId ?? null,
     ...(opts?.note !== undefined ? { note: opts.note } : {}),
   });
+  // The assignment row only ever holds the CURRENT snooze — the next one
+  // overwrites it — so the adoption event is the only record that a deferral
+  // happened at all. Awaited (not fired and forgotten) because
+  // `trackReviewSnooze` cannot reject and the caller is already awaiting a
+  // write; ordering it here means a snooze and its event land together.
+  const { trackReviewSnooze } = await import('@/services/adoption/attribution');
+  await trackReviewSnooze({ orgId, userId: byUserId ?? 'web' }, item, until);
 }
 
 /**
@@ -673,10 +743,13 @@ export async function decide(
         hint: opts?.note,
       }).catch(() => {});
       // The decision is training signal: record what a good/bad proposal
-      // looks like in the `crm-updates` learning step so agents check their
-      // next proposals against real operator judgment. Never blocks the
-      // decision itself.
-      await recordActionDecisionLearning(item.id, orgId, action, opts?.reason ?? opts?.note).catch(() => {});
+      // looks like in the proposing agent's own learning step so it checks
+      // its next proposals against real operator judgment. Never blocks the
+      // decision itself — but a failure here is silently lost learning
+      // signal, so it is logged rather than swallowed.
+      await recordActionDecisionLearning(item.id, orgId, action, opts?.reason ?? opts?.note).catch((error) => {
+        console.warn(`[ReviewService] could not record decision-learning rule for action run ${item.id}`, error);
+      });
   }
 }
 
@@ -708,7 +781,7 @@ function trackDecision(
 }
 
 /** Every distinct triage decision on an agent-suggested action. */
-export type ActionSignal = 'approve' | 'edit' | 'reject' | 'skip' | 'save' | 'rewrite';
+export type ActionSignal = 'approve' | 'edit' | 'reject' | 'skip' | 'save' | 'rewrite' | 'regenerate';
 
 const SIGNAL_TO_DECISION = {
   approve: 'approved',
@@ -717,6 +790,7 @@ const SIGNAL_TO_DECISION = {
   skip: 'skipped',
   save: 'saved',
   rewrite: 'rewritten',
+  regenerate: 'regenerated',
 } as const;
 
 /**
@@ -735,11 +809,20 @@ const SIGNAL_TO_DECISION = {
 export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string }): Promise<void> {
   try {
     const [run] = await db
-      .select({ invokedBy: actionRunSchema.invokedBy, actionId: actionRunSchema.actionId })
+      .select({
+        invokedBy: actionRunSchema.invokedBy,
+        actionId: actionRunSchema.actionId,
+        proposal: actionRunSchema.proposal,
+      })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
       .limit(1);
-    const agentSlug = run?.invokedBy?.startsWith('agent:') ? run.invokedBy.slice('agent:'.length) : undefined;
+    // An in-process agent turn stamps `agent:<slug>` on invokedBy. A proposal
+    // made over the API stamps the caller there instead and puts the agent in
+    // the proposal envelope, so both have to be read.
+    const agentSlug = run?.invokedBy?.startsWith('agent:')
+      ? run.invokedBy.slice('agent:'.length)
+      : run?.proposal?.agentSlug ?? undefined;
     const { track } = await import('@/services/adoption/track');
     // Scope dimensions travel together: userId (individual) + orgId (workspace)
     // on the actor, actionId (action type) in meta.
@@ -748,8 +831,73 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
       resource: ['action_run', opts.runId],
       meta: { kind: 'action', decision: SIGNAL_TO_DECISION[opts.signal], ...(run?.actionId ? { actionId: run.actionId } : {}), ...(opts.hint ? { hint: opts.hint } : {}) },
     });
+    await queueSignalForLearning(opts, agentSlug);
   } catch {
     /* signal capture never blocks the decision */
+  }
+}
+
+/** Which signals mean "the agent got this wrong" vs "the agent got this right". */
+const SIGNAL_POLARITY = {
+  approve: 'reinforce',
+  save: 'reinforce',
+  edit: 'correct',
+  reject: 'correct',
+  rewrite: 'correct',
+  // Distinct from `rewrite` so the adoption metrics can tell a tone touch-up
+  // from a full re-do; both mean "change this".
+  regenerate: 'correct',
+  skip: null,
+} as const;
+
+/**
+ * Queue a triage signal for the feedback classifier, so a reaction to an
+ * agent's proposal can become a learning candidate.
+ *
+ * Two rules decide whether anything is queued:
+ *
+ * - **There has to be text.** A bare click says the reviewer disagreed but not
+ *   what the agent should do differently, and asking a model to invent the
+ *   reason produces rules nobody stated. The signal is still counted in the
+ *   adoption metrics either way — this only governs whether a rule can be
+ *   proposed from it.
+ * - **`skip` never queues.** Skipping leaves the item pending; the reviewer has
+ *   not judged it yet.
+ *
+ * Idempotent on (run, signal): re-deciding an item does not queue a second job.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runId
+ * @param opts.signal
+ * @param opts.userId
+ * @param opts.hint
+ * @param agentSlug - The agent that proposed the action, when known.
+ */
+async function queueSignalForLearning(
+  opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string },
+  agentSlug: string | undefined,
+): Promise<void> {
+  const polarity = SIGNAL_POLARITY[opts.signal];
+  const note = opts.hint?.trim();
+  if (!polarity || !note) {
+    return;
+  }
+  try {
+    const { enqueue } = await import('@/services/FeedbackWorkerService');
+    await enqueue({
+      orgId: opts.orgId,
+      source: 'review',
+      externalId: `action_run:${opts.runId}:${opts.signal}`,
+      payload: {
+        text: note,
+        agentSlug,
+        sourceRunId: opts.runId,
+        submittedBy: opts.userId,
+        polarityHint: polarity,
+      },
+    });
+  } catch (error) {
+    console.error(`[ReviewService] could not queue the ${opts.signal} signal on action run ${opts.runId} for learning`, error);
   }
 }
 
@@ -776,9 +924,9 @@ export async function rewriteDraft(opts: {
    * sequence has several, and a guided review asks about one at a time.
    */
   contentId?: string;
-}): Promise<{ input: Record<string, unknown>; body: string; contentId?: string }> {
+}): Promise<{ input: Record<string, unknown>; body: string; contentId?: string; prior: string; discardedEdit?: string }> {
   const [run] = await db
-    .select({ input: actionRunSchema.input, actionId: actionRunSchema.actionId })
+    .select({ input: actionRunSchema.input, actionId: actionRunSchema.actionId, revisions: actionRunSchema.revisions })
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId), eq(actionRunSchema.status, 'pending')))
     .limit(1);
@@ -818,6 +966,35 @@ export async function rewriteDraft(opts: {
     rewritten = original;
   }
   await recordActionSignal({ orgId: opts.orgId, runId: opts.runId, signal: 'rewrite', userId: opts.userId, hint: opts.hint });
+  // The audit record of the rewrite. The DRAFT is still untouched (the
+  // reviewer carries the copy and passes it back on approve); this records
+  // what was asked and what came back so the recap's before/after is readable
+  // after the fact. A rewrite that changed nothing records nothing — the
+  // recap must never claim a change the reviewer never got. A rewrite always
+  // regenerates from the stored draft, so a prior revision on the same
+  // content is discarded by it: that body is kept as `discardedEdit` and the
+  // caller is told, so the card can say so.
+  let discardedEdit: string | undefined;
+  if (rewritten.trim() !== original.trim()) {
+    const existing = run.revisions ?? [];
+    const priorForContent = existing.filter(r => (opts.contentId ? r.contentId === opts.contentId : r.contentId === undefined));
+    discardedEdit = priorForContent.length > 0 ? priorForContent[priorForContent.length - 1]!.body : undefined;
+    await db
+      .update(actionRunSchema)
+      .set({
+        revisions: [...existing, {
+          ...(opts.contentId ? { contentId: opts.contentId } : {}),
+          ...(targetStep !== null ? { step: targetStep } : {}),
+          version: priorForContent.length + 2,
+          body: rewritten,
+          ...(opts.hint ? { ask: opts.hint } : {}),
+          ...(discardedEdit !== undefined ? { discardedEdit } : {}),
+          at: new Date().toISOString(),
+          ...(opts.userId ? { by: opts.userId } : {}),
+        }],
+      })
+      .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)));
+  }
   if (targetSend && sends) {
     // The caller holds the revision and passes it back on approve, the same
     // edit-then-approve path the card already uses — nothing is persisted
@@ -829,20 +1006,50 @@ export async function rewriteDraft(opts: {
       },
       body: rewritten,
       contentId: opts.contentId,
+      prior: original,
+      ...(discardedEdit !== undefined ? { discardedEdit } : {}),
     };
   }
   if (input.body === undefined && input.notes === undefined && props.notes !== undefined) {
-    return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten };
+    return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}) };
   }
   const key = input.body !== undefined ? 'body' : 'notes';
-  return { input: { ...input, [key]: rewritten }, body: rewritten };
+  return { input: { ...input, [key]: rewritten }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}) };
+}
+
+/** Learning step a proposal trains when its agent declares no `learningSteps` of its own. */
+const FALLBACK_LEARNING_STEP = 'crm-updates';
+
+/**
+ * Which learning step a proposing agent's decision-training rule gets filed
+ * under. Reads the agent's own `learningSteps` (workspace-authored — see
+ * `agentSchema.learningSteps` in models/Schema.ts) and takes the first one
+ * declared, so an agent outside the CRM domain (an event-ingestion agent
+ * proposing calendar candidates, say) trains its own bucket instead of one
+ * a different domain's agents read. Falls back to {@link FALLBACK_LEARNING_STEP}
+ * only when the agent declares no steps at all, and warns when it does —
+ * a workspace missing that declaration is either mid-migration or an agent
+ * that was never given one.
+ * @param orgId
+ * @param agentSlug
+ */
+async function resolveLearningStepForAgent(orgId: string, agentSlug: string): Promise<string> {
+  const { getAgent } = await import('./AgentService');
+  const agent = await getAgent(orgId, agentSlug);
+  const declaredSteps = agent?.learningSteps ?? [];
+  if (declaredSteps.length > 0) {
+    return declaredSteps[0]!;
+  }
+  console.warn(`[ReviewService] agent "${agentSlug}" declares no learningSteps; filing its decision-training rule under the fallback step "${FALLBACK_LEARNING_STEP}"`);
+  return FALLBACK_LEARNING_STEP;
 }
 
 /**
  * Approve/reject on a proposed action → a learning rule. This is the capture
  * side of the trust ladder: accumulated decisions teach agents which update
  * classes are safe (approved) vs which need stronger evidence (rejected).
- * No-ops quietly when the workspace has no `crm-updates` learning step.
+ * No-ops quietly when the proposing agent's learning step (see
+ * {@link resolveLearningStepForAgent}) does not exist in the workspace yet.
  * @param runId
  * @param orgId
  * @param decision
@@ -867,19 +1074,26 @@ async function recordActionDecisionLearning(
   if (!run || !run.invokedBy?.startsWith('agent:')) {
     return; // only agent proposals train agents
   }
-  const input = (run.input ?? {}) as { objectType?: string; properties?: Record<string, unknown> };
-  const props = Object.keys(input.properties ?? {}).join(', ') || 'n/a';
+  const agentSlug = run.invokedBy.slice('agent:'.length);
+  const stepName = await resolveLearningStepForAgent(orgId, agentSlug);
+  // The candidate's actual data lives under `fields` (see
+  // libs/actions/objects-propose-candidate.ts `CandidateInput.fields`) — the
+  // `properties` key this used to read was always undefined, which is why
+  // every rule used to read "updating [n/a]".
+  const input = (run.input ?? {}) as { objectType?: string; fields?: Record<string, unknown> };
+  const fieldNames = Object.keys(input.fields ?? {}).join(', ') || 'n/a';
   const conf = run.proposal?.confidence != null ? ` (confidence ${run.proposal.confidence})` : '';
   const rationale = run.proposal?.rationale ? ` Rationale was: ${run.proposal.rationale.slice(0, 140)}` : '';
   const ruleText = decision === 'approve'
-    ? `APPROVED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${props}].${rationale} — this class of update matched operator judgment; similar evidence justifies similar proposals.`
-    : `REJECTED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${props}].${reason ? ` Operator reason: ${reason.slice(0, 120)}.` : ''}${rationale} — do not propose this class again without stronger evidence.`;
+    ? `APPROVED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${fieldNames}].${rationale} — this class of update matched operator judgment; similar evidence justifies similar proposals.`
+    : `REJECTED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${fieldNames}].${reason ? ` Operator reason: ${reason}.` : ''}${rationale} — do not propose this class again without stronger evidence.`;
   const { addLearning } = await import('./LearningsService');
   await addLearning({
     orgId,
-    stepName: 'crm-updates',
+    stepName,
     ruleText,
     source: `action_run:${runId}`,
     createdBy: 'review-decision',
+    agentSlug,
   });
 }

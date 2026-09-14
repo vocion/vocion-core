@@ -77,14 +77,17 @@ import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
 import {
+  actionStatusRoute,
   cancel,
   decideActionRoute,
   getWorkflowRunRoute,
   listAutoExecutedRoute,
   listPendingActionsRoute,
+  listPendingActionTypesRoute,
   listWorkflowRunsRoute,
   proposeFromRecommendationRoute,
   recordSignalRoute,
+  regenerateActionRoute,
   resume,
   rewriteDraftRoute,
   snoozeActionRoute,
@@ -212,12 +215,15 @@ export const router = {
   },
   review: {
     listPendingActions: listPendingActionsRoute,
+    listPendingActionTypes: listPendingActionTypesRoute,
     listAutoExecuted: listAutoExecutedRoute,
     decideAction: decideActionRoute,
     snoozeAction: snoozeActionRoute,
+    regenerateAction: regenerateActionRoute,
     propose: proposeFromRecommendationRoute,
     recordSignal: recordSignalRoute,
     rewriteDraft: rewriteDraftRoute,
+    actionStatus: actionStatusRoute,
     submitFeedback,
     listWorkflowRuns: listWorkflowRunsRoute,
     getWorkflowRun: getWorkflowRunRoute,

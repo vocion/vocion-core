@@ -18,6 +18,10 @@ import { NativeConnection, Worker } from '@temporalio/worker';
 import { temporalAddress, temporalNamespace, VOCION_WORKFLOWS_TASK_QUEUE } from '../libs/temporal/client';
 import { applyLangfuseRetentionSchedule } from '../services/LangfuseRetentionScheduleService';
 import * as activities from '../services/temporal/activities';
+import { applyWorkerRunReaperSchedule } from '../services/WorkerRunReaperScheduleService';
+
+/** How often the worker sweeps for fires that can no longer end. */
+const RECONCILE_EVERY_MS = 15 * 60_000;
 
 async function main(): Promise<void> {
   if ((process.env.ENABLE_TEMPORAL_WORKER ?? '0') !== '1') {
@@ -65,11 +69,36 @@ async function main(): Promise<void> {
   } catch (error) {
     console.error('[temporal:worker] could not apply the Langfuse retention schedule', error);
   }
+  try {
+    await applyWorkerRunReaperSchedule();
+  } catch (error) {
+    console.error('[temporal:worker] could not apply the worker-run reaper schedule', error);
+  }
+
+  // A fire whose worker died mid-flight leaves its `automation_run` row
+  // `running` for ever, and the card then reads "last run Sep 4" indefinitely.
+  // This boot IS that restart, so reconcile now and then keep sweeping: a row
+  // that cannot end is worse than one that ended badly.
+  const reconcile = async (): Promise<void> => {
+    try {
+      const { reconcileAbandonedRuns } = await import('../services/AutomationService');
+      const { reconciled, ids } = await reconcileAbandonedRuns();
+      if (reconciled > 0) {
+        console.log(`[temporal:worker] closed out ${reconciled} abandoned automation run(s): ${ids.join(', ')}`);
+      }
+    } catch (error) {
+      console.error('[temporal:worker] abandoned-run reconciliation failed', error);
+    }
+  };
+  await reconcile();
+  const reconcileTimer = setInterval(() => void reconcile(), RECONCILE_EVERY_MS);
+  reconcileTimer.unref();
 
   console.log(`[temporal:worker] started — task queue: ${VOCION_WORKFLOWS_TASK_QUEUE}`);
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`[temporal:worker] caught ${signal}; shutting down…`);
+    clearInterval(reconcileTimer);
     worker.shutdown();
     await connection.close();
   };

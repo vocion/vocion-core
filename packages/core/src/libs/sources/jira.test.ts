@@ -116,7 +116,9 @@ describe('jiraConnector', () => {
     const docs = await collect(jiraConnector.sync(ctx()));
 
     expect(docs.filter(d => (d.metadata as { type?: string }).type === 'issue')).toHaveLength(2);
+
     const secondSearch = JSON.parse(String((fetchMock.mock.calls[2] as [string, RequestInit])[1].body));
+
     expect(secondSearch.nextPageToken).toBe('p2');
   });
 
@@ -130,7 +132,9 @@ describe('jiraConnector', () => {
 
     expect(String(url)).toContain('/rest/api/3/search/jql');
     expect(init.method).toBe('POST');
+
     const body = JSON.parse(String(init.body));
+
     expect(body.fields).toContain('summary');
     expect(body.fields).toContain('status');
     expect(body.fields).toContain('description');

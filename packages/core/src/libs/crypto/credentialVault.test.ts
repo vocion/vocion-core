@@ -4,6 +4,7 @@
  * Postgres); these are unit tests for the cipher layer only.
  */
 
+import { Buffer } from 'node:buffer';
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { AES_KEY_BYTES, AES_NONCE_BYTES, AES_TAG_BYTES, aesDecrypt, aesEncrypt } from './credentialVault';

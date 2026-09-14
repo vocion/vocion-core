@@ -12,9 +12,12 @@
  *   - Air-gapped deployments where the upstream is a filesystem mount.
  *
  * Config:
- *   - `directory: string` — path to walk, relative to `WORKSPACE_PATH`
- *     (or absolute). Defaults to the configured directory; recursion
- *     is allowed.
+ *   - `directory: string` — path to walk. Absolute paths are used as
+ *     given; a relative path resolves against the directory of the
+ *     workspace manifest that declared the source (stamped into the
+ *     stored config as `_manifestDir` at apply time), falling back to
+ *     `WORKSPACE_PATH` for sources added through the UI picker.
+ *     Recursion is allowed.
  *   - `glob?: string` — filename pattern (default `*.md` + `*.txt`).
  *
  * Frontmatter on `.md` files (YAML at the very top, fenced by `---`)
@@ -27,12 +30,12 @@ import type { SourceConnector, SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import process from 'node:process';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { resolveSourcePath } from './manifestDir';
 
 const localFilesConfigSchema = z.object({
-  directory: z.string().min(1).describe('directory to walk, relative to WORKSPACE_PATH or absolute'),
+  directory: z.string().min(1).describe('directory to walk — absolute, or relative to the workspace manifest that declared this source'),
   extensions: z.array(z.string()).default(['.md', '.txt']).describe('file extensions to ingest (default: .md, .txt)'),
 });
 
@@ -45,9 +48,7 @@ export const localFilesConnector: SourceConnector<typeof localFilesConfigSchema>
   configSchema: localFilesConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = localFilesConfigSchema.parse(ctx.config);
-    const baseDir = path.isAbsolute(cfg.directory)
-      ? cfg.directory
-      : path.resolve(process.env.WORKSPACE_PATH ?? process.cwd(), cfg.directory);
+    const baseDir = resolveSourcePath(cfg.directory, ctx.config);
 
     let baseStat;
     try {

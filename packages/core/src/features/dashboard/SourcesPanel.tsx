@@ -1,6 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
+import type { ConfigField, ConfigFieldOption, ConfigFieldValue } from '@/libs/sources/configFields';
 import {
   AlertTriangle,
   BarChart3,
@@ -34,6 +35,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Link } from '@/libs/I18nNavigation';
+import {
+  buildConfigFromFields,
+  configFieldsFor,
+  describeMissingFields,
+  fieldValuesFromConfig,
+  initialFieldValues,
+} from '@/libs/sources/configFields';
 
 type Source = {
   id: number;
@@ -55,6 +63,12 @@ type Source = {
    * already names put back in service.
    */
   credentialBroken: 'revoked' | 'expired' | 'missing' | null;
+  /** True when this connector ingests nothing, so its row shows Test connection rather than Sync now. */
+  syncless: boolean;
+  /** True when the connector can look at the service and report what the credential opens. */
+  inspectable: boolean;
+  /** What a test costs, said before the button is pressed, or null when it costs nothing. */
+  inspectNote: string | null;
   /** The latest sync run for this source, whoever started it. Null if never synced. */
   sync: {
     status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
@@ -76,6 +90,8 @@ type ConnectorTile = {
    * when it uses an OAuth grant or needs no credential at all.
    */
   credentialPlatform: string | null;
+  syncless: boolean;
+  inspectable: boolean;
 };
 
 /** How often to re-read the list while a sync is running somewhere. */
@@ -139,6 +155,7 @@ export function SourcesPanel() {
   const [addingKind, setAddingKind] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [connectingSource, setConnectingSource] = useState<Source | null>(null);
+  const [testingSource, setTestingSource] = useState<Source | null>(null);
   const [editingSource, setEditingSource] = useState<Source | null>(null);
   const [deletingSource, setDeletingSource] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -267,6 +284,7 @@ export function SourcesPanel() {
                     source={s}
                     syncing={syncingId === s.id}
                     onSync={() => handleSync(s.id)}
+                    onTest={() => setTestingSource(s)}
                     onEdit={() => setEditingSource(s)}
                     onDelete={() => setDeletingSource(s)}
                     onConnect={() => setConnectingSource(s)}
@@ -331,6 +349,9 @@ export function SourcesPanel() {
             />
           )
         : null}
+      {testingSource
+        ? <TestSourceDialog source={testingSource} onClose={() => setTestingSource(null)} />
+        : null}
       {connectingSource
         ? (
             <ConnectCredentialDialog
@@ -347,18 +368,180 @@ export function SourcesPanel() {
   );
 }
 
-/** Connector-specific credential fields. Most read a single `token`; some take a full key set. */
+/* ------------------------------------------------------------------ */
+/* Test connection — one affordance, every connector that can inspect. */
+/* ------------------------------------------------------------------ */
+
+/** One thing a test established. Mirrors `ConnectorCheck` on the server. */
+type ConnectorCheck = {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail: string | null;
+};
+
+/** The generic checklist a connector returns when it has no bespoke renderer. */
+type ConnectorInspection = {
+  reachable: boolean;
+  authorized: boolean;
+  checks: ConnectorCheck[];
+  note: string | null;
+  error: string | null;
+};
+
+/**
+ * Whether a payload is the generic checklist shape. Strapi's richer inspection
+ * flows through the same route and keeps its own renderer, so the page asks
+ * rather than assumes.
+ * @param value - Whatever the inspect route returned.
+ */
+function isConnectorInspection(value: unknown): value is ConnectorInspection {
+  const candidate = value as ConnectorInspection | null;
+  return typeof candidate === 'object'
+    && candidate !== null
+    && typeof candidate.reachable === 'boolean'
+    && Array.isArray(candidate.checks);
+}
+
+/**
+ * Run one connector's inspection. Returns the checklist, or the server's own
+ * message — a refused input and an unreachable host both say something the
+ * operator can act on, so neither is flattened into "test failed".
+ * @param slug - Connector to inspect.
+ * @param body - What to inspect with: typed values, or `{ sourceId }` to use
+ *   the credential already in the vault.
+ */
+async function runInspection(
+  slug: string,
+  body: Record<string, unknown>,
+): Promise<{ inspection: ConnectorInspection | null; error: string | null }> {
+  try {
+    const res = await fetch(`/rpc/connectors/${slug}/inspect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { inspection: null, error: data.error ?? 'The test could not be run.' };
+    }
+    if (!isConnectorInspection(data.inspection)) {
+      return { inspection: null, error: 'This connector reported something the page cannot show.' };
+    }
+    return { inspection: data.inspection, error: null };
+  } catch (err) {
+    return { inspection: null, error: (err as Error).message };
+  }
+}
+
+/**
+ * The checklist a test produced: one row per check, with what was observed.
+ * @param props - Component props.
+ * @param props.inspection - What the connector reported.
+ */
+function InspectionChecklist({ inspection }: { inspection: ConnectorInspection }) {
+  return (
+    <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+      <ul className="space-y-2">
+        {inspection.checks.map(check => (
+          <li key={check.key} className="flex items-start gap-2 text-sm">
+            {check.ok
+              ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              : <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-500" />}
+            <span className="min-w-0">
+              <span className="font-medium text-foreground/80">{check.label}</span>
+              {check.detail
+                ? <span className="mt-0.5 block text-xs text-muted-foreground">{check.detail}</span>
+                : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {inspection.error
+        ? <p className="text-xs text-destructive">{inspection.error}</p>
+        : null}
+      {inspection.note
+        ? <p className="text-[11px] text-muted-foreground">{inspection.note}</p>
+        : null}
+    </div>
+  );
+}
+
+/**
+ * The Test connection button plus whatever it last reported.
+ *
+ * Generic on purpose: it appears for any connector declaring an `inspect`
+ * hook, runs against the values as typed (or the vaulted credential, for a
+ * source that is already connected), and saves nothing either way.
+ * @param props - Component props.
+ * @param props.slug - Connector to test.
+ * @param props.note - What the test costs, shown before it is pressed.
+ * @param props.disabled - True while the form has nothing to test with.
+ * @param props.bodyFor - Builds the request body at press time, so it carries
+ *   the values as they are then.
+ */
+function TestConnectionPanel({ slug, note, disabled, bodyFor }: {
+  slug: string;
+  note: string | null;
+  disabled?: boolean;
+  bodyFor: () => Record<string, unknown>;
+}) {
+  const [testing, setTesting] = useState(false);
+  const [inspection, setInspection] = useState<ConnectorInspection | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  const test = async () => {
+    setTesting(true);
+    setFailure(null);
+    setInspection(null);
+    const result = await runInspection(slug, bodyFor());
+    setInspection(result.inspection);
+    setFailure(result.error);
+    setTesting(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={test}
+          disabled={testing || disabled}
+          className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
+        >
+          {testing ? <Loader2 className="size-3 animate-spin" /> : <Plug className="size-3" />}
+          {testing ? 'Testing…' : 'Test connection'}
+        </button>
+        {note
+          ? <span className="text-[11px] text-muted-foreground">{note}</span>
+          : null}
+      </div>
+      {failure
+        ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {failure}
+            </div>
+          )
+        : null}
+      {inspection ? <InspectionChecklist inspection={inspection} /> : null}
+    </div>
+  );
+}
+
+/**
+ * One input on the credential form.
+ *
+ * The server's platform descriptor supplies these for every connector that
+ * authenticates with a stored workspace credential. The fallback below covers
+ * a connector with no descriptor — a plugin-registered one — where a single
+ * token is the only reasonable guess.
+ */
 type CredField = { key: string; label: string; optional?: boolean };
-const TOKEN_FIELD: CredField = { key: 'token', label: 'Token' };
-const CRED_FIELDS: Record<string, { help: string; fields: CredField[] }> = {
-  hubspot: { help: 'HubSpot → Settings → Integrations → Private Apps. Needs crm.objects read (+ write for gated updates).', fields: [{ key: 'token', label: 'Private-app token' }] },
-  slack: { help: 'Slack app → OAuth & Permissions → Bot User OAuth Token (xoxb-…).', fields: [{ key: 'token', label: 'Bot / user token' }] },
-  gmail: { help: 'A Google OAuth access token with gmail.readonly. (Full OAuth sign-in flow is coming; paste a token to start.)', fields: [{ key: 'token', label: 'OAuth access token' }] },
-  drive: { help: 'A Google OAuth access token with drive.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
-  ga4: { help: 'A Google OAuth access token with analytics.readonly.', fields: [{ key: 'token', label: 'OAuth access token' }] },
-  googleAds: { help: 'A Google Ads OAuth access token.', fields: [{ key: 'token', label: 'OAuth access token' }, { key: 'developerToken', label: 'Developer token', optional: true }] },
-  strapi: { help: 'Strapi admin → Settings → API Tokens → Create new API Token. Read-only is enough — this connector never writes back.', fields: [{ key: 'token', label: 'API token' }] },
-  zoom: { help: 'Zoom App Marketplace → Develop → Build App → Server-to-Server OAuth. Needs scopes user:read:admin + cloud_recording:read:admin. All three values are on the app\'s Credentials page.', fields: [{ key: 'accountId', label: 'Account ID' }, { key: 'clientId', label: 'Client ID' }, { key: 'clientSecret', label: 'Client secret' }] },
+
+/** What the form asks for when the server describes no fields for this connector. */
+const UNDESCRIBED_CONNECTOR_FIELDS: { help: string; fields: CredField[] } = {
+  help: 'Paste the connector access token.',
+  fields: [{ key: 'token', label: 'Token' }],
 };
 
 /**
@@ -420,6 +603,8 @@ type PlatformField = {
   label: string;
   shapeHint: string;
   secret: boolean;
+  /** Whether the credential is complete without this value. */
+  optional?: boolean;
 };
 
 /**
@@ -475,8 +660,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   onClose: () => void;
   onConnected: () => Promise<void> | void;
 }) {
-  const connectorSlug = ((source.config?._connector as string | undefined) ?? source.slug);
-  const fallbackSpec = CRED_FIELDS[connectorSlug] ?? { help: 'Paste the connector access token.', fields: [TOKEN_FIELD] };
+  const fallbackSpec = UNDESCRIBED_CONNECTOR_FIELDS;
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -516,7 +700,7 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
   }, [source.id]);
 
   const fields: CredField[] = platformFields
-    ? platformFields.map(field => ({ key: field.name, label: field.label }))
+    ? platformFields.map(field => ({ key: field.name, label: field.label, optional: field.optional === true }))
     : fallbackSpec.fields;
   const help = platformHelp ?? fallbackSpec.help;
   const usingStored = pickedCredentialId !== null;
@@ -622,7 +806,12 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
                       : null}
                     {fields.map((field, index) => (
                       <label key={field.key} className="block">
-                        <span className="text-sm font-medium text-foreground/80">{field.label}</span>
+                        <span className="text-sm font-medium text-foreground/80">
+                          {field.label}
+                          {field.optional
+                            ? <span className="ml-1 font-normal text-muted-foreground">(optional)</span>
+                            : null}
+                        </span>
                         <input
                           // A non-secret value — an instance URL, an account
                           // email — stays readable while it is typed. Masking
@@ -642,6 +831,22 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
                         ? 'Stored AES-GCM encrypted at rest, and listed under API credentials so you can rotate it there.'
                         : 'Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.'}
                     </p>
+                    {/* Test before Save, deliberately: the values as typed are
+                        checked against the real service and nothing is stored,
+                        so a bad key never becomes a connected-looking source. */}
+                    {source.inspectable
+                      ? (
+                          <TestConnectionPanel
+                            slug={connectorSlugFor(source)}
+                            note={source.inspectNote}
+                            disabled={!complete}
+                            bodyFor={() => ({
+                              config: source.config ?? {},
+                              credentials: collectCredentialValues(fields, values),
+                            })}
+                          />
+                        )
+                      : null}
                   </>
                 )}
             {error
@@ -719,10 +924,11 @@ function CredentialBadge({ source }: { source: Source }) {
   );
 }
 
-function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
+function SourceRow({ source, syncing, onSync, onTest, onEdit, onDelete, onConnect }: {
   source: Source;
   syncing: boolean;
   onSync: () => void;
+  onTest: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onConnect: () => void;
@@ -804,28 +1010,87 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
             <Trash2 className="size-3" />
             Delete
           </button>
-          <button
-            type="button"
-            onClick={onSync}
-            disabled={busy || needsCreds}
-            title={needsCreds
-              ? 'Connect credentials first'
-              : (runningElsewhere ? 'This connector is already syncing. Wait for it to finish, then try again.' : undefined)}
-            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
-          >
-            {busy
-              ? (
-                  <>
-                    <Loader2 className="size-3 animate-spin" />
-                    Syncing…
-                  </>
-                )
-              : (
-                  <>
-                    <RefreshCw className="size-3" />
-                    Sync now
-                  </>
-                )}
+          {/* A sync-less source has no run to start, and a Sync button that
+              does nothing reads as a broken source. Testing the credential is
+              the useful thing to offer in its place. */}
+          {source.syncless
+            ? (
+                <button
+                  type="button"
+                  onClick={onTest}
+                  disabled={needsCreds || !source.inspectable}
+                  title={needsCreds ? 'Connect credentials first' : undefined}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
+                >
+                  <Plug className="size-3" />
+                  Test connection
+                </button>
+              )
+            : (
+                <button
+                  type="button"
+                  onClick={onSync}
+                  disabled={busy || needsCreds}
+                  title={needsCreds
+                    ? 'Connect credentials first'
+                    : (runningElsewhere ? 'This connector is already syncing. Wait for it to finish, then try again.' : undefined)}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
+                >
+                  {busy
+                    ? (
+                        <>
+                          <Loader2 className="size-3 animate-spin" />
+                          Syncing…
+                        </>
+                      )
+                    : (
+                        <>
+                          <RefreshCw className="size-3" />
+                          Sync now
+                        </>
+                      )}
+                </button>
+              )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Re-test a source that is already connected, on the credential in the vault.
+ *
+ * The point is that nothing is re-pasted: after a key rotation or a plan
+ * change, prod is verified again from the source's own row.
+ * @param props - Component props.
+ * @param props.source - The source to test.
+ * @param props.onClose - Called when the dialog is dismissed.
+ */
+function TestSourceDialog({ source, onClose }: { source: Source; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-xl rounded-xl border bg-background shadow-xl">
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <Plug className="size-4 text-muted-foreground" />
+          <h3 className="font-display text-lg">
+            Test
+            {' '}
+            {source.slug}
+          </h3>
+        </div>
+        <div className="space-y-3 p-4">
+          <p className="text-xs text-muted-foreground">
+            Runs against the credential already stored for this source — nothing to paste, and nothing is saved.
+          </p>
+          <TestConnectionPanel
+            slug={connectorSlugFor(source)}
+            note={source.inspectNote}
+            bodyFor={() => ({ sourceId: source.id })}
+          />
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+            Close
           </button>
         </div>
       </div>
@@ -1368,7 +1633,9 @@ function AddSourceDialogFrame({
                   operator to infer from a greyed-out button. */}
               {requirement
                 ? (
-                    <p className="flex items-start gap-1.5 text-sm text-destructive">
+                    // Announced, because a screen-reader user gets no other
+                    // signal that the submit button is refusing and why.
+                    <p role="status" aria-live="polite" className="flex items-start gap-1.5 text-sm text-destructive">
                       <CircleAlert className="mt-0.5 size-4 shrink-0" />
                       {`Still needed: ${requirement}`}
                     </p>
@@ -1565,6 +1832,275 @@ function AddWebSourceDialog({ kind, title, existing, onClose, onAdded }: {
                 className={FIELD_CLASS}
               />
             </label>
+          )
+        : null}
+    </AddSourceDialogFrame>
+  );
+}
+
+/**
+ * A select field's choices, with the value currently held added to the end when
+ * the connector no longer offers it.
+ *
+ * Without this the browser shows the first choice while the form state still
+ * holds the old value, so the dropdown says one thing and saving does another.
+ * @param field - The select field being rendered.
+ * @param value - What the form currently holds for it.
+ */
+function optionsIncludingCurrent(field: ConfigField, value: ConfigFieldValue | undefined): ConfigFieldOption[] {
+  const declared = field.options ?? [];
+  const current = String(value ?? '');
+  if (current === '' || declared.some(option => option.value === current)) {
+    return [...declared];
+  }
+  return [...declared, { value: current, label: `${current} (no longer offered)` }];
+}
+
+/**
+ * One input on a schema-driven add-source form.
+ *
+ * The shape of the input follows the field's declared type: a checkbox for a
+ * yes/no setting, a dropdown for a fixed set of choices, a bounded number box,
+ * and a comma-separated text box for a list. Required fields carry a marker,
+ * because before this the only sign a field was needed was a submit button
+ * that stayed disabled without saying why.
+ * @param props - Component props.
+ * @param props.field - What to ask for.
+ * @param props.value - What the input currently holds.
+ * @param props.onChange - Called with the new value as it is typed.
+ */
+function SourceConfigInput({ field, value, onChange }: {
+  field: ConfigField;
+  value: ConfigFieldValue | undefined;
+  onChange: (value: ConfigFieldValue) => void;
+}) {
+  // The asterisk is decoration; `required` on the input is what a screen
+  // reader announces, so both are set from the same flag.
+  const isRequired = field.required === true;
+  const labelText = (
+    <span className="text-sm font-medium text-foreground/80">
+      {field.label}
+      {isRequired ? <span className="ml-0.5 text-destructive" aria-hidden="true">*</span> : null}
+    </span>
+  );
+  const helpText = field.help ? <span className="mt-1 block text-xs text-muted-foreground">{field.help}</span> : null;
+
+  if (field.type === 'boolean') {
+    return (
+      <label className="block">
+        <span className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={value === true}
+            required={isRequired}
+            onChange={e => onChange(e.target.checked)}
+          />
+          {labelText}
+        </span>
+        {helpText}
+      </label>
+    );
+  }
+
+  if (field.type === 'select') {
+    return (
+      <label className="block">
+        {labelText}
+        <select
+          value={String(value ?? '')}
+          required={isRequired}
+          onChange={e => onChange(e.target.value)}
+          className={FIELD_CLASS}
+        >
+          {/* A saved value the connector no longer offers is listed rather than
+              dropped. Dropping it would leave the box showing the first choice
+              while the form still held — and would save — the old one. */}
+          {optionsIncludingCurrent(field, value).map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        {helpText}
+      </label>
+    );
+  }
+
+  if (field.type === 'number') {
+    return (
+      <label className="block">
+        {labelText}
+        {/* min/step keep the obvious mistakes — 0, a negative, a decimal — from
+            reaching a schema that only accepts whole numbers above zero. */}
+        <input
+          type="number"
+          step={1}
+          required={isRequired}
+          min={field.min}
+          max={field.max}
+          value={value === undefined ? '' : String(value)}
+          onChange={e => onChange(e.target.value)}
+          className={FIELD_CLASS}
+        />
+        {helpText}
+      </label>
+    );
+  }
+
+  if (field.type === 'stringArray') {
+    return (
+      <label className="block">
+        {labelText}
+        <input
+          type="text"
+          required={isRequired}
+          value={Array.isArray(value) ? value.join(', ') : String(value ?? '')}
+          placeholder={field.placeholder}
+          onChange={e => onChange(e.target.value)}
+          className={FIELD_CLASS}
+        />
+        {helpText}
+      </label>
+    );
+  }
+
+  return (
+    <label className="block">
+      {labelText}
+      <input
+        type={field.type === 'url' ? 'url' : 'text'}
+        required={isRequired}
+        value={String(value ?? '')}
+        placeholder={field.placeholder}
+        onChange={e => onChange(e.target.value)}
+        className={FIELD_CLASS}
+      />
+      {helpText}
+    </label>
+  );
+}
+
+/**
+ * The add-source form for every connector whose settings are a plain list of
+ * inputs — which is all of them but `web` and `strapi`.
+ *
+ * What to ask for comes from `configFields.ts`, keyed by connector slug, so
+ * each connector gets the fields its own config schema actually reads. Before
+ * this, every connector but Strapi was handed the web crawler's form, and a
+ * Jira or S3 source was created from a URL the connector never looked at.
+ *
+ * Overrides almost nobody touches — API base URLs pointed at a sandbox or an
+ * EU region — sit behind "Advanced settings" so the form opens on the handful
+ * of settings that matter.
+ * @param props - Component props.
+ * @param props.kind - Connector slug.
+ * @param props.title - Dialog heading.
+ * @param props.fields - The fields this connector asks for.
+ * @param props.existing - The source being edited, or null when adding a new one.
+ * @param props.onClose - Called when the dialog is dismissed.
+ * @param props.onAdded - Called after the source is saved.
+ */
+function AddConfigurableSourceDialog({ kind, title, fields, existing, onClose, onAdded }: {
+  kind: string;
+  title: string;
+  fields: ConfigField[];
+  existing: Source | null;
+  onClose: () => void;
+  onAdded: () => Promise<void> | void;
+}) {
+  const [values, setValues] = useState<Record<string, ConfigFieldValue>>(() => (
+    existing
+      ? fieldValuesFromConfig(fields, (existing.config ?? {}) as Record<string, unknown>)
+      : initialFieldValues(fields)
+  ));
+
+  const [advancedShown, setAdvancedShown] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // The saved config goes in so an edit carries through settings this form has
+  // no input for, instead of deleting them.
+  const savedConfig = (existing?.config ?? {}) as Record<string, unknown>;
+  const { config, missingLabels } = buildConfigFromFields(fields, values, savedConfig);
+  const everydayFields = fields.filter(field => field.advanced !== true);
+  const advancedFields = fields.filter(field => field.advanced === true);
+
+  const setFieldValue = (key: string, value: ConfigFieldValue) => {
+    setValues(current => ({ ...current, [key]: value }));
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (missingLabels.length > 0) {
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const message = existing
+        ? await updateSourceConfig(existing.id, config)
+        : await createSource(kind, config);
+      if (message) {
+        setError(message);
+        return;
+      }
+      await onAdded();
+    } catch (err) {
+      // A network failure throws rather than returning a message. Without this
+      // the dialog sat on a spinner that never resolved and said nothing.
+      console.error('[AddConfigurableSourceDialog] could not save the connector', err);
+      setError(err instanceof Error ? err.message : 'Could not reach the server. Check your connection and try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <AddSourceDialogFrame
+      title={title}
+      error={error}
+      requirement={describeMissingFields(missingLabels)}
+      submitLabel={existing ? 'Save changes' : 'Add connector'}
+      notice={existing ? 'Saving restarts this connector\'s sync: a run in progress stops, and a fresh one reads it with the new settings.' : null}
+      submitting={submitting}
+      canSubmit={missingLabels.length === 0}
+      onClose={onClose}
+      onSubmit={submit}
+    >
+      {everydayFields.map(field => (
+        <SourceConfigInput
+          key={field.key}
+          field={field}
+          value={values[field.key]}
+          onChange={value => setFieldValue(field.key, value)}
+        />
+      ))}
+
+      {advancedFields.length > 0
+        ? (
+            <div className="rounded-lg border border-dashed">
+              <button
+                type="button"
+                onClick={() => setAdvancedShown(shown => !shown)}
+                aria-expanded={advancedShown}
+                className="flex w-full items-center justify-between px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+              >
+                Advanced settings
+                <span aria-hidden="true">{advancedShown ? '−' : '+'}</span>
+              </button>
+              {advancedShown
+                ? (
+                    <div className="space-y-4 border-t px-3 py-3">
+                      {advancedFields.map(field => (
+                        <SourceConfigInput
+                          key={field.key}
+                          field={field}
+                          value={values[field.key]}
+                          onChange={value => setFieldValue(field.key, value)}
+                        />
+                      ))}
+                    </div>
+                  )
+                : null}
+            </div>
           )
         : null}
     </AddSourceDialogFrame>
@@ -2269,7 +2805,16 @@ function AddSourceDialog({
   if (kind === 'strapi') {
     return <AddStrapiSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
   }
-  return <AddWebSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
+  // Named rather than inferred from an empty field list, so a connector left
+  // out of CONFIG_FIELDS by mistake does not quietly get the crawler's form.
+  // `web`'s crawl toggle hides and shows a second field, which a flat list of
+  // inputs cannot express.
+  if (kind === 'web') {
+    return <AddWebSourceDialog kind={kind} title={title} existing={source} onClose={onClose} onAdded={onAdded} />;
+  }
+  // Every other connector describes its own fields, so one form renders them all.
+  const fields = configFieldsFor(kind);
+  return <AddConfigurableSourceDialog kind={kind} title={title} fields={fields} existing={source} onClose={onClose} onAdded={onAdded} />;
 }
 
 function formatRelative(date: Date): string {

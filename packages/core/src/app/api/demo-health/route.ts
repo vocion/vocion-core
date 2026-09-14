@@ -7,8 +7,8 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
-import { NextResponse } from 'next/server';
 import { sql } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 

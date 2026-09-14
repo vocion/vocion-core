@@ -32,6 +32,8 @@ const ORG = 'org_platform_keys';
 const OTHER_ORG = 'org_platform_keys_other';
 
 const OPENAI_KEY = 'sk-abcdefghijklmnop1234';
+/** A second well-shaped OpenAI key, for the rotation cases. */
+const OPENAI_KEY_TWO = 'sk-zzzzzzzzzzzzzzzz9999';
 const ANTHROPIC_KEY = 'sk-ant-abcdefghijklmnop1234';
 
 async function clearCredentials(): Promise<void> {
@@ -503,6 +505,41 @@ describe('listTokens', () => {
     // only ever fail is worse than the sentence explaining why there is none.
     expect(row?.revealable).toBe(false);
   });
+
+  it('leaves a revoked row out of the default list', async () => {
+    const { id } = await issueToken({ orgId: ORG, name: 'retired' });
+    await revokeToken(ORG, id);
+
+    expect(await listTokens(ORG)).toEqual([]);
+  });
+
+  it('lists a revoked row when the audit view asks for it', async () => {
+    const { id } = await issueToken({ orgId: ORG, name: 'retired' });
+    await revokeToken(ORG, id);
+    const [row] = await listTokens(ORG, { includeRevoked: true });
+
+    expect(row?.id).toBe(id);
+    expect(row?.revokedAt).not.toBeNull();
+  });
+
+  it('hides the key a rotation replaced but keeps the replacement', async () => {
+    await storePlatformKey({ orgId: ORG, name: 'Acme OpenAI', platform: 'openai', apiKey: OPENAI_KEY });
+    await storePlatformKey({ orgId: ORG, name: 'Acme OpenAI rotated', platform: 'openai', apiKey: OPENAI_KEY_TWO });
+    const names = (await listTokens(ORG)).map(row => row.name);
+
+    // The point of the whole change: rotating a one-live key must not leave
+    // its predecessor sitting in the list.
+    expect(names).toEqual(['Acme OpenAI rotated']);
+    expect((await listTokens(ORG, { includeRevoked: true })).map(row => row.name))
+      .toEqual(['Acme OpenAI rotated', 'Acme OpenAI']);
+  });
+
+  it('still lists an expired row, which nobody decided to retire', async () => {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await issueToken({ orgId: ORG, name: 'lapsed', expiresAt: yesterday });
+
+    expect((await listTokens(ORG)).map(row => row.name)).toEqual(['lapsed']);
+  });
 });
 
 describe('the database refuses a half-written credential', () => {
@@ -598,7 +635,7 @@ describe('a credential cannot change which kind it is', () => {
     // trigger is about the discriminator only.
     await revokeToken(ORG, id);
 
-    const [row] = (await listTokens(ORG)).filter(entry => entry.id === id);
+    const [row] = (await listTokens(ORG, { includeRevoked: true })).filter(entry => entry.id === id);
 
     expect(row?.revokedAt).not.toBeNull();
   });

@@ -12,7 +12,7 @@ vi.mock('@/services/SkillService', () => ({ approveSkillRun: vi.fn(), rejectSkil
 vi.mock('@/services/WorkflowService', () => ({ cancelWorkflow: vi.fn(), resumeWorkflow: vi.fn() }));
 
 const { db } = await import('@/libs/DB');
-const { accountMembershipSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, tenantAccountSchema, userSchema } = await import('@/models/Schema');
+const { accountMembershipSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, tenantAccountSchema, userActivityEventSchema, userSchema } = await import('@/models/Schema');
 const { assign, listPending, snooze } = await import('@/services/ReviewService');
 
 const ORG = 'org_rev';
@@ -27,6 +27,7 @@ async function makeMission(): Promise<number> {
 }
 
 beforeEach(async () => {
+  await db.delete(userActivityEventSchema);
   await db.delete(reviewAssignmentSchema);
   await db.delete(missionRunSchema);
   await db.delete(accountMembershipSchema);
@@ -93,6 +94,40 @@ describe('ReviewService routing', () => {
 
     expect(await listPending(ORG)).toHaveLength(0);
     expect(await listPending(ORG, { includeSnoozed: true })).toHaveLength(1);
+  });
+});
+
+describe('ReviewService.snooze — adoption capture', () => {
+  it('records one review.snoozed event per deferral, attributed to the mission lead', async () => {
+    const id = await makeMission();
+
+    await snooze(ORG, { kind: 'mission', id }, new Date(Date.now() + 6 * 3600_000), 'u_chris');
+    // The assignment row keeps only the latest snooze; the event stream is the
+    // only place the first deferral survives, so re-snoozing must add a row.
+    await snooze(ORG, { kind: 'mission', id }, new Date(Date.now() + 30 * 86_400_000), 'u_chris');
+
+    const events = await db.select().from(userActivityEventSchema);
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      orgId: ORG,
+      userId: 'u_chris',
+      agentSlug: 'revenue-lead',
+      eventType: 'review.snoozed',
+      resourceType: 'mission_run',
+      resourceId: String(id),
+      metadata: { kind: 'mission', deferredFor: 'up_to_1d' },
+    });
+    expect(events[1]).toMatchObject({ metadata: { kind: 'mission', deferredFor: 'over_1w' } });
+  });
+
+  it('captures nothing when no human actor is known, and still snoozes', async () => {
+    const id = await makeMission();
+
+    await snooze(ORG, { kind: 'mission', id }, new Date(Date.now() + 3600_000));
+
+    expect(await db.select().from(userActivityEventSchema)).toHaveLength(0);
+    expect(await listPending(ORG)).toHaveLength(0);
   });
 });
 

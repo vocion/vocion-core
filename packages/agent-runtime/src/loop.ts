@@ -10,6 +10,7 @@
 
 import type { SubAgent } from 'deepagents';
 import type { AgentEvent, InvocationRequest } from './contract.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { createDeepAgent, StateBackend } from 'deepagents';
 import { loadHistory, memoryEnabled, retrieveLongTerm, saveTurn } from './memory.js';
@@ -22,20 +23,95 @@ import { createRuntimeTrace } from './tracing.js';
 /* ------------------------------------------------------------------ */
 
 const GRAPH_CACHE_LIMIT = 16;
-const graphCache = new Map<string, { graph: ReturnType<typeof createDeepAgent>; emitRef: { emit: (e: AgentEvent) => void } }>();
 
-function definitionHash(req: InvocationRequest): string {
+/**
+ * Everything about one invocation that a cached graph must read rather than
+ * capture.
+ *
+ * The graph is expensive to build and identical for every request with the
+ * same definition, so it is reused across invocations. That makes anything
+ * per-request dangerous to bake in — most of all `awsSession`, which is the
+ * caller's temporary Bedrock credential.
+ */
+type InvocationContext = {
+  emit: (event: AgentEvent) => void;
+  awsSession: InvocationRequest['aws'];
+  toolEndpoint: string;
+  toolClaim: string;
+};
+
+/**
+ * The invocation currently being served, as async-local state.
+ *
+ * This used to be three mutable refs hanging off the cached graph entry, which
+ * `runInvocation` overwrote in place before each run. That is correct only
+ * while one invocation runs at a time, and nothing guaranteed it: `server.ts`
+ * is a plain Node HTTP server, and two requests that hash to the same graph —
+ * same org, same agent definition, different users or conversations — are
+ * served concurrently and shared one entry. The second request's assignments
+ * landed while the first was mid-turn, so its streamed events could be
+ * delivered through the other caller's `emit`, and its tool calls could go out
+ * under the other caller's signed claim, which carries a different
+ * conversation and a different allowed-source scope.
+ *
+ * AsyncLocalStorage gives each invocation its own view of that state for the
+ * whole async tree beneath it, so concurrent runs cannot see each other's
+ * while the graph stays shared.
+ *
+ * On the deployed path AgentCore Runtime gives each session its own microVM
+ * and core sends a fresh session id per invocation, so the collision was hard
+ * to reach in production. It was reachable wherever the artifact serves more
+ * than one caller from one process, which is exactly how it runs locally
+ * (`npm run dev:agent-runtime`).
+ */
+const invocationContext = new AsyncLocalStorage<InvocationContext>();
+
+/**
+ * The context for the invocation on this async stack.
+ *
+ * Throws rather than substituting a default: a graph that reaches this outside
+ * `runInvocation` would otherwise emit into a void, or worse, call a tool with
+ * no claim. Loud is the only safe answer, and it can only mean a bug in this
+ * file.
+ */
+function currentInvocationContext(): InvocationContext {
+  const context = invocationContext.getStore();
+  if (!context) {
+    throw new Error('agent-runtime: invocation state read outside runInvocation');
+  }
+  return context;
+}
+
+type GraphEntry = {
+  graph: ReturnType<typeof createDeepAgent>;
+};
+
+const graphCache = new Map<string, GraphEntry>();
+
+export function definitionHash(req: InvocationRequest): string {
   return createHash('sha256')
     .update(JSON.stringify({
       agent: req.agent,
       catalog: req.tools.catalog,
       endpoint: req.tools.endpoint,
       hasPlaybooks: Object.keys(req.files ?? {}).some(p => p.startsWith('/playbooks/') || p.startsWith('/skills/')),
+      // Two orgs can hold identical agent definitions — same slug, same
+      // prompt, same tool catalog — and before the graph carried a
+      // credential that was harmless. It no longer is, so the cache is
+      // partitioned by org as well. The credential itself is deliberately
+      // NOT hashed: it is minted per invocation, so hashing it would miss
+      // the cache every single time.
+      orgId: req.trace?.orgId,
+      // Whether a credential is present, not what it is. The model client
+      // decides at build time whether to override its credential chain at
+      // all, so an org that stores an AWS key after its first run needs a
+      // rebuilt graph rather than a stale one that ignores the key.
+      hasAwsSession: Boolean(req.aws),
     }))
     .digest('hex');
 }
 
-async function getGraph(req: InvocationRequest): Promise<{ graph: ReturnType<typeof createDeepAgent>; emitRef: { emit: (e: AgentEvent) => void } }> {
+async function getGraph(req: InvocationRequest): Promise<GraphEntry> {
   const key = definitionHash(req);
   const cached = graphCache.get(key);
   if (cached) {
@@ -44,25 +120,21 @@ async function getGraph(req: InvocationRequest): Promise<{ graph: ReturnType<typ
     return cached;
   }
 
-  // Tools close over a mutable emit ref (same pattern as core's
-  // harness): the graph is cache-shared, the emit is per-request.
-  // NOTE the claim is part of the cache key via endpoint+catalog…
-  // it is NOT — claims rotate per request. So the transport tools
-  // read claim + endpoint from a mutable ref too.
-  const emitRef: { emit: (e: AgentEvent) => void } = { emit: () => {} };
-  const toolSpecRef: { endpoint: string; claim: string } = { endpoint: req.tools.endpoint, claim: req.tools.claim };
-
+  // The graph is cache-shared; the endpoint, the claim and the emit callback
+  // belong to whichever invocation is being served. The claim in particular
+  // rotates per request and is NOT part of the cache key, so it must be read
+  // at call time rather than captured here.
   const tools = buildTransportTools(
     {
       catalog: req.tools.catalog,
       get endpoint() {
-        return toolSpecRef.endpoint;
+        return currentInvocationContext().toolEndpoint;
       },
       get claim() {
-        return toolSpecRef.claim;
+        return currentInvocationContext().toolClaim;
       },
     } as InvocationRequest['tools'],
-    e => emitRef.emit(e),
+    event => currentInvocationContext().emit(event),
   );
 
   const excludeTools = new Set(req.agent.excludeTools ?? []);
@@ -77,10 +149,13 @@ async function getGraph(req: InvocationRequest): Promise<{ graph: ReturnType<typ
     tools: kept as SubAgent['tools'],
   }));
 
+  // Read through on every model request, never captured by value — the
+  // session belongs to whichever invocation is currently being served.
   const model = await buildChatModel({
     model: req.agent.model,
     temperature: req.agent.temperature,
     maxTokens: req.agent.maxTokens,
+    readAwsSession: () => currentInvocationContext().awsSession,
   });
 
   const hasPlaybooks = Object.keys(req.files ?? {}).some(p => p.startsWith('/playbooks/') || p.startsWith('/skills/'));
@@ -94,8 +169,7 @@ async function getGraph(req: InvocationRequest): Promise<{ graph: ReturnType<typ
     ...(hasPlaybooks ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
 
-  const entry = { graph, emitRef };
-  Object.assign(entry, { __toolSpecRef: toolSpecRef });
+  const entry: GraphEntry = { graph };
   if (graphCache.has(key)) {
     graphCache.delete(key);
   }
@@ -114,15 +188,35 @@ async function getGraph(req: InvocationRequest): Promise<{ graph: ReturnType<typ
 /* Run                                                                 */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Serve one invocation.
+ *
+ * The whole turn runs inside an `AsyncLocalStorage` scope holding this
+ * request's emit callback, Bedrock session, tool endpoint and signed claim.
+ * The compiled graph is shared between concurrent callers; this scope is what
+ * keeps their per-request state apart. See `invocationContext`.
+ * @param req - The invocation payload: agent definition, message, tool spec,
+ * and this caller's temporary Bedrock session.
+ * @param emit - Where this turn's events go. Belongs to this caller alone.
+ */
 export async function runInvocation(
   req: InvocationRequest,
   emit: (event: AgentEvent) => void,
 ): Promise<void> {
+  const context: InvocationContext = {
+    emit,
+    awsSession: req.aws,
+    toolEndpoint: req.tools.endpoint,
+    toolClaim: req.tools.claim,
+  };
+  return invocationContext.run(context, () => runTurn(req, emit));
+}
+
+async function runTurn(
+  req: InvocationRequest,
+  emit: (event: AgentEvent) => void,
+): Promise<void> {
   const entry = await getGraph(req);
-  entry.emitRef.emit = emit;
-  const toolSpecRef = (entry as unknown as { __toolSpecRef: { endpoint: string; claim: string } }).__toolSpecRef;
-  toolSpecRef.endpoint = req.tools.endpoint;
-  toolSpecRef.claim = req.tools.claim;
 
   const toolCallCount = { n: 0 };
 
@@ -227,8 +321,17 @@ export async function runInvocation(
           emit({ type: 'subagent_start', name });
           try {
             await (sub as { output?: Promise<unknown> }).output;
-          } catch {
-            /* surfaces via parent flow */
+          } catch (error) {
+            // Not rethrown: the parent graph decides what a failed specialist
+            // means for the turn, and aborting the whole stream here would
+            // take down an answer the parent can still give. But it is logged,
+            // because the old comment claimed the failure "surfaces via parent
+            // flow" and nothing guaranteed that — a specialist that always
+            // failed left no trace anywhere.
+            console.error(
+              `[agent-runtime] subagent ${name} failed:`,
+              error instanceof Error ? error.message : error,
+            );
           }
           emit({ type: 'subagent_end', name });
         }

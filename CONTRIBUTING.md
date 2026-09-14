@@ -51,6 +51,15 @@ Conventional commits, enforced by commitlint + lefthook:
 | `test` | Tests |
 | `chore` | Build/tooling |
 
+## Database migrations
+
+Read [packages/core/migrations/CONVENTIONS.md](packages/core/migrations/CONVENTIONS.md)
+before writing one. The short version: an index on a table that already exists
+goes in `migrations/concurrent/` and says `CONCURRENTLY`, because a plain
+`CREATE INDEX` blocks every write to the table until it finishes; column
+changes go through expand and contract across releases, never in place.
+`npm run check:migrations` enforces the first rule and runs in CI.
+
 ## Before you push
 
 Run these locally (the pre-commit hook also handles auto-fix + type check +
@@ -60,4 +69,5 @@ unused-dep check):
 npm run check:types
 npm test
 npm run lint
+npm run check:migrations
 ```

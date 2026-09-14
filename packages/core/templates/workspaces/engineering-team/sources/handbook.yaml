@@ -1,0 +1,12 @@
+slug: handbook
+name: Engineering handbook
+description: >-
+  Review standards, the release checklist, the severity matrix, and the
+  on-call runbook — what a review or a release decision has to be
+  grounded in.
+kind: local-files
+config:
+  directory: data/handbook
+  extensions:
+    - .md
+enabled: true

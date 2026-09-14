@@ -8,6 +8,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
+import { WorkspaceTemplateError } from '@/libs/workspace';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { skillUsageCounts } from '@/services/ActivityService';
 import { readByOrigin } from '@/services/playbooks/mount';
@@ -15,6 +16,64 @@ import { readByOrigin } from '@/services/playbooks/mount';
 type Props = {
   params: Promise<{ locale: string; slug: string }>;
 };
+
+type CatalogRow = typeof playbookSchema.$inferSelect;
+
+/**
+ * Read the SKILL.md body the same way an agent would. A file whose
+ * `{{env.NAME}}` token this deployment cannot resolve is shown as a
+ * problem on the page rather than crashing it — the reader still needs
+ * to see which skill is broken and why.
+ * @param row - the catalog row whose body to read.
+ */
+function readBodyOrTemplateProblem(row: CatalogRow): { raw: string; templateProblem: string | null } {
+  try {
+    return { raw: readByOrigin(row, 'SKILL.md') ?? '', templateProblem: null };
+  } catch (error) {
+    if (error instanceof WorkspaceTemplateError) {
+      return { raw: '', templateProblem: error.message };
+    }
+    throw error;
+  }
+}
+
+/**
+ * The main panel: the rendered body, or an explanation of why there
+ * isn't one.
+ * @param props - what to render.
+ * @param props.slug - the skill or playbook slug, for doc links.
+ * @param props.markdownBody - the body with frontmatter stripped.
+ * @param props.templateProblem - why the body could not be resolved, if it could not.
+ */
+function SkillBody(props: { slug: string; markdownBody: string; templateProblem: string | null }) {
+  if (props.templateProblem !== null) {
+    return (
+      <p className="rounded-xl border border-dashed border-destructive/50 bg-destructive/5 p-6 text-sm text-muted-foreground">
+        This file uses a
+        {' '}
+        <code>{'{{env.NAME}}'}</code>
+        {' '}
+        value this deployment cannot resolve, so an agent cannot read it either.
+        {' '}
+        {props.templateProblem}
+      </p>
+    );
+  }
+  if (props.markdownBody.trim().length === 0) {
+    return (
+      <p className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+        Body not found on disk. The catalog row exists; the file may have been removed since the last workspace:apply.
+      </p>
+    );
+  }
+  return (
+    <DocViewer
+      currentPath={`skills/${props.slug}/SKILL.md`}
+      content={props.markdownBody}
+      linkBase="/dashboard/docs"
+    />
+  );
+}
 
 /**
  * Skill / playbook detail — the SKILL.md body plus provenance: whether
@@ -59,7 +118,7 @@ export default async function SkillDetailPage(props: Props) {
       : (a.playbookSlugs ?? []).includes(slug) || (a.skillSlugs ?? []).some(sk => attachers.has(sk)))
     .map(a => a.slug))].sort();
 
-  const raw = readByOrigin(row, 'SKILL.md') ?? '';
+  const { raw, templateProblem } = readBodyOrTemplateProblem(row);
   const { content: markdownBody } = stripFrontmatter(raw);
   const originLabel = row.origin === 'core'
     ? 'Base — the core pack\'s version, no workspace copy.'
@@ -102,19 +161,7 @@ export default async function SkillDetailPage(props: Props) {
 
       <div className="grid gap-8 lg:grid-cols-[1fr_18rem]">
         <article>
-          {markdownBody.trim().length === 0
-            ? (
-                <p className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
-                  Body not found on disk. The catalog row exists; the file may have been removed since the last workspace:apply.
-                </p>
-              )
-            : (
-                <DocViewer
-                  currentPath={`skills/${slug}/SKILL.md`}
-                  content={markdownBody}
-                  linkBase="/dashboard/docs"
-                />
-              )}
+          <SkillBody slug={slug} markdownBody={markdownBody} templateProblem={templateProblem} />
         </article>
 
         <aside className="space-y-6 text-sm">

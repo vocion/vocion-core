@@ -17,6 +17,7 @@
  * can point each at its own credential.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/services/SourceCredentialService', () => ({
@@ -177,14 +178,39 @@ describe('GET /rpc/sources/[id]/credentials', () => {
   });
 
   it('reports a credential that will not decrypt instead of saying none is stored', async () => {
+    // `VaultDecryptionError` is the vault promising this sentence is fit to
+    // read: it names a cause and a fix and holds no secret. That is the whole
+    // reason the type exists, so the message goes through as written.
     vi.mocked(getCredentialsForConnector).mockRejectedValue(
-      new Error('The stored credential could not be decrypted with the current vault key.'),
+      new VaultDecryptionError(
+        'The stored credential could not be decrypted with the current vault key.',
+        { cause: new Error('Unsupported state or unable to authenticate data') },
+      ),
     );
 
     const res = await GET(request, context('1'));
 
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('could not be decrypted') });
+  });
+
+  it('hides the reason when the failure is not one the vault vouched for', async () => {
+    // An ordinary Error can carry a constraint detail or a connection string,
+    // so the browser gets a fixed sentence and the reason goes to the log.
+    const failure = new Error('connect ECONNREFUSED 10.0.0.4:5432');
+    vi.mocked(getCredentialsForConnector).mockRejectedValue(failure);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await GET(request, context('1'));
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: 'Could not read the stored credential.' });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining('could not read credentials for connector'),
+      expect.objectContaining({ message: 'connect ECONNREFUSED 10.0.0.4:5432' }),
+    );
+
+    logged.mockRestore();
   });
 });
 
@@ -226,8 +252,8 @@ describe('GET /rpc/sources/[id]/credentials — credentials to pick from', () =>
     expect(body.linkedCredentialId).toBe('cred_a');
   });
 
-  it('offers nothing to pick for a connector that uses an OAuth grant', async () => {
-    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'slack', kind: 'plugin', config: {} });
+  it('offers nothing to pick for a connector with no credential platform', async () => {
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'web', kind: 'plugin', config: {} });
 
     const body = await (await GET(request, context('1'))).json();
 
@@ -295,16 +321,90 @@ describe('POST /rpc/sources/[id]/credentials', () => {
     expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ name: 'Strapi — kb-strapi' }));
   });
 
-  it('still stores an OAuth grant against the install itself', async () => {
-    // A grant is issued to one installation and carries a refresh token, so
-    // there is nothing to share and nothing to point at.
+  it('stores a Slack bot token as a workspace credential, not on the install', async () => {
+    // Slack gained a platform, so its key goes where the other four already do.
     vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'slack', kind: 'plugin', config: {} });
 
     const res = await POST(post({ credentials: { token: 'xoxb-1' } }), context('1'));
 
     expect(res.status).toBe(200);
-    expect(storeCredentialForSource).toHaveBeenCalledWith(expect.objectContaining({ sourceSlug: 'slack' }));
+    expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ platform: 'slack' }));
+    expect(storeCredentialForSource).not.toHaveBeenCalled();
+  });
+
+  it('stores a Gmail credential against the shared Google platform', async () => {
+    // One credential serves every Google connector, so a Gmail source stores a
+    // `google` row rather than a `gmail` one.
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'gmail', kind: 'plugin', config: {} });
+
+    const res = await POST(post({
+      credentials: { clientId: 'client-1', clientSecret: 'secret-1', refreshToken: 'refresh-1' },
+    }), context('1'));
+
+    expect(res.status).toBe(200);
+    expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ platform: 'google' }));
+  });
+
+  it('stores a Zoom app as a workspace credential', async () => {
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'zoom', kind: 'plugin', config: {} });
+
+    const res = await POST(post({
+      credentials: { accountId: 'acct-1', clientId: 'client-1', clientSecret: 'secret-1' },
+    }), context('1'));
+
+    expect(res.status).toBe(200);
+    expect(storePlatformKey).toHaveBeenCalledWith(expect.objectContaining({ platform: 'zoom' }));
+  });
+
+  it('stores a credential against the install itself when the connector has no platform', async () => {
+    // A plugin-registered connector the platform registry does not know keeps
+    // its credential on the install, the way every connector used to.
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'web', kind: 'plugin', config: {} });
+
+    const res = await POST(post({ credentials: { token: 'unused-1' } }), context('1'));
+
+    expect(res.status).toBe(200);
+    expect(storeCredentialForSource).toHaveBeenCalledWith(expect.objectContaining({ sourceSlug: 'web' }));
     expect(storePlatformKey).not.toHaveBeenCalled();
+  });
+
+  it('shows the vault\'s own reason when storing against the install fails', async () => {
+  // The vault authored this sentence for a person to read, so it survives
+  // the flattening the sibling branches apply to everything else.
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'web', kind: 'plugin', config: {} });
+    vi.mocked(storeCredentialForSource).mockRejectedValue(
+      new VaultDecryptionError('The stored credential could not be decrypted with the current vault key.'),
+    );
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await POST(post({ credentials: { token: 'unused-1' } }), context('1'));
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toMatchObject({ error: expect.stringContaining('could not be decrypted') });
+
+    logged.mockRestore();
+  });
+
+  it('hides a store failure the vault did not vouch for', async () => {
+  // Without the gate this returned `err.message` verbatim. In production a
+  // missing vault key makes that message the operator's remediation steps —
+  // env-var names and a KMS ARN — handed to whoever clicked Save.
+    vi.mocked(getSourceById).mockResolvedValue({ id: 1, slug: 'web', kind: 'plugin', config: {} });
+    vi.mocked(storeCredentialForSource).mockRejectedValue(
+      new Error('VOCION_CREDENTIAL_VAULT_KEY is not set. Set it to 32 base64-encoded random bytes'),
+    );
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await POST(post({ credentials: { token: 'unused-1' } }), context('1'));
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: 'Could not save the credential.' });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining('could not store install credential'),
+      expect.objectContaining({ message: expect.stringContaining('VOCION_CREDENTIAL_VAULT_KEY is not set') }),
+    );
+
+    logged.mockRestore();
   });
 
   it('refuses a body with neither a picked credential nor any values', async () => {

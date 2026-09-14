@@ -57,6 +57,8 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
           ruleText: candidate.ruleText,
           editedRuleText: candidate.editedRuleText,
           sourceFeedbackJobId: candidate.sourceFeedbackJobId,
+          polarity: candidate.polarity,
+          occurrenceCount: candidate.occurrenceCount,
           createdAt: candidate.createdAt.toISOString(),
         }))}
         total={pending.total}

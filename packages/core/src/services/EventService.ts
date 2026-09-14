@@ -25,7 +25,94 @@ export type EmitEventInput = {
   /** Provider-namespaced idempotency key; a repeat no-ops. */
   dedupeKey?: string;
   invokedBy?: string;
+  /**
+   * How a subscribed automation's work runs. `inline` (the default) awaits the
+   * whole fire, which for a mission check is the entire agent pass: right for
+   * a worker with nobody waiting, wrong inside a request. `background` records
+   * the fire, answers with its `automationRunId`, and completes the pass after
+   * the response (Next's `after`), so a click that emits an event is never
+   * held open for minutes. Only a caller in a request scope may pass it.
+   */
+  dispatchMode?: 'inline' | 'background';
 };
+
+/**
+ * Event types Vocion emits from its own code, as opposed to the ones an
+ * outside caller invents and posts to `/api/v1/events`.
+ *
+ * They live here, beside `EmitEventInput.type`, because this is the only place
+ * that defines what an event *is*; a workspace author writes one of these
+ * strings into an automation's `when.event` (see `AutomationManifestSchema`)
+ * and gets the payload documented below as the run's input. Renaming one
+ * breaks every workspace that subscribes to it, so treat these as public API.
+ */
+export const SOURCE_SYNC_COMPLETED = 'source.sync_completed';
+
+/**
+ * Payload of a `source.sync_completed` event.
+ *
+ * These are the fields an automation's `when.filter` can match on and the keys
+ * its workflow or mission receives as input, so they are a contract, not a
+ * debug dump: every one is a scalar (filters compare with `===`) and none of
+ * them carries document content.
+ */
+export type SourceSyncCompletedPayload = {
+  /** `knowledge_source.id` of the source that finished syncing. */
+  sourceId: number;
+  /** Source slug — the stable, human-readable handle a filter should use. */
+  sourceSlug: string;
+  /** Connector slug behind the source, e.g. `web`, `notion`. */
+  connector: string;
+  /** True when only documents changed since the last run were requested. */
+  incremental: boolean;
+  created: number;
+  updated: number;
+  unchanged: number;
+  tombstoned: number;
+  /** Documents the run could not ingest. A completed sync can still be > 0. */
+  errors: number;
+  /** ISO timestamp of the run's cutoff, i.e. when the sync started reading. */
+  completedAt: string;
+};
+
+/**
+ * A lead that was enrolled in a sequence has done something a person should
+ * pick up: replied to a send, or booked a meeting. Emitted by
+ * `HandoffTriggerService` after a HubSpot contacts sync moves the lead's
+ * reply or meeting timestamp past what the watcher had seen, and past the
+ * enrollment decision. One event per new timestamp, deduped on it.
+ */
+export const LEAD_REPLIED = 'lead.replied';
+export const LEAD_MEETING_BOOKED = 'lead.meeting_booked';
+
+/**
+ * Payload of `lead.replied` and `lead.meeting_booked`. Scalars only, for the
+ * same reason as `SourceSyncCompletedPayload`: a `when.filter` compares with
+ * `===`, and an automation's mission check receives these keys verbatim as
+ * its trigger payload.
+ */
+export type LeadHandoffTriggerPayload = {
+  /** `lead_brief.id` of the enrolled lead. */
+  leadBriefId: number;
+  /** CRM mirror ref, e.g. `contacts:9412`. What `save_handoff_brief` takes. */
+  contactRef: string;
+  /** The HubSpot contact id, for the live read tools. */
+  hubspotId: string | null;
+  contactName: string;
+  /** Which signal moved: the handoff trigger the skill records. */
+  trigger: 'reply' | 'meeting';
+  /** ISO timestamp HubSpot stamped on the reply or the meeting activity. */
+  observedAt: string;
+};
+
+/**
+ * A reviewer pressed Regenerate on a lead brief. Emitted by the regenerate
+ * route after the lead is reset to the queued lane with the reviewer's note;
+ * an automation subscribed to it (`regenerate-brief-on-request` in the Metacto
+ * workspace) briefs and drafts that one lead at once instead of waiting for
+ * the hourly pass. Payload: `briefId`, `contactRef`, `contactName`, `note`.
+ */
+export const PERSONALIZATION_BRIEF_REGENERATE_REQUESTED = 'personalization.brief_regenerate_requested';
 
 export type EmitEventResult = {
   eventId: number | null;
@@ -99,7 +186,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
   // {do: workflow | checkMission}). The workflow-embedded triggers above
   // remain as a deprecated legacy path.
   const { automationSchema } = await import('@/models/Schema');
-  const { fireAutomation } = await import('@/services/AutomationService');
+  const { beginAutomationFire, completeAutomationFire, fireAutomation } = await import('@/services/AutomationService');
   const automations = await db
     .select()
     .from(automationSchema)
@@ -109,11 +196,28 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
       continue;
     }
     try {
-      const res = await fireAutomation(input.orgId, a.slug, {
-        input: payload,
-        invokedBy: input.invokedBy ?? `event:${input.type}`,
-      });
-      triggered.push({ slug: `automation:${a.slug}`, runId: res.runId });
+      if (input.dispatchMode === 'background') {
+        // The fire's row exists before we answer; the pass itself runs after
+        // the response. A mission check holds an agent loop for minutes, and
+        // the caller here is a request a person is waiting on.
+        const pending = await beginAutomationFire(input.orgId, a.slug, {
+          input: payload,
+          invokedBy: input.invokedBy ?? `event:${input.type}`,
+        });
+        const { after } = await import('next/server');
+        after(async () => {
+          await completeAutomationFire(pending).catch(() => {
+            /* recorded on the run row by completeAutomationFire */
+          });
+        });
+        triggered.push({ slug: `automation:${a.slug}`, runId: pending.automationRunId });
+      } else {
+        const res = await fireAutomation(input.orgId, a.slug, {
+          input: payload,
+          invokedBy: input.invokedBy ?? `event:${input.type}`,
+        });
+        triggered.push({ slug: `automation:${a.slug}`, runId: res.runId });
+      }
     } catch {
       // Same tolerance as workflows above - one bad automation never drops the event.
     }

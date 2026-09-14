@@ -1,5 +1,7 @@
-import { os } from '@orpc/server';
+import type { WorkflowRunSummary } from '@/services/WorkflowService';
+import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
+import { logger } from '@/libs/Logger';
 import { trackReviewDecision } from '@/services/adoption/attribution';
 import {
   cancelWorkflow,
@@ -7,6 +9,7 @@ import {
   listWorkflowRuns,
   resumeWorkflow,
   submitWorkflowRunFeedback,
+  WorkflowRunNotResumableError,
 } from '@/services/WorkflowService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -37,23 +40,33 @@ const FeedbackInput = z.object({
   note: z.string().optional(),
 });
 
-/** Pending action proposals (the sweep's CRM updates) with confidence envelopes. */
-export const listPendingActionsRoute = os.handler(async () => {
-  const { orgId } = await guardAuth();
-  const { db } = await import('@/libs/DB');
-  const { actionRunSchema, reviewAssignmentSchema } = await import('@/models/Schema');
-  const { and, desc, eq, gt, isNull, lte, or } = await import('drizzle-orm');
-  const { getAction } = await import('@/libs/actions/registry');
-  const now = new Date();
-  const rows = await db
-    .select({ run: actionRunSchema })
-    .from(actionRunSchema)
-    .leftJoin(reviewAssignmentSchema, and(
-      eq(reviewAssignmentSchema.orgId, orgId),
-      eq(reviewAssignmentSchema.kind, 'action'),
-      eq(reviewAssignmentSchema.runId, actionRunSchema.id),
-    ))
-    .where(and(
+/**
+ * Pending action proposals (the sweep's CRM updates) with confidence
+ * envelopes, optionally narrowed to one or more card types.
+ *
+ * `actionIds` is pushed into the WHERE clause, so a filtered feed draws its
+ * whole window from the matching rows: production holds 557 pending items
+ * against a window of 50, and the 46 `personalization.enroll` cards the
+ * personalization lane exists to produce were reachable only by luck of
+ * ordering. `total` is the count of matching rows regardless of the window, so
+ * a filtered queue can say how much work it holds.
+ */
+export const listPendingActionsRoute = os
+  .input(z.object({
+    actionIds: z.array(z.string().min(1)).max(50).optional(),
+    limit: z.number().int().positive().max(200).optional(),
+    /** Rows to skip, so the Up-next rail can grow the loaded queue a page at a time. */
+    offset: z.number().int().nonnegative().optional(),
+  }).optional())
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const { db } = await import('@/libs/DB');
+    const { actionRunSchema, reviewAssignmentSchema } = await import('@/models/Schema');
+    const { and, desc, eq, gt, inArray, isNull, lte, or, sql } = await import('drizzle-orm');
+    const { getAction } = await import('@/libs/actions/registry');
+    const now = new Date();
+    const actionIds = input?.actionIds;
+    const where = and(
       eq(actionRunSchema.orgId, orgId),
       eq(actionRunSchema.status, 'pending'),
       // Drop stale suggestions — expired items fall out of the queue.
@@ -62,20 +75,58 @@ export const listPendingActionsRoute = os.handler(async () => {
       // predicate ReviewService.routingFilters applies, on every surface that
       // consumes this feed.
       or(isNull(reviewAssignmentSchema.snoozedUntil), lte(reviewAssignmentSchema.snoozedUntil, now)),
-    ))
-    .orderBy(desc(actionRunSchema.createdAt))
-    .limit(50);
-  // Structured cards: an action that defines one presents itself consistently
-  // everywhere the queue renders. Best-effort — a presenter error falls back
-  // to the generic card, never blocks the queue.
-  return Promise.all(rows.map(async ({ run: row }) => {
-    const presenter = getAction(row.actionId)?.reviewCard;
-    if (!presenter) {
-      return row;
-    }
-    const card = await presenter({ orgId }, row.input).catch(() => undefined);
-    return card ? { ...row, card } : row;
-  }));
+      // An empty array is "nothing of that type", never "everything".
+      ...(actionIds ? [inArray(actionRunSchema.actionId, actionIds.length > 0 ? actionIds : [''])] : []),
+    );
+    const assignment = and(
+      eq(reviewAssignmentSchema.orgId, orgId),
+      eq(reviewAssignmentSchema.kind, 'action'),
+      eq(reviewAssignmentSchema.runId, actionRunSchema.id),
+    );
+    const [rows, [counted]] = await Promise.all([
+      db
+        .select({ run: actionRunSchema })
+        .from(actionRunSchema)
+        .leftJoin(reviewAssignmentSchema, assignment)
+        .where(where)
+        // id breaks ties, so two rows created in the same tick keep a stable
+        // order across pages and never repeat or vanish between them.
+        .orderBy(desc(actionRunSchema.createdAt), desc(actionRunSchema.id))
+        .limit(input?.limit ?? 50)
+        .offset(input?.offset ?? 0),
+      db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(actionRunSchema)
+        .leftJoin(reviewAssignmentSchema, assignment)
+        .where(where),
+    ]);
+    // Structured cards: an action that defines one presents itself consistently
+    // everywhere the queue renders. Best-effort — a presenter error falls back
+    // to the generic card, never blocks the queue. `canRegenerate` is stamped
+    // here from the action's declared capability, never by the presenter.
+    const items = await Promise.all(rows.map(async ({ run: row }) => {
+      const action = getAction(row.actionId);
+      const presenter = action?.reviewCard;
+      if (!presenter) {
+        return row;
+      }
+      const card = await presenter({ orgId }, row.input).catch(() => undefined);
+      return card ? { ...row, card: { ...card, canRegenerate: action?.regenerate !== undefined } } : row;
+    }));
+    return { items, total: Number(counted?.n ?? 0) };
+  });
+
+/**
+ * The card types pending for this org, each with its real count and its
+ * registered display name.
+ *
+ * Driven by what is present, so a newly registered action type appears as a
+ * chip with no UI change.
+ */
+export const listPendingActionTypesRoute = os.handler(async () => {
+  const { orgId } = await guardAuth();
+  const { pendingActionTypes } = await import('@/services/ReviewService');
+  return pendingActionTypes(orgId);
 });
 
 /** Recently auto-executed proposals (trust-ladder audit surface). */
@@ -137,7 +188,7 @@ export const proposeFromRecommendationRoute = os
 export const recordSignalRoute = os
   .input(z.object({
     runId: z.number().int().positive(),
-    signal: z.enum(['approve', 'edit', 'reject', 'skip', 'save', 'rewrite']),
+    signal: z.enum(['approve', 'edit', 'reject', 'skip', 'save', 'rewrite', 'regenerate']),
     hint: z.string().max(300).optional(),
   }))
   .handler(async ({ input }) => {
@@ -145,6 +196,47 @@ export const recordSignalRoute = os
     const { recordActionSignal } = await import('@/services/ReviewService');
     await recordActionSignal({ orgId, runId: input.runId, signal: input.signal, userId: userId ?? undefined, hint: input.hint });
     return { ok: true };
+  });
+
+/**
+ * Where a run stands, for a surface that must not go stale: still pending, or
+ * decided — and if decided, by whom (resolved to a name) and when. A guided
+ * review open in one window polls this on focus so a lead decided in another
+ * resolves to the outcome instead of offering a decision that no longer exists.
+ */
+export const actionStatusRoute = os
+  .input(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const { db } = await import('@/libs/DB');
+    const { actionRunSchema, userSchema } = await import('@/models/Schema');
+    const { and, eq } = await import('drizzle-orm');
+    const [row] = await db
+      .select({
+        status: actionRunSchema.status,
+        decidedBy: actionRunSchema.decidedBy,
+        decidedAt: actionRunSchema.decidedAt,
+        regeneratingSince: actionRunSchema.regeneratingSince,
+        regenerateNote: actionRunSchema.regenerateNote,
+        name: userSchema.name,
+        email: userSchema.email,
+      })
+      .from(actionRunSchema)
+      .leftJoin(userSchema, eq(userSchema.id, actionRunSchema.decidedBy))
+      .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
+      .limit(1);
+    if (!row) {
+      throw ApiError.notFound(`no action ${input.id}`);
+    }
+    return {
+      status: row.status,
+      decidedBy: row.name ?? row.email ?? row.decidedBy,
+      decidedAt: row.decidedAt?.toISOString() ?? null,
+      // The in-flight regeneration stamp, so the card can hold itself
+      // disabled on server truth rather than on the click that started it.
+      regeneratingSince: row.regeneratingSince?.toISOString() ?? null,
+      regenerateNote: row.regenerateNote,
+    };
   });
 
 /** Rewrite-with-AI on a pending draft — returns the rewrite (unsaved) + records a `rewrite` signal. */
@@ -199,6 +291,25 @@ export const decideActionRoute = os
     const { orgId, userId } = await guardAuth();
     const { decide } = await import('@/services/ReviewService');
 
+    // A run mid-regeneration cannot be decided: an approve would execute the
+    // stale copy, and the re-propose landing moments later would duplicate
+    // the card. The guard expires with the stamp's staleness window, so a
+    // wedged regeneration never locks the run for good.
+    {
+      const { db } = await import('@/libs/DB');
+      const { actionRunSchema } = await import('@/models/Schema');
+      const { and, eq } = await import('drizzle-orm');
+      const { isRegeneratingFresh } = await import('@/libs/actions/regenerating');
+      const [run] = await db
+        .select({ regeneratingSince: actionRunSchema.regeneratingSince })
+        .from(actionRunSchema)
+        .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
+        .limit(1);
+      if (run && isRegeneratingFresh(run.regeneratingSince)) {
+        throw ApiError.badRequest('This card is being regenerated — it re-enables when the new version lands.');
+      }
+    }
+
     // Typed-content edit-then-approve: the ACTION owns the mapping from card
     // content back to its input, so the client never reverse-engineers input
     // shapes. The mapped input is re-validated in ActionService like any edit.
@@ -225,6 +336,89 @@ export const decideActionRoute = os
       reviewedBy: userId,
       editedInput: input.decision === 'approve' ? editedInput : undefined,
     });
+    return { ok: true };
+  });
+
+/**
+ * Regenerate a pending action's work, guided by the reviewer's feedback. Only
+ * actions that declare the `regenerate` capability accept it; the action owns
+ * what regenerating means for its domain (personalization.enroll sends the
+ * brief back to be researched and drafted again). The run stays pending — the
+ * next pass updates the same queue item through the dedup key — and the
+ * feedback is recorded as a `regenerate` learning signal, so the same text
+ * improves the very next pass immediately while the learning loop distills
+ * the durable rule.
+ */
+export const regenerateActionRoute = os
+  .input(z.object({
+    id: z.number().int().positive(),
+    /** What should change. Required: a regeneration without instructions is a coin flip. */
+    feedback: z.string().trim().min(1).max(2000),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { db } = await import('@/libs/DB');
+    const { actionRunSchema } = await import('@/models/Schema');
+    const { and, eq } = await import('drizzle-orm');
+    const { getAction } = await import('@/libs/actions/registry');
+    const { isRegeneratingFresh } = await import('@/libs/actions/regenerating');
+    const [run] = await db
+      .select({
+        actionId: actionRunSchema.actionId,
+        input: actionRunSchema.input,
+        status: actionRunSchema.status,
+        regeneratingSince: actionRunSchema.regeneratingSince,
+      })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
+      .limit(1);
+    if (!run || run.status !== 'pending') {
+      throw ApiError.notFound(`no pending action ${input.id}`);
+    }
+    const action = getAction(run.actionId);
+    if (!action?.regenerate) {
+      throw ApiError.badRequest(`${run.actionId} does not support regeneration`);
+    }
+    // One regeneration at a time: a second click while the stamp is fresh is
+    // a double-fire, refused. The stamp expiring on its own means a wedged
+    // run costs one staleness window, never the card.
+    if (isRegeneratingFresh(run.regeneratingSince)) {
+      throw ApiError.badRequest('This card is already regenerating — it re-enables when the new version lands.');
+    }
+
+    // Server truth first: every surface reads the stamp, so the card is
+    // disabled everywhere before any work runs.
+    await db
+      .update(actionRunSchema)
+      .set({ regeneratingSince: new Date(), regenerateNote: input.feedback })
+      .where(eq(actionRunSchema.id, input.id));
+
+    // The work dispatches in the background — the fast path is a model turn
+    // and the fallback a whole agent pass; the reviewer's click must not hold
+    // the request open for either. A dispatch failure unstamps, so the card
+    // re-enables instead of waiting out the staleness window.
+    const dispatch = action.regenerate(
+      { orgId, reviewedBy: userId ?? undefined },
+      run.input as never,
+      input.id,
+      input.feedback,
+    ).catch(async (err) => {
+      logger.warn('regenerate dispatch failed — clearing the stamp', { runId: input.id, orgId, error: err instanceof Error ? err.message : String(err) });
+      await db
+        .update(actionRunSchema)
+        .set({ regeneratingSince: null })
+        .where(eq(actionRunSchema.id, input.id))
+        .catch(() => {});
+    });
+    // Next's request context must survive the work: `after` keeps the promise
+    // alive past the response without holding the response for it.
+    const { after } = await import('next/server');
+    after(dispatch);
+
+    // The feedback is a learning signal with the full existing pipeline behind
+    // it: feedback job, classifier, duplicate detection, learning candidate.
+    const { recordActionSignal } = await import('@/services/ReviewService');
+    await recordActionSignal({ orgId, runId: input.id, signal: 'regenerate', userId: userId ?? undefined, hint: input.feedback });
     return { ok: true };
   });
 
@@ -290,7 +484,19 @@ export const resume = os
   .input(ResumeInput)
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
-    const run = await resumeWorkflow(input.id, orgId, input.input !== undefined ? { input: input.input } : undefined);
+    let run: WorkflowRunSummary;
+    try {
+      run = await resumeWorkflow(input.id, orgId, input.input !== undefined ? { input: input.input } : undefined);
+    } catch (err) {
+      if (err instanceof WorkflowRunNotResumableError) {
+        // Someone else's click, or a stale page, got there first. The
+        // reply deliberately omits the run id and the raw status, so this
+        // log line is the only place that detail survives.
+        logger.warn('workflow resume lost the claim race or the run moved on', { runId: input.id, orgId, reason: err.message });
+        throw new ORPCError('CONFLICT', { message: 'This run is no longer resumable — someone may have already approved it, or it has moved on.' });
+      }
+      throw err;
+    }
     void trackReviewDecision({ orgId, userId }, { kind: 'workflow', id: input.id }, 'approved');
     return run;
   });

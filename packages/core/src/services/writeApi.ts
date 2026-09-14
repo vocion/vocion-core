@@ -101,6 +101,13 @@ export type ListReviewsInput = {
   /** A user id for a per-person queue, or the literal `"unassigned"` for the triage queue. */
   assignedTo?: string;
   kind?: string;
+  /**
+   * Registered action ids to narrow the ACTION plane to
+   * (`personalization.enroll`, `hubspot.update`, …). `kind` is the plane; this
+   * is the card type inside it, and a queue of 557 pending items can be 557
+   * rows of one plane.
+   */
+  actionIds?: string[];
   includeSnoozed?: boolean;
   limit?: number;
   offset?: number;
@@ -120,10 +127,21 @@ export async function apiListReviews(caller: ApiCaller, opts: ListReviewsInput =
       ? undefined
       : (opts.assignedTo === 'unassigned' ? null : opts.assignedTo),
     kind: opts.kind as ReviewKind | undefined,
+    actionIds: opts.actionIds,
     includeSnoozed: opts.includeSnoozed,
     limit: opts.limit,
     offset: opts.offset,
   });
+}
+
+/**
+ * The card types pending for the caller's org, each with its real count and
+ * registered display name — what a client builds a type filter from without
+ * hardcoding the list.
+ * @param caller
+ */
+export async function apiListReviewTypes(caller: ApiCaller) {
+  return ReviewService.pendingActionTypes(caller.orgId);
 }
 
 /**
@@ -265,7 +283,7 @@ export async function apiSnoozeReview(
   return { ok: true, reviews };
 }
 
-const ACTION_SIGNALS: ReviewService.ActionSignal[] = ['approve', 'edit', 'reject', 'skip', 'save', 'rewrite'];
+const ACTION_SIGNALS: ReviewService.ActionSignal[] = ['approve', 'edit', 'reject', 'skip', 'save', 'rewrite', 'regenerate'];
 
 export type SignalInput = { id: number; signal: string; hint?: string };
 
@@ -364,7 +382,9 @@ export async function apiProposeReview(caller: ApiCaller, input: ProposeInput) {
       input: input.input,
       principal: { kind: 'agent', id: agentId, scope: { orgId: caller.orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: caller.actorId,
-      proposal: { confidence: input.confidence, rationale: input.rationale },
+      // `invokedBy` below is the API caller, so the agent it acted for has to
+      // travel in the envelope or the action ends up attributed to nobody.
+      proposal: { confidence: input.confidence, rationale: input.rationale, agentSlug: input.agentSlug },
       dedupKey: input.dedupKey,
       expiresAt: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * DAY_IN_MS) : undefined,
     });

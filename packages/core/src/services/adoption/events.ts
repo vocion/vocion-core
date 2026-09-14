@@ -18,6 +18,20 @@ import { z } from 'zod';
 
 export const runKind = z.enum(['skill', 'workflow', 'mission', 'action']);
 export const feedbackRating = z.enum(['up', 'down']);
+/** Whether a proposed rule asks the agent to change or to keep doing something. */
+export const learningPolarity = z.enum(['correct', 'reinforce']);
+
+/**
+ * How far out a snooze pushed an item, bucketed. Buckets rather than a
+ * timestamp because adoption metadata stays enums-and-counts only, and
+ * because the question a reader has is "briefly or indefinitely?", not
+ * "which minute?". Bounds are inclusive at the top (`up_to_1d` means "one day
+ * or less") so the UI's own presets — tomorrow, 3 days, next week — each land
+ * in one bucket every time instead of tipping into the next on the
+ * milliseconds between the click and the write.
+ */
+export const snoozeHorizon = z.enum(['under_4h', 'up_to_1d', 'up_to_1w', 'over_1w']);
+export type SnoozeHorizon = z.infer<typeof snoozeHorizon>;
 
 type EventSpec = {
   /** True when the event is agent-attributable — callers should pass `agentSlug`. */
@@ -44,15 +58,18 @@ export const ADOPTION_EVENTS = {
    * One event for every HITL approval surface; the run kind travels in
    * metadata. `decision` is the TYPED triage signal — approve/edit/reject are
    * terminal; skip/save leave the item pending; rewrite = the human asked AI
-   * to redo the draft (a strong tone/quality signal). These feed confidence +
-   * alignment scoring and the per-user tone prompt. `hint` carries a rewrite
-   * instruction ("shorter", "warmer") when present.
+   * to redo one draft's wording (a strong tone/quality signal); regenerated =
+   * the human sent the whole work back to be done again, with instructions —
+   * kept distinct from rewritten so the metrics can tell a tone touch-up from
+   * a full re-do. These feed confidence + alignment scoring and the per-user
+   * tone prompt. `hint` carries the rewrite or regenerate instruction
+   * ("shorter", "warmer") when present.
    */
   'review.decided': {
     agent: true,
     meta: z.object({
       kind: runKind,
-      decision: z.enum(['approved', 'edited', 'rejected', 'skipped', 'saved', 'rewritten']),
+      decision: z.enum(['approved', 'edited', 'rejected', 'skipped', 'saved', 'rewritten', 'regenerated']),
       // Scope dimensions for learnings/tone: the event's userId = individual,
       // orgId = workspace, and actionId = action type. Together they let
       // downstream scoring attribute a signal to a person, an action class, or
@@ -70,7 +87,47 @@ export const ADOPTION_EVENTS = {
       hasNote: z.boolean().optional(),
     }),
   },
+  /**
+   * A human deferred a queued item instead of deciding on it. Deliberately
+   * NOT a `review.decided` decision: a snooze leaves the item pending, so
+   * folding it into the approve/reject ratio would move the approval rate on
+   * an item nobody has judged yet. Counted on its own so a run of snoozes on
+   * one agent reads as "these suggestions are not worth acting on now".
+   */
+  'review.snoozed': {
+    agent: true,
+    meta: z.object({
+      kind: runKind,
+      deferredFor: snoozeHorizon,
+    }),
+  },
   'learning.added': { agent: true },
+  /**
+   * Feedback proposed a rule nobody had proposed before, so a candidate is
+   * now waiting in the queue. `polarity` says whether the reviewer wanted a
+   * behaviour changed or kept.
+   */
+  'learning.candidate_created': {
+    agent: true,
+    meta: z.object({ polarity: learningPolarity }),
+  },
+  /**
+   * Feedback restated a rule that was already pending or already adopted. No
+   * candidate was created; the existing row's occurrence count went up. These
+   * events are how "five people keep asking for this" becomes visible.
+   */
+  'learning.candidate_duplicate': {
+    agent: true,
+    meta: z.object({
+      polarity: learningPolarity,
+      matchedKind: z.enum(['candidate', 'learning']),
+    }),
+  },
+  /** A person adopted or rejected a candidate. Both outcomes are signal. */
+  'learning.candidate_decided': {
+    agent: true,
+    meta: z.object({ decision: z.enum(['approved', 'rejected']) }),
+  },
   /**
    * One assessed call = one event, whoever ordered it (scheduled mission
    * check or a chat turn). The drill-down pointer to the ledger:

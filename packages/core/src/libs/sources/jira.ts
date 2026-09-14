@@ -29,7 +29,9 @@
 
 import type { SourceConnector, SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
+import { Buffer } from 'node:buffer';
 import { z } from 'zod';
+import { fetchRetryingRateLimits } from '@/libs/http/retryAfter';
 
 const jiraConfigSchema = z.object({
   /** Site base URL, e.g. `https://acme.atlassian.net`. */
@@ -69,11 +71,10 @@ type JiraIssue = {
 };
 type JiraSearchPage = { issues?: JiraIssue[]; nextPageToken?: string; isLast?: boolean };
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/** Quote a value for JQL, escaping backslashes and double quotes. */
+/**
+ * Quote a value for JQL, escaping backslashes and double quotes.
+ * @param value
+ */
 function jqlQuote(value: string): string {
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', String.raw`\"`)}"`;
 }
@@ -107,6 +108,11 @@ export function adfToText(node: AdfNode | null | undefined): string {
  * window, plus any `notDoneStatuses` regardless of age (they're done-category
  * but semantically still open).
  * @param opts - Project scope + window config and the incremental watermark.
+ * @param opts.projectKeys
+ * @param opts.since
+ * @param opts.doneWindowDays
+ * @param opts.notDoneStatuses
+ * @param opts.now
  */
 export function buildJql(opts: {
   projectKeys: string[];
@@ -129,30 +135,23 @@ export function buildJql(opts: {
 
 /**
  * Fetch with Jira-appropriate failure handling: exact `Retry-After` on 429
- * (retrying early extends the penalty), and an actionable error on 401/403 —
- * the admin must reconnect, no amount of retrying helps.
+ * (retrying early extends the penalty, so the shared helper honours the wait
+ * Jira asked for), and an actionable error on 401/403 — the admin must
+ * reconnect, no amount of retrying helps.
+ * @param url
+ * @param init
  */
 async function jiraFetch(url: string, init: RequestInit): Promise<Response> {
-  for (let attempt = 0; ; attempt += 1) {
-    const res = await fetch(url, init);
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(
-        `Jira rejected the credentials (${res.status}). The API token may be expired or revoked — reconnect the Jira source with a fresh token from id.atlassian.com.`,
-      );
-    }
-    if (res.status === 429 && attempt < MAX_RETRIES) {
-      const retryAfter = Number(res.headers?.get?.('retry-after'));
-      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-        ? retryAfter * 1000
-        : 2 ** attempt * 1000;
-      await sleep(waitMs);
-      continue;
-    }
-    if (!res.ok) {
-      throw new Error(`Jira request failed: ${res.status} ${await res.text().catch(() => '')}`);
-    }
-    return res;
+  const res = await fetchRetryingRateLimits(url, init, { maxRetries: MAX_RETRIES });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(
+      `Jira rejected the credentials (${res.status}). The API token may be expired or revoked — reconnect the Jira source with a fresh token from id.atlassian.com.`,
+    );
   }
+  if (!res.ok) {
+    throw new Error(`Jira request failed: ${res.status} ${await res.text().catch(() => '')}`);
+  }
+  return res;
 }
 
 function issueToDoc(baseUrl: string, issue: JiraIssue, includeDescription: boolean, notDoneStatuses: string[]): IngestDoc {

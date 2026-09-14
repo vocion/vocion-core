@@ -1,0 +1,51 @@
+slug: credit-approval
+name: Account credit — human decides
+description: >-
+  Money never moves on an agent's judgement. The Credit Desk writes the
+  recommendation; a human approves the amount; only then is the credit
+  recorded on the account.
+agent: escalations-lead
+trigger:
+  type: manual
+inputSchema:
+  type: object
+  properties:
+    accountId:
+      type: string
+      description: CRM id of the account requesting the credit
+    ticketId:
+      type: string
+      description: Ticket the request came in on
+    recommendation:
+      type: string
+      description: The sized recommendation, if the caller already has one
+  required:
+    - accountId
+    - ticketId
+steps:
+  - name: recommendation
+    type: ask
+    prompt: >-
+      Paste the credit recommendation — amount, the policy clause it
+      comes from, what the customer was already told, and the cheaper
+      alternative that was considered.
+    default: '{{input.recommendation}}'
+    outputAs: recommendation
+
+  - name: approve-amount
+    type: approve
+    prompt: >-
+      Approve this credit. Check the amount against the policy cap (10%
+      of monthly fee, 20% with a director), check that the account has
+      had no other goodwill credit this quarter, and check that a refund
+      of a paid invoice has gone to Finance instead.
+    reviews: recommendation
+
+  - name: record-credit
+    type: action
+    action: hubspot.update
+    input:
+      objectType: company
+      objectId: '{{input.accountId}}'
+      properties:
+        support_credit_note: '{{steps.approve-amount.output.body}}'

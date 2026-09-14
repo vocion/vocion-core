@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { loadWorkspace } from './loader';
 
 // Ticket 007 · step 4 — the proving vertical, end to end through the real base
-// pack (packages/core/templates/base). A workspace pins core@2.0.0, activates
+// pack (packages/core/templates/base). A workspace pins core@2.1.0, activates
 // revenue-director + proposal-writer, and their skills come along
 // transitively — with a thin workspace override layered on top.
 
@@ -32,7 +32,7 @@ const bySlug = <T extends { slug: string }>(xs: T[], slug: string) => xs.find(x 
 
 describe('proving vertical — base RevOps agents served from core', () => {
   it('activating both agents serves them from core with their operations pulled transitively', () => {
-    const ws = loadWorkspace(makeWorkspace('extends: core@2.0.0\nuse:\n  agents: [revenue-director, proposal-writer]\n'));
+    const ws = loadWorkspace(makeWorkspace('extends: core@2.1.0\nuse:\n  agents: [revenue-director, proposal-writer]\n'));
 
     const director = bySlug(ws.agents, 'revenue-director');
     const writer = bySlug(ws.agents, 'proposal-writer');
@@ -46,7 +46,7 @@ describe('proving vertical — base RevOps agents served from core', () => {
   });
 
   it('the core skill folder loads with its body', () => {
-    const ws = loadWorkspace(makeWorkspace('extends: core@2.0.0\nuse:\n  agents: [proposal-writer]\n'));
+    const ws = loadWorkspace(makeWorkspace('extends: core@2.1.0\nuse:\n  agents: [proposal-writer]\n'));
 
     const brief = bySlug(ws.skills, 'proposal-brief');
 
@@ -55,7 +55,7 @@ describe('proving vertical — base RevOps agents served from core', () => {
   });
 
   it('activating only the director does not pull the writer or its operation', () => {
-    const ws = loadWorkspace(makeWorkspace('extends: core@2.0.0\nuse:\n  agents: [revenue-director]\n'));
+    const ws = loadWorkspace(makeWorkspace('extends: core@2.1.0\nuse:\n  agents: [revenue-director]\n'));
 
     expect(bySlug(ws.agents, 'proposal-writer')).toBeUndefined();
     expect(bySlug(ws.skills, 'proposal-brief')).toBeUndefined();
@@ -64,7 +64,7 @@ describe('proving vertical — base RevOps agents served from core', () => {
 
   it('a thin workspace override layers on top (origin: merged) and the hierarchy still resolves', () => {
     const ws = loadWorkspace(makeWorkspace(
-      'extends: core@2.0.0\nuse:\n  agents: [revenue-director, proposal-writer]\n',
+      'extends: core@2.1.0\nuse:\n  agents: [revenue-director, proposal-writer]\n',
       { 'agents/proposal-writer.yaml': 'extends: core\nslug: proposal-writer\nname: Proposal Writer (Acme voice)\nsystemPrompt: Acme-specific proposal guidance.\n' },
     ));
 

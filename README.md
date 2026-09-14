@@ -6,6 +6,26 @@ Context as code. Skills as plugins. Review surfaces built in.
 
 **New here?** [**Getting started — build an agent workforce from zero**](./docs/getting-started.md) walks you from an empty directory to a working workforce, one file type at a time. No code required.
 
+## Who this is for
+
+**An engineer or tech lead putting a team of agents into production.** You have prototyped agents
+and now need the operating layer: approval gates a person actually sees, an audit trail from an
+output back to the prompt that produced it, connectors to the systems the work lives in, and a
+way to change an agent's behavior through a reviewed pull request instead of a text box. Start
+with [`docs/getting-started.md`](./docs/getting-started.md), then
+[`docs/workspace.md`](./docs/workspace.md).
+
+**A coding agent asked to set Vocion up for a company.** Read
+[`AGENTS.md`](./AGENTS.md) first. It carries the verified setup commands, the directory paths for
+every entity type, how to add an agent, a skill, and an approval gate, how to run lint,
+type-check, and tests, and an explicit list of what not to touch. Machine-readable index:
+[`llms.txt`](./llms.txt).
+
+**When not to use it.** If you want a single chatbot, a one-off script, or a hosted no-code
+builder, Vocion is more machinery than you need. It assumes you run Postgres, you keep
+configuration in git, and you want a human in the loop on actions that matter. `@vocion/core` is
+not published to npm — you install it by cloning this repository and running it yourself.
+
 ## What this is
 
 Vocion is a Next.js app + Postgres schema + MCP server + workflow runner. You author your work — **Sources, Objects, Skills, Playbooks, Workflows, Missions, Automations, Agents, and Teams** — as YAML + markdown in git, apply it to the database, and get a typed runtime with a unified human-review queue, observability, and a plugin ecosystem.
@@ -16,6 +36,7 @@ It's built for the part most agent frameworks skip — **operating** AI in produ
 - **Connect the real systems** — a built-in connector pack (Google Ads, GA4, HubSpot, Gmail, Slack, Google Drive) on a durable, incremental, **client-scoped** ingestion pipeline.
 - **A multi-tenant control plane** — tenant Bearer tokens that resolve to a permission principal, a **write API** (drive the review queue over REST), and **MCP over HTTP** (the agent/tool plane) — every mutation, token or human, routed through one authorization model.
 - **Safe by construction** — discovery-vs-mutation permissions, an autonomy ladder with approval gates, and cross-client isolation enforced at the query, not the prompt.
+- **Run the agent loop where you want it** — in this app's process, in our own container on AWS Bedrock AgentCore Runtime, or handed over to AWS's managed harness. One setting, `harness.runsOn`, and the same agent behaves the same way across the first two. [Where an agent turn runs](./docs/agent-execution.md) explains the three, and which AWS account ends up paying for the tokens.
 
 ## Layered architecture
 
@@ -42,6 +63,7 @@ Everything you author lives in a **workspace** — a git-backed directory of YAM
 | **[Skill](./docs/entities/skill.md)** | `skills/<slug>/SKILL.md` | Frontmatter + markdown procedure, read on the model's judgement |
 | **[Playbook](./docs/entities/playbook.md)** | `playbooks/<slug>/SKILL.md` | Standing context attached to a skill or an agent by name |
 | **[Mission](./docs/entities/mission.md)** | `missions/<slug>.yaml` | Standing responsibility: goal, success criteria, autonomy level |
+| **[Worker run](./docs/entities/worker-run.md)** | created by the API or by an agent with `harness.runsOn: external-worker` | A long-running run executed outside the app; Vocion leases, heartbeats, budgets and reaps it (ADR 0004) |
 | **[Workflow](./docs/entities/workflow.md)** | `workflows/<slug>/workflow.yaml` | Deterministic steps with approve / ask gates |
 | **[Automation](./docs/entities/automation.md)** | `automations/<slug>.yaml` | The only place time and events live: `when` → `do` |
 | **[Object type](./docs/entities/object-type.md)** | `objects/<slug>/type.yaml` | Business entity (Account, Deal, …) with source weights + classification prompt |
@@ -96,7 +118,9 @@ npm install
 
 # 2. Configure env
 cp packages/core/.env.example packages/core/.env.local
-# Edit .env.local — at minimum set DATABASE_URL, Clerk keys, and one LLM provider key.
+# Edit .env.local — at minimum set DATABASE_URL, AUTH_SECRET, and one LLM provider key.
+# AUTH_SECRET signs Auth.js sessions; generate one with `openssl rand -base64 32`.
+# There is no third-party auth service to sign up for.
 # That provider key is the fallback: a workspace that stores its own is billed on
 # its own account instead. See "API credentials" below.
 
@@ -157,7 +181,7 @@ Credentials travel in both directions, and both live under **Dashboard → API c
 
 Supplied keys never carry a Vocion-side expiry — the vendor that issued the key owns its lifetime. Revoking or replacing is how one ends.
 
-Encryption at rest is configured by `VOCION_CREDENTIAL_VAULT`: `local` wraps the per-org key with `VOCION_CREDENTIAL_VAULT_KEY`, which puts the wrapping key and the wrapped key in the same database and is only appropriate for development; `kms` wraps it with AWS KMS under `VOCION_KMS_KEY_ARN`, which is what any install holding real customer keys should run.
+Encryption at rest is configured by `VOCION_CREDENTIAL_VAULT`: `local` wraps the per-org key with `VOCION_CREDENTIAL_VAULT_KEY`, which puts the wrapping key and the wrapped key in the same database and is only appropriate for development; `kms` wraps it with AWS KMS under `VOCION_KMS_KEY_ARN`, which is what any install holding real customer keys should run. On `local`, `VOCION_CREDENTIAL_VAULT_KEY` is mandatory whenever `NODE_ENV=production`: leaving it unset there makes every credential read and write throw, because the development fallback mints a fresh key per process and every credential saved under the last one becomes permanently unreadable. The app still starts — no code builds a vault at boot — so the failure appears on the first request that touches a credential.
 
 ## Retrieval
 
@@ -167,11 +191,13 @@ Native first-party. pgvector (HNSW cosine) + Postgres FTS (GIN tsvector) with re
 
 - **Framework:** Next.js 16 (App Router), React 19, TypeScript strict
 - **Database:** PostgreSQL 16 + Drizzle ORM
-- **Auth:** Clerk (multi-tenant, RBAC via Clerk organizations)
+- **Auth:** Auth.js / NextAuth v5 (`next-auth` + `@auth/drizzle-adapter`) — first-party tenancy, sessions carry `projectId`, RBAC via account/project membership
 - **LLM:** OpenAI, Anthropic — swappable per skill via the `provider` field
 - **Retrieval:** pgvector + Postgres FTS, RRF hybrid, optional LLM rerank (first-party)
 - **Observability:** Langfuse (LLM traces), OpenTelemetry (spans + metrics)
 - **Workflows:** in-process durable step runner on Postgres
+- **Chat surfaces:** mention an agent in Slack and it replies in the thread; bindings map a channel to an agent, the review queue stays the only place anything is approved (feature flag `VOCION_SLACK_EVENTS=1`; [guide](./docs/guides/slack.md))
+- **External workers:** hours-long runs outside the app — a `worker_run` control plane with leases, heartbeats, per-run cost and a reaper (feature flag `VOCION_EXTERNAL_WORKERS=1`; [ADR 0004](./docs/adr/0004-external-worker-provider.md))
 
 ## Repo layout
 
@@ -210,6 +236,8 @@ grant trademark rights.
 ## Docs
 
 - [`docs/getting-started.md`](./docs/getting-started.md) — **start here**: zero to a working agent workforce, with an example of every entity type
+- [`AGENTS.md`](./AGENTS.md) — setup and conventions written for a coding agent working in this repo
+- [`llms.txt`](./llms.txt) — machine-readable index of this repo's public docs
 - [`docs/README.md`](./docs/README.md) — docs index
 - [`docs/workspace.md`](./docs/workspace.md) — workspace-as-code: create, author, apply, base packs, commands
 - [`docs/entities/`](./docs/entities/) — one page per authored entity type, field by field

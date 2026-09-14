@@ -157,6 +157,19 @@ export type AgentEvent
     | { type: 'recommended_action'; recommendation: RecommendedActionPayload }
     | TraceNodeEvent
     | { type: 'hitl_gate'; gate: HitlGatePayload }
+    /**
+     * One tool call failed, reported by the BYOA artifact. Unlike `error` the
+     * turn continues: the model is handed the failure as that tool's output
+     * and can react to it.
+     *
+     * It exists because that output text was the only signal, and nothing
+     * obliges a model to relay it — so an unreachable tool endpoint reads as a
+     * confident, ungrounded answer rather than a broken deployment. The usual
+     * cause is a `VOCION_TOOL_ENDPOINT_URL` that AWS cannot reach, where every
+     * tool fails identically. The runtime provider logs it, so that case stays
+     * diagnosable without depending on the model's cooperation.
+     */
+    | { type: 'tool_error'; tool: string; message: string; status?: number }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
     /**

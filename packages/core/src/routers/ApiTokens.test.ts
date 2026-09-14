@@ -26,6 +26,7 @@ const { guardAuth } = await import('./AuthGuards');
 const { sourceDekSchema } = await import('@/models/Schema');
 const { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } = await import('./ApiTokens');
 const { issueToken } = await import('@/services/ApiTokenService');
+const { resetCredentialVault } = await import('@/libs/crypto/credentialVault');
 
 const ORG = 'org_router_test';
 
@@ -91,6 +92,21 @@ describe('apiTokens routes', () => {
     expect(JSON.stringify(listed)).not.toContain((created as any).token);
   });
 
+  it('hides revoked rows unless the caller asks for them', async () => {
+    signedInAs('admin');
+    const live = await issueToken({ orgId: ORG, name: 'live' });
+    const retired = await issueToken({ orgId: ORG, name: 'retired' });
+    await call(revokeTokenRoute, { tokenId: retired.id });
+
+    const listed = (await call(listTokensRoute, { includeRevoked: false })) as any[];
+
+    expect(listed.map(row => row.id)).toEqual([live.id]);
+
+    const audited = (await call(listTokensRoute, { includeRevoked: true })) as any[];
+
+    expect(audited.map(row => row.id).sort()).toEqual([live.id, retired.id].sort());
+  });
+
   it('refuses a member on every route', async () => {
     signedInAs('member');
 
@@ -148,9 +164,11 @@ describe('apiTokens routes', () => {
     await call(revokeTokenRoute, { tokenId: theirs.id });
     await call(revokeTokenRoute, { tokenId: mine.id });
 
-    const rows = (await call(listTokensRoute, undefined)) as any[];
+    const rows = (await call(listTokensRoute, { includeRevoked: true })) as any[];
 
     expect(rows.find(r => r.id === mine.id).revokedAt).not.toBeNull();
+    // And the default list, the one the dashboard asks for, no longer carries it.
+    expect((await call(listTokensRoute, undefined)) as any[]).toEqual([]);
 
     const { verifyToken } = await import('@/services/ApiTokenService');
 
@@ -392,7 +410,7 @@ describe('revealPlatformKey', () => {
     expect(revealed).toEqual({ status: 'minted' });
   });
 
-  it('replaces a ciphertext that will not open with a message that says nothing', async () => {
+  it('tells the admin which key the vault wanted when a ciphertext will not open', async () => {
     signedInAs('admin');
     const created = await call<{ id: string; token: string }>(createTokenRoute, { name: 'panel', expiresAt: null });
     await db
@@ -400,11 +418,12 @@ describe('revealPlatformKey', () => {
       .set({ authTag: Buffer.from('not the right tag').toString('base64') })
       .where(eq(apiTokenSchema.id, created.id));
 
-    // The decrypt error can name the vault and the key, so the admin gets a
-    // flat sentence and the detail goes to the log instead.
+    // The vault wrote this message for this moment: it names the env var and
+    // the next step, and knowing them is the difference between fixing it and
+    // reading container logs.
     await expect(call(revealPlatformKeyRoute, { tokenId: created.id }))
       .rejects
-      .toThrow('Could not read that key.');
+      .toThrow(/VOCION_CREDENTIAL_VAULT_KEY/);
   });
 
   it('refuses to reveal a token to somebody who is not an admin', async () => {
@@ -432,7 +451,7 @@ describe('revealPlatformKey', () => {
     expect(revealed).toEqual({ status: 'ok', values: { apiKey: OPENAI_KEY } });
   });
 
-  it('says nothing about the vault when decryption fails', async () => {
+  it('logs the decryption failure as well as showing it', async () => {
     signedInAs('admin');
     const saved = await call<{ id: string }>(createPlatformKeyRoute, {
       name: 'Acme OpenAI',
@@ -448,12 +467,43 @@ describe('revealPlatformKey', () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
+      // Showing the reason on screen does not excuse the server from recording
+      // it: the log line is what an audit reads later, and it is the only copy
+      // that survives the admin closing the dialog.
       await expect(call(revealPlatformKeyRoute, { tokenId: saved.id }))
         .rejects
-        .toThrow(/could not read that key/i);
+        .toThrow(/could not be decrypted with the current vault key/i);
 
       expect(logged).toHaveBeenCalled();
     } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('keeps saying nothing when the failure is not the vault explaining itself', async () => {
+    signedInAs('admin');
+    const saved = await call<{ id: string }>(createPlatformKeyRoute, {
+      name: 'Acme OpenAI',
+      platform: 'openai',
+      values: { apiKey: OPENAI_KEY },
+    });
+    // A misconfigured vault, not a failed decryption: the error comes out of
+    // the factory, mentions infrastructure, and was written for a log rather
+    // than for a person. That one still gets flattened.
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubEnv('VOCION_CREDENTIAL_VAULT', 'kms');
+    vi.stubEnv('VOCION_KMS_KEY_ARN', '');
+    resetCredentialVault();
+
+    try {
+      await expect(call(revealPlatformKeyRoute, { tokenId: saved.id }))
+        .rejects
+        .toThrow('Could not read that key.');
+
+      expect(logged).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+      resetCredentialVault();
       logged.mockRestore();
     }
   });

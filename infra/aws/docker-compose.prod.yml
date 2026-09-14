@@ -40,9 +40,11 @@ services:
       - vocion
     expose:
       - '3000'
-    # On first boot the app container runs migrations + context:apply
-    # via the bootstrap script before Caddy starts serving. See
-    # infra/aws/bootstrap.sh.
+    # Migrations are applied by infra/aws/apply-migrations.sh, which
+    # bootstrap.sh runs after this stack comes up and update.sh runs
+    # before rolling this container. Neither swallows its exit code.
+    # Workspace content is not seeded by either script — a deployment
+    # mounts its own tree and sets WORKSPACE_PATH. See docs/workspace.md.
 
   worker:
     image: vocion-app:latest

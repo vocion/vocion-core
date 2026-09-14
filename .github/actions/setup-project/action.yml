@@ -36,6 +36,6 @@ runs:
       uses: actions/cache/restore@v5
       with:
         path: |
-          .next
+          packages/core/.next
         key: nextjs-build-${{ inputs.node-version }}-${{ github.sha }}
         fail-on-cache-miss: true

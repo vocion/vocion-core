@@ -11,9 +11,11 @@ const {
 } = await import('@/models/Schema');
 const {
   agentSlugFromPrincipal,
+  bucketSnoozeHorizon,
   resolveRunAgentSlug,
   trackReviewDecision,
   trackReviewFeedback,
+  trackReviewSnooze,
 } = await import('./attribution');
 
 const ORG_A = 'proj_attr_a';
@@ -121,6 +123,103 @@ describe('trackReviewDecision / trackReviewFeedback', () => {
       { orgId: ORG_A, userId: 'usr-1' },
       { kind: 'action', id: 999_999 },
       'rejected',
+    );
+    const events = await db.select().from(userActivityEventSchema);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.agentSlug).toBeNull();
+  });
+});
+
+describe('bucketSnoozeHorizon', () => {
+  const now = new Date('2026-03-01T12:00:00.000Z');
+  const plus = (ms: number) => new Date(now.getTime() + ms);
+  const HOUR = 60 * 60 * 1000;
+  const DAY = 24 * HOUR;
+
+  it('buckets each horizon by how far out the item was pushed', () => {
+    expect(bucketSnoozeHorizon(plus(30 * 60 * 1000), now)).toBe('under_4h');
+    expect(bucketSnoozeHorizon(plus(6 * HOUR), now)).toBe('up_to_1d');
+    expect(bucketSnoozeHorizon(plus(3 * DAY), now)).toBe('up_to_1w');
+    expect(bucketSnoozeHorizon(plus(30 * DAY), now)).toBe('over_1w');
+  });
+
+  it('keeps the UI presets on the inclusive side of each bound', () => {
+    // Tomorrow, 3 days, next week — the three buttons the review card offers.
+    expect(bucketSnoozeHorizon(plus(DAY), now)).toBe('up_to_1d');
+    expect(bucketSnoozeHorizon(plus(3 * DAY), now)).toBe('up_to_1w');
+    expect(bucketSnoozeHorizon(plus(7 * DAY), now)).toBe('up_to_1w');
+    // And a hair past a bound falls into the next bucket.
+    expect(bucketSnoozeHorizon(plus(DAY + 1), now)).toBe('up_to_1w');
+    expect(bucketSnoozeHorizon(plus(7 * DAY + 1), now)).toBe('over_1w');
+    expect(bucketSnoozeHorizon(plus(4 * HOUR), now)).toBe('up_to_1d');
+  });
+
+  it('treats a past or present snooze as the shortest horizon rather than failing', () => {
+    expect(bucketSnoozeHorizon(now, now)).toBe('under_4h');
+    expect(bucketSnoozeHorizon(plus(-DAY), now)).toBe('under_4h');
+  });
+});
+
+describe('trackReviewSnooze', () => {
+  it('records an agent-attributed deferral with kind and bucketed horizon', async () => {
+    const [run] = await db
+      .insert(actionRunSchema)
+      .values({ orgId: ORG_A, actionId: 'gmail.send', invokedBy: 'agent:outreach-drafter' })
+      .returning({ id: actionRunSchema.id });
+
+    await trackReviewSnooze(
+      { orgId: ORG_A, userId: 'usr-reviewer' },
+      { kind: 'action', id: run!.id },
+      new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+    );
+
+    const events = await db.select().from(userActivityEventSchema);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      orgId: ORG_A,
+      userId: 'usr-reviewer',
+      agentSlug: 'outreach-drafter',
+      eventType: 'review.snoozed',
+      resourceType: 'action_run',
+      resourceId: String(run!.id),
+      metadata: { kind: 'action', deferredFor: 'up_to_1w' },
+    });
+  });
+
+  it('records one event per deferral instead of overwriting the last one', async () => {
+    const [run] = await db
+      .insert(missionRunSchema)
+      .values({ orgId: ORG_A, title: 't', brief: 'b', team: { lead: 'revenue-lead', members: [] } })
+      .returning({ id: missionRunSchema.id });
+    const item = { kind: 'mission' as const, id: run!.id };
+
+    await trackReviewSnooze({ orgId: ORG_A, userId: 'usr-1' }, item, new Date(Date.now() + 60_000));
+    await trackReviewSnooze({ orgId: ORG_A, userId: 'usr-1' }, item, new Date(Date.now() + 30 * 86_400_000));
+
+    const events = await db.select().from(userActivityEventSchema);
+
+    expect(events).toHaveLength(2);
+    expect(events.map(e => (e.metadata as { deferredFor: string }).deferredFor)).toEqual(['under_4h', 'over_1w']);
+    expect(events.every(e => e.agentSlug === 'revenue-lead')).toBe(true);
+  });
+
+  it('drops the event for a system actor, since adoption measures humans', async () => {
+    await trackReviewSnooze(
+      { orgId: ORG_A, userId: 'web' },
+      { kind: 'workflow', id: 1 },
+      new Date(Date.now() + 60_000),
+    );
+
+    expect(await db.select().from(userActivityEventSchema)).toHaveLength(0);
+  });
+
+  it('leaves agentSlug null rather than guessing, and never throws', async () => {
+    await trackReviewSnooze(
+      { orgId: ORG_A, userId: 'usr-1' },
+      { kind: 'action', id: 999_999 },
+      new Date(Date.now() + 60_000),
     );
     const events = await db.select().from(userActivityEventSchema);
 

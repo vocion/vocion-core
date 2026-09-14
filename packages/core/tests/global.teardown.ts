@@ -1,6 +1,6 @@
 import { test as teardown } from '@playwright/test';
-import { deleteUserWithOrganization } from './TestUtils';
+import { deleteAdminUser } from './TestUtils';
 
-teardown('Remove the user created in test mode', async () => {
-  await deleteUserWithOrganization();
+teardown('Remove the user created for the run', () => {
+  deleteAdminUser();
 });

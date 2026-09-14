@@ -85,7 +85,7 @@ Tags: **[NEW]** net-new · **[REFACTOR]** upgrade of something you have · **[PA
 
 ### Tier 1 — Agent-runtime robustness (highest leverage, all net-new)
 - **[NEW] Loop-control seam — `prepareStep` + `stopWhen` + `activeTools`** (AI SDK). Per-iteration model/tool/context rewriting; composable, testable stop conditions; per-step tool gating. *Vocion:* one deepagents loop, ad-hoc termination, all ~13 tools exposed every turn. *Payoff:* model escalation, cost control, tool-selection accuracy as data, not forked code. Seam: `services/agents/harness.ts`, `AgentService.ts` (`runAgentDeep`).
-- **[NEW] Context compaction** — `pruneMessages` (AI SDK) / `compaction.thresholdPercent` (Eve). *Vocion:* **none** (only `fetchUrl.ts` output truncation). *Payoff:* fixes long-run context bloat → cost/latency/quality collapse.
+- **[NEW] Context compaction** — `pruneMessages` (AI SDK) / `compaction.thresholdPercent` (Eve). *Vocion:* **none** — `fetchUrl.ts` returns whole pages uncapped as of VEERIO-258, so there is no per-tool cap standing in for this either. *Payoff:* fixes long-run context bloat → cost/latency/quality collapse.
 - **[NEW] Tool-call repair** — `experimental_repairToolCall` (AI SDK). Re-ask/coerce on invalid tool calls instead of killing the turn. *Payoff:* fewer dead turns across 13 structured-arg tools.
 - **[NEW] Mid-turn message injection** (WDK step-boundary drain). Interrupt-and-redirect a running agent. *Vocion:* `interrupts` are HITL gates only, not injection. *Payoff:* hard-to-retrofit UX; reserve a step-boundary injection point now.
 

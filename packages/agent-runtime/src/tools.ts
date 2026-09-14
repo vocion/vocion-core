@@ -18,6 +18,34 @@ import { tool } from '@langchain/core/tools';
 
 const TOOL_TIMEOUT_MS = Number(process.env.VOCION_TOOL_TIMEOUT_MS ?? 120_000);
 
+/**
+ * Make a failed tool call visible to something other than the model.
+ *
+ * The executor returns the failure as the tool's output, which is right — the
+ * model can then say it could not look something up. But nothing obliges it
+ * to, and the single most common deployment mistake is a tool endpoint AWS
+ * cannot reach, where every tool fails the same way and the agent answers
+ * fluently from the model alone. That reads as a bad model rather than bad
+ * configuration.
+ *
+ * So the failure also goes out as a typed `tool_error` event for core to log
+ * and alert on, and to this process's stderr for whoever is reading container
+ * logs. Neither depends on the model's cooperation.
+ * @param emit - This invocation's event sink.
+ * @param toolName - The catalog entry that failed.
+ * @param message - What went wrong, already trimmed for display.
+ * @param status - HTTP status, when the endpoint answered at all.
+ */
+function reportToolFailure(
+  emit: (event: AgentEvent) => void,
+  toolName: string,
+  message: string,
+  status?: number,
+): void {
+  console.error(`[agent-runtime] tool ${toolName} failed: ${message}`);
+  emit({ type: 'tool_error', tool: toolName, message, ...(status === undefined ? {} : { status }) });
+}
+
 export function buildTransportTools(
   spec: InvocationRequest['tools'],
   emit: (event: AgentEvent) => void,
@@ -43,7 +71,9 @@ export function buildTransportTools(
           });
           if (!res.ok) {
             const body = await res.text().catch(() => '');
-            return `Tool error: endpoint returned ${res.status}${body ? ` — ${body.slice(0, 300)}` : ''}`;
+            const detail = `endpoint returned ${res.status}${body ? ` — ${body.slice(0, 300)}` : ''}`;
+            reportToolFailure(emit, entry.name, detail, res.status);
+            return `Tool error: ${detail}`;
           }
           const result = (await res.json()) as ToolCallResult;
           for (const event of result.events ?? []) {
@@ -54,6 +84,7 @@ export function buildTransportTools(
           const message = (err as Error).name === 'AbortError'
             ? `timed out after ${TOOL_TIMEOUT_MS}ms`
             : (err as Error).message;
+          reportToolFailure(emit, entry.name, message);
           return `Tool error: ${message}`;
         } finally {
           clearTimeout(timer);
