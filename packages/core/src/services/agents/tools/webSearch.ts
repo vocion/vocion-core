@@ -10,10 +10,10 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { ProviderNotConfiguredError } from '@/libs/tools/types';
+import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '@/libs/tools/types';
 import { getWebSearchProvider } from '@/libs/tools/websearch/registry';
 
-export function webSearchTool(_ctx: RuntimeContext) {
+export function webSearchTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
       const { query, count } = args;
@@ -24,7 +24,7 @@ export function webSearchTool(_ctx: RuntimeContext) {
         return `Web search is unavailable: ${(err as Error).message}`;
       }
       try {
-        const results = await provider.search(query, { count: count ?? 5 });
+        const results = await provider.search(query, { count: count ?? 5, orgId: ctx.orgId });
         if (results.length === 0) {
           return `No web results for "${query}".`;
         }
@@ -32,6 +32,12 @@ export function webSearchTool(_ctx: RuntimeContext) {
           .map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}${r.publishedAt ? ` · ${r.publishedAt}` : ''}\n   ${r.snippet}`)
           .join('\n\n');
       } catch (err) {
+        if (err instanceof ToolProviderKeyUnavailableError) {
+          // Deliberately not falling through to the server's key: this org may
+          // hold one we simply could not read, and spending the deployment's
+          // account instead would bill the wrong party silently.
+          return `${err.message}. A workspace admin can re-enter it under API credentials.`;
+        }
         if (err instanceof ProviderNotConfiguredError) {
           return `Web search is not configured (${err.message}). Try \`search_knowledge\` for indexed sources instead.`;
         }
