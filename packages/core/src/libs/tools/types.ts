@@ -57,8 +57,14 @@ export class ToolProviderKeyUnavailableError extends Error {
  * `server` — the deployment's env var is in use.
  * `none` — either the provider needs no key at all (the builtin page
  * extractor, the calculator) or nobody has one, which `ready` tells apart.
+ * `unknown` — the credential store could not be read, so whether this
+ * workspace holds a key of its own is genuinely not known. Distinct from
+ * `none` because the call path refuses outright in that state rather than
+ * falling back to the deployment's key, and a page claiming "running on the
+ * Vocion server key" while every search fails is worse than one that admits
+ * it could not check.
  */
-export type CapabilityKeySource = 'workspace' | 'server' | 'none';
+export type CapabilityKeySource = 'workspace' | 'server' | 'none' | 'unknown';
 
 /** Reported to the dashboard Tools catalog so users see provider/key status. */
 export type CapabilityStatus = {

@@ -75,26 +75,39 @@ describe('a capability only the workspace has a key for', () => {
 });
 
 describe('a credential store that is down', () => {
-  it('still reports the server\'s view instead of throwing', async () => {
+  it('says it could not check rather than naming a payer', async () => {
     // These statuses render two dashboard pages from a server component with
-    // no error boundary, so a rejected lookup used to mean a 500 on a page
-    // that has something useful to say either way.
+    // no error boundary, so a rejected lookup must not become a 500 — but it
+    // must not become "on the Vocion server key" either. In this state
+    // `resolveToolProviderKey` refuses the call outright rather than falling
+    // back, so a green badge would contradict every search the workspace runs,
+    // at exactly the moment somebody is trying to find out what is wrong.
     storedToolProviderCredential.mockRejectedValue(new Error('connection refused'));
 
     const status = await statusOf('web_search', 'org_catalog');
 
-    expect(status?.ready).toBe(true);
-    expect(status?.keySource).toBe('server');
+    expect(status?.keySource).toBe('unknown');
+    expect(status?.ready).toBe(false);
   });
 
-  it('says the capability needs a key when the server has none either', async () => {
+  it('says the same thing whether or not the server holds a key', async () => {
+    // The server's key is no consolation here: the call path refuses before it
+    // ever reaches the env var, so the answer cannot depend on it.
     delete process.env.TAVILY_API_KEY;
     storedToolProviderCredential.mockRejectedValue(new Error('connection refused'));
 
     const status = await statusOf('web_search', 'org_catalog');
 
+    expect(status?.keySource).toBe('unknown');
     expect(status?.ready).toBe(false);
-    expect(status?.missingEnv).toEqual(['TAVILY_API_KEY']);
+  });
+
+  it('names no env var, because setting one would not help', async () => {
+    storedToolProviderCredential.mockRejectedValue(new Error('connection refused'));
+
+    const status = await statusOf('web_search', 'org_catalog');
+
+    expect(status?.missingEnv).toEqual([]);
   });
 });
 
