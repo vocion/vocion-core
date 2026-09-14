@@ -424,10 +424,14 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       type: PERSONALIZATION_BRIEF_REGENERATE_REQUESTED,
       payload: { briefId: lead.id, contactRef: result.contactRef, contactName: result.contactName, note: researchReason },
       invokedBy: ctx.reviewedBy ?? ctx.invokedBy ?? 'review',
-      // The subscribed automation runs a whole agent pass; the reviewer's
-      // click must not hold the request open for it. The pass runs after the
-      // response and the card advances at once.
-      dispatchMode: 'background',
+      // INLINE, deliberately. This handler already runs behind the response
+      // (the regenerate route dispatches it via `after`), so holding for the
+      // agent pass costs the reviewer nothing — and 'background' here would
+      // register a NESTED `after` inside an `after` callback, which Next
+      // silently drops: observed on prod 2026-09-14, fire row created, pass
+      // never ran. Callers that emit this event during a live request (the
+      // brief page's regenerate route) keep 'background'.
+      dispatchMode: 'inline',
     });
   },
   // Decline: lane → held, with the decision stamped. The reason lands on the
