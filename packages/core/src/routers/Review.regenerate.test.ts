@@ -268,7 +268,7 @@ describe('decideAction route: the regenerating guard', () => {
 
     const res = await call<{ ok: boolean }>(decideActionRoute, { id: runId, decision: 'approve' });
 
-    expect(res).toEqual({ ok: true });
+    expect(res).toEqual({ ok: true, execution: null });
 
     const { decide } = await import('@/services/ReviewService');
 

@@ -38,6 +38,8 @@ export type ActionRunResult = {
   runId: number;
   status: 'pending' | 'done' | 'failed' | 'rejected';
   result?: Record<string, unknown> | null;
+  /** What went wrong, set only when `status` is `failed`. */
+  error?: string;
 };
 
 /**
@@ -211,9 +213,11 @@ export async function proposeAction(input: {
     throw new ActionError('VALIDATION_FAILED', refusal);
   }
 
-  // Upsert-by-key: a re-surfaced owed action updates its existing PENDING row
+  // Upsert-by-key: a re-surfaced owed action updates its existing OPEN row
   // rather than stacking duplicates in the queue. A still-open card always
-  // wins — it is the one a moderator can still act on.
+  // wins — it is the one a moderator can still act on. `failed` counts as
+  // open now that failed cards stay in the queue for retry: a fresh proposal
+  // supersedes the failed attempt and the card goes back to reviewable.
   //
   // Scoped to this action as well as the key. A caller may pass any
   // `dedupKey` over the API, so two actions can share one; matching on the
@@ -227,13 +231,15 @@ export async function proposeAction(input: {
         eq(actionRunSchema.orgId, input.orgId),
         eq(actionRunSchema.actionId, action.id),
         eq(actionRunSchema.dedupKey, dedupKey),
-        eq(actionRunSchema.status, 'pending'),
+        inArray(actionRunSchema.status, ['pending', 'failed']),
       ))
       .limit(1);
     if (existing) {
       await db
         .update(actionRunSchema)
         .set({
+          status: 'pending',
+          error: null,
           input: parsed as Record<string, unknown>,
           proposal: input.proposal ?? null,
           expiresAt: input.expiresAt ?? null,
@@ -376,12 +382,11 @@ export async function executeAction(
   if (!action) {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${run.actionId}`);
   }
-  // Only a run still awaiting its outcome may execute. `pending` is the review
-  // queue's approve, `approved` is a run the gate let straight through. A run
-  // that is done, failed or rejected has an outcome already, and re-running it
-  // would undo a decision — for an action that keeps a domain record, that
-  // means flipping a rejected record to approved.
-  if (run.status !== 'pending' && run.status !== 'approved') {
+  // `pending` is the review queue's approve, `approved` is a run the gate let
+  // straight through, and `failed` is a standing approval whose execution
+  // threw — retrying it honors the decision rather than overriding one. Only
+  // `done` and `rejected` have real outcomes that a re-run would undo.
+  if (run.status !== 'pending' && run.status !== 'approved' && run.status !== 'failed') {
     throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status} — already decided, cannot execute`);
   }
 
@@ -407,7 +412,7 @@ export async function executeAction(
     }, run.input);
     await db
       .update(actionRunSchema)
-      .set({ status: 'done', result, executedAt: new Date() })
+      .set({ status: 'done', result, error: null, executedAt: new Date() })
       .where(eq(actionRunSchema.id, runId));
     return { runId, status: 'done', result };
   } catch (err) {
@@ -416,7 +421,9 @@ export async function executeAction(
       .update(actionRunSchema)
       .set({ status: 'failed', error: message, executedAt: new Date() })
       .where(eq(actionRunSchema.id, runId));
-    return { runId, status: 'failed', result: null };
+    // The error rides the return so the surface that clicked Approve can SAY
+    // the execution failed — a silent failed row cost three days once.
+    return { runId, status: 'failed', result: null, error: message };
   }
 }
 

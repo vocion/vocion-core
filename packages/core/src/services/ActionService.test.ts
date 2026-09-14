@@ -132,6 +132,48 @@ describe('ActionService gating', () => {
       .toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
+  it('a failed execution returns its error and stays retryable: approve again re-executes', async () => {
+    let attempts = 0;
+    registerAction({
+      id: 'test.flaky',
+      name: 'Flaky write',
+      description: 'test',
+      inputSchema: z.object({ value: z.string() }),
+      grant: 'test_write',
+      external: true,
+      execute: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error('HubSpot said no');
+        }
+        return { attempts };
+      },
+    });
+    const flakyAgent: Principal = { kind: 'agent', id: 'agent:x', grants: ['test_write'], autonomy: 1, scope: { orgId: ORG } };
+    const out = await proposeAction({ orgId: ORG, actionId: 'test.flaky', input: { value: 'x' }, principal: flakyAgent });
+
+    const first = await executeAction(out.runId, ORG, { reviewedBy: 'user-jamie' });
+
+    expect(first).toMatchObject({ status: 'failed', error: 'HubSpot said no' });
+
+    // The approval stands and nothing external happened — retry honours it.
+    const second = await executeAction(out.runId, ORG, { reviewedBy: 'user-jamie' });
+
+    expect(second.status).toBe('done');
+
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, out.runId));
+
+    expect(row).toMatchObject({ status: 'done', error: null });
+  });
+
+  it('a run that is done cannot be executed again', async () => {
+    const out = await proposeAction({ orgId: ORG, actionId: 'test.write', input: { value: 'once' }, principal: agent(1) });
+    await executeAction(out.runId, ORG);
+
+    await expect(executeAction(out.runId, ORG)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    expect(executed).toBe(1);
+  });
+
   it('surfaces a schema violation as a clean ActionError, not a raw ZodError dump', async () => {
     // Before this fix, `proposeAction` let `inputSchema.parse` throw straight
     // through: every caller (the agent's `propose_action` tool, the write
@@ -257,6 +299,25 @@ describe('proposing against an already-decided run', () => {
 
     expect(row!.regeneratingSince).toBeNull();
     expect(row!.regenerateNote).toBeNull();
+  });
+
+  it('a re-propose refreshes a FAILED run back to pending instead of stacking a duplicate card', async () => {
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+    // A failed execution, as the queue now keeps it (visible, retryable).
+    await db
+      .update(actionRunSchema)
+      .set({ status: 'failed', error: 'HubSpot said no' })
+      .where(eq(actionRunSchema.id, first.runId));
+
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate', input: { value: 'open-mic' }, principal: agent(2) });
+
+    expect(second.runId).toBe(first.runId);
+    expect(second.outcome).toBe('refreshed');
+
+    const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, first.runId));
+
+    expect(row).toMatchObject({ status: 'pending', error: null });
+    expect(await db.select().from(actionRunSchema)).toHaveLength(1);
   });
 
   it('creates no second card for a candidate a moderator already rejected', async () => {

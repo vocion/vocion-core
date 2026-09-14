@@ -471,6 +471,29 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       client = resolved.client;
     }
 
+    // HubSpot allows ONE active sequence per contact, and the portal's own
+    // automations race this review flow (observed 2026-09-14: a workflow
+    // auto-enrolled the lead hours before the human approved, and the approved
+    // enrollment bounced with CONTACT_ALREADY_ENROLLED). The reviewed
+    // enrollment wins: unenroll first via the workflow bridge, then enroll.
+    const { readSequenceEnrollmentState, requestUnenroll } = await import('@/libs/hubspot/unenrollBridge');
+    let replacedSequence: { sequenceId: string | null; sequenceName: string | null } | null = null;
+    const enrollmentState = await readSequenceEnrollmentState(client, hubspotId);
+    if (enrollmentState.ok && enrollmentState.data.enrolled) {
+      // Best-effort detail for the result; the sender's library may not see a
+      // foreign enrollment, and the replace proceeds either way.
+      const { getContactEnrollment } = await import('@/libs/hubspot/sequences');
+      const detail = await getContactEnrollment(client, hubspotId, input.hubspotUserId);
+      replacedSequence = {
+        sequenceId: (detail.ok && detail.data.sequenceId) || enrollmentState.data.latestSequenceId,
+        sequenceName: detail.ok ? detail.data.sequenceName ?? null : null,
+      };
+      const unenrolled = await requestUnenroll(client, { contactId: hubspotId });
+      if (!unenrolled.ok) {
+        throw new Error(`Not enrolled: the contact is already in ${replacedSequence.sequenceName ?? `sequence ${replacedSequence.sequenceId ?? '(unknown)'}`} and the unenroll did not complete — ${unenrolled.message}`);
+      }
+    }
+
     // A ladder rung sends whatever the contact's nurture slots hold, so the
     // approved sends go onto the contact FIRST, and a failed write stops the
     // enrollment: an enrolled contact with empty slots receives empty emails.
@@ -539,6 +562,8 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       sendsStagedAsNote: note.ok,
       noteId: note.ok ? note.data.noteId : null,
       ...(note.ok ? {} : { noteError: note.message }),
+      // The sequence this reviewed enrollment displaced, when there was one.
+      replacedSequence,
     };
   },
 };

@@ -31,6 +31,8 @@ export type ReviewCardRun = {
   regeneratingSince?: Date | string | null;
   /** The reviewer's instruction the regeneration is answering. */
   regenerateNote?: string | null;
+  /** What the last execution attempt said, set when `status` is `failed`. */
+  error?: string | null;
 };
 
 /** The run status, as the lane label a reviewer reads. */
@@ -83,12 +85,20 @@ export function ReviewActionCard(props: {
   // row (a reload mid-regeneration shows the same disabled card) and kept
   // current by the status poll below. `since` is an ISO string throughout.
   const [regen, setRegen] = useState<{ since: string; note: string | null } | null>(null);
+  // The last execution failure: seeded from a `failed` run (the queue keeps
+  // failed cards) and set live when an approve's execution comes back failed.
+  // The card stays mounted with the error; Approve becomes Retry.
+  const [execError, setExecError] = useState<string | null>(
+    run.status === 'failed' ? (run.error ?? 'The action failed to execute.') : null,
+  );
 
   // Reset the working copy when the surface moves to another run.
   useEffect(() => {
     setContentEdits({});
     setNote('');
     setSnoozeOpen(false);
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setExecError(run.status === 'failed' ? (run.error ?? 'The action failed to execute.') : null);
     const properties = (run.input.properties ?? {}) as Record<string, unknown>;
     setPropertyEdits(Object.fromEntries(Object.entries(properties).map(([k, v]) => [k, str(v)])));
   }, [run.id]);
@@ -160,13 +170,21 @@ export function ReviewActionCard(props: {
     setBusy(true);
     try {
       const { contentEdits: ce, editedInput } = buildDecision();
-      await client.review.decideAction({
+      const outcome = await client.review.decideAction({
         id: run.id,
         decision,
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(decision === 'approve' && ce ? { contentEdits: ce } : {}),
         ...(decision === 'approve' && editedInput ? { editedInput } : {}),
       });
+      // A failed execution is NOT a completed decision: the card stays with
+      // the error on it and Approve becomes Retry. Dropping it here is how a
+      // failed enrollment once sat invisible for three days.
+      if (decision === 'approve' && outcome.execution?.status === 'failed') {
+        setExecError(outcome.execution.error ?? 'The action failed to execute.');
+        return;
+      }
+      setExecError(null);
       onDecided?.(decision);
     } finally {
       setBusy(false);
@@ -234,13 +252,25 @@ export function ReviewActionCard(props: {
             </p>
           </div>
         )}
+        {execError && (
+          <div className="flex items-start gap-2.5 border-b border-border/60 bg-red-500/10 px-5 py-3" data-testid="execution-failed-banner">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-red-600 dark:text-red-400" aria-hidden />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-red-700 dark:text-red-300">The approval did not go through</p>
+              <p className="mt-0.5 text-[13px] break-words text-muted-foreground">{execError}</p>
+              <p className="mt-0.5 text-[13px] text-muted-foreground">
+                {`Fix the cause if it names one, then ${card.verbs?.approve ?? 'Approve'} again to retry.`}
+              </p>
+            </div>
+          </div>
+        )}
         {/* A · Header — system, lane status + confidence from the RUN, title, subject. */}
         <div className="p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">{card.system ?? run.actionId.split('.')[0]}</span>
               <span className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
-                <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden />
+                <span className={`size-1.5 rounded-full ${run.status === 'failed' ? 'bg-red-500' : 'bg-emerald-500'}`} aria-hidden />
                 {STATUS_LABEL[run.status] ?? run.status}
               </span>
               {run.invokedBy && <span className="text-[11px] text-muted-foreground">{run.invokedBy.replace('agent:', 'proposed by ')}</span>}
@@ -425,7 +455,7 @@ export function ReviewActionCard(props: {
               disabled={held}
             />
           </label>
-          {card.canRegenerate && (
+          {card.canRegenerate && run.status !== 'failed' && (
             <div className="mt-2 flex items-center justify-end gap-2">
               {!regenerating && !note.trim() && <span className="text-[11px] text-muted-foreground">Type feedback to regenerate</span>}
               <Button size="sm" variant="outline" onClick={() => void regenerateRun()} disabled={held || !note.trim()}>
@@ -449,7 +479,7 @@ export function ReviewActionCard(props: {
         </Button>
         <Button className="flex-[1.6]" onClick={() => void decideRun('approve')} disabled={held}>
           {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-          {card.verbs?.approve ?? 'Approve'}
+          {execError ? `Retry ${card.verbs?.approve ?? 'Approve'}` : card.verbs?.approve ?? 'Approve'}
         </Button>
         {snoozeOpen && (
           <div className="absolute right-0 bottom-full z-10 mb-2 flex gap-1 rounded-lg border border-border bg-card p-1.5 shadow-md">

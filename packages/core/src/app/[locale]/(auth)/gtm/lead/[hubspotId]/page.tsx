@@ -72,9 +72,9 @@ export default async function LeadPage(props: {
   }
 
   // The back-linked run, resolved under the SAME predicate the review queue's
-  // pending feed applies: pending and not snoozed shows the card (deciding it
-  // here decides it everywhere); pending but snoozed shows when it returns; a
-  // failed execution is named rather than read as still waiting.
+  // feed applies: pending or failed and not snoozed shows the card (deciding
+  // it here decides it everywhere, and a failed card carries its error with
+  // Approve-as-retry); snoozed shows when it returns.
   const runState: LeadRunState = { run: null, snoozedUntil: null, runFailed: false };
   if (row.reviewActionRunId != null) {
     const now = new Date();
@@ -91,7 +91,7 @@ export default async function LeadPage(props: {
         eq(actionRunSchema.id, row.reviewActionRunId),
       ))
       .limit(1);
-    if (found?.run.status === 'pending') {
+    if (found?.run.status === 'pending' || found?.run.status === 'failed') {
       const snoozed = found.snoozedUntil != null && found.snoozedUntil > now;
       const expired = found.run.expiresAt != null && found.run.expiresAt <= now;
       if (snoozed) {
@@ -116,12 +116,14 @@ export default async function LeadPage(props: {
             // ISO across the server/client boundary, like the dates above.
             regeneratingSince: found.run.regeneratingSince?.toISOString() ?? null,
             regenerateNote: found.run.regenerateNote,
+            error: found.run.error,
             card: { ...card, canRegenerate: action?.regenerate !== undefined },
           } satisfies ReviewCardRun;
+        } else if (found.run.status === 'failed') {
+          // No presenter card to retry through — at least name the failure.
+          runState.runFailed = true;
         }
       }
-    } else if (found?.run.status === 'failed') {
-      runState.runFailed = true;
     }
   }
 
