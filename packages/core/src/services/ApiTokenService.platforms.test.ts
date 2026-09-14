@@ -26,7 +26,9 @@ const {
   storePlatformKey,
   resolvePlatformKey,
   revealPlatformCredential,
+  spendablePlatformKey,
 } = await import('@/services/ApiTokenService');
+const { buildCredentialVault } = await import('@/libs/crypto/credentialVault');
 
 const ORG = 'org_platform_keys';
 const OTHER_ORG = 'org_platform_keys_other';
@@ -176,6 +178,75 @@ describe('resolvePlatformKey', () => {
     await issueToken({ orgId: ORG, name: 'a vocion token' });
 
     expect(await resolvePlatformKey(ORG, 'vocion')).toBeNull();
+  });
+});
+
+describe('spendablePlatformKey', () => {
+  /**
+   * Write a credential document exactly as given, instead of letting
+   * `storePlatformKey` key it by the registry's current field names. That is
+   * what a row written before a field was renamed looks like today.
+   * @param platform - The platform the row belongs to.
+   * @param document - The decrypted document to store verbatim.
+   */
+  async function storeDocumentVerbatim(
+    platform: 'openai',
+    document: Record<string, string>,
+  ): Promise<void> {
+    const vault = buildCredentialVault();
+    const { ciphertext, nonce, authTag, dekId } = await vault.encrypt(
+      ORG,
+      Buffer.from(JSON.stringify(document), 'utf8'),
+    );
+    await db.insert(apiTokenSchema).values({
+      id: 'stale_field_row_1',
+      orgId: ORG,
+      name: 'written before the rename',
+      platform,
+      secretHash: null,
+      dekId,
+      ciphertext,
+      nonce,
+      authTag,
+      keyHint: '…1234',
+      createdBy: null,
+      expiresAt: null,
+    });
+  }
+
+  it('hands back the key and a mask to print beside it', async () => {
+    await storePlatformKey({ orgId: ORG, name: 'oai', platform: 'openai', apiKey: OPENAI_KEY });
+
+    const spendable = await spendablePlatformKey(ORG, 'openai');
+
+    expect(spendable?.key).toBe(OPENAI_KEY);
+    expect(spendable?.keyHint).not.toContain(OPENAI_KEY);
+    expect(spendable?.keyHint).toBeTruthy();
+  });
+
+  it('refuses a document with nothing under the field name the registry uses now', async () => {
+    // The bug this exists for: a live, unexpired, perfectly decryptable row
+    // whose document was keyed by a field name that has since been renamed. A
+    // readiness check that counted rows called this workspace ready, while
+    // every call it made fell through to the server's key with nothing said.
+    await storeDocumentVerbatim('openai', { key_from_an_older_release: OPENAI_KEY });
+
+    expect(await spendablePlatformKey(ORG, 'openai')).toBeNull();
+    expect(await resolvePlatformKey(ORG, 'openai')).toBeNull();
+  });
+
+  it('refuses a platform whose credential is more than one field', async () => {
+    // AWS stores an access key id beside its secret, and field one is the id —
+    // an identifier that authenticates nothing. Handing it back would look
+    // like a resolved key. `resolveAwsCredentials` reads the whole document.
+    await storePlatformKey({
+      orgId: ORG,
+      name: 'aws',
+      platform: 'aws',
+      values: { accessKeyId: 'AKIAIOSFODNN7EXAMPLE', secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' },
+    });
+
+    expect(await spendablePlatformKey(ORG, 'aws')).toBeNull();
   });
 });
 
