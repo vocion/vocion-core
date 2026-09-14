@@ -65,6 +65,13 @@ export const WorkspaceManifestSchema = z.object({
      */
     embeddingProvider: z.enum(['openai', 'bedrock']).optional(),
     embeddingModel: z.string().optional(),
+    /**
+     * Which workspace skill regenerates each review-item type's card, keyed
+     * by action id (`personalization.enroll: regenerate-sequence-copy`).
+     * Read by core's scoped skill-turn executor; an action type with no
+     * entry keeps its full-pass regenerate only.
+     */
+    regenerateSkills: z.record(z.string(), SlugSchema).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see

@@ -729,6 +729,11 @@ async function applyWorkspaceLeadConfig(
   // YAML turns it off, same declarative rule as `lead:`.
   const enabledSurfaces = loaded.manifest.surfaces;
   const embeddingConfig = embeddingConfigFrom(loaded.manifest.defaults ?? {});
+  // Declarative like the rest: authored entries land wholesale, an omitted
+  // block clears the column (no fast path for any action type).
+  const regenerateSkills = loaded.manifest.defaults?.regenerateSkills && Object.keys(loaded.manifest.defaults.regenerateSkills).length > 0
+    ? loaded.manifest.defaults.regenerateSkills
+    : null;
 
   const [project] = await db
     .select({
@@ -737,13 +742,14 @@ async function applyWorkspaceLeadConfig(
       accountableUserId: projectSchema.accountableUserId,
       enabledSurfaces: projectSchema.enabledSurfaces,
       embeddingConfig: projectSchema.embeddingConfig,
+      regenerateSkills: projectSchema.regenerateSkills,
     })
     .from(projectSchema)
     .where(eq(projectSchema.id, orgId))
     .limit(1);
 
   if (!project) {
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -754,22 +760,26 @@ async function applyWorkspaceLeadConfig(
       && project.enabledSurfaces.every((s, i) => s === enabledSurfaces[i]);
   // Compared as JSON rather than field by field: the object has two optional
   // keys, so a shallow equality check would have to enumerate both and would
-  // silently stop covering a third.
+  // silently stop covering a third. Same reasoning for the skill mapping,
+  // whose keys are open-ended action ids.
   const embeddingUnchanged
     = JSON.stringify(project.embeddingConfig ?? null) === JSON.stringify(embeddingConfig);
+  const regenerateUnchanged
+    = JSON.stringify(project.regenerateSkills ?? null) === JSON.stringify(regenerateSkills);
 
   if (
     (project.leadAgentSlug ?? null) === lead
     && (project.accountableUserId ?? null) === accountableUserId
     && surfacesUnchanged
     && embeddingUnchanged
+    && regenerateUnchanged
   ) {
     return;
   }
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills })
       .where(eq(projectSchema.id, project.id));
   }
 }

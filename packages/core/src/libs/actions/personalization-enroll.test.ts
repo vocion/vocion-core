@@ -12,9 +12,24 @@ vi.mock('@/services/SourceCredentialService', () => ({
   getCredentialsForSource: vi.fn(async () => ({ token: 'pat-1' })),
 }));
 
+// The action-type → skill mapping is workspace config; null (the default in
+// these tests) means no fast path, so the pre-existing fallback tests keep
+// exercising the reset + event path unchanged.
+vi.mock('./regenerateSkill', () => ({
+  regenerateSkillFor: vi.fn(async () => null),
+}));
+
+// The scoped turn itself is skillTurn.test.ts's contract; here only how the
+// tiered handler routes on its output.
+vi.mock('@/services/agents/skillTurn', () => ({
+  runSkillTurn: vi.fn(),
+}));
+
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, leadBriefSchema, trustRuleSchema } = await import('@/models/Schema');
+const { actionRunSchema, eventLogSchema, leadBriefSchema, trustRuleSchema } = await import('@/models/Schema');
 const { executeAction, proposeAction, rejectAction } = await import('@/services/ActionService');
+const { regenerateSkillFor } = await import('./regenerateSkill');
+const { runSkillTurn } = await import('@/services/agents/skillTurn');
 const { personalizationEnrollAction } = await import('./personalization-enroll');
 const { and, eq } = await import('drizzle-orm');
 
@@ -61,9 +76,12 @@ function res(body: unknown, ok = true, status = 200): Response {
 }
 
 beforeEach(async () => {
+  vi.mocked(regenerateSkillFor).mockResolvedValue(null);
+  vi.mocked(runSkillTurn).mockReset();
   await db.delete(actionRunSchema);
   await db.delete(leadBriefSchema);
   await db.delete(trustRuleSchema);
+  await db.delete(eventLogSchema);
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -365,5 +383,140 @@ describe('Regenerate', () => {
       424242,
       'anything',
     )).rejects.toThrow(/no lead brief is linked/);
+  });
+});
+
+describe('Regenerate, tiered (the fast path)', () => {
+  const mapped = () => vi.mocked(regenerateSkillFor).mockResolvedValue('regenerate-sequence-copy');
+
+  it('content feedback: the scoped turn\'s sends save through the same path, brief untouched, same run refreshed', async () => {
+    await seedLead();
+    mapped();
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput(),
+    });
+    // Mid-regeneration, as the route leaves the row before dispatching.
+    await db
+      .update(actionRunSchema)
+      .set({ regeneratingSince: new Date(), regenerateNote: 'send 2 is too pushy' })
+      .where(eq(actionRunSchema.id, proposed.runId!));
+    vi.mocked(runSkillTurn).mockResolvedValue({
+      output: {
+        needsResearch: false,
+        reason: 'kept the rung, softened send 2',
+        sends: [
+          { day: 0, subject: 'Your platform hires', body: 'Dana, saw the hires.' },
+          { day: 4, subject: 'A softer step', body: 'No rush on this.' },
+        ],
+        recommendedSequence: { id: 'seq-311', name: 'AI-Readiness Nurture', reason: 'kept' },
+        senderEmail: 'chris@metacto.com',
+        hubspotUserId: '77',
+      },
+      toolCalls: 0,
+      durationMs: 900,
+    });
+
+    await personalizationEnrollAction.regenerate!(
+      { orgId: ORG, reviewedBy: 'user_jamie' },
+      enrollInput() as never,
+      proposed.runId!,
+      'send 2 is too pushy',
+    );
+
+    // The brief survives: sections, confidence, lane and the back-link all
+    // exactly as they were — only the drafts moved.
+    const [lead] = await db
+      .select()
+      .from(leadBriefSchema)
+      .where(and(eq(leadBriefSchema.orgId, ORG), eq(leadBriefSchema.contactRef, CONTACT)));
+
+    expect(lead?.status).toBe('ready_for_review');
+    expect(lead?.sections).toEqual([{ heading: 'Prospect', body: 'Dana runs platform engineering.' }]);
+    expect(lead?.confidence).toBe(0.84);
+    expect(lead?.reviewActionRunId).toBe(proposed.runId);
+    expect(lead?.draftSequence.map(s => s.subject)).toEqual(['Your platform hires', 'A softer step']);
+
+    // The SAME run carries the new sends and the stamp is cleared — the
+    // completion edge the card's poll re-enables on. No second card.
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.id).toBe(proposed.runId);
+    expect(runs[0]!.status).toBe('pending');
+    expect(runs[0]!.regeneratingSince).toBeNull();
+    expect((runs[0]!.input as { sends: Array<{ subject: string }> }).sends.map(s => s.subject)).toEqual(['Your platform hires', 'A softer step']);
+
+    // The fast path never touches the research pipeline: no reset, no event.
+    expect(await db.select().from(eventLogSchema)).toHaveLength(0);
+  });
+
+  it('research feedback: needsResearch falls back to the reset + event path, keeping the back-link', async () => {
+    await seedLead();
+    mapped();
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput(),
+    });
+    vi.mocked(runSkillTurn).mockResolvedValue({
+      output: { needsResearch: true, reason: 'the note contradicts the brief\'s hiring claim' },
+      toolCalls: 1,
+      durationMs: 1200,
+    });
+
+    await personalizationEnrollAction.regenerate!(
+      { orgId: ORG, reviewedBy: 'user_jamie' },
+      enrollInput() as never,
+      proposed.runId!,
+      'they are not hiring engineers, that is wrong',
+    );
+
+    const [lead] = await db
+      .select()
+      .from(leadBriefSchema)
+      .where(and(eq(leadBriefSchema.orgId, ORG), eq(leadBriefSchema.contactRef, CONTACT)));
+
+    expect(lead?.status).toBe('queued');
+    expect(lead?.sections).toEqual([]);
+    expect(lead?.regenerateNote).toContain('they are not hiring engineers');
+    expect(lead?.regenerateNote).toContain('contradicts the brief');
+    expect(lead?.reviewActionRunId).toBe(proposed.runId);
+
+    const events = await db.select().from(eventLogSchema).where(eq(eventLogSchema.orgId, ORG));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.type).toBe('personalization.brief_regenerate_requested');
+  });
+
+  it('a fast-path failure propagates, so the route clears the stamp and the card re-enables', async () => {
+    await seedLead();
+    mapped();
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput(),
+    });
+    vi.mocked(runSkillTurn).mockRejectedValue(new Error('model timeout'));
+
+    await expect(personalizationEnrollAction.regenerate!(
+      { orgId: ORG, reviewedBy: 'user_jamie' },
+      enrollInput() as never,
+      proposed.runId!,
+      'shorter',
+    )).rejects.toThrow('model timeout');
+
+    // No half-work: the brief stayed intact and nothing was reset or emitted.
+    const [lead] = await db
+      .select()
+      .from(leadBriefSchema)
+      .where(and(eq(leadBriefSchema.orgId, ORG), eq(leadBriefSchema.contactRef, CONTACT)));
+
+    expect(lead?.status).toBe('ready_for_review');
+    expect(await db.select().from(eventLogSchema)).toHaveLength(0);
   });
 });

@@ -72,6 +72,175 @@ async function contactsSourceConfig(orgId: string): Promise<{ portalId?: string 
   return (source?.configJson as { portalId?: string | number; nurtureSlots?: unknown } | null) ?? {};
 }
 
+/**
+ * What the scoped regenerate turn must answer with: either the full new draft
+ * (every send, edited or not, plus the recommendation) or a routing to the
+ * research fallback. Writes stay impossible structurally — the turn returns
+ * data and the SERVER saves it through the same validate + save + propose
+ * path as the hourly pass.
+ */
+const regenerateTurnOutput = z.object({
+  /** True when the note invalidates the research itself — the full pass takes over. */
+  needsResearch: z.boolean(),
+  /**
+   * Why it needs research (required with needsResearch), or the
+   * recommendation's reason otherwise. Absent fields are `.nullish()`
+   * throughout: a model answering `needsResearch` naturally writes
+   * `"sends": null`, and refusing the null costs a corrective retry.
+   */
+  reason: z.string().nullish(),
+  sends: z.array(z.object({
+    day: z.number().int().min(0).nullish(),
+    subject: z.string().min(1),
+    body: z.string().min(1),
+  })).min(1).max(10).nullish(),
+  recommendedSequence: z.object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    reason: z.string().nullish(),
+  }).nullish(),
+  senderEmail: z.string().min(1).nullish(),
+  hubspotUserId: z.string().nullish(),
+}).superRefine((v, sctx) => {
+  if (!v.needsResearch) {
+    if (!v.sends || v.sends.length === 0) {
+      sctx.addIssue({ code: z.ZodIssueCode.custom, message: 'sends is required (the full ordered list) unless needsResearch is true' });
+    }
+    if (!v.recommendedSequence) {
+      sctx.addIssue({ code: z.ZodIssueCode.custom, message: 'recommendedSequence is required unless needsResearch is true' });
+    }
+  }
+});
+
+type FastRegenerateOutcome = { done: true } | { done: false; reason?: string };
+
+/**
+ * The fast path: one scoped turn of the workspace's mapped regenerate skill
+ * over the existing brief + current sends (+ the live sequence library when
+ * it could be read ahead), saved through `saveDraftSequence`. Returns
+ * `done: false` when the turn routes the note to research.
+ * @param opts
+ * @param opts.ctx
+ * @param opts.ctx.orgId
+ * @param opts.ctx.invokedBy
+ * @param opts.ctx.reviewedBy
+ * @param opts.input - The pending run's current input (the sends the reviewer saw).
+ * @param opts.lead - The full lead_brief row behind the card.
+ * @param opts.skillSlug - The workspace's mapped regenerate composition.
+ * @param opts.feedback
+ */
+async function regenerateSequenceCopy(opts: {
+  ctx: { orgId: string; invokedBy?: string; reviewedBy?: string };
+  input: z.infer<typeof enrollInput>;
+  lead: typeof import('@/models/Schema').leadBriefSchema.$inferSelect;
+  skillSlug: string;
+  feedback: string;
+}): Promise<FastRegenerateOutcome> {
+  const { ctx, input, lead, skillSlug, feedback } = opts;
+  const { logger } = await import('@/libs/Logger');
+
+  // The library, read ahead so the common case needs no lookup at all.
+  // Best-effort: a failed read leaves the tool for the model to try.
+  let libraryBlock = 'The library could not be read ahead. Call hubspot_list_sequences if the note requires re-identifying the sequence.';
+  try {
+    const { hubspotClientForOrg } = await import('@/services/agents/tools/hubspotDirect');
+    const resolved = await hubspotClientForOrg(ctx.orgId);
+    if (resolved.ok) {
+      const { listSequences, resolveHubspotUserId } = await import('@/libs/hubspot/sequences');
+      const user = await resolveHubspotUserId(resolved.client, input.senderEmail);
+      if (user.ok) {
+        const sequences = await listSequences(resolved.client, user.data.userId);
+        if (sequences.ok) {
+          libraryBlock = JSON.stringify({ userEmail: input.senderEmail, userId: user.data.userId, sequences: sequences.data }, null, 2);
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn('regenerate fast path: library pre-read failed — the turn keeps its tool', {
+      orgId: ctx.orgId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  const { runSkillTurn } = await import('@/services/agents/skillTurn');
+  const { output, toolCalls, durationMs } = await runSkillTurn({
+    orgId: ctx.orgId,
+    skillSlug,
+    userId: ctx.reviewedBy,
+    task: [
+      `A reviewer pressed Regenerate on the enroll card for ${input.contactName} (${input.contactRef}) with this feedback:`,
+      `"${feedback}"`,
+      'Follow the skill: rewrite what the note asks and keep the rest, or answer needsResearch when the note falls outside what a redraft can fix.',
+    ].join('\n\n'),
+    context: [
+      {
+        title: 'Lead brief (the research behind the card — unchanged by this turn)',
+        body: JSON.stringify({
+          contactRef: lead.contactRef,
+          contactName: lead.contactName,
+          contactTitle: lead.contactTitle,
+          companyName: lead.companyName,
+          entranceSource: lead.entranceSource,
+          utmCampaign: lead.utmCampaign,
+          confidence: lead.confidence,
+          sections: lead.sections,
+          claims: lead.claims,
+          missing: lead.missing,
+          engagement: { sent: lead.engagementSent, opened: lead.engagementOpened },
+        }, null, 2),
+      },
+      {
+        title: 'Current recommendation and sends (what the reviewer saw)',
+        body: JSON.stringify({
+          sequenceId: input.sequenceId,
+          sequenceName: input.sequenceName,
+          senderEmail: input.senderEmail,
+          hubspotUserId: input.hubspotUserId,
+          sends: input.sends,
+        }, null, 2),
+      },
+      { title: 'Sender\'s sequence library (HubSpot live)', body: libraryBlock },
+    ],
+    outputSchema: regenerateTurnOutput,
+    outputInstruction: 'Fields: needsResearch (boolean); reason (string; why research is needed, or the recommendation\'s reason); sends (the FULL ordered list, each {subject, body, day?}, required unless needsResearch); recommendedSequence ({id, name, reason?}, ids exactly as the library returned them, required unless needsResearch); senderEmail and hubspotUserId (echo the current ones unless the library read changed them).',
+    toolAllowlist: ['get_lead_brief', 'hubspot_list_sequences'],
+  });
+
+  if (output.needsResearch) {
+    logger.info('regenerate fast path routed to research', { orgId: ctx.orgId, contactRef: input.contactRef, reason: output.reason, durationMs });
+    return { done: false, reason: output.reason ?? undefined };
+  }
+
+  // The same terminal write as the hourly pass: validate the sequence against
+  // the live library, save the sends, re-propose — the dedup refresh updates
+  // the SAME pending run and clears the regenerating stamp.
+  const { saveDraftSequence } = await import('@/services/PersonalizationQueueService');
+  const saved = await saveDraftSequence(ctx.orgId, {
+    contactRef: input.contactRef,
+    // Nulls normalized away: the persisted shape carries a key or nothing.
+    sends: output.sends!.map(s => ({ subject: s.subject, body: s.body, ...(s.day != null ? { day: s.day } : {}) })),
+    recommendedSequence: {
+      id: output.recommendedSequence!.id,
+      name: output.recommendedSequence!.name,
+      ...(output.recommendedSequence!.reason != null ? { reason: output.recommendedSequence!.reason } : {}),
+    },
+    senderEmail: output.senderEmail ?? input.senderEmail,
+    hubspotUserId: output.hubspotUserId ?? input.hubspotUserId,
+  });
+  if (!saved.saved) {
+    throw new Error(`regenerate fast path could not save the redraft: ${saved.message ?? saved.reason ?? 'unknown'}`);
+  }
+  logger.info('regenerate fast path landed', {
+    orgId: ctx.orgId,
+    contactRef: input.contactRef,
+    reviewRunId: saved.reviewRunId,
+    sendCount: saved.sendCount,
+    toolCalls,
+    durationMs,
+  });
+  return { done: true };
+}
+
 export const personalizationEnrollAction: Action<typeof enrollInput> = {
   id: 'personalization.enroll',
   name: 'Enroll MQL in sequence',
@@ -200,17 +369,23 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
       }),
     };
   },
-  // Regenerate: send the brief back to be researched and drafted again, with
-  // the reviewer's feedback as the instruction the next pass reads. The run
-  // stays pending — the next drafting pass updates the same queue item through
-  // the dedup key, so the reviewer meets the regenerated version, no duplicate.
-  async regenerate(ctx, _input, runId, feedback) {
+  // Regenerate, tiered. FAST PATH: most card feedback targets the drafted
+  // content, so the workspace's mapped regenerate skill (workspace config:
+  // `defaults.regenerateSkills`) runs in one scoped turn over the EXISTING
+  // brief — research, lane and reviewActionRunId untouched — and the returned
+  // sends save through the same validate + save + propose path, whose dedup
+  // refresh re-enables the same card. FALLBACK: feedback the turn judges to
+  // invalidate the research (or no mapped skill) takes the full pass — reset
+  // the brief and let the subscribed automation re-research and redraft.
+  // A fast-path error propagates: the regenerate route clears the in-flight
+  // stamp on a rejected dispatch, so the card re-enables instead of waiting
+  // out the staleness window.
+  async regenerate(ctx, input, runId, feedback) {
     const { and, eq } = await import('drizzle-orm');
     const { db } = await import('@/libs/DB');
     const { leadBriefSchema } = await import('@/models/Schema');
-    const { regenerateBrief } = await import('@/services/PersonalizationQueueService');
     const [lead] = await db
-      .select({ id: leadBriefSchema.id })
+      .select()
       .from(leadBriefSchema)
       .where(and(
         eq(leadBriefSchema.orgId, ctx.orgId),
@@ -220,7 +395,22 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     if (!lead) {
       throw new Error(`no lead brief is linked to action run ${runId} — the brief may already be regenerating`);
     }
-    const result = await regenerateBrief(ctx.orgId, { id: lead.id, note: feedback });
+
+    const { regenerateSkillFor } = await import('./regenerateSkill');
+    const skillSlug = await regenerateSkillFor(ctx.orgId, 'personalization.enroll');
+    let researchReason = feedback;
+    if (skillSlug && lead.sections.length > 0) {
+      const outcome = await regenerateSequenceCopy({ ctx, input, lead, skillSlug, feedback });
+      if (outcome.done) {
+        return;
+      }
+      // The turn judged the note research-level: fall through to the full
+      // pass, carrying its reason alongside the reviewer's note.
+      researchReason = outcome.reason ? `${feedback}\n\n(The redraft pass routed this to research: ${outcome.reason})` : feedback;
+    }
+
+    const { regenerateBrief } = await import('@/services/PersonalizationQueueService');
+    const result = await regenerateBrief(ctx.orgId, { id: lead.id, note: researchReason });
     if (!result.regenerated) {
       throw new Error(`lead brief ${lead.id} could not be sent back for regeneration`);
     }
@@ -232,7 +422,7 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     await emitEvent({
       orgId: ctx.orgId,
       type: PERSONALIZATION_BRIEF_REGENERATE_REQUESTED,
-      payload: { briefId: lead.id, contactRef: result.contactRef, contactName: result.contactName, note: feedback },
+      payload: { briefId: lead.id, contactRef: result.contactRef, contactName: result.contactName, note: researchReason },
       invokedBy: ctx.reviewedBy ?? ctx.invokedBy ?? 'review',
       // The subscribed automation runs a whole agent pass; the reviewer's
       // click must not hold the request open for it. The pass runs after the
