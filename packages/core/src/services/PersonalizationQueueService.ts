@@ -6,19 +6,24 @@
  *
  * Two structural guarantees, both here rather than in a prompt:
  *
- *   - **Nothing is invented.** `queueLeads` takes CRM mirror refs, re-reads
- *     those records itself through `queryCrmRecords`, and writes only what the
- *     mirror carries. The caller cannot hand it a name, a company, or an
- *     entrance path, so a phase-1 row can never contain research that was
- *     never done. `claims`, `missing` and `draftSequence` stay at their empty
- *     defaults and `confidence` stays null until the research slice ships.
+ *   - **Nothing is invented.** `queueLeads` takes CRM refs and re-reads those
+ *     records itself — live from HubSpot first, from the mirror when live is
+ *     unavailable — and writes only what the CRM carries. The caller cannot
+ *     hand it a name, a company, or an entrance path, so a phase-1 row can
+ *     never contain research that was never done. `claims`, `missing` and
+ *     `draftSequence` stay at their empty defaults and `confidence` stays
+ *     null until the research slice ships.
  *   - **A re-fire is a no-op.** There is no de-duplication logic; the insert
  *     runs ON CONFLICT DO NOTHING against `lead_brief_org_contact_idx`, so the
  *     unique index is the guarantee. DO NOTHING rather than DO UPDATE on
  *     purpose: a later re-fire must not wipe a researched brief back to empty.
  *
- * The CRM read is the same one `hubspot_count_contacts` uses, so arrivals here
- * and counts there can never disagree.
+ * Intake reads LIVE, deliberately. The mirror froze for four days on prod
+ * (2026-09-14: the contacts watermark filtered on a property contacts do not
+ * carry) and every new MQL was invisible while the pass reported "mirror
+ * fresh". Live-first means a broken sync degrades to the mirror's older
+ * answer, loudly (`identitySource`/`sourcesRead` say which was read), instead
+ * of silently hiding arrivals.
  */
 
 import type { CrmRecord } from '@/services/CrmRecordsService';
@@ -95,14 +100,16 @@ export type QueueLeadsResult = {
   requested: number;
   queued: number;
   alreadyQueued: number;
-  /** Refs with no record in the CRM mirror — nothing was written for these. */
+  /** Refs the CRM read did not return — nothing was written for these. */
   notInMirror: string[];
   /** Total rows on the queue after this call, across every lane. */
   queueTotal: number;
-  /** Last sync of the mirror the identities were read from. */
+  /** When the identities were read: the live call's moment, or the mirror's last sync. */
   asOf: string | null;
-  /** Set when that mirror has fallen behind its own schedule, so a thin batch is explained. */
+  /** Set when identities came from a mirror that has fallen behind its own schedule. */
   mirrorStaleness: string | null;
+  /** Where the identities were read from — live HubSpot, or the mirror when live was unavailable. */
+  identitySource: 'hubspot-live' | 'mirror-fallback';
   leads: QueuedLead[];
 };
 
@@ -232,7 +239,25 @@ function toRow(rec: CrmRecord, opts: { orgId: string; triggerType: string; brief
 }
 
 /**
- * Read the named contacts from the CRM mirror and put each on the queue.
+ * Live HubSpot client for the intake, gated the same way the mirror read is:
+ * an agent whose grants exclude the hubspot sources must not read the CRM
+ * live either. Null means "use the mirror" — no credentials, no grant, or the
+ * live call failed.
+ * @param orgId
+ * @param allowedSourceSlugs
+ */
+async function liveIntakeClient(orgId: string, allowedSourceSlugs?: string[]) {
+  if (allowedSourceSlugs && !allowedSourceSlugs.some(s => s.startsWith('hubspot'))) {
+    return null;
+  }
+  const { hubspotClientForOrg } = await import('@/services/agents/tools/hubspotDirect');
+  const resolved = await hubspotClientForOrg(orgId).catch(() => null);
+  return resolved?.ok ? resolved.client : null;
+}
+
+/**
+ * Read the named contacts (live from HubSpot, mirror fallback) and put each
+ * on the queue.
  * @param orgId
  * @param opts
  */
@@ -240,18 +265,33 @@ export async function queueLeads(orgId: string, opts: QueueLeadsOptions): Promis
   const refs = [...new Set(opts.contactRefs)];
   const briefedAt = opts.now ?? new Date();
 
-  const found: CrmRecord[] = [];
+  let found: CrmRecord[] = [];
   let asOf: Date | null = null;
   let staleness: string | null = null;
-  for (let offset = 0; offset < refs.length; offset += PAGE) {
-    const page = await queryCrmRecords(orgId, 'contacts', {
-      refs: refs.slice(offset, offset + PAGE),
-      limit: PAGE,
-      allowedSourceSlugs: opts.allowedSourceSlugs,
-    });
-    found.push(...page.records);
-    asOf = page.asOf;
-    staleness = page.freshness.reason;
+  let identitySource: QueueLeadsResult['identitySource'] = 'mirror-fallback';
+
+  const client = await liveIntakeClient(orgId, opts.allowedSourceSlugs);
+  if (client) {
+    const { readContactsLive } = await import('@/libs/hubspot/contactsLive');
+    const ids = refs.map(r => r.split(':')[1]).filter((id): id is string => !!id);
+    const live = await readContactsLive(client, ids).catch(() => null);
+    if (live && live.ok) {
+      found = live.data as unknown as CrmRecord[];
+      asOf = briefedAt;
+      identitySource = 'hubspot-live';
+    }
+  }
+  if (identitySource === 'mirror-fallback') {
+    for (let offset = 0; offset < refs.length; offset += PAGE) {
+      const page = await queryCrmRecords(orgId, 'contacts', {
+        refs: refs.slice(offset, offset + PAGE),
+        limit: PAGE,
+        allowedSourceSlugs: opts.allowedSourceSlugs,
+      });
+      found.push(...page.records);
+      asOf = page.asOf;
+      staleness = page.freshness.reason;
+    }
   }
   const foundRefs = new Set(found.map(r => r.ref));
 
@@ -291,6 +331,7 @@ export async function queueLeads(orgId: string, opts: QueueLeadsOptions): Promis
     queueTotal: total?.n ?? 0,
     asOf: asOf ? asOf.toISOString() : null,
     mirrorStaleness: staleness,
+    identitySource,
     leads: [...insertedRefs].map((ref) => {
       const rec = byRef.get(ref)!;
       return {
@@ -385,46 +426,78 @@ export async function reconcileMqlWindow(
     allowedSourceSlugs?: string[];
   },
 ): Promise<MqlReconciliation> {
-  const arrivals: CrmRecord[] = [];
+  let arrivals: CrmRecord[] = [];
   let truncated = false;
   let asOf: Date | null = null;
   let sources: string[] = [];
   let since: string | null = null;
   let staleness: string | null = null;
+  let liveRead = false;
 
   // An unbounded window would reconcile the whole CRM against a queue that
   // only ever covers recent arrivals, reporting years of old leads as gaps.
   // An explicit createdAfter is honored; otherwise the window is trailing.
   const sinceDays = opts.sinceDays ?? (opts.createdAfter ? undefined : DEFAULT_SINCE_DAYS);
 
-  for (let offset = 0; offset < MAX_ARRIVALS; offset += PAGE) {
-    const page = await queryCrmRecords(orgId, 'contacts', {
-      lifecycleStages: opts.lifecycleStages,
-      createdWithinDays: sinceDays,
-      createdAfter: opts.createdAfter,
-      createdBefore: opts.createdBefore,
-      limit: PAGE,
-      offset,
-      allowedSourceSlugs: opts.allowedSourceSlugs,
-    });
-
-    // A stage the mirror does not hold would silently reconcile to zero gaps,
-    // which reads as full coverage. Refuse instead.
-    const unknown = page.unknownFilterValues.lifecycleStage;
-    if (unknown) {
-      throw new UnknownStageError(unknown.requested, unknown.notFound, page.facets.lifecycleStage ?? {});
+  // Live first. A live answer with arrivals stands on its own; a live answer
+  // of ZERO falls through to the mirror, which validates the stage strings —
+  // a mistyped stage must refuse loudly, never reconcile to "full coverage".
+  const client = await liveIntakeClient(orgId, opts.allowedSourceSlugs);
+  if (client) {
+    const now = Date.now();
+    const createdAfterMs = opts.createdAfter
+      ? Date.parse(opts.createdAfter)
+      : now - (sinceDays ?? DEFAULT_SINCE_DAYS) * 86_400_000;
+    const createdBeforeMs = opts.createdBefore ? Date.parse(opts.createdBefore) : undefined;
+    if (Number.isFinite(createdAfterMs)) {
+      const { searchContactArrivalsLive } = await import('@/libs/hubspot/contactsLive');
+      const live = await searchContactArrivalsLive(client, {
+        lifecycleStages: opts.lifecycleStages,
+        createdAfterMs,
+        createdBeforeMs: Number.isFinite(createdBeforeMs as number) ? createdBeforeMs : undefined,
+        max: MAX_ARRIVALS,
+      }).catch(() => null);
+      if (live && live.ok && live.data.records.length > 0) {
+        arrivals = live.data.records as unknown as CrmRecord[];
+        truncated = live.data.truncated;
+        asOf = new Date();
+        sources = ['hubspot-live'];
+        since = new Date(createdAfterMs).toISOString();
+        liveRead = true;
+      }
     }
+  }
 
-    asOf = page.asOf;
-    sources = page.sources;
-    since = page.createdAfter;
-    staleness = page.freshness.reason;
-    arrivals.push(...page.records);
-    if (!page.hasMore) {
-      break;
-    }
-    if (offset + PAGE >= MAX_ARRIVALS) {
-      truncated = true;
+  if (!liveRead) {
+    for (let offset = 0; offset < MAX_ARRIVALS; offset += PAGE) {
+      const page = await queryCrmRecords(orgId, 'contacts', {
+        lifecycleStages: opts.lifecycleStages,
+        createdWithinDays: sinceDays,
+        createdAfter: opts.createdAfter,
+        createdBefore: opts.createdBefore,
+        limit: PAGE,
+        offset,
+        allowedSourceSlugs: opts.allowedSourceSlugs,
+      });
+
+      // A stage the mirror does not hold would silently reconcile to zero gaps,
+      // which reads as full coverage. Refuse instead.
+      const unknown = page.unknownFilterValues.lifecycleStage;
+      if (unknown) {
+        throw new UnknownStageError(unknown.requested, unknown.notFound, page.facets.lifecycleStage ?? {});
+      }
+
+      asOf = page.asOf;
+      sources = page.sources;
+      since = page.createdAfter;
+      staleness = page.freshness.reason;
+      arrivals.push(...page.records);
+      if (!page.hasMore) {
+        break;
+      }
+      if (offset + PAGE >= MAX_ARRIVALS) {
+        truncated = true;
+      }
     }
   }
 
@@ -459,7 +532,7 @@ export async function reconcileMqlWindow(
     asOf: asOf ? asOf.toISOString() : null,
     sourcesRead: sources,
     mirrorStaleness: staleness,
-    note: 'Arrivals are contacts CREATED in this window that are at the named stage now, which is not the same as contacts that ENTERED that stage in the window. The mirror does not carry a stage-entry date.',
+    note: `Arrivals are contacts CREATED in this window that are at the named stage now, which is not the same as contacts that ENTERED that stage in the window. ${liveRead ? 'Read LIVE from HubSpot.' : 'Read from the CRM mirror (live HubSpot was unavailable).'}`,
   };
 }
 
