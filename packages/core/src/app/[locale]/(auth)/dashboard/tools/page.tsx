@@ -19,6 +19,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 const KEY_SOURCE_LABELS: Record<string, string> = {
   workspace: 'On this workspace\'s key',
   server: 'On the Vocion server key',
+  unknown: 'Could not check this workspace\'s key',
   none: '',
 };
 

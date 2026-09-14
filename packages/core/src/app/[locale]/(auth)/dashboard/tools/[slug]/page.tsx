@@ -48,6 +48,10 @@ export default async function ToolDetailPage(props: {
   // secret itself never reaches the page either way.
   const storedKeyHint = status?.storedKeyHint ?? null;
   const canManageKeys = has({ role: ORG_ROLE.ADMIN });
+  // The credential store would not answer, so we do not know whether this
+  // workspace holds a key. Everything below that offers to store one is
+  // suppressed in that state — see `keyStateUnknown` where it is used.
+  const keyStateUnknown = status?.keySource === 'unknown';
   // Only when there is a key to replace, and only for the admin who can
   // replace it — nobody else's view depends on what it is called.
   const storedKeyName = platform && canManageKeys && storedKeyHint !== null
@@ -107,7 +111,21 @@ export default async function ToolDetailPage(props: {
         description={tool.description}
       />
 
-      {platform && canManageKeys && (
+      {platform && keyStateUnknown && (
+        <p className="mb-6 rounded-lg border border-border bg-background p-4 text-xs text-muted-foreground">
+          This workspace's
+          {' '}
+          {platform.label}
+          {' '}
+          key could not be read just now, so there is nothing reliable to show
+          about it — and saving a new one is held back on purpose. Replacing a
+          key revokes whatever is on file, and doing that without being able to
+          see what is there is how a working credential disappears. Try again
+          in a moment.
+        </p>
+      )}
+
+      {platform && canManageKeys && !keyStateUnknown && (
         <div className="mb-6">
           <ToolProviderKeyCard
             platformId={platform.id}
@@ -136,7 +154,7 @@ export default async function ToolDetailPage(props: {
         </div>
       )}
 
-      {platform && !canManageKeys && (
+      {platform && !canManageKeys && !keyStateUnknown && (
         <p className="mb-6 rounded-lg border border-border bg-background p-4 text-xs text-muted-foreground">
           {memberKeyExplanation(platform.label, storedKeyHint !== null, status?.keySource === 'server')}
         </p>

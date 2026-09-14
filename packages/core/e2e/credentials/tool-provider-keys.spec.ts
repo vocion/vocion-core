@@ -34,6 +34,9 @@ const ADMIN = {
 /** A well-shaped fake. Never sent anywhere — only stored and masked. */
 const TAVILY_KEY = 'tvly-abcdefghijklmnop';
 
+/** What the second test names the credential it saves. */
+const CREDENTIAL_NAME = 'Tool Key Co Tavily';
+
 /** What the card says when the workspace is paying. */
 const WORKSPACE_PAYS = 'On this workspace\'s key';
 
@@ -66,6 +69,56 @@ function createBootstrapAdmin(): void {
   } catch (error) {
     tolerateExistingUser(error, '[tool provider keys spec]');
   }
+}
+
+/**
+ * Revoke the Tavily key a previous run of this spec left behind.
+ *
+ * The database a spec runs against is usually the one it ran against last
+ * time — `createBootstrapAdmin` tolerating an existing user is the same
+ * assumption. The first test here asserts this workspace has no key of its
+ * own, and the second saves one, so without this the spec passes once and
+ * fails every run after, looking exactly like a regression in the page.
+ */
+function clearKeyFromEarlierRuns(): void {
+  execFileSync(
+    'npx',
+    [
+      'dotenv',
+      '-c',
+      '--',
+      'npx',
+      'tsx',
+      'e2e/credentials/support/revoke-stored-credentials.ts',
+      '--platform',
+      'tavily',
+      '--name',
+      CREDENTIAL_NAME,
+    ],
+    { stdio: ['ignore', 'inherit', 'pipe'] },
+  );
+}
+
+/**
+ * Make the saved Tavily key undecryptable, the way a rotated vault key does.
+ */
+function breakStoredKey(): void {
+  execFileSync(
+    'npx',
+    [
+      'dotenv',
+      '-c',
+      '--',
+      'npx',
+      'tsx',
+      'e2e/credentials/support/scramble-stored-credential.ts',
+      '--platform',
+      'tavily',
+      '--name',
+      CREDENTIAL_NAME,
+    ],
+    { stdio: ['ignore', 'inherit', 'pipe'] },
+  );
 }
 
 /**
@@ -109,6 +162,7 @@ test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(() => {
   createBootstrapAdmin();
+  clearKeyFromEarlierRuns();
 });
 
 test.beforeEach(async ({ page }) => {
@@ -136,11 +190,11 @@ test.describe('the Tools page names whose key a paid tool spends', () => {
   test('storing the workspace\'s own Tavily key moves web search onto it', async ({ page }) => {
     await page.goto('/dashboard/api-tokens');
     await openFormFor(page, 'tavily');
-    await page.getByLabel('Name').fill('Tool Key Co Tavily');
+    await page.getByLabel('Name').fill(CREDENTIAL_NAME);
     await page.getByLabel('Tavily key').fill(TAVILY_KEY);
     await page.getByRole('button', { name: 'Save key' }).click();
 
-    await expect(page.getByRole('cell', { name: 'Tool Key Co Tavily' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: CREDENTIAL_NAME })).toBeVisible();
 
     await page.goto('/dashboard/tools');
 
@@ -162,5 +216,37 @@ test.describe('the Tools page names whose key a paid tool spends', () => {
     await expect(artifact).toContainText('Ready');
     await expect(artifact).not.toContainText(WORKSPACE_PAYS);
     await expect(artifact).not.toContainText('On the Vocion server key');
+  });
+});
+
+test.describe('a key the workspace holds but nobody can read', () => {
+  test('admits it could not check, and will not offer to overwrite', async ({ page }) => {
+    // The dangerous version of this state: the lookup fails, the page reads it
+    // as "no key here", and the card then offers a plain Save — which revokes
+    // the key that is actually on file, without the replace warning, because
+    // as far as the card knows there is nothing to replace. On the image page
+    // that is the credential every chat and embedding call spends.
+    // The key the previous test saved is still on file — this file runs
+    // serially, and that is the credential being broken here.
+    breakStoredKey();
+
+    await page.goto('/dashboard/tools/web_search');
+
+    await expect(page.getByText(/could not be read just now/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save key' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Replace key' })).toHaveCount(0);
+  });
+
+  test('names no payer on the list page either', async ({ page }) => {
+    // The badge and the payer line are read together. "Ready · On the Vocion
+    // server key" here would contradict every search the workspace runs, since
+    // the call refuses outright rather than falling back.
+    await page.goto('/dashboard/tools');
+
+    const webSearch = toolCard(page, 'web_search');
+
+    await expect(webSearch).toContainText('Could not check');
+    await expect(webSearch).not.toContainText(WORKSPACE_PAYS);
+    await expect(webSearch).not.toContainText('On the Vocion server key');
   });
 });
