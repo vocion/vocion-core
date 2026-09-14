@@ -6,7 +6,6 @@ import { bfsCrawl } from '@/libs/tools/browse/crawl';
 import { getBrowseProvider } from '@/libs/tools/browse/registry';
 import { getCodeProvider } from '@/libs/tools/code/registry';
 import { getImageProvider } from '@/libs/tools/image/registry';
-import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '@/libs/tools/types';
 import { getWebSearchProvider } from '@/libs/tools/websearch/registry';
 
 type ToolModule = {
@@ -24,7 +23,7 @@ type ToolModule = {
  * @param config
  */
 export function capabilityTools(config: McpConfig): ToolModule[] {
-  const modules: ToolModule[] = [
+  return [
     {
       name: 'web_search',
       title: 'Search the web',
@@ -113,35 +112,4 @@ export function capabilityTools(config: McpConfig): ToolModule[] {
       },
     },
   ];
-  return modules.map(reportKeyFailures);
-}
-
-/**
- * Turn the two key failures into an answer rather than an exception.
- *
- * An MCP client sees a raised error as "the tool broke", with whatever the
- * database or vault said attached. Both of these are things a person can fix
- * and should be told about in their own words, which is what the same tools
- * already do inside the agent runtime — this keeps the two surfaces saying the
- * same thing. Every other failure still raises, because it is not one anybody
- * reading the answer can act on.
- * @param module - The tool whose handler to wrap.
- */
-function reportKeyFailures(module: ToolModule): ToolModule {
-  return {
-    ...module,
-    handler: async (input) => {
-      try {
-        return await module.handler(input);
-      } catch (error) {
-        if (error instanceof ToolProviderKeyUnavailableError) {
-          return { error: `${error.message}. A workspace admin can re-enter it under API credentials.` };
-        }
-        if (error instanceof ProviderNotConfiguredError) {
-          return { error: error.message };
-        }
-        throw error;
-      }
-    },
-  };
 }

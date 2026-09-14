@@ -2,7 +2,7 @@ import type { ImageProvider } from './types';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import OpenAI from 'openai';
-import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
+import { resolveToolProviderKey } from '../orgKey';
 import { ProviderNotConfiguredError } from '../types';
 
 /**
@@ -25,7 +25,7 @@ export function openaiImageProvider(): ImageProvider {
     // below asks again with the org in hand rather than trusting this.
     isReady: () => Boolean(process.env.OPENAI_API_KEY),
     async generate(prompt, opts) {
-      const orgKey = opts?.orgId ? await resolveOrgProviderKey('openai', opts.orgId) : null;
+      const orgKey = opts?.orgId ? await resolveToolProviderKey('openai', opts.orgId) : null;
       const apiKey = orgKey ?? process.env.OPENAI_API_KEY;
       if (!apiKey) {
         throw new ProviderNotConfiguredError('image', 'openai', requiredEnv);

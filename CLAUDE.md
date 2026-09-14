@@ -258,8 +258,12 @@ first, the server's env var second.** Reach for the helper, never
 - `resolveToolProviderKey(provider, orgId)` (`libs/tools/orgKey.ts`) — the same
   answer for a built-in tool provider (`tavily`, `brave`, `firecrawl`, and
   `openai` for image generation). `storedToolProviderCredential(provider, orgId)` answers
-  the readiness question the Tools catalog asks without decrypting anything —
-  and filters expired rows, which `listPlatformCredentials` deliberately keeps.
+  the readiness question the Tools catalog asks, and answers it by resolving
+  the key and dropping it rather than by counting rows — a live row whose
+  document no longer carries the registry's field name decrypts fine and
+  spends nothing, so counting rows put a green badge over keys no call could
+  use. Both go through `spendablePlatformKey`, which is the single definition
+  of a key a call can spend; a readiness check therefore pays for a decrypt.
   A tool provider reads the org off `opts.orgId`, so every tool that calls one
   has to hand its org down — `webSearch`, `fetchUrl`, `crawlSite` and their MCP
   twins in `interfaces/mcp/tools/capability-tools.ts` all do.
