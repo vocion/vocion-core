@@ -30,6 +30,8 @@ vi.mock('@/libs/tools/browse/registry', () => ({
 }));
 
 const { webSearchTool } = await import('./webSearch');
+const { fetchUrlTool } = await import('./fetchUrl');
+const { crawlSiteTool } = await import('./crawlSite');
 
 /**
  * The smallest runtime context these tools read. Everything else on
@@ -54,6 +56,22 @@ describe('web_search', () => {
     await webSearchTool(ctx).invoke({ query: 'vocion', count: 3 });
 
     expect(search).toHaveBeenCalledWith('vocion', expect.objectContaining({ count: 3 }));
+  });
+});
+
+describe('fetch_url', () => {
+  it('hands the calling org to the browse provider', async () => {
+    await fetchUrlTool(ctx).invoke({ url: 'https://example.com/post' });
+
+    expect(fetchPage).toHaveBeenCalledWith('https://example.com/post', { orgId: 'org_tools' });
+  });
+});
+
+describe('crawl_site', () => {
+  it('hands the calling org to every page the crawl fetches', async () => {
+    await crawlSiteTool(ctx).invoke({ start_url: 'https://example.com', max_pages: 1 });
+
+    expect(fetchPage).toHaveBeenCalledWith('https://example.com', { orgId: 'org_tools' });
   });
 });
 
@@ -83,5 +101,14 @@ describe('a key the workspace holds but we cannot read', () => {
 
     expect(result).not.toContain('A page');
     expect(search).toHaveBeenCalledTimes(1);
+  });
+
+  it('says the same thing from fetch_url', async () => {
+    fetchPage.mockRejectedValueOnce(new ToolProviderKeyUnavailableError('firecrawl'));
+
+    const result = await fetchUrlTool(ctx).invoke({ url: 'https://example.com/listing' });
+
+    expect(result).toContain('could not be read');
+    expect(result).not.toContain(VAULT_TEXT);
   });
 });

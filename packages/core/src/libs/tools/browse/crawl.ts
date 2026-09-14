@@ -1,5 +1,6 @@
 import type { BrowseProvider, Page } from './types';
 import { extractLinks } from '@/libs/sources/web';
+import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '../types';
 
 /**
  * Same-origin BFS crawl shared by both browse providers. Uses the
@@ -10,11 +11,12 @@ import { extractLinks } from '@/libs/sources/web';
  * @param opts
  * @param opts.maxDepth
  * @param opts.maxPages
+ * @param opts.orgId
  */
 export async function bfsCrawl(
   provider: BrowseProvider,
   startUrl: string,
-  opts: { maxDepth?: number; maxPages?: number } = {},
+  opts: { maxDepth?: number; maxPages?: number; orgId?: string } = {},
 ): Promise<Page[]> {
   const maxDepth = Math.min(opts.maxDepth ?? 1, 3);
   const maxPages = Math.min(opts.maxPages ?? 20, 50);
@@ -32,8 +34,19 @@ export async function bfsCrawl(
 
     let page: Page | null = null;
     try {
-      page = await provider.fetchPage(url);
-    } catch {
+      page = await provider.fetchPage(url, { orgId: opts.orgId });
+    } catch (error) {
+      if (error instanceof ProviderNotConfiguredError || error instanceof ToolProviderKeyUnavailableError) {
+        // Not this page's problem — the provider has no usable key, so every
+        // remaining page would fail the same way. Reporting "no readable
+        // pages" here would read as an empty site rather than as
+        // configuration the workspace can fix, which is what `fetch_url` and
+        // `web_search` say in the same situation. A key we could not read
+        // counts the same: swallowing it would drain the queue one failed
+        // lookup at a time and then describe a site nobody ever reached.
+        throw error;
+      }
+      console.error('[browse/crawl] skipping a page that could not be read', { url, error });
       continue;
     }
     if (!page) {
