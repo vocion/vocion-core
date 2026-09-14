@@ -9,6 +9,7 @@
  * The providers themselves are mocked; these tests assert the wiring, not the
  * vendor call. No network, no database.
  */
+import { Buffer } from 'node:buffer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolProviderKeyUnavailableError } from '@/libs/tools/types';
 
@@ -20,6 +21,10 @@ const fetchPage = vi.fn(async (url: string, _opts?: { orgId?: string }) => ({
   title: 'A page',
   content: 'page text',
 }));
+const generate = vi.fn(async (_prompt: string, _opts?: { size?: string; orgId?: string }) => ({
+  png: Buffer.from('not really a png'),
+}));
+const saveArtifact = vi.fn(async (_input: unknown) => ({ url: 'https://artifacts.test/img.png', bytes: 2048 }));
 
 vi.mock('@/libs/tools/websearch/registry', () => ({
   getWebSearchProvider: () => ({ name: 'tavily', requiredEnv: [], isReady: () => true, search }),
@@ -29,9 +34,18 @@ vi.mock('@/libs/tools/browse/registry', () => ({
   getBrowseProvider: () => ({ name: 'firecrawl', requiredEnv: [], isReady: () => true, fetchPage }),
 }));
 
+vi.mock('@/libs/tools/image/registry', () => ({
+  getImageProvider: () => ({ name: 'openai', requiredEnv: [], isReady: () => true, generate }),
+}));
+
+vi.mock('@/libs/tools/artifacts/store', () => ({
+  saveArtifact: (input: unknown) => saveArtifact(input),
+}));
+
 const { webSearchTool } = await import('./webSearch');
 const { fetchUrlTool } = await import('./fetchUrl');
 const { crawlSiteTool } = await import('./crawlSite');
+const { generateImageTool } = await import('./generateImage');
 
 /**
  * The smallest runtime context these tools read. Everything else on
@@ -43,6 +57,8 @@ const ctx = { orgId: 'org_tools', connectorSources: [] } as unknown as Parameter
 beforeEach(() => {
   search.mockClear();
   fetchPage.mockClear();
+  generate.mockClear();
+  saveArtifact.mockClear();
 });
 
 describe('web_search', () => {
@@ -110,5 +126,26 @@ describe('a key the workspace holds but we cannot read', () => {
 
     expect(result).toContain('could not be read');
     expect(result).not.toContain(VAULT_TEXT);
+  });
+
+  it('says the same thing from generate_image, and saves nothing', async () => {
+    // Image generation is the one that costs real money per call, and the one
+    // whose key an org is most likely to share with its chat calls. A silent
+    // fallback here spends the deployment's OpenAI account.
+    generate.mockRejectedValueOnce(new ToolProviderKeyUnavailableError('openai'));
+
+    const result = await generateImageTool(ctx).invoke({ prompt: 'a barn at dusk' });
+
+    expect(result).toContain('could not be read');
+    expect(result).not.toContain(VAULT_TEXT);
+    expect(saveArtifact).not.toHaveBeenCalled();
+  });
+});
+
+describe('generate_image', () => {
+  it('hands the calling org to the image provider', async () => {
+    await generateImageTool(ctx).invoke({ prompt: 'a barn at dusk' });
+
+    expect(generate).toHaveBeenCalledWith('a barn at dusk', expect.objectContaining({ orgId: 'org_tools' }));
   });
 });

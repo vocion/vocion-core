@@ -18,7 +18,7 @@ vi.mock('@/libs/tools/orgKey', () => ({
   resolveToolProviderKey: async () => null,
 }));
 
-const { capabilityStatuses } = await import('./catalog');
+const { capabilityStatus, capabilityStatuses } = await import('./catalog');
 
 const originalEnv = { ...process.env };
 
@@ -165,5 +165,41 @@ describe('the server\'s own view of the catalog', () => {
     await capabilityStatuses();
 
     expect(storedToolProviderCredential).not.toHaveBeenCalled();
+  });
+});
+
+describe('asking about one capability instead of all five', () => {
+  it('gives the same answer the full catalog would', async () => {
+    storedToolProviderCredential.mockResolvedValue({ keyHint: '…a1b2' });
+
+    const fromCatalog = await statusOf('web_search', 'org_catalog');
+    const alone = await capabilityStatus('web_search', 'org_catalog');
+
+    expect(alone).toEqual(fromCatalog);
+  });
+
+  it('does not decrypt the other capabilities\' keys to answer', async () => {
+    // A page that shows one tool should not pay for the rest. Resolving a
+    // status decrypts that capability's stored key, so asking about all five
+    // to render one made every visit to the web search page decrypt the
+    // workspace's Firecrawl and OpenAI keys too.
+    storedToolProviderCredential.mockResolvedValue({ keyHint: '…a1b2' });
+
+    await capabilityStatus('web_search', 'org_catalog');
+
+    expect(storedToolProviderCredential).toHaveBeenCalledTimes(1);
+    expect(storedToolProviderCredential).toHaveBeenCalledWith('tavily', 'org_catalog');
+  });
+
+  it('asks the credential store nothing for a capability that spends no key', async () => {
+    const status = await capabilityStatus('create_artifact', 'org_catalog');
+
+    expect(status?.ready).toBe(true);
+    expect(status?.keySource).toBe('none');
+    expect(storedToolProviderCredential).not.toHaveBeenCalled();
+  });
+
+  it('returns null for a capability that does not exist', async () => {
+    expect(await capabilityStatus('teleport', 'org_catalog')).toBeNull();
   });
 });

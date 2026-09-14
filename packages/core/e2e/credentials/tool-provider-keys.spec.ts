@@ -235,6 +235,11 @@ test.describe('a key the workspace holds but nobody can read', () => {
     await expect(page.getByText(/could not be read just now/)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Save key' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Replace key' })).toHaveCount(0);
+    // And the badge must not say "Needs key" either. An admin who reads that
+    // stores a second key, which lands beside the unreadable one and changes
+    // nothing, because the call path still refuses rather than falling back.
+    await expect(page.getByText('Can\'t check')).toBeVisible();
+    await expect(page.getByText('Needs key')).toHaveCount(0);
   });
 
   test('names no payer on the list page either', async ({ page }) => {
@@ -246,6 +251,8 @@ test.describe('a key the workspace holds but nobody can read', () => {
     const webSearch = toolCard(page, 'web_search');
 
     await expect(webSearch).toContainText('Could not check');
+    await expect(webSearch).toContainText('Can\'t check');
+    await expect(webSearch).not.toContainText('Needs key');
     await expect(webSearch).not.toContainText(WORKSPACE_PAYS);
     await expect(webSearch).not.toContainText('On the Vocion server key');
   });

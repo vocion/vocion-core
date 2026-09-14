@@ -1,13 +1,14 @@
-import { ArrowLeft, Bot, Check, FileCode2, TriangleAlert, Wrench } from 'lucide-react';
+import { ArrowLeft, Bot, FileCode2, Wrench } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { liveCredentialName, memberKeyExplanation } from '@/features/tools/keyExplanations';
+import { ReadinessBadge } from '@/features/tools/ReadinessBadge';
 import { ToolProviderKeyCard } from '@/features/tools/ToolProviderKeyCard';
 import { Link } from '@/libs/I18nNavigation';
 import { platformForToolProvider } from '@/libs/platforms/registry';
-import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
-import { listPlatformCredentials } from '@/services/ApiTokenService';
+import { BUILTIN_TOOLS, capabilityStatus } from '@/libs/tools/catalog';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
 
@@ -36,8 +37,9 @@ export default async function ToolDetailPage(props: {
     notFound();
   }
   const { orgId, has } = await requireOrganization();
-  const statuses = await capabilityStatuses(orgId);
-  const status = statuses.find(s => s.capability === tool.capability);
+  // Only this tool's capability: resolving a status decrypts the org's key
+  // for it, and the other four are not on this page.
+  const status = await capabilityStatus(tool.capability, orgId);
   const isReady = status?.ready ?? true;
 
   // A provider that bills someone has a credential platform behind it; the
@@ -83,19 +85,7 @@ export default async function ToolDetailPage(props: {
             <div>
               <div>{tool.title}</div>
               <div className="mt-0.5 flex items-center gap-2 text-sm font-normal">
-                {isReady
-                  ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                        <Check className="size-3" />
-                        Ready
-                      </span>
-                    )
-                  : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-                        <TriangleAlert className="size-3" />
-                        Needs key
-                      </span>
-                    )}
+                <ReadinessBadge ready={isReady} keyStateUnknown={keyStateUnknown} />
                 {status?.keySource === 'workspace' && (
                   <span className="text-xs text-muted-foreground">On this workspace's key</span>
                 )}
@@ -243,50 +233,4 @@ export default async function ToolDetailPage(props: {
       </div>
     </>
   );
-}
-
-/**
- * What a member — someone who cannot open the key card — is told about the key
- * this tool spends.
- *
- * Three states, not two. "The workspace has no key of its own" is not the same
- * as "no key exists": a deployment that sets the server's env var runs this
- * tool perfectly well, and asking that member to go find an admin would
- * contradict the green "Ready" badge printed directly above this sentence.
- * @param platformLabel - The vendor's name, e.g. `Tavily`.
- * @param workspaceHasKey - Whether this workspace stored a key of its own.
- * @param serverHasKey - Whether the deployment's own key is covering the call.
- */
-function memberKeyExplanation(
-  platformLabel: string,
-  workspaceHasKey: boolean,
-  serverHasKey: boolean,
-): string {
-  if (workspaceHasKey) {
-    return `This tool runs on this workspace's own ${platformLabel} key. A workspace admin can change it under API credentials.`;
-  }
-  if (serverHasKey) {
-    return `This tool runs on the Vocion server's ${platformLabel} key. A workspace admin can put this workspace on its own key under API credentials.`;
-  }
-  return `This tool runs on a ${platformLabel} key. Ask a workspace admin to add one under API credentials.`;
-}
-
-/**
- * What the workspace calls the key it currently holds for `platform`.
- *
- * The card needs it because saving replaces the row rather than editing it,
- * and a replacement has to carry a name. Inventing one there would rename
- * whatever the admin called this credential on the credentials screen — on
- * OpenAI, the same one their chat and embeddings spend.
- *
- * Null when there is nothing live to replace, which is also what the card
- * treats as "this is a first key, name it after the platform".
- * @param orgId - The workspace whose credential to look at.
- * @param platformId - The platform the key is stored under.
- */
-async function liveCredentialName(orgId: string, platformId: string): Promise<string | null> {
-  const credentials = await listPlatformCredentials(orgId, platformId as Parameters<typeof listPlatformCredentials>[1]);
-  const live = credentials.find(credential =>
-    credential.expiresAt === null || credential.expiresAt.getTime() > Date.now());
-  return live?.name ?? null;
 }

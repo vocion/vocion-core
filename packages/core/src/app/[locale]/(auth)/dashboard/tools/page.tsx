@@ -1,6 +1,7 @@
-import { Check, TriangleAlert, Wrench } from 'lucide-react';
+import { Wrench } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { ReadinessBadge } from '@/features/tools/ReadinessBadge';
 import { Link } from '@/libs/I18nNavigation';
 import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
 import { requireOrganization } from '@/utils/Auth';
@@ -75,19 +76,10 @@ export default async function ToolsPage(props: {
                         <Wrench className="size-4 text-primary" />
                         <span className="text-sm font-medium">{tool.title}</span>
                         <span className="ml-auto">
-                          {isReady
-                            ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                                  <Check className="size-3" />
-                                  Ready
-                                </span>
-                              )
-                            : (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-                                  <TriangleAlert className="size-3" />
-                                  Needs key
-                                </span>
-                              )}
+                          <ReadinessBadge
+                            ready={isReady}
+                            keyStateUnknown={status?.keySource === 'unknown'}
+                          />
                         </span>
                       </div>
                       <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">

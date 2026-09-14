@@ -106,6 +106,15 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
   },
 ];
 
+/** create_artifact is builtin: no provider to pick, no key to spend. */
+const ARTIFACT_STATUS: CapabilityStatus = {
+  capability: 'create_artifact',
+  provider: 'builtin',
+  ready: true,
+  missingEnv: [],
+  keySource: 'none',
+};
+
 /**
  * Provider/key readiness for every capability. Never throws.
  *
@@ -122,12 +131,40 @@ export async function capabilityStatuses(orgId?: string): Promise<CapabilityStat
     imageStatus(orgId),
     codeStatus(orgId),
   ]);
-  return [
-    webSearch,
-    browse,
-    image,
-    code,
-    // create_artifact is builtin and always available.
-    { capability: 'create_artifact', provider: 'builtin', ready: true, missingEnv: [], keySource: 'none' },
-  ];
+  return [webSearch, browse, image, code, ARTIFACT_STATUS];
+}
+
+/**
+ * Provider/key readiness for one capability. Never throws.
+ *
+ * The same answer {@link capabilityStatuses} would give for this capability,
+ * without resolving the other four. That matters because resolving a
+ * capability's status decrypts the org's stored key for it: asking about all
+ * five to render one tool's page made every visit to the Tavily page pay for a
+ * Firecrawl and an OpenAI decrypt nobody was going to read.
+ *
+ * An unrecognised capability gets null rather than a throw, in keeping with
+ * the rest of this module — the caller is a page that has already decided the
+ * tool exists.
+ * @param capability - The capability key, e.g. `web_search`.
+ * @param orgId - The org to report for, or undefined for the server's view.
+ */
+export async function capabilityStatus(
+  capability: string,
+  orgId?: string,
+): Promise<CapabilityStatus | null> {
+  switch (capability) {
+    case 'web_search':
+      return webSearchStatus(orgId);
+    case 'browse':
+      return browseStatus(orgId);
+    case 'generate_image':
+      return imageStatus(orgId);
+    case 'run_code':
+      return codeStatus(orgId);
+    case 'create_artifact':
+      return ARTIFACT_STATUS;
+    default:
+      return null;
+  }
 }
