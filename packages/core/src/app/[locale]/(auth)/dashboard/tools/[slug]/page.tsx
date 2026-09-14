@@ -7,6 +7,7 @@ import { ToolProviderKeyCard } from '@/features/tools/ToolProviderKeyCard';
 import { Link } from '@/libs/I18nNavigation';
 import { platformForToolProvider } from '@/libs/platforms/registry';
 import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
+import { listPlatformCredentials } from '@/services/ApiTokenService';
 import { ORG_ROLE } from '@/types/Auth';
 import { requireOrganization } from '@/utils/Auth';
 
@@ -47,6 +48,11 @@ export default async function ToolDetailPage(props: {
   // secret itself never reaches the page either way.
   const storedKeyHint = status?.storedKeyHint ?? null;
   const canManageKeys = has({ role: ORG_ROLE.ADMIN });
+  // Only when there is a key to replace, and only for the admin who can
+  // replace it — nobody else's view depends on what it is called.
+  const storedKeyName = platform && canManageKeys && storedKeyHint !== null
+    ? await liveCredentialName(orgId, platform.id)
+    : null;
   // A provider that bills someone but has no platform yet — E2B, whose
   // integration is not built — would otherwise sit on "Needs key" with
   // nothing to click and no reason given.
@@ -114,6 +120,7 @@ export default async function ToolDetailPage(props: {
               secret: field.secret,
             }))}
             storedKeyHint={storedKeyHint}
+            storedKeyName={storedKeyName}
             serverHasKey={status?.keySource === 'server'}
             sharedWithModelCalls={platform.llmProvider !== null}
           />
@@ -244,4 +251,24 @@ function memberKeyExplanation(
     return `This tool runs on the Vocion server's ${platformLabel} key. A workspace admin can put this workspace on its own key under API credentials.`;
   }
   return `This tool runs on a ${platformLabel} key. Ask a workspace admin to add one under API credentials.`;
+}
+
+/**
+ * What the workspace calls the key it currently holds for `platform`.
+ *
+ * The card needs it because saving replaces the row rather than editing it,
+ * and a replacement has to carry a name. Inventing one there would rename
+ * whatever the admin called this credential on the credentials screen — on
+ * OpenAI, the same one their chat and embeddings spend.
+ *
+ * Null when there is nothing live to replace, which is also what the card
+ * treats as "this is a first key, name it after the platform".
+ * @param orgId - The workspace whose credential to look at.
+ * @param platformId - The platform the key is stored under.
+ */
+async function liveCredentialName(orgId: string, platformId: string): Promise<string | null> {
+  const credentials = await listPlatformCredentials(orgId, platformId as Parameters<typeof listPlatformCredentials>[1]);
+  const live = credentials.find(credential =>
+    credential.expiresAt === null || credential.expiresAt.getTime() > Date.now());
+  return live?.name ?? null;
 }

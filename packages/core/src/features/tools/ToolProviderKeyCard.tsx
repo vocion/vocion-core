@@ -43,6 +43,15 @@ type ToolProviderKeyCardProps = {
   /** Masked hint of the key already on file, or null when there is none. */
   storedKeyHint: string | null;
   /**
+   * What the key already on file is called, or null when there is none.
+   *
+   * Saving replaces that row, and a replacement carrying a name of this card's
+   * own invention would quietly rename a credential somebody else named — on
+   * OpenAI, the very one their chat and embeddings run on. So the existing
+   * name is kept, and only a first key gets named here.
+   */
+  storedKeyName: string | null;
+  /**
    * Whether this platform's key is also what the workspace's model calls
    * spend — true for OpenAI, whose single credential covers chat, embeddings
    * and image generation alike. Saving here then changes all of them, which
@@ -105,7 +114,7 @@ function confirmReplacement(
  * @param props - See {@link ToolProviderKeyCardProps}.
  */
 export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
-  const { platformId, platformLabel, helpText, fields, storedKeyHint, serverHasKey, sharedWithModelCalls } = props;
+  const { platformId, platformLabel, helpText, fields, storedKeyHint, storedKeyName, serverHasKey, sharedWithModelCalls } = props;
   const router = useRouter();
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -129,7 +138,7 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
     setSaved(false);
     try {
       await client.apiTokens.createPlatformKey({
-        name: `${platformLabel} — tools`,
+        name: storedKeyName ?? `${platformLabel} — tools`,
         platform: platformId,
         values,
       });

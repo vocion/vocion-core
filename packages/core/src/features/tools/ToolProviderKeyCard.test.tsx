@@ -46,8 +46,14 @@ const TAVILY_FIELDS = [
  * @param storedKeyHint - The masked hint of the key on file, or null for none.
  * @param serverHasKey
  * @param sharedWithModelCalls
+ * @param storedKeyName - What the key on file is called, or null for none.
  */
-function renderCard(storedKeyHint: string | null = null, serverHasKey = true, sharedWithModelCalls = false) {
+function renderCard(
+  storedKeyHint: string | null = null,
+  serverHasKey = true,
+  sharedWithModelCalls = false,
+  storedKeyName: string | null = null,
+) {
   // The card links to API credentials with the locale-aware Link, which reads
   // the intl context, so the provider has to be here even though nothing in
   // these tests is translated.
@@ -59,6 +65,7 @@ function renderCard(storedKeyHint: string | null = null, serverHasKey = true, sh
         helpText="Your Tavily API key, from app.tavily.com."
         fields={TAVILY_FIELDS}
         storedKeyHint={storedKeyHint}
+        storedKeyName={storedKeyName}
         serverHasKey={serverHasKey}
         sharedWithModelCalls={sharedWithModelCalls}
       />
@@ -222,5 +229,31 @@ describe('a platform whose key is shared with model calls', () => {
     renderCard(null, true, false);
 
     expect(page.getByText(/model calls/i).elements()).toHaveLength(0);
+  });
+});
+
+describe('replacing a key somebody already named', () => {
+  it('saves under the name the credential already has', async () => {
+    // Saving revokes the old row and inserts a new one, so the name travels
+    // with the save. Sending this card's own wording would rename a credential
+    // an admin named on the credentials screen, without asking and without
+    // saying so afterwards.
+    createPlatformKey.mockResolvedValue({ id: 'tok_2', keyHint: '…zzzz' });
+    renderCard('…abcd', true, false, 'Acme Tavily');
+
+    await userEvent.fill(page.getByLabelText('Tavily key'), 'tvly-replacement00');
+    await userEvent.click(page.getByRole('button', { name: 'Replace key' }));
+
+    expect(createPlatformKey).toHaveBeenCalledWith(expect.objectContaining({ name: 'Acme Tavily' }));
+  });
+
+  it('names a first key after the platform, since nothing named it yet', async () => {
+    createPlatformKey.mockResolvedValue({ id: 'tok_1', keyHint: '…abcd' });
+    renderCard();
+
+    await userEvent.fill(page.getByLabelText('Tavily key'), 'tvly-firstkey00000');
+    await userEvent.click(page.getByRole('button', { name: 'Save key' }));
+
+    expect(createPlatformKey).toHaveBeenCalledWith(expect.objectContaining({ name: 'Tavily — tools' }));
   });
 });
