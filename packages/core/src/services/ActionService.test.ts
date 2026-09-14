@@ -160,6 +160,7 @@ describe('ActionService gating', () => {
     const second = await executeAction(out.runId, ORG, { reviewedBy: 'user-jamie' });
 
     expect(second.status).toBe('done');
+
     const [row] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.id, out.runId));
 
     expect(row).toMatchObject({ status: 'done', error: null });
