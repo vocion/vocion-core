@@ -51,15 +51,29 @@ export async function statusForProvider(
     };
   }
 
-  const stored = orgId ? await storedCredentialOrNone(provider.name, orgId) : null;
-  if (stored) {
+  const stored = orgId ? await storedCredentialOrNone(provider.name, orgId) : { kind: 'none' as const };
+  if (stored.kind === 'unknown') {
+    // Not `none`, and deliberately not `ready`. `resolveToolProviderKey`
+    // refuses the call in this state rather than falling back, so a page that
+    // said "on the Vocion server key, ready" would contradict every search and
+    // crawl the workspace runs — at exactly the moment somebody is trying to
+    // work out what is wrong.
+    return {
+      capability,
+      provider: provider.name,
+      ready: false,
+      missingEnv: [],
+      keySource: 'unknown',
+    };
+  }
+  if (stored.kind === 'found') {
     return {
       capability,
       provider: provider.name,
       ready: true,
       missingEnv: [],
       keySource: 'workspace',
-      storedKeyHint: stored.keyHint,
+      storedKeyHint: stored.credential.keyHint,
     };
   }
 
@@ -76,24 +90,35 @@ export async function statusForProvider(
   };
 }
 
+/** What a credential lookup can tell us, including that it could not tell us. */
+type CredentialLookup
+  = | { kind: 'found'; credential: StoredToolCredential }
+    | { kind: 'none' }
+    | { kind: 'unknown' };
+
 /**
- * The org's stored credential for `provider`, or null when it has none — and
- * also null when the lookup itself fails.
+ * The org's stored credential for `provider`, or why there isn't one to report.
  *
- * A credential store that cannot be reached is reported as "the org has no key
- * of its own", which falls the status back to the server's view. The
- * alternative is a 500 on a page that could have said something useful.
+ * Three answers rather than two. "This org stored nothing" and "the credential
+ * store would not answer" look identical from a null, and they call for
+ * opposite things on screen: the first falls back to the deployment's key and
+ * runs, the second cannot run at all, because the call path refuses rather
+ * than spending the wrong account.
+ *
+ * Still no throw. A settings page that 500s tells a person less than one that
+ * renders and says which part it could not check.
  * @param provider - The provider being reported on.
  * @param orgId - The org the page is being rendered for.
  */
 async function storedCredentialOrNone(
   provider: string,
   orgId: string,
-): Promise<StoredToolCredential | null> {
+): Promise<CredentialLookup> {
   try {
-    return await storedToolProviderCredential(provider, orgId);
+    const credential = await storedToolProviderCredential(provider, orgId);
+    return credential ? { kind: 'found', credential } : { kind: 'none' };
   } catch (error) {
     console.error('[tools/status] could not read the org\'s stored credential', { provider, orgId, error });
-    return null;
+    return { kind: 'unknown' };
   }
 }
