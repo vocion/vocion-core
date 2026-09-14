@@ -172,6 +172,12 @@ test.describe('the platform selector decides which controls exist', () => {
       'Google',
       'Slack',
       'Zoom',
+      // The tool providers, which an org supplies its own key for so the
+      // search and crawl tools run on the org's account rather than the
+      // deployment's.
+      'Tavily',
+      'Brave Search',
+      'Firecrawl',
       'Other platform',
     ]);
   });
