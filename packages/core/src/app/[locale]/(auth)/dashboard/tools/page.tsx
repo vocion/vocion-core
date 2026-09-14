@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
 import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
+import { requireOrganization } from '@/utils/Auth';
 
 const CATEGORY_LABELS: Record<string, string> = {
   research: 'Research the web',
@@ -16,7 +17,8 @@ export default async function ToolsPage(props: {
   const { locale } = await props.params;
   setRequestLocale(locale);
 
-  const statuses = capabilityStatuses();
+  const { orgId } = await requireOrganization();
+  const statuses = await capabilityStatuses(orgId);
   const statusByCapability = new Map(statuses.map(s => [s.capability, s]));
   const ready = statuses.filter(s => s.ready).length;
 

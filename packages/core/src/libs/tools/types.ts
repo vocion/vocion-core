@@ -27,16 +27,6 @@ export class ProviderNotConfiguredError extends Error {
   }
 }
 
-/** Reported to the dashboard Tools catalog so users see provider/key status. */
-export type CapabilityStatus = {
-  capability: string;
-  provider: string;
-  /** true when the active provider has everything it needs to run. */
-  ready: boolean;
-  /** env vars that are missing (empty when ready). */
-  missingEnv: string[];
-};
-
 /**
  * Thrown when the org's own key could not be read at all — the credential
  * store was unreachable, or the stored ciphertext no longer opens.
@@ -59,3 +49,37 @@ export class ToolProviderKeyUnavailableError extends Error {
     this.provider = provider;
   }
 }
+
+/**
+ * Where the key a capability is about to spend comes from.
+ *
+ * `workspace` — the org pasted its own key, so its account is billed.
+ * `server` — the deployment's env var is in use.
+ * `none` — either the provider needs no key at all (the builtin page
+ * extractor, the calculator) or nobody has one, which `ready` tells apart.
+ * `unknown` — the credential store could not be read, so whether this
+ * workspace holds a key of its own is genuinely not known. Distinct from
+ * `none` because the call path refuses outright in that state rather than
+ * falling back to the deployment's key, and a page claiming "running on the
+ * Vocion server key" while every search fails is worse than one that admits
+ * it could not check.
+ */
+export type CapabilityKeySource = 'workspace' | 'server' | 'none' | 'unknown';
+
+/** Reported to the dashboard Tools catalog so users see provider/key status. */
+export type CapabilityStatus = {
+  capability: string;
+  provider: string;
+  /** true when the active provider has everything it needs to run. */
+  ready: boolean;
+  /** env vars that are missing (empty when ready). */
+  missingEnv: string[];
+  /** Whose key the capability spends. See {@link CapabilityKeySource}. */
+  keySource: CapabilityKeySource;
+  /**
+   * Masked tail of the workspace's stored key, when that is the key in use.
+   * A mask, never the secret — it is what the settings surface shows so the
+   * page needs no second query of its own.
+   */
+  storedKeyHint?: string | null;
+};

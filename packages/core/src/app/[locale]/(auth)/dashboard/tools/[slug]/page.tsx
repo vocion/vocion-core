@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { Link } from '@/libs/I18nNavigation';
 import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
+import { requireOrganization } from '@/utils/Auth';
 
 const CATEGORY_LABELS: Record<string, string> = {
   research: 'Research the web',
@@ -30,7 +31,8 @@ export default async function ToolDetailPage(props: {
   if (!tool) {
     notFound();
   }
-  const status = capabilityStatuses().find(s => s.capability === tool.capability);
+  const { orgId } = await requireOrganization();
+  const status = (await capabilityStatuses(orgId)).find(s => s.capability === tool.capability);
   const isReady = status?.ready ?? true;
 
   return (
