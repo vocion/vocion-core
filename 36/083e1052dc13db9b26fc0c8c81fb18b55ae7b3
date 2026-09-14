@@ -1,0 +1,34 @@
+packages/core/src/services/ActionService.test.ts
+  s_eff1d3c156501c::t_7aa5c50e3b867e 135-175,303-320
+  s_eff1d3c156501c::t_9294398e630c85 321
+packages/core/src/routers/Review.regenerate.test.ts
+  s_eff1d3c156501c::t_ebd187aa417aed 271
+packages/core/src/features/review/ReviewActionCard.tsx
+  s_eff1d3c156501c::t_7aa5c50e3b867e 34-35,88-93,100-101,173,180-187,255-266,273,458,482
+packages/core/src/routers/Review.ts
+  s_eff1d3c156501c::t_7aa5c50e3b867e 71-76,338,344-346
+packages/core/src/features/dashboard/ReviewFocus.tsx
+  s_eff1d3c156501c::t_7aa5c50e3b867e 42-43
+packages/core/src/services/ReviewService.ts
+  s_eff1d3c156501c::t_7aa5c50e3b867e 244-246,321-323,675-683,717,725,731-733,741-744,770-771
+packages/core/src/app/[locale]/(auth)/gtm/lead/[hubspotId]/page.tsx
+  s_eff1d3c156501c::t_7aa5c50e3b867e 75-77,94,119,122-124
+packages/core/src/services/ActionService.ts
+  s_eff1d3c156501c::t_7aa5c50e3b867e 41-42,216,218-220,234,241-242,385-389,415,424-426
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "36083e1052dc13db9b26fc0c8c81fb18b55ae7b3",
+  "prompts": {},
+  "sessions": {
+    "s_eff1d3c156501c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f64fbb69-438c-4484-8061-6cab0080c431",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
