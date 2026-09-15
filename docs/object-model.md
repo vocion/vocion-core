@@ -10,10 +10,10 @@ sweep. Field-by-field reference for each authored type:
 
 | Object | Authored at | Schema symbol | Table | Runtime mount / execution | API / UI surface |
 |---|---|---|---|---|---|
-| [Workspace manifest](./entities/workspace-manifest.md) | `workspace.yaml` | `WorkspaceManifestSchema` | `project` (lead, surfaces) + `workspace_version` audit | `loadWorkspace` at check/apply | `/dashboard/workspace` |
+| [Workspace manifest](./entities/workspace-manifest.md) | `workspace.yaml` | `WorkspaceManifestSchema` | `project` (lead, goal, surfaces) + `workspace_version` audit | `loadWorkspace` at check/apply | `/dashboard/workspace`, goal on `/dashboard/team-report` |
 | [Base pack](./entities/base-pack.md) | `packages/core/templates/base/` (`pack.yaml`) | `PackManifestSchema` | none (composed at load) | `loadPackRaw` + `resolveActivation` under the workspace | version folds into `workspace_sha` |
 | [Agent](./entities/agent.md) | `agents/<slug>.yaml` (+ `.system-prompt.md`) | `AgentManifestSchema` | `agent` | compiled deepagents graph per `(org, slug)` (`services/agents/harness.ts`) | `/api/v1/agents`, `/dashboard/agents` |
-| [Team](./entities/team.md) | `teams/<slug>.yaml` | `TeamManifestSchema` | `team` | lead consultation merge in the harness | `/dashboard/teams` |
+| [Team](./entities/team.md) | `teams/<slug>.yaml` | `TeamManifestSchema` | `team` (lead, goal, kpis) | lead consultation merge in the harness; KPIs read from `worker_run.counts` | `/dashboard/teams`, `/dashboard/team-report` |
 | [Skill](./entities/skill.md) | `skills/<slug>/SKILL.md` | `PlaybookManifestSchema` (kind `skill`) | `playbook` (kind, origin, attached_playbooks) | mounted at `/skills/<slug>/` for agents naming it in `skills:`; read on the model's judgement via SkillsMiddleware | `/dashboard/skills` (usage from `skill_read` rows) |
 | [Playbook](./entities/playbook.md) | `playbooks/<slug>/SKILL.md` | `PlaybookManifestSchema` (kind `playbook`) | `playbook` | mounted at `/playbooks/<slug>/` when named by a mounted skill's `playbooks:` or the agent's `playbooks:` | `/dashboard/skills` (Playbooks section) |
 | [Object type](./entities/object-type.md) | `objects/<slug>/type.yaml` | `ObjectTypeManifestSchema` | `business_object_type` | classification + `lookup_objects` tool | `/api/v1/objects/types`, `/dashboard/objects` |
@@ -39,6 +39,7 @@ sweep. Field-by-field reference for each authored type:
 | Event | `EventService.emit` | `eventLogSchema` | `event_log` | `/dashboard/activity?kind=event` |
 | Source sync | `SourceSyncService.runSync` | `sourceSyncCheckpointSchema` | `source_sync_checkpoint` | `/dashboard/sources`, Activity |
 | Workspace version | `applyWorkspace` | `workspaceVersionSchema` | `workspace_version` | `/dashboard/workspace` |
+| [Worker run](./entities/worker-run.md) | `WorkerRunService` via `/api/v1/worker-runs` (external workers, ADR 0004) | `workerRunSchema` | `worker_run` (kind, model, summary, counts, tokens, cents) | `/dashboard/team-report` (by team/member, KPI progress), `/dashboard/activity?kind=worker` |
 | Conversation | chat SSE route | `conversationSchema` (+ messages) | `conversation`, `conversation_message` | `/dashboard/chat` |
 
 ## Deleted (2026-08, ADR 0003)
