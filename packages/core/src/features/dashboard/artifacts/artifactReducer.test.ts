@@ -9,6 +9,9 @@ function art(id: number, over: Partial<ArtifactEntry> = {}): ArtifactEntry {
     kind: 'markdown',
     title: `a${id}`,
     spec: { md: 'x' },
+    // Null until the assistant turn that produced it is persisted; the chip
+    // hangs off it afterwards.
+    messageId: null,
     folder: null,
     version: 1,
     authorKind: 'agent',

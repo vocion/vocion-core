@@ -58,6 +58,8 @@ describe('mergeArtifactEvent', () => {
     spec: {} as Record<string, unknown>,
     folder: null,
     version: 0,
+    // Null while the tool runs — the assistant message does not exist yet.
+    messageId: null,
     authorKind: 'agent' as const,
     authorId: 'agent:lead',
     createdAt: '2026-09-15T00:00:00Z',
