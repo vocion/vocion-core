@@ -137,6 +137,8 @@
     "history_empty": "Aucune conversation pour l’instant",
     "history_no_match": "Aucun résultat",
     "new_chat": "Nouvelle conversation",
+    "via": "via {name}",
+    "search_mode": "Recherche seule — extraction, sans modèle",
     "autonomy_ask": "Demander avant d’agir",
     "autonomy_act": "Agir dans les limites",
     "autonomy_ask_hint": "Les actions recommandées sont des cartes que vous envoyez à la file de revue.",

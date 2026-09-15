@@ -1,6 +1,7 @@
 'use client';
 
 import type { ChatMessage, ConversationAutonomy } from './types';
+import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef } from 'react';
 import { AgentMessage } from './AgentMessage';
 import { UserMessage } from './UserMessage';
@@ -49,6 +50,7 @@ export type MessageListProps = {
 const PIN_THRESHOLD = 48;
 
 export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy }: MessageListProps) {
+  const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
   // position changes must never themselves cause a re-render.
@@ -100,7 +102,9 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
                   <AgentMessage
                     message={msg}
                     agentName={agentName}
-                    via={msg.agentName}
+                    // A routed turn (`@agent`, `/search`, a delegation) is
+                    // attributed, never re-identified: "via <specialist>" (§9.10).
+                    via={msg.agentName && msg.agentName !== agentName ? t('via', { name: msg.agentName }) : undefined}
                     streaming={streaming && i === lastIdx}
                     activity={i === lastIdx ? activity : undefined}
                     onShowSources={onShowSources}

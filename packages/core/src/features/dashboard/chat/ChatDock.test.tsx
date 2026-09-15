@@ -41,6 +41,7 @@ const COLLAPSE_KEY = 'vocion_chat_dock_collapsed';
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   vi.mocked(client.chatWidget.getState).mockReset().mockResolvedValue(null);
   vi.mocked(client.chatWidget.setState).mockReset().mockResolvedValue({ agentSlug: 'revops-lead', conversationId: null });
   vi.mocked(client.conversations.get).mockReset();
@@ -252,5 +253,33 @@ describe('ChatDock', () => {
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation about Pete Laverick' })).toBeInTheDocument();
     expect(localStorage.getItem(COLLAPSE_KEY)).toBe('0');
+  });
+});
+
+describe('ChatDock speaks as the workspace (§9.10)', () => {
+  it('unscoped: the header is the workspace name and initial, never the lead agent, and the composer stays neutral', async () => {
+    localStorage.setItem(COLLAPSE_KEY, '0');
+    const agents = [{ ...AGENTS[0]!, workspaceName: 'Revenue' }];
+    await render(wrap(<ChatDock agents={agents} scopeLabel="Everything" />));
+
+    await expect.element(page.getByRole('textbox')).toHaveAttribute('placeholder', 'Ask anything…');
+
+    // The workspace is the title (and its initial the mark); the lead agent's name is nowhere.
+    await vi.waitFor(() => expect(page.getByText('Revenue', { exact: true }).elements().length).toBeGreaterThan(0));
+
+    expect(page.getByText('RevOps Lead').query()).toBeNull();
+    expect(page.getByText(/^Direct ·/).query()).toBeNull();
+    expect(page.getByText('Message RevOps Lead', { exact: false }).query()).toBeNull();
+  });
+
+  it('scoped: titled by the record, with the workspace — not an agent — as who answers', async () => {
+    const agents = [{ ...AGENTS[0]!, workspaceName: 'Revenue' }];
+    await render(wrap(<ChatDock agents={agents} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
+
+    // The record names the sheet (title + sr description) and the header — several matches, all correct.
+    await vi.waitFor(() => expect(page.getByText('Pete Laverick', { exact: true }).elements().length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(page.getByText('Revenue', { exact: true }).elements().length).toBeGreaterThan(0));
+
+    expect(page.getByText('RevOps Lead').query()).toBeNull();
   });
 });

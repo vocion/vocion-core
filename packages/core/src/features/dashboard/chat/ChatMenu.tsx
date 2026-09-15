@@ -1,6 +1,7 @@
 'use client';
 
 import { MoreHorizontal, SquarePen } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +23,7 @@ export type ChatMenuProps = {
 };
 
 export function ChatMenu({ onNewChat }: ChatMenuProps) {
+  const t = useTranslations('Chat');
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -34,7 +36,7 @@ export function ChatMenu({ onNewChat }: ChatMenuProps) {
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuItem onClick={onNewChat}>
           <SquarePen className="mr-2 size-4 text-muted-foreground" aria-hidden="true" />
-          New chat
+          {t('new_chat')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

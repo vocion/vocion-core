@@ -190,16 +190,21 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   // auto-injected general-purpose inherits) — which silently left every
   // registered specialist with filesystem tools only.
   const subagentTools = tools as SubAgent['tools'];
-  const subagents: SubAgent[] = roster.delegates.map(d => ({
-    name: d.slug,
-    description: d.description,
-    systemPrompt: d.systemPrompt,
+  // Authored config first, and it WINS a name collision with the derived
+  // roster: an author who wrote a `subagents` entry for a slug tuned its
+  // description/prompt on purpose; the registry row is the fallback, not the
+  // override. The team-table entry for that slug is skipped.
+  const authored = row.subagents ?? [];
+  const authoredNames = new Set(authored.map(s => s.name));
+  const subagents: SubAgent[] = authored.map(s => ({
+    name: s.name,
+    description: s.description,
+    systemPrompt: s.systemPrompt,
     tools: subagentTools,
   }));
-  const registered = new Set(subagents.map(s => s.name));
-  for (const s of row.subagents ?? []) {
-    if (!registered.has(s.name)) {
-      subagents.push({ name: s.name, description: s.description, systemPrompt: s.systemPrompt, tools: subagentTools });
+  for (const d of roster.delegates) {
+    if (!authoredNames.has(d.slug)) {
+      subagents.push({ name: d.slug, description: d.description, systemPrompt: d.systemPrompt, tools: subagentTools });
     }
   }
 

@@ -126,8 +126,14 @@ agent is doing, and able to be talked back to.
     "via Proposal Writer" eyebrow on a routed reply. Two power paths, both
     per turn and neither advertised in the header: `@agent` / `@team` in the
     composer routes that turn (a team tag → its lead; a Briefings hand-off
-    routes its first turn the same way), and `/search <query>` runs the
-    retrieval-only path. `conversation.agent_slug` keeps the lead. The empty
+    routes its first turn the same way) and the tagged records ride along as
+    `context_refs`, which the stream route validates (`services/chat/
+    pageContext.ts#readContextRefs`) and notes under the message for the
+    model — a tag is context, not only a router; `/search <query>` runs the
+    retrieval-only path (listed in the composer's `?` shortcuts sheet; a
+    "Search only" pill shows while it is armed). `conversation.agent_slug`
+    keeps the lead. The rail's header is the workspace name too — scoped, the
+    record it is about; the composer placeholder never names an agent. The empty
     state says "Ask <Workspace>" with the workspace's chips — the lead's
     suggestions plus one per team lead, capped at four — never an agent name.
 
@@ -144,6 +150,6 @@ agent is doing, and able to be talked back to.
 | Feedback | `MessageFeedback.tsx`, `services/ConversationService.ts#setMessageFeedback`, adoption event `chat.feedback` |
 | History + search | `HistoryPopover.tsx`, `services/ConversationService.ts#searchConversations` |
 | Autonomy | `conversation.autonomy`, `RecommendedActionCard.tsx` (`autoPropose`) |
-| Routing | `features/dashboard/chat/routing.ts` (default agent, `@` routing, `/search`, workspace chips), `services/agents/delegationRoster.ts` (roster), `rpc/agent/stream/route.ts` (server default = workspace lead) |
+| Routing | `features/dashboard/chat/routing.ts` (default agent, `@` routing, `/search`, workspace chips), `services/agents/delegationRoster.ts` (roster, id-ordered; authored `subagents` win a slug collision in `harness.ts`), `rpc/agent/stream/route.ts` (server default = workspace lead; `context_refs` → `pageContext.ts`) |
 | Entry function | `features/dashboard/chat/agentSurface.ts` |
 | Schema | migration `0094_conversation_feedback_search.sql` (+ `concurrent/0094_conversation_search_idx.sql`) |

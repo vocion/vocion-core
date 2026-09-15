@@ -55,6 +55,8 @@ export type ChatComposerProps = {
   onAutonomyChange?: (next: ConversationAutonomy) => void;
   /** Copy for the autonomy pill, supplied by the parent (which has the i18n provider). */
   autonomyCopy?: { ask: string; act: string; askHint: string; actHint: string };
+  /** A slash command is armed (`/search …`) — the parent names the mode; rendered as a pill above the box. */
+  commandHint?: string;
 };
 
 /** Pastes at or above this length become a chip instead of flooding the box. */
@@ -75,6 +77,7 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['Enter', 'Send'],
   ['Shift + Enter', 'New line'],
   ['@', 'Tag an agent, team or mission'],
+  ['/search …', 'Search only — no model in the loop'],
   ['⌘ J', 'Open or collapse the conversation'],
   ['?', 'These shortcuts'],
 ];
@@ -98,6 +101,7 @@ export function ChatComposer({
   autonomy,
   onAutonomyChange,
   autonomyCopy,
+  commandHint,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -243,7 +247,7 @@ export function ChatComposer({
             })}
           </ul>
         )}
-        {(pastedText || tags.length > 0) && (
+        {(pastedText || tags.length > 0 || commandHint) && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
             {tags.map((tag) => {
               const Icon = TAG_ICON[tag.type];
@@ -259,6 +263,11 @@ export function ChatComposer({
                 </span>
               );
             })}
+            {commandHint && (
+              <span data-testid="command-hint" className="inline-flex items-center gap-1.5 rounded-full border border-brand-amber/40 bg-brand-amber-tint px-2.5 py-1 text-xs font-medium text-brand-amber-deep">
+                {commandHint}
+              </span>
+            )}
             {pastedText && (
               <span className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-1.5 text-xs">
                 <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-muted-foreground uppercase">Pasted</span>

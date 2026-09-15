@@ -30,6 +30,7 @@ import {
   writeCollapsed,
   writeStoredRailWidth,
 } from './railState';
+import { parseSearchCommand } from './routing';
 import { useTagSearch } from './tagSearch';
 import { useChatSession } from './useChatSession';
 
@@ -367,6 +368,11 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     actHint: t('autonomy_act_hint'),
   };
 
+  // ONE identity (§9.10): unscoped, the rail is titled by the workspace's
+  // name with its initial as the mark; scoped, by the record it is about.
+  const workspaceKnown = agents.some(a => a.workspaceName);
+  const headerName = scopeRef ? scopeLabel : (workspaceKnown ? session.workspaceName : scopeLabel);
+
   const body = (
     <>
       {/* Scope header — names what this conversation is about, with the one
@@ -376,10 +382,10 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           <div className="flex items-center gap-2">
             {!scopeRef && (
               <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-md bg-foreground text-[10px] font-semibold text-background">
-                {(session.workspaceName || scopeLabel).slice(0, 1).toUpperCase()}
+                {headerName.slice(0, 1).toUpperCase()}
               </span>
             )}
-            <span className="truncate text-sm font-semibold">{scopeRef ? scopeLabel : (agents.some(a => a.workspaceName) ? session.workspaceName : scopeLabel)}</span>
+            <span className="truncate text-sm font-semibold">{headerName}</span>
             {session.autonomy === 'act-within-bounds' && (
               <span data-testid="autonomy-chip" title={autonomyCopy.actHint} className="shrink-0 rounded-full border border-brand-amber/40 bg-brand-amber-tint px-1.5 py-0.5 text-[10px] font-medium text-brand-amber-deep">
                 {autonomyCopy.act}
@@ -387,8 +393,15 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             )}
           </div>
           <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="truncate">{scopeRef ? session.workspaceName : session.agent.name === session.workspaceName ? '' : session.agent.name}</span>
-            <span>·</span>
+            {/* Scoped: the workspace agent is who answers about this record.
+                Unscoped the header already IS the workspace — no agent name
+                ever appears here (§9.10). */}
+            {scopeRef && workspaceKnown && (
+              <>
+                <span className="truncate">{session.workspaceName}</span>
+                <span>·</span>
+              </>
+            )}
             <Link href="/dashboard/chat" className="truncate underline underline-offset-2 hover:text-foreground">
               {t('all_conversations')}
             </Link>
@@ -482,7 +495,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           disabled={session.isStreaming || !session.booted}
           streaming={session.isStreaming}
           onStop={session.handleStop}
-          placeholder={session.agent.placeholder}
+          placeholder={session.composerPlaceholder}
+          commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
           armed={(comments?.open.length ?? 0) > 0}
           pastedText={session.pastedText}
           onPasteText={session.setPastedText}
@@ -527,7 +541,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
         <SheetContent side="right" className="flex w-full max-w-[28rem] flex-col gap-0 p-0 sm:max-w-[28rem]" aria-label={ariaLabel}>
           <SheetHeader className="sr-only">
             <SheetTitle>{ariaLabel}</SheetTitle>
-            <SheetDescription>{session.agent.name}</SheetDescription>
+            {/* One identity (§9.10): the sheet is described as the workspace, never an agent. */}
+            <SheetDescription>{headerName}</SheetDescription>
           </SheetHeader>
           <div ref={asideRef as React.RefObject<HTMLDivElement>} className="flex min-h-0 flex-1 flex-col">
             {body}

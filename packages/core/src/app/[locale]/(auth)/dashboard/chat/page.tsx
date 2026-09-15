@@ -8,7 +8,7 @@ import { workspaceGreeting } from '@/services/chat/workspaceLabel';
 
 /**
  * Chat surface. Server-loads the project's agents from the DB so the
- * client-side ChatShell has a real list to pick from — no hardcoded
+ * client-side ChatShell has the workspace's real roster — no hardcoded
  * fallback. A project with no agents authored still gets the virtual search
  * entry, so the list is empty only when no workspace resolved at all; the
  * shell renders an empty state for that instead of failing to pick a default.
@@ -20,8 +20,8 @@ import { workspaceGreeting } from '@/services/chat/workspaceLabel';
  * agent: there is nothing to pick.
  *
  * Deliberately chrome-free: no TitleBar, no header strip — "insert quarter,
- * shoot aliens." The surface is messages + composer; New chat / Switch agent
- * live behind a single ⋯ menu that ChatShell portals into the shell top bar.
+ * shoot aliens." The surface is messages + composer; New chat lives behind a
+ * single ⋯ menu that ChatShell portals into the shell top bar.
  * @param props
  * @param props.params
  * @param props.searchParams
