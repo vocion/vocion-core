@@ -1,5 +1,6 @@
 import type { APIRequestContext } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import process from 'node:process';
 import { expect, test } from '@playwright/test';
 
 /**
@@ -40,18 +41,31 @@ type SeedFixtures = {
   otherOrgToken: string;
 };
 
+const SEED_SCRIPT = 'e2e/mission-runs/support/seed-mission-run-fixtures.ts';
+
 function seedFixtures(): SeedFixtures {
   // Through `dotenv -c` so the script sees .env.local, same as every other
   // script in this repo that talks to the database outside the Next
   // process. stdout carries exactly one JSON line (everything else the
-  // script prints goes to stderr) — see the script's own header comment.
-  const output = execFileSync(
-    'npx',
-    ['dotenv', '-c', '--', 'npx', 'tsx', 'e2e/mission-runs/support/seed-mission-run-fixtures.ts'],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] },
-  );
-  const lastLine = output.trim().split('\n').at(-1) ?? '';
-  return JSON.parse(lastLine) as SeedFixtures;
+  // script prints goes to stderr, see the script's own header comment).
+  // stderr is captured so a failure can quote the script's own last line
+  // instead of "Command failed: npx ...", and echoed so the run log keeps it.
+  try {
+    const output = execFileSync(
+      'npx',
+      ['dotenv', '-c', '--', 'npx', 'tsx', SEED_SCRIPT],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    const lastLine = output.trim().split('\n').at(-1) ?? '';
+    return JSON.parse(lastLine) as SeedFixtures;
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr ?? '';
+    if (stderr) {
+      process.stderr.write(stderr);
+    }
+    const reason = stderr.trim().split('\n').at(-1) || (error instanceof Error ? error.message : String(error));
+    throw new Error(`${SEED_SCRIPT} failed: ${reason}`);
+  }
 }
 
 let fixtures: SeedFixtures;

@@ -12,7 +12,7 @@
 
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
-import { and, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
@@ -41,6 +41,19 @@ export type ListOptions = {
   includeSnoozed?: boolean;
   /** Restrict to one plane. Omit for the unified queue. */
   kind?: ReviewKind;
+  /**
+   * Restrict the action plane to these registered action ids
+   * (`personalization.enroll`, `hubspot.update`, …). Omit for every type.
+   *
+   * `kind` is the PLANE — workflow, mission, action — and a queue holding 557
+   * pending items can be 557 rows of one plane, which is exactly what
+   * production holds. This is the filter that separates them, and it runs in
+   * the WHERE clause so the per-plane `total` stays truthful under it.
+   *
+   * An empty array means "no action type matches", not "every type": that is
+   * what a caller asking for a type this org has never produced must get.
+   */
+  actionIds?: string[];
 };
 
 /** A page of the queue plus the total number of items the filters matched. */
@@ -228,9 +241,15 @@ async function listMissionPlane(orgId: string, opts: ListOptions, now: Date, cap
 async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?: number): Promise<PlaneResult> {
   const where = and(
     eq(actionRunSchema.orgId, orgId),
-    eq(actionRunSchema.status, PENDING_STATUS.action),
+    // Pending AND failed, matching listPendingActions: a failed execution is
+    // open work, not a decided card.
+    inArray(actionRunSchema.status, [PENDING_STATUS.action, 'failed']),
     // Stale suggestions drop out of the queue, matching the dashboard list.
     or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
+    // In SQL, not over the fetched page: with 557 pending items and a window
+    // of 50, filtering after the read would hand back whichever of the newest
+    // 50 happened to match and call it the total.
+    ...(opts.actionIds ? [inArray(actionRunSchema.actionId, opts.actionIds.length > 0 ? opts.actionIds : [''])] : []),
     ...routingFilters(opts, now),
   );
   const query = db
@@ -267,6 +286,54 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     return counted?.total ?? 0;
   });
   return { items, total };
+}
+
+/** One card type present in the pending queue, with its real count. */
+export type PendingActionType = {
+  actionId: string;
+  /** The action's own registered display name; the id itself when nothing is registered. */
+  label: string;
+  count: number;
+};
+
+/**
+ * The card types actually pending for this org, each with a true count.
+ *
+ * One GROUP BY, so a chip reads "Enroll 46" rather than counting whatever the
+ * current page happens to hold — with 557 pending items and a window of 50,
+ * those are different numbers. The list is driven by what is present, never a
+ * hardcoded set: the point of the card template is that a new object type
+ * registers without a UI change.
+ *
+ * Labels come from the action registry, so `personalization.enroll` renders as
+ * what its author called it and the slug stays available for the URL.
+ * @param orgId - Tenant.
+ * @param opts - The same routing filters the queue itself runs under, minus `actionIds`.
+ */
+export async function pendingActionTypes(orgId: string, opts: ListOptions = {}): Promise<PendingActionType[]> {
+  const now = new Date();
+  const rows = await db
+    .select({ actionId: actionRunSchema.actionId, n: sql<number>`count(*)::int` })
+    .from(actionRunSchema)
+    .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
+    .where(and(
+      eq(actionRunSchema.orgId, orgId),
+      // Failed runs count as open work, matching the queue feed: an approved
+      // action whose execution threw still needs a human (see listPendingActions).
+      inArray(actionRunSchema.status, [PENDING_STATUS.action, 'failed']),
+      or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
+      ...routingFilters(opts, now),
+    ))
+    .groupBy(actionRunSchema.actionId);
+
+  const { getAction } = await import('@/libs/actions/registry');
+  return rows
+    .map(row => ({
+      actionId: row.actionId,
+      label: getAction(row.actionId)?.name ?? row.actionId,
+      count: Number(row.n),
+    }))
+    .sort((a, b) => b.count - a.count || a.actionId.localeCompare(b.actionId));
 }
 
 /** An empty plane, for the kinds a `kind` filter excludes. */
@@ -606,6 +673,15 @@ export async function snooze(
 }
 
 /**
+ * What the decision did downstream. `execution` is set for approved actions
+ * only: a `failed` status there means the approval stood but the action threw,
+ * and the surface that clicked Approve must say so rather than look done.
+ */
+export type DecideResult = {
+  execution?: { status: 'pending' | 'done' | 'failed' | 'rejected'; error: string | null };
+};
+
+/**
  * Approve or reject a queued item — dispatches to the owning service so the
  * single queue and the per-kind logic stay in sync.
  * @param item
@@ -638,7 +714,7 @@ export async function decide(
      */
     externalRef?: { system: string; id: string };
   },
-): Promise<void> {
+): Promise<DecideResult> {
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
   switch (item.kind) {
     case 'workflow':
@@ -646,14 +722,15 @@ export async function decide(
         ? await resumeWorkflow(item.id, orgId)
         : await cancelWorkflow(item.id, orgId, opts?.reason);
       trackDecision(item, action, orgId, reviewedBy);
-      return;
+      return {};
     case 'mission':
       action === 'approve'
         ? await resumeMission(item.id, orgId)
         : await cancelMission(item.id, orgId, opts?.reason);
       trackDecision(item, action, orgId, reviewedBy);
-      return;
-    case 'action':
+      return {};
+    case 'action': {
+      let execution: DecideResult['execution'];
       if (action === 'approve') {
         // Edit-then-approve: if the operator edited the draft in the queue,
         // persist the edited payload FIRST (re-validated in ActionService),
@@ -661,7 +738,10 @@ export async function decide(
         if (opts?.editedInput) {
           await updateActionInput(item.id, orgId, opts.editedInput);
         }
-        await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
+        const outcome = await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
+        // An approve whose execution failed is NOT a completed decision to the
+        // person who clicked it — the outcome rides back so the surface says so.
+        execution = { status: outcome.status, error: outcome.error ?? null };
       } else {
         await rejectAction(item.id, orgId, opts?.reason ?? opts?.note, { reviewedBy });
       }
@@ -687,6 +767,8 @@ export async function decide(
       await recordActionDecisionLearning(item.id, orgId, action, opts?.reason ?? opts?.note).catch((error) => {
         console.warn(`[ReviewService] could not record decision-learning rule for action run ${item.id}`, error);
       });
+      return { execution };
+    }
   }
 }
 
@@ -718,7 +800,7 @@ function trackDecision(
 }
 
 /** Every distinct triage decision on an agent-suggested action. */
-export type ActionSignal = 'approve' | 'edit' | 'reject' | 'skip' | 'save' | 'rewrite';
+export type ActionSignal = 'approve' | 'edit' | 'reject' | 'skip' | 'save' | 'rewrite' | 'regenerate';
 
 const SIGNAL_TO_DECISION = {
   approve: 'approved',
@@ -727,6 +809,7 @@ const SIGNAL_TO_DECISION = {
   skip: 'skipped',
   save: 'saved',
   rewrite: 'rewritten',
+  regenerate: 'regenerated',
 } as const;
 
 /**
@@ -780,6 +863,9 @@ const SIGNAL_POLARITY = {
   edit: 'correct',
   reject: 'correct',
   rewrite: 'correct',
+  // Distinct from `rewrite` so the adoption metrics can tell a tone touch-up
+  // from a full re-do; both mean "change this".
+  regenerate: 'correct',
   skip: null,
 } as const;
 

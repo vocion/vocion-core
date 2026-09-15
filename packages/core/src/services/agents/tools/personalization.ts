@@ -88,7 +88,7 @@ export function queueLeadTool(ctx: RuntimeContext) {
     },
     {
       name: 'queue_lead',
-      description: 'Put leads on the personalization queue (the /gtm/personalization page) — ONE call for the whole batch, passing every ref at once. Takes CRM mirror refs (the `ref` field from hubspot_count_contacts, e.g. "contacts:9412") and reads name, title, company, entrance source and email engagement from the mirror itself, so you never supply them and nothing can be invented. Phase 1 records NO research: claims, missing and the draft sequence stay empty and confidence stays null. Returns the counts first — requested, queued (rows actually written), alreadyQueued (already on the queue, which is what a re-fire looks like), notInMirror (refs with no CRM record), and queueTotal. Report `queued` and `alreadyQueued`, not the number of refs you sent. Running this twice on the same leads is a no-op by construction.',
+      description: 'Put leads on the personalization queue (the /gtm/personalization page) — ONE call for the whole batch, passing every ref at once. Takes CRM refs (the `ref` field from hubspot_count_contacts, e.g. "contacts:9412") and reads name, title, company, entrance source and email engagement itself — LIVE from HubSpot, falling back to the CRM mirror when live is unavailable (`identitySource` says which) — so you never supply them and nothing can be invented. Phase 1 records NO research: claims, missing and the draft sequence stay empty and confidence stays null. Returns the counts first — requested, queued (rows actually written), alreadyQueued (already on the queue, which is what a re-fire looks like), notInMirror (refs with no CRM record), and queueTotal. Report `queued` and `alreadyQueued`, not the number of refs you sent. Running this twice on the same leads is a no-op by construction. `asOf` is when the identities were read; when `mirrorStaleness` is set, quote it, because a thin batch over a mirror that stopped syncing is not a quiet week.',
       schema: z.object({
         contact_refs: z.array(z.string().min(1)).min(1).max(500).describe('CRM mirror refs from hubspot_count_contacts (`ref`), e.g. ["contacts:9412","contacts:9413"]. Send them all in one call.'),
         trigger_type: z.enum(['new', 'stale']).default('new').describe('Why the sweep picked the lead up. Phase 1 queues fresh arrivals, so "new".'),
@@ -145,7 +145,7 @@ export function reconcileMqlWindowTool(ctx: RuntimeContext) {
     },
     {
       name: 'reconcile_mql_window',
-      description: `Coverage check: recompute the window's arrivals from the CRM mirror (no writes) and diff them against the personalization queue. Returns arrivals, queued, and every unqueued lead BY NAME with why. Run this at the end of a queueing pass and report the gap count; if it is non-zero, queue what you missed and re-run. ${WINDOW_CAVEAT}`,
+      description: `Coverage check: recompute the window's arrivals (no writes) — LIVE from HubSpot, falling back to the CRM mirror when live is unavailable (\`sourcesRead\`/the note say which) — and diff them against the personalization queue. Returns arrivals, queued, and every unqueued lead BY NAME with why. Run this at the end of a queueing pass and report the gap count; if it is non-zero, queue what you missed and re-run. \`asOf\` is when arrivals were read and \`mirrorStaleness\` is set when a mirror fallback has fallen behind its own schedule; quote it, because zero gaps against a frozen mirror is not full coverage. ${WINDOW_CAVEAT}`,
       schema: z.object({
         lifecycle_stages: z.array(z.string().min(1)).min(1).describe('Exact lifecycle stage strings, read from `facets.lifecycleStage` on a hubspot_count_contacts call — e.g. ["marketingqualifiedlead"]. Never pass a friendly label like "MQL"; it will be refused.'),
         since_days: z.number().positive().max(365).optional().describe('Trailing window in days, resolved on the SERVER clock (default 7). Use this rather than created_after; it does not require you to know today\'s date. Pass the SAME value the queueing pass used.'),
@@ -173,14 +173,14 @@ function briefVersionStamp(ctx: RuntimeContext, skillVersion: number): string {
 
 export function nextLeadToBriefTool(ctx: RuntimeContext) {
   return tool(
-    async () => {
-      const result = await claimLeadToBrief(ctx.orgId);
+    async (args) => {
+      const result = await claimLeadToBrief(ctx.orgId, args.contact_ref ? { contactRef: args.contact_ref } : {});
       return JSON.stringify(result, null, 2);
     },
     {
       name: 'next_lead_to_brief',
-      description: `Hand out the next queued lead that still needs a brief, OLDEST ARRIVAL FIRST. Call it, brief that one lead, save it, then call this again; stop when \`lead\` comes back null. Do NOT ask for more than one lead at a time and do not pick leads yourself from get_lead_ledger. Taking the lead COUNTS the try, so a lead you claim and then abandon has spent one of its ${MAX_BRIEF_ATTEMPTS} tries whatever you report. \`attempt\` is which try this is and \`attemptsRemaining\` is what is left. \`regenerateNote\` is a reviewer's instruction for the rewrite when present, and it is the most important input you have: follow it. \`waiting\` is how many unbriefed leads remain after this one, and \`surfaced\` names leads that just ran out of tries and moved to Review with their error. Nothing needing a brief means the sweep is done, which is the normal outcome on most runs.`,
-      schema: z.object({}),
+      description: `Hand out the next queued lead that still needs a brief, OLDEST ARRIVAL FIRST; or, with contact_ref, THAT lead and no other (a reviewer's Regenerate names one lead: claim it, brief it, stop; if it comes back null the lead is not eligible and you must not brief someone else instead). Call it, brief that one lead, save it, then call this again; stop when \`lead\` comes back null. Do NOT ask for more than one lead at a time and do not pick leads yourself from get_lead_ledger. Taking the lead COUNTS the try, so a lead you claim and then abandon has spent one of its ${MAX_BRIEF_ATTEMPTS} tries whatever you report. \`attempt\` is which try this is and \`attemptsRemaining\` is what is left. \`regenerateNote\` is a reviewer's instruction for the rewrite when present, and it is the most important input you have: follow it. \`waiting\` is how many unbriefed leads remain after this one, and \`surfaced\` names leads that just ran out of tries and moved to Review with their error. Nothing needing a brief means the sweep is done, which is the normal outcome on most runs.`,
+      schema: z.object({ contact_ref: z.string().min(1).optional().describe('Claim exactly this lead (its CRM mirror ref, e.g. "contacts:9412"), as a Regenerate names it. Omit to take the oldest queued lead.') }),
     },
   );
 }
@@ -311,14 +311,14 @@ export function recordBriefFailureTool(ctx: RuntimeContext) {
 
 export function nextBriefToDraftTool(ctx: RuntimeContext) {
   return tool(
-    async () => {
-      const result = await claimBriefToDraft(ctx.orgId);
+    async (args) => {
+      const result = await claimBriefToDraft(ctx.orgId, args.contact_ref ? { contactRef: args.contact_ref } : {});
       return JSON.stringify(result, null, 2);
     },
     {
       name: 'next_brief_to_draft',
-      description: `Hand out the next BRIEFED lead that still needs its outreach drafted, OLDEST ARRIVAL FIRST, with the whole brief attached (sections, claims, missing, confidence) so you never re-read it elsewhere. Call it, draft that one lead per the draft-mql-sequence skill, save with save_draft_sequence, then call this again; stop when \`lead\` comes back null. Taking the lead COUNTS the try (${MAX_DRAFT_ATTEMPTS} total), same contract as next_lead_to_brief. Draft whatever the confidence says: a low score is drafted anyway and the reviewer's edits are the training signal. Leads whose briefing failed are never handed out here.`,
-      schema: z.object({}),
+      description: `Hand out the next BRIEFED lead that still needs its outreach drafted, OLDEST ARRIVAL FIRST (or, with contact_ref, THAT lead and no other, for a Regenerate), with the whole brief attached (sections, claims, missing, confidence) so you never re-read it elsewhere. Call it, draft that one lead per the draft-mql-sequence skill, save with save_draft_sequence, then call this again; stop when \`lead\` comes back null. Taking the lead COUNTS the try (${MAX_DRAFT_ATTEMPTS} total), same contract as next_lead_to_brief. Draft whatever the confidence says: a low score is drafted anyway and the reviewer's edits are the training signal. Leads whose briefing failed are never handed out here.`,
+      schema: z.object({ contact_ref: z.string().min(1).optional().describe('Claim exactly this briefed lead (its CRM mirror ref). Omit to take the oldest.') }),
     },
   );
 }

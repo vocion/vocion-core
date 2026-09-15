@@ -80,7 +80,12 @@ export async function addSource(input: AddSourceInput): Promise<{ id: number; sl
   // a ZodError with a usable message when the form data is bad.
   connector.configSchema.parse(input.configJson);
 
-  const slug = input.slug ?? generateSlug(input.kind, input.configJson);
+  // A sync-less connector takes its connector slug verbatim. `generateSlug`
+  // would fall back to `<kind>-<timestamp>` for a config with no URL in it, and
+  // `upsertSource` matches on (orgId, slug): a workspace manifest declaring
+  // `slug: apollo` would then create a SECOND row rather than adopt the one
+  // added by hand here.
+  const slug = input.slug ?? (connector.syncless ? input.kind : generateSlug(input.kind, input.configJson));
   const ref = await ensureSource({
     orgId: input.orgId,
     slug,

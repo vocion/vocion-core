@@ -40,6 +40,16 @@ beforeEach(async () => {
       objectTypeSlugs: [],
       harnessConfig: { provider: 'runtime', excludeTools: ['propose_action'] },
     },
+    {
+      orgId: ORG_A,
+      slug: 'prospector',
+      name: 'Prospector A',
+      systemPrompt: 'You prospect for org A.',
+      skillSlugs: [],
+      connectorSources: ['apollo'],
+      objectTypeSlugs: [],
+      harnessConfig: { provider: 'runtime' },
+    },
   ]);
 });
 
@@ -107,5 +117,33 @@ describe('executeToolCall — claim enforcement', () => {
       expect(typeof result.output).toBe('string');
       expect(Array.isArray(result.events)).toBe(true);
     }
+  });
+});
+
+describe('source-gated tools over the endpoint', () => {
+  it('refuses an Apollo tool to an agent whose sources do not include apollo', async () => {
+    const token = signClaim({ orgId: ORG_A, agentSlug: 'helper' });
+
+    const result = await executeToolCall({ token, tool: 'apollo_search_people', input: {} });
+
+    expect(result.ok).toBe(false);
+  });
+
+  it('refuses a list write the agent was not granted, even with the source', async () => {
+    const token = signClaim({ orgId: ORG_A, agentSlug: 'prospector' });
+
+    const result = await executeToolCall({ token, tool: 'apollo_add_to_list', input: { list_name: 'x', contact: { email: 'a@b.com' } } });
+
+    expect(result.ok).toBe(false);
+  });
+
+  it('refuses an Apollo tool under a claim for an org whose agent slug is another org\'s', async () => {
+    // The claim names org B; `prospector` exists only in org A, so the agent
+    // does not resolve and nothing in the body can widen the scope.
+    const token = signClaim({ orgId: ORG_B, agentSlug: 'prospector' });
+
+    const result = await executeToolCall({ token, tool: 'apollo_search_people', input: {} });
+
+    expect(result.ok).toBe(false);
   });
 });

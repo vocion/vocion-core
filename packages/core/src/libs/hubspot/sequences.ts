@@ -108,6 +108,42 @@ export async function getSequence(
 }
 
 /**
+ * The contact's current enrollment, as this user's library sees it. A 404 is
+ * an answer (not enrolled), not an error. Detail only — the portal-wide truth
+ * is `hs_sequences_is_enrolled` (see `unenrollBridge.readSequenceEnrollmentState`),
+ * because an enrollment made by another user can be invisible to this scope.
+ * @param client
+ * @param contactId
+ * @param userId
+ */
+export async function getContactEnrollment(
+  client: HubspotClient,
+  contactId: string,
+  userId?: string,
+): Promise<HubspotResult<{ enrolled: boolean; sequenceId?: string; sequenceName?: string; enrolledByEmail?: string }>> {
+  type EnrollmentBody = { sequenceId?: string | number; sequenceName?: string; enrolledByEmail?: string };
+  const res = await client.get<EnrollmentBody>(
+    `${SEQUENCES_BASE}/enrollments/contact/${contactId}`,
+    userId ? { userId } : undefined,
+  );
+  if (!res.ok) {
+    if (res.error === 'hubspot_error' && res.status === 404) {
+      return { ok: true, data: { enrolled: false } };
+    }
+    return res;
+  }
+  return {
+    ok: true,
+    data: {
+      enrolled: true,
+      sequenceId: res.data.sequenceId === undefined ? undefined : String(res.data.sequenceId),
+      sequenceName: res.data.sequenceName,
+      enrolledByEmail: res.data.enrolledByEmail,
+    },
+  };
+}
+
+/**
  * Enroll a contact into an existing sequence as `senderEmail`. This is the
  * outbound write behind an approved Enroll — never called without one.
  * @param client

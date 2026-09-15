@@ -17,6 +17,7 @@
  */
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { cronIntervalMs, humanizeAge } from '@/libs/cron/schedule';
 import { db } from '@/libs/DB';
 import { knowledgeDocumentSchema, knowledgeSourceSchema } from '@/models/Schema';
 
@@ -126,8 +127,92 @@ export type CrmQueryResult = {
   asOf: Date | null;
   /** Source slugs actually read. Empty = no hubspot source connected/permitted. */
   sources: string[];
+  /** Whether the mirror behind this answer is current, judged against its own sync cadence. */
+  freshness: MirrorFreshness;
   records: CrmRecord[];
 };
+
+/**
+ * How fresh the mirror behind an answer is.
+ *
+ * A count is only as current as the sync that filled the mirror, and a stale
+ * mirror returns a true number that answers a different question: "0 contacts
+ * in scope" and "0 contacts synced since Tuesday" are the same integer. The
+ * judgement is relative to each source's OWN cadence — a daily sync two hours
+ * old is healthy, an hourly one is not — so the caller never has to know what
+ * the schedule was.
+ */
+export type MirrorFreshness = {
+  /** Oldest sync among the contributing sources, i.e. `asOf`. Null = never synced. */
+  asOf: Date | null;
+  /** How old that sync is, in ms. Null when nothing has ever synced. */
+  ageMs: number | null;
+  /** The slowest contributing source's authored cadence, in ms. Null when none is scheduled. */
+  expectedEveryMs: number | null;
+  /** True when the data is older than the sources undertook to refresh it. */
+  stale: boolean;
+  /** The staleness in a sentence a report can quote. Null when the mirror is current. */
+  reason: string | null;
+  /** Per contributing source: what it syncs on, and when it last did. */
+  sources: { slug: string; schedule: string | null; lastSyncedAt: Date | null }[];
+};
+
+/** Slack on top of a source's own interval before its data counts as stale. */
+const MIN_STALENESS_GRACE_MS = 30 * 60_000;
+
+/**
+ * Judge a set of contributing sources against their own schedules.
+ *
+ * Exported for the surfaces that show freshness without running a CRM query
+ * (the automation card names the mirror its work reads).
+ * @param sources - The contributing sources, with their cron and last sync.
+ * @param now - Evaluation time.
+ */
+export function judgeMirrorFreshness(
+  sources: { slug: string; schedule: string | null; lastSyncedAt: Date | null }[],
+  now: Date = new Date(),
+): MirrorFreshness {
+  const base = { sources, asOf: null, ageMs: null, expectedEveryMs: null };
+  if (sources.length === 0) {
+    return { ...base, stale: false, reason: null };
+  }
+  // The slowest schedule sets the expectation: the whole answer is only as
+  // fresh as its stalest input, so that is the cadence it must be judged on.
+  const intervals = sources
+    .map(s => (s.schedule ? cronIntervalMs(s.schedule, now) : null))
+    .filter((ms): ms is number => ms !== null);
+  const expectedEveryMs = intervals.length > 0 ? Math.max(...intervals) : null;
+
+  const never = sources.filter(s => !(s.lastSyncedAt instanceof Date));
+  if (never.length > 0) {
+    return {
+      ...base,
+      expectedEveryMs,
+      stale: true,
+      reason: `${never.map(s => s.slug).join(', ')} has never synced, so the mirror does not hold these records at all yet.`,
+    };
+  }
+
+  const asOf = new Date(Math.min(...sources.map(s => (s.lastSyncedAt as Date).getTime())));
+  const ageMs = now.getTime() - asOf.getTime();
+  if (expectedEveryMs === null) {
+    // No cron anywhere: the source is sync-on-demand, so age proves nothing.
+    return { sources, asOf, ageMs, expectedEveryMs: null, stale: false, reason: null };
+  }
+  const allowedMs = expectedEveryMs + Math.max(expectedEveryMs, MIN_STALENESS_GRACE_MS);
+  const stale = ageMs > allowedMs;
+  const stalest = sources.reduce((a, b) => ((a.lastSyncedAt as Date) <= (b.lastSyncedAt as Date) ? a : b));
+  return {
+    sources,
+    asOf,
+    ageMs,
+    expectedEveryMs,
+    stale,
+    reason: stale
+      ? `${stalest.slug} last synced ${humanizeAge(ageMs)} ago but is scheduled every ${humanizeAge(expectedEveryMs)}, so records created since then are NOT in this answer. Say that alongside the count rather than reporting the count as the state of the CRM.`
+      : null,
+  };
+}
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -205,12 +290,15 @@ function lowerIn(key: string, values: string[]) {
  * @param orgId
  * @param allowedSourceSlugs - Per-user ACL; unset means no narrowing.
  */
-async function hubspotSources(orgId: string, allowedSourceSlugs?: string[]) {
+export async function hubspotSources(orgId: string, allowedSourceSlugs?: string[]) {
   const rows = await db
     .select({
       id: knowledgeSourceSchema.id,
       slug: knowledgeSourceSchema.slug,
       lastSyncedAt: knowledgeSourceSchema.lastSyncedAt,
+      // The authored sync cron, so freshness is judged against the cadence
+      // the source itself promised rather than a constant guess.
+      configJson: knowledgeSourceSchema.configJson,
     })
     .from(knowledgeSourceSchema)
     .where(and(
@@ -248,6 +336,7 @@ export async function queryCrmRecords(
     createdAfter: null,
     asOf: null,
     sources: [],
+    freshness: judgeMirrorFreshness([]),
     records: [],
   };
   if (sources.length === 0) {
@@ -472,6 +561,13 @@ export async function queryCrmRecords(
   const relevant = contributingIds.size > 0 ? sources.filter(s => contributingIds.has(s.id)) : sources;
   // An unsynced contributing source makes the true age unknowable; say so with
   // null rather than quoting a time that excludes it.
+  const freshness = judgeMirrorFreshness(
+    relevant.map(s => ({
+      slug: s.slug,
+      schedule: (s.configJson as { schedule?: string } | null)?.schedule ?? null,
+      lastSyncedAt: s.lastSyncedAt,
+    })),
+  );
   const asOf = relevant.every(s => s.lastSyncedAt instanceof Date) && relevant.length > 0
     ? new Date(Math.min(...relevant.map(s => (s.lastSyncedAt as Date).getTime())))
     : null;
@@ -490,6 +586,7 @@ export async function queryCrmRecords(
     createdAfter: createdAfter ?? null,
     asOf,
     sources: relevant.map(s => s.slug),
+    freshness,
     records,
   };
 }

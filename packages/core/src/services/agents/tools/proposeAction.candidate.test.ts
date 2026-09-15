@@ -26,6 +26,7 @@ const { loadWorkspace } = await import('@/libs/workspace/loader');
 const { applyWorkspace } = await import('@/libs/workspace/applier');
 const { proposeActionTool } = await import('./proposeAction');
 const { forgetCachedObjectTypes } = await import('@/libs/actions/objects-propose-candidate');
+const { rejectAction } = await import('@/services/ActionService');
 const { and, eq } = await import('drizzle-orm');
 
 const ORG = 'proj_candidate_intake_test';
@@ -74,6 +75,10 @@ async function pendingRuns() {
     .select()
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.status, 'pending')));
+}
+
+async function allRuns() {
+  return db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
 }
 
 async function candidateObjects() {
@@ -191,6 +196,63 @@ describe('the agent proposing a candidate', () => {
 
     expect(await pendingRuns()).toHaveLength(2);
     expect(await candidateObjects()).toHaveLength(2);
+  });
+
+  it('tells a refresh apart from a new proposal in what it says back', async () => {
+    const tool = proposeActionTool(runtimeContext());
+
+    const first = await tool.invoke(proposalFor());
+    const second = await tool.invoke(proposalFor({ price: '$5 suggested' }));
+
+    // Both used to read "is PENDING human approval", so an agent re-reading a
+    // page could not tell the reviewer it had added nothing new.
+    expect(first).toMatch(/PENDING human approval/);
+    expect(second).toMatch(/updated in place/i);
+    expect(second).not.toMatch(/PENDING human approval/);
+  });
+
+  it('does not queue a candidate the moderator already rejected', async () => {
+    const tool = proposeActionTool(runtimeContext());
+    await tool.invoke(proposalFor());
+    const [pending] = await pendingRuns();
+    await rejectAction(pending!.id, ORG, 'not our kind of event', { reviewedBy: 'user-lili' });
+
+    // The listing page is read again next week and still carries the event.
+    const said = await tool.invoke(proposalFor());
+
+    expect(said).toMatch(/already decided/i);
+    expect(said).toContain('rejected');
+    // Nothing new for the moderator, and no second candidate row.
+    expect(await pendingRuns()).toHaveLength(0);
+    expect(await allRuns()).toHaveLength(1);
+    expect(await candidateObjects()).toHaveLength(1);
+  });
+
+  it('does not queue a candidate the moderator already approved', async () => {
+    const tool = proposeActionTool(runtimeContext());
+    await tool.invoke(proposalFor());
+    const [pending] = await pendingRuns();
+    const { executeAction } = await import('@/services/ActionService');
+    await executeAction(pending!.id, ORG, { reviewedBy: 'user-jamie' });
+
+    const said = await tool.invoke(proposalFor());
+
+    expect(said).toMatch(/already decided/i);
+    expect(await allRuns()).toHaveLength(1);
+    expect(await candidateObjects()).toHaveLength(1);
+  });
+
+  it('still opens a fresh item for a genuinely new event on the same page', async () => {
+    const tool = proposeActionTool(runtimeContext());
+    await tool.invoke(proposalFor());
+    const [pending] = await pendingRuns();
+    await rejectAction(pending!.id, ORG, 'not our kind of event', { reviewedBy: 'user-lili' });
+
+    await tool.invoke(proposalFor({ title: 'Poetry Slam', start: '2026-09-26T19:30' }));
+
+    // Blocking the decided one must not blunt the tool: the new event on the
+    // same listing page still reaches the moderator.
+    expect(await pendingRuns()).toHaveLength(1);
   });
 
   it('refuses an object type the workspace never defined, and says so plainly', async () => {

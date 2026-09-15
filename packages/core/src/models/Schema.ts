@@ -203,6 +203,15 @@ export const projectSchema = pgTable(
       provider?: 'openai' | 'bedrock';
       model?: string;
     }>(),
+    /**
+     * Which workspace skill regenerates each review-item type's card, keyed
+     * by action id (`personalization.enroll` → `regenerate-sequence-copy`).
+     * Authored as `defaults.regenerateSkills` in workspace.yaml; read by the
+     * scoped skill-turn executor, so core never hardcodes a workspace slug.
+     * NULL or a missing key = no fast path; the action's regenerate falls
+     * back to its full pass.
+     */
+    regenerateSkills: jsonb('regenerate_skills').$type<Record<string, string>>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -2158,7 +2167,7 @@ export const apiTokenSchema = pgTable(
     // `registry.test.ts` fails if the two drift.
     uniqueIndex('api_token_org_platform_live_idx')
       .on(table.orgId, table.platform)
-      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom')`),
+      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'apollo', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom')`),
     // The two credential shapes must never mix. A `vocion` row carries a secret
     // hash, and either a complete set of encryption columns or none of them —
     // none being a token issued before minted tokens were stored encrypted.
@@ -2342,6 +2351,17 @@ export const actionRunSchema = pgTable(
      */
     decidedBy: text('decided_by'),
     decidedAt: timestamp('decided_at', { mode: 'date' }),
+    /**
+     * Server truth for an in-flight regeneration: stamped by the regenerate
+     * route before the work dispatches, cleared by the dedup refresh that
+     * lands the new content (or by a failed fast-path turn). While fresh
+     * (under 15 minutes), every surface renders the run disabled and the
+     * decide/regenerate routes refuse it — a mid-regeneration approve would
+     * execute stale copy. Past staleness the guards expire on their own.
+     */
+    regeneratingSince: timestamp('regenerating_since', { mode: 'date' }),
+    /** The reviewer's instruction behind the in-flight regeneration, so every surface can show it. */
+    regenerateNote: text('regenerate_note'),
     /**
      * The audit record of AI rewrites asked during review, newest last. The
      * DRAFT itself is never touched by a rewrite (the reviewer carries the
@@ -2595,8 +2615,19 @@ export const leadBriefSchema = pgTable(
      * fires. Null until that first watch.
      */
     handoffWatchedAt: timestamp('handoff_watched_at', { mode: 'date' }),
-    /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
+    /**
+     * The reviewer's instruction for the next pass, kept so a rewrite has a
+     * reason. OUTSTANDING only: `saveLeadBrief` clears it and files it in
+     * `regenerateHistory`, because a satisfied instruction that still reads as
+     * pending misleads the reviewer on the lead page and the agent on the next
+     * pass alike.
+     */
     regenerateNote: text('regenerate_note'),
+    /** Instructions already addressed, each with the time the brief that answered it was written. */
+    regenerateHistory: jsonb('regenerate_history').$type<Array<{
+      note: string;
+      addressedAt: string;
+    }>>().default([]).notNull(),
     /** Briefing tries so far. Three, then the lead surfaces with its error. */
     briefAttempts: integer('brief_attempts').default(0).notNull(),
     /** Why the last try produced no brief. Rendered where the brief would be. */

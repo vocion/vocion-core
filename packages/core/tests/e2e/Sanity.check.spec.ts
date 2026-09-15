@@ -14,10 +14,15 @@ import { expect, test } from '@playwright/test';
 
 test.describe('Sanity', () => {
   test.describe('Static pages', () => {
-    test('should display the homepage', async ({ page, baseURL }) => {
+    // There is no marketing homepage: an anonymous visit to `/` redirects to
+    // `/dashboard`, whose auth guard redirects to the sign-in form. That form
+    // is the first thing a visitor can see, so it is what "the site is up"
+    // means here.
+    test('should land an anonymous visitor on the sign-in form', async ({ page, baseURL }) => {
       await page.goto(`${baseURL}/`);
 
-      await expect(page.getByText('The perfect SaaS template to build')).toBeVisible();
+      await expect(page).toHaveURL(/\/sign-in/);
+      await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
     });
   });
 });

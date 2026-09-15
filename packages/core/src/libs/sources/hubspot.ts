@@ -6,9 +6,16 @@
  *
  * Auth: a HubSpot private-app token in `ctx.credentials.token` (Bearer).
  * Incremental: when `ctx.since` is set, fetch only records modified since via
- * the CRM Search API filtered on `hs_lastmodifieddate`; otherwise list all
- * (both paginate via the opaque `after` cursor). Idempotency + chunking are
- * handled downstream by IngestionService.
+ * the CRM Search API filtered on the object type's last-modified property;
+ * otherwise list all (both paginate via the opaque `after` cursor).
+ * Idempotency + chunking are handled downstream by IngestionService.
+ *
+ * The last-modified property is PER OBJECT TYPE: contacts use
+ * `lastmodifieddate`, deals and companies use `hs_lastmodifieddate`. Filtering
+ * contacts on the deals spelling matches ZERO rows forever, so every
+ * incremental sync completes "successfully" empty and the mirror silently
+ * freezes at its last full sync (observed on prod 2026-09-14: frozen four
+ * days, every new MQL invisible to the intake).
  */
 
 import type { SourceConnector, SourceContext } from './types';
@@ -16,8 +23,16 @@ import type { StageInfo } from '@/libs/hubspot/client';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
 import { createHubspotClient, hubspotNumeric, tokenFromCredentials } from '@/libs/hubspot/client';
+import { DEFAULT_NURTURE_SLOTS, nurtureSlotsSchema } from '@/libs/hubspot/nurtureSlots';
 
 const OBJECT_TYPES = ['contacts', 'deals', 'companies'] as const;
+
+/** The searchable last-modified property, per object type (contacts differ). */
+const MODIFIED_PROPERTY: Record<(typeof OBJECT_TYPES)[number], string> = {
+  contacts: 'lastmodifieddate',
+  deals: 'hs_lastmodifieddate',
+  companies: 'hs_lastmodifieddate',
+};
 
 const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
   // Contacts carry how the person arrived and how warm they are; without those
@@ -30,7 +45,7 @@ const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
     'jobtitle',
     'lifecyclestage',
     'hubspot_owner_id',
-    'hs_lastmodifieddate',
+    'lastmodifieddate',
     'createdate',
     'hs_analytics_source',
     'hs_analytics_source_data_1',
@@ -73,6 +88,8 @@ const hubspotConfigSchema = z.object({
   properties: z.array(z.string()).optional(),
   /** Which contact properties carry the reply and meeting signals. See `handoffSignalsSchema`. */
   handoffSignals: handoffSignalsSchema.default(DEFAULT_HANDOFF_SIGNALS),
+  /** The nurture ladder's token slots, written at Enroll. See `libs/hubspot/nurtureSlots.ts`. */
+  nurtureSlots: nurtureSlotsSchema.default(DEFAULT_NURTURE_SLOTS),
   /** Override for testing / EU data residency. */
   baseUrl: z.string().url().default('https://api.hubapi.com'),
   /** HubSpot portal (account) id — enables record deep links on review cards. */
@@ -126,7 +143,7 @@ function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageI
   const props = r.properties ?? {};
   const stage = props.dealstage ? stages?.get(props.dealstage) : undefined;
   const content = identityContent(objectType, props, stage);
-  const modified = props.hs_lastmodifieddate ?? r.updatedAt;
+  const modified = props.hs_lastmodifieddate ?? props.lastmodifieddate ?? r.updatedAt;
   const email = props.email ?? undefined;
   const emailDomain = email && email.includes('@') ? email.slice(email.lastIndexOf('@') + 1).toLowerCase() : undefined;
   // Stamp the fields the discovery-detection matcher (ticket 011) needs into
@@ -216,11 +233,12 @@ export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
     const client = createHubspotClient({ token, baseUrl: cfg.baseUrl });
 
     async function fetchPage(after?: string): Promise<HubSpotPage> {
+      const modifiedProperty = MODIFIED_PROPERTY[cfg.objectType];
       const res = ctx.since
-        // Incremental: CRM Search filtered on hs_lastmodifieddate >= since.
+        // Incremental: CRM Search filtered on the type's last-modified >= since.
         ? await client.post<HubSpotPage>(`/crm/v3/objects/${cfg.objectType}/search`, {
-            filterGroups: [{ filters: [{ propertyName: 'hs_lastmodifieddate', operator: 'GTE', value: String(ctx.since.getTime()) }] }],
-            sorts: [{ propertyName: 'hs_lastmodifieddate', direction: 'ASCENDING' }],
+            filterGroups: [{ filters: [{ propertyName: modifiedProperty, operator: 'GTE', value: String(ctx.since.getTime()) }] }],
+            sorts: [{ propertyName: modifiedProperty, direction: 'ASCENDING' }],
             properties,
             limit: 100,
             ...(after ? { after } : {}),

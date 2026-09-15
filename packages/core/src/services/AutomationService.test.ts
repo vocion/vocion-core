@@ -80,7 +80,10 @@ describe('fireAutomation', () => {
 
     const res = await fireAutomation(ORG, 'follow-up-check');
 
-    expect(res).toEqual({ kind: 'mission_check', runId: 305, automationRunId: expect.any(Number) });
+    expect(res).toMatchObject({ kind: 'mission_check', runId: 305, automationRunId: expect.any(Number) });
+    // The branch used to discard `startMission`'s summary, so
+    // `automation_run.result` was always null for a mission check.
+    expect(res.result).toMatchObject({ kind: 'mission_check', missionRunId: 305, missionRunStatus: 'completed' });
     expect(vi.mocked(startMission)).toHaveBeenCalledWith(expect.objectContaining({
       orgId: ORG,
       missionSlug: 'follow-up-queue',
@@ -186,9 +189,11 @@ describe('fireAutomation', () => {
     const first = await fireAutomation(ORG, 'sweeper');
     const second = await fireAutomation(ORG, 'sweeper');
 
-    const runs = await listAutomationRuns(ORG, 'sweeper', 5);
+    const { runs, total, nextCursor } = await listAutomationRuns(ORG, { slug: 'sweeper', limit: 5 });
 
     expect(runs.map(r => r.id)).toEqual([second.automationRunId, first.automationRunId]);
+    expect(total).toBe(2);
+    expect(nextCursor).toBeNull();
   });
 });
 

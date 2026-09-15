@@ -26,22 +26,22 @@ vi.mock('openai', () => ({
   },
 }));
 
-const resolveOrgProviderKey = vi.fn<(provider: string, orgId: string) => Promise<string | null>>();
+const resolveToolProviderKey = vi.fn<(provider: string, orgId: string) => Promise<string | null>>();
 
-vi.mock('@/libs/llm/orgKey', () => ({
-  resolveOrgProviderKey: (provider: string, orgId: string) => resolveOrgProviderKey(provider, orgId),
+vi.mock('@/libs/tools/orgKey', () => ({
+  resolveToolProviderKey: (provider: string, orgId: string) => resolveToolProviderKey(provider, orgId),
 }));
 
 const { openaiImageProvider } = await import('./openai');
-const { ProviderNotConfiguredError } = await import('../types');
+const { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } = await import('../types');
 
 const originalApiKey = process.env.OPENAI_API_KEY;
 
 beforeEach(() => {
   clientConstructions.length = 0;
   generateImage.mockClear();
-  resolveOrgProviderKey.mockReset();
-  resolveOrgProviderKey.mockResolvedValue(null);
+  resolveToolProviderKey.mockReset();
+  resolveToolProviderKey.mockResolvedValue(null);
   process.env.OPENAI_API_KEY = 'sk-proj-ours';
 });
 
@@ -57,11 +57,11 @@ describe('openai image provider choosing a key', () => {
   it('asks for the key of the org generating the image', async () => {
     await openaiImageProvider().generate('a cat', { orgId: 'org_image' });
 
-    expect(resolveOrgProviderKey).toHaveBeenCalledWith('openai', 'org_image');
+    expect(resolveToolProviderKey).toHaveBeenCalledWith('openai', 'org_image');
   });
 
   it('uses the org\'s stored key in preference to the environment', async () => {
-    resolveOrgProviderKey.mockResolvedValue('sk-proj-theirs');
+    resolveToolProviderKey.mockResolvedValue('sk-proj-theirs');
 
     await openaiImageProvider().generate('a cat', { orgId: 'org_image' });
 
@@ -77,13 +77,13 @@ describe('openai image provider choosing a key', () => {
   it('skips the lookup entirely when the caller has no org in hand', async () => {
     await openaiImageProvider().generate('a cat');
 
-    expect(resolveOrgProviderKey).not.toHaveBeenCalled();
+    expect(resolveToolProviderKey).not.toHaveBeenCalled();
     expect(clientConstructions[0]?.apiKey).toBe('sk-proj-ours');
   });
 
   it('generates on a stored key even when the server has none of its own', async () => {
     delete process.env.OPENAI_API_KEY;
-    resolveOrgProviderKey.mockResolvedValue('sk-proj-theirs');
+    resolveToolProviderKey.mockResolvedValue('sk-proj-theirs');
 
     await openaiImageProvider().generate('a cat', { orgId: 'org_image' });
 
@@ -100,7 +100,7 @@ describe('openai image provider choosing a key', () => {
   });
 
   it('never carries one org\'s key into the next org\'s image', async () => {
-    resolveOrgProviderKey.mockImplementation(async (_provider, orgId) =>
+    resolveToolProviderKey.mockImplementation(async (_provider, orgId) =>
       orgId === 'org_first' ? 'sk-proj-first' : 'sk-proj-second');
     const provider = openaiImageProvider();
 
@@ -109,5 +109,21 @@ describe('openai image provider choosing a key', () => {
 
     expect(clientConstructions.map(construction => construction.apiKey))
       .toEqual(['sk-proj-first', 'sk-proj-second']);
+  });
+});
+
+describe('an OpenAI key the workspace holds but we cannot read', () => {
+  it('raises the tool error rather than the vault\'s own words', async () => {
+    // generate_image is listed on the Tools page as a capability a workspace
+    // pays for with its own key, so it has to fail the way the other paid
+    // tools do. Through `libs/llm/orgKey` it did not: a vault or database
+    // message travelled straight into the tool result the model reads.
+    resolveToolProviderKey.mockRejectedValueOnce(
+      new ToolProviderKeyUnavailableError('openai'),
+    );
+
+    await expect(openaiImageProvider().generate('a cat', { orgId: 'org_image' }))
+      .rejects
+      .toBeInstanceOf(ToolProviderKeyUnavailableError);
   });
 });

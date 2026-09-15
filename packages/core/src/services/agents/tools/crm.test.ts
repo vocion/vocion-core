@@ -61,6 +61,8 @@ type Response = {
   unavailable_fields: string[];
   created_after_applied?: string;
   as_of: string | null;
+  mirror_stale?: boolean;
+  mirror_staleness?: string;
   sources_read: string[];
   records: Array<Record<string, unknown>>;
   error?: string;
@@ -309,6 +311,58 @@ describe('honesty about what the mirror lacks', () => {
 
     expect(res.as_of).toBe(new Date(NOW.getTime() - 3_600_000).toISOString());
     expect(res.sources_read).toContain('hubspot-contacts');
+  });
+
+  it('says the mirror is stale when it has fallen behind its own schedule', async () => {
+    // An hourly source whose last sync is a day old — the 3 September shape,
+    // and the shape a daily contacts sync had every hour of the working day.
+    const [row] = await db.insert(knowledgeSourceSchema).values({
+      orgId: ORG,
+      slug: 'hubspot-contacts',
+      kind: 'plugin',
+      configJson: { _connector: 'hubspot', schedule: '0 * * * *' },
+      lastSyncedAt: new Date(Date.now() - 24 * 3_600_000),
+    }).returning({ id: knowledgeSourceSchema.id });
+    await db.insert(knowledgeDocumentSchema).values({
+      orgId: ORG,
+      sourceId: row!.id,
+      externalId: 'contacts:1',
+      title: 'Person 1',
+      metadata: { objectType: 'contacts', hubspotId: '1', lifecycleStage: 'lead' },
+      contentHash: 'contacts:1',
+      ingestedAt: NOW,
+    });
+
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'));
+
+    expect(res.total).toBe(1);
+    expect(res.mirror_stale).toBe(true);
+    expect(res.mirror_staleness).toContain('hubspot-contacts');
+    expect(res.mirror_staleness).toContain('NOT in this answer');
+  });
+
+  it('stays quiet about freshness while the source is keeping up', async () => {
+    const [row] = await db.insert(knowledgeSourceSchema).values({
+      orgId: ORG,
+      slug: 'hubspot-contacts',
+      kind: 'plugin',
+      configJson: { _connector: 'hubspot', schedule: '*/15 * * * *' },
+      lastSyncedAt: new Date(Date.now() - 5 * 60_000),
+    }).returning({ id: knowledgeSourceSchema.id });
+    await db.insert(knowledgeDocumentSchema).values({
+      orgId: ORG,
+      sourceId: row!.id,
+      externalId: 'contacts:1',
+      title: 'Person 1',
+      metadata: { objectType: 'contacts', hubspotId: '1', lifecycleStage: 'lead' },
+      contentHash: 'contacts:1',
+      ingestedAt: NOW,
+    });
+
+    const res = await call(toolsByName(ORG).get('hubspot_count_contacts'));
+
+    expect(res.total).toBe(1);
+    expect(res.mirror_stale).toBeUndefined();
   });
 });
 

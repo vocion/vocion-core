@@ -507,6 +507,32 @@ describe('next_lead_to_brief', () => {
     expect(row!.lastAttemptAt).not.toBeNull();
   });
 
+  it('with contact_ref, hands out that lead and no other (a Regenerate names one lead)', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+
+    const out = await call<ClaimOut>(tools.get('next_lead_to_brief'), { contact_ref: 'contacts:3' });
+
+    expect(out.lead?.contactRef).toBe('contacts:3');
+
+    const untouched = await db.select({ ref: leadBriefSchema.contactRef, tries: leadBriefSchema.briefAttempts }).from(leadBriefSchema).where(eq(leadBriefSchema.orgId, ORG));
+
+    expect(untouched.filter(r => r.ref !== 'contacts:3').every(r => r.tries === 0)).toBe(true);
+  });
+
+  it('with a contact_ref that is not eligible, hands out nothing rather than someone else', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+
+    const out = await call<ClaimOut>(tools.get('next_lead_to_brief'), { contact_ref: 'contacts:99' });
+
+    expect(out.lead).toBeNull();
+
+    const rows = await db.select({ tries: leadBriefSchema.briefAttempts }).from(leadBriefSchema).where(eq(leadBriefSchema.orgId, ORG));
+
+    expect(rows.every(r => r.tries === 0)).toBe(true);
+  });
+
   it('does not hand the same lead out twice inside one run', async () => {
     await seedQueue();
     const tools = toolsByName(ORG);
@@ -709,6 +735,48 @@ describe('save_lead_brief', () => {
 
     expect(row!.briefError).toBeNull();
     expect(row!.skippedReason).toBeNull();
+  });
+
+  /**
+   * A reviewer's rewrite instruction was stored and never cleared, so once the
+   * brief that answered it was written the note still read as outstanding — to
+   * the reviewer on the lead page and to the agent on the next pass, which
+   * reported four re-briefed leads as possibly "stuck".
+   */
+  it('files the rewrite instruction it addressed, and stops presenting it as pending', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    const first = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+    const ref = first.lead!.contactRef;
+    await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(ref));
+    const [id] = await db.select({ id: leadBriefSchema.id }).from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+    const { regenerateBrief } = await import('@/services/PersonalizationQueueService');
+    await regenerateBrief(ORG, { id: id!.id, note: 'Lead with the pricing question, not the headcount.' });
+
+    // The note is outstanding while it is unanswered — that is the whole point
+    // of storing it, and the agent's most important input on the next pass.
+    const reclaimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+
+    expect(reclaimed.lead?.regenerateNote).toBe('Lead with the pricing question, not the headcount.');
+
+    await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(ref));
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, ref));
+
+    expect(row!.regenerateNote).toBeNull();
+    expect(row!.regenerateHistory).toHaveLength(1);
+    expect(row!.regenerateHistory[0]).toMatchObject({ note: 'Lead with the pricing question, not the headcount.' });
+    expect(new Date(row!.regenerateHistory[0]!.addressedAt).getTime()).not.toBeNaN();
+  });
+
+  it('adds no history entry when there was no instruction to address', async () => {
+    await seedQueue();
+    const tools = toolsByName(ORG);
+    const claimed = await call<ClaimOut>(tools.get('next_lead_to_brief'));
+
+    await call<SaveOut>(tools.get('save_lead_brief'), saveArgs(claimed.lead!.contactRef));
+    const [row] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, claimed.lead!.contactRef));
+
+    expect(row!.regenerateHistory).toStrictEqual([]);
   });
 
   it('refuses a ref that is not on the queue rather than writing nothing quietly', async () => {
@@ -917,6 +985,22 @@ describe('next_brief_to_draft', () => {
 
     expect(out.lead).toBeNull();
     expect(out.waiting).toBe(0);
+  });
+
+  it('with contact_ref, drafts that briefed lead and no other', async () => {
+    await seedMirror();
+    const tools = toolsByName(ORG);
+    await call<QueueResult>(tools.get('queue_lead'), { contact_refs: ['contacts:1', 'contacts:2'] });
+    const first = await seedBriefed(tools);
+    const second = await seedBriefed(tools);
+
+    const out = await call<DraftClaimOut>(tools.get('next_brief_to_draft'), { contact_ref: second });
+
+    expect(out.lead?.contactRef).toBe(second);
+
+    const [other] = await db.select().from(leadBriefSchema).where(eq(leadBriefSchema.contactRef, first));
+
+    expect(other!.draftAttempts).toBe(0);
   });
 
   it('does not hand the same lead out twice inside one run', async () => {

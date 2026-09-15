@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
+import { tolerateExistingUser } from '../../tests/TestUtils';
 
 /**
  * objects.propose_candidate end to end — the path an ingestion agent and an
@@ -121,11 +122,9 @@ function createBootstrapAdmin(): void {
       { stdio: 'pipe' },
     );
   } catch (error) {
-    // Expected on a local database that already has the admin — the script
-    // exits non-zero rather than overwriting. Any other cause shows up as the
-    // sign-in failing below, with this line naming it. Only the message is
-    // logged: the stack is child-process plumbing, not information.
-    console.warn(`[queue spec] user:create made no user: ${error instanceof Error ? error.message : String(error)}`);
+    // "Already exists" is the normal case on a database that already has the
+    // admin; anything else is rethrown with the script's own last stderr line.
+    tolerateExistingUser(error, '[queue spec]');
   }
 }
 

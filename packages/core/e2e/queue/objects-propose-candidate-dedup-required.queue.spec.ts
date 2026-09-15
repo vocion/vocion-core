@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
 
 /**
@@ -10,20 +10,22 @@ import { expect, test } from '@playwright/test';
  * End to end, through the running app, driven by a real tenant Bearer token
  * (`vcn_live_…`) exactly as an ingestion agent's panel would call it — not a
  * unit test against the action in isolation. Every assertion about "no row
- * was created" or "exactly one row" is read back from the real
- * `vocion_wt257` Postgres database via `psql` in the running docker
- * container, not from the API's own report of itself.
+ * was created" or "exactly one row" is read back from the database the app
+ * is running against, through the app's own database client
+ * (`support/seed-dedup-fixtures.ts --count`), not from the API's own report
+ * of itself.
  *
- * Self-seeding: issues its own token against the seeded `wt257` project (see
- * this worktree's environment notes) and registers its own object type, so
- * repeat runs never collide — every slug and title carries a per-run tag.
+ * Self-seeding: `support/seed-dedup-fixtures.ts` creates the spec's own
+ * account + project and mints its token, and the spec registers its own
+ * object type, so it runs against an empty database (CI) as well as a
+ * developer's, and repeat runs never collide: every slug and title carries
+ * a per-run tag.
  *
  * Running it:
  *
  *   npx playwright test --project=queue objects-propose-candidate-dedup-required
  *
- * Point it at a server already running on another port (this worktree serves
- * on :3010, not the config's default :3008):
+ * Point it at a server already running on another port:
  *
  *   PLAYWRIGHT_BASE_URL=http://localhost:3010 npx playwright test --project=queue objects-propose-candidate-dedup-required
  */
@@ -32,43 +34,48 @@ const RUN_TAG = `veerio257-${Date.now().toString(36)}`;
 // Object type slugs are lowercase snake_case; the run tag itself carries a
 // hyphen (fine everywhere else — titles, token names), so swap it here.
 const OBJECT_TYPE_SLUG = `dedup_probe_${RUN_TAG.replace(/-/g, '_')}`;
-const DATABASE_NAME = 'vocion_wt257';
+const SEED_SCRIPT = 'e2e/queue/support/seed-dedup-fixtures.ts';
+
+type SeedFixtures = {
+  orgId: string;
+  token: string;
+};
 
 /**
- * Issue a real tenant Bearer token against the seeded `wt257` project, the
- * same CLI an operator runs to hand a token to an external caller
- * (`npm run tokens:issue`). Returns the plaintext token, which the script
- * prints exactly once.
+ * Run the support script the way the rest of the E2E tree does: outside the
+ * Next process, through `dotenv -c` so it reads the same `.env.local` the app
+ * under test reads and therefore reaches the same database. Returns the last
+ * stdout line. A failure names the script's own last stderr line, so the
+ * Playwright annotation says what went wrong rather than "Command failed".
+ * @param args - Arguments after the script path.
  */
-function issueRealToken(): string {
-  // The token prints on stderr (the script logs with console.warn), so
-  // stdout alone misses it — capture both streams and search across them.
-  const result = spawnSync(
-    'npm',
-    ['run', 'tokens:issue', '--silent', '--', '--org', 'wt257', '--name', `veerio-257-dedup-e2e-${RUN_TAG}`],
-    { encoding: 'utf8' },
-  );
-  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-  const match = output.match(/vcn_live_\w+/);
-  if (!match) {
-    throw new Error(`tokens:issue printed no token; output was:\n${output}`);
+function runSeedScript(args: string[] = []): string {
+  try {
+    const output = execFileSync(
+      'npx',
+      ['dotenv', '-c', '--', 'npx', 'tsx', SEED_SCRIPT, ...args],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    return output.trim().split('\n').at(-1) ?? '';
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr?.trim().split('\n').at(-1) ?? '';
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${SEED_SCRIPT} ${args.join(' ')} failed: ${stderr || message}`);
   }
-  return match[0];
+}
+
+function seedFixtures(): SeedFixtures {
+  return JSON.parse(runSeedScript()) as SeedFixtures;
 }
 
 /**
- * One row count read straight from the real database via `psql` in the
- * running `vocion-postgres` container — never through the app's own API, so
- * a row the API's report forgot to mention still shows up here.
+ * One row count read straight from the database through the app's own
+ * client, never through the app's API, so a row the API's report forgot to
+ * mention still shows up here.
  * @param sql - A `select count(*) from …` statement.
  */
 function countInDatabase(sql: string): number {
-  const output = execFileSync(
-    'docker',
-    ['exec', 'vocion-postgres', 'psql', '-U', 'postgres', '-d', DATABASE_NAME, '-t', '-c', sql],
-    { encoding: 'utf8' },
-  );
-  return Number.parseInt(output.trim(), 10);
+  return Number.parseInt(runSeedScript(['--count', sql]), 10);
 }
 
 test.describe('objects.propose_candidate — dedupOn required (VEERIO-257)', () => {
@@ -77,7 +84,7 @@ test.describe('objects.propose_candidate — dedupOn required (VEERIO-257)', () 
   let token: string;
 
   test.beforeAll(() => {
-    token = issueRealToken();
+    token = seedFixtures().token;
   });
 
   test('registers the probe object type', async ({ request, baseURL }) => {

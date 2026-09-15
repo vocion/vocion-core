@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
+import process from 'node:process';
 import { expect } from '@playwright/test';
 
 /**
@@ -43,17 +44,55 @@ export const E2E_ADMIN = {
  * @param args - Arguments passed through to the script.
  */
 const runSupportScript = (script: string, args: string[]) => {
-  execFileSync('npx', ['dotenv', '-c', '--', 'npx', 'tsx', script, ...args], { stdio: 'inherit' });
+  // stderr is captured rather than inherited so a failure can be classified
+  // (see `tolerateExistingUser`), then echoed so the run log still shows what
+  // the script printed.
+  const result = spawnSync('npx', ['dotenv', '-c', '--', 'npx', 'tsx', script, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'inherit', 'pipe'],
+  });
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+  if (result.status !== 0) {
+    const error = new Error(`${script} exited with ${result.status ?? result.signal}`) as Error & { stderr: string };
+    error.stderr = result.stderr ?? '';
+    throw error;
+  }
+};
+
+/**
+ * Decide what a failed `user:create` / `create-local-user` run means.
+ *
+ * `create-local-user.ts` refuses to overwrite a user and exits non-zero saying
+ * `user already exists`, which is the normal case on a database that has
+ * already run the suite (`db-server:file`, or a reused dev server). Every spec
+ * signs in rather than signs up, so that run is still valid and the caller
+ * only logs it. Any other failure (no database, a migration missing, a typo
+ * in the arguments) used to be swallowed the same way and only showed up
+ * minutes later as a sign-in timeout; now it is rethrown with the script's
+ * own last stderr line, so the Playwright annotation names the real cause.
+ * Works with `stdio: 'pipe'` (stderr captured on the error) and with
+ * `stdio: 'inherit'` (stderr already on the console, only the message left).
+ * @param error - What `execFileSync` threw.
+ * @param label - The spec's log prefix, e.g. `[queue spec]`.
+ */
+export const tolerateExistingUser = (error: unknown, label: string): void => {
+  // `stderr` is a Buffer under `stdio: 'pipe'` and a string under `encoding: 'utf8'`.
+  const stderr = (error as { stderr?: { toString: () => string } }).stderr?.toString() ?? '';
+  const message = error instanceof Error ? error.message : String(error);
+  if (`${message}\n${stderr}`.includes('already exists')) {
+    console.warn(`${label} user:create made no user: it already exists`);
+    return;
+  }
+  const lastLine = stderr.trim().split('\n').at(-1) || message;
+  throw new Error(`${label} user:create failed: ${lastLine}`);
 };
 
 /**
  * Create the E2E admin, its tenant account and its default project.
- *
- * Tolerates "already exists": `create-local-user.ts` refuses to overwrite a
- * user and exits non-zero, which is the normal case on a database that has
- * already run the suite (`db-server:file`, or a reused dev server). Every
- * spec signs in rather than signs up, so that run is still valid — and a real
- * failure here surfaces as the sign-in failing, with this line naming it.
+ * "Already exists" is tolerated, anything else fails the setup project; see
+ * `tolerateExistingUser`.
  */
 export const seedAdminUser = () => {
   try {
@@ -70,7 +109,7 @@ export const seedAdminUser = () => {
       'admin',
     ]);
   } catch (error) {
-    console.warn(`[e2e setup] create-local-user made no user: ${error instanceof Error ? error.message : String(error)}`);
+    tolerateExistingUser(error, '[e2e setup]');
   }
 };
 

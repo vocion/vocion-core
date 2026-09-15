@@ -178,8 +178,8 @@ describe('LeadDetail', () => {
     await expect.element(page.getByRole('button', { name: 'Enroll' })).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Decline' })).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Snooze' })).toBeVisible();
-    // Decline requires a reason on this object type.
-    await expect.element(page.getByRole('button', { name: 'Decline' })).toBeDisabled();
+    // Feedback is optional on every verb: a fast no must not cost a note.
+    await expect.element(page.getByRole('button', { name: 'Decline' })).toBeEnabled();
   });
 
   it('shows the decision record for a handed-off lead: the line, the read-only sends, no card', async () => {

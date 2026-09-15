@@ -114,16 +114,33 @@ describe('hubspotConnector', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('uses the Search API with a hs_lastmodifieddate filter when incremental', async () => {
+  it('uses the Search API filtered on the object type\'s OWN last-modified property when incremental', async () => {
     const fetchMock = vi.fn(async () => res({ results: [] }));
     vi.stubGlobal('fetch', fetchMock);
     const since = new Date('2026-06-01T00:00:00.000Z');
     await collect(hubspotConnector.sync(ctx({ since })));
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    await collect(hubspotConnector.sync(ctx({ since, config: { objectType: 'deals' } })));
+    const [contactsUrl, contactsInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    // Deals fetch their pipeline definitions first — find the search call by URL.
+    const [, dealsInit] = fetchMock.mock.calls.find(c => String((c as unknown[])[0]).includes('/deals/search')) as unknown as [string, RequestInit];
 
-    expect(String(url)).toContain('/crm/v3/objects/contacts/search');
-    expect(init.method).toBe('POST');
-    expect(String(init.body)).toContain(String(since.getTime()));
+    expect(String(contactsUrl)).toContain('/crm/v3/objects/contacts/search');
+    expect(contactsInit.method).toBe('POST');
+    expect(String(contactsInit.body)).toContain(String(since.getTime()));
+    // Contacts do NOT carry hs_lastmodifieddate — filtering on it matches zero
+    // rows forever, which froze the prod mirror for four days (2026-09-14).
+    expect(String(contactsInit.body)).toContain('"propertyName":"lastmodifieddate"');
+    expect(String(contactsInit.body)).not.toContain('hs_lastmodifieddate');
+    expect(String(dealsInit.body)).toContain('"propertyName":"hs_lastmodifieddate"');
+  });
+
+  it('reads the modified date from whichever spelling the object type carries', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => res({
+      results: [{ id: '1', properties: { email: 'a@x.com', lastmodifieddate: '2026-09-01T00:00:00Z' } }],
+    })));
+    const [doc] = await collect(hubspotConnector.sync(ctx()));
+
+    expect(doc!.lastModifiedAt?.toISOString()).toBe('2026-09-01T00:00:00.000Z');
   });
 
   it('refuses to run without a token', async () => {

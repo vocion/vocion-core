@@ -74,6 +74,13 @@ export type ReviewCard = {
   summary?: string;
   /** Recommended next action — what approving does. */
   nextAction?: string;
+  /**
+   * Whether the card offers Regenerate. Stamped by the SERVER from the
+   * action's declared `regenerate` capability at card-build time — never set
+   * by a presenter, so no object type can claim a capability its action does
+   * not implement.
+   */
+  canRegenerate?: boolean;
 };
 
 /**
@@ -145,6 +152,62 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    */
   dedupKeyFor?: (input: z.infer<S>) => string | undefined;
   /**
+   * Collapse a repeat proposal into an already-DECIDED run as well as a
+   * pending one. Off unless the action sets it, because for most actions the
+   * dedup key names a target rather than a one-off record: `gmail.send` keys
+   * on the recipient, so blocking decided runs there would bar that address
+   * for good after a single send.
+   *
+   * Set it on actions where the key names a specific record a person judged
+   * once — an extracted candidate, a detected event. Those are re-extracted
+   * every time their page is read, and without this each pass hands the
+   * moderator back everything they already approved or rejected.
+   *
+   * `statuses` are the decided statuses that block a fresh card (default
+   * `done` and `rejected`; an action that wants a rejection re-proposable
+   * sets `['done']`). `reproposeAfterDays` lets a decision go stale, so the
+   * same record may be offered again once the decision is that old; omit it
+   * and a decision stands for good.
+   *
+   * What happens when a record comes back CHANGED depends on which fields
+   * changed, and it is worth knowing before turning this on:
+   *
+   * - An identity field changed (whatever `dedupKeyFor` reads — for a
+   *   candidate, its `dedupOn` fields). That is a different key, so it is a
+   *   different record: a new card. An event moved to another night reads as
+   *   new, which is the intent.
+   * - Any other field changed, card still pending: the pending row is
+   *   refreshed in place and `onProposed` runs again, so the reviewer decides
+   *   on the new payload. One card, no duplicate.
+   * - Any other field changed, record already decided: the proposal is
+   *   blocked and **the change is dropped**. A price that moved on an event
+   *   someone already approved does not reach them, and no row records that
+   *   it was seen. That is the deliberate trade for a queue that does not
+   *   refill; an action that needs those late edits should either narrow
+   *   `statuses`, set `reproposeAfterDays`, or handle the update itself
+   *   rather than through the review queue.
+   *
+   * This is a source constant on the action, the same for every org — there
+   * is no workspace YAML or per-tenant override behind it. Changing it for
+   * one client means changing it here, for all of them.
+   */
+  dedupAgainstDecided?: {
+    statuses?: Array<'done' | 'failed' | 'rejected'>;
+    reproposeAfterDays?: number;
+    /**
+     * Whether THIS input's key identifies one record well enough to answer
+     * for it. Return false and the decided-run block is skipped: the record
+     * still reaches a human, the way it did before this option existed.
+     *
+     * For a candidate, the key is built even when the extractor found
+     * nothing for a `dedupOn` field — the missing value leaves an empty
+     * slot, so two different records can carry one key. Blocking on a
+     * decision then answers for a record nobody ever saw. Omit this and
+     * every key is trusted.
+     */
+    keyIsTrustworthy?: (input: z.infer<S>) => boolean;
+  };
+  /**
    * Last check before anything is written, once the caller is known to be
    * allowed. For conditions the input schema cannot see because they depend
    * on tenant state — an object type the org never defined, a source with no
@@ -182,6 +245,16 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * domain record's lane (e.g. lead_brief → held). Must be idempotent.
    */
   onRejected?: (ctx: ActionContext, input: z.infer<S>, runId: number, reason?: string) => Promise<void>;
+  /**
+   * Re-run the work behind a pending run, guided by the reviewer's feedback.
+   * The action owns what "regenerate" means for its domain (e.g. send the
+   * lead's brief back to be researched and drafted again), the same way
+   * `applyContentEdits` owns its input mapping. The run itself stays pending:
+   * the next pass updates the same queue item through the dedup key, so the
+   * reviewer meets the regenerated version, never a duplicate. Declaring this
+   * is what puts the Regenerate button on the card (`ReviewCard.canRegenerate`).
+   */
+  regenerate?: (ctx: ActionContext, input: z.infer<S>, runId: number, feedback: string) => Promise<void>;
   /** Do the write. Returns a result object persisted on the action_run. */
   execute: (ctx: ActionContext, input: z.infer<S>) => Promise<Record<string, unknown>>;
 };

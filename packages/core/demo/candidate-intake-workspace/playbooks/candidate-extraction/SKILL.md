@@ -82,6 +82,18 @@ queue item.
   proposal still goes through — the review card just flags which identity
   field came back empty, so a reviewer knows two different candidates
   missing the same field would look identical on that key alone.
+- A record a person already approved or rejected does not come back. Propose
+  it again and the tool answers `Not proposed: a person already decided this
+  exact record` and writes nothing. That is the normal answer on a page you
+  have walked before, not a failure — so propose every record you find and
+  read the answer, rather than trying to remember which ones were decided.
+- A record that came back with changed details behaves three ways. Change a
+  `dedupOn` field — the date, the venue — and it is a different record, so it
+  opens its own card. Change anything else while the card is still waiting
+  and the card is updated in place, so the reviewer sees the new details.
+  Change anything else after a person decided and the change is dropped: say
+  so in your summary if it looks like it matters, because nothing else will
+  surface it.
 
 ## What you must not do
 
