@@ -136,6 +136,19 @@ describe('apiListReviews', () => {
   it('rejects an unknown kind', async () => {
     await expect(apiListReviews(owner, { kind: 'bogus' })).rejects.toMatchObject({ status: 400 });
   });
+
+  it('passes a recommendation filter through to the queue', async () => {
+    await apiListReviews(owner, { suggestedDecision: 'reject' });
+
+    expect(mockListPage).toHaveBeenCalledWith('org1', expect.objectContaining({ suggestedDecision: 'reject' }));
+  });
+
+  it('refuses a recommendation filter it does not recognise', async () => {
+    // A misspelled filter reading as "no filter" would hand back the whole
+    // queue and look like every item carried the recommendation asked for.
+    await expect(apiListReviews(owner, { suggestedDecision: 'rejected' })).rejects.toMatchObject({ status: 400 });
+    expect(mockListPage).not.toHaveBeenCalled();
+  });
 });
 
 describe('apiGetReview', () => {
@@ -363,6 +376,38 @@ describe('apiProposeReview', () => {
 
   it('requires an actionId', async () => {
     await expect(apiProposeReview(owner, { actionId: '', input: {} })).rejects.toMatchObject({ status: 400 });
+    expect(proposeAction).not.toHaveBeenCalled();
+  });
+
+  it('carries the agent recommendation into the proposal envelope', async () => {
+    proposeAction.mockResolvedValue({ runId: 7, status: 'pending' });
+
+    await apiProposeReview(owner, {
+      actionId: 'objects.propose_candidate',
+      input: { id: 1 },
+      agentSlug: 'screener',
+      suggestedDecision: 'reject',
+      suggestedSnoozeUntil: '2026-10-01T00:00:00.000Z',
+    });
+
+    expect(proposeAction).toHaveBeenCalledWith(expect.objectContaining({
+      proposal: expect.objectContaining({
+        agentSlug: 'screener',
+        suggestedDecision: 'reject',
+        suggestedSnoozeUntil: '2026-10-01T00:00:00.000Z',
+      }),
+    }));
+  });
+
+  it('refuses a recommendation outside the three it can be', async () => {
+    // Dropping the field instead would store a run that looks as though the
+    // agent had no opinion, and the agreement metric would quietly count
+    // nothing for that agent.
+    await expect(apiProposeReview(owner, {
+      actionId: 'objects.propose_candidate',
+      input: {},
+      suggestedDecision: 'rejected',
+    })).rejects.toMatchObject({ status: 400 });
     expect(proposeAction).not.toHaveBeenCalled();
   });
 

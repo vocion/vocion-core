@@ -1,6 +1,7 @@
 'use client';
 
 import type { ContentEdit } from './contentKinds';
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { ReviewCard, ReviewContentEdit } from '@/libs/actions/types';
 import { AlarmClock, Check, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -14,10 +15,26 @@ import { contentKindRenderer } from './contentKinds';
  * on every surface that decides the run (the review queue and the domain
  * consoles). The presenter supplies WHAT (the `ReviewCard`); this shell owns
  * HOW: zone layout, inline content editing, the ONE feedback field, snooze,
- * regenerate, and the decide path. Confidence and the lane status render from
- * the run itself, never from the presenter, so no object type can omit them.
- * Absent zones collapse.
+ * regenerate, and the decide path. Confidence, the agent's recommendation and
+ * the lane status render from the run itself, never from the presenter, so no
+ * object type can omit them. Absent zones collapse.
  */
+
+/**
+ * How each recommendation reads on the card.
+ *
+ * Phrased as advice — "agent suggests approving" — rather than as the verb
+ * itself. A badge reading "Reject" beside a pending item looks like the
+ * decision has already been taken, which is the one thing this must not imply.
+ */
+const SUGGESTION_BADGE: Record<SuggestedDecision, { label: string; className: string }> = {
+  approve: { label: 'Agent suggests approving', className: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200' },
+  // Rose, not amber: amber already means "medium confidence" in `tone()` and
+  // "this card is mid-regeneration" on the warning banner, and a third meaning
+  // on the same card would make the colour say nothing.
+  reject: { label: 'Agent suggests turning down', className: 'bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200' },
+  snooze: { label: 'Agent suggests revisiting later', className: 'bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-200' },
+};
 
 export type ReviewCardRun = {
   id: number;
@@ -25,7 +42,7 @@ export type ReviewCardRun = {
   status: string;
   input: Record<string, unknown>;
   invokedBy: string | null;
-  proposal: { confidence?: number; rationale?: string } | null;
+  proposal: { confidence?: number; rationale?: string; suggestedDecision?: SuggestedDecision } | null;
   card: ReviewCard;
   /** Server truth for an in-flight regeneration — Date on the feed, ISO over RPC. */
   regeneratingSince?: Date | string | null;
@@ -156,6 +173,10 @@ export function ReviewActionCard(props: {
   const held = busy || regenerating;
 
   const pct = run.proposal?.confidence !== undefined ? Math.round(run.proposal.confidence * 100) : null;
+  // Looked up rather than trusted: the envelope is jsonb, so a value written
+  // by an older release could be any string, and an unknown one shows nothing
+  // instead of an empty badge.
+  const suggestion = run.proposal?.suggestedDecision ? SUGGESTION_BADGE[run.proposal.suggestedDecision] : undefined;
   const hasProperties = run.input.properties !== undefined && (card.content?.length ?? 0) === 0;
 
   const buildDecision = () => {
@@ -274,6 +295,15 @@ export function ReviewActionCard(props: {
                 {STATUS_LABEL[run.status] ?? run.status}
               </span>
               {run.invokedBy && <span className="text-[11px] text-muted-foreground">{run.invokedBy.replace('agent:', 'proposed by ')}</span>}
+              {/* What the agent advised, next to who proposed it. Worded as
+                  advice rather than as a verdict: the person decides, and a
+                  badge reading "Reject" would look like the item already had
+                  been. Absent when the agent gave no view. */}
+              {suggestion && (
+                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${suggestion.className}`}>
+                  {suggestion.label}
+                </span>
+              )}
             </div>
             {pct !== null && (
               <div className="shrink-0 rounded-xl bg-muted/60 px-3 py-1.5 text-right">

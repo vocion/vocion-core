@@ -12,7 +12,9 @@
 
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
@@ -32,6 +34,16 @@ export type ReviewItem = {
   /** When snoozed, hidden from the active queue until this time. */
   snoozedUntil?: Date | null;
   note?: string | null;
+  /**
+   * What the agent recommended doing with this — `approve`, `reject` or
+   * `snooze`. Undefined when the agent gave no view, and on every workflow and
+   * mission item, which carry no proposal envelope at all.
+   *
+   * On the thin row on purpose. A client building a lane of "everything the
+   * screener wants turned down" would otherwise need one detail fetch per item
+   * just to label rows it already has in hand.
+   */
+  suggestedDecision?: SuggestedDecision;
 };
 
 export type ListOptions = {
@@ -54,6 +66,18 @@ export type ListOptions = {
    * what a caller asking for a type this org has never produced must get.
    */
   actionIds?: string[];
+  /**
+   * Restrict to items where the AGENT recommended this — `approve`, `reject`
+   * or `snooze`. Only action runs carry a recommendation, so this narrows the
+   * queue to the action plane by definition: a workflow or mission item has no
+   * proposal envelope to match, and returning them under a filter about what
+   * an agent advised would be answering a different question than the one
+   * asked.
+   *
+   * Runs in the WHERE clause, like `actionIds`, so the total stays truthful
+   * rather than counting the whole queue and filtering the page.
+   */
+  suggestedDecision?: SuggestedDecision;
 };
 
 /** A page of the queue plus the total number of items the filters matched. */
@@ -63,6 +87,16 @@ export type PendingPage = {
   limit: number;
   offset: number;
 };
+
+/**
+ * The agent's recommendation, read out of the proposal blob as a plain string.
+ *
+ * Written once and shared by the SELECT, the WHERE and the COUNT so the three
+ * cannot drift into asking slightly different questions — and so the
+ * expression matches `action_run_suggested_decision_idx` exactly, which is the
+ * only way the index gets used at all.
+ */
+const suggestedDecisionColumn = sql<string | null>`${actionRunSchema.proposal} ->> 'suggestedDecision'`;
 
 /** The status that means "needs human review" for each kind. */
 const PENDING_STATUS: Record<ReviewKind, string> = {
@@ -250,6 +284,10 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     // of 50, filtering after the read would hand back whichever of the newest
     // 50 happened to match and call it the total.
     ...(opts.actionIds ? [inArray(actionRunSchema.actionId, opts.actionIds.length > 0 ? opts.actionIds : [''])] : []),
+    // Reads the key out of the proposal blob. `action_run_suggested_decision_idx`
+    // is the expression index behind this; it is partial on the same two
+    // statuses the clause above names, so the two have to stay in step.
+    ...(opts.suggestedDecision ? [eq(suggestedDecisionColumn, opts.suggestedDecision)] : []),
     ...routingFilters(opts, now),
   );
   const query = db
@@ -260,6 +298,7 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
       assignedTo: reviewAssignmentSchema.assignedTo,
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
+      suggestedDecision: suggestedDecisionColumn,
     })
     .from(actionRunSchema)
     .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
@@ -276,6 +315,10 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     assignedTo: row.assignedTo,
     snoozedUntil: row.snoozedUntil,
     note: row.note,
+    // Parsed rather than cast: the column is jsonb, so a value written by an
+    // older release or by hand can be any string at all, and a row claiming a
+    // recommendation nobody defined should read as having none.
+    suggestedDecision: parseSuggestedDecision(row.suggestedDecision),
   }));
   const total = await planeTotal(items.length, cap, async () => {
     const [counted] = await db
@@ -347,7 +390,11 @@ const EMPTY_PLANE: PlaneResult = { items: [], total: 0 };
  */
 async function listPlanes(orgId: string, opts: ListOptions, cap?: number): Promise<PlaneResult[]> {
   const now = new Date();
-  const wants = (kind: ReviewKind) => opts.kind === undefined || opts.kind === kind;
+  // A recommendation only exists on an action run, so asking for one excludes
+  // the other two planes rather than returning rows that could never match.
+  const planeCarriesRecommendation = (kind: ReviewKind) => kind === 'action' || opts.suggestedDecision === undefined;
+  const wants = (kind: ReviewKind) =>
+    (opts.kind === undefined || opts.kind === kind) && planeCarriesRecommendation(kind);
   return Promise.all([
     wants('workflow') ? listWorkflowPlane(orgId, opts, now, cap) : EMPTY_PLANE,
     wants('mission') ? listMissionPlane(orgId, opts, now, cap) : EMPTY_PLANE,
@@ -463,6 +510,7 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       ...routing,
       input: row.input ?? null,
       proposal: (row.proposal as Record<string, unknown> | null) ?? null,
+      suggestedDecision: parseSuggestedDecision(row.proposal?.suggestedDecision),
       card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
       record: row as unknown as Record<string, unknown>,
     };
@@ -842,13 +890,29 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
     const agentSlug = run?.invokedBy?.startsWith('agent:')
       ? run.invokedBy.slice('agent:'.length)
       : run?.proposal?.agentSlug ?? undefined;
+    const suggestedDecision = parseSuggestedDecision(run?.proposal?.suggestedDecision);
     const { track } = await import('@/services/adoption/track');
     // Scope dimensions travel together: userId (individual) + orgId (workspace)
     // on the actor, actionId (action type) in meta.
     await track({ orgId: opts.orgId, userId: opts.userId ?? 'web' }, 'review.decided', {
       agentSlug,
       resource: ['action_run', opts.runId],
-      meta: { kind: 'action', decision: SIGNAL_TO_DECISION[opts.signal], ...(run?.actionId ? { actionId: run.actionId } : {}), ...(opts.hint ? { hint: opts.hint } : {}) },
+      meta: {
+        kind: 'action',
+        decision: SIGNAL_TO_DECISION[opts.signal],
+        ...(run?.actionId ? { actionId: run.actionId } : {}),
+        // The recommendation the reviewer was looking at, so agreement can be
+        // read off the event stream without joining back to a run whose
+        // envelope may since have been refreshed.
+        //
+        // The second of two places that write this onto `review.decided` —
+        // `adoption/attribution.ts`'s `trackReviewDecision` is the other, and
+        // it serves the workflow and mission planes. Actions come through here
+        // instead because the typed triage signal (edit, rewrite, skip …) has
+        // no home there. Keep the two in step.
+        ...(suggestedDecision ? { suggestedDecision } : {}),
+        ...(opts.hint ? { hint: opts.hint } : {}),
+      },
     });
     await queueSignalForLearning(opts, agentSlug);
   } catch {

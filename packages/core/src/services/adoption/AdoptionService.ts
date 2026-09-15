@@ -10,7 +10,9 @@
  * convention), computed with a lag() window over the event stream.
  */
 
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { sql } from 'drizzle-orm';
+import { decisionOutcome, parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 
 export const SESSION_GAP_MINUTES = 30;
@@ -368,6 +370,20 @@ export type AdoptionAgentRow = {
   feedbackUp: number;
   feedbackDown: number;
   learnings: number;
+  /**
+   * Whether the reviewer reached the same decision this agent recommended.
+   *
+   * Deliberately alongside `approvalRate` rather than replacing it: that one
+   * answers "did the person take the output as-is", this one answers "did the
+   * person agree with the judgement". An agent whose drafts always get
+   * reworded but whose calls are always right scores low on the first and high
+   * on the second, and both facts are worth knowing.
+   *
+   * Empty for agents that have never recommended anything decided in the
+   * window — which is every agent until recommendations have been flowing for
+   * a while.
+   */
+  agreement: AdoptionAgentAgreement;
 };
 
 /**
@@ -378,6 +394,9 @@ export type AdoptionAgentRow = {
  */
 export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise<AdoptionAgentRow[]> {
   const since = windowStart(days);
+  // Its own query rather than more FILTER clauses on the one below: agreement
+  // pairs two values per event, which a flat count per agent cannot express.
+  const agreementByAgent = await getAgentAgreement(orgId, days);
   const result = await rows(sql`
     SELECT agent_slug,
       count(DISTINCT user_id)                                            AS reach,
@@ -413,8 +432,131 @@ export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise
       feedbackUp: num(r.feedback_up),
       feedbackDown: num(r.feedback_down),
       learnings: num(r.learnings),
+      agreement: agreementByAgent.get(String(r.agent_slug)) ?? noAgreementYet(),
     };
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Agreement — what the agent advised vs what the person did           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One cell of an agent's agreement matrix: it recommended `suggested`, the
+ * reviewer decided `actual`, and that happened `count` times.
+ */
+export type AgreementCell = {
+  suggested: SuggestedDecision;
+  actual: SuggestedDecision;
+  count: number;
+};
+
+export type AdoptionAgentAgreement = {
+  /** Every recommended/actual pairing that occurred, most frequent first. */
+  matrix: AgreementCell[];
+  /** Decisions on items where the agent gave a recommendation. */
+  decided: number;
+  /** Of those, how many the reviewer decided the same way the agent advised. */
+  agreed: number;
+  /**
+   * agreed ÷ decided, or null when the agent recommended nothing that anyone
+   * has since decided. Null, never zero: an agent nobody has judged has no
+   * agreement score, and showing 0% would read as "always wrong".
+   */
+  agreementRate: number | null;
+};
+
+/**
+ * A fresh empty agreement for an agent with nothing to compare yet. A function
+ * rather than a shared constant so no caller can mutate the blank one everyone
+ * else is handed.
+ */
+function noAgreementYet(): AdoptionAgentAgreement {
+  return { matrix: [], decided: 0, agreed: 0, agreementRate: null };
+}
+
+/**
+ * How often each agent's recommendation matched the decision a person took.
+ *
+ * This is the question `approvalRate` cannot answer. That ratio measures
+ * whether a reviewer took the agent's output as-is, against a recommendation
+ * that was always implicitly "approve" — so a reviewer rejecting something the
+ * agent also wanted rejected counted against it. Here the two sides are read
+ * separately and compared.
+ *
+ * Only events carrying a `suggestedDecision` are counted. Everything proposed
+ * before the recommendation existed, and everything an agent had no view on,
+ * stays out rather than being credited with recommending whatever happened.
+ *
+ * A matrix rather than a single rate, because the shape of the mistakes is the
+ * point: an agent that is right about what to approve and wrong about what to
+ * turn down is the exact failure a scalar hides.
+ * @param orgId
+ * @param days
+ */
+export async function getAgentAgreement(orgId: string, days: AdoptionWindow): Promise<Map<string, AdoptionAgentAgreement>> {
+  const since = windowStart(days);
+  // Grouped in SQL, paired in TypeScript: `decisionOutcome` is the one place
+  // that says which triage signals amount to an approval, and a CASE here
+  // would be a second copy of it free to drift.
+  const result = await rows(sql`
+    SELECT agent_slug,
+      event_type,
+      metadata ->> 'suggestedDecision' AS suggested,
+      metadata ->> 'decision'          AS decision,
+      count(*)                         AS occurrences
+    FROM user_activity_event
+    WHERE org_id = ${orgId}
+      AND created_at >= ${since}
+      AND agent_slug IS NOT NULL
+      AND event_type IN ('review.decided', 'review.snoozed')
+      AND metadata ->> 'suggestedDecision' IS NOT NULL
+    GROUP BY agent_slug, event_type, suggested, decision
+  `);
+
+  const byAgent = new Map<string, AdoptionAgentAgreement>();
+  for (const row of result) {
+    const suggested = parseSuggestedDecision(row.suggested);
+    const actual = actualOutcome(String(row.event_type), row.decision);
+    if (!suggested || !actual) {
+      continue;
+    }
+    const agentSlug = String(row.agent_slug);
+    const agreement = byAgent.get(agentSlug) ?? noAgreementYet();
+    const count = num(row.occurrences);
+    const existing = agreement.matrix.find(cell => cell.suggested === suggested && cell.actual === actual);
+    if (existing) {
+      // Two rows can land in one cell: an `approved` and an `edited` decision
+      // are different signals that amount to the same outcome.
+      existing.count += count;
+    } else {
+      agreement.matrix.push({ suggested, actual, count });
+    }
+    agreement.decided += count;
+    if (suggested === actual) {
+      agreement.agreed += count;
+    }
+    byAgent.set(agentSlug, agreement);
+  }
+
+  for (const agreement of byAgent.values()) {
+    agreement.matrix.sort((a, b) => b.count - a.count);
+    agreement.agreementRate = agreement.decided > 0 ? agreement.agreed / agreement.decided : null;
+  }
+  return byAgent;
+}
+
+/**
+ * What a recorded event amounts to as a decision, or null when it decided
+ * nothing and belongs outside the comparison.
+ * @param eventType - `review.decided` or `review.snoozed`.
+ * @param decision - The `review.decided` decision value; absent on a snooze.
+ */
+function actualOutcome(eventType: string, decision: unknown): SuggestedDecision | null {
+  if (eventType === 'review.snoozed') {
+    return 'snooze';
+  }
+  return typeof decision === 'string' ? decisionOutcome(decision) : null;
 }
 
 /* ------------------------------------------------------------------ */

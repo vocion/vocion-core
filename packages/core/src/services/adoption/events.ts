@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 
 /**
  * Typed registry of adoption events — the single source of truth for the
@@ -77,6 +78,15 @@ export const ADOPTION_EVENTS = {
       actionId: z.string().optional(),
       hint: z.string().optional(),
       latencyMs: z.number().optional(),
+      /**
+       * What the agent recommended for this item, copied onto the event as the
+       * decision is recorded. Stamped here rather than read back off the run
+       * later because a re-proposal can change the recommendation, and the
+       * honest comparison is against the advice the reviewer was looking at.
+       * Absent when the agent gave no view — not the same as recommending
+       * approval, and never to be counted as one.
+       */
+      suggestedDecision: z.enum(SUGGESTED_DECISIONS).optional(),
     }),
   },
   'review.feedback': {
@@ -99,6 +109,14 @@ export const ADOPTION_EVENTS = {
     meta: z.object({
       kind: runKind,
       deferredFor: snoozeHorizon,
+      /**
+       * Carried here too, so a snooze the agent itself recommended can be
+       * recognised as agreement. A deferral stays outside the approval rate
+       * for the reason above, but "the agent said come back to this later and
+       * the reviewer did" is a real meeting of minds and belongs in the
+       * agreement matrix.
+       */
+      suggestedDecision: z.enum(SUGGESTED_DECISIONS).optional(),
     }),
   },
   'learning.added': { agent: true },
