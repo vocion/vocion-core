@@ -4,6 +4,7 @@ import type { AgentOption } from './types';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ChatDock } from './ChatDock';
+import { parseConversationParam } from './resumeRule';
 
 /**
  * Routes that mount their own scoped dock (a record page passes its scope
@@ -55,18 +56,26 @@ function routeOf(pathname: string): string {
 }
 
 /**
- * The dock on every page that has no dock of its own (058): the everything
- * conversation, carrying the page the person is on as context, collapsed to
- * the button until they open it and open by default on a single record.
- * Mounted once by the app shell, beside the page content, in place of the
- * floating bubble. Renders nothing on the full-page chat, on routes that
- * mount a scoped dock, and for an org with no agents.
+ * The rail on every page that has no dock of its own (058, §9): the
+ * everything conversation, carrying the page the person is on as context,
+ * collapsed to an edge tab until they open it (⌘J) and open by default on a
+ * single record. Mounted once by the app shell, beside the page content, so
+ * it follows the person across routes. Renders nothing on the full-page
+ * chat, on routes that mount a scoped dock, and for an org with no agents.
  * @param props
  * @param props.agents - Agents available to pick from. Empty array renders nothing.
  */
 export function PageDock({ agents }: { agents: AgentOption[] }) {
   const pathname = routeOf(usePathname());
   const [title, setTitle] = useState('');
+  // `?conversation=<id>` names a thread to resume (§9) — one of the two
+  // intentional returns. Read from the location rather than
+  // `useSearchParams` so the shell needs no Suspense boundary.
+  const [resumeId, setResumeId] = useState<number | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+    setResumeId(parseConversationParam(new URLSearchParams(window.location.search).get('conversation')));
+  }, [pathname]);
 
   // The document title settles after the route commits; read it then, and
   // again if the page changes it (a record page titles itself after loading).
@@ -92,6 +101,7 @@ export function PageDock({ agents }: { agents: AgentOption[] }) {
       scopeLabel="Everything"
       pageContext={{ path: pathname, title }}
       defaultCollapsed={!isRecordRoute(pathname)}
+      resumeConversationId={resumeId}
     />
   );
 }

@@ -56,6 +56,18 @@ export const ADOPTION_EVENTS = {
   'chat.conversation_created': { agent: true },
   'chat.message_sent': { agent: true },
   /**
+   * A thumb on one assistant turn in the chat (0094). `rating` null = the
+   * person cleared their thumb. The note itself never travels here — it goes
+   * to the feedback classifier — only whether there was one.
+   */
+  'chat.feedback': {
+    agent: true,
+    meta: z.object({
+      rating: feedbackRating.nullable().optional(),
+      hasNote: z.boolean().optional(),
+    }),
+  },
+  /**
    * One event for every HITL approval surface; the run kind travels in
    * metadata. `decision` is the TYPED triage signal — approve/edit/reject are
    * terminal; skip/save leave the item pending; rewrite = the human asked AI

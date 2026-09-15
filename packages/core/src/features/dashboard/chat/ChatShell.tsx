@@ -2,6 +2,7 @@
 
 import type { AgentOption } from './types';
 import { MessagesSquare } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
@@ -10,9 +11,11 @@ import { AgentSwitcher } from './AgentSwitcher';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
 import { EmptyState } from './EmptyState';
+import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
 import { SourcesPanel } from './SourcesPanel';
+import { useTagSearch } from './tagSearch';
 import { useChatSession } from './useChatSession';
 
 /**
@@ -52,6 +55,8 @@ export type ChatShellProps = {
   suggestions?: Array<{ label: string; prompt: string }>;
   /** Empty-state greeting: org eyebrow + "Ask <workspace>". */
   greeting?: { eyebrow?: string; workspace: string };
+  /** A thread the URL names (`?conversation=<id>`) — resume it instead of starting fresh (§9). */
+  conversationId?: number | null;
 };
 
 /**
@@ -76,6 +81,7 @@ export type ChatShellProps = {
  * @param props.initialComposerValue - Text to pre-fill the composer with.
  * @param props.suggestions - Empty-state chips.
  * @param props.greeting - Empty-state greeting.
+ * @param props.conversationId
  */
 export function ChatShell({
   agents,
@@ -83,6 +89,7 @@ export function ChatShell({
   initialComposerValue,
   suggestions = [],
   greeting,
+  conversationId = null,
 }: ChatShellProps) {
   if (agents.length === 0) {
     return <NoAgentsToChatWith />;
@@ -95,6 +102,7 @@ export function ChatShell({
       initialComposerValue={initialComposerValue}
       suggestions={suggestions}
       greeting={greeting}
+      conversationId={conversationId}
     />
   );
 }
@@ -124,8 +132,17 @@ function ChatShellInner({
   initialComposerValue,
   suggestions = [],
   greeting,
+  conversationId = null,
 }: ChatShellProps) {
-  const session = useChatSession({ agents, agentSlug, initialComposerValue, suggestions, greeting });
+  const t = useTranslations('Chat');
+  const session = useChatSession({ agents, agentSlug, initialComposerValue, suggestions, greeting, resumeConversationId: conversationId });
+  const tagSearch = useTagSearch(agents);
+  const autonomyCopy = {
+    ask: t('autonomy_ask'),
+    act: t('autonomy_act'),
+    askHint: t('autonomy_ask_hint'),
+    actHint: t('autonomy_act_hint'),
+  };
 
   // The full-page chat IS this page's agent surface: an entry-point request
   // (the hotkey, a rail control) focuses the composer instead of opening a
@@ -155,11 +172,14 @@ function ChatShellInner({
             label={session.agent.name}
             variant="bar"
           />
-          <ChatMenu
+          <HistoryPopover
+            recent={session.recentChats}
+            currentId={session.conversationId}
+            onPick={id => void session.handlePickConversation(id)}
             onNewChat={session.handleNewChat}
-            conversations={session.recentChats}
-            onPickConversation={id => void session.handlePickConversation(id)}
+            search={session.searchConversations}
           />
+          <ChatMenu onNewChat={session.handleNewChat} />
         </div>
       </ShellBarActionsPortal>
 
@@ -204,6 +224,8 @@ function ChatShellInner({
                     activity={session.activity}
                     onShowSources={session.handleShowSources}
                     onCitationClick={session.handleCitationClick}
+                    onFeedback={session.handleFeedback}
+                    autonomy={session.autonomy}
                   />
                 )}
 
@@ -230,6 +252,13 @@ function ChatShellInner({
             pastedText={session.pastedText}
             onPasteText={session.setPastedText}
             onClearPasted={() => session.setPastedText(null)}
+            tags={session.contextRefs}
+            onAddTag={session.addContextRef}
+            onRemoveTag={session.removeContextRef}
+            tagSearch={tagSearch}
+            autonomy={session.autonomy}
+            onAutonomyChange={session.setAutonomy}
+            autonomyCopy={autonomyCopy}
           />
         </div>
 

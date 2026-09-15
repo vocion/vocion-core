@@ -58,7 +58,7 @@ export type FeedbackPayload = {
  * Where a piece of feedback came from. `api` is an external client posting to
  * `/api/v1/feedback` — an admin panel outside Vocion, typically.
  */
-export type FeedbackSource = 'drive' | 'slack' | 'manual' | 'api' | 'review';
+export type FeedbackSource = 'drive' | 'slack' | 'manual' | 'api' | 'review' | 'chat';
 
 export async function enqueue(opts: {
   orgId: string;

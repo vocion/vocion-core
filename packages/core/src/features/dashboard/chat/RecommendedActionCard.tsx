@@ -2,7 +2,8 @@
 
 import type { RecommendedAction } from './types';
 import { ArrowRight, Check, Loader2, Mail, PencilLine, Sparkles } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 
 /**
@@ -21,8 +22,17 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v : v == null ? '' : String(v);
 }
 
-export function RecommendedActionCard({ rec }: { rec: RecommendedAction }) {
+export function RecommendedActionCard({ rec, autoPropose = false }: {
+  rec: RecommendedAction;
+  /**
+   * The thread runs at `act-within-bounds` (0094): propose into the review
+   * queue as soon as the card appears, and say so. Still nothing executes —
+   * the queue and trust rules gate every outward step.
+   */
+  autoPropose?: boolean;
+}) {
   const [state, setState] = useState<State>({ status: 'idle' });
+  const autoFiredRef = useRef(false);
 
   const prepare = async () => {
     setState({ status: 'working' });
@@ -39,6 +49,17 @@ export function RecommendedActionCard({ rec }: { rec: RecommendedAction }) {
       setState({ status: 'error', message: (err as Error).message });
     }
   };
+
+  useEffect(() => {
+    if (autoPropose && !autoFiredRef.current) {
+      autoFiredRef.current = true;
+      // Proposing IS the effect here: the thread runs at act-within-bounds,
+      // so the card fires its one network call the moment it appears.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void prepare();
+    }
+    // `prepare` closes over `rec`, which is stable for the card's life.
+  }, [autoPropose]);
 
   const pct = rec.confidence !== undefined ? Math.round(rec.confidence * 100) : null;
   const isEmail = rec.actionId === 'gmail.send';
@@ -98,14 +119,14 @@ export function RecommendedActionCard({ rec }: { rec: RecommendedAction }) {
       <div className="flex items-center gap-2 px-3 py-2.5">
         {state.status === 'done'
           ? (
-              <a
+              <Link
                 href="/dashboard/review"
                 className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
               >
                 <Check className="size-4" aria-hidden />
-                In your review queue — open it
+                {autoPropose ? 'Proposed → in your review queue' : 'In your review queue — open it'}
                 <ArrowRight className="size-3.5" aria-hidden />
-              </a>
+              </Link>
             )
           : (
               <button

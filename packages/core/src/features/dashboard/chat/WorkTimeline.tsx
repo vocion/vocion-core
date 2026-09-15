@@ -23,12 +23,15 @@ import { useEffect, useState } from 'react';
 import { sourceLabels } from './helpers';
 
 /**
- * WorkTimeline — the agent Activity trace (redesign).
+ * WorkTimeline — the agent Activity trace.
  *
- * Minimal by default: one collapsed line ("Worked it out · 5 steps · 1
- * specialist · 3 sources"). Tap to explore a curated, typed trace — reasoning,
- * meaningful tool steps (plumbing hidden), delegation to named specialists,
- * and first-class citations. Bottom drawer on mobile, inline panel on desktop.
+ * LIVE (agent-chat-surface.md §9): the rows appear as the agent works — a
+ * tool row the moment its start event arrives, flipping to done/error when it
+ * lands; delegates indent their specialist's rows; reasoning folds to one
+ * line ("Thinking…" → "Thought for 6s") with its first sentence showing.
+ * AFTER the turn: one collapsed line ("Worked it out · 5 steps · 3 sources")
+ * that opens into the curated, typed trace — reasoning, meaningful tool
+ * steps (plumbing hidden), delegation to named specialists, citations.
  */
 
 export type WorkTimelineProps = {
@@ -348,7 +351,14 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
   // (agent-chat-surface.md §2.1 rule 1).
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
   const [openDrill, setOpenDrill] = useState<string | null>(null);
+  // After the turn the whole trace folds to one line — "Worked it out · N
+  // steps" — and opens on tap (§2). Live, it is always open.
+  const [expanded, setExpanded] = useState(false);
+  const [reasonOpen, setReasonOpen] = useState(false);
   const elapsed = useElapsed(streaming);
+  // How long the agent thought before its first action — frozen the moment
+  // an action starts, so the label reads "Thought for 6s" afterwards.
+  const [thinkingSeconds, setThinkingSeconds] = useState(0);
 
   const roots = trace.filter(n => !n.parentId);
   const actions = roots.filter(n => n.kind !== 'reason');
@@ -357,30 +367,21 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
   const steps = trace.filter(n => n.kind !== 'reason').length;
   const sources = documents.length;
   const anyOpen = openIds.size > 0;
+  const stillThinking = streaming && reasons.length > 0 && actions.length === 0;
+  useEffect(() => {
+    if (stillThinking) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+      setThinkingSeconds(elapsed);
+    }
+  }, [stillThinking, elapsed]);
+  const thoughtLabel = thinkingSeconds >= 2 ? `Thought for ${thinkingSeconds}s` : 'Thought it through';
+  const reasonText = reasons.map(r => r.text?.trim() || '').filter(Boolean).join('\n\n');
+  const reasonPreview = reasonText.split('\n').find(l => l.trim().length > 0)?.trim() ?? '';
 
   // A completed turn with no real actions and no sources has nothing worth
   // surfacing; keep the line while streaming (live status).
   if (!streaming && steps === 0 && sources === 0) {
     return null;
-  }
-
-  // While the agent runs: one line stating what it is doing NOW, as a verb,
-  // never a progress bar (§2.1 rule 4). Completed claims accumulate below it
-  // once the turn lands.
-  if (streaming) {
-    return (
-      <div className="my-2">
-        <div className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
-          <span className="min-w-0 flex-1 truncate font-medium">{activity ?? 'Working…'}</span>
-          {elapsed >= 3 && (
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
-              {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
-            </span>
-          )}
-        </div>
-      </div>
-    );
   }
 
   const toggle = (id: string) => setOpenIds((prev) => {
@@ -397,76 +398,158 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
     setOpenDrill(null);
   };
 
+  // LIVE: the rows appear as the agent works — a tool row the moment its
+  // start event arrives, flipping to done/error when it lands; delegates
+  // indent their specialist's rows beneath them; reasoning folds to one
+  // line with its first sentence showing (agent-chat-surface.md §9).
+  if (streaming) {
+    const live = [...trace].reverse().find(n => n.kind !== 'reason' && (n.status === 'start' || n.status === 'progress'));
+    const headline = activity ?? live?.label ?? 'Working…';
+    return (
+      <div className="my-2" data-testid="work-timeline-live">
+        <div className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
+          <span className="min-w-0 flex-1 truncate font-medium">{headline}</span>
+          {elapsed >= 3 && (
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
+              {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
+            </span>
+          )}
+        </div>
+        {(reasons.length > 0 || actions.length > 0) && (
+          <ol className="mt-1 flex flex-col rounded-lg border border-border/60 bg-muted/10 px-3">
+            {reasons.length > 0 && (
+              <li className="border-b border-border/40 py-1.5 last:border-b-0">
+                <button type="button" onClick={() => setReasonOpen(v => !v)} aria-expanded={reasonOpen} className="flex w-full items-center gap-2 text-left text-xs">
+                  <span className="grid size-4 shrink-0 place-items-center"><Brain className="size-3.5 text-brand-amber-deep" aria-hidden /></span>
+                  <span className="min-w-0 flex-1 truncate text-[13px]">
+                    <span className="font-medium text-foreground/85">{actions.length === 0 ? 'Thinking…' : thoughtLabel}</span>
+                    {!reasonOpen && reasonPreview && (
+                      <span className="text-muted-foreground">
+                        {' · '}
+                        {reasonPreview}
+                      </span>
+                    )}
+                  </span>
+                  <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${reasonOpen ? 'rotate-180' : ''}`} aria-hidden />
+                </button>
+                {reasonOpen && reasonText && (
+                  <div className="mt-1 ml-6 max-h-60 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{reasonText}</div>
+                )}
+              </li>
+            )}
+            {actions.map((n) => {
+              const kids = childrenOf(n.id);
+              return (
+                <li key={n.id} className="border-b border-border/40 last:border-b-0">
+                  <ol>
+                    <TraceRow node={n} open={openDrill === n.id} onToggle={() => setOpenDrill(o => (o === n.id ? null : n.id))} />
+                    {kids.map(k => (
+                      <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
+                    ))}
+                  </ol>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </div>
+    );
+  }
+
+  const summary = [
+    `${steps} step${steps === 1 ? '' : 's'}`,
+    sources > 0 ? `${sources} source${sources === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(' · ');
+
   return (
     <div className="my-2">
-      {anyOpen && (
-        <div className="mb-1 flex justify-end">
-          <button type="button" onClick={collapseAll} className="text-[11px] font-medium text-muted-foreground transition hover:text-foreground">
-            Collapse all
-          </button>
-        </div>
-      )}
-      <ol className="flex flex-col rounded-lg border border-border/60 bg-muted/10 px-3">
-        {reasons.length > 0 && (
-          <ClaimLine
-            id="__reasoning__"
-            icon={<Brain className="size-3.5 text-brand-amber-deep" aria-hidden />}
-            label="Thought it through"
-            open={openIds.has('__reasoning__')}
-            onToggle={() => toggle('__reasoning__')}
-          >
-            {reasons.map(r => (
-              <div key={r.id} className="max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
-                {r.text?.trim() || r.label}
-              </div>
-            ))}
-          </ClaimLine>
-        )}
-        {actions.map((n) => {
-          const kids = childrenOf(n.id);
-          return (
-            <ClaimLine
-              key={n.id}
-              id={n.id}
-              icon={<TraceMarker node={n} />}
-              label={n.label}
-              detail={n.detail}
-              radius={n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined)}
-              error={n.status === 'error'}
-              open={openIds.has(n.id)}
-              onToggle={() => toggle(n.id)}
-            >
-              {kids.length > 0
-                ? (
-                    <ol className="relative">
-                      {kids.map(k => (
-                        <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
-                      ))}
-                    </ol>
-                  )
-                : (
-                    <div>
-                      <CallDetail node={n} />
-                      {(n.citations?.length ?? 0) > 0 && <TraceCitations node={n} />}
-                    </div>
-                  )}
-            </ClaimLine>
-          );
-        })}
-        {sources > 0 && (
-          <ClaimLine
-            id="__sources__"
-            icon={<Search className="size-3.5 text-muted-foreground/70" aria-hidden />}
-            label={`Grounded in ${sources} source${sources === 1 ? '' : 's'}`}
-            open={openIds.has('__sources__')}
-            onToggle={() => toggle('__sources__')}
-          >
-            <div className="grid gap-1.5">
-              {documents.map((d, i) => <Citation key={`${d.document_id}-${i}`} doc={d} />)}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground transition hover:text-foreground"
+      >
+        <Brain className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+        <span className="min-w-0 flex-1 truncate font-medium">
+          Worked it out ·
+          {' '}
+          {summary}
+        </span>
+        <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${expanded ? 'rotate-180' : ''}`} aria-hidden />
+      </button>
+      {expanded && (
+        <>
+          {anyOpen && (
+            <div className="mt-1 mb-1 flex justify-end">
+              <button type="button" onClick={collapseAll} className="text-[11px] font-medium text-muted-foreground transition hover:text-foreground">
+                Collapse all
+              </button>
             </div>
-          </ClaimLine>
-        )}
-      </ol>
+          )}
+          <ol className="mt-1 flex flex-col rounded-lg border border-border/60 bg-muted/10 px-3">
+            {reasons.length > 0 && (
+              <ClaimLine
+                id="__reasoning__"
+                icon={<Brain className="size-3.5 text-brand-amber-deep" aria-hidden />}
+                label={thoughtLabel}
+                open={openIds.has('__reasoning__')}
+                onToggle={() => toggle('__reasoning__')}
+              >
+                {reasons.map(r => (
+                  <div key={r.id} className="max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+                    {r.text?.trim() || r.label}
+                  </div>
+                ))}
+              </ClaimLine>
+            )}
+            {actions.map((n) => {
+              const kids = childrenOf(n.id);
+              return (
+                <ClaimLine
+                  key={n.id}
+                  id={n.id}
+                  icon={<TraceMarker node={n} />}
+                  label={n.label}
+                  detail={n.detail}
+                  radius={n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined)}
+                  error={n.status === 'error'}
+                  open={openIds.has(n.id)}
+                  onToggle={() => toggle(n.id)}
+                >
+                  {kids.length > 0
+                    ? (
+                        <ol className="relative">
+                          {kids.map(k => (
+                            <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
+                          ))}
+                        </ol>
+                      )
+                    : (
+                        <div>
+                          <CallDetail node={n} />
+                          {(n.citations?.length ?? 0) > 0 && <TraceCitations node={n} />}
+                        </div>
+                      )}
+                </ClaimLine>
+              );
+            })}
+            {sources > 0 && (
+              <ClaimLine
+                id="__sources__"
+                icon={<Search className="size-3.5 text-muted-foreground/70" aria-hidden />}
+                label={`Grounded in ${sources} source${sources === 1 ? '' : 's'}`}
+                open={openIds.has('__sources__')}
+                onToggle={() => toggle('__sources__')}
+              >
+                <div className="grid gap-1.5">
+                  {documents.map((d, i) => <Citation key={`${d.document_id}-${i}`} doc={d} />)}
+                </div>
+              </ClaimLine>
+            )}
+          </ol>
+        </>
+      )}
     </div>
   );
 }

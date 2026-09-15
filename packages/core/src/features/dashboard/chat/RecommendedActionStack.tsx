@@ -3,6 +3,7 @@
 import type { RecommendedAction } from './types';
 import { ArrowRight, Bookmark, Check, Layers, Loader2, SkipForward } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { RecommendedActionCard } from './RecommendedActionCard';
 
@@ -17,14 +18,16 @@ import { RecommendedActionCard } from './RecommendedActionCard';
 
 type Outcome = 'saved' | 'skipped' | 'acted';
 
-export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) {
+export function RecommendedActionStack({ recs, autoPropose = false }: { recs: RecommendedAction[]; autoPropose?: boolean }) {
   const [idx, setIdx] = useState(0);
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const [bulkDone, setBulkDone] = useState(false);
 
-  if (recs.length <= 1) {
-    return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} />)}</>;
+  if (recs.length <= 1 || autoPropose) {
+    // At `act-within-bounds` every recommendation proposes itself, so the
+    // one-at-a-time triage has nothing to triage — show the cards as a list.
+    return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} autoPropose={autoPropose} />)}</>;
   }
 
   const propose = async (rec: RecommendedAction): Promise<void> => {
@@ -83,10 +86,10 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
           {outcomes.filter(o => o === 'skipped').length > 0 && ` · ${outcomes.filter(o => o === 'skipped').length} skipped`}
         </span>
         {saved > 0 && (
-          <a href="/dashboard/review" className="inline-flex items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
+          <Link href="/dashboard/review" className="inline-flex items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
             Review queue
             <ArrowRight className="size-3.5" aria-hidden />
-          </a>
+          </Link>
         )}
       </div>
     );
