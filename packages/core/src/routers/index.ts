@@ -26,6 +26,7 @@ import {
   setPinned as setArtifactPinnedRoute,
   updateSpec as updateArtifactSpecRoute,
 } from './Artifacts';
+import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
 import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
@@ -174,6 +175,12 @@ export const router = {
   teams: {
     list: listTeamsRoute,
     seedSample: seedSampleTeamsRoute,
+  },
+  autonomy: {
+    list: listAutonomyRoute,
+    promote: promoteAutonomyRoute,
+    demote: demoteAutonomyRoute,
+    acknowledgeFlag: acknowledgeAutonomyFlagRoute,
   },
   apiTokens: {
     list: listTokensRoute,

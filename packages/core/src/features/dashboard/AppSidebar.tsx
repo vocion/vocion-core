@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   Sparkles,
   TestTube,
+  TrendingUp,
   UserPlus,
   Users,
   Wrench,
@@ -171,6 +172,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
       m('Vision models', '/dashboard/models', Cpu),
       m(t('evals'), '/dashboard/evals', TestTube),
       m(t('observability'), '/dashboard/observability', LineChart),
+      m(t('autonomy'), '/dashboard/autonomy', TrendingUp),
       ...(isAdmin ? [m(t('adoption'), '/dashboard/adoption', BarChart3)] : []),
       m('Members', '/dashboard/members', UserPlus),
       ...(isAdmin ? [m('API tokens', '/dashboard/api-tokens', KeyRound)] : []),
@@ -272,7 +274,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                 {manageGroup('Team', ['/dashboard/teams', '/dashboard/agents', '/dashboard/missions', '/dashboard/workflows', '/dashboard/automation'])}
                 {manageGroup('Knowledge', ['/dashboard/connectors', '/dashboard/objects', '/dashboard/learnings'])}
                 {manageGroup('Build', ['/dashboard/skills', '/dashboard/tools', '/dashboard/models', '/dashboard/evals'])}
-                {manageGroup(t('observability_section_label'), ['/dashboard/observability'])}
+                {manageGroup(t('observability_section_label'), ['/dashboard/observability', '/dashboard/autonomy'])}
                 {manageGroup(t('organization_section_label'), ['/dashboard/adoption', '/dashboard/members', '/dashboard/api-tokens', '/dashboard/admin'])}
                 <AppSidebarNav items={[{ title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText }]} />
 

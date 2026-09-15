@@ -36,6 +36,8 @@ export type ActionRun = {
   regenerateNote?: string | null;
   error?: string | null;
   card?: ReviewCard;
+  /** Alignment beside the confidence meter (server-computed, 30d) — earned autonomy (0099). */
+  alignment?: { agreementRate: number | null; n: number; window: string } | null;
 };
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -197,6 +199,13 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
                 </div>
                 <p className="mt-2 max-w-3xl text-[15px] leading-relaxed break-words text-foreground/80">{current.proposal.rationale}</p>
               </section>
+            )}
+            {/* The alignment score: confidence is how sure the agent is; this is
+                how often you agreed with this kind of recommendation (0099). */}
+            {current.alignment && current.alignment.n > 0 && current.alignment.agreementRate !== null && (
+              <p data-testid="alignment-score" className="border-b border-rule py-3 text-[13px] text-muted-foreground tabular-nums" title={`${current.alignment.n} decided recommendations of this kind in the last 30 days`}>
+                {`Agrees with you ${Math.round(current.alignment.agreementRate * 100)}% · n=${current.alignment.n}`}
+              </p>
             )}
             {current.input.draft === true && (
               <p className="border-b border-rule py-3 text-[13px] text-muted-foreground">Dry run — approving writes a draft, nothing is sent.</p>

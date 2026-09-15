@@ -21,6 +21,8 @@ export type SheetAsk = {
   agentSlug: string | null;
   teamSlug: string | null;
   risk: string | null;
+  /** How often this asker's recommended option was the one chosen (server-computed, 30d). */
+  alignment?: { agreementRate: number | null; n: number; window: string } | null;
 };
 
 type Answer = { decision: string; note: string };
@@ -236,6 +238,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true }: {
           {current.agentSlug && <span className="text-muted-foreground">{`asked by ${current.agentSlug}`}</span>}
         </div>
         <h1 className="mt-2 line-clamp-2 text-xl leading-snug font-semibold" title={current.title}>{sentenceCase(current.title)}</h1>
+        <RecommendationLine ask={current} />
         {body.lead && (
           <div className="prose prose-sm mt-2 max-w-none text-muted-foreground dark:prose-invert">
             <Markdown remarkPlugins={[remarkGfm]}>{body.lead}</Markdown>
@@ -350,6 +353,36 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true }: {
             )}
       </StickyBar>
     </div>
+  );
+}
+
+/**
+ * One quiet line under the question: how sure the asker is of its
+ * recommendation, and how often its recommendations were the one chosen. The
+ * same shape an action proposal shows beside its confidence meter, so a
+ * person reads asks and actions the same way. Nothing at all when there is
+ * neither a confidence nor any history.
+ * @param props
+ * @param props.ask
+ */
+function RecommendationLine({ ask }: { ask: SheetAsk }) {
+  const rec = ask.options.find(o => o.recommended);
+  const confidence = typeof rec?.confidence === 'number' ? Math.round(rec.confidence * 100) : null;
+  const a = ask.alignment;
+  const agrees = a && a.n > 0 && a.agreementRate !== null ? Math.round(a.agreementRate * 100) : null;
+  if (confidence === null && agrees === null) {
+    return null;
+  }
+  return (
+    <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+      {confidence !== null && `Recommended with ${confidence}% confidence`}
+      {confidence !== null && agrees !== null && ' · '}
+      {agrees !== null && (
+        <span title={`${a!.n} answered recommendation${a!.n === 1 ? '' : 's'} of this kind from this asker in the last 30 days`}>
+          {`agrees with you ${agrees}% · n=${a!.n}`}
+        </span>
+      )}
+    </p>
   );
 }
 

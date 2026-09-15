@@ -38,7 +38,8 @@
     "invite_title": "Inviter des collègues",
     "invite_body": "Faites venir les personnes qui relisent et décident dans cet espace.",
     "invite_cta": "Inviter",
-    "dismiss": "Fermer"
+    "dismiss": "Fermer",
+    "autonomy": "Autonomie"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",

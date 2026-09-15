@@ -30,7 +30,7 @@ default, and effect, plus a worked example and the rules the loader enforces.
 | [Automation](./entities/automation.md) | `automations/<slug>.yaml` | The only place time and events live: when, then do |
 | [Object type](./entities/object-type.md) | `objects/<slug>/type.yaml` | The definition of a business entity, and how to classify into it |
 | [Source](./entities/source.md) | `sources/<slug>.yaml` | A connection to outside data, its sync cadence, and who may retrieve from it |
-| [Trust rules](./entities/trust.md) | `trust.yaml` | Which actions may auto-execute, and above what confidence |
+| [Trust rules](./entities/trust.md) | `trust.yaml` | Which actions may auto-execute, above what confidence, and where each kind stands on the autonomy ladder — see the [earned autonomy guide](./guides/earned-autonomy.md) |
 | [Learning step](./entities/learning-step.md) | `learnings/<name>.yaml` | A named bucket of accumulated rules an agent reads |
 | [Eval dataset](./entities/eval-dataset.md) | `evals/<slug>.yaml` | Test cases for one agent, graded on substance |
 | [Ask](./entities/ask.md) | runtime — `POST /api/v1/asks` | One question waiting on a person, answered on the Needs-you page or over the API |

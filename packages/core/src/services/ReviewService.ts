@@ -13,11 +13,13 @@
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
+import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
+import { recordActionAlignment, scoreFor } from '@/services/alignment/AlignmentService';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
 
@@ -460,6 +462,8 @@ export type ReviewDetail = ReviewItem & {
   proposal: Record<string, unknown> | null;
   /** The action's own rendering of itself, when it defines a `reviewCard`. */
   card: unknown | null;
+  /** How often this agent's recommendations of this kind matched the person (30d). Actions only. */
+  alignment?: AlignmentScore | null;
   /** Everything else about the underlying row, kept verbatim for the client. */
   record: Record<string, unknown>;
 };
@@ -512,6 +516,11 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       proposal: (row.proposal as Record<string, unknown> | null) ?? null,
       suggestedDecision: parseSuggestedDecision(row.proposal?.suggestedDecision),
       card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
+      alignment: await scoreFor({
+        orgId,
+        subjectKey: row.actionId,
+        agentSlug: row.invokedBy?.startsWith('agent:') ? row.invokedBy.slice('agent:'.length) : row.proposal?.agentSlug ?? null,
+      }).catch(() => null),
       record: row as unknown as Record<string, unknown>,
     };
   }
@@ -842,6 +851,11 @@ export async function decide(
         hint: opts?.note,
         learn: opts?.learn,
       }).catch(() => {});
+      // The alignment ledger: this decision compared with what the agent
+      // recommended, so deciding is also evidence — for the score beside the
+      // confidence meter and for the autonomy ladder. A rejection of a run
+      // that had already auto-executed demotes its kind from in here.
+      await recordActionAlignment({ orgId, runId: item.id, signal, userId: reviewedBy, hasNote: !!(opts?.reason?.trim() || opts?.note?.trim()) }).catch(() => {});
       return { execution };
     }
   }

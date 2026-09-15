@@ -2,6 +2,7 @@ import type { OutcomeContract } from '@/services/TeamReportService';
 import { ArrowUpRight } from 'lucide-react';
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
 import { Link } from '@/libs/I18nNavigation';
+import { AutonomyReadings } from './AutonomyReadings';
 import { pct } from './format';
 
 /**
@@ -47,14 +48,15 @@ export function ContractGrid({ contract, escalationHref, purposeFallback }: {
             )}
       </Field>
       <Field label="Autonomy">
-        {contract.autonomyLevel === null
-          ? <span className="text-muted-foreground">No active mission</span>
-          : (
-              <span>
-                <span className="font-semibold tabular-nums">{`Level ${contract.autonomyLevel}`}</span>
-                <span className="text-muted-foreground"> of 5</span>
+        {contract.autonomy.length === 0
+          ? (
+              <span className="text-muted-foreground">
+                Nothing decided yet — every kind starts at Execute with approval.
+                {' '}
+                <Link href="/dashboard/autonomy" className="text-primary hover:underline">Ladder</Link>
               </span>
-            )}
+            )
+          : <AutonomyReadings readings={contract.autonomy} />}
       </Field>
       <Field label="Permissions">
         {contract.permissions.length === 0

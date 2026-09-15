@@ -496,7 +496,23 @@ export const TrustManifestSchema = z.object({
     action: z.string().describe('registered action id, e.g. hubspot.update'),
     autoApproveAbove: z.number().min(0).max(1),
     enabled: z.boolean().default(false),
+    /**
+     * Where this action kind stands on the autonomy ladder. Optional and
+     * additive: omitted, an enabled rule reads as `execute-within-bounds` and
+     * a disabled one as `execute-with-approval`. Authoring a rung ABOVE
+     * `execute-with-approval` on a disabled rule is refused at apply — the
+     * rung and the rule would disagree about what runs.
+     */
+    rung: z.enum(['observe', 'recommend', 'assist', 'execute-with-approval', 'execute-within-bounds', 'autonomous']).optional(),
+    /** Risk tier override for this action; sets how much evidence the next rung takes. */
+    risk: z.enum(['low', 'medium', 'high']).optional(),
   })).default([]),
+  /**
+   * Risk tier overrides for action kinds that have no rule yet — a workspace
+   * that considers `hubspot.update` high-risk says so here, and the ladder
+   * asks for high-tier evidence before it will ever promote it.
+   */
+  risk: z.record(z.string(), z.enum(['low', 'medium', 'high'])).optional(),
 });
 export type TrustManifest = z.infer<typeof TrustManifestSchema>;
 

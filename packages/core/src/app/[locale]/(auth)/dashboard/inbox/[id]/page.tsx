@@ -6,6 +6,7 @@ import { AskSheet } from '@/features/dashboard/inbox/AskSheet';
 import { toSheetAsk } from '@/features/dashboard/inbox/toSheetAsk';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { scoreFor } from '@/services/alignment/AlignmentService';
 import { getAsk } from '@/services/AskService';
 
 /**
@@ -42,7 +43,7 @@ export default async function AskPage(props: { params: Promise<{ locale: string;
         </p>
       )}
       {ask.status === 'open'
-        ? <AskSheet asks={[toSheetAsk(ask)]} />
+        ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }))]} />
         : (
             <>
               <p className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Answered</p>

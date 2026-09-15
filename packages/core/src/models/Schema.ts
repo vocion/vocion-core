@@ -2428,6 +2428,104 @@ export const trustRuleSchema = pgTable(
   ],
 );
 
+/**
+ * The autonomy ladder as a first-class object — one row per (org, action id),
+ * the manifesto's "Automation is earned" made into a record. `rung` is where
+ * the action kind stands today (`services/autonomy/rungs.ts`); `risk_tier`
+ * decides how much evidence the next rung takes; `min_confidence` is the
+ * proposal confidence an auto-execution needs once the rung allows one.
+ *
+ * `trust_rule` stays the EXECUTION record ActionService reads. This table is
+ * the POLICY behind it: a promotion to `execute-within-bounds` or above writes
+ * an enabled trust rule at `min_confidence`; any rung below leaves the rule
+ * disabled. `evidence` freezes the alignment numbers the promotion was earned
+ * on, so a later reader can see why. `flagged` marks an automatic demotion
+ * (a rejected auto-execution, or a rejection on a high-risk kind) that a
+ * person has not yet looked at.
+ *
+ * `source` says who last wrote the row: `trust.yaml` on apply, `app` from the
+ * dashboard or the API, `system` for an automatic demotion.
+ */
+export const autonomyPolicySchema = pgTable(
+  'autonomy_policy',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    actionId: text('action_id').notNull(),
+    /** observe | recommend | assist | execute-with-approval | execute-within-bounds | autonomous */
+    rung: text('rung').default('execute-with-approval').notNull(),
+    /** low | medium | high */
+    riskTier: text('risk_tier').notNull(),
+    /** Proposal confidence (0-1) an auto-execution needs; null = the tier default. */
+    minConfidence: real('min_confidence'),
+    promotedAt: timestamp('promoted_at', { mode: 'date' }),
+    promotedBy: text('promoted_by'),
+    /** The alignment numbers the last rung change was decided on. */
+    evidence: jsonb('evidence').$type<Record<string, unknown>>(),
+    flagged: boolean('flagged').default(false).notNull(),
+    flagReason: text('flag_reason'),
+    /** trust.yaml | app | system */
+    source: text('source').default('app').notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('autonomy_policy_org_action_idx').on(table.orgId, table.actionId),
+  ],
+);
+
+/**
+ * The alignment ledger — one row per human decision on something an agent
+ * recommended, so every approve, reject and "other" counts as evidence and not
+ * only as a way to get unblocked (manifesto #6, #8).
+ *
+ * `subject_kind` is `action` (an `action_run`, keyed by action id) or `ask`
+ * (an `ask`, keyed by ask kind). `recommended` is what the agent advised — the
+ * proposal's `suggestedDecision`, or the ask option marked `recommended` — and
+ * `agreed` whether the person chose it. An action proposed with no explicit
+ * recommendation carries an `implicit` approve: an agent only proposes work it
+ * wants run, and the autonomy question is "had this executed without you,
+ * would you have let it", which that answers. The adoption agreement metric
+ * deliberately leaves those out; this ledger deliberately keeps them, labelled.
+ *
+ * `auto_executed` is set when the run had already executed under a trust rule
+ * before the person saw it — a rejection there is the strongest demotion signal
+ * there is. Append-only; the unique index makes a re-decided run idempotent.
+ */
+export const decisionAlignmentSchema = pgTable(
+  'decision_alignment',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** action | ask */
+    subjectKind: text('subject_kind').notNull(),
+    /** The action id, or the ask kind. */
+    subjectKey: text('subject_key').notNull(),
+    /** action_run.id or ask.id */
+    subjectId: integer('subject_id').notNull(),
+    agentSlug: text('agent_slug'),
+    /** approved | edited | rejected | done | other | <option id> */
+    decision: text('decision').notNull(),
+    /** approve | reject | snooze | <option id>; null when nothing was recommended. */
+    recommended: text('recommended'),
+    /** True when `recommended` was inferred (an action proposed without a suggestedDecision). */
+    implicit: boolean('implicit').default(false).notNull(),
+    /** Whether the decision matched the recommendation; null when nothing was recommended. */
+    agreed: boolean('agreed'),
+    /** The recommendation's confidence (0-1) when the agent gave one. */
+    confidence: real('confidence'),
+    autoExecuted: boolean('auto_executed').default(false).notNull(),
+    hasNote: boolean('has_note').default(false).notNull(),
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('decision_alignment_subject_decision_idx').on(table.orgId, table.subjectKind, table.subjectId, table.decision),
+    index('decision_alignment_org_key_decided_idx').on(table.orgId, table.subjectKey, table.decidedAt),
+    index('decision_alignment_org_agent_decided_idx').on(table.orgId, table.agentSlug, table.decidedAt),
+  ],
+);
+
 // action_run — a proposed connector-write action (gmail.send, hubspot.update).
 // Gated actions persist here as 'pending' and surface in the review queue as a
 // 4th kind; they execute only on approval. Non-gated actions record their run
@@ -2953,6 +3051,12 @@ export type AskOption = {
   label: string;
   description?: string;
   recommended?: boolean;
+  /**
+   * How sure the asker is that this option is the right answer, 0-1. Meant
+   * for the recommended option, so an ask exposes the same confidence +
+   * alignment shape as an action proposal on the sheet. Advisory only.
+   */
+  confidence?: number;
 };
 
 /**

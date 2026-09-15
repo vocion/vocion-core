@@ -23,7 +23,7 @@ sweep. Field-by-field reference for each authored type:
 | [Source](./entities/source.md) | `sources/<slug>.yaml` | `SourceManifestSchema` | `knowledge_source` | `SourceSyncService.runSync` via connector registry | `/dashboard/sources` |
 | [Learning step](./entities/learning-step.md) | `learnings/<step>.yaml` | `LearningStepManifestSchema` | `learning_step` (+ `learning` rows) | rendered to `/learnings/<step>.md` in the agent FS | `/dashboard/learnings` |
 | [Eval dataset](./entities/eval-dataset.md) | `evals/<slug>.yaml` | `EvalDatasetManifestSchema` | `eval_dataset` | `npm run eval:run --workspace @vocion/core` | `/api/v1/evals` |
-| [Trust rule](./entities/trust.md) | `trust.yaml` | `TrustManifestSchema` | `trust_rule` | auto-approval threshold check in `ActionService` | `/dashboard/review` (auto-executed list) |
+| [Trust rule](./entities/trust.md) | `trust.yaml` | `TrustManifestSchema` | `trust_rule` + `autonomy_policy` (rung, risk tier, floor, evidence) | auto-approval threshold check in `ActionService`; rung mapping in `AutonomyService` | `/dashboard/autonomy`, `/dashboard/review` (auto-executed list) |
 | [Workspace page](./workspace-pages.md) | `pages/<slug>.yaml` (+ optional sibling `.md`) | `PageManifestSchema` | none — file-only | `readWorkspacePages()` at render; `workspace:apply` does not touch pages | `/dashboard/p/<slug>` |
 
 ## Recorded objects (runtime state)
@@ -35,6 +35,8 @@ sweep. Field-by-field reference for each authored type:
 | Mission run | `MissionService.startMission` | `missionRunSchema` | `mission_run` | `/dashboard/missions/runs` |
 | Action run | `ActionService.proposeAction` / `executeAction` | `actionRunSchema` | `action_run` | `/dashboard/review` |
 | Ask | `AskService.upsertAsk` — agents, external workers and sync scripts over `POST /api/v1/asks` | `askSchema` | `ask` | `/dashboard/inbox`, `/api/v1/asks` |
+| Decision alignment | `AlignmentService.recordDecision` on every `ReviewService.decide` (actions) and `AskService.decideAsk` (asks) | `decisionAlignmentSchema` | `decision_alignment` | *agrees with you N%* beside the confidence meter on `/dashboard/review` and the ask sheet; `/dashboard/autonomy`; Autonomy column on `/dashboard/team-report` |
+| Autonomy policy | `AutonomyService.promote` / `demote` / `noteRejection` (in-app), `syncPoliciesFromManifest` (trust.yaml on apply) | `autonomyPolicySchema` | `autonomy_policy` | `/dashboard/autonomy`; `router.autonomy.*`; adoption events `autonomy.promoted` / `autonomy.demoted` |
 | Automation run | `AutomationService.fireAutomation` | `automationRunSchema` | `automation_run` | `/dashboard/automation` |
 | Event | `EventService.emit` | `eventLogSchema` | `event_log` | `/dashboard/activity?kind=event` |
 | Source sync | `SourceSyncService.runSync` | `sourceSyncCheckpointSchema` | `source_sync_checkpoint` | `/dashboard/sources`, Activity |

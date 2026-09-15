@@ -226,6 +226,13 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
           enabled: String(r.enabled),
         })));
       }
+      // The autonomy ladder behind those rules: rung + risk per authored
+      // action (`rung:` / `risk:` on a rule, or the top-level `risk:` map).
+      // In-app promotions of kinds the file does not name are left alone.
+      const { syncPoliciesFromManifest } = await import('@/services/autonomy/AutonomyService');
+      for (const problem of await syncPoliciesFromManifest(orgId, loaded.trust)) {
+        errors.push({ resource: 'trustRule', slug: problem.action, message: problem.message });
+      }
     } catch (err) {
       errors.push({ resource: 'trustRule', slug: 'trust.yaml', message: (err as Error).message });
     }

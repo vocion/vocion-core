@@ -106,11 +106,21 @@ export const listPendingActionsRoute = os
         .leftJoin(reviewAssignmentSchema, assignment)
         .where(where),
     ]);
+    // The alignment score beside the confidence meter: how often this agent's
+    // recommendations of this kind matched what the person did (30d). One
+    // scan for the whole page; a run with no agent reads the kind's score.
+    const { agentKeyOf, scoresByAgentAndKey } = await import('@/services/alignment/AlignmentService');
+    const alignment = await scoresByAgentAndKey(orgId, '30d', now, 'action').catch(() => new Map());
+    const alignmentFor = (row: { actionId: string; invokedBy: string | null; proposal: { agentSlug?: string } | null }) => {
+      const agentSlug = row.invokedBy?.startsWith('agent:') ? row.invokedBy.slice('agent:'.length) : row.proposal?.agentSlug ?? null;
+      return alignment.get(agentKeyOf(agentSlug, row.actionId)) ?? alignment.get(agentKeyOf(null, row.actionId)) ?? null;
+    };
     // Structured cards: an action that defines one presents itself consistently
     // everywhere the queue renders. Best-effort — a presenter error falls back
     // to the generic card, never blocks the queue. `canRegenerate` is stamped
     // here from the action's declared capability, never by the presenter.
-    const items = await Promise.all(rows.map(async ({ run: row }) => {
+    const items = await Promise.all(rows.map(async ({ run: raw }) => {
+      const row = { ...raw, alignment: alignmentFor(raw) };
       const action = getAction(row.actionId);
       const presenter = action?.reviewCard;
       if (!presenter) {

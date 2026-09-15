@@ -6,6 +6,7 @@ import { AskSheet } from '@/features/dashboard/inbox/AskSheet';
 import { toSheetAsk } from '@/features/dashboard/inbox/toSheetAsk';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { agentKeyOf, scoresByAgentAndKey } from '@/services/alignment/AlignmentService';
 import { listAskGroup } from '@/services/AskService';
 
 /**
@@ -29,6 +30,9 @@ export default async function AskGroupPage(props: { params: Promise<{ locale: st
     notFound();
   }
   const open = asks.filter(a => a.status === 'open');
+  // The asker's alignment on each kind, for the line under the question.
+  const alignment = await scoresByAgentAndKey(orgId, '30d', new Date(), 'ask');
+  const sheet = open.map(a => toSheetAsk(a, alignment.get(agentKeyOf(a.agentSlug, a.kind)) ?? null));
   const decided = asks.filter(a => a.status !== 'open');
   const title = asks.find(a => a.groupTitle)?.groupTitle ?? groupKey;
 
@@ -39,7 +43,7 @@ export default async function AskGroupPage(props: { params: Promise<{ locale: st
         Needs you
       </Link>
       {open.length > 0
-        ? <AskSheet asks={open.map(toSheetAsk)} title={title} />
+        ? <AskSheet asks={sheet} title={title} />
         : (
             <header className="mb-4">
               <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Decision sheet · answered</p>

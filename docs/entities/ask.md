@@ -35,7 +35,10 @@ clear answer without reading a report.
   else — the question is read on its own screen.
 - **Every answer makes the system smarter.** A `reject` or an `other` with a note is queued for
   the feedback classifier the same way a review-queue rejection is, so a correction given three
-  times becomes a rule rather than three notes.
+  times becomes a rule rather than three notes. Every answer also lands in the alignment ledger
+  (`decision_alignment`): did the person choose the option the team recommended? That is the
+  *agrees with you* score on the sheet, and the evidence the [autonomy ladder](../guides/earned-autonomy.md)
+  reads.
 
 ## Writing a good ask
 
@@ -85,7 +88,7 @@ carries a *Recommended* chip and nothing more.
 | `kind` | `approval` \| `input` \| `ruling` \| `credential` \| `merge` \| `recommendation` \| `gate` | What sort of thing is waiting. Groups the inbox. |
 | `title` | string | The question, as a person would ask it. |
 | `body` | markdown, short | Why, and what happens on each answer. |
-| `options` | `{ id, label, description?, recommended? }[]` | Named answers. Bare strings are accepted on POST and get `id = slug(label)`. At most one `recommended`. |
+| `options` | `{ id, label, description?, recommended?, confidence? }[]` | Named answers. Bare strings are accepted on POST and get `id = slug(label)`. At most one `recommended`. `confidence` (0–1) is how sure the asker is of that option — meant for the recommended one, so the sheet shows *Recommended with 72% confidence · agrees with you 92% (n=48)* the way a review card does. Advisory only. |
 | `sourceRef` | string, unique per org | Idempotency key for asks filed from outside — `workforce:approvals/003-…`. Re-filing updates the open row; it never reopens a decided one. |
 | `agentSlug`, `teamSlug` | slugs | Who is asking. |
 | `risk` | `low` \| `medium` \| `high` | Shown as a chip on the row. |
@@ -146,4 +149,5 @@ on `decision`, `decisionNote` and `followUp`.
   `services/InboxService.ts` aggregates everything waiting on a person.
 - **UI:** `/dashboard/inbox`, `/dashboard/inbox/:id`, `/dashboard/inbox/g/:groupKey`.
 - **Adoption stream:** every answer lands as `ask.decided` with the kind and the resulting status.
-- **Learning:** `services/feedback/askFeedbackQueue.ts` queues corrections for the classifier.
+- **Learning:** `services/feedback/askFeedbackQueue.ts` queues corrections for the classifier;
+  `services/alignment/AlignmentService.ts` records every answer as alignment evidence.
