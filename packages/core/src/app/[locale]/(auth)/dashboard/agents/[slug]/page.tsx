@@ -2,6 +2,8 @@ import { ArrowLeft, ArrowUpRight, CalendarClock, Compass, CornerUpLeft, GitBranc
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { createElement } from 'react';
+import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { RailGroup } from '@/features/dashboard/RailGroup';
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
@@ -14,6 +16,7 @@ import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent, listAgents } from '@/services/AgentService';
 import { automationOwnerAgentSlug, listAutomations } from '@/services/AutomationService';
+import { recordRef } from '@/services/chat/recordContext';
 import { listMissions } from '@/services/MissionService';
 import { listSkillFolders } from '@/services/playbooks/catalog';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
@@ -120,12 +123,12 @@ export default async function AgentDetailPage(props: {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="font-display text-2xl leading-tight font-semibold tracking-tight">{agent.name}</h1>
-            <span
-              className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${isWorkspaceLead ? 'text-background' : ''}`}
-              style={isWorkspaceLead ? { background: a.ink } : { background: a.tint, color: a.ink }}
-            >
+            {/* Airy pass (B-034b §4): outlined, not solid — the accent stays in the icon tile. */}
+            <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground/80">
               {roleLabel}
             </span>
+            <AskAboutThis record={recordRef('agent', agent.slug, agent.name)} agentSlug={agent.slug} label="Ask this agent" className="ml-auto" />
+            <RecordContext record={recordRef('agent', agent.slug, agent.name)} />
           </div>
 
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -155,7 +158,7 @@ export default async function AgentDetailPage(props: {
       {/* ── Body: flat left rail (makeup) + main column (people) ─────── */}
       <div className="mt-8 grid gap-x-12 gap-y-10 lg:grid-cols-[16rem_minmax(0,1fr)]">
         {/* Left rail — flat grouped metadata, no cards. main-first on mobile. */}
-        <aside className="order-2 flex flex-col gap-5 rounded-xl border border-border/60 bg-muted/40 p-5 lg:sticky lg:top-6 lg:order-1 lg:self-start">
+        <aside className="order-2 flex flex-col gap-5 lg:sticky lg:top-24 lg:order-1 lg:self-start lg:border-r lg:border-border/70 lg:pr-6">
           {isWorkspaceLead && (
             <>
               <RailGroup label="Owner">
@@ -287,7 +290,7 @@ export default async function AgentDetailPage(props: {
               <div className="flex flex-col gap-6">
                 {ownedMissions.length > 0 && (
                   <div>
-                    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                    <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
                       <Compass className="size-3.5" />
                       Missions
                     </div>
@@ -311,7 +314,7 @@ export default async function AgentDetailPage(props: {
 
                 {ownedAutomations.length > 0 && (
                   <div>
-                    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                    <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
                       <CalendarClock className="size-3.5" />
                       Automations
                     </div>
@@ -353,7 +356,7 @@ export default async function AgentDetailPage(props: {
 
                 {ownedWorkflows.length > 0 && (
                   <div>
-                    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                    <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
                       <GitBranch className="size-3.5" />
                       Workflows
                     </div>

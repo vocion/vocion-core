@@ -4,6 +4,19 @@
 
 Vocion is a multi-tenant SaaS application built on Next.js 16. It provides contextual intelligence tools for teams to organize, connect, and act on business context.
 
+## Product design manifesto — read before any product decision
+
+`docs/MANIFESTO.md` is the bar for every feature, page, default, entity field, and agent behaviour
+in this repo. Its core pattern is **Outcome → Accountability → Measurement → Learning → Automation
+→ Capability**, and its operating rule is *hide complexity, never hide truth*. Before proposing or
+shipping product surface, answer its test — what outcome does this improve, can we measure whether
+it worked, who is accountable, can it be simpler, does the user know what to do next, did this
+interaction teach the system something, is complexity hidden without hiding the truth. A PR
+description for user-facing work should say which of those it serves. Prefer a useful default over
+a setting, one obvious action over five, and lead every surface with the outcome (the Outcome
+Contract: purpose, owner, KPI, baseline, target, permissions, quality threshold, escalation,
+current performance, autonomy level) with activity metrics as the evidence layer underneath.
+
 ## Tech Stack
 
 - **Framework:** Next.js 16 (App Router) + React 19 + TypeScript (strict)
@@ -213,6 +226,7 @@ Still never auto-committed: a person adopts or rejects every candidate at `/dash
 ## Evals + budgets
 
 - `npm run eval:run -- --dataset <slug>` — run a context-authored dataset through the agent and score each case via an LLM judge. CI exits non-zero if pass-rate < 0.8.
+- `npm run eval:upgrade -- --dataset <slug> --baseline <model> --candidate <model>` — the model-upgrade test: the same dataset on two models, same judge, compared on **cost per passed case** (`services/evals/modelUpgradeTest.ts`, `POST /api/v1/evals/:slug/model-upgrade-test`, "Compare models" on `/dashboard/evals/<slug>`). Every eval case stores its token usage and cost (`eval_case_result.usage`); a run that named a model stamps it on `eval_run.model`. See `docs/guides/model-upgrade-test.md`. Cost reads 0 for a model missing from `libs/pricing.ts` — price it first.
 - `agent_budget` table caps per-period token + dollar spend per agent. Pre-flight refusal in `runAgentDeep` when over the hard cap. Opt-in: no row → no enforcement.
 
 ## Observability
@@ -330,7 +344,11 @@ credential stored under the previous one.
   `tenant_account` owns one or more `project` rows (`src/models/Schema.ts`)
 - Every Auth.js session carries `{ user: { id, accountId, projectId, role } }`
   (`src/libs/Auth.ts`); the active project is held in a `vocion_active_project`
-  cookie that the JWT callback honors on the next issue
+  cookie that the JWT callback honors on the next issue. The cookie is written
+  by the `/w/[workspace]` entry route (`app/[locale]/(auth)/w/…/route.ts`),
+  which the sidebar switcher navigates through; build every outbound link with
+  `workspaceUrl()` in `src/libs/links.ts` so it names the workspace
+  (`docs/routing.md`)
 - Data is scoped by project (via `auth()` → `projectId`). `guardAuth` in
   `src/routers/AuthGuards.ts` still returns `orgId` as an alias of `projectId`
   because the business-content tables keep their `org_id` column for now
@@ -422,6 +440,8 @@ requirements/                       # Product specs and case studies
   "the prompt says so" is not evidence. (Proven: 3 prompt iterations failed
   to restore action cards; the backstop guaranteed them. Same story for the
   `<scratch>` strip and the typed trace.)
+- **Manifesto first.** Product decisions are judged against `docs/MANIFESTO.md` (see the section
+  near the top). If a change cannot pass its test, it is not finished.
 - Conventional Commits (enforced by commitlint + lefthook)
 - ESLint with Antfu config
 - Strict TypeScript

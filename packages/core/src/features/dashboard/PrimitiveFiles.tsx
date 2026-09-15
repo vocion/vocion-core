@@ -118,7 +118,7 @@ export function PrimitiveFiles({ files, editInGitPath, dirty = false, dirtyFiles
                   {name}
                   {f.layer === 'core' && (
                     <span
-                      className="rounded bg-muted-foreground/15 px-1 py-px text-[9px] font-medium tracking-wide text-muted-foreground uppercase"
+                      className="rounded bg-muted-foreground/15 px-1 py-px text-[12px] font-medium text-muted-foreground"
                       title="Inherited from the core base pack (read-only). Override it with an extends: core file in your workspace."
                     >
                       core

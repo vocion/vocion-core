@@ -212,6 +212,12 @@ export const projectSchema = pgTable(
      * back to its full pass.
      */
     regenerateSkills: jsonb('regenerate_skills').$type<Record<string, string>>(),
+    /**
+     * The workspace's top-line goal — one sentence every team's weight and
+     * progress is read against on the team report. Authored as top-level
+     * `goal:` in workspace.yaml. NULL = none stated.
+     */
+    goal: text('goal'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -659,6 +665,16 @@ export const agentSchema = pgTable(
      * turn exists. Mirrors rev-ai's `suggestions: [{label, prompt}]`.
      */
     suggestions: jsonb('suggestions').$type<Array<{ label: string; prompt: string }>>().default([]).notNull(),
+    /**
+     * The face this agent wears on a chat surface: the name and avatar a
+     * Slack reply is posted under (`chat:write.customize`). A channel
+     * binding's own persona still wins — that is an explicit per-channel
+     * override — so this is what the agent looks like everywhere else.
+     * NULL means the app's own name and icon, as before personas existed.
+     * A persona is presentation only: it changes no identity and no
+     * authorisation, and must never imply a human.
+     */
+    persona: jsonb('persona').$type<{ displayName?: string; iconUrl?: string }>(),
     /** CSS color name for the agent's chat header / sidebar (v0.2). */
     accent: text('accent'),
     /** Short tagline shown above the chat title (v0.2). */
@@ -719,6 +735,22 @@ export const agentSchema = pgTable(
  * (F3) and feedback routing (F4) — those land as FKs to `team.id`,
  * zero columns here now.
  */
+/**
+ * One team KPI as stored on `team.kpis`. `source` names what is counted:
+ * `counts.<key>` sums that key of `worker_run.counts` over the team's agents,
+ * within `window` (default: all time).
+ */
+export type TeamKpi = {
+  key: string;
+  label: string;
+  target: number;
+  /** Where the reading stood when the contract was set; progress is measured from here. */
+  baseline?: number;
+  unit?: string;
+  source: string;
+  window?: '24h' | '7d' | 'all';
+};
+
 export const teamSchema = pgTable(
   'team',
   {
@@ -741,6 +773,14 @@ export const teamSchema = pgTable(
      * resolved at read time (TeamService), never baked into the row.
      */
     accountableUserId: text('accountable_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
+    /** The team's standing goal, authored as `goal:` in teams/<slug>.yaml. */
+    goal: text('goal'),
+    /**
+     * The measures the team is graded on (F3). Each reads a `worker_run.counts`
+     * key summed over the team's agents, so progress is computed at read
+     * time from what the workers report — never stored. Authored as `kpis:`.
+     */
+    kpis: jsonb('kpis').$type<TeamKpi[]>().default([]).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1189,6 +1229,23 @@ export const conversationSchema = pgTable(
      * (orgId, scopeRef, createdBy). See agent-chat-surface.md §3.1, §8.6.
      */
     scopeRef: text('scope_ref'),
+    /**
+     * How recommended actions behave in this thread (0094): `ask` — each
+     * recommendation is a card the person taps into the review queue;
+     * `act-within-bounds` — recommendations are proposed as they arrive and
+     * the card reports "in review". Neither executes anything; the review
+     * queue and trust rules still gate every outward action. Text, not an
+     * enum, so a new rung is a code change.
+     */
+    autonomy: text('autonomy').default('ask').notNull(),
+    /**
+     * Where the conversation STARTED: the page context of its first turn
+     * (path, title, the record the page was about, the highlighted passage).
+     * Set once; later turns carry their own context on the wire only. Null
+     * for threads opened from the hotkey or the full-page chat with nothing
+     * in view. Shape: `PageContext` in services/chat/pageContext.ts.
+     */
+    contextJson: jsonb('context_json').$type<import('@/services/chat/pageContext').PageContext>(),
     messageCount: integer('message_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -1197,6 +1254,9 @@ export const conversationSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
+    // Full-text search over titles for the rail's history search. Built
+    // CONCURRENTLY in migrations/concurrent/0094 — declared here for the ORM.
+    index('conversation_title_fts_idx').using('gin', sql`to_tsvector('simple', ${table.title})`),
     // Not unique. It serves `listConversations`, which filters on org and agent
     // and sorts by `updated_at` — a sort key, not an identity. Uniqueness only
     // meant that two conversations with one agent landing in the same
@@ -1277,8 +1337,21 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    * AgentMessage.
    */
   confidence: text('confidence'),
+  /**
+   * A thumb on this assistant turn (0094): `up` | `down` | null. The optional
+   * note beside it is what teaches the system — queued for the feedback
+   * classifier and, when it proposes a rule, a pending learning candidate.
+   */
+  feedbackRating: text('feedback_rating'),
+  feedbackNote: text('feedback_note'),
+  feedbackAt: timestamp('feedback_at', { mode: 'date' }),
+  feedbackBy: text('feedback_by'),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-});
+}, table => [
+  // Full-text search over message content for the rail's history search.
+  // Built CONCURRENTLY in migrations/concurrent/0094 — declared here for the ORM.
+  index('conversation_message_content_fts_idx').using('gin', sql`to_tsvector('simple', ${table.content})`),
+]);
 
 /**
  * anchored_comment — the reviewer's notes ON a span of a document, kept
@@ -1347,6 +1420,29 @@ export const conversationMessageRelations = relations(conversationMessageSchema,
 // not necessarily messaged. Read on mount by both the full-page chat and
 // the floating chat bubble so either surface resumes exactly where the
 // other left off.
+/**
+ * Per-user sidebar preferences: pinned nav URLs in pin order and dismissed
+ * shell prompts. One row per (org, user); localStorage is the fast path and
+ * this is the cross-device truth. Migration 0098.
+ */
+export const userNavPrefSchema = pgTable(
+  'user_nav_pref',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    pins: jsonb('pins').$type<string[]>().default([]).notNull(),
+    dismissed: jsonb('dismissed').$type<string[]>().default([]).notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('user_nav_pref_org_user_idx').on(table.orgId, table.userId),
+  ],
+);
+
 export const chatWidgetStateSchema = pgTable(
   'chat_widget_state',
   {
@@ -1355,6 +1451,13 @@ export const chatWidgetStateSchema = pgTable(
     userId: text('user_id').notNull(),
     agentSlug: text('agent_slug').notNull(),
     conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
+    /**
+     * The rail's width in px and whether it is open (0094), so a second
+     * browser opens it the way the first left it. localStorage is the fast
+     * path; this row is what a new device reads. Null = never set.
+     */
+    railWidth: integer('rail_width'),
+    railOpen: boolean('rail_open'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1422,6 +1525,12 @@ export const evalRunSchema = pgTable('eval_run', {
   agentSlug: text('agent_slug').notNull(),
   /** Context SHA active when the dataset was run — for drift attribution. */
   workspaceSha: text('workspace_sha'),
+  /**
+   * The model the agent under test ran on when the caller named one (the
+   * model-upgrade test does). NULL = the agent's own configured model, which
+   * is what every run before this column existed used.
+   */
+  model: text('model'),
   /** running | succeeded | failed */
   status: text('status').default('running').notNull(),
   metrics: jsonb('metrics').$type<{
@@ -1429,6 +1538,15 @@ export const evalRunSchema = pgTable('eval_run', {
     toolCallCount?: number;
     medianLatencyMs?: number;
     failed?: number;
+    passed?: number;
+    /** Sum of per-case `usage.cents`; 0 when the model is unpriced. */
+    totalCents?: number;
+    totalInputTokens?: number;
+    totalOutputTokens?: number;
+    /** Mean model turns per case — retries and tool loops make this climb. */
+    meanTurns?: number;
+    /** totalCents / passed — the number the model-upgrade test compares. Null when nothing passed. */
+    costPerPassedCaseCents?: number | null;
   }>().default({}).notNull(),
   startedAt: timestamp('started_at', { mode: 'date' }).defaultNow().notNull(),
   completedAt: timestamp('completed_at', { mode: 'date' }),
@@ -1449,6 +1567,20 @@ export const evalCaseResultSchema = pgTable('eval_case_result', {
   /** Langfuse trace id for drill-down. */
   traceId: text('trace_id'),
   latencyMs: integer('latency_ms'),
+  /**
+   * What this one case cost: the agent run's token usage priced by
+   * `tokenCostCents`, plus how many model turns and tool calls it took.
+   * NULL on rows written before the column existed and on errored cases.
+   */
+  usage: jsonb('usage').$type<{
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cents: number;
+    turns: number;
+    toolCalls: number;
+  }>(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
 
@@ -2745,8 +2877,19 @@ export const workerRunSchema = pgTable(
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
     agentSlug: text('agent_slug').notNull(),
+    /**
+     * What sort of run: `lead` (a lead's planning/dispatch cycle), `board`
+     * (the board-level review of the whole company), `worker` (one dispatched
+     * job — the default), `red-team` (an adversarial grade), `compact`
+     * (bookkeeping), `snapshot` (a periodic state report). Text, like status.
+     */
+    kind: text('kind').default('worker').notNull(),
     /** `queued` | `running` | `paused` | `awaiting_review` | `completed` | `failed` | `cancelled` | `lost` */
     status: text('status').default('queued').notNull(),
+    /** The model the worker reported (first heartbeat's `usage.model`, or set at create). */
+    model: text('model'),
+    /** The worker's own one-paragraph account of the run, set on complete. */
+    summary: text('summary'),
     /** What the worker was asked to do — free-form, worker-defined. */
     input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
     /** Whoever holds the lease. Set on claim; a re-claim after `lost` bumps `attempt`. */
@@ -2784,6 +2927,83 @@ export const workerRunSchema = pgTable(
     index('worker_run_org_status_idx').on(table.orgId, table.status),
     index('worker_run_org_agent_idx').on(table.orgId, table.agentSlug),
     index('worker_run_lease_idx').on(table.status, table.leaseExpiresAt),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Asks — everything that is waiting on a human (migration 0089)        */
+/* ------------------------------------------------------------------ */
+
+/** One named answer to an ask. `recommended` is set on at most one per ask. */
+export type AskOption = {
+  id: string;
+  label: string;
+  description?: string;
+  recommended?: boolean;
+};
+
+/**
+ * One QUESTION waiting on a PERSON: an approval, a ruling, an input or
+ * credential, a merge, a recommendation, a gate. Unlike `action_run` nothing
+ * executes when it is answered — the answer IS the outcome, and whoever filed
+ * the ask (an agent, an external worker, a sync script) reads it back.
+ *
+ * Shaped to be answered from a phone: a short `body` (the question and a few
+ * lines of why), named `options`, always a free-text "other" answer, the long
+ * form behind `context_url` / `context_md`. `group_key` gathers several asks
+ * into one decision sheet answered as a stepper.
+ *
+ * `source_ref` is the idempotency key for asks mirrored in from outside
+ * (`workforce:approvals/003-…`): unique per org when present, so re-filing the
+ * same item updates it instead of doubling it.
+ */
+export const askSchema = pgTable(
+  'ask',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id'),
+    /** `approval` | `input` | `ruling` | `credential` | `merge` | `recommendation` | `gate` */
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    /** Markdown, SHORT: the question plus 2–4 lines of why or what happens. */
+    body: text('body'),
+    sourceRef: text('source_ref'),
+    agentSlug: text('agent_slug'),
+    teamSlug: text('team_slug'),
+    /** `low` | `medium` | `high` */
+    risk: text('risk'),
+    /** Named answers. The free-text "other" answer is always available on top. */
+    options: jsonb('options').$type<AskOption[]>().default([]).notNull(),
+    /** Several asks sharing a key form one decision sheet. */
+    groupKey: text('group_key'),
+    groupTitle: text('group_title'),
+    /** The long form — the approval file, the PR, the run. */
+    contextUrl: text('context_url'),
+    /** Optional collapsed "Details" markdown. */
+    contextMd: text('context_md'),
+    /** `open` | `approved` | `rejected` | `done` | `superseded` */
+    status: text('status').default('open').notNull(),
+    /** What was chosen: `approve`, `reject`, `done`, `other`, or an option id. */
+    decision: text('decision'),
+    decisionNote: text('decision_note'),
+    /** An "other" answer on a ruling/approval/recommendation: the asker must read the note and may re-ask. */
+    followUp: boolean('follow_up').default(false).notNull(),
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { mode: 'date' }),
+    dueAt: timestamp('due_at', { mode: 'date' }),
+    /** Earliest time a notifier may ping about this ask; null = whenever. */
+    notifyAt: timestamp('notify_at', { mode: 'date' }),
+    notified: boolean('notified').default(false).notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('ask_org_status_idx').on(table.orgId, table.status),
+    index('ask_org_agent_idx').on(table.orgId, table.agentSlug),
+    index('ask_org_group_idx').on(table.orgId, table.groupKey),
+    uniqueIndex('ask_org_source_ref_uq').on(table.orgId, table.sourceRef).where(sql`${table.sourceRef} IS NOT NULL`),
   ],
 );
 

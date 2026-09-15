@@ -57,6 +57,12 @@ export type RecommendedActionPayload = {
   confidence?: number;
   /** Recommending agent — reconstructs the propose principal on click. */
   agentSlug?: string;
+  /**
+   * Set when the server already filed this recommendation into the review
+   * queue (conversation autonomy `act-within-bounds`): the card shows the
+   * run's status instead of a "Prepare" button. Additive; absent on tap-mode.
+   */
+  runId?: number;
 };
 
 /**
@@ -232,6 +238,12 @@ export type RuntimeContext = {
   missionRunId?: number;
   /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
   conversationId?: number;
+  /**
+   * Where the person is in the app for THIS turn (page, record, selection,
+   * @-mentions) — read by the `page_context` tool. Set per request in
+   * `bindRequestEmit`; undefined for schedules, MCP and API callers.
+   */
+  pageContext?: import('@/services/chat/pageContext').PageContext;
   /** Which harness runs the loop — stamped on tool_call rows. */
   provider?: 'local' | 'agentcore' | 'runtime';
   /** Langfuse trace id of the current turn — links tool_call rows to cost/latency. */

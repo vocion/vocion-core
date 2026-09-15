@@ -403,7 +403,7 @@ export function ReviewFocus() {
                 <div className="min-w-0 flex-1">
                   <div className="text-base leading-snug font-semibold break-words">{desc.title}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase">{desc.system}</span>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[12px] font-medium">{desc.system}</span>
                     {pct !== null && (
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tone(current.proposal?.confidence)}`}>
                         {pct}
@@ -424,13 +424,13 @@ export function ReviewFocus() {
                   k === longField
                     ? (
                         <label key={k} className="block">
-                          <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{k}</span>
+                          <span className="mb-1 block text-[12px] font-medium text-muted-foreground">{k}</span>
                           <textarea className={`${fieldClass} min-h-32 resize-y leading-relaxed`} value={v} onChange={ev => setEdited(e => ({ ...e, [k]: ev.target.value }))} disabled={busy || steering} />
                         </label>
                       )
                     : (
                         <label key={k} className="block">
-                          <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{k}</span>
+                          <span className="mb-1 block text-[12px] font-medium text-muted-foreground">{k}</span>
                           <input className={fieldClass} value={v} onChange={ev => setEdited(e => ({ ...e, [k]: ev.target.value }))} disabled={busy || steering} />
                         </label>
                       )
@@ -490,7 +490,7 @@ export function ReviewFocus() {
           const { shown, remaining } = upNextPage(upNextTotal, railExpansions);
           return (
             <aside aria-label="Up next" className={`hidden shrink-0 lg:block ${railFolded ? 'w-auto' : 'w-64'}`}>
-              <div className="mb-2 flex items-center gap-2 px-1 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+              <div className="mb-2 flex items-center gap-2 px-1 text-[12px] font-medium tracking-[0.1em] text-muted-foreground">
                 <span>
                   Up next
                   {railFolded ? ` · ${upNextTotal}` : ''}

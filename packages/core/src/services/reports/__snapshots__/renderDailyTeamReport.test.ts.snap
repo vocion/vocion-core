@@ -1,0 +1,211 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderDailyTeamReport > is stable — snapshot of the whole mail 1`] = `
+{
+  "html": "<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Team report — Vocion Workforce — Tuesday, Sep 15</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;color-scheme:light dark;">
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#f3f4f6;">
+<tr><td align="center" style="padding:20px 12px;">
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;">
+<tr><td style="padding:22px 22px 18px;">
+<h1 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:20px;line-height:1.3;margin:0 0 4px;font-weight:650;">Team report — Vocion Workforce — Tuesday, Sep 15</h1>
+<p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;line-height:1.55;margin:0 0 8px;color:#6b7280;font-size:12px;">Sep 14, 2026, 1:00 PM → Sep 15, 2026, 1:00 PM UTC</p>
+<h2 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:15px;line-height:1.35;margin:22px 0 6px;font-weight:650;letter-spacing:-0.01em;">What changed</h2>
+<ul style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;line-height:1.55;margin:0 0 8px;padding-left:20px;"><li style="margin:0 0 3px;"><strong>5 runs completed</strong> across 4 teams — most by Board (2), CEO (1), Writer (1).</li><li style="margin:0 0 3px;"><strong>2 board-level reviews</strong> and <strong>1 red-team grade</strong> ran — the oversight loop is turning.</li><li style="margin:0 0 3px;"><strong>2 runs failed or went lost</strong> — CEO (1), Stray (1).</li></ul>
+<h2 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:15px;line-height:1.35;margin:22px 0 6px;font-weight:650;letter-spacing:-0.01em;">What needs me <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;color:#b45309;">— 13</span></h2>
+<ul style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;line-height:1.55;margin:0 0 8px;padding-left:20px;"><li style="margin:0 0 3px;">2 proposed actions awaiting approval</li><li style="margin:0 0 3px;">1 run awaiting review</li><li style="margin:0 0 3px;">3 learning candidates to adopt or reject</li><li style="margin:0 0 3px;">7 open asks — decisions, inputs, credentials</li></ul><p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;line-height:1.55;margin:0 0 8px;"><a href="https://agents.example.com/w/vocion-workforce/dashboard/inbox" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;display:inline-block;background:#1f2328;color:#ffffff;text-decoration:none;font-size:13px;font-weight:600;padding:8px 14px;border-radius:6px;">Open the inbox → 13 waiting</a></p>
+<h2 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:15px;line-height:1.35;margin:22px 0 6px;font-weight:650;letter-spacing:-0.01em;">Are we on track <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;color:#b91c1c;">— Off track</span></h2>
+<ul style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;line-height:1.55;margin:0 0 8px;padding-left:20px;"><li style="margin:0 0 3px;">29% of runs failed or went lost (2 of 7).</li><li style="margin:0 0 3px;">1 run is stalled on a person — work is waiting, not moving.</li><li style="margin:0 0 3px;">CEO carried 66.4% of the spend — one role is most of the bill.</li><li style="margin:0 0 3px;">KPI targets appear here once the workspace declares them (<code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;background:#f3f4f6;color:#1f2328;padding:1px 4px;border-radius:3px;">kpis:</code> on a team).</li></ul>
+<h2 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:15px;line-height:1.35;margin:22px 0 6px;font-weight:650;letter-spacing:-0.01em;">What happens next</h2>
+<ul style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;line-height:1.55;margin:0 0 8px;padding-left:20px;"><li style="margin:0 0 3px;">Decide the 13 items in the <a href="https://agents.example.com/w/vocion-workforce/dashboard/inbox" style="color:#2563eb;text-decoration:underline;">inbox</a> — that is what unblocks the team.</li><li style="margin:0 0 3px;">The next report lands in 24 hours. Detail lives in the <a href="https://agents.example.com/w/vocion-workforce/dashboard/team-report" style="color:#2563eb;text-decoration:underline;">team report</a>.</li></ul>
+<h2 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:15px;line-height:1.35;margin:22px 0 6px;font-weight:650;letter-spacing:-0.01em;">From the workspace briefing</h2><p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;line-height:1.55;margin:0 0 8px;color:#6b7280;font-size:12px;">Workspace rollup — Mon, Sep 14 — Sep 14, 2026, 1:05 PM UTC</p><div style="padding:10px 14px;border:1px solid #e5e7eb;border-radius:6px;"><h2 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13.5px;line-height:1.4;margin:14px 0 4px;font-weight:650;">Priorities</h2>
+<ul style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;line-height:1.55;margin:0 0 8px;padding-left:20px;"><li style="margin:0 0 3px;">Merge the <strong>four</strong> clean PRs</li><li style="margin:0 0 3px;">Rule on <code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;background:#f3f4f6;color:#1f2328;padding:1px 4px;border-radius:3px;">032</code> &lt;Slack granularity&gt;</li></ul>
+<table role="presentation" cellpadding="0" cellspacing="0" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13px;border-collapse:collapse;width:100%;margin:0 0 10px;"><tr><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;">PR</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;">State</th></tr><tr><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;">#33</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;">clean</td></tr></table></div>
+<h2 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:15px;line-height:1.35;margin:22px 0 6px;font-weight:650;letter-spacing:-0.01em;">Teams and members</h2>
+<h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13.5px;line-height:1.4;margin:14px 0 4px;font-weight:650;">Executive <span style="color:#6b7280;font-weight:500;">— 66.4% of spend · 2 runs · lead ceo</span></h3><table role="presentation" cellpadding="0" cellspacing="0" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13px;border-collapse:collapse;width:100%;margin:0 0 10px;"><tr><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;">Member</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Done</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Failed</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Weight</th></tr><tr><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;"><span style="font-weight:600;">CEO</span> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#6b7280;font-size:11px;">ceo</span></td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;">1/2</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;color:#b91c1c;font-weight:600;">1</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;">66.4%</span><div style="height:4px;background:#e5e7eb;border-radius:2px;margin-top:3px;"><div style="height:4px;width:66.4%;background:#2563eb;border-radius:2px;"></div></div></td></tr></table><h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13.5px;line-height:1.4;margin:14px 0 4px;font-weight:650;">Board <span style="color:#6b7280;font-weight:500;">— 22.4% of spend · 2 runs · lead board</span></h3><table role="presentation" cellpadding="0" cellspacing="0" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13px;border-collapse:collapse;width:100%;margin:0 0 10px;"><tr><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;">Member</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Done</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Failed</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Weight</th></tr><tr><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;"><span style="font-weight:600;">Board</span> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#6b7280;font-size:11px;">board</span><br><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:#b45309;">board×2</span></td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;">2/2</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;">0</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;">22.4%</span><div style="height:4px;background:#e5e7eb;border-radius:2px;margin-top:3px;"><div style="height:4px;width:22.4%;background:#2563eb;border-radius:2px;"></div></div></td></tr></table><h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13.5px;line-height:1.4;margin:14px 0 4px;font-weight:650;">Content <span style="color:#6b7280;font-weight:500;">— 10% of spend · 1 run · lead writer</span></h3><table role="presentation" cellpadding="0" cellspacing="0" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13px;border-collapse:collapse;width:100%;margin:0 0 10px;"><tr><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;">Member</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Done</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Failed</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Weight</th></tr><tr><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;"><span style="font-weight:600;">Writer</span> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#6b7280;font-size:11px;">writer</span></td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;">1/1</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;">0</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;">10%</span><div style="height:4px;background:#e5e7eb;border-radius:2px;margin-top:3px;"><div style="height:4px;width:10%;background:#2563eb;border-radius:2px;"></div></div></td></tr><tr><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;"><span style="font-weight:600;">Idle Role</span> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#6b7280;font-size:11px;">idle-role</span></td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;">0/0</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;">0</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;">0%</span><div style="height:4px;background:#e5e7eb;border-radius:2px;margin-top:3px;"><div style="height:4px;width:0%;background:#2563eb;border-radius:2px;"></div></div></td></tr></table><h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13.5px;line-height:1.4;margin:14px 0 4px;font-weight:650;">Quality &amp; Ops <span style="color:#6b7280;font-weight:500;">— 1.2% of spend · 1 run</span></h3><table role="presentation" cellpadding="0" cellspacing="0" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13px;border-collapse:collapse;width:100%;margin:0 0 10px;"><tr><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;">Member</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Done</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Failed</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Weight</th></tr><tr><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;"><span style="font-weight:600;">Red Team</span> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#6b7280;font-size:11px;">red-team</span><br><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:#b45309;">red-team×1</span></td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;">1/1</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;">0</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;">1.2%</span><div style="height:4px;background:#e5e7eb;border-radius:2px;margin-top:3px;"><div style="height:4px;width:1.2%;background:#2563eb;border-radius:2px;"></div></div></td></tr></table><h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13.5px;line-height:1.4;margin:14px 0 4px;font-weight:650;">Unassigned <span style="color:#6b7280;font-weight:500;">— 0% of spend · 1 run</span></h3><table role="presentation" cellpadding="0" cellspacing="0" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:13px;border-collapse:collapse;width:100%;margin:0 0 10px;"><tr><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;">Member</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Done</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Failed</th><th style="text-align:left;padding:5px 8px;border:1px solid #e5e7eb;background:#f9fafb;font-weight:600;font-size:11.5px;color:#6b7280;text-transform:uppercase;letter-spacing:0.02em;text-align:right;">Weight</th></tr><tr><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;"><span style="font-weight:600;">Stray</span> <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#6b7280;font-size:11px;">stray</span></td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;">0/1</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;color:#b91c1c;font-weight:600;">1</td><td style="padding:5px 8px;border:1px solid #e5e7eb;vertical-align:top;text-align:right;"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;">0%</span><div style="height:4px;background:#e5e7eb;border-radius:2px;margin-top:3px;"><div style="height:4px;width:0%;background:#2563eb;border-radius:2px;"></div></div></td></tr></table>
+<h2 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:15px;line-height:1.35;margin:22px 0 6px;font-weight:650;letter-spacing:-0.01em;">Evidence</h2>
+<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;border-spacing:0;"><tr><td style="padding:6px 8px;border:1px solid #e5e7eb;background:#f9fafb;"><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#6b7280;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">Runs</div><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;font-weight:600;line-height:1.3;">7</div></td><td style="padding:6px 8px;border:1px solid #e5e7eb;background:#f9fafb;"><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#6b7280;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">Completed</div><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;font-weight:600;line-height:1.3;">5</div></td><td style="padding:6px 8px;border:1px solid #e5e7eb;background:#f9fafb;"><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#6b7280;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">Failed / lost</div><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;font-weight:600;line-height:1.3;">2</div></td><td style="padding:6px 8px;border:1px solid #e5e7eb;background:#f9fafb;"><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#6b7280;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">Spend</div><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;font-weight:600;line-height:1.3;">$140</div></td></tr><tr><td style="padding:6px 8px;border:1px solid #e5e7eb;background:#f9fafb;"><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#6b7280;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">Tokens</div><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;font-weight:600;line-height:1.3;">7.2M</div></td><td style="padding:6px 8px;border:1px solid #e5e7eb;background:#f9fafb;"><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#6b7280;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">Board runs</div><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;font-weight:600;line-height:1.3;">2</div></td><td style="padding:6px 8px;border:1px solid #e5e7eb;background:#f9fafb;"><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#6b7280;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">Red-team runs</div><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;font-weight:600;line-height:1.3;">1</div></td><td style="padding:6px 8px;border:1px solid #e5e7eb;background:#f9fafb;"><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#6b7280;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">Needs you</div><div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;font-weight:600;line-height:1.3;">13</div></td></tr></table>
+<hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0;">
+<p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2328;font-size:14px;line-height:1.55;margin:0 0 8px;color:#6b7280;font-size:12px;">Generated Sep 15, 2026, 1:00 PM UTC by the <code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;background:#f3f4f6;color:#1f2328;padding:1px 4px;border-radius:3px;">daily-team-report</code> job for Vocion Workforce. <a href="https://agents.example.com/w/vocion-workforce/dashboard/team-report" style="color:#2563eb;text-decoration:underline;">Team report</a> · <a href="https://agents.example.com/w/vocion-workforce/dashboard/briefings" style="color:#2563eb;text-decoration:underline;">Briefings</a></p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>",
+  "markdown": "# Team report — Vocion Workforce — Tuesday, Sep 15
+
+_Sep 14, 2026, 1:00 PM → Sep 15, 2026, 1:00 PM UTC_
+
+## What changed
+
+- **5 runs completed** across 4 teams — most by Board (2), CEO (1), Writer (1).
+- **2 board-level reviews** and **1 red-team grade** ran — the oversight loop is turning.
+- **2 runs failed or went lost** — CEO (1), Stray (1).
+
+## What needs me — 13
+
+- 2 proposed actions awaiting approval
+- 1 run awaiting review
+- 3 learning candidates to adopt or reject
+- 7 open asks — decisions, inputs, credentials
+
+[Open the inbox](https://agents.example.com/w/vocion-workforce/dashboard/inbox)
+
+## Are we on track — Off track
+
+- 29% of runs failed or went lost (2 of 7).
+- 1 run is stalled on a person — work is waiting, not moving.
+- CEO carried 66.4% of the spend — one role is most of the bill.
+- KPI targets appear here once the workspace declares them (\`kpis:\` on a team).
+
+## What happens next
+
+- Decide the 13 items in the [inbox](https://agents.example.com/w/vocion-workforce/dashboard/inbox) — that is what unblocks the team.
+- The next report lands in 24 hours. Detail lives in the [team report](https://agents.example.com/w/vocion-workforce/dashboard/team-report).
+
+## From the workspace briefing
+
+_Workspace rollup — Mon, Sep 14 — Sep 14, 2026, 1:05 PM UTC_
+
+#### Priorities
+
+- Merge the **four** clean PRs
+- Rule on \`032\` <Slack granularity>
+
+| PR | State |
+|---|---|
+| #33 | clean |
+
+## Teams and members
+
+### Executive — 66.4% of spend · 2 runs · lead \`ceo\`
+
+| Member | Done | Failed | Weight | Flags |
+|---|---|---|---|---|
+| CEO (\`ceo\`) | 1/2 | 1 | 66.4% | — |
+
+### Board — 22.4% of spend · 2 runs · lead \`board\`
+
+| Member | Done | Failed | Weight | Flags |
+|---|---|---|---|---|
+| Board (\`board\`) | 2/2 | 0 | 22.4% | board×2 |
+
+### Content — 10% of spend · 1 run · lead \`writer\`
+
+| Member | Done | Failed | Weight | Flags |
+|---|---|---|---|---|
+| Writer (\`writer\`) | 1/1 | 0 | 10% | — |
+| Idle Role (\`idle-role\`) | 0/0 | 0 | 0% | — |
+
+### Quality & Ops — 1.2% of spend · 1 run
+
+| Member | Done | Failed | Weight | Flags |
+|---|---|---|---|---|
+| Red Team (\`red-team\`) | 1/1 | 0 | 1.2% | red-team×1 |
+
+### Unassigned — 0% of spend · 1 run
+
+| Member | Done | Failed | Weight | Flags |
+|---|---|---|---|---|
+| Stray (\`stray\`) | 0/1 | 1 | 0% | — |
+
+## Evidence
+
+Runs **7** · Completed **5** · Failed / lost **2** · Spend **$140** · Tokens **7.2M** · Board runs **2** · Red-team runs **1** · Needs you **13**
+
+---
+_Generated Sep 15, 2026, 1:00 PM UTC by the \`daily-team-report\` job. [Team report](https://agents.example.com/w/vocion-workforce/dashboard/team-report) · [Briefings](https://agents.example.com/w/vocion-workforce/dashboard/briefings)_",
+  "subject": "Team report — Vocion Workforce — Tuesday, Sep 15",
+  "text": "Team report — Vocion Workforce — Tuesday, Sep 15
+
+_Sep 14, 2026, 1:00 PM → Sep 15, 2026, 1:00 PM UTC_
+
+What changed
+
+• 5 runs completed across 4 teams — most by Board (2), CEO (1), Writer (1).
+• 2 board-level reviews and 1 red-team grade ran — the oversight loop is turning.
+• 2 runs failed or went lost — CEO (1), Stray (1).
+
+What needs me — 13
+
+• 2 proposed actions awaiting approval
+• 1 run awaiting review
+• 3 learning candidates to adopt or reject
+• 7 open asks — decisions, inputs, credentials
+
+Open the inbox (https://agents.example.com/w/vocion-workforce/dashboard/inbox)
+
+Are we on track — Off track
+
+• 29% of runs failed or went lost (2 of 7).
+• 1 run is stalled on a person — work is waiting, not moving.
+• CEO carried 66.4% of the spend — one role is most of the bill.
+• KPI targets appear here once the workspace declares them (kpis: on a team).
+
+What happens next
+
+• Decide the 13 items in the inbox (https://agents.example.com/w/vocion-workforce/dashboard/inbox) — that is what unblocks the team.
+• The next report lands in 24 hours. Detail lives in the team report (https://agents.example.com/w/vocion-workforce/dashboard/team-report).
+
+From the workspace briefing
+
+_Workspace rollup — Mon, Sep 14 — Sep 14, 2026, 1:05 PM UTC_
+
+Priorities
+
+• Merge the four clean PRs
+• Rule on 032 <Slack granularity>
+
+| PR | State |
+
+| #33 | clean |
+
+Teams and members
+
+Executive — 66.4% of spend · 2 runs · lead ceo
+
+| Member | Done | Failed | Weight | Flags |
+
+| CEO (ceo) | 1/2 | 1 | 66.4% | — |
+
+Board — 22.4% of spend · 2 runs · lead board
+
+| Member | Done | Failed | Weight | Flags |
+
+| Board (board) | 2/2 | 0 | 22.4% | board×2 |
+
+Content — 10% of spend · 1 run · lead writer
+
+| Member | Done | Failed | Weight | Flags |
+
+| Writer (writer) | 1/1 | 0 | 10% | — |
+| Idle Role (idle-role) | 0/0 | 0 | 0% | — |
+
+Quality & Ops — 1.2% of spend · 1 run
+
+| Member | Done | Failed | Weight | Flags |
+
+| Red Team (red-team) | 1/1 | 0 | 1.2% | red-team×1 |
+
+Unassigned — 0% of spend · 1 run
+
+| Member | Done | Failed | Weight | Flags |
+
+| Stray (stray) | 0/1 | 1 | 0% | — |
+
+Evidence
+
+Runs 7 · Completed 5 · Failed / lost 2 · Spend $140 · Tokens 7.2M · Board runs 2 · Red-team runs 1 · Needs you 13
+
+_Generated Sep 15, 2026, 1:00 PM UTC by the daily-team-report job. Team report (https://agents.example.com/w/vocion-workforce/dashboard/team-report) · Briefings (https://agents.example.com/w/vocion-workforce/dashboard/briefings)_",
+}
+`;

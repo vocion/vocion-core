@@ -17,7 +17,22 @@ Two ways, same row:
 - **An agent whose `harness.runsOn` is `external-worker`.** Asking it something does not run a
   turn; it queues a run carrying the message and returns a receipt. Whatever the worker later
   proposes lands in the review queue like any other agent's, so nothing new can approve anything.
-- **The API.** `POST /api/v1/worker-runs` with `{ agentSlug, input?, endsAt?, capCents?, leaseSeconds? }`.
+- **The API.** `POST /api/v1/worker-runs` with `{ agentSlug, input?, endsAt?, capCents?, leaseSeconds?, kind?, model? }`.
+
+`kind` says what sort of run this is, so the team report can tell judgement about the work from the
+work itself. One of:
+
+| kind | Meaning |
+|---|---|
+| `worker` | One dispatched job — the default, and what every run created before `kind` existed means. |
+| `lead` | A lead's planning / dispatch cycle. |
+| `board` | The board-level review of the whole company (badged on every surface). |
+| `red-team` | An adversarial grade of finished work (badged on every surface). |
+| `compact` | Bookkeeping — digests, compaction. |
+| `snapshot` | A periodic state report carrying counts, not work. |
+
+`model` is the model expected to do the work; the first heartbeat that reports `usage.model`
+overrides it, so the row ends up naming the model that actually ran.
 
 ```yaml
 # agents/overnight-migrator.yaml
@@ -39,7 +54,7 @@ org. Worker-side calls must also present the `workerId` that holds the lease.
 | Claim | `POST /worker-runs/:id/claim { workerId }` | `queued` → `running`, `attempt` +1, lease starts. Checks the agent's period budget first (402 if over). Returns a short-lived **toolClaim** for `/api/internal/agent-tools`. |
 | Heartbeat | `POST /worker-runs/:id/heartbeat { workerId, progress?, cursor?, counts?, usage?, failures? }` | Extends the lease, records progress and cost, charges `usage` to the agent's budget. Replies with the **control signals**. |
 | Checkpoint | `POST /worker-runs/:id/checkpoint { workerId, cursor, … }` | Same contract as heartbeat; `cursor` required. |
-| Complete | `POST /worker-runs/:id/complete { workerId, result? }` | Terminal. A run that had been asked to stop is recorded as `cancelled`. |
+| Complete | `POST /worker-runs/:id/complete { workerId, result?, counts?, summary? }` | Terminal. A run that had been asked to stop is recorded as `cancelled`. `summary` is the worker's own one-paragraph account, shown on the team report. |
 | Fail | `POST /worker-runs/:id/fail { workerId, error, failures? }` | Terminal. |
 | Cancel | `POST /worker-runs/:id/cancel` | The human kill switch. `queued` cancels now; `running` sets `stopRequested`, which the worker learns on its next heartbeat. |
 
@@ -58,6 +73,14 @@ ignores it will be marked `lost` when its lease lapses — Vocion cannot kill a 
 lapsed without a heartbeat. A `lost` run can be re-claimed; `attempt` increments so the record shows
 how many workers it took. Status is plain text, not an enum.
 
+## Counts — what a worker says about its work
+
+`counts` is a flat `Record<string, number>` the worker sends on heartbeat and complete
+(`{ prsOpened: 2, drafts: 1 }`); keys merge, so a worker can report incrementally. Two things read
+it: the run's row on the member page, and **team KPIs** — a `kpis[].source: counts.<key>` in
+`teams/<slug>.yaml` sums that key over the team's agents, so whatever a worker counts can become a
+measure the team is graded on. See [Team](./team.md).
+
 ## Cost
 
 Per run: `tokens` and `cents` accumulate from what the worker reports. Per agent: reported `usage`
@@ -69,10 +92,18 @@ apply to external work too. `capCents` on the run is a second, per-run ceiling.
 It does not make missions long-running, does not host the worker, and does not add a checkpointer
 to the in-process loop. Vocion stores checkpoints and progress, not the worker's working state.
 
+## Surfaces
+
+- **Team report** (`/dashboard/team-report`) — runs grouped by team and member, each team's and
+  member's share of spend and tokens in a window (24h / 7d / all), KPI meters against the authored
+  targets under the workspace's `goal:`, and per-member run lists with the worker's `summary`. Board
+  and red-team runs are badged wherever runs are counted.
+- **Activity** (`/dashboard/activity?kind=worker`) — every run in the org's one stream, badged by kind.
+
 ## Operations
 
 - **Reaper:** a Temporal schedule (`worker-run-reaper`, every 5 minutes) marks lapsed leases `lost`.
   Applied on every worker boot; removed when the flag is off.
-- **Table:** `worker_run`, migration `0081`. Indexed by `(org_id, status)`, `(org_id, agent_slug)`,
-  and `(status, lease_expires_at)` for the reaper.
+- **Table:** `worker_run`, migration `0081`; `kind`, `model`, `summary` added in `0092`. Indexed by
+  `(org_id, status)`, `(org_id, agent_slug)`, and `(status, lease_expires_at)` for the reaper.
 - **Decision record:** `docs/adr/0004-external-worker-provider.md`.

@@ -27,16 +27,18 @@
 
 import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
+import type { LangChainProvider } from '@/libs/llm';
 import { tool as makeTool } from '@langchain/core/tools';
 import { createDeepAgent, StateBackend } from 'deepagents';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { buildChatModelForOrg } from '@/libs/llm';
+import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
-import { agentSchema, playbookSchema, projectSchema, teamSchema } from '@/models/Schema';
+import { agentSchema, playbookSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
 import { mountSkills } from '@/services/playbooks/mount';
+import { deriveDelegationRoster } from './delegationRoster';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
@@ -116,6 +118,47 @@ export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
   };
 }
 
+/**
+ * A model named by the caller for ONE compiled graph, over whatever the agent's
+ * harness block says. The model-upgrade test is the caller: it runs the same
+ * agent on a baseline and a candidate model and compares the two.
+ *
+ * `provider` is optional; when absent it is read off the id's shape by
+ * `inferProviderForModel`, and an id whose shape says nothing is refused —
+ * handing an unknown id to the env-default vendor would fail on the first
+ * turn with a less useful error than this one.
+ */
+export type ModelOverride = {
+  model: string;
+  provider?: LangChainProvider;
+};
+
+/**
+ * The `buildChatModelForOrg` options for an agent, with an override applied.
+ *
+ * The override's `model` and `provider` win over the harness block; the
+ * harness block's `maxTokens` still applies, because a cap is about the
+ * agent's job, not about which model does it.
+ * @param harnessConfig - The agent's harness block, or an empty object.
+ * @param override - The caller's model, or undefined for the agent's own.
+ */
+export function chatModelOptionsWithOverride(
+  harnessConfig: HarnessModelConfig,
+  override: ModelOverride | undefined,
+): ReturnType<typeof chatModelOptionsFor> {
+  const base = chatModelOptionsFor(harnessConfig);
+  if (!override) {
+    return base;
+  }
+  const provider = override.provider ?? inferProviderForModel(override.model);
+  if (!provider) {
+    throw new Error(
+      `cannot tell which provider serves model "${override.model}"; pass provider explicitly (anthropic | openai | bedrock)`,
+    );
+  }
+  return { ...base, provider, model: override.model };
+}
+
 /* ------------------------------------------------------------------ */
 /* Build graph                                                         */
 /* ------------------------------------------------------------------ */
@@ -127,7 +170,7 @@ export type CompiledAgentGraph = {
   agentRow: typeof agentSchema.$inferSelect;
 };
 
-async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAgentGraph> {
+async function buildGraph(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<CompiledAgentGraph> {
   // Org-scoped, not slug-only: slugs repeat across projects (two workspaces on
   // one box, plus orphaned rows from older deploys), and an unscoped pick is
   // arbitrary — one org's chat silently compiling ANOTHER org's prompt/config.
@@ -175,71 +218,46 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   const tools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
 
   // ONE mechanism: agents are agents. A lead's delegable roster DERIVES from
-  // registered agents that name this agent as their parent (parentAgentSlug)
-  // — same rows the Agents page/org chart shows, so delegation and the
-  // registry can't drift. The inline `subagents` JSONB is DEPRECATED: kept
+  // the registry (agent-chat-surface.md §9 — routing is delegation): agents
+  // that name this agent as their parent, plus — for the workspace lead —
+  // every team's lead AND members, and — for a team lead — its own team's
+  // members. Same rows the Agents page/org chart shows, so delegation and the
+  // registry can't drift, and a workspace author never enumerates
+  // `subagents` by hand. The inline `subagents` JSONB is DEPRECATED: kept
   // only as a fallback for names not registered (legacy brief-runner etc.).
-  const children = await db
-    .select()
-    .from(agentSchema)
-    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, row.slug)));
+  // See services/agents/delegationRoster.ts for the ordering rules.
+  const roster = await deriveDelegationRoster(orgId, row);
   // Specialists get the SAME domain tool surface as the lead. Explicit
   // because deepagents defaults a custom subagent's tools to [] (only its
   // auto-injected general-purpose inherits) — which silently left every
   // registered specialist with filesystem tools only.
   const subagentTools = tools as SubAgent['tools'];
-  const subagents: SubAgent[] = children.map(c => ({
-    name: c.slug,
-    description: c.description ?? c.name,
-    systemPrompt: c.systemPrompt ?? '',
+  // Authored config first, and it WINS a name collision with the derived
+  // roster: an author who wrote a `subagents` entry for a slug tuned its
+  // description/prompt on purpose; the registry row is the fallback, not the
+  // override. The team-table entry for that slug is skipped.
+  const authored = row.subagents ?? [];
+  const authoredNames = new Set(authored.map(s => s.name));
+  const subagents: SubAgent[] = authored.map(s => ({
+    name: s.name,
+    description: s.description,
+    systemPrompt: s.systemPrompt,
     tools: subagentTools,
   }));
-  const registered = new Set(subagents.map(s => s.name));
-  for (const s of row.subagents ?? []) {
-    if (!registered.has(s.name)) {
-      subagents.push({ name: s.name, description: s.description, systemPrompt: s.systemPrompt, tools: subagentTools });
+  for (const d of roster.delegates) {
+    if (!authoredNames.has(d.slug)) {
+      subagents.push({ name: d.slug, description: d.description, systemPrompt: d.systemPrompt, tools: subagentTools });
     }
   }
 
-  // F1 "consult the leads", chat path: when THIS agent is the workspace
-  // lead (project.lead_agent_slug), the team leads from the `team` table
-  // merge into its dispatchable subagents — "how's the quarter?" in chat
-  // then consults every team, with the team named in each subagent's
-  // description for per-team provenance (acceptance #4). JSONB-authored
-  // subagents win name collisions. Lead-less teams are named in the
-  // system prompt so the answer degrades per team ("no lead yet") rather
-  // than silently omitting one (acceptance #5).
+  // Lead-less teams are named in the workspace lead's system prompt so the
+  // answer degrades per team ("no lead yet") rather than silently omitting
+  // one (F1 acceptance #5).
   let systemPrompt = row.systemPrompt ?? undefined;
-  const [project] = await db
-    .select({ leadAgentSlug: projectSchema.leadAgentSlug })
-    .from(projectSchema)
-    .where(eq(projectSchema.id, orgId))
-    .limit(1);
-  if (project?.leadAgentSlug === row.slug) {
-    const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId));
-    const leadSlugs = teams.map(t => t.leadAgentSlug).filter((s): s is string => s !== null && s !== row.slug);
-    const leadRows = leadSlugs.length > 0
-      ? await db.select().from(agentSchema).where(and(eq(agentSchema.orgId, orgId), inArray(agentSchema.slug, leadSlugs)))
-      : [];
-    const taken = new Set(subagents.map(s => s.name));
-    for (const team of teams) {
-      const lead = leadRows.find(a => a.slug === team.leadAgentSlug);
-      if (!lead || taken.has(lead.slug)) {
-        continue;
-      }
-      taken.add(lead.slug);
-      subagents.push({
-        name: lead.slug,
-        description: `${lead.name} — lead of the ${team.name} team. Consult for: ${team.description ?? lead.description ?? `the ${team.name} team's status and work`}.`,
-        systemPrompt: lead.systemPrompt ?? `You are ${lead.name}, lead of the ${team.name} team.`,
-        tools: subagentTools,
-      });
-    }
-    const leadless = teams.filter(t => t.leadAgentSlug === null).map(t => t.name);
-    if (leadless.length > 0) {
-      const note = `Teams with no lead yet — you cannot consult them; say so plainly per team (e.g. "${leadless[0]} has no lead yet"), never silently omit them: ${leadless.join(', ')}.`;
-      systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
-    }
+  if (roster.leadlessTeams.length > 0) {
+    const leadless = roster.leadlessTeams;
+    const note = `Teams with no lead yet — you cannot consult them; say so plainly per team (e.g. "${leadless[0]} has no lead yet"), never silently omit them: ${leadless.join(', ')}.`;
+    systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
   }
 
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
@@ -274,7 +292,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     });
   }
 
-  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsFor(harnessConfig));
+  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsWithOverride(harnessConfig, modelOverride));
 
   // Only mount deepagents' SkillsMiddleware when THIS AGENT actually
   // mounts something. The middleware requires initialized state fields and
@@ -310,7 +328,18 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   return Object.assign({ graph, agentRow: row }, { __ctx: ctx }) as CompiledAgentGraph;
 }
 
-export async function getCompiledAgent(orgId: string, agentSlug: string): Promise<CompiledAgentGraph> {
+export async function getCompiledAgent(
+  orgId: string,
+  agentSlug: string,
+  opts: { modelOverride?: ModelOverride } = {},
+): Promise<CompiledAgentGraph> {
+  if (opts.modelOverride) {
+    // An overridden graph is built fresh and never cached: the cache is keyed
+    // on the agent, and a cached graph holding the candidate model would answer
+    // the next ordinary chat turn on it. Building per call is the price of
+    // keeping the agent's own model the only one the cache ever holds.
+    return buildGraph(orgId, agentSlug, opts.modelOverride);
+  }
   const key = cacheKey(orgId, agentSlug);
   const cached = graphCache.get(key);
   if (cached) {
@@ -345,9 +374,11 @@ export function bindRequestEmit(
   missionSlug?: string,
   missionRunId?: number,
   conversationId?: number,
+  pageContext?: RuntimeContext['pageContext'],
 ): void {
   const internal = compiled as unknown as { __ctx: RuntimeContext };
   internal.__ctx.emit = emit;
+  internal.__ctx.pageContext = pageContext;
   internal.__ctx.userId = userId;
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
   internal.__ctx.missionSlug = missionSlug;

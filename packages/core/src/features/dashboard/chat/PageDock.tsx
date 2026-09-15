@@ -3,7 +3,9 @@
 import type { AgentOption } from './types';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { usePageRecord } from '@/features/dashboard/context/PageContextProvider';
 import { ChatDock } from './ChatDock';
+import { parseConversationParam } from './resumeRule';
 
 /**
  * Routes that mount their own scoped dock (a record page passes its scope
@@ -13,12 +15,27 @@ import { ChatDock } from './ChatDock';
 export const OWN_DOCK_ROUTES: RegExp[] = [/\/gtm\/lead\//];
 
 /**
+ * Screens where a person is answering a question — an ask or a decision
+ * sheet — with the action pinned to the bottom of a phone. The dock's button
+ * would sit on top of Submit there, and a decision screen is not a place to
+ * start a conversation, so the shell mounts no dock at all.
+ */
+export const NO_DOCK_ROUTES: RegExp[] = [
+  /\/dashboard\/inbox\/(?!g(?:\/|$))[^/]+$/,
+  /\/dashboard\/inbox\/g\/[^/]+$/,
+  /\/dashboard\/inbox\/r\/[^/]+$/,
+];
+
+/**
  * Single-record pages that do not (yet) mount their own dock: the everything
  * conversation opens by default there, because a person on one record came
  * to work on it (Valerie, 2026-09-09). Anything with its own URL and its own
  * record counts; lists, settings and catalogs do not.
  */
 export const RECORD_ROUTES: RegExp[] = [
+  // A briefing is the record a person came to work from (R4): the rail opens
+  // beside it, and the page's own composer is gone — one surface (058 §6).
+  /\/dashboard\/briefings(?:\/[^/]+)?$/,
   /\/dashboard\/missions\/runs\/[^/]+$/,
   /\/dashboard\/missions\/(?!new$|runs(?:\/|$))[^/]+$/,
   /\/dashboard\/objects\/(?!type(?:\/|$))[^/]+$/,
@@ -57,18 +74,28 @@ function routeOf(pathname: string): string {
 }
 
 /**
- * The dock on every page that has no dock of its own (058): the everything
- * conversation, carrying the page the person is on as context, collapsed to
- * the button until they open it and open by default on a single record.
- * Mounted once by the app shell, beside the page content, in place of the
- * floating bubble. Renders nothing on the full-page chat, on routes that
- * mount a scoped dock, and for an org with no agents.
+ * The rail on every page that has no dock of its own (058, §9): the
+ * everything conversation, carrying the page the person is on as context,
+ * collapsed to an edge tab until they open it (⌘J) and open by default on a
+ * single record. Mounted once by the app shell, beside the page content, so
+ * it follows the person across routes. Renders nothing on the full-page
+ * chat, on routes that mount a scoped dock, and for an org with no agents.
  * @param props
  * @param props.agents - Agents available to pick from. Empty array renders nothing.
  */
 export function PageDock({ agents }: { agents: AgentOption[] }) {
   const pathname = routeOf(usePathname());
   const [title, setTitle] = useState('');
+  // `?conversation=<id>` names a thread to resume (§9) — one of the two
+  // intentional returns. Read from the location rather than
+  // `useSearchParams` so the shell needs no Suspense boundary.
+  const [resumeId, setResumeId] = useState<number | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+    setResumeId(parseConversationParam(new URLSearchParams(window.location.search).get('conversation')));
+  }, [pathname]);
+  // The record the page declared (R4) — travels as `page_context.record`.
+  const { record } = usePageRecord();
 
   // The document title settles after the route commits; read it then, and
   // again if the page changes it (a record page titles itself after loading).
@@ -84,7 +111,7 @@ export function PageDock({ agents }: { agents: AgentOption[] }) {
     return () => observer.disconnect();
   }, [pathname]);
 
-  if (agents.length === 0 || isChatPage(pathname) || isOwnDockRoute(pathname)) {
+  if (agents.length === 0 || isChatPage(pathname) || isOwnDockRoute(pathname) || NO_DOCK_ROUTES.some(r => r.test(pathname))) {
     return null;
   }
 
@@ -92,8 +119,9 @@ export function PageDock({ agents }: { agents: AgentOption[] }) {
     <ChatDock
       agents={agents}
       scopeLabel="Everything"
-      pageContext={{ path: pathname, title }}
+      pageContext={record ? { path: pathname, title, record } : { path: pathname, title }}
       defaultCollapsed={!isRecordRoute(pathname)}
+      resumeConversationId={resumeId}
     />
   );
 }

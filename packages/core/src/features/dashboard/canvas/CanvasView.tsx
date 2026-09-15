@@ -44,7 +44,6 @@ export function CanvasView(props: CanvasViewProps) {
   const [canvas, dispatch] = useReducer(canvasReducer, { ...initialCanvasState, artifacts: props.initialArtifacts });
   const session = useChatSession({
     agents: props.agents,
-    agentSlug: props.agentSlug,
     onEvent: (evt, api) => {
       if (evt.type === 'artifact' && evt.artifact) {
         const artifact = evt.artifact as ArtifactPayload;

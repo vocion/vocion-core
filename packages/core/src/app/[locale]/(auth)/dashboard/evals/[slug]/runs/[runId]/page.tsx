@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { usd } from '@/services/evals/modelUpgradeTest';
 import { getDataset, getRun } from '@/services/EvalService';
 
 type Props = {
@@ -91,6 +92,13 @@ export default async function EvalRunDetailPage(props: Props) {
                 </span>
               </>
             )}
+            {run.model && (
+              <span className="font-mono text-xs">
+                model
+                {' '}
+                {run.model}
+              </span>
+            )}
             {run.workspaceSha && (
               <span className="font-mono text-xs">
                 context
@@ -109,6 +117,10 @@ export default async function EvalRunDetailPage(props: Props) {
           <Metric label="Cases" value={String(sortedResults.length)} />
           <Metric label="Failed" value={String(run.metrics?.failed ?? sortedResults.filter(r => r.verdict === 'fail' || r.verdict === 'error').length)} />
           <Metric label="Median latency" value={typeof run.metrics?.medianLatencyMs === 'number' ? `${run.metrics.medianLatencyMs}ms` : '—'} />
+          <Metric label="Total cost" value={typeof run.metrics?.totalCents === 'number' ? usd(run.metrics.totalCents) : '—'} />
+          <Metric label="Cost per passed case" value={typeof run.metrics?.costPerPassedCaseCents === 'number' ? usd(run.metrics.costPerPassedCaseCents) : '—'} />
+          <Metric label="Mean turns per case" value={typeof run.metrics?.meanTurns === 'number' ? run.metrics.meanTurns.toFixed(2) : '—'} />
+          <Metric label="Tokens in / out" value={typeof run.metrics?.totalInputTokens === 'number' ? `${run.metrics.totalInputTokens.toLocaleString('en-US')} / ${(run.metrics.totalOutputTokens ?? 0).toLocaleString('en-US')}` : '—'} />
         </dl>
       </section>
 
@@ -147,6 +159,19 @@ export default async function EvalRunDetailPage(props: Props) {
                               ms
                             </span>
                           )}
+                          {r.usage && (
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {usd(r.usage.cents)}
+                              {' · '}
+                              {r.usage.turns}
+                              {' '}
+                              turns
+                              {' · '}
+                              {r.usage.toolCalls}
+                              {' '}
+                              tools
+                            </span>
+                          )}
                         </div>
                         {r.traceId && (
                           <a
@@ -161,24 +186,24 @@ export default async function EvalRunDetailPage(props: Props) {
                       </header>
                       <div className="grid gap-4 px-4 py-4 text-sm md:grid-cols-2">
                         <div>
-                          <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Input</div>
+                          <div className="mb-1 text-xs font-medium text-muted-foreground">Input</div>
                           <div className="whitespace-pre-wrap text-foreground">{r.input}</div>
                         </div>
                         <div>
-                          <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Output</div>
+                          <div className="mb-1 text-xs font-medium text-muted-foreground">Output</div>
                           <div className="whitespace-pre-wrap text-foreground">
                             {r.output ?? <span className="text-muted-foreground italic">(no output)</span>}
                           </div>
                         </div>
                         {item?.expectedOutput && (
                           <div className="md:col-span-2">
-                            <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Expected</div>
+                            <div className="mb-1 text-xs font-medium text-muted-foreground">Expected</div>
                             <div className="whitespace-pre-wrap text-muted-foreground">{item.expectedOutput}</div>
                           </div>
                         )}
                         {r.rationale && (
                           <div className="md:col-span-2">
-                            <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Judge rationale</div>
+                            <div className="mb-1 text-xs font-medium text-muted-foreground">Judge rationale</div>
                             <div className="whitespace-pre-wrap text-muted-foreground italic">{r.rationale}</div>
                           </div>
                         )}
@@ -196,7 +221,7 @@ export default async function EvalRunDetailPage(props: Props) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-border bg-background px-4 py-3">
-      <div className="text-xs tracking-wide text-muted-foreground uppercase">{label}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 font-mono text-lg">{value}</div>
     </div>
   );

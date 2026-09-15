@@ -27,7 +27,7 @@ const agentRow = (slug: string, name: string, teamSlug: string | null = null) =>
 describe('buildTeamViews (pure)', () => {
   const usersById = new Map([[CHRIS.id, CHRIS], [LILI.id, LILI]]);
   const teamRow = (slug: string, name: string, leadAgentSlug: string | null, accountableUserId: string | null) =>
-    ({ id: 1, orgId: ORG, projectId: null, slug, name, description: null, leadAgentSlug, accountableUserId, updatedAt: new Date(), createdAt: new Date() });
+    ({ id: 1, orgId: ORG, projectId: null, slug, name, description: null, leadAgentSlug, accountableUserId, goal: null, kpis: [], updatedAt: new Date(), createdAt: new Date() });
 
   it('resolves an explicit owner with source "team" and an inherited one with source "workspace"', () => {
     const views = buildTeamViews({
