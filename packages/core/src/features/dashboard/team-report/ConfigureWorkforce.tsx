@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { toast } from '@/components/ui/toast';
 import { client } from '@/libs/Orpc';
 
 export type ConfigureTeamSeed = { slug: string; name: string; mission: string | null; hasMeasure: boolean };
@@ -115,16 +116,25 @@ export function ConfigureWorkforce({ goal, teams, isAdmin }: { goal: string | nu
   const apply = async () => {
     setBusy(true);
     setError(null);
+    // One toast for the write, the app's one notification surface (#351):
+    // pending while the workspace applies, the outcome in its place.
+    const id = toast.pending('Applying to the workspace…');
     try {
       const r = await client.teamReport.applyConfig(input());
       setWritten(r.written);
       if (r.applied.errors.length > 0) {
-        setError(r.applied.errors.map(e => `${e.resource} ${e.slug}: ${e.message}`).join('; '));
+        const detail = r.applied.errors.map(e => `${e.resource} ${e.slug}: ${e.message}`).join('; ');
+        setError(detail);
+        toast.update(id, 'error', 'Applied with errors', { description: detail });
+      } else {
+        toast.update(id, 'success', r.written.length === 0 ? 'Nothing needed to change' : `Workforce configured · ${r.written.length} file${r.written.length === 1 ? '' : 's'} written`);
       }
       setStep('done');
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not apply the change.');
+      const message = err instanceof Error ? err.message : 'Could not apply the change.';
+      setError(message);
+      toast.update(id, 'error', 'Could not apply the change', { description: message });
     } finally {
       setBusy(false);
     }

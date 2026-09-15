@@ -308,9 +308,9 @@ export function permissionKeys(policy: Record<string, unknown> | null | undefine
 }
 
 /**
- * The inbox filtered to a team — `?agents=` is the filter the inbox reads
- * today. (R10, `workforce/2026-09-15-one-decision-surface`, is changing inbox
- * URLs; this is a query string on `/dashboard/inbox` so it keeps resolving.)
+ * The inbox filtered to a team. `?agents=<comma-separated slugs>` is what the
+ * one-decision surface parses (R10, #348) — verified against its `Params` and
+ * `InboxQuery.agents`, which survived Review folding into Needs you.
  * @param agentSlugs
  */
 export function inboxHrefFor(agentSlugs: string[]): string {

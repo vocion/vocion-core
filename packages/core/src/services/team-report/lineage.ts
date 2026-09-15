@@ -20,6 +20,7 @@ import { effectiveMeasures } from '@/libs/workspace/team-export';
 import { actionRunSchema, askSchema, decisionAlignmentSchema, teamSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { queryCrmRecords } from '@/services/CrmRecordsService';
 import { describeActionRun } from '@/services/inbox/describeActionRun';
+import { inboxHref } from '@/services/inbox/inboxRef';
 import { listTeamAgents } from '@/services/TeamService';
 import { actionAgentSlug, DECISION_LATENCY_CAP_MS } from './humanLoad';
 import { measureRange } from './measures';
@@ -173,7 +174,7 @@ export async function trace(orgId: string, teamSlug: string, measureKey: string,
     return {
       id: `action:${p.id}`,
       title: d.title,
-      href: `/dashboard/inbox?q=${encodeURIComponent(d.title)}&tab=${p.status === 'pending' ? 'open' : 'decided'}`,
+      href: inboxHref('proposal', p.id),
       at: new Date(p.createdAt),
       detail: [d.actionKind, `by ${who}`, dec ? `${dec.decision}${dec.decidedBy ? ` by ${deciders.get(dec.decidedBy) ?? dec.decidedBy}` : ''}` : p.status].join(' · '),
     };
@@ -183,7 +184,7 @@ export async function trace(orgId: string, teamSlug: string, measureKey: string,
   const approvedAsks = asks.filter(a => a.decidedAt && ['approved', 'done'].includes(a.status));
   const approvedItems: LineageItem[] = [
     ...approvedProposals.map(proposalItem),
-    ...approvedAsks.map((a): LineageItem => ({ id: `ask:${a.id}`, title: a.title, href: `/dashboard/inbox/${a.id}`, at: new Date(a.createdAt), detail: `${a.kind} · ${a.decision ?? a.status}${a.decidedBy ? ` by ${deciders.get(a.decidedBy) ?? a.decidedBy}` : ''}` })),
+    ...approvedAsks.map((a): LineageItem => ({ id: `ask:${a.id}`, title: a.title, href: inboxHref('ask', a.id), at: new Date(a.createdAt), detail: `${a.kind} · ${a.decision ?? a.status}${a.decidedBy ? ` by ${deciders.get(a.decidedBy) ?? a.decidedBy}` : ''}` })),
   ].sort((x, y) => (y.at?.getTime() ?? 0) - (x.at?.getTime() ?? 0));
 
   const runItems: LineageItem[] = runs.map(r => ({
@@ -253,7 +254,7 @@ export async function trace(orgId: string, teamSlug: string, measureKey: string,
       const ids = measure.source.actions ?? [];
       const kinds = measure.source.askKinds ?? [];
       outcomeItems.push(...approvedProposals.filter(p => ids.includes(p.actionId)).map(proposalItem));
-      outcomeItems.push(...approvedAsks.filter(a => kinds.includes(a.kind)).map((a): LineageItem => ({ id: `ask:${a.id}`, title: a.title, href: `/dashboard/inbox/${a.id}`, at: new Date(a.createdAt), detail: `${a.kind} · ${a.decision ?? a.status}` })));
+      outcomeItems.push(...approvedAsks.filter(a => kinds.includes(a.kind)).map((a): LineageItem => ({ id: `ask:${a.id}`, title: a.title, href: inboxHref('ask', a.id), at: new Date(a.createdAt), detail: `${a.kind} · ${a.decision ?? a.status}` })));
       outcomeBasis = [ids.length > 0 ? `${ids.join(', ')} proposals a person approved` : null, kinds.length > 0 ? `${kinds.join(', ')} asks answered` : null].filter(Boolean).join(' + ');
       break;
     }
