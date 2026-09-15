@@ -32,7 +32,7 @@ export function registerFirstPartyCards(): void {
   registerCard(keyValueCard);
   registerCard(sendStubCard);
   // Canvas cards (0095): what `render_table` / `render_markdown` /
-  // `render_chart` / `render_record` produce, on the chat and canvas surfaces.
+  // `render_chart` / `render_record` produce, on the chat and artifact surfaces.
   registerCard(dataTableCard);
   registerCard(markdownCard);
   registerCard(chartCard);

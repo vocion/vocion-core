@@ -32,7 +32,8 @@ export const RECORD_TYPES = [
   'deal',
   'worker_run',
   'conversation',
-  'canvas-tile',
+  /** The artifact open beside the conversation — what "this table"/"the doc" means. */
+  'artifact',
   // The composer can tag the page itself (`@page`).
   'page',
 ] as const;

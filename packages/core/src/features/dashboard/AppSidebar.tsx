@@ -3,7 +3,7 @@
 import type { PinnableItem } from './nav/navPins';
 import type { DashboardRoute } from '@/features/navigation/dashboardNav';
 import type { SurfaceId } from '@/features/navigation/surfaces';
-import { ArrowLeft, FileText, LayoutGrid, PanelsTopLeft, Settings2 } from 'lucide-react';
+import { ArrowLeft, FileText, PanelsTopLeft, Settings2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
@@ -18,7 +18,6 @@ import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitche
 import { OPEN_MANAGE_VIEW, readNavView, writeNavView } from '@/features/dashboard/useNavView';
 import { manageNavGroups, manageRoutes, tabsOf, workRoutes } from '@/features/navigation/dashboardNav';
 import { SurfaceNav } from '@/features/navigation/SurfaceNav';
-import { client } from '@/libs/Orpc';
 import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 
 /**
@@ -26,8 +25,8 @@ import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
  *
  *   WORK (default) — Workspace (the daily driver: Chat, Needs you, Briefings,
  *                    Search), Pinned (this person's pins, in pin order), Pages
- *                    (the workspace's own pages: tenant pages and saved
- *                    canvases, 7 then "More pages ›"), the enabled surfaces,
+ *                    (the workspace's own pages, 7 then "More pages ›"),
+ *                    the enabled surfaces,
  *                    the invite card, a quiet "Manage workspace" row, and the
  *                    workspace row.
  *   MANAGE         — the configuration sections (Team · Knowledge · Build ·
@@ -74,29 +73,6 @@ export type WorkspaceNavPage = {
   section: string;
 };
 
-type Canvas = { id: number; title: string };
-
-/**
- * Saved canvases arrive with R3's PR (#333: `client.artifacts.canvases.list`).
- * Feature-detected so this build stands alone; when the procedure exists the
- * canvases join the Pages group at `/dashboard/chat/<id>?grid=open`.
- */
-async function listCanvases(): Promise<Canvas[]> {
-  const maybe = (client as unknown as { artifacts?: { canvases?: { list?: () => Promise<unknown> } } }).artifacts?.canvases?.list;
-  if (typeof maybe !== 'function') {
-    return [];
-  }
-  try {
-    const rows = await maybe();
-    const list = Array.isArray(rows) ? rows : (rows as { canvases?: unknown[] })?.canvases ?? [];
-    return list
-      .filter((r): r is { id: number; title: string } => typeof r === 'object' && r !== null && typeof (r as { id?: unknown }).id === 'number')
-      .map(r => ({ id: r.id, title: r.title || `Canvas ${r.id}` }));
-  } catch {
-    return [];
-  }
-}
-
 export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePages = [], needsYouCount = 0, ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
@@ -111,7 +87,6 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
   const [view, setView] = useState<NavView>('work');
-  const [canvases, setCanvases] = useState<Canvas[]>([]);
   const prefs = useNavPrefs();
 
   // The header's avatar menu asks for the manage view by event — it is a
@@ -128,15 +103,6 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
       // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- pre-existing SSR-safe restore; hydration must render the default first
       setView('manage');
     }
-    let cancelled = false;
-    void listCanvases().then((c) => {
-      if (!cancelled) {
-        setCanvases(c);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const pick = (v: NavView) => {
@@ -156,10 +122,12 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
     badge: r.url === '/dashboard/inbox' ? needsYouCount : undefined,
   }));
 
-  const pageItems = useMemo<PinnableItem[]>(() => [
-    ...workspacePages.map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft, origin: 'page' as const })),
-    ...canvases.map(c => ({ title: c.title, url: `/dashboard/chat/${c.id}?grid=open`, icon: LayoutGrid, origin: 'canvas' as const })),
-  ], [workspacePages, canvases]);
+  // Tenant pages only. Artifacts used to join this group as "saved canvases";
+  // they are a WORK row of their own now (registry), with their own log.
+  const pageItems = useMemo<PinnableItem[]>(
+    () => workspacePages.map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft, origin: 'page' as const })),
+    [workspacePages],
+  );
 
   // Every MANAGE destination — pages and their tabs — so a pin to either resolves.
   const manageItems = useMemo<PinnableItem[]>(
@@ -231,8 +199,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   />
                 )}
 
-                {/* PAGES — the workspace's own pages (tenant pages + saved
-                    canvases), seven then "More pages ›". */}
+                {/* PAGES — the workspace's own pages, seven then "More pages ›". */}
                 <PinnableNav
                   label={t('pages')}
                   items={unpinnedPages}

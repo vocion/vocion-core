@@ -44,12 +44,14 @@ export type MessageListProps = {
   onFeedback?: (messageId: number, rating: 'up' | 'down' | null, note?: string | null) => void | Promise<void>;
   /** How recommended actions in this thread behave (0094). */
   autonomy?: ConversationAutonomy;
+  /** Opens an artifact a turn produced in the pane beside the conversation (0101). */
+  onOpenArtifact?: (id: number) => void;
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy }: MessageListProps) {
+export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact }: MessageListProps) {
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
@@ -111,6 +113,7 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
                     onCitationClick={onCitationClick}
                     onFeedback={onFeedback}
                     autonomy={autonomy}
+                    onOpenArtifact={onOpenArtifact}
                   />
                 )}
             {blocksAfter(i)}

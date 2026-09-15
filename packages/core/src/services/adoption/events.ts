@@ -139,6 +139,20 @@ export const ADOPTION_EVENTS = {
       suggestedDecision: z.enum(SUGGESTED_DECISIONS).optional(),
     }),
   },
+  /**
+   * A person edited an artifact in the pane — a save, or a restore of an
+   * older version. Agent edits are NOT tracked here: adoption measures what
+   * humans do, and an agent's own version is already in artifact_version.
+   * `action` separates a normal edit from a restore, which is the signal
+   * that the agent's last change was not wanted.
+   */
+  'artifact.edited': {
+    meta: z.object({
+      kind: z.string().max(20),
+      action: z.enum(['edited', 'restored']),
+      version: z.number().int().positive(),
+    }),
+  },
   'learning.added': { agent: true },
   /**
    * Feedback proposed a rule nobody had proposed before, so a candidate is

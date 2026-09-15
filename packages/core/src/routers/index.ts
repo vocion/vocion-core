@@ -14,17 +14,17 @@ import {
 } from './AnchoredComments';
 import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
 import {
-  exportCanvasRoute,
+  folders as artifactFoldersRoute,
+  exportPage as exportArtifactPageRoute,
   get as getArtifactRoute,
-  getCanvasRoute,
+  version as getArtifactVersionRoute,
   listForConversation as listArtifactsForConversationRoute,
-  listCanvasesRoute,
-  placeTiles as placeArtifactTilesRoute,
+  list as listArtifactsRoute,
+  versions as listArtifactVersionsRoute,
   remove as removeArtifactRoute,
-  removeCanvasRoute,
-  saveCanvasRoute,
-  setPinned as setArtifactPinnedRoute,
-  updateSpec as updateArtifactSpecRoute,
+  restore as restoreArtifactVersionRoute,
+  setFolder as setArtifactFolderRoute,
+  update as updateArtifactRoute,
 } from './Artifacts';
 import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
 import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
@@ -216,17 +216,15 @@ export const router = {
   artifacts: {
     listForConversation: listArtifactsForConversationRoute,
     get: getArtifactRoute,
-    updateSpec: updateArtifactSpecRoute,
-    placeTiles: placeArtifactTilesRoute,
-    setPinned: setArtifactPinnedRoute,
+    list: listArtifactsRoute,
+    folders: artifactFoldersRoute,
+    update: updateArtifactRoute,
+    setFolder: setArtifactFolderRoute,
+    versions: listArtifactVersionsRoute,
+    version: getArtifactVersionRoute,
+    restore: restoreArtifactVersionRoute,
     remove: removeArtifactRoute,
-    canvases: {
-      save: saveCanvasRoute,
-      list: listCanvasesRoute,
-      get: getCanvasRoute,
-      remove: removeCanvasRoute,
-      exportPage: exportCanvasRoute,
-    },
+    exportPage: exportArtifactPageRoute,
   },
   conversations: {
     list: listConvs,

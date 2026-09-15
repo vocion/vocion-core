@@ -3198,14 +3198,16 @@ export const chatChannelBindingSchema = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
-/* Canvas — rendered output as data (migration 0095)                   */
+/* Artifacts — rendered output as data (0095), live + versioned (0101) */
 /* ------------------------------------------------------------------ */
 
 /**
- * canvas — a named, saved arrangement of artifacts beside a conversation.
- * `layout` mirrors each pinned artifact's `tile` at save time so a canvas can
- * be reopened even after tiles move on the live conversation. Exportable as a
- * workspace page (`libs/canvas/exportPage.ts`).
+ * canvas — DEAD as of migration 0101. The tile grid it saved was replaced by
+ * one live artifact beside the conversation, so nothing reads or writes this
+ * table any more. The declaration stays only so drizzle's model matches the
+ * database until the DROP lands in a later release (CONVENTIONS.md rule 2:
+ * dropping is a contract step). Do not add readers.
+ * @deprecated Unused since 0101; slated for DROP.
  */
 export const canvasSchema = pgTable(
   'canvas',
@@ -3226,12 +3228,16 @@ export const canvasSchema = pgTable(
 );
 
 /**
- * artifact — one thing an agent rendered: a data table, a markdown note, a
+ * artifact — one live, versioned thing: a data table, a markdown note, a
  * chart, a record card, a link, or a file. `spec` is the typed card payload
- * that `libs/cards` renders on the chat and canvas surfaces (validated by the
- * `render_*` tool that wrote it). `tile` is its slot/span on the
- * conversation's canvas; `pinned` = shown there. Files (the pre-0095
- * `create_artifact` path) keep their served `url`.
+ * that `libs/cards` renders on the chat and artifact surfaces (validated by
+ * whichever tool or human edit wrote it). `title`/`spec` always mirror the
+ * head `artifact_version` row named by `headVersionId` / `currentVersion`;
+ * `folder` groups it in the log. Files (the `create_artifact` path) keep
+ * their served `url`.
+ *
+ * `canvasId`, `tile` and `pinned` are dead columns from the 0095 tile grid,
+ * kept until the contract migration drops them. Nothing reads them.
  */
 export const artifactSchema = pgTable(
   'artifact',
@@ -3249,6 +3255,15 @@ export const artifactSchema = pgTable(
     url: text('url'),
     tile: jsonb('tile').$type<{ slot: number; span: 1 | 2 | 3 }>(),
     pinned: boolean('pinned').default(true).notNull(),
+    /** Head version number (0101). Starts at 1; every edit increments it. */
+    currentVersion: integer('current_version').default(1).notNull(),
+    /** `artifact_version.id` of the head. Nullable only in the instant between the two inserts. */
+    headVersionId: integer('head_version_id'),
+    /** Path-like grouping for the log, e.g. `revenue/weekly`. Flat text, not a tree. */
+    folder: text('folder'),
+    /** Denormalised head author, so the log lists "last editor" without a join. */
+    lastAuthorKind: text('last_author_kind').$type<'agent' | 'human' | 'system'>().default('agent').notNull(),
+    lastAuthorId: text('last_author_id'),
     createdBy: text('created_by'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
@@ -3256,6 +3271,46 @@ export const artifactSchema = pgTable(
   table => [
     index('artifact_org_conversation_idx').on(table.orgId, table.conversationId, table.createdAt),
     index('artifact_org_canvas_idx').on(table.orgId, table.canvasId),
+    // Built concurrently in production — see concurrent/0101_artifact_org_updated_index.sql.
+    index('artifact_org_updated_idx').on(table.orgId, table.updatedAt),
+  ],
+);
+
+/**
+ * artifact_version — one immutable row per edit of an artifact (0101).
+ *
+ * Both halves of the product write through it: an agent tool call and a
+ * person's Save land the same way, so "who changed this and why" is one
+ * query and one audit trail. Restoring an older version writes a NEW head
+ * version carrying that content; history is never rewritten. Rapid saves by
+ * the same human within ~30s collapse into the head row rather than filling
+ * the menu with keystroke-sized versions.
+ */
+export const artifactVersionSchema = pgTable(
+  'artifact_version',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    artifactId: integer('artifact_id').notNull().references(() => artifactSchema.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    /** Copied from the artifact so a version row reads on its own. */
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    spec: jsonb('spec').$type<Record<string, unknown>>().default({}).notNull(),
+    /** Who wrote it: an agent turn, a person in the pane, or the system (backfill/import). */
+    authorKind: text('author_kind').$type<'agent' | 'human' | 'system'>().default('agent').notNull(),
+    /** `agent:<slug>` or a user id. */
+    authorId: text('author_id'),
+    /** The agent run this version came out of, when there was one. */
+    runId: text('run_id'),
+    messageId: integer('message_id'),
+    /** One line the version menu shows: "made the third column currency". */
+    changeSummary: text('change_summary'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('artifact_version_artifact_version_idx').on(table.artifactId, table.version),
+    index('artifact_version_org_artifact_idx').on(table.orgId, table.artifactId, table.createdAt),
   ],
 );
 

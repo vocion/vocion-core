@@ -2,7 +2,7 @@
 
 Reading a brief, an ask, or a team's row and then *doing something about it*
 should be one motion, not a copy-paste into a chat. This guide covers the four
-pieces that make that true (release "Rail + Canvas + Airy", slice R4) and how a
+pieces that make that true (release "Rail + Artifacts + Airy", slice R4) and how a
 page opts in. Design bar: [Product Design Manifesto](../MANIFESTO.md) §10–§11 —
 humans manage outcomes, and the interface surfaces decisions and next actions.
 
@@ -21,7 +21,7 @@ type PageContext = {
   openedFrom?: true; // opened via an "Ask about this" affordance
 };
 type RecordType = 'briefing' | 'ask' | 'agent' | 'team' | 'mission' | 'mission_run'
-  | 'object' | 'deal' | 'worker_run' | 'conversation' | 'canvas-tile';
+  | 'object' | 'deal' | 'worker_run' | 'conversation' | 'artifact' | 'page';
 ```
 
 Source of truth: `services/chat/pageContext.ts` (`readPageContext` validates the

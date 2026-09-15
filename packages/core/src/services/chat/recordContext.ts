@@ -7,19 +7,19 @@
 import type { RecordRef, RecordType } from './pageContext';
 
 const ROUTES: Record<RecordType, (id: string) => string | undefined> = {
-  'briefing': () => '/dashboard/briefings',
-  'ask': id => `/dashboard/inbox/${encodeURIComponent(id)}`,
-  'agent': id => `/dashboard/agents/${encodeURIComponent(id)}`,
-  'team': id => `/dashboard/teams/${encodeURIComponent(id)}`,
-  'mission': id => `/dashboard/missions/${encodeURIComponent(id)}`,
-  'mission_run': id => `/dashboard/missions/runs/${encodeURIComponent(id)}`,
-  'object': id => (id.includes(':') ? undefined : `/dashboard/objects/${encodeURIComponent(id)}`),
-  'deal': () => undefined,
-  'worker_run': id => `/dashboard/team-report/${encodeURIComponent(id)}`,
-  'conversation': () => '/dashboard/chat',
-  'canvas-tile': () => undefined,
+  briefing: () => '/dashboard/briefings',
+  ask: id => `/dashboard/inbox/${encodeURIComponent(id)}`,
+  agent: id => `/dashboard/agents/${encodeURIComponent(id)}`,
+  team: id => `/dashboard/teams/${encodeURIComponent(id)}`,
+  mission: id => `/dashboard/missions/${encodeURIComponent(id)}`,
+  mission_run: id => `/dashboard/missions/runs/${encodeURIComponent(id)}`,
+  object: id => (id.includes(':') ? undefined : `/dashboard/objects/${encodeURIComponent(id)}`),
+  deal: () => undefined,
+  worker_run: id => `/dashboard/team-report/${encodeURIComponent(id)}`,
+  conversation: () => '/dashboard/chat',
+  artifact: id => `/dashboard/artifacts/${encodeURIComponent(id)}`,
   // A `@page` tag points at wherever the person already is — no record route.
-  'page': () => undefined,
+  page: () => undefined,
 };
 
 /**

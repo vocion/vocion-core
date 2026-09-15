@@ -66,11 +66,12 @@ export type RecommendedActionPayload = {
 };
 
 /**
- * Canvas: something the agent RENDERED — a table, a markdown note, a chart,
- * a record card, a link — persisted as an `artifact` row (migration 0095)
- * and emitted so the chat shows the card inline and the canvas places a
- * tile. `spec` is the card payload without its `__card` slug; the client
- * resolves it through `libs/cards` with `cardPayloadFor(kind, spec)`.
+ * One live artifact — a table, a markdown note, a chart, a record card, a
+ * link, a file — persisted as an `artifact` row (0095) with a version
+ * history (0101), and emitted so the pane beside the conversation opens on
+ * it and the message gets a chip. `spec` is the card payload without its
+ * `__card` slug; the client resolves it through `libs/cards` with
+ * `cardPayloadFor(kind, spec)`.
  */
 export type ArtifactPayload = {
   id: number;
@@ -79,10 +80,16 @@ export type ArtifactPayload = {
   title: string;
   spec: Record<string, unknown>;
   url?: string | null;
-  /** Slot/span on the conversation's canvas when the tool placed it. */
-  tile?: { slot: number; span: 1 | 2 | 3 } | null;
-  pinned: boolean;
+  /** The assistant turn that produced this version — where the chip hangs in the transcript. */
+  messageId: number | null;
+  /** Path-like grouping in the artifacts log, e.g. `revenue/weekly`. */
+  folder: string | null;
+  /** Head version number. */
+  version: number;
+  authorKind: 'agent' | 'human' | 'system';
+  authorId: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 /* ------------------------------------------------------------------ */
@@ -181,8 +188,18 @@ export type AgentEvent
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
     | { type: 'recommended_action'; recommendation: RecommendedActionPayload }
-    /** Canvas (0095): a rendered artifact — the chat shows the card, the canvas places the tile. */
-    | { type: 'artifact'; artifact: ArtifactPayload }
+    /**
+     * An artifact was created or changed (0095/0101). The pane beside the
+     * conversation opens or switches to it and the message gets a chip.
+     *
+     * `pending` marks a placeholder emitted BEFORE the content is written —
+     * the title is known, the body is not — so a long markdown write shows a
+     * shell filling in rather than nothing. `delta` appends to the pending
+     * body. Both are folded by `mergeArtifactEvent` in
+     * `features/dashboard/chat/traceReducer.ts`; the settled event that
+     * follows carries the real row.
+     */
+    | { type: 'artifact'; artifact: ArtifactPayload; pending?: boolean; delta?: string }
     | TraceNodeEvent
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     /**

@@ -13,7 +13,7 @@ import { recordSpecSchema } from '../specs';
 export const RECORD_SLUG = 'record';
 
 export function RecordCardView({ data, surface }: { data: RecordSpec; surface: string }) {
-  const dense = surface !== 'canvas';
+  const dense = surface !== 'artifact';
   const internal = data.href?.startsWith('/');
   const Title = data.href
     ? (
@@ -50,7 +50,7 @@ export const recordCard = defineCard({
   slug: RECORD_SLUG,
   name: 'Record',
   description: 'Renders one entity — a deal, contact, agent, mission, run — as a compact card with its type, a few fields, an optional status pill, and a link into the app. Use when the answer is a thing the person will open.',
-  surfaces: ['chat', 'canvas', 'workflow-run', 'review-queue', 'activity-feed'],
+  surfaces: ['chat', 'artifact', 'workflow-run', 'review-queue', 'activity-feed'],
   dataSchema: recordSpecSchema,
   Renderer: ({ data, surface }) => <RecordCardView data={data} surface={surface} />,
 });

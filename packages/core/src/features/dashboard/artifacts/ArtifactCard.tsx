@@ -1,9 +1,9 @@
 'use client';
 
 /**
- * Renders one artifact through the cards registry — the ONLY render path
- * for table/markdown/chart/record/link/file, on both surfaces. Chat callers
- * pass `surface="chat"`; canvas tiles pass `surface="canvas"`.
+ * Renders one artifact through the cards registry — the ONLY render path for
+ * table/markdown/chart/record/link/file, on both surfaces. Chat callers pass
+ * `surface="chat"` (dense); the pane passes `surface="artifact"` (full).
  */
 
 import type { ArtifactPayload } from '@/services/agents/types';
@@ -11,7 +11,7 @@ import { useMemo } from 'react';
 import { resolveCard } from '@/libs/cards';
 import { cardPayloadFor } from '@/libs/cards/specs';
 
-export function ArtifactCard({ artifact, surface }: { artifact: ArtifactPayload; surface: 'chat' | 'canvas' }) {
+export function ArtifactCard({ artifact, surface }: { artifact: ArtifactPayload; surface: 'chat' | 'artifact' }) {
   const resolved = useMemo(() => resolveCard(cardPayloadFor(artifact.kind, artifact.spec), { surface }), [artifact, surface]);
   const { Renderer } = resolved.renderer;
   return (

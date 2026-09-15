@@ -27,6 +27,7 @@ import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
 import { discoveryTools } from './discovery';
+import { editArtifactTools } from './editArtifacts';
 import { fetchUrlTool } from './fetchUrl';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
@@ -121,9 +122,11 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     proposeActionTool(ctx),
     recommendActionTool(ctx),
     pageContextTool(ctx),
-    // Canvas (0095): render_table / render_markdown / render_chart / render_record —
-    // no side effect outside the conversation, so on for every agent.
+    // Artifacts (0095/0101): render_* creates one, read_artifact/update_artifact
+    // change the one already open. No side effect outside the conversation, so
+    // on for every agent.
     ...renderArtifactTools(ctx),
+    ...editArtifactTools(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),

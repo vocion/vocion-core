@@ -1,37 +1,59 @@
+/**
+ * client.artifacts.* — one live artifact, its versions, and the log.
+ *
+ * Human edits and agent edits go through the SAME service calls, so the
+ * version history is one trail rather than two. The only thing the browser
+ * can do that a tool cannot is `restore` and `setFolder`; the only thing a
+ * tool can do that the browser cannot is create without a conversation.
+ */
+
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { exportCanvasAsPage } from '@/libs/canvas/exportPage';
+import { exportArtifactAsPage } from '@/libs/artifacts/exportPage';
+import { track } from '@/services/adoption/track';
 import {
   ArtifactError,
   deleteArtifact,
-  deleteCanvas,
   getArtifact,
-  getCanvas,
+  getArtifactVersion,
+  listArtifactFolders,
+  listArtifacts,
   listArtifactsForConversation,
-  listCanvases,
-  saveCanvas,
-  setArtifactPinned,
-  setArtifactTiles,
+  listArtifactVersions,
+  restoreArtifactVersion,
+  setArtifactFolder,
   toPayload,
-  updateArtifactSpec,
+  toVersionPayload,
+  updateArtifact,
 } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
-const tileSchema = z.object({ slot: z.number().int().min(0).max(255), span: z.union([z.literal(1), z.literal(2), z.literal(3)]) });
+/**
+ * Map a service error onto the wire.
+ * @param err
+ */
+function rethrow(err: unknown): never {
+  if (err instanceof ArtifactError) {
+    if (err.code === 'NOT_FOUND') {
+      throw ApiError.notFound({ message: err.message });
+    }
+    throw ApiError.badRequest(err.message);
+  }
+  throw err;
+}
 
-/** Artifacts of one conversation, pinned only by default — what the canvas shows. */
+/** Artifacts of one conversation, oldest first — the chips in the transcript. */
 export const listForConversation = os
-  .input(z.object({ conversationId: z.number().int().positive(), includeUnpinned: z.boolean().default(false) }))
+  .input(z.object({ conversationId: z.number().int().positive() }))
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
     const conv = await getConversation({ orgId, id: input.conversationId });
     if (!conv) {
       throw ApiError.notFound({ conversationId: input.conversationId });
     }
-    const rows = await listArtifactsForConversation({ orgId, conversationId: input.conversationId, includeUnpinned: input.includeUnpinned });
-    return rows.map(toPayload);
+    return (await listArtifactsForConversation({ orgId, conversationId: input.conversationId })).map(toPayload);
   });
 
 export const get = os
@@ -45,42 +67,114 @@ export const get = os
     return toPayload(row);
   });
 
-export const updateSpec = os
-  .input(z.object({ id: z.number().int().positive(), title: z.string().min(1).max(200).optional(), spec: z.record(z.string(), z.unknown()) }))
+/** The log at /dashboard/artifacts. */
+export const list = os
+  .input(z.object({
+    search: z.string().max(200).optional(),
+    kinds: z.array(z.string().max(20)).max(8).optional(),
+    folder: z.string().max(120).optional(),
+    limit: z.number().int().positive().max(500).default(200),
+  }).default({ limit: 200 }))
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
+    return listArtifacts({ orgId, search: input.search, kinds: input.kinds, folder: input.folder, limit: input.limit });
+  });
+
+export const folders = os
+  .input(z.object({}).default({}))
+  .handler(async () => {
+    const { orgId } = await guardAuth();
+    return listArtifactFolders({ orgId });
+  });
+
+/**
+ * A person's Save. `ifVersion` makes a race explicit: when the agent wrote
+ * while the person was typing the save is refused rather than silently
+ * clobbering, and the pane offers Review / Keep mine (which re-sends without
+ * it, deliberately writing on top).
+ */
+export const update = os
+  .input(z.object({
+    id: z.number().int().positive(),
+    title: z.string().min(1).max(200).optional(),
+    spec: z.record(z.string(), z.unknown()).optional(),
+    contentMarkdown: z.string().max(200_000).optional(),
+    changeSummary: z.string().max(160).optional(),
+    ifVersion: z.number().int().positive().optional(),
+  }))
+  .handler(async ({ input }) => {
+    const auth = await guardAuth();
     try {
-      const row = await updateArtifactSpec({ orgId, id: input.id, title: input.title, spec: input.spec });
-      if (!row) {
-        throw ApiError.notFound({ id: input.id });
+      const { artifact, version, collapsed } = await updateArtifact({
+        orgId: auth.orgId,
+        id: input.id,
+        title: input.title ?? null,
+        spec: input.spec,
+        contentMarkdown: input.contentMarkdown ?? null,
+        author: { kind: 'human', id: auth.userId },
+        changeSummary: input.changeSummary ?? null,
+        ifVersion: input.ifVersion ?? null,
+      });
+      if (!collapsed) {
+        void track(auth, 'artifact.edited', { resource: ['artifact', artifact.id], meta: { kind: artifact.kind, action: 'edited', version: version.version } });
       }
-      return toPayload(row);
+      return { artifact: toPayload(artifact), version: toVersionPayload(version), collapsed };
     } catch (err) {
-      if (err instanceof ArtifactError) {
-        throw ApiError.badRequest(err.message);
+      if (err instanceof ArtifactError && err.code === 'CONFLICT') {
+        // The pane reads "conflict" off the message and offers Review / Keep
+        // mine; Keep mine re-sends without `ifVersion`.
+        throw ApiError.badRequest(`conflict: ${err.message}`);
       }
-      throw err;
+      return rethrow(err);
     }
   });
 
-/** A drag or a resize: the full new placement of the moved tiles. */
-export const placeTiles = os
-  .input(z.object({ tiles: z.array(z.object({ id: z.number().int().positive(), tile: tileSchema })).min(1).max(64) }))
+export const setFolder = os
+  .input(z.object({ id: z.number().int().positive(), folder: z.string().max(120).nullable() }))
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
-    await setArtifactTiles({ orgId, tiles: input.tiles });
-    return { ok: true };
-  });
-
-export const setPinned = os
-  .input(z.object({ id: z.number().int().positive(), pinned: z.boolean() }))
-  .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    const row = await setArtifactPinned({ orgId, id: input.id, pinned: input.pinned });
+    const row = await setArtifactFolder({ orgId, id: input.id, folder: input.folder });
     if (!row) {
       throw ApiError.notFound({ id: input.id });
     }
     return toPayload(row);
+  });
+
+export const versions = os
+  .input(z.object({ id: z.number().int().positive(), limit: z.number().int().positive().max(200).default(50) }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    return (await listArtifactVersions({ orgId, artifactId: input.id, limit: input.limit })).map(toVersionPayload);
+  });
+
+export const version = os
+  .input(z.object({ id: z.number().int().positive(), version: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const row = await getArtifactVersion({ orgId, artifactId: input.id, version: input.version });
+    if (!row) {
+      throw ApiError.notFound({ id: input.id, version: input.version });
+    }
+    return toVersionPayload(row);
+  });
+
+/** Restore writes a NEW head version carrying the old content. */
+export const restore = os
+  .input(z.object({ id: z.number().int().positive(), version: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const auth = await guardAuth();
+    try {
+      const { artifact, version: v } = await restoreArtifactVersion({
+        orgId: auth.orgId,
+        id: input.id,
+        version: input.version,
+        author: { kind: 'human', id: auth.userId },
+      });
+      void track(auth, 'artifact.edited', { resource: ['artifact', artifact.id], meta: { kind: artifact.kind, action: 'restored', version: v.version } });
+      return { artifact: toPayload(artifact), version: toVersionPayload(v) };
+    } catch (err) {
+      return rethrow(err);
+    }
   });
 
 export const remove = os
@@ -91,54 +185,14 @@ export const remove = os
     return { ok: true };
   });
 
-/* ---- canvases ---- */
-
-export const saveCanvasRoute = os
-  .input(z.object({ conversationId: z.number().int().positive(), name: z.string().min(1).max(120) }))
-  .handler(async ({ input }) => {
-    const { orgId, userId } = await guardAuth();
-    const conv = await getConversation({ orgId, id: input.conversationId });
-    if (!conv) {
-      throw ApiError.notFound({ conversationId: input.conversationId });
-    }
-    const { canvas, artifacts } = await saveCanvas({ orgId, projectId: conv.projectId, conversationId: input.conversationId, name: input.name, createdBy: userId ?? null });
-    return { canvas, artifacts: artifacts.map(toPayload) };
-  });
-
-export const listCanvasesRoute = os
-  .input(z.object({ limit: z.number().int().positive().max(200).default(100) }).default({ limit: 100 }))
-  .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    return listCanvases({ orgId, limit: input.limit });
-  });
-
-export const getCanvasRoute = os
+/** The artifact as a workspace `pages/<slug>.yaml` (+ sibling .md) a person commits. */
+export const exportPage = os
   .input(z.object({ id: z.number().int().positive() }))
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
-    const found = await getCanvas({ orgId, id: input.id });
-    if (!found) {
+    const row = await getArtifact({ orgId, id: input.id });
+    if (!row) {
       throw ApiError.notFound({ id: input.id });
     }
-    return { canvas: found.canvas, artifacts: found.artifacts.map(toPayload) };
-  });
-
-export const removeCanvasRoute = os
-  .input(z.object({ id: z.number().int().positive() }))
-  .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    await deleteCanvas({ orgId, id: input.id });
-    return { ok: true };
-  });
-
-/** The saved canvas as a workspace `pages/<slug>.yaml` (+ sibling .md) a person commits to the workspace repo. */
-export const exportCanvasRoute = os
-  .input(z.object({ id: z.number().int().positive() }))
-  .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    const found = await getCanvas({ orgId, id: input.id });
-    if (!found) {
-      throw ApiError.notFound({ id: input.id });
-    }
-    return exportCanvasAsPage(found.canvas, found.artifacts);
+    return exportArtifactAsPage(row);
   });

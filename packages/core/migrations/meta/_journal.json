@@ -708,6 +708,13 @@
       "when": 1787560000000,
       "tag": "0100_team_measures",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1787640000000,
+      "tag": "0101_artifact_version",
+      "breakpoints": true
     }
   ]
 }

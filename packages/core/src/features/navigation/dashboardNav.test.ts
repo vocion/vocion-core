@@ -30,7 +30,9 @@ describe('dashboardNav registry', () => {
   it('keeps WORK to the daily driver — no reports, no developers, no configuration, and no second decision door', () => {
     const work = workRoutes().map(r => r.url);
 
-    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/search']);
+    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/artifacts', '/dashboard/search']);
+    // Artifacts replaced Canvases, which never earned a row of its own.
+    expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/canvases')).toBe(false);
     expect(work).not.toContain('/dashboard/team-report');
     expect(work).not.toContain('/dashboard/activity');
     expect(work).not.toContain('/dashboard/developers');
