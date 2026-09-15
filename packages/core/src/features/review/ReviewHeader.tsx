@@ -12,8 +12,9 @@ import { cn } from '@/utils/Helpers';
  * The Review page header for one item: a breadcrumb with context
  * (Workspace › Review › type › record), the item as the H1 ("Enroll MQL in
  * sequence — Dale Heim · Agentix"), and ONE meta row — system · lane · who
- * proposed · confidence as an inline meter · what the agent suggests · where
- * you are in the queue — with Back and "Next: …" on the right.
+ * proposed · confidence as an inline meter · how often people agreed with
+ * this agent on this kind · what the agent suggests · where you are in the
+ * queue — with Back and "Next: …" on the right.
  *
  * Sets `document.title` to the H1 so the browser tab (and a shell breadcrumb
  * that reads the title) say what this page is. Chris, 2026-09-15: "better page
@@ -72,6 +73,13 @@ export function ReviewHeader(props: {
   status: string;
   proposedBy?: string | null;
   confidence?: number;
+  /**
+   * How often this agent's recommendations of this kind matched what the
+   * person decided (30d). Confidence says how sure the agent is; this says how
+   * often people agreed with it. Rendered right after the meter, and not at
+   * all until there is at least one decided recommendation.
+   */
+  alignment?: { agreementRate: number | null; n: number; window: string } | null;
   suggestion?: SuggestedDecision;
   /** "3 of 213" */
   position?: string;
@@ -111,6 +119,15 @@ export function ReviewHeader(props: {
   }
   if (props.confidence !== undefined) {
     meta.push(<ConfidenceMeter key="confidence" value={props.confidence} />);
+  }
+  const alignmentRate = props.alignment && props.alignment.n > 0 ? props.alignment.agreementRate : null;
+  if (props.alignment && alignmentRate !== null) {
+    const a = props.alignment;
+    meta.push(
+      <span key="alignment" className="tabular-nums" data-testid="alignment-score" title={`${a.n} decided recommendation${a.n === 1 ? '' : 's'} of this kind by this agent in the last ${a.window === 'all' ? 'all time' : a.window}`}>
+        {`agrees with you ${Math.round(alignmentRate * 100)}% (n=${a.n}, ${a.window})`}
+      </span>,
+    );
   }
   if (suggestion) {
     meta.push(<span key="suggestion" className={cn('font-medium', suggestion.className)}>{suggestion.label}</span>);

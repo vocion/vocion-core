@@ -45,11 +45,11 @@ rules:
   - action: hubspot.update
     autoApproveAbove: 0.95
     enabled: true
-    rung: execute-within-bounds   # optional — this is what enabled: true means
+    rung: execute-within-bounds # optional: this is what enabled: true means
   - action: gmail.send
     autoApproveAbove: 0.99
     enabled: false
-    risk: high                    # ask for high-tier evidence before ever promoting it
+    risk: high # ask for high-tier evidence before ever promoting it
 risk:
   qc.release: high
 ```

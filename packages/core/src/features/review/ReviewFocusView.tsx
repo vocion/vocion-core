@@ -154,6 +154,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
         status={current.status}
         proposedBy={current.invokedBy}
         confidence={current.proposal?.confidence}
+        alignment={current.alignment}
         suggestion={current.proposal?.suggestedDecision}
         position={queuePosition(p.index, p.total)}
         upNext={<UpNextMenu next={p.upNext} remaining={Math.max(p.total - 1, p.upNext.length)} onSkipTo={p.onSkipTo} onLoadMore={p.onLoadMore} />}
