@@ -4,6 +4,19 @@
 
 Vocion is a multi-tenant SaaS application built on Next.js 16. It provides contextual intelligence tools for teams to organize, connect, and act on business context.
 
+## Product design manifesto — read before any product decision
+
+`docs/MANIFESTO.md` is the bar for every feature, page, default, entity field, and agent behaviour
+in this repo. Its core pattern is **Outcome → Accountability → Measurement → Learning → Automation
+→ Capability**, and its operating rule is *hide complexity, never hide truth*. Before proposing or
+shipping product surface, answer its test — what outcome does this improve, can we measure whether
+it worked, who is accountable, can it be simpler, does the user know what to do next, did this
+interaction teach the system something, is complexity hidden without hiding the truth. A PR
+description for user-facing work should say which of those it serves. Prefer a useful default over
+a setting, one obvious action over five, and lead every surface with the outcome (the Outcome
+Contract: purpose, owner, KPI, baseline, target, permissions, quality threshold, escalation,
+current performance, autonomy level) with activity metrics as the evidence layer underneath.
+
 ## Tech Stack
 
 - **Framework:** Next.js 16 (App Router) + React 19 + TypeScript (strict)
@@ -422,6 +435,8 @@ requirements/                       # Product specs and case studies
   "the prompt says so" is not evidence. (Proven: 3 prompt iterations failed
   to restore action cards; the backstop guaranteed them. Same story for the
   `<scratch>` strip and the typed trace.)
+- **Manifesto first.** Product decisions are judged against `docs/MANIFESTO.md` (see the section
+  near the top). If a change cannot pass its test, it is not finished.
 - Conventional Commits (enforced by commitlint + lefthook)
 - ESLint with Antfu config
 - Strict TypeScript
