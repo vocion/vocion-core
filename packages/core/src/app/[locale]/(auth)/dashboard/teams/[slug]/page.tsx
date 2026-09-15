@@ -178,7 +178,7 @@ function TeamDetailScreen({ team, boundary, files, editInGitPath, dirty, dirtyFi
                         <span>
                           <span className="text-[var(--brand-amber-deep)]">{t('boundary_gated', { count: boundary.gated })}</span>
                           {' '}
-                          <Link href="/dashboard/review" className="font-medium text-foreground/70 underline underline-offset-2 hover:text-primary">
+                          <Link href="/dashboard/inbox?kind=proposal" className="font-medium text-foreground/70 underline underline-offset-2 hover:text-primary">
                             {t('boundary_review_link')}
                           </Link>
                         </span>

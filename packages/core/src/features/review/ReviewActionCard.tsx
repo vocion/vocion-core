@@ -6,6 +6,8 @@ import type { ReviewCard, ReviewContentEdit } from '@/libs/actions/types';
 import { AlarmClock, Check, ChevronsDownUp, ChevronsUpDown, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui/toast';
+import { withMinimumPending } from '@/features/dashboard/inbox/pending';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
@@ -206,24 +208,33 @@ export function ReviewActionCard(props: {
 
   const decideRun = async (decision: 'approve' | 'reject') => {
     setBusy(true);
+    const verbLabel = decision === 'approve' ? (card.verbs?.approve ?? 'Approve') : (card.verbs?.reject ?? 'Reject');
     try {
       const { contentEdits: ce, editedInput } = buildDecision();
-      const outcome = await client.review.decideAction({
+      // Never less than ~400ms in flight: a decision that lands instantly reads as nothing having happened.
+      const outcome = await withMinimumPending(client.review.decideAction({
         id: run.id,
         decision,
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(decision === 'approve' && ce ? { contentEdits: ce } : {}),
         ...(decision === 'approve' && editedInput ? { editedInput } : {}),
-      });
+      }));
       // A failed execution is NOT a completed decision: the card stays with
       // the error on it and Approve becomes Retry. Dropping it here is how a
       // failed enrollment once sat invisible for three days.
       if (decision === 'approve' && outcome.execution?.status === 'failed') {
-        setExecError(outcome.execution.error ?? 'The action failed to execute.');
+        const message = outcome.execution.error ?? 'The action failed to execute.';
+        setExecError(message);
+        toast.error(`Approved, but it failed to run · ${card.title}`, { description: `${message} Approve again to retry.` });
         return;
       }
       setExecError(null);
+      toast.success(`${verbLabel === 'Approve' ? 'Approved' : verbLabel === 'Reject' ? 'Rejected' : verbLabel} · ${card.title}`, {
+        description: decision === 'approve' ? (card.nextAction ?? 'Executing now.') : 'Nothing runs; the agent learns from it.',
+      });
       onDecided?.(decision);
+    } catch (err) {
+      toast.error(`Could not ${verbLabel.toLowerCase()} · ${card.title}`, { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusy(false);
     }
@@ -231,13 +242,17 @@ export function ReviewActionCard(props: {
 
   const snoozeRun = async (days: number) => {
     setBusy(true);
+    const until = new Date(Date.now() + days * 86_400_000);
     try {
-      await client.review.snoozeAction({
+      await withMinimumPending(client.review.snoozeAction({
         id: run.id,
-        until: new Date(Date.now() + days * 86_400_000).toISOString(),
+        until: until.toISOString(),
         ...(note.trim() ? { note: note.trim() } : {}),
-      });
+      }));
+      toast.info(`Snoozed · ${card.title}`, { description: `Back on Needs you ${until.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}.` });
       onDecided?.('snooze');
+    } catch (err) {
+      toast.error(`Could not snooze · ${card.title}`, { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusy(false);
       setSnoozeOpen(false);
@@ -252,9 +267,12 @@ export function ReviewActionCard(props: {
     setBusy(true);
     try {
       const instruction = note.trim();
-      await client.review.regenerateAction({ id: run.id, feedback: instruction });
+      await withMinimumPending(client.review.regenerateAction({ id: run.id, feedback: instruction }));
       setRegen({ since: new Date().toISOString(), note: instruction });
+      toast.info(`Regenerating · ${card.title}`, { description: 'The card re-enables here when the new version lands.' });
       onDecided?.('regenerate');
+    } catch (err) {
+      toast.error(`Could not regenerate · ${card.title}`, { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusy(false);
     }

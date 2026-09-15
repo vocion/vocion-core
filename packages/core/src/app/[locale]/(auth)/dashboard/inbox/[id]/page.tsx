@@ -1,63 +1,244 @@
-import { ArrowLeft } from 'lucide-react';
+import type { RunSummary } from '@/features/dashboard/inbox/RunDecision';
+import type { InboxSort } from '@/services/InboxService';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { AskReceipt } from '@/features/dashboard/inbox/AskReceipt';
 import { AskSheet } from '@/features/dashboard/inbox/AskSheet';
+import { agoLabel, decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
+import { LearningDecision } from '@/features/dashboard/inbox/LearningDecision';
+import { RunDecision } from '@/features/dashboard/inbox/RunDecision';
 import { toSheetAsk } from '@/features/dashboard/inbox/toSheetAsk';
+import { ReviewFocus } from '@/features/dashboard/ReviewFocus';
+import { describeAction } from '@/features/review/ReviewFocusView';
+import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { scoreFor } from '@/services/alignment/AlignmentService';
 import { getAsk } from '@/services/AskService';
+import { parseInboxRef } from '@/services/inbox/inboxRef';
+import { loadPendingAction } from '@/services/inbox/pendingAction';
+import { INBOX_SORTS, kindForAsk, listProposalQueue } from '@/services/InboxService';
+import { getCandidate } from '@/services/LearningCandidateService';
+import { getMissionRun } from '@/services/MissionService';
+import { getWorkerRun } from '@/services/WorkerRunService';
+import { getWorkflowRun } from '@/services/WorkflowService';
 
 /**
- * One ask — the question screen while it is open, the receipt once answered.
- * An ask that belongs to a decision sheet is still answerable alone from here.
+ * One decision, whatever its kind. The `[id]` segment is an inbox ref
+ * (`services/inbox/inboxRef`): a bare number is an ask, `proposal-123` an
+ * agent-proposed action, `mission-5` / `workflow-3` / `worker-9` a stopped
+ * run, `learning-7` a suggested rule. Each kind renders its own detail —
+ * the rich proposal screen, the ask sheet, a compact run page, the rule
+ * editor — under the same chrome: breadcrumb › kind › record, the meta row
+ * with confidence and alignment, the sticky bar with the kind's verbs.
+ *
+ * The proposal screen's Up-next walks the inbox list under the filters in
+ * the query string, so `j`/`k` from here move through exactly what the list
+ * showed.
  */
 
 export const dynamic = 'force-dynamic';
 
-export default async function AskPage(props: { params: Promise<{ locale: string; id: string }> }) {
+type Params = { q?: string; sort?: string; actionKind?: string; agents?: string; kind?: string };
+
+function list(value: string | undefined): string[] {
+  return (value ?? '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
+/**
+ * The list's filters, kept on every neighbour's URL.
+ * @param sp
+ */
+function carried(sp: Params): string {
+  const qs = new URLSearchParams();
+  for (const k of ['q', 'sort', 'actionKind', 'agents'] as const) {
+    if (sp[k]) {
+      qs.set(k, sp[k]!);
+    }
+  }
+  const s = qs.toString();
+  return s ? `?${s}` : '';
+}
+
+export default async function InboxDetailPage(props: { params: Promise<{ locale: string; id: string }>; searchParams: Promise<Params> }) {
   const { locale, id } = await props.params;
+  const sp = await props.searchParams;
   setRequestLocale(locale);
   const { orgId } = await auth();
-  if (!orgId || !/^\d+$/.test(id)) {
-    notFound();
-  }
-  const ask = await getAsk(orgId, Number.parseInt(id, 10));
-  if (!ask) {
+  const ref = parseInboxRef(id);
+  if (!orgId || !ref) {
     notFound();
   }
 
-  return (
-    <div className="mx-auto w-full max-w-2xl">
-      <Link href="/dashboard/inbox" className="mb-3 inline-flex min-h-10 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="size-3.5" aria-hidden />
-        Needs you
-      </Link>
-      {ask.groupKey && (
-        <p className="mb-3 text-xs text-muted-foreground">
-          Part of
-          {' '}
-          <Link href={`/dashboard/inbox/g/${encodeURIComponent(ask.groupKey)}`} className="underline-offset-2 hover:underline">{ask.groupTitle ?? 'a decision sheet'}</Link>
-          .
-        </p>
-      )}
-      {ask.status === 'open'
-        ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }))]} />
-        : (
-            <>
-              <p className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Answered</p>
-              <AskReceipt ask={ask} />
-              <p className="mt-4 text-xs text-muted-foreground">
-                Filed
-                {' '}
-                {ask.createdAt.toLocaleString()}
-                {ask.createdBy ? ` by ${ask.createdBy}` : ''}
-                {ask.sourceRef ? ` · ${ask.sourceRef}` : ''}
-                {` · /api/v1/asks/${ask.id}`}
-              </p>
-            </>
+  switch (ref.kind) {
+    case 'ask': {
+      const ask = await getAsk(orgId, ref.id);
+      if (!ask) {
+        notFound();
+      }
+      const kind = kindForAsk(ask.kind);
+      return (
+        <div className="mx-auto w-full max-w-3xl">
+          {ask.status === 'open'
+            ? <AskSheet asks={[toSheetAsk(ask, await scoreFor({ orgId, subjectKey: ask.kind, agentSlug: ask.agentSlug }))]} kind={kind} />
+            : (
+                <>
+                  <ReviewHeader crumbs={decisionCrumbs(kind, ask.title)} title={ask.title} system="Answered" status={ask.status} proposedBy={ask.agentSlug ? `asked by ${ask.agentSlug}` : null} />
+                  <div className="mt-4">
+                    <AskReceipt ask={ask} />
+                  </div>
+                  <p className="mt-4 text-xs text-muted-foreground">
+                    Filed
+                    {' '}
+                    {ask.createdAt.toLocaleString()}
+                    {ask.createdBy ? ` by ${ask.createdBy}` : ''}
+                    {ask.sourceRef ? ` · ${ask.sourceRef}` : ''}
+                    {` · /api/v1/asks/${ask.id}`}
+                  </p>
+                </>
+              )}
+          {ask.groupKey && (
+            <p className="mt-4 text-xs text-muted-foreground">
+              Part of
+              {' '}
+              <Link href={`/dashboard/inbox/g/${encodeURIComponent(ask.groupKey)}`} className="underline-offset-2 hover:underline">{ask.groupTitle ?? 'a decision sheet'}</Link>
+              .
+            </p>
           )}
-    </div>
-  );
+        </div>
+      );
+    }
+
+    case 'proposal': {
+      const run = await loadPendingAction(orgId, ref.id);
+      if (!run) {
+        notFound();
+      }
+      if (run.status !== 'pending' && run.status !== 'failed') {
+        // Decided: the receipt, not the decision.
+        const desc = describeAction(run);
+        return (
+          <div className="mx-auto w-full max-w-3xl">
+            <ReviewHeader crumbs={decisionCrumbs('proposal', run.card?.subject?.name ?? desc.title)} title={run.card?.title ?? desc.title} system={run.card?.system ?? desc.system} status={run.status} proposedBy={run.invokedBy} confidence={run.proposal?.confidence} alignment={run.alignment} />
+            <p className="mt-4 text-sm text-muted-foreground">
+              {run.status === 'rejected' ? 'Declined' : 'Approved'}
+              {' · '}
+              {agoLabel(new Date(run.createdAt))}
+              {' · '}
+              <Link href="/dashboard/inbox?tab=decided" className="underline-offset-2 hover:underline">All decided</Link>
+            </p>
+          </div>
+        );
+      }
+      const sort = ((INBOX_SORTS as readonly string[]).includes(sp.sort ?? '') ? sp.sort : 'oldest') as InboxSort;
+      const queue = await listProposalQueue(orgId, { q: sp.q?.trim(), sort, actionKinds: list(sp.actionKind), agents: list(sp.agents) });
+      const search = carried(sp);
+      return <ReviewFocus run={run} queue={queue} search={search} listHref={`/dashboard/inbox?kind=proposal${search.replace(/^\?/, '&')}`} />;
+    }
+
+    case 'mission': {
+      const run = await getMissionRun(ref.id, orgId);
+      if (!run) {
+        notFound();
+      }
+      const tasks = run.plan?.tasks ?? [];
+      const summary: RunSummary = {
+        kind: 'mission',
+        id: run.id,
+        title: run.title,
+        status: run.status,
+        reason: run.pauseReason ?? run.error ?? null,
+        agentSlug: run.team.lead,
+        openHref: `/dashboard/missions/runs/${run.id}`,
+        openLabel: 'Open the mission run',
+        facts: [
+          { label: 'Tasks', value: `${tasks.filter(t => t.status === 'completed').length} of ${tasks.length} done` },
+          { label: 'Awaiting approval', value: String(tasks.filter(t => t.status === 'awaiting_approval').length) },
+          { label: 'Started', value: run.createdAt.toLocaleString() },
+          ...(run.pausedAt ? [{ label: 'Paused', value: run.pausedAt.toLocaleString() }] : []),
+        ],
+        actionable: true,
+      };
+      return <RunDecision run={summary} />;
+    }
+
+    case 'workflow': {
+      const run = await getWorkflowRun(ref.id, orgId);
+      if (!run) {
+        notFound();
+      }
+      const steps = Object.values(run.stepResults);
+      const summary: RunSummary = {
+        kind: 'workflow',
+        id: run.id,
+        title: `${run.workflowSlug} — run #${run.id}`,
+        status: run.status,
+        reason: run.pauseReason ?? run.error ?? null,
+        agentSlug: null,
+        openHref: `/dashboard/workflows/${encodeURIComponent(run.workflowSlug)}/runs/${run.id}`,
+        openLabel: 'Open the workflow run',
+        facts: [
+          { label: 'Steps', value: `${steps.filter(s => s.status === 'completed').length} of ${steps.length} done` },
+          { label: 'Current step', value: run.currentStep === null ? '—' : String(run.currentStep + 1) },
+          { label: 'Started', value: run.createdAt.toLocaleString() },
+        ],
+        actionable: true,
+      };
+      return <RunDecision run={summary} />;
+    }
+
+    case 'worker': {
+      const run = await getWorkerRun(orgId, ref.id);
+      if (!run) {
+        notFound();
+      }
+      const summary: RunSummary = {
+        kind: 'worker',
+        id: run.id,
+        title: `${run.agentSlug} — worker run #${run.id}`,
+        status: run.status,
+        reason: run.error ?? run.summary ?? (run.status === 'lost' ? 'Lease lapsed without a heartbeat' : null),
+        agentSlug: run.agentSlug,
+        openHref: `/dashboard/agents/${encodeURIComponent(run.agentSlug)}`,
+        openLabel: 'Open the agent',
+        facts: [
+          { label: 'Kind', value: run.kind },
+          { label: 'Model', value: run.model ?? '—' },
+          { label: 'Attempt', value: String(run.attempt) },
+          { label: 'Spend', value: `$${(run.cents / 100).toFixed(2)} · ${run.tokens.toLocaleString()} tokens` },
+          ...(run.heartbeatAt ? [{ label: 'Last heartbeat', value: run.heartbeatAt.toLocaleString() }] : []),
+        ],
+        actionable: false,
+      };
+      return <RunDecision run={summary} />;
+    }
+
+    case 'learning': {
+      const candidate = await getCandidate(orgId, ref.id);
+      if (!candidate) {
+        notFound();
+      }
+      return (
+        <LearningDecision
+          candidate={{
+            id: candidate.id,
+            stepName: candidate.stepName,
+            ruleText: candidate.ruleText,
+            editedRuleText: candidate.editedRuleText,
+            polarity: candidate.polarity,
+            occurrenceCount: candidate.occurrenceCount,
+            sourceFeedbackJobId: candidate.sourceFeedbackJobId,
+            status: candidate.status,
+            rejectedReason: candidate.rejectedReason,
+            decidedBy: candidate.decidedBy,
+            decidedAt: candidate.decidedAt?.toISOString() ?? null,
+            createdAt: candidate.createdAt.toISOString(),
+          }}
+        />
+      );
+    }
+
+    default:
+      notFound();
+  }
 }

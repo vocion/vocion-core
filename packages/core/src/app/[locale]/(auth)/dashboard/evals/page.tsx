@@ -34,14 +34,7 @@ export default async function EvalsPage(props: { params: Promise<{ locale: strin
   return (
     <>
       <TitleBar
-        title={(
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <TestTube className="size-5" />
-            </div>
-            <span>Evals</span>
-          </div>
-        )}
+        title="Evals"
         description="Scored datasets per agent. Run, judge, compare across prompt versions. Each dataset's cases live in YAML at workspace/<org>/evals/<slug>.yaml; runs + per-case results persist in eval_run + eval_case_result."
       />
 

@@ -103,10 +103,12 @@ agent is doing, and able to be talked back to.
    `collisionPadding`, because the rail hugs the viewport's right edge and an
    un-padded panel renders past it.
 7. **Autonomy.** Each conversation has a rung: **Ask before acting** (the
-   default — recommended actions are cards the person taps into the review
-   queue) or **Act within bounds** (recommendations are proposed into the
-   review queue as they arrive and the card says so). Neither executes
-   anything: the review queue and trust rules still gate every outward step.
+   default — recommended actions are cards the person taps into Needs you as
+   proposals) or **Act within bounds** (recommendations are proposed as they
+   arrive and the card says so, linking to the proposal's own screen at
+   `/dashboard/inbox/proposal-:id`). Neither executes anything: the proposal
+   kind on [Needs you](./guides/needs-you.md) and trust rules still gate
+   every outward step.
    The choice persists on the conversation and carries into the next new one
    (Manifesto §8: automation is earned one rung at a time). The control is a
    quiet chip in the surface's header (`AutonomyControl`), stating the current

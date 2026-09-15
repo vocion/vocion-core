@@ -91,7 +91,7 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   await page.getByRole('button', { name: 'Workspace and settings' }).click();
   await page.getByRole('menuitem', { name: 'Manage workspace' }).click();
 
-  await page.getByRole('link', { name: 'Teams', exact: true }).click();
+  await page.getByRole('link', { name: 'Teams & agents', exact: true }).click();
   await page.waitForURL('**/dashboard/teams');
 
   await expect(page.getByText('No teams yet')).toBeVisible();
@@ -165,7 +165,7 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   // Client-side navigation (sidebar → team card), NOT page.goto: a full load
   // re-hydrates and swaps the DOM ~1.5s in, detaching the node an action has
   // already pinned — goto → scrollIntoViewIfNeeded flaked on exactly that.
-  await page.getByRole('link', { name: 'Teams', exact: true }).click();
+  await page.getByRole('link', { name: 'Teams & agents', exact: true }).click();
   await page.waitForURL('**/dashboard/teams');
   await page.getByRole('heading', { name: 'RevOps' }).click();
   await page.waitForURL('**/dashboard/teams/revenue-ops');
@@ -182,7 +182,7 @@ test('F1 storyboard: empty state → seed → org chart → provenance → team 
   await underTheHood.click(); // collapse again
 
   // Close on the org chart (client-side, like every navigation above).
-  await page.getByRole('link', { name: 'Teams', exact: true }).click();
+  await page.getByRole('link', { name: 'Teams & agents', exact: true }).click();
   await page.waitForURL('**/dashboard/teams');
 
   await expect(page.getByRole('heading', { name: 'Revenue Director' })).toBeVisible();

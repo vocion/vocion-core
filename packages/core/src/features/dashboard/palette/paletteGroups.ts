@@ -1,4 +1,5 @@
 import type { DashboardRoute } from '@/features/navigation/dashboardNav';
+import { DASHBOARD_GROUPS } from '@/features/navigation/dashboardNav';
 
 /**
  * Pure model for the ⌘K palette — what the dialog renders, computed away
@@ -24,11 +25,12 @@ export type PaletteRow = {
 
 export type PaletteGroup = { heading: string; rows: PaletteRow[] };
 
-export const ROUTE_GROUP_ORDER = ['Workspace', 'Team', 'Knowledge', 'Build', 'Observability', 'Organization'] as const;
+/** Page headings in registry order — the same order the sidebar's MANAGE view uses, with You (Profile) last. */
+export const ROUTE_GROUP_ORDER: readonly string[] = DASHBOARD_GROUPS.map(g => g.title);
 
 export function buildPaletteGroups(input: {
   query: string;
-  routes: DashboardRoute[];
+  routes: readonly DashboardRoute[];
   isAdmin: boolean;
   agents?: PaletteEntity[];
   teams?: PaletteEntity[];
@@ -52,7 +54,14 @@ export function buildPaletteGroups(input: {
   for (const heading of ROUTE_GROUP_ORDER) {
     const rows = input.routes
       .filter(r => r.group === heading && (input.isAdmin || !r.adminOnly))
-      .map<PaletteRow>(r => ({ value: [r.title, ...(r.keywords ?? [])].join(' '), label: r.title, kind: 'route', url: r.url }));
+      .map<PaletteRow>(r => ({
+        value: [r.title, ...(r.keywords ?? [])].join(' '),
+        label: r.title,
+        // A tab names the page it sits on ("Agents · Teams & agents").
+        hint: r.tabOf ? input.routes.find(o => o.url === r.tabOf)?.title : undefined,
+        kind: 'route',
+        url: r.url,
+      }));
     if (rows.length > 0) {
       groups.push({ heading, rows });
     }

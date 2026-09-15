@@ -1,10 +1,12 @@
+import type { Metadata } from 'next';
 import { eq } from 'drizzle-orm';
 import { ArrowRight, ScrollText, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
+import { combinedPageTitle } from '@/features/navigation/combinedPages';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
@@ -17,7 +19,13 @@ import { skillUsageCounts } from '@/services/ActivityService';
  * context that travels with a skill or an agent. Each row shows its
  * provenance: base (the core pack's version), override (the workspace
  * replaced the base), or workspace (workspace-only).
+ *
+ * The Skills tab of "Skills & tools" (nav sweep, 2026-09-15): what agents
+ * know how to do and what they can reach are one catalog seen two ways;
+ * `/dashboard/tools` and `/dashboard/models` are the other tabs.
  */
+
+export const metadata: Metadata = { title: combinedPageTitle('/dashboard/skills') };
 
 function OriginBadge({ origin }: { origin: string }) {
   if (origin === 'core') {
@@ -122,15 +130,8 @@ export default async function SkillsPage(props: { params: Promise<{ locale: stri
 
   return (
     <>
-      <TitleBar
-        title={(
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Zap className="size-5" />
-            </div>
-            <span>Skills</span>
-          </div>
-        )}
+      <CombinedPageHeader
+        active="/dashboard/skills"
         description="What the team knows how to do. A skill mounts for the agents that name it and is read when the model judges it relevant; a playbook is context attached to a skill or an agent by name. Base rows ship with the platform; the workspace can override any of them by slug."
       />
 
