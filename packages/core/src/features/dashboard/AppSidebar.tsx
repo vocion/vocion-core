@@ -9,6 +9,7 @@ import {
   BookOpen,
   CalendarClock,
   CheckSquare,
+  Code2,
   Compass,
   Cpu,
   Database,
@@ -40,11 +41,11 @@ import { InviteTeamCard } from '@/features/dashboard/InviteTeamCard';
 import { applyPins, withoutPins } from '@/features/dashboard/nav/navPins';
 import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
 import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
+import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { readNavView, writeNavView } from '@/features/dashboard/useNavView';
-import { WorkspaceMenu } from '@/features/dashboard/WorkspaceMenu';
 import { SurfaceNav } from '@/features/navigation/SurfaceNav';
 import { client } from '@/libs/Orpc';
-import { VocionLogo } from '@/templates/VocionLogo';
+import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 
 /**
  * Dashboard left sidebar — two views, Linear-settings style:
@@ -69,6 +70,11 @@ import { VocionLogo } from '@/templates/VocionLogo';
 type NavView = 'work' | 'manage';
 const PAGES_MAX = 7;
 const INVITE_CARD = 'invite-card';
+// The sidebar shows the MARK + wordmark as text (ElevenLabs pattern): never the
+// lockup SVG (its descriptor is unreadable at 24px) and never the tagline —
+// both stay on sign-in, where `VocionLogo` renders them.
+const BRAND_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || VOCION_PRIMARY_MARK;
+const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion';
 
 /** Workspace-defined pages (libs/workspace/pages.ts), grouped for the nav. */
 export type WorkspaceNavPage = {
@@ -142,7 +148,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
   // ---- the three WORK groups ----
   const workspaceItems = [
     { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
-    { title: t('needs_you'), url: '/dashboard/inbox', icon: Inbox, badge: needsYouCount },
+    { title: t('inbox'), url: '/dashboard/inbox', icon: Inbox, badge: needsYouCount },
     { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
     { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
     { title: 'Activity', url: '/dashboard/activity', icon: Activity },
@@ -200,8 +206,11 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
   return (
     <Sidebar {...props}>
       <SidebarHeader className="pt-5">
-        <div className="flex justify-start px-2 pb-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <VocionLogo size="sm" isTextHidden={collapsed} />
+        {/* Brand block — mark + wordmark, nothing else. */}
+        <div className="flex items-center gap-2 px-2 pb-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+          {/* eslint-disable-next-line next/no-img-element */}
+          <img src={BRAND_MARK} alt="" className="h-5 w-auto shrink-0" aria-hidden />
+          {!collapsed && <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">{BRAND_NAME}</span>}
         </div>
       </SidebarHeader>
 
@@ -245,8 +254,11 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                     which workspace you're in + the door to its configuration. */}
                 <div className="mt-auto">
                   {!prefs.dismissed.includes(INVITE_CARD) && <InviteTeamCard onDismiss={() => prefs.dismiss(INVITE_CARD)} />}
-                  <div className="px-2 pb-1 group-data-[collapsible=icon]:hidden">
-                    <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
+                  {/* Developers — API tokens for admins, the in-app docs otherwise. */}
+                  <AppSidebarNav className="py-0" items={[{ title: t('developers'), url: isAdmin ? '/dashboard/api-tokens' : '/dashboard/docs', icon: Code2 }]} />
+                  {/* Workspace context: avatar · name · account · ⇄ Switch. */}
+                  <div className="px-2 pb-2 group-data-[collapsible=icon]:px-0">
+                    <WorkspaceSwitcherLive onManage={() => pick('manage')} />
                   </div>
                 </div>
               </>
@@ -276,8 +288,8 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                 {manageGroup(t('organization_section_label'), ['/dashboard/adoption', '/dashboard/members', '/dashboard/api-tokens', '/dashboard/admin'])}
                 <AppSidebarNav items={[{ title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText }]} />
 
-                <div className="mt-auto px-2 pb-1 group-data-[collapsible=icon]:hidden">
-                  <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
+                <div className="mt-auto px-2 pb-2 group-data-[collapsible=icon]:px-0">
+                  <WorkspaceSwitcherLive onManage={() => pick('manage')} />
                 </div>
               </>
             )}

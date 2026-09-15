@@ -9,20 +9,28 @@
 
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { accountMembershipSchema, projectSchema } from '@/models/Schema';
+import { accountMembershipSchema, projectSchema, tenantAccountSchema } from '@/models/Schema';
 
 export type ProjectSummary = {
   id: string;
   slug: string;
   name: string;
   description: string | null;
+  /** Agents registered in the project — 0 means "nothing lives here yet" (the switcher hides those by default). */
+  agentCount: number;
 };
+
+/** The account a user's workspaces belong to — the switcher's eyebrow. */
+export type AccountSummary = { id: string; name: string; slug: string };
 
 const summaryColumns = {
   id: projectSchema.id,
   slug: projectSchema.slug,
   name: projectSchema.name,
   description: projectSchema.description,
+  // Qualified by hand: inside the subquery drizzle would render `"id"`, which
+  // resolves to agent.id (integer), not project.id.
+  agentCount: sql<number>`(select count(*)::int from "agent" a where a."org_id" = "project"."id")`.as('agent_count'),
 };
 
 /**
@@ -36,6 +44,24 @@ async function accountIdForUser(userId: string): Promise<string | null> {
     .where(eq(accountMembershipSchema.userId, userId))
     .limit(1);
   return membership?.accountId ?? null;
+}
+
+/**
+ * The account the user belongs to, named — the eyebrow above the workspace
+ * switcher ("Metacto"). Null when the user has no membership.
+ * @param userId - Auth.js user id.
+ */
+export async function accountForUser(userId: string): Promise<AccountSummary | null> {
+  const accountId = await accountIdForUser(userId);
+  if (!accountId) {
+    return null;
+  }
+  const [row] = await db
+    .select({ id: tenantAccountSchema.id, name: tenantAccountSchema.name, slug: tenantAccountSchema.slug })
+    .from(tenantAccountSchema)
+    .where(eq(tenantAccountSchema.id, accountId))
+    .limit(1);
+  return row ?? null;
 }
 
 /**

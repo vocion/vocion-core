@@ -1,12 +1,13 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { listProjectsForUser, resolveProjectForUser } from '@/services/ProjectService';
+import { accountForUser, listProjectsForUser, resolveProjectForUser } from '@/services/ProjectService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
 export const list = os.handler(async () => {
   const { userId } = await guardAuth();
-  return { projects: await listProjectsForUser(userId) };
+  const [projects, account] = await Promise.all([listProjectsForUser(userId), accountForUser(userId)]);
+  return { projects, account };
 });
 
 export const setActive = os

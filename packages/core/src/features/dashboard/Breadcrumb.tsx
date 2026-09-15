@@ -10,8 +10,8 @@ import { Link } from '@/libs/I18nNavigation';
  * Shell-bar breadcrumb (B-034b §3): workspace › section › record. Registered
  * routes get their catalog title; deeper segments (slugs, ids) take the
  * page's own `<title>` when it has one, else a humanised slug. Sentence case,
- * muted, the last crumb plain. Hidden at the dashboard root and on the
- * full-page chat, which is its own surface.
+ * muted, the last crumb plain. Starts with the workspace name when the shell
+ * knows it, so "which workspace am I in" is answered top-left of the page.
  */
 
 /** Subscribe to `<title>` changes the same way PageDock does — pages set it after paint. */
@@ -37,7 +37,7 @@ function readTitle() {
   return t;
 }
 
-export function Breadcrumb() {
+export function Breadcrumb({ workspaceName }: { workspaceName?: string | null } = {}) {
   const pathname = usePathname();
   const docTitle = useSyncExternalStore(subscribeTitle, readTitle, () => '');
 
@@ -47,12 +47,13 @@ export function Breadcrumb() {
     return null;
   }
   const segments = parts.slice(start + 1);
-  if (segments.length === 0 || (segments.length === 1 && segments[0] === 'chat')) {
+  const onChat = segments.length === 1 && segments[0] === 'chat';
+  if ((segments.length === 0 || onChat) && !workspaceName) {
     return null;
   }
 
   const sectionTitle = humanizeSegment(segments[0] ?? '');
-  const crumbs = segments.map((seg, i) => {
+  const pageCrumbs = segments.map((seg, i) => {
     const url = `/dashboard/${segments.slice(0, i + 1).join('/')}`;
     const registered = dashboardRouteTitle(url);
     if (registered) {
@@ -62,6 +63,10 @@ export function Breadcrumb() {
     const useDocTitle = last && docTitle !== '' && docTitle !== sectionTitle;
     return { url, label: useDocTitle ? docTitle : humanizeSegment(seg) };
   });
+  // The workspace leads (ElevenLabs/Vercel): "Revenue Team › Needs you › …".
+  // The full-page chat is its own surface, so only the workspace crumb shows there.
+  const tail = onChat ? [] : pageCrumbs;
+  const crumbs = workspaceName ? [{ url: '/dashboard', label: workspaceName }, ...tail] : tail;
 
   return (
     <nav aria-label="Breadcrumb" className="hidden min-w-0 items-center text-[13px] sm:flex">
