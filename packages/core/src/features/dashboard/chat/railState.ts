@@ -13,6 +13,13 @@ export const RAIL_MAX_FRACTION = 0.5;
 export const RAIL_DEFAULT_MIN = 384;
 /** Below this viewport width the rail covers the page as a sheet instead of narrowing it. */
 export const RAIL_SHEET_BREAKPOINT = 1200;
+/**
+ * Below this RAIL width the header's autonomy chip drops its label and shows
+ * its icon alone. Measured, not guessed: at 400px the title plus four 32px
+ * controls plus a ~150px label is the point where the workspace name starts
+ * truncating to nothing.
+ */
+export const RAIL_COMPACT_HEADER_WIDTH = 400;
 
 const WIDTH_KEY = 'vocion_chat_rail_width';
 export const COLLAPSE_KEY = 'vocion_chat_dock_collapsed';

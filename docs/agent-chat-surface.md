@@ -93,14 +93,29 @@ agent is doing, and able to be talked back to.
    threads grouped Today / Yesterday / Older, and a search over titles and
    message content (`conversations.search`, GIN-indexed in production via
    `migrations/concurrent/0094`). The command palette calls the same
-   procedure.
+   procedure. The header itself is ONE hairline-separated row, at most 48px:
+   the workspace mark, the workspace (or record) name as the title, then four
+   equal 32px ghost controls — history, the autonomy chip, the ⋯ menu, the
+   collapse — each with a tooltip. The way out to the full-page chat is a row
+   in the ⋯ menu; it was an underlined "All conversations" link under the
+   title until 2026-09-15, where it read as an error and cost the header a
+   second line. Every popover and tooltip on the surface passes Radix a
+   `collisionPadding`, because the rail hugs the viewport's right edge and an
+   un-padded panel renders past it.
 7. **Autonomy.** Each conversation has a rung: **Ask before acting** (the
    default — recommended actions are cards the person taps into the review
    queue) or **Act within bounds** (recommendations are proposed into the
    review queue as they arrive and the card says so). Neither executes
    anything: the review queue and trust rules still gate every outward step.
    The choice persists on the conversation and carries into the next new one
-   (Manifesto §8: automation is earned one rung at a time).
+   (Manifesto §8: automation is earned one rung at a time). The control is a
+   quiet chip in the surface's header (`AutonomyControl`), stating the current
+   rung and opening a popover with both options and their one-line
+   consequences — **never in the composer**, which holds one input and one
+   primary action. It was two segmented buttons inside the box until
+   2026-09-15; a per-conversation setting does not belong in a per-message
+   control, and it dominated the one it shared a border with. On a rail under
+   400px the chip is its icon alone and the tooltip carries the words.
 8. **Tags.** `@` in the composer tags an agent, team or mission the message is
    about — a chip beside the box, sent as `context_refs`
    (`{ type, id, label }[]`) with the turn, never inlined in the text. `?` on
@@ -149,7 +164,7 @@ agent is doing, and able to be talked back to.
 | Link chips | `features/dashboard/chat/links.ts`, `AgentMessage.tsx` |
 | Feedback | `MessageFeedback.tsx`, `services/ConversationService.ts#setMessageFeedback`, adoption event `chat.feedback` |
 | History + search | `HistoryPopover.tsx`, `services/ConversationService.ts#searchConversations` |
-| Autonomy | `conversation.autonomy`, `RecommendedActionCard.tsx` (`autoPropose`) |
+| Autonomy | `conversation.autonomy`, `AutonomyControl.tsx` + `autonomyOptions.ts` (the header chip), `RecommendedActionCard.tsx` (`autoPropose`) |
 | Routing | `features/dashboard/chat/routing.ts` (default agent, `@` routing, `/search`, workspace chips), `services/agents/delegationRoster.ts` (roster, id-ordered; authored `subagents` win a slug collision in `harness.ts`), `rpc/agent/stream/route.ts` (server default = workspace lead; `context_refs` → `pageContext.ts`) |
 | Entry function | `features/dashboard/chat/agentSurface.ts` |
 | Schema | migration `0094_conversation_feedback_search.sql` (+ `concurrent/0094_conversation_search_idx.sql`) |

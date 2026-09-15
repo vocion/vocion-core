@@ -102,7 +102,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
           <TooltipTrigger asChild>
             <PopoverTrigger
               aria-label={name || t('switch_workspace')}
-              className="mx-auto flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring outline-hidden"
+              className="mx-auto flex size-8 items-center justify-center rounded-lg outline-hidden transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             >
               {avatar}
             </PopoverTrigger>
@@ -113,7 +113,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
     : (
         <PopoverTrigger
           aria-label={t('switch_workspace')}
-          className="group/ws flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring outline-hidden data-[state=open]:bg-surface-hover"
+          className="group/ws flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left outline-hidden transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[state=open]:bg-surface-hover"
         >
           {avatar}
           <span className="min-w-0 flex-1">
@@ -154,7 +154,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
               role="option"
               aria-selected={p.id === active?.id}
               onClick={() => go(p)}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover outline-hidden"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover"
             >
               <span className="grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style={{ background: projectAccent(p.slug) }} aria-hidden>
                 {p.name.charAt(0).toUpperCase()}
@@ -184,7 +184,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
               className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-surface-hover"
             >
               <Settings2 className="size-4 text-muted-foreground" aria-hidden />
-              {t('manage_workspace')}
+              {t('workspace_settings')}
             </button>
           </div>
         )}
@@ -193,7 +193,11 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
   );
 }
 
-/** The live switcher: loads the account + projects once, reads the active project from the session. */
+/**
+ * The live switcher: loads the account + projects once, reads the active project from the session.
+ * @param root0
+ * @param root0.onManage
+ */
 export function WorkspaceSwitcherLive({ onManage }: { onManage?: () => void }) {
   const { data: session } = useSession();
   const { state } = useSidebar();

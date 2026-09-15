@@ -1,17 +1,23 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import { NextIntlClientProvider } from 'next-intl';
+import { useEffect } from 'react';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
+import { openManageView, writeNavView } from '@/features/dashboard/useNavView';
 import en from '@/locales/en.json';
 
 /**
  * The left sidebar after the airy pass: Workspace (permanent pages), Pinned
  * (per-user pins — hover any Pages/Manage row for the pin icon), Pages (the
  * workspace's own pages, seven then "More pages ›"), the dismissible invite
- * card, the workspace row; and the 56px icon rail it collapses to (tooltips
- * carry the labels). Pins/dismissals come from `nav.getPrefs` at runtime, so
- * the story shows the unpinned state; `Expanded` has nine pages to exercise
- * the overflow submenu.
+ * card, the "Manage workspace" row, the workspace row; and the 56px icon rail
+ * it collapses to (tooltips carry the labels). Pins/dismissals come from
+ * `nav.getPrefs` at runtime, so the story shows the unpinned state; `Expanded`
+ * has nine pages to exercise the overflow submenu.
+ *
+ * `ManageView` is the other half of the pair Chris asked back for on
+ * 2026-09-15 ("we lost nav access to workspace settings"): the visible row is
+ * the way in, "Back to work" the way out, and both survive the icon rail.
  */
 const PAGES = [
   { title: 'Deal desk', url: '/dashboard/p/deal-desk', section: 'Pages' },
@@ -25,7 +31,15 @@ const PAGES = [
   { title: 'Backlinks', url: '/dashboard/p/backlinks', section: 'Pages' },
 ];
 
-function Frame({ defaultOpen, needsYouCount, withPages = true }: { defaultOpen: boolean; needsYouCount?: number; withPages?: boolean }) {
+function Frame({ defaultOpen, needsYouCount, withPages = true, manage = false }: { defaultOpen: boolean; needsYouCount?: number; withPages?: boolean; manage?: boolean }) {
+  // The manage view is a sidebar mode restored from localStorage after mount;
+  // the story asks for it the way the header's avatar menu does.
+  useEffect(() => {
+    if (manage) {
+      openManageView();
+    }
+    return () => writeNavView(globalThis.localStorage, 'work');
+  }, [manage]);
   return (
     <NextIntlClientProvider locale="en" messages={en}>
       <SidebarProvider defaultOpen={defaultOpen}>
@@ -51,3 +65,9 @@ type Story = StoryObj<typeof Frame>;
 export const Expanded: Story = { args: { defaultOpen: true, needsYouCount: 3 } };
 export const IconRail: Story = { args: { defaultOpen: false, needsYouCount: 3 } };
 export const NoCustomPages: Story = { args: { defaultOpen: true, needsYouCount: 0, withPages: false } };
+
+/** Everything configurational, with "Back to work" at the top. */
+export const ManageView: Story = { args: { defaultOpen: true, needsYouCount: 3, manage: true } };
+
+/** The manage view in the icon rail — tooltips carry every label, exits included. */
+export const ManageViewIconRail: Story = { args: { defaultOpen: false, needsYouCount: 3, manage: true } };
