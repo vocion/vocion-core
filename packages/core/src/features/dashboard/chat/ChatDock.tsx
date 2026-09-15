@@ -17,6 +17,7 @@ import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from '
 import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
+import { useComposerQueueProps } from './composerQueue';
 import { publishDockOpen } from './dockState';
 import { EmptyState } from './EmptyState';
 import { HistoryPopover } from './HistoryPopover';
@@ -197,6 +198,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     };
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
+  const queueProps = useComposerQueueProps(session);
   const tagSearch = useTagSearch(agents);
   // Latest session for the request listener (registered once, on mount).
   const sessionRef = useRef(session);
@@ -596,8 +598,12 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           value={session.composerValue}
           onChange={session.setComposerValue}
           onSubmit={() => void sendWithComments()}
-          disabled={session.isStreaming || !session.booted}
+          // Streaming no longer disables anything — Enter queues instead.
+          // Boot still does: a message sent before the thread resolves would
+          // be discarded when the restored transcript lands.
+          disabled={!session.booted}
           streaming={session.isStreaming}
+          {...queueProps}
           onStop={session.handleStop}
           placeholder={session.composerPlaceholder}
           commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}

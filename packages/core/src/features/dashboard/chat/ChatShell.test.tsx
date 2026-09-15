@@ -70,7 +70,7 @@ describe('ChatShell', () => {
     expect(client.chatWidget.getState).not.toHaveBeenCalled();
   });
 
-  it('holds a boot skeleton and a disabled composer until the saved-thread lookup settles', async () => {
+  it('holds a boot skeleton and an unarmed Send until the saved-thread lookup settles', async () => {
     // Control exactly when `useLastViewedConversation`'s server round-trip
     // resolves, so we can assert the pre-boot state mid-flight instead of
     // only after everything has already settled. No persisted conversation
@@ -85,15 +85,16 @@ describe('ChatShell', () => {
     await render(wrap(<ChatShell agents={AGENTS} suggestions={[{ label: 'Try this', prompt: 'Do the thing' }]} />));
 
     // Boot is still in flight — the skeleton stands in for the transcript, so
-    // there are no suggestion chips to click yet, and the composer stays
-    // disabled so a message can't be sent (and then silently discarded when
-    // the restored transcript lands).
-    await expect.element(page.getByPlaceholder('Ask anything…')).toBeDisabled();
+    // there are no suggestion chips to click yet, and Send is not armed, so a
+    // message can't be sent (and then silently discarded when the restored
+    // transcript lands). The BOX itself never locks (2026-09-15): people type
+    // their thought while the app catches up.
+    await expect.element(page.getByPlaceholder('Ask anything…')).not.toBeDisabled();
+    await expect.element(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
     expect(page.getByRole('button', { name: 'Try this' }).elements()).toHaveLength(0);
 
     resolveGetState(null);
 
-    await expect.element(page.getByPlaceholder('Ask anything…')).not.toBeDisabled();
     await expect.element(page.getByRole('button', { name: 'Try this' })).not.toBeDisabled();
   });
 });

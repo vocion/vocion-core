@@ -177,7 +177,15 @@
     "feedback_saved": "Thanks — the team reads this on its next cycle.",
     "autonomy": "Autonomy",
     "conversations": "Conversations",
-    "chat_options": "Chat options"
+    "chat_options": "Chat options",
+    "queue_placeholder": "Queue a message… ⌘⏎ to send now",
+    "queue_label": "Queued",
+    "queue_remove": "Remove queued message",
+    "queue_edit": "Edit queued message",
+    "queue_more": "+{count} more",
+    "queue_action": "Queue message",
+    "queue_held": "The turn ended early — these were not sent.",
+    "queue_dismiss": "Dismiss"
   },
   "Review": {
     "all": "All",

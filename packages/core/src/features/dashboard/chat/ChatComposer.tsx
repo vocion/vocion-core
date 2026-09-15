@@ -1,7 +1,8 @@
 'use client';
 
+import type { QueuedMessage } from './queueReducer';
 import type { ContextRef } from './types';
-import { ArrowUp, AtSign, Bot, CircleHelp, Square, Target, Users, X } from 'lucide-react';
+import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, Square, Target, Users, X } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useRef, useState } from 'react';
 
@@ -26,9 +27,18 @@ import { useEffect, useRef, useState } from 'react';
  * action, so it moved to the rail header (`AutonomyControl`), leaving the
  * composer with one primary action (Manifesto §4, §11).
  *
+ * THE BOX NEVER LOCKS (2026-09-15). It used to go `disabled` for the whole
+ * turn, which taught people to stop thinking while the agent thinks. Now
+ * Enter mid-turn QUEUES — the queued lines render as compact rows right above
+ * the box, each droppable with ✕ and clickable to pull back in for an edit,
+ * and they go out in order the moment the turn lands. ⌘⏎ stops the turn and
+ * sends immediately; Esc on an empty box stops it. Enter alone never kills a
+ * running turn.
+ *
  * Stateless about the conversation: the parent owns `value`, `onChange`,
  * `onSubmit`, `disabled` and the tags. Copy for the shortcuts comes from this
- * module, so the component renders in tests with no i18n provider.
+ * module, so the component renders in tests with no i18n provider; the queue
+ * strings are i18n'd by the parent and passed in with English defaults.
  */
 
 export type ChatComposerProps = {
@@ -57,7 +67,57 @@ export type ChatComposerProps = {
   tagSearch?: (q: string) => Promise<ContextRef[]>;
   /** A slash command is armed (`/search …`) — the parent names the mode; rendered as a pill above the box. */
   commandHint?: string;
+  /** Messages typed during this turn, waiting for it to land. Oldest first. */
+  queued?: QueuedMessage[];
+  /** Enter while streaming — append to the queue rather than send. */
+  onQueue?: (text: string) => void;
+  /** The ✕ on a queued row. */
+  onDropQueued?: (id: string) => void;
+  /** Clicking a queued row — it goes back in the box for an edit. */
+  onEditQueued?: (id: string) => void;
+  /** ⌘⏎ / Ctrl+⏎ — stop the running turn and send this message now. */
+  onSendNow?: (text: string) => void;
+  /** A stopped or failed turn left the queue unsent — say so above the box. */
+  queueHeld?: boolean;
+  /** Dismiss the "not sent" notice. */
+  onDismissHeld?: () => void;
+  /** i18n'd queue copy. Every key has an English default so the component renders bare in tests. */
+  copy?: Partial<ComposerCopy>;
 };
+
+/** Everything the queue affordance says, so the parent can translate it. */
+export type ComposerCopy = {
+  /** Placeholder while a turn is running. */
+  streamingPlaceholder: string;
+  /** Header above the queued rows. */
+  queuedLabel: string;
+  /** aria-label on a row's ✕. */
+  removeQueued: string;
+  /** aria-label on a row (clicking edits it). */
+  editQueued: string;
+  /** "+N more" when the list is capped. */
+  moreQueued: (count: number) => string;
+  /** aria-label on the queue (send) button while streaming. */
+  queueAction: string;
+  /** The held-queue notice. */
+  heldNotice: string;
+  /** Dismiss control on the notice. */
+  dismiss: string;
+};
+
+const DEFAULT_COPY: ComposerCopy = {
+  streamingPlaceholder: 'Queue a message… ⌘⏎ to send now',
+  queuedLabel: 'Queued',
+  removeQueued: 'Remove queued message',
+  editQueued: 'Edit queued message',
+  moreQueued: count => `+${count} more`,
+  queueAction: 'Queue message',
+  heldNotice: 'The turn ended early — these were not sent.',
+  dismiss: 'Dismiss',
+};
+
+/** Mobile sanity: queued rows must not eat the viewport. */
+const VISIBLE_QUEUED = 3;
 
 /** Pastes at or above this length become a chip instead of flooding the box. */
 const PASTE_CHIP_THRESHOLD = 400;
@@ -74,7 +134,9 @@ const TAG_ICON: Record<ContextRef['type'], typeof Bot> = {
 };
 
 const SHORTCUTS: Array<[keys: string, what: string]> = [
-  ['Enter', 'Send'],
+  ['Enter', 'Send — or queue, while it is answering'],
+  ['⌘ / Ctrl + Enter', 'Stop the turn and send now'],
+  ['Esc', 'Stop the turn (empty box)'],
   ['Shift + Enter', 'New line'],
   ['@', 'Tag an agent, team or mission'],
   ['/search …', 'Search only — no model in the loop'],
@@ -99,7 +161,17 @@ export function ChatComposer({
   onAddTag,
   tagSearch,
   commandHint,
+  queued = [],
+  onQueue,
+  onDropQueued,
+  onEditQueued,
+  onSendNow,
+  queueHeld = false,
+  onDismissHeld,
+  copy,
 }: ChatComposerProps) {
+  const words = { ...DEFAULT_COPY, ...copy };
+  const [queuedExpanded, setQueuedExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // The `@query` under the caret, when the person is tagging.
@@ -181,11 +253,32 @@ export function ChatComposer({
       setShortcutsOpen(false);
       return;
     }
+    // Esc on an empty box stops the turn (Claude Code's gesture). With text in
+    // the box Esc is left alone — people use it to dismiss things, and losing a
+    // half-typed thought to a stray Esc is worse than one extra click on Stop.
+    if (e.key === 'Escape' && streaming && value.trim().length === 0 && onStop) {
+      e.preventDefault();
+      onStop();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && (value.trim().length > 0 || pastedText || armed)) {
-        onSubmit();
+      const trimmedValue = value.trim();
+      const hasSomething = trimmedValue.length > 0 || Boolean(pastedText) || armed;
+      if (disabled || !hasSomething) {
+        return;
       }
+      // ⌘⏎ / Ctrl+⏎ jumps the running turn. Enter alone always queues — never
+      // surprise somebody by killing a turn they wanted.
+      if (streaming && (e.metaKey || e.ctrlKey) && onSendNow) {
+        onSendNow(value);
+        return;
+      }
+      if (streaming && onQueue) {
+        onQueue(value);
+        return;
+      }
+      onSubmit();
     }
   };
 
@@ -201,7 +294,21 @@ export function ChatComposer({
   };
 
   const trimmed = value.trim();
+  // `disabled` now means only "there is nothing to send to yet" (pre-boot).
+  // Streaming never disables anything — that is the whole point of this file.
   const sendEnabled = !disabled && (trimmed.length > 0 || Boolean(pastedText) || armed);
+  const shownQueued = queuedExpanded ? queued : queued.slice(0, VISIBLE_QUEUED);
+  const hiddenQueued = queued.length - shownQueued.length;
+  const submitPrimary = () => {
+    if (!sendEnabled) {
+      return;
+    }
+    if (streaming && onQueue) {
+      onQueue(value);
+      return;
+    }
+    onSubmit();
+  };
 
   return (
     <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-3 pt-3 pb-3 sm:px-6 sm:pt-4">
@@ -228,6 +335,55 @@ export function ChatComposer({
               );
             })}
           </ul>
+        )}
+        {queued.length > 0 && (
+          <ul data-testid="queued-list" aria-label={words.queuedLabel} className="mb-1.5 flex flex-col gap-1">
+            {shownQueued.map(q => (
+              <li key={q.id} data-testid="queued-row" className="flex min-w-0 items-center gap-2 rounded-xl border border-border bg-surface-soft px-2.5 py-1.5 text-xs">
+                <CornerDownLeft className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+                <button
+                  type="button"
+                  onClick={() => onEditQueued?.(q.id)}
+                  aria-label={`${words.editQueued}: ${q.text.slice(0, 60)}`}
+                  className="min-w-0 flex-1 truncate text-left text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {q.text}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDropQueued?.(q.id)}
+                  aria-label={`${words.removeQueued}: ${q.text.slice(0, 60)}`}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+                >
+                  <X className="size-3.5" aria-hidden />
+                </button>
+              </li>
+            ))}
+            {hiddenQueued > 0 && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setQueuedExpanded(true)}
+                  className="w-full rounded-xl px-2.5 py-1 text-left text-[11px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+                >
+                  {words.moreQueued(hiddenQueued)}
+                </button>
+              </li>
+            )}
+          </ul>
+        )}
+        {queueHeld && queued.length > 0 && (
+          <div data-testid="queue-held" role="status" className="mb-1.5 flex items-center gap-2 rounded-xl border border-border bg-surface-soft px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            <span className="min-w-0 flex-1">{words.heldNotice}</span>
+            <button
+              type="button"
+              onClick={() => onDismissHeld?.()}
+              aria-label={words.dismiss}
+              className="shrink-0 rounded p-0.5 transition-colors hover:bg-surface-hover hover:text-foreground"
+            >
+              <X className="size-3.5" aria-hidden />
+            </button>
+          </div>
         )}
         {(pastedText || tags.length > 0 || commandHint) && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
@@ -271,9 +427,7 @@ export function ChatComposer({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (sendEnabled) {
-                  onSubmit();
-                }
+                submitPrimary();
               }}
               // Restrained focus: a 1px ring in the ring token at low alpha
               // plus a soft ground shift. No halo, no thickened border.
@@ -286,12 +440,13 @@ export function ChatComposer({
                 onChange={e => onChange(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                placeholder={placeholder ?? 'Ask anything…'}
-                disabled={disabled}
+                placeholder={streaming ? words.streamingPlaceholder : (placeholder ?? 'Ask anything…')}
                 rows={1}
+                // Never `disabled`: the box stays live for the whole turn, so
+                // Enter can queue and ⌘⏎ can jump the queue.
                 // 16px on mobile: iOS Safari auto-zooms (and scroll-cuts) any focused
                 // input under 16px. Compact 14px only from sm: up (no mobile zoom).
-                className="flex-1 resize-none border-0 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                className="flex-1 resize-none border-0 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 sm:text-sm"
                 style={{ minHeight: 24, maxHeight: 220 }}
               />
               {tagSearch && (
@@ -302,27 +457,37 @@ export function ChatComposer({
                   <CircleHelp className="size-4" aria-hidden />
                 </PopoverPrimitive.Trigger>
               )}
-              {streaming
-                ? (
-                    <button
-                      type="button"
-                      onClick={() => onStop?.()}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:border-brand-amber hover:text-brand-amber-deep"
-                      aria-label="Stop generating"
-                    >
-                      <Square className="size-3.5 fill-current" aria-hidden="true" />
-                    </button>
-                  )
-                : (
-                    <button
-                      type="submit"
-                      disabled={!sendEnabled}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-amber text-white transition-colors hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50"
-                      aria-label="Send message"
-                    >
-                      <ArrowUp className="size-[18px]" aria-hidden="true" />
-                    </button>
-                  )}
+              {/*
+                * One primary action, still (#345). While streaming with an
+                * empty box it is Stop; the moment there is something to say it
+                * becomes Queue and Stop steps back to a quiet ghost beside it,
+                * because at that point the person's next move is their message,
+                * not the interrupt.
+                */}
+              {streaming && (
+                <button
+                  type="button"
+                  onClick={() => onStop?.()}
+                  className={sendEnabled
+                    ? 'flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground'
+                    : 'flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:border-brand-amber hover:text-brand-amber-deep'}
+                  aria-label="Stop generating"
+                >
+                  <Square className="size-3.5 fill-current" aria-hidden="true" />
+                </button>
+              )}
+              {(!streaming || sendEnabled) && (
+                <button
+                  type="submit"
+                  disabled={!sendEnabled}
+                  className={streaming
+                    ? 'flex size-9 shrink-0 items-center justify-center rounded-full border border-brand-amber/60 bg-brand-amber-tint text-brand-amber-deep transition-colors hover:border-brand-amber hover:bg-brand-amber hover:text-white disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground/50'
+                    : 'flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-amber text-white transition-colors hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50'}
+                  aria-label={streaming ? words.queueAction : 'Send message'}
+                >
+                  <ArrowUp className="size-[18px]" aria-hidden="true" />
+                </button>
+              )}
             </form>
           </PopoverPrimitive.Anchor>
           <PopoverPrimitive.Portal>

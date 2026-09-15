@@ -177,7 +177,15 @@
     "feedback_saved": "Merci — l’équipe la lit à son prochain cycle.",
     "autonomy": "Autonomie",
     "conversations": "Conversations",
-    "chat_options": "Options de discussion"
+    "chat_options": "Options de discussion",
+    "queue_placeholder": "Mettre un message en file… ⌘⏎ pour envoyer maintenant",
+    "queue_label": "En file",
+    "queue_remove": "Retirer le message en file",
+    "queue_edit": "Modifier le message en file",
+    "queue_more": "+{count} de plus",
+    "queue_action": "Mettre le message en file",
+    "queue_held": "Le tour s’est interrompu — ces messages n'ont pas été envoyés.",
+    "queue_dismiss": "Fermer"
   },
   "Review": {
     "all": "Tout",
