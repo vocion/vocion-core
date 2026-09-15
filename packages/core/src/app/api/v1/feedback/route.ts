@@ -3,7 +3,7 @@ import { enqueue, listJobs } from '@/services/FeedbackWorkerService';
 import { authApi, isErrorResponse, jsonError, readJsonBody, readPagination } from '../_shared';
 
 /** Sources the endpoint accepts. Anything else is a client mistake, not a new source. */
-const ACCEPTED_SOURCES = ['api', 'manual', 'slack', 'drive'] as const;
+const ACCEPTED_SOURCES = ['api', 'manual', 'slack', 'drive', 'chat'] as const;
 
 type AcceptedSource = typeof ACCEPTED_SOURCES[number];
 

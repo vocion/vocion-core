@@ -1,8 +1,12 @@
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { MissionRunActions } from '@/features/dashboard/MissionRunActions';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { recordRef } from '@/services/chat/recordContext';
+import { artifactHref } from '@/libs/tools/artifacts/url';
 import { getMissionRun } from '@/services/MissionService';
 
 const TASK_STATUS_TONE: Record<string, string> = {
@@ -17,7 +21,7 @@ const TASK_STATUS_TONE: Record<string, string> = {
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-background p-5">
-      <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</h2>
+      <h2 className="mb-3 text-xs font-medium text-muted-foreground">{title}</h2>
       {children}
     </section>
   );
@@ -41,7 +45,12 @@ export default async function MissionRunPage(props: {
 
   return (
     <>
-      <TitleBar title={run.title} description={`Mission · ${run.status.replace('_', ' ')}`} />
+      <RecordContext record={recordRef('mission_run', run.id, run.title)} />
+      <TitleBar
+        title={run.title}
+        description={`Mission · ${run.status.replace('_', ' ')}`}
+        actions={<AskAboutThis record={recordRef('mission_run', run.id, run.title)} />}
+      />
 
       <div className="mb-5">
         <MissionRunActions runId={run.id} status={run.status} />
@@ -106,7 +115,7 @@ export default async function MissionRunPage(props: {
                 <ul className="flex flex-col gap-1.5 text-sm">
                   {artifacts.map((a, i) => (
                     <li key={i}>
-                      <a href={a.url} className="text-primary hover:underline" target="_blank" rel="noreferrer">
+                      <a href={artifactHref(a.url)} className="text-primary hover:underline" target="_blank" rel="noreferrer">
                         {a.title ?? a.url}
                       </a>
                       <span className="ml-2 text-xs text-muted-foreground">{a.kind}</span>

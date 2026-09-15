@@ -4,11 +4,12 @@ import { NextIntlClientProvider } from 'next-intl';
 import { LeadView } from './LeadDetail';
 
 /**
- * The lead page's two states, one layout: the header and the research context
- * are constant; only the top of the main column changes. State A leads with
- * the decidable card (the SAME run the review queue decides); state B leads
- * with the record of the decision already made. The failure story shows the
- * page a reviewer lands on when briefing ran out of tries.
+ * The lead page's two states, one layout (the Detail archetype): the header
+ * and the research context are constant; only the top of the content column
+ * and the sticky bar change. State A decides the SAME run the review queue
+ * decides; state B leads with the record of the decision already made. The
+ * failure story shows the page a reviewer lands on when briefing ran out of
+ * tries.
  */
 const meta: Meta<typeof LeadView> = {
   title: 'Personalization/LeadPage',
@@ -18,7 +19,9 @@ const meta: Meta<typeof LeadView> = {
   decorators: [
     Story => (
       <NextIntlClientProvider locale="en">
-        <Story />
+        <div className="@container mx-auto max-w-5xl">
+          <Story />
+        </div>
       </NextIntlClientProvider>
     ),
   ],
@@ -110,6 +113,14 @@ export const DecisionWaiting: Story = {
       },
     },
   },
+};
+
+/**
+ * State A beside the conversation: the guided review in the dock owns the
+ * rewrite, so the sends read as text; the sticky bar still decides.
+ */
+export const DecisionWaitingGuided: Story = {
+  args: { ...DecisionWaiting.args, guided: true },
 };
 
 /** State B: no decision waiting. Same page, the decision zone becomes the record. */

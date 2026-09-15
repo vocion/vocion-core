@@ -1,6 +1,6 @@
 'use client';
 
-import type { ChatMessage } from './types';
+import type { ChatMessage, ConversationAutonomy } from './types';
 import { useCallback, useEffect, useRef } from 'react';
 import { AgentMessage } from './AgentMessage';
 import { UserMessage } from './UserMessage';
@@ -39,12 +39,16 @@ export type MessageListProps = {
    * conversation and re-pin the view when they move, like a new message.
    */
   blocks?: Array<{ key: string; afterIndex: number; node: React.ReactNode }>;
+  /** Persists a thumb + note on an assistant turn (0094). */
+  onFeedback?: (messageId: number, rating: 'up' | 'down' | null, note?: string | null) => void | Promise<void>;
+  /** How recommended actions in this thread behave (0094). */
+  autonomy?: ConversationAutonomy;
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [] }: MessageListProps) {
+export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
   // position changes must never themselves cause a re-render.
@@ -95,11 +99,13 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
               : (
                   <AgentMessage
                     message={msg}
-                    agentName={agentName}
+                    agentName={msg.agentName ?? agentName}
                     streaming={streaming && i === lastIdx}
                     activity={i === lastIdx ? activity : undefined}
                     onShowSources={onShowSources}
                     onCitationClick={onCitationClick}
+                    onFeedback={onFeedback}
+                    autonomy={autonomy}
                   />
                 )}
             {blocksAfter(i)}

@@ -51,6 +51,16 @@ export const WorkspaceManifestSchema = z.object({
    * `project.goal`. Omit for none.
    */
   goal: z.string().min(1).optional(),
+  /**
+   * The workspace's mailbox (email as a chat surface). `enabled: true` gives
+   * the workspace `<slug>@<VOCION_MAIL_DOMAIN>` unless `address` names one on
+   * that domain; mail to it is answered by the workspace lead and threads
+   * into a conversation. Applied to `project.mailboxAddress/mailboxEnabled`.
+   */
+  mailbox: z.object({
+    enabled: z.boolean().default(true),
+    address: z.string().email().optional(),
+  }).optional(),
   defaults: z.object({
     model: z.string().optional(),
     temperature: z.string().optional(),

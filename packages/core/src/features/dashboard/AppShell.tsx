@@ -8,6 +8,7 @@ import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
 import { PageDock } from '@/features/dashboard/chat/PageDock';
+import { PageContextProvider } from '@/features/dashboard/context/PageContextProvider';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
@@ -62,6 +63,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             Your session points at a workspace that no longer exists (the database
             was reset or restored). Sign in again to continue.
           </p>
+          {/* eslint-disable-next-line next/no-html-link-for-pages -- an Auth.js route handler, not a page */}
           <a
             href="/api/auth/signout"
             className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"
@@ -78,17 +80,21 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // If the cookie is not set, default to open
   const defaultOpen = cookieStore.get(AppConfig.sidebarCookieName)?.value !== 'false';
 
-  // Agent picker options for the dock. Empty outside an org — the dock
-  // renders nothing rather than a picker with no agents in it.
+  // Agent picker options for the dock (and the ⌘K palette). Empty outside an
+  // org — the dock renders nothing rather than a picker with no agents in it.
   const agents = orgId ? (await loadChatAgentContext(orgId)).agents : [];
   // The "Needs you" badge. Counted in SQL, and a failure here must never take
   // the shell down — a badge that reads 0 is a smaller fault than no page.
   const waiting = orgId ? await needsYouCount(orgId).catch(() => 0) : 0;
+  const isAdmin = has({ role: ORG_ROLE.ADMIN });
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
+      {/* Airy pass (B-034b §3): the sidebar collapses to a 56px icon rail
+          instead of sliding off-canvas; the rail toggle / ⌘B persist it. */}
       <AppSidebar
-        isAdmin={has({ role: ORG_ROLE.ADMIN })}
+        collapsible="icon"
+        isAdmin={isAdmin}
         enabledSurfaces={enabledSurfaces}
         needsYouCount={waiting}
         workspacePages={readWorkspacePages().pages.filter(p => !p.nav.hidden).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
@@ -101,12 +107,18 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
               dock as a third column at a third of the screen, collapsed to a
               button until opened. Record pages that mount their own scoped
               dock inside `children` are skipped by PageDock. */}
-          <div className="flex flex-1 items-stretch">
-            <div className="@container min-w-0 flex-1 px-4 py-4 sm:px-6">
-              {props.children}
+          <PageContextProvider>
+            <div className="flex flex-1 items-stretch">
+              {/* Page gutter (B-034b §3): 24px → 40px, 32px vertical, reading
+                  width capped so prose never runs the whole monitor. */}
+              <div className="@container min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+                <div className="mx-auto w-full max-w-[1180px]">
+                  {props.children}
+                </div>
+              </div>
+              <PageDock agents={agents} />
             </div>
-            <PageDock agents={agents} />
-          </div>
+          </PageContextProvider>
         </ShellBarActionsProvider>
         {(() => {
           const tour = readWorkspaceTour();
@@ -115,7 +127,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             : null;
         })()}
         <WorkspaceDriftBanner />
-        <AgentSurfaceHotkey />
+        <AgentSurfaceHotkey isAdmin={isAdmin} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />
       </SidebarInset>
     </SidebarProvider>
   );

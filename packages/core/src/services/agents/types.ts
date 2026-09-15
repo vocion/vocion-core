@@ -57,6 +57,32 @@ export type RecommendedActionPayload = {
   confidence?: number;
   /** Recommending agent — reconstructs the propose principal on click. */
   agentSlug?: string;
+  /**
+   * Set when the server already filed this recommendation into the review
+   * queue (conversation autonomy `act-within-bounds`): the card shows the
+   * run's status instead of a "Prepare" button. Additive; absent on tap-mode.
+   */
+  runId?: number;
+};
+
+/**
+ * Canvas: something the agent RENDERED — a table, a markdown note, a chart,
+ * a record card, a link — persisted as an `artifact` row (migration 0095)
+ * and emitted so the chat shows the card inline and the canvas places a
+ * tile. `spec` is the card payload without its `__card` slug; the client
+ * resolves it through `libs/cards` with `cardPayloadFor(kind, spec)`.
+ */
+export type ArtifactPayload = {
+  id: number;
+  conversationId: number | null;
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file';
+  title: string;
+  spec: Record<string, unknown>;
+  url?: string | null;
+  /** Slot/span on the conversation's canvas when the tool placed it. */
+  tile?: { slot: number; span: 1 | 2 | 3 } | null;
+  pinned: boolean;
+  createdAt: string;
 };
 
 /* ------------------------------------------------------------------ */
@@ -155,6 +181,8 @@ export type AgentEvent
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
     | { type: 'recommended_action'; recommendation: RecommendedActionPayload }
+    /** Canvas (0095): a rendered artifact — the chat shows the card, the canvas places the tile. */
+    | { type: 'artifact'; artifact: ArtifactPayload }
     | TraceNodeEvent
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     /**
@@ -210,6 +238,12 @@ export type RuntimeContext = {
   missionRunId?: number;
   /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
   conversationId?: number;
+  /**
+   * Where the person is in the app for THIS turn (page, record, selection,
+   * @-mentions) — read by the `page_context` tool. Set per request in
+   * `bindRequestEmit`; undefined for schedules, MCP and API callers.
+   */
+  pageContext?: import('@/services/chat/pageContext').PageContext;
   /** Which harness runs the loop — stamped on tool_call rows. */
   provider?: 'local' | 'agentcore' | 'runtime';
   /** Langfuse trace id of the current turn — links tool_call rows to cost/latency. */

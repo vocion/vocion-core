@@ -14,6 +14,8 @@ import {
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { InspectionPhoto } from '@/features/dashboard/InspectionPhoto';
 import { ObjectAgentActivity } from '@/features/dashboard/ObjectAgentActivity';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -22,6 +24,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { appImageUrl } from '@/libs/aws/s3';
 import { Link } from '@/libs/I18nNavigation';
 import { getBusinessObject } from '@/services/BusinessObjectService';
+import { recordRef } from '@/services/chat/recordContext';
 
 const roleLabels: Record<string, string> = {
   transcript: 'Transcript',
@@ -99,7 +102,9 @@ export default async function ObjectDetailPage(props: {
             </div>
           </div>
         )}
+        actions={<AskAboutThis record={recordRef('object', obj.id, obj.title)} />}
       />
+      <RecordContext record={recordRef('object', obj.id, obj.title)} />
 
       <div className="mb-6 space-y-4">
         {typeof meta.image_url === 'string' && <VisionEngineControl compact />}

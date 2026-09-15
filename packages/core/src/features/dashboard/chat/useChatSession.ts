@@ -5,14 +5,20 @@ import type {
   AgentOption,
   AgentRun,
   ChatMessage,
+  ContextRef,
+  ConversationAutonomy,
   HitlGatePayload,
   IndexedDocument,
   StreamingPhase,
   TraceNode,
 } from './types';
+import type { PageContext } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { client } from '@/libs/Orpc';
+import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
+import { defaultAgentSlug, routeTurn } from './routing';
+import { failToolNode, finalizeTrace, mergeTraceNode } from './traceReducer';
 import { describeToolCall } from './WorkTimeline';
 
 /* ----------------------------------------------------------------- */
@@ -30,23 +36,13 @@ import { describeToolCall } from './WorkTimeline';
 /*     resume the same thread, and so a different browser or device     */
 /*     picks up where the last one left off.                           */
 /*                                                                     */
-/* localStorage wins when both exist: it is this browser's own, more    */
-/* recent record. The server row is the fallback that makes a fresh     */
-/* browser resume instead of starting over.                            */
+/* Both are RECENT pointers, not the current thread (§9, 2026-09-15): a  */
+/* surface opens a NEW conversation unless this browser session was     */
+/* already in one (sessionStorage) or the URL names one. See           */
+/* resumeRule.ts. The pointers still seed the agent and the history.   */
 /* ----------------------------------------------------------------- */
 
 const ACTIVE_CONVERSATION_KEY = 'vocion:chat:active:';
-
-function readActiveConversation(agentSlug: string): number | null {
-  try {
-    const raw = localStorage.getItem(ACTIVE_CONVERSATION_KEY + agentSlug);
-    const id = raw ? Number.parseInt(raw, 10) : Number.NaN;
-    return Number.isInteger(id) && id > 0 ? id : null;
-  } catch (error) {
-    console.warn('useChatSession: could not read the active conversation from localStorage', error);
-    return null;
-  }
-}
 
 function writeActiveConversation(agentSlug: string, id: number): void {
   try {
@@ -96,47 +92,38 @@ function writeStreamStash(stash: StreamStash | null): void {
 }
 
 /**
- * The last agent the user was talking to — restored on refresh so a reload
- *  doesn't kick you back to the workspace default.
+ * The autonomy rung the person last chose — carried into the NEXT new
+ * conversation so the choice survives "New chat" (0094).
  */
-const ACTIVE_AGENT_KEY = 'vocion:chat:agent';
+const AUTONOMY_KEY = 'vocion:chat:autonomy';
 
-function readActiveAgent(): string | null {
+function readPreferredAutonomy(): ConversationAutonomy {
   try {
-    return localStorage.getItem(ACTIVE_AGENT_KEY);
-  } catch (error) {
-    console.warn('useChatSession: could not read the active agent from localStorage', error);
-    return null;
+    return localStorage.getItem(AUTONOMY_KEY) === 'act-within-bounds' ? 'act-within-bounds' : 'ask';
+  } catch {
+    return 'ask';
   }
 }
 
-function writeActiveAgent(slug: string): void {
+function writePreferredAutonomy(a: ConversationAutonomy): void {
   try {
-    localStorage.setItem(ACTIVE_AGENT_KEY, slug);
-  } catch (error) {
-    console.warn('useChatSession: could not save the active agent to localStorage', error);
+    localStorage.setItem(AUTONOMY_KEY, a);
+  } catch {
+    /* storage unavailable */
   }
-}
-
-/**
- * Two timestamps on the same calendar day in the viewer's own timezone.
- * @param a - First timestamp.
- * @param b - Second timestamp.
- */
-function isSameLocalDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear()
-    && a.getMonth() === b.getMonth()
-    && a.getDate() === b.getDate();
 }
 
 /** One persisted conversation row, as the conversations router returns it. */
 type PersistedMessageRow = {
+  id?: number;
   role: 'user' | 'assistant';
   content: string;
   runsJson: unknown;
   documentsJson: unknown;
   traceJson?: unknown;
   confidence: ChatMessage['confidence'];
+  feedbackRating?: string | null;
+  feedbackNote?: string | null;
 };
 
 /**
@@ -157,9 +144,12 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
       documents.push(...docs);
     }
     const trace = Array.isArray(row.traceJson) ? (row.traceJson as TraceNode[]) : undefined;
+    const rating = row.feedbackRating === 'up' || row.feedbackRating === 'down' ? row.feedbackRating : null;
     return {
+      ...(typeof row.id === 'number' ? { id: row.id } : {}),
       role: row.role,
       content: row.content ?? '',
+      ...(row.role === 'assistant' && (rating || row.feedbackNote) ? { feedback: { rating, note: row.feedbackNote ?? null } } : {}),
       ...(runs ? { runs } : {}),
       ...(docs && docs.length > 0 ? { documents: docs } : {}),
       ...(trace && trace.length > 0 ? { trace } : {}),
@@ -195,7 +185,31 @@ export type UseChatSessionOptions = {
    * unqualified question is answered about the page. A scoped session never
    * sets this; the scope already says what the conversation is about.
    */
-  pageContext?: { path: string; title: string };
+  pageContext?: PageContext;
+  /**
+   * A thread the URL names (`?conversation=<id>`): the one case besides a
+   * same-session return where a surface resumes instead of starting fresh
+   * (§9). Null/undefined = decide from the session alone.
+   */
+  resumeConversationId?: number | null;
+  /**
+   * Extension seam for other surfaces (the canvas's `artifact` event, for
+   * one): called with every SSE event BEFORE the built-in reducer. Return
+   * true to claim the event and skip the default handling. `api` exposes the
+   * same primitives the built-in cases use, so an extension can fold state
+   * into the latest assistant message without editing this file.
+   */
+  onEvent?: (evt: { type: string; [k: string]: unknown }, api: ChatSessionEventApi) => boolean | undefined;
+};
+
+/** What an `onEvent` extension may do to the transcript. */
+export type ChatSessionEventApi = {
+  /** Replace the latest assistant message (no-op when the last message is the user's). */
+  appendToLatestAgent: (mutate: (m: ChatMessage) => ChatMessage) => void;
+  /** Fold any buffered text/trace deltas into state first, to keep ordering. */
+  flushDeltas: () => void;
+  /** Set the live activity line ("Rendering table…"); null clears it. */
+  setActivity: (text: string | null) => void;
 };
 
 /**
@@ -216,6 +230,8 @@ export type UseChatSessionOptions = {
  * @param root0.greeting - Empty-state greeting: org eyebrow + workspace name.
  * @param root0.scopeRef
  * @param root0.pageContext
+ * @param root0.resumeConversationId
+ * @param root0.onEvent
  */
 export function useChatSession({
   agents,
@@ -225,12 +241,16 @@ export function useChatSession({
   greeting,
   scopeRef,
   pageContext,
+  resumeConversationId = null,
+  onEvent,
 }: UseChatSessionOptions) {
   // Read at send time through a ref so a route change between turns is
   // reflected without rebuilding `sendMessage`.
   const pageContextRef = useRef(pageContext);
   pageContextRef.current = pageContext;
-  const { state: lastViewed, loading: lastViewedLoading, persist } = useLastViewedConversation();
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
+  const { state: lastViewed, loading: lastViewedLoading, persist, persistRail } = useLastViewedConversation();
 
   // Scoped mode: resolve the user's latest conversation for the record before
   // boot decides anything. `loading` holds the skeleton exactly like the
@@ -239,6 +259,8 @@ export function useChatSession({
     () => ({ loading: Boolean(scopeRef), conv: null }),
   );
   const scopedResumeIdRef = useRef<number | null>(null);
+  // The everything-scoped thread the boot decided to resume (§9), if any.
+  const pendingResumeIdRef = useRef<number | null>(null);
   useEffect(() => {
     if (!scopeRef) {
       return;
@@ -306,6 +328,12 @@ export function useChatSession({
   // (the ⋯ menu on the page, the history panel in the bubble). Refreshed on
   // agent switch and when the list could be stale.
   const [recentChats, setRecentChats] = useState<Array<{ id: number; title: string }>>([]);
+  // How recommended actions behave in this thread (0094). Starts from the
+  // person's last choice; a resumed thread brings its own.
+  const [autonomy, setAutonomyState] = useState<ConversationAutonomy>('ask');
+  // Records the person pointed this turn at with `@` — sent as `context_refs`
+  // beside the message and cleared after the send.
+  const [contextRefs, setContextRefs] = useState<ContextRef[]>([]);
 
   // Callers guarantee at least one entry — the virtual SEARCH_ONLY_AGENT is
   // always appended. `agentSlug` defaults to the workspace lead; if it ever
@@ -449,6 +477,12 @@ export function useChatSession({
   }, []);
 
   const handleEvent = useCallback((evt: { type: string; [k: string]: unknown }) => {
+    // Extension seam first: a surface that knows a new event type (the
+    // canvas's `artifact`, wired in CanvasView) claims it here; everything
+    // else falls through.
+    if (onEventRef.current?.(evt, { appendToLatestAgent, flushDeltas, setActivity })) {
+      return;
+    }
     switch (evt.type) {
       case 'thinking':
         setPhase('thinking');
@@ -468,20 +502,7 @@ export function useChatSession({
         // text), batched onto the animation frame like the other deltas.
         const node = evt as unknown as TraceNode & { delta?: string };
         const map = pendingTraceRef.current;
-        const prev = map.get(node.id);
-        const merged: TraceNode = {
-          ...prev,
-          ...node,
-          text: (prev?.text ?? '') + (node.delta ?? ''),
-          citations: node.citations ?? prev?.citations,
-          result: node.result ?? prev?.result,
-          resultDetail: node.resultDetail ?? prev?.resultDetail,
-          tool: node.tool ?? prev?.tool,
-          args: node.args ?? prev?.args,
-          detail: node.detail ?? prev?.detail,
-        };
-        delete (merged as { delta?: string }).delta;
-        map.set(node.id, merged);
+        map.set(node.id, mergeTraceNode(map.get(node.id), node));
         traceDirtyRef.current = true;
         setActivity(node.label);
         scheduleFlush();
@@ -543,6 +564,32 @@ export function useChatSession({
         });
         return;
       }
+      case 'tool_error': {
+        // A tool threw. Close its in-flight run AND its trace row as errors so
+        // the rail's live row stops spinning and says what happened.
+        flushDeltas();
+        const name = String(evt.tool ?? 'tool');
+        const message = String(evt.message ?? 'tool failed');
+        setActivity(null);
+        appendToLatestAgent((m) => {
+          const runs = m.runs ?? [];
+          let patched = false;
+          const nextRuns = runs.map((run) => {
+            if (!patched && run.type === 'tool' && run.name === name && run.state === 'pending') {
+              patched = true;
+              return { ...run, state: 'error' as const, output: message };
+            }
+            return run;
+          });
+          const trace = m.trace ?? [...pendingTraceRef.current.values()];
+          const nextTrace = failToolNode(trace, name, message);
+          for (const n of nextTrace) {
+            pendingTraceRef.current.set(n.id, n);
+          }
+          return { ...m, runs: nextRuns, trace: nextTrace };
+        });
+        return;
+      }
       case 'documents': {
         flushDeltas();
         const docs = (evt.documents as IndexedDocument[]) ?? [];
@@ -578,7 +625,7 @@ export function useChatSession({
             .filter((run): run is Extract<AgentRun, { type: 'text' }> => run.type === 'text')
             .map(run => run.text)
             .join('\n\n'),
-          trace: (m.trace ?? []).map(n => (n.status === 'error' ? n : { ...n, status: 'done' as const })),
+          trace: finalizeTrace(m.trace),
         }));
         setPhase('idle');
         setActivity(null);
@@ -622,6 +669,9 @@ export function useChatSession({
   const setActiveConversation = useCallback((slug: string, id: number | null) => {
     conversationIdRef.current = id;
     setConversationId(id);
+    // This browser session is now in (or out of) the thread — the one signal
+    // a later mount resumes on (§9).
+    writeSessionConversation(slug, id);
     if (scopeRef) {
       // Scoped threads belong to the record, not to the global pointers —
       // the dock must never steal the full-page chat's resume target.
@@ -635,6 +685,28 @@ export function useChatSession({
     }
     persist({ agentSlug: slug, conversationId: id });
   }, [persist, scopeRef]);
+
+  /**
+   * After a turn lands, learn the persisted id of the assistant row so the
+   * feedback control has something to write against. One small read; the
+   * server appended the row while streaming.
+   */
+  const stampLastAssistantId = useCallback(async () => {
+    const id = conversationIdRef.current;
+    if (id === null) {
+      return;
+    }
+    try {
+      const rows = await client.conversations.tail({ id, limit: 2 });
+      const last = [...rows].reverse().find(r => r.role === 'assistant');
+      if (!last) {
+        return;
+      }
+      appendToLatestAgent(m => (m.id ? m : { ...m, id: last.id }));
+    } catch (error) {
+      console.warn('useChatSession: could not read the persisted message id', error);
+    }
+  }, [appendToLatestAgent]);
 
   // In-flight turn's abort controller (Stop button).
   const abortRef = useRef<AbortController | null>(null);
@@ -704,8 +776,9 @@ export function useChatSession({
           .filter((run): run is Extract<AgentRun, { type: 'text' }> => run.type === 'text')
           .map(run => run.text)
           .join('\n\n'),
-        trace: (m.trace ?? []).map(n => (n.status === 'error' ? n : { ...n, status: 'done' as const })),
+        trace: finalizeTrace(m.trace),
       }));
+      void stampLastAssistantId();
     } catch (error) {
       // Expired/unreachable — drop the placeholder; rehydrate covers the rest.
       console.warn('useChatSession: could not re-attach to the running turn', error);
@@ -769,40 +842,31 @@ export function useChatSession({
       return;
     }
 
-    const storedAgent = readActiveAgent();
-    const serverAgent = lastViewed && agents.some(a => a.slug === lastViewed.agentSlug)
-      ? lastViewed.agentSlug
-      : null;
-    const target = (storedAgent && agents.some(a => a.slug === storedAgent))
-      ? storedAgent
-      : (serverAgent ?? agent.slug);
+    // The workspace lead answers a fresh conversation (§9: one conversation,
+    // one lead) — never the last-used agent. An explicit `agentSlug` option
+    // (a deep link) still wins; a resumed thread brings its own agent below.
+    const target = agentSlug && agents.some(a => a.slug === agentSlug) ? agentSlug : defaultAgentSlug(agents);
     setBootTarget(target);
     if (target !== agent.slug) {
       setCurrentSlug(target);
     }
 
-    // No thread remembered in THIS browser but the user's server-side pointer
-    // has one for the same agent: adopt it, so a new browser or device resumes
-    // instead of starting over. Only same-day — auto-resuming yesterday's
-    // thread is disorienting, and the history picker still reaches it.
-    if (
-      target !== '__search__'
-      && readActiveConversation(target) === null
-      && lastViewed?.conversationId
-      && lastViewed.agentSlug === target
-      && isSameLocalDay(new Date(lastViewed.updatedAt), new Date())
-    ) {
-      writeActiveConversation(target, lastViewed.conversationId);
-    }
-
-    // If a saved thread exists for the target agent, hold the empty state and
-    // let the resume effect reveal the transcript directly (no chip flash).
-    if (target !== '__search__' && readActiveConversation(target) !== null) {
+    // New chat unless intentionally returning (§9): resume only the thread
+    // this browser session was already in, or the one the URL names. The
+    // last-viewed pointer above chose the AGENT; it never chooses the thread.
+    const decision = target === '__search__'
+      ? { resume: false as const, reason: 'fresh' as const }
+      : decideResume({ explicitId: resumeConversationId, sessionId: readSessionConversation(target) });
+    if (decision.resume) {
+      pendingResumeIdRef.current = decision.conversationId;
+      // Hold the empty state and let the resume effect reveal the transcript
+      // directly (no chip flash).
       setResuming(true);
     } else {
+      pendingResumeIdRef.current = null;
       settleBoot();
     }
-  }, [agents, agent.slug, settleBoot, lastViewedLoading, lastViewed, scopeRef, scopedBoot]);
+  }, [agents, agent.slug, agentSlug, settleBoot, lastViewedLoading, scopeRef, scopedBoot, resumeConversationId]);
 
   // Resume the agent's saved thread on mount / agent-switch, so navigating
   // away and back doesn't start over. __search__ is ephemeral and never
@@ -830,7 +894,7 @@ export function useChatSession({
       settleBoot();
       return;
     }
-    const storedId = scopeRef ? scopedResumeIdRef.current : readActiveConversation(slug);
+    const storedId = scopeRef ? scopedResumeIdRef.current : pendingResumeIdRef.current;
     if (storedId === null) {
       // Only reveal the empty state for the agent we're actually booting toward.
       // A hydrate pass for the pre-restore (default) slug must NOT settle — the
@@ -852,6 +916,8 @@ export function useChatSession({
         if (hydrated.length > 0) {
           conversationIdRef.current = storedId;
           setConversationId(storedId);
+          writeSessionConversation(slug, storedId);
+          setAutonomyState(readAutonomy(conv));
           setMessages(hydrated);
           if (restoredDocs.length > 0) {
             setAllDocuments(restoredDocs);
@@ -872,6 +938,7 @@ export function useChatSession({
         } else {
           // Stored id points at an empty/deleted thread — forget it.
           clearActiveConversation(slug);
+          writeSessionConversation(slug, null);
         }
         settleBoot();
       })
@@ -880,6 +947,7 @@ export function useChatSession({
         console.warn('useChatSession: could not resume the saved conversation', storedId, error);
         if (!cancelled) {
           clearActiveConversation(slug);
+          writeSessionConversation(slug, null);
           settleBoot();
         }
       });
@@ -910,12 +978,25 @@ export function useChatSession({
     setPastedText(null);
     setPhase('thinking');
 
+    const refs = contextRefs;
+    setContextRefs([]);
+    // `@agent` / `@team` routes THIS turn to a specialist; the conversation
+    // stays with its own agent and the reply is rendered under the
+    // specialist's name (§9).
+    const routed = routeTurn(refs, agents);
+    const turnAgent = routed ?? agent;
+    if (routed) {
+      appendToLatestAgent(m => ({ ...m, agentSlug: routed.slug, agentName: routed.name }));
+    }
     if (conversationIdRef.current === null && agent.slug !== '__search__') {
       try {
         const conv = await client.conversations.create({ agentSlug: agent.slug, ...(scopeRef ? { scopeRef } : {}) });
         setActiveConversation(agent.slug, conv.id);
-        if (!scopeRef) {
-          writeActiveAgent(agent.slug);
+        if (autonomy !== 'ask') {
+          // The person's standing choice applies to the thread it just created.
+          client.conversations.setAutonomy({ id: conv.id, autonomy }).catch((error) => {
+            console.warn('useChatSession: could not persist the autonomy setting', error);
+          });
         }
       } catch (error) {
         // persistence is best-effort — chat still works ephemerally
@@ -933,8 +1014,12 @@ export function useChatSession({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          agent_slug: agent.slug,
-          ...(pageContextRef.current && !scopeRef ? { page_context: pageContextRef.current } : {}),
+          agent_slug: turnAgent.slug,
+          // R4: page context travels on every surface; a scoped dock also sends
+          // its scope so the server folds it in as a ref (mergeScopeRef).
+          ...(pageContextRef.current ? { page_context: pageContextRef.current } : {}),
+          ...(scopeRef ? { scope_ref: scopeRef } : {}),
+          ...(refs.length > 0 ? { context_refs: refs } : {}),
           // With a conversation attached the server replays its own
           // (authoritative) history and ignores this list.
           ...(activeConversationId !== null ? { conversation_id: activeConversationId } : {}),
@@ -992,12 +1077,13 @@ export function useChatSession({
           .filter((run): run is Extract<AgentRun, { type: 'text' }> => run.type === 'text')
           .map(run => run.text)
           .join('\n\n'),
-        trace: (m.trace ?? []).map(n => (n.status === 'error' ? n : { ...n, status: 'done' as const })),
+        trace: finalizeTrace(m.trace),
       }));
       setPhase('idle');
       setActivity(null);
       streamStashRef.current = null;
       writeStreamStash(null);
+      void stampLastAssistantId();
     } catch (err) {
       flushDeltas();
       setPhase('idle');
@@ -1017,7 +1103,7 @@ export function useChatSession({
           .filter((run): run is Extract<AgentRun, { type: 'text' }> => run.type === 'text')
           .map(run => run.text)
           .join('\n\n'),
-        trace: (m.trace ?? []).map(n => (n.status === 'error' ? n : { ...n, status: aborted ? 'done' as const : n.status })),
+        trace: aborted ? finalizeTrace(m.trace) : (m.trace ?? []),
         ...(aborted
           ? {}
           : { runs: [...(m.runs ?? []), { type: 'tool' as const, name: 'error', state: 'error' as const, output: (err as Error).message }] }),
@@ -1028,7 +1114,7 @@ export function useChatSession({
       // the resume handle. It clears on normal completion / Stop instead.
       abortRef.current = null;
     }
-  }, [agent.slug, messages, isStreaming, pastedText, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation]);
+  }, [agent, agents, messages, isStreaming, pastedText, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId]);
 
   // Abort the in-flight turn (Stop button). The reader loop throws AbortError,
   // which the catch above treats as a clean finalize (no error breadcrumb).
@@ -1089,7 +1175,6 @@ export function useChatSession({
         freshSwitchRef.current = true;
         hydratedSlugRef.current = null;
         setActiveConversation(target, null);
-        writeActiveAgent(target);
         setCurrentSlug(target);
       } else {
         void sendMessage(message);
@@ -1138,17 +1223,24 @@ export function useChatSession({
     setActiveConversation(agent.slug, null);
   }, [resetTranscript, agent.slug, setActiveConversation]);
 
-  // Switching agents shows a fresh chat with that agent (the reported bug was
-  // switching landing you in an old thread). Persist the choice so a refresh
-  // keeps you here; abandon any prior saved thread for that agent.
+  // "Talk directly to a specialist…": a fresh conversation WITH that agent
+  // (§9). The choice lives on that conversation only — a later new chat
+  // opens with the lead again; nothing is remembered across threads.
   const handleSwitchAgent = useCallback((slug: string) => {
     freshSwitchRef.current = true;
     hydratedSlugRef.current = null;
     resetTranscript();
     setActiveConversation(slug, null);
-    writeActiveAgent(slug);
     setCurrentSlug(slug);
   }, [resetTranscript, setActiveConversation]);
+
+  /** The workspace lead — who a fresh conversation opens with. */
+  const leadSlug = defaultAgentSlug(agents);
+  /** True while talking directly to a specialist (or search) rather than the lead. */
+  const isDirect = agent.slug !== leadSlug;
+  const handleBackToLead = useCallback(() => {
+    handleSwitchAgent(leadSlug);
+  }, [handleSwitchAgent, leadSlug]);
 
   // Inline citation tap — open the Sources drawer focused on that `[n]`.
   const handleCitationClick = useCallback((n: number) => {
@@ -1201,10 +1293,10 @@ export function useChatSession({
         // panel is per-agent, but a stale list can still offer one) — follow
         // it rather than appending this agent's turns to someone else's thread.
         hydratedSlugRef.current = slug;
-        writeActiveAgent(slug);
         setCurrentSlug(slug);
       }
       setActiveConversation(slug, id);
+      setAutonomyState(readAutonomy(conv));
       setMessages(hydrated);
       setAllDocuments(restoredDocs);
       setPendingHitl(null);
@@ -1214,6 +1306,60 @@ export function useChatSession({
       console.warn('useChatSession: could not load conversation', id, error);
     }
   }, [agent.slug, setActiveConversation]);
+
+  // The standing preference seeds a fresh thread once on mount (client-only
+  // read, so not during render).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setAutonomyState(readPreferredAutonomy());
+  }, []);
+
+  /**
+   * Change how recommended actions behave in this thread — persisted on the
+   * conversation when one exists, and remembered as the preference for the
+   * next new one (0094).
+   */
+  const setAutonomy = useCallback((next: ConversationAutonomy) => {
+    setAutonomyState(next);
+    writePreferredAutonomy(next);
+    const id = conversationIdRef.current;
+    if (id !== null) {
+      client.conversations.setAutonomy({ id, autonomy: next }).catch((error) => {
+        console.warn('useChatSession: could not persist the autonomy setting', error);
+      });
+    }
+  }, []);
+
+  /**
+   * A thumb (and optional note) on one assistant turn. Optimistic: the
+   * message shows the rating at once; the server write is best-effort and a
+   * failure logs rather than reverting — a thumb is not worth a modal.
+   */
+  const handleFeedback = useCallback(async (messageId: number, rating: 'up' | 'down' | null, note?: string | null) => {
+    setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, feedback: { rating, note: rating ? (note ?? m.feedback?.note ?? null) : null } } : m)));
+    try {
+      await client.conversations.feedback({ messageId, rating, note: note ?? null });
+    } catch (error) {
+      console.warn('useChatSession: could not save feedback', error);
+    }
+  }, []);
+
+  const addContextRef = useCallback((ref: ContextRef) => {
+    setContextRefs(prev => (prev.some(r => r.type === ref.type && r.id === ref.id) ? prev : [...prev, ref]));
+  }, []);
+  const removeContextRef = useCallback((ref: ContextRef) => {
+    setContextRefs(prev => prev.filter(r => !(r.type === ref.type && r.id === ref.id)));
+  }, []);
+
+  /** Threads matching a query — the history popover's search (blank = recent). */
+  const searchConversations = useCallback(async (q: string) => {
+    try {
+      return await client.conversations.search({ q, limit: 20 });
+    } catch (error) {
+      console.warn('useChatSession: conversation search failed', error);
+      return [];
+    }
+  }, []);
 
   return {
     /** The agent this chat is talking to right now. */
@@ -1255,8 +1401,36 @@ export function useChatSession({
     handleRejectHitl,
     handleNewChat,
     handleSwitchAgent,
+    /** The workspace lead's slug; `isDirect` is true while a specialist (or search) is answering instead (§9). */
+    leadSlug,
+    isDirect,
+    handleBackToLead,
     handleCitationClick,
     handleShowSources,
     handlePickConversation,
+    /** How recommended actions behave in this thread (0094). */
+    autonomy,
+    setAutonomy,
+    /** Thumb + note on an assistant turn, by persisted message id. */
+    handleFeedback,
+    /** Records the next message is about (`@` tags). */
+    contextRefs,
+    addContextRef,
+    removeContextRef,
+    /** Search threads by title or content — the history popover. */
+    searchConversations,
+    /** The rail's saved geometry for this user (0094); null until the pointer resolves or when never set. */
+    railState: lastViewed ? { railWidth: lastViewed.railWidth ?? null, railOpen: lastViewed.railOpen ?? null } : null,
+    railLoading: lastViewedLoading,
+    persistRail,
   };
+}
+
+/**
+ * The autonomy rung a persisted conversation carries, defaulting to `ask`.
+ * @param conv - A conversation row as the router returns it.
+ */
+function readAutonomy(conv: unknown): ConversationAutonomy {
+  const a = (conv as { autonomy?: unknown } | null)?.autonomy;
+  return a === 'act-within-bounds' ? 'act-within-bounds' : 'ask';
 }

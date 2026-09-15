@@ -1,4 +1,4 @@
-# Email — the daily team report
+# Email — reports out, and a mailbox per workspace
 
 Vocion can mail a person. Today one thing uses it: the **daily team report**, a
 trailing-24-hour read on what the workforce did — runs, spend and token weight
@@ -171,6 +171,90 @@ Only `worker_run` carries per-run cost, so in-app chat turns that never became
 a worker run show up in the budget column, not the runs column. That is a
 property of the data model (ADR 0004), not of this report.
 
+## A mailbox per workspace
+
+Every workspace can have an address of its own — `revenue@agents.example.com`
+— and whoever runs the workspace in chat answers it in mail: the **workspace
+lead**. Same conversation model, same review queue, one more surface
+(`libs/surfaces/email.ts`, `services/EmailSurfaceService.ts`), the way Slack
+was the first.
+
+**How a mail is handled**
+
+1. Resend receives the mail for the domain (MX record) and POSTs an
+   `email.received` webhook to `/api/webhooks/resend`. The webhook is verified
+   (Svix signature, `RESEND_WEBHOOK_SECRET`) before it is parsed; an unsigned
+   request is a 401. The webhook carries metadata only, so the body is fetched
+   from Resend's receiving API.
+2. The **recipient** address resolves the workspace (`project.mailbox_address`).
+   The sender's address authorises nothing — it decides one thing: whether an
+   agent turn runs. A member of the workspace's account, or its accountable
+   human, gets an answer. Anyone else gets a short acknowledgement and the
+   mail is filed as an `ask` (kind `input`) in the "Needs you" inbox — a person
+   decides whether to reply, let the lead answer, or ignore.
+3. Threading: a reply that names one of our Message-IDs (`In-Reply-To` /
+   `References`) continues that conversation; failing that, the same sender on
+   the same subject within seven days does; otherwise a new conversation opens,
+   titled with the subject, with `conversation.surface = 'email'`. Every mail in
+   or out is recorded in `email_thread`, which is also what drops a redelivered
+   webhook.
+4. The lead runs one turn with the body (quoted history and signature
+   stripped, attachments listed by name — not read) and replies **by email**
+   from the workspace address, `Re:` subject, `In-Reply-To` and `References`
+   set, plain text and simple HTML. Anything the agent proposes lands in the
+   review queue, exactly as it would from chat.
+
+The mailbox is not a second inbox in the app: the conversations it opens sit
+in the lead's history like any other (an envelope chip marks them). Decisions
+stay in "Needs you". One obvious place per job.
+
+**Turn it on**
+
+```bash
+VOCION_EMAIL_SURFACE=1
+VOCION_MAIL_DOMAIN=agents.example.com     # workspaces may only claim addresses here
+RESEND_WEBHOOK_SECRET=whsec_…             # from the webhook you create below
+```
+
+In Resend: the domain must have **receiving enabled** (the MX record it shows
+you); then *Webhooks → Add* → event `email.received` → URL
+`https://<your host>/api/webhooks/resend`, and copy the signing secret into
+`RESEND_WEBHOOK_SECRET`. In the workspace:
+
+```yaml
+# workspace.yaml
+mailbox:
+  enabled: true # → <slug>@VOCION_MAIL_DOMAIN
+  # address: revenue@agents.example.com   # optional, must be on that domain
+```
+
+`workspace:apply` refuses an address off the deployment's domain, and errors if
+`mailbox.enabled` is set with no `VOCION_MAIL_DOMAIN`.
+
+**Outbound identity.** Once a workspace has a mailbox, the mail it sends —
+the daily team report, ask notifications — comes *from* that address
+(`Revenue Team <revenue@agents.example.com>`, `services/mail/workspaceFrom.ts`),
+so a reply threads back into the workspace rather than a no-reply sender.
+
+### Ask notifications by mail — `notify-asks`
+
+```yaml
+# automations/notify-asks.yaml
+slug: notify-asks
+name: Needs-you notifications
+when:
+  schedule: '*/15 * * * *'
+do:
+  job: notify-asks
+  input:
+  # to: [ops@example.com]     # default = the workspace accountableUser
+  # minIntervalMinutes: 15    # never more than one mail per interval per org
+```
+
+One grouped mail per run listing every ask that opened since the last one,
+each with a deep link into `/dashboard/inbox/<id>`; asks are marked notified
+so they are mailed once. With mail off the job reports what it would have sent.
+
 ## Using `sendMail` elsewhere
 
 ```ts
@@ -183,6 +267,7 @@ if (res.skipped) { /* flag off — decide whether that is fine */ }
 - Throws `MailError('MISCONFIGURED')` when the flag is on but a key is missing,
   and `MailError('PROVIDER', …, 502)` when Resend rejects the message.
 - Always pass `text` — some clients render nothing else.
+- `headers` carries `In-Reply-To` / `References` / `Message-ID` for threading; `from` overrides the deployment sender for one message.
 - HTML for mail: one column, table layout, inline styles, no external assets.
   `services/reports/renderDailyTeamReport.ts` is the reference.
 

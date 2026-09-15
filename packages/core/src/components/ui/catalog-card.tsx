@@ -54,14 +54,17 @@ export function CatalogCard({
       href={href}
       data-slot="catalog-card"
       className={cn(
-        'group relative flex flex-col gap-2 rounded-xl border border-border bg-background p-4 transition hover:border-primary/30 hover:shadow-sm',
+        // Airy pass (B-034b §2): 1px hairline at 6%, no shadow, no accent bar — the
+        // accent moves to a 6px dot before the title.
+        'group relative flex flex-col gap-2 rounded-xl border border-border/70 bg-background p-4 transition-colors hover:bg-surface-hover',
         className,
       )}
-      style={accentColor ? { borderLeftColor: accentColor, borderLeftWidth: 3 } : undefined}
     >
       <div className="flex items-center gap-2">
-        <Icon className="size-4 text-[var(--brand-amber-deep)]" aria-hidden />
-        <span className="font-display text-sm leading-tight font-semibold">{title}</span>
+        {accentColor
+          ? <span className="size-1.5 shrink-0 rounded-full" style={{ background: accentColor }} aria-hidden />
+          : <Icon className="size-4 text-muted-foreground" aria-hidden />}
+        <span className="text-sm leading-tight font-semibold">{title}</span>
         {status && (
           <span className="ml-auto">
             <StatusPill status={status} size="sm" />

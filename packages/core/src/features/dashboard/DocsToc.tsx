@@ -63,7 +63,7 @@ export function DocsToc() {
 
   return (
     <nav className="hidden text-sm lg:block" aria-label="On this page">
-      <div className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+      <div className="mb-2 text-xs font-medium text-muted-foreground">
         On this page
       </div>
       <ul className="space-y-1.5 border-l border-border">

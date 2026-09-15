@@ -218,6 +218,13 @@ export const projectSchema = pgTable(
      * `goal:` in workspace.yaml. NULL = none stated.
      */
     goal: text('goal'),
+    /**
+     * The workspace's mailbox (migration 0097): the address people write to,
+     * answered by the workspace lead. Authored as `mailbox:` in workspace.yaml;
+     * default address `<slug>@<VOCION_MAIL_DOMAIN>`. Null/false = no mailbox.
+     */
+    mailboxAddress: text('mailbox_address'),
+    mailboxEnabled: boolean('mailbox_enabled').default(false).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1229,6 +1236,29 @@ export const conversationSchema = pgTable(
      * (orgId, scopeRef, createdBy). See agent-chat-surface.md §3.1, §8.6.
      */
     scopeRef: text('scope_ref'),
+    /**
+     * Where the conversation STARTED: the page context of its first turn
+     * (path, title, the record the page was about, the highlighted passage).
+     * Set once; later turns carry their own context on the wire only. Null
+     * for threads opened from the hotkey or the full-page chat with nothing
+     * in view. Shape: `PageContext` in services/chat/pageContext.ts.
+     */
+    contextJson: jsonb('context_json').$type<import('@/services/chat/pageContext').PageContext>(),
+    /**
+     * How recommended actions behave in this thread (0094): `ask` — each
+     * recommendation is a card the person taps into the review queue;
+     * `act-within-bounds` — recommendations are proposed as they arrive and
+     * the card reports "in review". Neither executes anything; the review
+     * queue and trust rules still gate every outward action. Text, not an
+     * enum, so a new rung is a code change.
+     */
+    autonomy: text('autonomy').default('ask').notNull(),
+    /**
+     * Where the conversation started (migration 0097): 'app' (the dock or the
+     * full page), 'slack', 'email'. Presentation hint for history — an
+     * envelope chip on a thread that began as a mail — never authorisation.
+     */
+    surface: text('surface').default('app').notNull(),
     messageCount: integer('message_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -1237,6 +1267,9 @@ export const conversationSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
+    // Full-text search over titles for the rail's history search. Built
+    // CONCURRENTLY in migrations/concurrent/0094 — declared here for the ORM.
+    index('conversation_title_fts_idx').using('gin', sql`to_tsvector('simple', ${table.title})`),
     // Not unique. It serves `listConversations`, which filters on org and agent
     // and sorts by `updated_at` — a sort key, not an identity. Uniqueness only
     // meant that two conversations with one agent landing in the same
@@ -1317,8 +1350,21 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    * AgentMessage.
    */
   confidence: text('confidence'),
+  /**
+   * A thumb on this assistant turn (0094): `up` | `down` | null. The optional
+   * note beside it is what teaches the system — queued for the feedback
+   * classifier and, when it proposes a rule, a pending learning candidate.
+   */
+  feedbackRating: text('feedback_rating'),
+  feedbackNote: text('feedback_note'),
+  feedbackAt: timestamp('feedback_at', { mode: 'date' }),
+  feedbackBy: text('feedback_by'),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-});
+}, table => [
+  // Full-text search over message content for the rail's history search.
+  // Built CONCURRENTLY in migrations/concurrent/0094 — declared here for the ORM.
+  index('conversation_message_content_fts_idx').using('gin', sql`to_tsvector('simple', ${table.content})`),
+]);
 
 /**
  * anchored_comment — the reviewer's notes ON a span of a document, kept
@@ -1387,6 +1433,29 @@ export const conversationMessageRelations = relations(conversationMessageSchema,
 // not necessarily messaged. Read on mount by both the full-page chat and
 // the floating chat bubble so either surface resumes exactly where the
 // other left off.
+/**
+ * Per-user sidebar preferences: pinned nav URLs in pin order and dismissed
+ * shell prompts. One row per (org, user); localStorage is the fast path and
+ * this is the cross-device truth. Migration 0098.
+ */
+export const userNavPrefSchema = pgTable(
+  'user_nav_pref',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    pins: jsonb('pins').$type<string[]>().default([]).notNull(),
+    dismissed: jsonb('dismissed').$type<string[]>().default([]).notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('user_nav_pref_org_user_idx').on(table.orgId, table.userId),
+  ],
+);
+
 export const chatWidgetStateSchema = pgTable(
   'chat_widget_state',
   {
@@ -1395,6 +1464,13 @@ export const chatWidgetStateSchema = pgTable(
     userId: text('user_id').notNull(),
     agentSlug: text('agent_slug').notNull(),
     conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
+    /**
+     * The rail's width in px and whether it is open (0094), so a second
+     * browser opens it the way the first left it. localStorage is the fast
+     * path; this row is what a new device reads. Null = never set.
+     */
+    railWidth: integer('rail_width'),
+    railOpen: boolean('rail_open'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -2977,5 +3053,96 @@ export const chatChannelBindingSchema = pgTable(
   table => [
     uniqueIndex('chat_channel_binding_surface_channel_idx').on(table.surface, table.channelId, table.teamId),
     index('chat_channel_binding_org_idx').on(table.orgId),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Canvas — rendered output as data (migration 0095)                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * canvas — a named, saved arrangement of artifacts beside a conversation.
+ * `layout` mirrors each pinned artifact's `tile` at save time so a canvas can
+ * be reopened even after tiles move on the live conversation. Exportable as a
+ * workspace page (`libs/canvas/exportPage.ts`).
+ */
+export const canvasSchema = pgTable(
+  'canvas',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    layout: jsonb('layout').$type<Array<{ artifactId: number; slot: number; span: 1 | 2 | 3 }>>().default([]).notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => [
+    index('canvas_org_updated_idx').on(table.orgId, table.updatedAt),
+  ],
+);
+
+/**
+ * artifact — one thing an agent rendered: a data table, a markdown note, a
+ * chart, a record card, a link, or a file. `spec` is the typed card payload
+ * that `libs/cards` renders on the chat and canvas surfaces (validated by the
+ * `render_*` tool that wrote it). `tile` is its slot/span on the
+ * conversation's canvas; `pinned` = shown there. Files (the pre-0095
+ * `create_artifact` path) keep their served `url`.
+ */
+export const artifactSchema = pgTable(
+  'artifact',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
+    messageId: integer('message_id'),
+    canvasId: integer('canvas_id').references(() => canvasSchema.id, { onDelete: 'set null' }),
+    /** 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' */
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    spec: jsonb('spec').$type<Record<string, unknown>>().default({}).notNull(),
+    url: text('url'),
+    tile: jsonb('tile').$type<{ slot: number; span: 1 | 2 | 3 }>(),
+    pinned: boolean('pinned').default(true).notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => [
+    index('artifact_org_conversation_idx').on(table.orgId, table.conversationId, table.createdAt),
+    index('artifact_org_canvas_idx').on(table.orgId, table.canvasId),
+  ],
+);
+
+/**
+ * Email threading for the mailbox surface (migration 0097). One row per mail
+ * in or out of a conversation, keyed by RFC 5322 Message-ID, so a reply
+ * carrying In-Reply-To / References finds its conversation, and a redelivered
+ * webhook (same `received_email_id`) is dropped before it runs an agent twice.
+ */
+export const emailThreadSchema = pgTable(
+  'email_thread',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    conversationId: integer('conversation_id').notNull().references(() => conversationSchema.id, { onDelete: 'cascade' }),
+    /** RFC 5322 Message-ID, angle brackets stripped. */
+    messageId: text('message_id').notNull(),
+    /** Resend's id for a received email — the idempotency key for the webhook. */
+    receivedEmailId: text('received_email_id'),
+    /** 'in' (a person wrote to the workspace) | 'out' (the workspace replied). */
+    direction: text('direction').notNull(),
+    fromAddress: text('from_address'),
+    subject: text('subject'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('email_thread_org_message_id_uq').on(table.orgId, table.messageId),
+    uniqueIndex('email_thread_received_email_id_uq').on(table.receivedEmailId).where(sql`${table.receivedEmailId} IS NOT NULL`),
+    index('email_thread_conversation_idx').on(table.conversationId),
   ],
 );
