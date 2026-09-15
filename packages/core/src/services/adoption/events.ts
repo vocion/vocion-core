@@ -147,6 +147,18 @@ export const ADOPTION_EVENTS = {
     meta: z.object({ decision: z.enum(['approved', 'rejected']) }),
   },
   /**
+   * A person answered an ask — a ruling, an approval, a credential, a merge, a
+   * recommendation, a gate. Nothing executes on a decision, so the outcome is
+   * the status the ask landed in. `kind` says what sort of thing was waiting.
+   */
+  'ask.decided': {
+    agent: true,
+    meta: z.object({
+      kind: z.enum(['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate']),
+      status: z.enum(['approved', 'rejected', 'done', 'superseded']),
+    }),
+  },
+  /**
    * One assessed call = one event, whoever ordered it (scheduled mission
    * check or a chat turn). The drill-down pointer to the ledger:
    * `resource: ['discovery_candidate', id]`. Metadata is enum-and-boolean

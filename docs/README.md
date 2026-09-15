@@ -20,7 +20,7 @@ default, and effect, plus a worked example and the rules the loader enforces.
 | [Workspace manifest](./entities/workspace-manifest.md) | `workspace.yaml` | The workspace's identity, defaults, lead, surfaces, and base-pack pin |
 | [Base pack](./entities/base-pack.md) | `packages/core/templates/base/pack.yaml` | The reusable layer that loads underneath a workspace, and how activation and overrides work |
 | [Agent](./entities/agent.md) | `agents/<slug>.yaml` | An LLM orchestrator: prompt, hierarchy, what it may reach, harness settings |
-| [Team](./entities/team.md) | `teams/<slug>.yaml` | A group of agents under a lead, with an accountable human |
+| [Team](./entities/team.md) | `teams/<slug>.yaml` | A group of agents under a lead, with an accountable human, a goal, and the KPIs it is graded on |
 | [Skill](./entities/skill.md) | `skills/<slug>/SKILL.md` | A unit of work the agent reads on its own judgement |
 | [Playbook](./entities/playbook.md) | `playbooks/<slug>/SKILL.md` | Standing context attached to a skill or an agent by name |
 | [Mission](./entities/mission.md) | `missions/<slug>.yaml` | A standing responsibility: goal, success criteria, autonomy |
@@ -31,6 +31,7 @@ default, and effect, plus a worked example and the rules the loader enforces.
 | [Trust rules](./entities/trust.md) | `trust.yaml` | Which actions may auto-execute, and above what confidence |
 | [Learning step](./entities/learning-step.md) | `learnings/<name>.yaml` | A named bucket of accumulated rules an agent reads |
 | [Eval dataset](./entities/eval-dataset.md) | `evals/<slug>.yaml` | Test cases for one agent, graded on substance |
+| [Ask](./entities/ask.md) | runtime — `POST /api/v1/asks` | One question waiting on a person, answered on the Needs-you page or over the API |
 | [Workspace page](./workspace-pages.md) | `pages/<slug>.yaml` | A tenant-defined dashboard page, derived from a core page archetype |
 
 Workspace pages keep their own page because they are file-only: nothing is

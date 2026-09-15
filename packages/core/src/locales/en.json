@@ -12,6 +12,7 @@
     "observability_section_label": "Observability",
     "organization_section_label": "Organization",
     "chat": "Chat",
+    "inbox": "Needs you",
     "search": "Search",
     "review": "Review",
     "observability": "Observability",
@@ -24,7 +25,8 @@
     "learnings": "Learnings",
     "evals": "Evals",
     "docs": "Docs",
-    "adoption": "Adoption"
+    "adoption": "Adoption",
+    "team_report": "Team report"
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",

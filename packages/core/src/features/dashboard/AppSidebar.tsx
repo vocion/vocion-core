@@ -12,7 +12,9 @@ import {
   Cpu,
   Database,
   FileText,
+  Gauge,
   GitBranch,
+  Inbox,
   KeyRound,
   LineChart,
   MessageSquare,
@@ -40,8 +42,8 @@ import { VocionLogo } from '@/templates/VocionLogo';
 /**
  * Dashboard left sidebar — two views, Linear-settings style:
  *
- *   WORK (default) — the daily surface only: chat, briefings, review,
- *                    activity, search. Pure navigation, no chrome.
+ *   WORK (default) — the daily surface only: chat, needs-you, briefings,
+ *                    review, activity, search. Pure navigation, no chrome.
  *   MANAGE         — entered via the quiet "Manage workspace" item at the
  *                    BOTTOM of the work view; swaps the sidebar into the
  *                    configuration sections with "Back to work" at top.
@@ -63,13 +65,15 @@ export type WorkspaceNavPage = {
   section: string;
 };
 
-export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePages = [], ...props }: React.ComponentProps<typeof Sidebar> & {
+export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePages = [], needsYouCount = 0, ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
   /** Optional surfaces the workspace switched on — see `features/navigation/surfaces.ts`. */
   enabledSurfaces?: SurfaceId[];
   /** Tenant pages from the workspace's pages/ dir — rendered as their own WORK sections. */
   workspacePages?: WorkspaceNavPage[];
+  /** How many things are waiting on a person — the badge on "Needs you". */
+  needsYouCount?: number;
 }) => {
   const t = useTranslations('DashboardLayout');
   const [view, setView] = useState<NavView>('work');
@@ -114,6 +118,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   label={t('main_section_label')}
                   items={[
                     { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
+                    { title: t('inbox'), url: '/dashboard/inbox', icon: Inbox, badge: needsYouCount },
                     { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
                     { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
                     { title: 'Activity', url: '/dashboard/activity', icon: Activity },
@@ -189,6 +194,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   label={t('observability_section_label')}
                   items={[
                     { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
+                    { title: t('team_report'), url: '/dashboard/team-report', icon: Gauge },
                   ]}
                 />
 

@@ -17,6 +17,7 @@ import { db } from '@/libs/DB';
 import { readWorkspacePages } from '@/libs/workspace/pages';
 import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
+import { needsYouCount } from '@/services/InboxService';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
 
@@ -76,12 +77,16 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // Agent picker options for the dock. Empty outside an org — the dock
   // renders nothing rather than a picker with no agents in it.
   const agents = orgId ? (await loadChatAgentContext(orgId)).agents : [];
+  // The "Needs you" badge. Counted in SQL, and a failure here must never take
+  // the shell down — a badge that reads 0 is a smaller fault than no page.
+  const waiting = orgId ? await needsYouCount(orgId).catch(() => 0) : 0;
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <AppSidebar
         isAdmin={has({ role: ORG_ROLE.ADMIN })}
         enabledSurfaces={enabledSurfaces}
+        needsYouCount={waiting}
         workspacePages={readWorkspacePages().pages.filter(p => !p.nav.hidden).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
       />
       <SidebarInset>

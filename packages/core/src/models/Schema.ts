@@ -212,6 +212,12 @@ export const projectSchema = pgTable(
      * back to its full pass.
      */
     regenerateSkills: jsonb('regenerate_skills').$type<Record<string, string>>(),
+    /**
+     * The workspace's top-line goal — one sentence every team's weight and
+     * progress is read against on the team report. Authored as top-level
+     * `goal:` in workspace.yaml. NULL = none stated.
+     */
+    goal: text('goal'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -729,6 +735,22 @@ export const agentSchema = pgTable(
  * (F3) and feedback routing (F4) — those land as FKs to `team.id`,
  * zero columns here now.
  */
+/**
+ * One team KPI as stored on `team.kpis`. `source` names what is counted:
+ * `counts.<key>` sums that key of `worker_run.counts` over the team's agents,
+ * within `window` (default: all time).
+ */
+export type TeamKpi = {
+  key: string;
+  label: string;
+  target: number;
+  /** Where the reading stood when the contract was set; progress is measured from here. */
+  baseline?: number;
+  unit?: string;
+  source: string;
+  window?: '24h' | '7d' | 'all';
+};
+
 export const teamSchema = pgTable(
   'team',
   {
@@ -751,6 +773,14 @@ export const teamSchema = pgTable(
      * resolved at read time (TeamService), never baked into the row.
      */
     accountableUserId: text('accountable_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
+    /** The team's standing goal, authored as `goal:` in teams/<slug>.yaml. */
+    goal: text('goal'),
+    /**
+     * The measures the team is graded on (F3). Each reads a `worker_run.counts`
+     * key summed over the team's agents, so progress is computed at read
+     * time from what the workers report — never stored. Authored as `kpis:`.
+     */
+    kpis: jsonb('kpis').$type<TeamKpi[]>().default([]).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -2755,8 +2785,19 @@ export const workerRunSchema = pgTable(
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
     agentSlug: text('agent_slug').notNull(),
+    /**
+     * What sort of run: `lead` (a lead's planning/dispatch cycle), `board`
+     * (the board-level review of the whole company), `worker` (one dispatched
+     * job — the default), `red-team` (an adversarial grade), `compact`
+     * (bookkeeping), `snapshot` (a periodic state report). Text, like status.
+     */
+    kind: text('kind').default('worker').notNull(),
     /** `queued` | `running` | `paused` | `awaiting_review` | `completed` | `failed` | `cancelled` | `lost` */
     status: text('status').default('queued').notNull(),
+    /** The model the worker reported (first heartbeat's `usage.model`, or set at create). */
+    model: text('model'),
+    /** The worker's own one-paragraph account of the run, set on complete. */
+    summary: text('summary'),
     /** What the worker was asked to do — free-form, worker-defined. */
     input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
     /** Whoever holds the lease. Set on claim; a re-claim after `lost` bumps `attempt`. */
@@ -2794,6 +2835,83 @@ export const workerRunSchema = pgTable(
     index('worker_run_org_status_idx').on(table.orgId, table.status),
     index('worker_run_org_agent_idx').on(table.orgId, table.agentSlug),
     index('worker_run_lease_idx').on(table.status, table.leaseExpiresAt),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Asks — everything that is waiting on a human (migration 0089)        */
+/* ------------------------------------------------------------------ */
+
+/** One named answer to an ask. `recommended` is set on at most one per ask. */
+export type AskOption = {
+  id: string;
+  label: string;
+  description?: string;
+  recommended?: boolean;
+};
+
+/**
+ * One QUESTION waiting on a PERSON: an approval, a ruling, an input or
+ * credential, a merge, a recommendation, a gate. Unlike `action_run` nothing
+ * executes when it is answered — the answer IS the outcome, and whoever filed
+ * the ask (an agent, an external worker, a sync script) reads it back.
+ *
+ * Shaped to be answered from a phone: a short `body` (the question and a few
+ * lines of why), named `options`, always a free-text "other" answer, the long
+ * form behind `context_url` / `context_md`. `group_key` gathers several asks
+ * into one decision sheet answered as a stepper.
+ *
+ * `source_ref` is the idempotency key for asks mirrored in from outside
+ * (`workforce:approvals/003-…`): unique per org when present, so re-filing the
+ * same item updates it instead of doubling it.
+ */
+export const askSchema = pgTable(
+  'ask',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id'),
+    /** `approval` | `input` | `ruling` | `credential` | `merge` | `recommendation` | `gate` */
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    /** Markdown, SHORT: the question plus 2–4 lines of why or what happens. */
+    body: text('body'),
+    sourceRef: text('source_ref'),
+    agentSlug: text('agent_slug'),
+    teamSlug: text('team_slug'),
+    /** `low` | `medium` | `high` */
+    risk: text('risk'),
+    /** Named answers. The free-text "other" answer is always available on top. */
+    options: jsonb('options').$type<AskOption[]>().default([]).notNull(),
+    /** Several asks sharing a key form one decision sheet. */
+    groupKey: text('group_key'),
+    groupTitle: text('group_title'),
+    /** The long form — the approval file, the PR, the run. */
+    contextUrl: text('context_url'),
+    /** Optional collapsed "Details" markdown. */
+    contextMd: text('context_md'),
+    /** `open` | `approved` | `rejected` | `done` | `superseded` */
+    status: text('status').default('open').notNull(),
+    /** What was chosen: `approve`, `reject`, `done`, `other`, or an option id. */
+    decision: text('decision'),
+    decisionNote: text('decision_note'),
+    /** An "other" answer on a ruling/approval/recommendation: the asker must read the note and may re-ask. */
+    followUp: boolean('follow_up').default(false).notNull(),
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { mode: 'date' }),
+    dueAt: timestamp('due_at', { mode: 'date' }),
+    /** Earliest time a notifier may ping about this ask; null = whenever. */
+    notifyAt: timestamp('notify_at', { mode: 'date' }),
+    notified: boolean('notified').default(false).notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('ask_org_status_idx').on(table.orgId, table.status),
+    index('ask_org_agent_idx').on(table.orgId, table.agentSlug),
+    index('ask_org_group_idx').on(table.orgId, table.groupKey),
+    uniqueIndex('ask_org_source_ref_uq').on(table.orgId, table.sourceRef).where(sql`${table.sourceRef} IS NOT NULL`),
   ],
 );
 

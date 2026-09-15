@@ -4,9 +4,11 @@ export const size = { width: 32, height: 32 };
 export const contentType = 'image/png';
 
 /**
- * Dynamic favicon — the Vocion mark (three rising bars) rendered at
- * 32×32. Served as /icon by Next; takes precedence over public/favicon.ico
- * in browsers that request App Router icons.
+ * Dynamic favicon — the Vocion governed-path V mark, mono-white on Vocion Ink,
+ * matching vocion.ai's `app/icon.tsx`. One colour at 32px for crispness; the
+ * gradient rails belong to larger sizes (see `apple-icon.tsx`). Served as
+ * /icon by Next; takes precedence over public/favicon.ico in browsers that
+ * request App Router icons.
  */
 export default function Icon() {
   return new ImageResponse(
@@ -18,15 +20,13 @@ export default function Icon() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#0a0a0a',
-          color: '#f5f5f5',
-          borderRadius: 6,
+          background: '#0B1020',
+          borderRadius: 7,
         }}
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-          <rect x="3" y="14" width="4" height="7" rx="1" />
-          <rect x="10" y="9" width="4" height="12" rx="1" />
-          <rect x="17" y="4" width="4" height="17" rx="1" />
+        {/* Simplified glyph for the smallest size: the outer rail only. */}
+        <svg width="26" height="19" viewBox="0 0 180 130" fill="none">
+          <path d="M24 22 L74 106 L136 16" stroke="#F2F5FB" strokeWidth="30" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
     ),
