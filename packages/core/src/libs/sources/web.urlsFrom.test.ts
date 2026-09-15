@@ -9,6 +9,13 @@
  * that is down for an hour must never be able to delete a source. And every
  * entry is checked against `^https?:` on top of zod, because zod 4's `.url()`
  * waves `file://` and `javascript:` straight through.
+ *
+ * The last block here pins what a listed URL MEANS. Alone it is one document,
+ * as it always was. Alongside a `crawl` block it is a listing SEED and gets
+ * the same feed-first selection `crawl.startUrl` gets, which is the shape a
+ * registry-driven source is in: one entry URL per site, and the sites that
+ * publish an ics feed must be read from the feed rather than as one 800 KB
+ * page of HTML.
  */
 import type { SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
@@ -19,6 +26,30 @@ type Progress = { kind: string; uri?: string; message?: string };
 
 const REGISTRY = 'https://registry.test/sources';
 const PAGE_HTML = '<!doctype html><html><head><title>A page</title></head><body><main><p>Body text.</p></main></body></html>';
+
+/** The one URL a registry answers with, a site's events listing. */
+const SEED = 'https://venue.test/events/';
+/** The feed that listing advertises. */
+const SEED_ICS = 'https://venue.test/events.ics';
+/** A detail page linked from the listing. */
+const SEED_DETAIL = 'https://venue.test/shows/opening';
+/** A `crawl.startUrl` no test wants read: the listed seeds are what count. */
+const START_URL = 'https://venue.test/never-used/';
+
+const TWO_EVENT_ICS = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Venue//EN
+BEGIN:VEVENT
+UID:evt-1@venue.test
+SUMMARY:Opening Night
+DTSTART;TZID=America/New_York:20261101T193000
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-2@venue.test
+SUMMARY:Second Night
+DTSTART;TZID=America/New_York:20261108T193000
+END:VEVENT
+END:VCALENDAR`;
 
 /**
  * Answer every fetch from one handler, and remember the calls.
@@ -40,6 +71,27 @@ function stubFetch(handler: (url: string) => Response | undefined): ReturnType<t
 /** A plain HTML page, whatever the URL. */
 function htmlPage(): Response {
   return new Response(PAGE_HTML, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+}
+
+/**
+ * A response with an explicit content type.
+ * @param body - the body text.
+ * @param contentType - the Content-Type header to answer with.
+ */
+function typed(body: string, contentType: string): Response {
+  return new Response(body, { headers: { 'content-type': contentType } });
+}
+
+/**
+ * A listing page.
+ * @param head - extra markup for the head, usually a feed alternate.
+ * @param body - extra markup for the body.
+ */
+function listing(head = '', body = '<p>Our shows.</p>'): Response {
+  return typed(
+    `<!doctype html><html><head><title>Shows</title>${head}</head><body><main>${body}</main></body></html>`,
+    'text/html; charset=utf-8',
+  );
 }
 
 /**
@@ -245,5 +297,131 @@ describe('urlsFrom alongside `urls`', () => {
       'https://a.test/two',
       'https://a.test/three',
     ]);
+  });
+});
+
+describe('a listed URL alongside a crawl block', () => {
+  it('a listed URL with a crawl block goes through feed discovery and reads the feed', async () => {
+    const fetchFn = stubFetch((url) => {
+      if (url === REGISTRY) {
+        return Response.json([SEED]);
+      }
+      if (url === SEED) {
+        return listing('<link rel="alternate" type="text/calendar" href="/events.ics">');
+      }
+      return url === SEED_ICS ? typed(TWO_EVENT_ICS, 'text/calendar') : undefined;
+    });
+
+    const { docs, events } = await run({
+      urlsFrom: { url: REGISTRY },
+      crawl: { startUrl: START_URL, maxDepth: 1, maxPages: 60 },
+    });
+
+    expect(docs.map(d => d.externalId)).toEqual([
+      `${SEED_ICS}#evt-1@venue.test`,
+      `${SEED_ICS}#evt-2@venue.test`,
+    ]);
+    expect(events.some(e => e.message === 'source: discovered ics feed, 2 documents')).toBe(true);
+    expect(errors(events)).toEqual([]);
+    // The registry, the listing, the feed. `startUrl` is never touched.
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+  });
+
+  it('a listed URL with a crawl block and no feed becomes the listing plus one level of detail pages', async () => {
+    stubFetch((url) => {
+      if (url === REGISTRY) {
+        return Response.json([SEED]);
+      }
+      if (url === SEED) {
+        return listing('', '<p><a href="/shows/opening">Opening Night</a></p>');
+      }
+      return url === SEED_DETAIL ? listing('', '<p>Opening Night, 7:30pm.</p>') : undefined;
+    });
+
+    const { docs, events } = await run({
+      urlsFrom: { url: REGISTRY },
+      crawl: { startUrl: START_URL, maxDepth: 1 },
+    });
+
+    expect(docs.map(d => d.externalId)).toEqual([SEED, SEED_DETAIL]);
+    expect(events.some(e => e.message?.startsWith('source: listing + depth-1 crawl'))).toBe(true);
+    expect(errors(events)).toEqual([]);
+  });
+
+  it('a listed URL without a crawl block is fetched as one document, as before', async () => {
+    const fetchFn = stubFetch((url) => {
+      if (url === REGISTRY) {
+        return Response.json([SEED]);
+      }
+      return url === SEED
+        ? listing(
+            '<link rel="alternate" type="text/calendar" href="/events.ics">',
+            '<p><a href="/shows/opening">Opening Night</a></p>',
+          )
+        : undefined;
+    });
+
+    const { docs, events } = await run({ urlsFrom: { url: REGISTRY } });
+
+    // No crawl block, so no discovery and no crawl: the listing IS the document.
+    expect(docs.map(d => d.externalId)).toEqual([SEED]);
+    expect(events.some(e => e.message === 'source: 1 listed URL')).toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('an empty registry answer with a crawl block still yields nothing and does not crawl startUrl', async () => {
+    const fetchFn = stubFetch(url => url === REGISTRY ? Response.json([]) : undefined);
+
+    const { docs, events } = await run({
+      urlsFrom: { url: REGISTRY },
+      crawl: { startUrl: START_URL, maxDepth: 1 },
+    });
+
+    // An empty list is how a source row is switched off. Falling back to
+    // `startUrl` here is how a switched-off source spends money.
+    expect(docs).toEqual([]);
+    expect(errors(events)).toEqual([]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('spends ONE page budget across every seed, not one each', async () => {
+    const OTHER_SEED = 'https://other.test/events/';
+    const fetchFn = stubFetch((url) => {
+      if (url === REGISTRY) {
+        return Response.json([SEED, OTHER_SEED]);
+      }
+      if (url === SEED) {
+        return listing('', '<p><a href="/shows/opening">One</a> <a href="/shows/second">Two</a></p>');
+      }
+      if (url === SEED_DETAIL || url === 'https://venue.test/shows/second') {
+        return listing('', '<p>A show.</p>');
+      }
+      return url === OTHER_SEED ? listing() : undefined;
+    });
+
+    const { events } = await run({
+      urlsFrom: { url: REGISTRY },
+      crawl: { startUrl: START_URL, maxDepth: 1, maxPages: 3 },
+    });
+
+    // The registry, then three pages: the first seed's listing and its two
+    // detail pages. The second seed never gets read, which is the whole point
+    // of one counter: five seeds at 60 pages each is 300 requests a run.
+    expect(fetchFn).toHaveBeenCalledTimes(4);
+    expect(events.some(e => e.uri === OTHER_SEED && e.message?.startsWith('source: page budget spent'))).toBe(true);
+  });
+
+  it('a configured feedUrl wins over listed URLs', async () => {
+    const fetchFn = stubFetch(url => url === SEED_ICS ? typed(TWO_EVENT_ICS, 'text/calendar') : undefined);
+
+    const { docs, events } = await run({
+      urls: [SEED],
+      feedUrl: SEED_ICS,
+      crawl: { startUrl: START_URL },
+    });
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(docs).toHaveLength(2);
+    expect(events.some(e => e.message === 'source: configured feed')).toBe(true);
   });
 });
