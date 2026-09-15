@@ -758,6 +758,36 @@ export type TeamKpi = {
   window?: '24h' | '7d' | 'all';
 };
 
+/**
+ * Where a measure's reading comes from (`docs/specs/team-report-v2.md` §2).
+ * Mirrors `MeasureSourceSchema` in `libs/workspace/schemas.ts`; stored as
+ * authored, read by `services/team-report/provenance.ts`.
+ */
+export type TeamMeasureSource
+  = | { kind: 'verified'; connector: 'hubspot'; query: { object: 'deals' | 'contacts' | 'companies'; filter: { dealStages?: string[]; pipelines?: string[]; dealStatus?: 'open' | 'closed'; lifecycleStages?: string[]; industries?: string[]; ownerIds?: string[] }; aggregate: string } }
+    | { kind: 'observed'; actions?: string[]; counts?: string }
+    | { kind: 'human-confirmed'; actions?: string[]; askKinds?: string[] }
+    | { kind: 'agent-reported'; counts: string };
+
+/**
+ * One team measure as stored on `team.measures` — the outcome contract's
+ * measurement half. Attainment, trend, cost per outcome and human load are
+ * DERIVED from readings at report time and never stored (manifesto #2).
+ */
+export type TeamMeasure = {
+  key: string;
+  label: string;
+  dimension: 'outcome' | 'quality' | 'velocity' | 'economics';
+  target: number;
+  baseline?: number;
+  unit?: string;
+  window: '24h' | '7d' | '30d' | 'quarter';
+  direction: 'higher' | 'lower';
+  source: TeamMeasureSource;
+  contributesTo?: 'workspace-goal';
+  weight?: number;
+};
+
 export const teamSchema = pgTable(
   'team',
   {
@@ -783,11 +813,18 @@ export const teamSchema = pgTable(
     /** The team's standing goal, authored as `goal:` in teams/<slug>.yaml. */
     goal: text('goal'),
     /**
-     * The measures the team is graded on (F3). Each reads a `worker_run.counts`
-     * key summed over the team's agents, so progress is computed at read
-     * time from what the workers report — never stored. Authored as `kpis:`.
+     * @deprecated Legacy `kpis:` (F3) — worker-reported counts only. Kept for
+     * one release so rows applied before `measures` existed still read; the
+     * report folds them in as `agent-reported` measures when `measures` is
+     * empty. No longer written by apply.
      */
     kpis: jsonb('kpis').$type<TeamKpi[]>().default([]).notNull(),
+    /**
+     * The measures the team is graded on, with provenance (migration 0100).
+     * Authored as `measures:` in teams/<slug>.yaml; a legacy `kpis:` block is
+     * folded in at parse. Readings are computed at report time — never stored.
+     */
+    measures: jsonb('measures').$type<TeamMeasure[]>().default([]).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

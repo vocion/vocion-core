@@ -2,7 +2,7 @@ import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
-const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
+export const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
   message: 'slug must be lowercase, start with a letter, and contain only letters, numbers, dashes, or underscores',
 });
 
@@ -140,15 +140,153 @@ export const TeamKpiSchema = z.object({
   source: z.string().regex(/^counts\.[\w-]+$/, 'source must be counts.<key>').describe('which worker_run.counts key is summed'),
   window: z.enum(['24h', '7d', 'all']).default('all'),
 }).refine(k => k.baseline === undefined || k.baseline < k.target, 'baseline must be below target');
+/** @deprecated `kpis:` is an alias for one release — author `measures:` (see `TeamMeasureSchema`). */
 export type TeamKpiManifest = z.infer<typeof TeamKpiSchema>;
 
-export const TeamManifestSchema = z.object({
+/* ------------------------------------------------------------------ */
+/* Measures — the outcome/measurement model (docs/specs/team-report-v2) */
+/* ------------------------------------------------------------------ */
+
+/** The four things a workforce is judged on. Autonomy is layered over these, never one of them. */
+export const MEASURE_DIMENSIONS = ['outcome', 'quality', 'velocity', 'economics'] as const;
+export type MeasureDimension = typeof MEASURE_DIMENSIONS[number];
+
+/** How far back a reading reaches. A measure reads its own window regardless of the page's. */
+export const MEASURE_WINDOWS = ['24h', '7d', '30d', 'quarter'] as const;
+export type MeasureWindow = typeof MEASURE_WINDOWS[number];
+
+/**
+ * Where a reading comes from, strongest first. The chip on the report names
+ * it; `agent-reported` is visibly the weakest because the worker that did
+ * the work is the one saying how much of it there was.
+ */
+export const PROVENANCE_KINDS = ['verified', 'observed', 'human-confirmed', 'agent-reported'] as const;
+export type ProvenanceKind = typeof PROVENANCE_KINDS[number];
+
+const ActionIdList = z.array(z.string().min(1)).min(1).describe('registered action ids, e.g. gmail.send');
+const CountsKey = z.string().regex(/^[\w-]+$/, 'counts key must be a plain key, e.g. pitches').describe('a worker_run.counts key');
+
+/**
+ * `verified` — a query against a system of record through a connector. The
+ * only connector today is HubSpot, read from the synced mirror
+ * (`CrmRecordsService`), so the reading carries the mirror's own freshness.
+ * `filter` keys mirror `CrmFilter`; `aggregate` is `count` or `sum(amount)`.
+ */
+export const VerifiedMeasureSourceSchema = z.object({
+  kind: z.literal('verified'),
+  connector: z.literal('hubspot'),
+  query: z.object({
+    object: z.enum(['deals', 'contacts', 'companies']),
+    filter: z.object({
+      dealStages: z.array(z.string().min(1)).optional(),
+      pipelines: z.array(z.string().min(1)).optional(),
+      dealStatus: z.enum(['open', 'closed']).optional(),
+      lifecycleStages: z.array(z.string().min(1)).optional(),
+      industries: z.array(z.string().min(1)).optional(),
+      ownerIds: z.array(z.string().min(1)).optional(),
+    }).default({}),
+    aggregate: z.string().regex(/^(count|sum\(amount\))$/, 'aggregate must be count or sum(amount)').default('count'),
+  }),
+});
+
+/**
+ * `observed` — Vocion saw the action execute: `action_run` rows that reached
+ * `done` for the named action ids, or `worker_run`s that completed carrying
+ * the named `counts` key. One of the two must be set.
+ */
+export const ObservedMeasureSourceSchema = z.object({
+  kind: z.literal('observed'),
+  actions: ActionIdList.optional(),
+  counts: CountsKey.optional(),
+}).refine(s => Boolean(s.actions) !== Boolean(s.counts), 'observed source names either actions or a counts key, not both and not neither');
+
+/**
+ * `human-confirmed` — a person approved it: `action_run` decisions of
+ * approve / edit for the named action ids, or asks of the named kinds decided
+ * with anything but a reject. One of the two must be set.
+ */
+export const HumanConfirmedMeasureSourceSchema = z.object({
+  kind: z.literal('human-confirmed'),
+  actions: ActionIdList.optional(),
+  askKinds: z.array(z.enum(['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate'])).min(1).optional(),
+}).refine(s => Boolean(s.actions) || Boolean(s.askKinds), 'human-confirmed source names actions or askKinds');
+
+/** `agent-reported` — the sum of a `worker_run.counts` key. The worker grades itself; the chip says so. */
+export const AgentReportedMeasureSourceSchema = z.object({
+  kind: z.literal('agent-reported'),
+  counts: CountsKey,
+});
+
+export const MeasureSourceSchema = z.discriminatedUnion('kind', [
+  VerifiedMeasureSourceSchema,
+  ObservedMeasureSourceSchema,
+  HumanConfirmedMeasureSourceSchema,
+  AgentReportedMeasureSourceSchema,
+]);
+export type MeasureSource = z.infer<typeof MeasureSourceSchema>;
+
+/**
+ * One measure a team is graded on. Vocion DERIVES attainment, trend, cost per
+ * outcome and the rest from readings of these; nothing derived is authored.
+ */
+export const TeamMeasureSchema = z.object({
+  key: SlugSchema.describe('stable id, e.g. qualified_referrals'),
+  label: z.string().min(1).describe('what a person reads, e.g. "Qualified referrals"'),
+  dimension: z.enum(MEASURE_DIMENSIONS).default('outcome'),
+  target: z.number().positive().describe('the reading that counts as on target, in the window'),
+  baseline: z.number().min(0).optional().describe('where the reading stood when the contract was set'),
+  unit: z.string().optional().describe('suffix after the reading, e.g. "referrals", "%", "min"'),
+  window: z.enum(MEASURE_WINDOWS).default('7d'),
+  /** `higher` — more is better (a count). `lower` — less is better (a turnaround time, a cost). */
+  direction: z.enum(['higher', 'lower']).default('higher'),
+  source: MeasureSourceSchema,
+  /**
+   * Opt this measure into the workspace goal-progress figure. Heterogeneous
+   * units are never summed; only measures that declare a weight are combined,
+   * and only as weight × attainment (spec §3).
+   */
+  contributesTo: z.literal('workspace-goal').optional(),
+  weight: z.number().positive().optional().describe('the measure\'s share of the workspace goal, with contributesTo'),
+})
+  .refine(m => m.baseline === undefined || (m.direction === 'higher' ? m.baseline < m.target : m.baseline > m.target), 'baseline must be on the far side of target from the direction of improvement')
+  .refine(m => m.contributesTo === undefined || m.weight !== undefined, 'a measure that contributesTo the workspace goal needs a weight');
+export type TeamMeasureManifest = z.infer<typeof TeamMeasureSchema>;
+/** The authored shape of one measure, before defaults apply. */
+export type TeamMeasureInput = z.input<typeof TeamMeasureSchema>;
+
+/**
+ * A legacy `kpis:` entry as a measure. A KPI could only ever read what the
+ * worker said, so it maps to `agent-reported`; its `all` window has no
+ * equivalent (a measure is always judged in a window) and becomes `quarter`,
+ * the longest one.
+ * @param kpi - A parsed legacy KPI.
+ */
+export function kpiToMeasure(kpi: TeamKpiManifest): TeamMeasureManifest {
+  return {
+    key: kpi.key,
+    label: kpi.label,
+    dimension: 'outcome',
+    target: kpi.target,
+    ...(kpi.baseline === undefined ? {} : { baseline: kpi.baseline }),
+    ...(kpi.unit === undefined ? {} : { unit: kpi.unit }),
+    window: kpi.window === 'all' ? 'quarter' : kpi.window,
+    direction: 'higher',
+    source: { kind: 'agent-reported', counts: kpi.source.replace(/^counts\./, '') },
+  };
+}
+
+const TeamManifestBaseSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
-  /** The team's standing goal — one sentence, shown on the team report. */
+  /** The team's mission — one sentence, shown under its name on the team report. (`goal:` in the file.) */
   goal: z.string().min(1).optional(),
-  /** The measures the team is graded on; each reads a worker_run.counts key. Keys unique per team. */
-  kpis: z.array(TeamKpiSchema).default([]).refine(k => new Set(k.map(x => x.key)).size === k.length, 'kpi keys must be unique within a team'),
+  /** The measures the team is graded on. Keys unique per team. */
+  measures: z.array(TeamMeasureSchema).default([]),
+  /**
+   * @deprecated Alias for one release: each entry is read as an
+   * `agent-reported` measure and folded into `measures` on parse.
+   */
+  kpis: z.array(TeamKpiSchema).default([]),
   /**
    * Slug of the agent leading this team. Optional — a team may exist
    * before its lead is chosen (rendered "no lead yet") — but when set
@@ -163,9 +301,13 @@ export const TeamManifestSchema = z.object({
    */
   accountableUser: z.string().email().optional(),
 });
+
+export const TeamManifestSchema = TeamManifestBaseSchema
+  .transform(({ kpis, ...team }) => ({ ...team, measures: [...team.measures, ...kpis.map(kpiToMeasure)] }))
+  .refine(t => new Set(t.measures.map(m => m.key)).size === t.measures.length, 'measure keys must be unique within a team');
 export type TeamManifest = z.infer<typeof TeamManifestSchema>;
 /** The authored shape — what a teams/<slug>.yaml file may contain before defaults apply. */
-export type TeamManifestInput = z.input<typeof TeamManifestSchema>;
+export type TeamManifestInput = z.input<typeof TeamManifestBaseSchema>;
 
 /**
  * `pack.yaml` — the identity of a base pack shipped inside vocion-core at

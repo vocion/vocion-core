@@ -1,49 +1,49 @@
 /**
- * TeamReportService — who did what, at what cost, against which goal.
+ * TeamReportService — is the AI workforce earning its keep, can it be
+ * trusted, and exactly why do we believe that.
  *
- * Read-side aggregation over `worker_run` (the only per-run cost record in
- * the schema, ADR 0004) joined to the org chart (`team`, `agent`), for the
- * `/dashboard/team-report` surface. Every number here is derived at read time
- * from what workers reported; nothing is stored. Two facts the page must
- * always be able to state:
+ * The read model behind `/dashboard/team-report` and the daily mail, built
+ * to docs/specs/team-report-v2.md. Every team DECLARES a mission and
+ * measures (`teams/<slug>.yaml`); Vocion READS each measure from where its
+ * source says the truth lives (`services/team-report/provenance.ts`) and
+ * DERIVES the rest (`derive.ts`, `humanLoad.ts`):
  *
- *   - WEIGHT — each team's and each member's share of the org's spend and
- *     tokens in the window, so "where does the money go" is one glance;
- *   - PROGRESS — each team's KPI readings (sum of a `worker_run.counts` key
- *     over its agents) against the target the workspace authored, read
- *     under the workspace's top-line goal (`project.goal`).
+ *   goal attainment · trend vs the prior window · cost per outcome ·
+ *   quality rate · human interventions · decision latency · intervention
+ *   rate · autonomous completion rate · escalation rate · blocked time ·
+ *   budget variance
  *
- * Board reviews (`kind = board`) and red-team grades (`kind = red-team`) are
- * counted like any other run but carried separately in `byKind`, so the UI
- * badges judgement-over-the-work apart from the work itself.
+ * Nothing derived is stored. Every reading carries its provenance, so the
+ * page can never show a number without saying where it came from, and an
+ * agent-reported count is visibly the weakest kind.
  *
- * `agent_budget` (per agent per period) rides along as a secondary cost
- * source: it is what the budget caps enforce against, and on a deployment
- * where in-process agents charge it too, it can exceed the worker_run sum.
+ * Activity — runs, tokens, spend by member — is the evidence layer beneath
+ * the contract. Board reviews (`kind = board`) and red-team grades
+ * (`kind = red-team`) are counted like any other run but carried separately
+ * in `byKind`, so judgement over the work is never mistaken for output.
  *
- * Shape follows the Product Design Manifesto (`docs/MANIFESTO.md`): every
- * team and member carries an OUTCOME CONTRACT — purpose, owner, KPI with
- * baseline and target, permissions, autonomy, current performance — and the
- * activity numbers (runs, tokens, cents) are the evidence layer beneath it.
- * Spend weight is always reported next to outcome share, so "is this member
- * worth its share of the spend" is a question the page can answer.
+ * `buildTeamReport` is the pure assembly over already-loaded rows;
+ * `teamReport` is the DB-backed wrapper.
  */
 
-import type { TeamKpi } from '@/models/Schema';
+import type { EffectivePolicy } from '@/services/autonomy/AutonomyService';
 import type { RiskTier, Rung } from '@/services/autonomy/rungs';
+import type { HumanLoad, MeasureReading, OutcomeChain, SetupState } from '@/services/team-report';
 import type { AccountableUser } from '@/services/TeamService';
 import type { WorkerRun } from '@/services/WorkerRunService';
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { agentBudgetSchema, agentSchema, projectSchema, teamSchema, trustRuleSchema, workerRunSchema } from '@/models/Schema';
+import { effectiveMeasures } from '@/libs/workspace/team-export';
+import { actionRunSchema, agentBudgetSchema, agentSchema, projectSchema, teamSchema, trustRuleSchema, workerRunSchema } from '@/models/Schema';
 import { scoresByAgentAndKey, splitAgentKey } from '@/services/alignment/AlignmentService';
 import { effectivePolicies } from '@/services/autonomy/AutonomyService';
-import { DEFAULT_RUNG, defaultRiskTier, rungIndex } from '@/services/autonomy/rungs';
+import { DEFAULT_RUNG, defaultRiskTier, rungAutomates, rungIndex } from '@/services/autonomy/rungs';
+import { budgetVariance, costPerOutcomeCents, deriveHumanLoad, detectSetupState, emptyHumanLoadCounts, goalProgress, primaryOutcome, readHumanLoad, readOutcomeChains, readTeamMeasures, sumHumanLoadCounts, teamsOnTarget } from '@/services/team-report';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
 
-export type ReportWindow = '24h' | '7d' | 'all';
+export type ReportWindow = '24h' | '7d' | '30d';
 
-export const REPORT_WINDOWS: readonly ReportWindow[] = ['24h', '7d', 'all'];
+export const REPORT_WINDOWS: readonly ReportWindow[] = ['24h', '7d', '30d'];
 
 /**
  * Narrow a query-string window to one we know; anything else is `7d`.
@@ -75,22 +75,6 @@ export type ReportTotals = {
   lastActivity: Date | null;
 };
 
-export type KpiReading = TeamKpi & {
-  /** The summed reading in the KPI's own window (not the page's). */
-  value: number;
-  /**
-   * Progress from baseline to target, 0..1 (capped). With no baseline this
-   * is value / target. The meter reads this; `met` is the uncapped truth.
-   */
-  progress: number;
-  met: boolean;
-};
-
-/**
- * The manifesto's outcome contract, as far as the schema can state it today.
- * Fields the workspace has not authored are null — shown as "not set", never
- * invented. Escalation is not modeled yet; the UI points at the inbox.
- */
 /** One action kind on the ladder, as the contract states it. */
 export type AutonomyReading = {
   actionId: string;
@@ -102,25 +86,65 @@ export type AutonomyReading = {
   n: number;
 };
 
+/**
+ * The manifesto's outcome contract, as far as the workspace states it.
+ * Fields the workspace has not authored are null — shown as "not set", never
+ * invented.
+ */
 export type OutcomeContract = {
-  /** Purpose — the team's `goal:` (falling back to its description) or the agent's description. */
+  /** Mission — the team's `goal:` (falling back to its description) or the agent's description. */
   purpose: string | null;
-  /** Owner — the accountable human, with provenance (team-set or inherited). */
+  /** Accountable owner — the human, with provenance (team-set or inherited). */
   owner: AccountableUser | null;
-  /** The KPI readings this contract is measured on. Empty = no measurement authored. */
-  kpis: KpiReading[];
-  /** Current performance: mean KPI progress 0..1, or null when nothing is measured. */
+  /** Every declared measure, read. Empty = nothing measured. */
+  measures: MeasureReading[];
+  /** Mean attainment across readable measures, 0..1, or null when nothing is measured. */
   attainment: number | null;
-  /**
-   * Autonomy — where each action kind this agent (or this team's agents) has
-   * had decided stands on the ladder (`services/autonomy/rungs.ts`), with the
-   * 30-day alignment behind it. Empty when nobody has decided anything of
-   * theirs yet; the mission-level proxy this replaced said "Level 3" about a
-   * goal, which is not what runs without a person.
-   */
+  /** Where each action kind the team's agents have had decided stands on the ladder, with the 30-day alignment. */
   autonomy: AutonomyReading[];
-  /** Permissions — the agent's authored `approvalPolicy` keys; empty = every outward action waits for approval. */
+  /** The agents' authored `approvalPolicy` keys; empty = every outward action waits for approval. */
   permissions: string[];
+};
+
+/** "Human approval required · 5 action types · 0 auto-execute" — autonomy and permissions collapsed into one line (spec §7). */
+export type ControlSummary = {
+  /** Distinct action kinds this team's agents have proposed or are permitted. */
+  actionTypes: number;
+  /** …of which may run without a person. */
+  autoExecute: number;
+  approvalRequired: boolean;
+  /** The highest rung any of the team's kinds stands on. */
+  topRung: Rung | null;
+};
+
+export type NeedsYouSummary = {
+  count: number;
+  oldestAt: Date | null;
+  /** The inbox, filtered to this team's agents (`?agents=`). */
+  href: string;
+};
+
+export type DimensionReading = {
+  /** The declared measure of this dimension, when the team authored one. */
+  measure: MeasureReading | null;
+};
+
+export type QualityReading = DimensionReading & {
+  /** Approved without an edit / decided — derived when no measure is declared. */
+  rate: number | null;
+  decided: number;
+};
+
+export type VelocityReading = DimensionReading & {
+  /** Median created → finished over the window's work, ms. */
+  medianMs: number | null;
+};
+
+export type EconomicsReading = DimensionReading & {
+  cents: number;
+  /** Team cents / primary outcome value; null when nothing was produced. */
+  costPerOutcomeCents: number | null;
+  budget: { spentCents: number; limitCents: number | null; variance: number | null };
 };
 
 export type MemberReport = ReportTotals & {
@@ -134,12 +158,6 @@ export type MemberReport = ReportTotals & {
   /** Share of the org's spend / tokens in the window, 0..1. */
   shareOfCents: number;
   shareOfTokens: number;
-  /**
-   * Share of the TEAM's KPI readings this member produced, 0..1 — the
-   * outcome side of "spend weight vs outcome contribution". Null when the
-   * team has no KPIs or nothing has been counted yet.
-   */
-  outcomeShare: number | null;
   /** The member's own contract: purpose, autonomy, permissions; owner inherited from its team. */
   contract: OutcomeContract;
   /** Models this member ran on, most-used first. */
@@ -152,27 +170,56 @@ export type TeamReportTeam = ReportTotals & {
   slug: string;
   name: string;
   description: string | null;
-  goal: string | null;
+  /** The team's `goal:`, falling back to its description. */
+  mission: string | null;
   leadAgentSlug: string | null;
   /** The lead's accent, so the team colors like it does on the org chart. */
   accent: string | null;
   shareOfCents: number;
   shareOfTokens: number;
-  /** The team's outcome contract — KPIs, owner, autonomy, permissions, attainment. */
   contract: OutcomeContract;
+  /** The measure that leads the section: the first outcome-dimension measure. */
+  primary: MeasureReading | null;
+  quality: QualityReading;
+  velocity: VelocityReading;
+  economics: EconomicsReading;
+  humanLoad: HumanLoad;
+  control: ControlSummary;
+  needsYou: NeedsYouSummary;
+  /** Evidence — the work behind the numbers, with a chain per completed outcome where the record allows. */
+  evidence: { workItems: number; completed: number; chains: OutcomeChain[] };
   /** Lead first, then by spend. */
   members: MemberReport[];
 };
 
+export type Headline = {
+  teamsOnTarget: { onTarget: number; measured: number };
+  /** Normalized goal progress (spec §3) — null unless measures declare a weighted contribution. */
+  goalProgress: { progress: number; measures: number } | null;
+  /** AI operating cost in the window. */
+  cents: number;
+  /** Decision latency summed over every decided item, ms. */
+  humanReviewMs: number;
+  /** Work items that needed nobody / work items. */
+  autoCompletedRate: number | null;
+  /** Items waiting on a person right now. */
+  needsAttention: number;
+  needsAttentionOldestAt: Date | null;
+};
+
 export type TeamReport = {
   window: ReportWindow;
+  range: { since: Date; until: Date };
+  workspace: { name: string; goal: string | null; owner: AccountableUser | null };
   /** The workspace's top-line goal (`project.goal`), or null when none is stated. */
   goal: string | null;
   /** The workspace-default owner (workspace.yaml `accountableUser:`). */
   owner: AccountableUser | null;
+  setup: SetupState;
+  headline: Headline;
   /** Mean attainment across teams that measure anything; null when none do. */
   attainment: number | null;
-  /** How many actions may auto-execute under trust rules — the workspace's permission posture in one number. */
+  /** How many action kinds may auto-execute under trust rules — the workspace's permission posture in one number. */
   autoExecuteActions: number;
   totals: ReportTotals;
   /** Teams by spend, highest first. */
@@ -207,25 +254,16 @@ type AgentRow = {
 type TeamRow = typeof teamSchema.$inferSelect;
 type BudgetRow = typeof agentBudgetSchema.$inferSelect;
 
-/** The KPI sums the report needs: per team (`${teamSlug}/${key}`) and per agent (`${teamSlug}/${key}` → agent → value). */
-export type KpiValues = {
-  byTeam: Map<string, number>;
-  byAgent: Map<string, Map<string, number>>;
-};
+const HOUR = 3_600_000;
 
 /**
- * The lower bound of a window, or null for all time.
+ * The lower bound of a window.
  * @param window - Report window.
  * @param now - The clock, injectable for tests.
  */
-export function windowStart(window: ReportWindow, now: Date = new Date()): Date | null {
-  if (window === '24h') {
-    return new Date(now.getTime() - 24 * 3600 * 1000);
-  }
-  if (window === '7d') {
-    return new Date(now.getTime() - 7 * 24 * 3600 * 1000);
-  }
-  return null;
+export function windowStart(window: ReportWindow, now: Date = new Date()): Date {
+  const hours = window === '24h' ? 24 : window === '7d' ? 7 * 24 : 30 * 24;
+  return new Date(now.getTime() - hours * HOUR);
 }
 
 function emptyTotals(): ReportTotals {
@@ -252,20 +290,6 @@ function share(part: number, whole: number): number {
   return whole > 0 ? part / whole : 0;
 }
 
-/**
- * Progress from baseline to target, capped 0..1. No baseline = from zero.
- * @param kpi - The authored KPI.
- * @param value - The current reading.
- */
-export function kpiProgress(kpi: TeamKpi, value: number): number {
-  const base = kpi.baseline ?? 0;
-  const span = kpi.target - base;
-  if (span <= 0) {
-    return value >= kpi.target ? 1 : 0;
-  }
-  return Math.min(1, Math.max(0, (value - base) / span));
-}
-
 function meanOrNull(values: number[]): number | null {
   return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null;
 }
@@ -281,36 +305,84 @@ export function permissionKeys(policy: Record<string, unknown> | null | undefine
 }
 
 /**
+ * The inbox filtered to a team — `?agents=` is the filter the inbox reads
+ * today. (R10, `workforce/2026-09-15-one-decision-surface`, is changing inbox
+ * URLs; this is a query string on `/dashboard/inbox` so it keeps resolving.)
+ * @param agentSlugs
+ */
+export function inboxHrefFor(agentSlugs: string[]): string {
+  return agentSlugs.length > 0 ? `/dashboard/inbox?agents=${encodeURIComponent(agentSlugs.join(','))}` : '/dashboard/inbox';
+}
+
+/**
+ * Control in one line: how many action kinds, how many run without a
+ * person. Kinds come from what the agents have proposed (the autonomy
+ * readings) and what their policies name.
+ * @param autonomy - The team's merged autonomy readings.
+ * @param permissions - The team's authored permission keys.
+ * @param policies - The org's effective policy per action id.
+ */
+export function controlSummary(autonomy: AutonomyReading[], permissions: string[], policies: Map<string, EffectivePolicy>): ControlSummary {
+  const kinds = new Set<string>([...autonomy.map(a => a.actionId), ...permissions]);
+  let autoExecute = 0;
+  let topRung: Rung | null = null;
+  for (const id of kinds) {
+    const rung = policies.get(id)?.rung ?? autonomy.find(a => a.actionId === id)?.rung ?? DEFAULT_RUNG;
+    if (rungAutomates(rung)) {
+      autoExecute += 1;
+    }
+    if (!topRung || rungIndex(rung) > rungIndex(topRung)) {
+      topRung = rung;
+    }
+  }
+  return { actionTypes: kinds.size, autoExecute, approvalRequired: kinds.size === 0 || autoExecute < kinds.size, topRung };
+}
+
+/**
  * Pure assembly of the report from already-loaded rows. Exported so the
- * weighting and KPI arithmetic unit-test without a database; `teamReport`
- * is the DB-backed wrapper.
+ * arithmetic unit-tests without a database; `teamReport` is the DB-backed
+ * wrapper.
  * @param input - Everything the report is built from.
  * @param input.window
+ * @param input.range
+ * @param input.range.since
+ * @param input.range.until
+ * @param input.workspaceName
  * @param input.goal
  * @param input.teams
  * @param input.agents
  * @param input.agg - One row per (agent, kind) in the window.
  * @param input.models - One row per (agent, model) in the window.
- * @param input.kpiValues - KPI sums per team and per agent.
+ * @param input.measures - Every measure reading, keyed `${teamSlug}/${key}`.
+ * @param input.humanLoad - Per team slug (and `null` for unattributed work).
+ * @param input.chains - Evidence chains per team slug.
  * @param input.budgets - Live period budgets, any period.
  * @param input.owners - Accountable human per team slug (resolved by TeamService) and the workspace default.
  * @param input.owners.byTeam
  * @param input.owners.workspace
  * @param input.autonomy - Per agent slug, the action kinds it has had decided, with rung and alignment.
+ * @param input.policies - The org's effective autonomy policy per action id.
  * @param input.autoExecuteActions - Enabled trust rules in the org.
+ * @param input.completedWorkEver - Completed runs + executed actions, all time — the setup gate.
  */
 export function buildTeamReport(input: {
   window: ReportWindow;
+  range: { since: Date; until: Date };
+  workspaceName: string;
   goal: string | null;
   teams: TeamRow[];
   agents: AgentRow[];
   agg: AggRow[];
   models: ModelRow[];
-  kpiValues: KpiValues;
+  measures: Map<string, MeasureReading>;
+  humanLoad: Map<string | null, HumanLoad>;
+  chains: Map<string, OutcomeChain[]>;
   budgets: BudgetRow[];
   owners: { byTeam: Map<string, AccountableUser | null>; workspace: AccountableUser | null };
   autonomy: Map<string, AutonomyReading[]>;
+  policies: Map<string, EffectivePolicy>;
   autoExecuteActions: number;
+  completedWorkEver: number;
 }): TeamReport {
   const totals = emptyTotals();
   const perAgent = new Map<string, ReportTotals>();
@@ -344,20 +416,6 @@ export function buildTeamReport(input: {
     const t = perAgent.get(a.slug) ?? emptyTotals();
     const b = budgetByAgent.get(a.slug);
     const team = a.teamSlug ? teamsBySlug.get(a.teamSlug) : undefined;
-    // Outcome share: this member's part of the team's KPI readings — the
-    // MEAN of its per-KPI shares, never a sum across KPIs. KPIs come in
-    // different units (a count of PRs beside a 0–100 rate), and summing lets
-    // the largest unit swallow the rest: one of three merged PRs read as
-    // "<1%" next to a rate KPI. KPIs the team has not moved yet are skipped
-    // rather than counted as a zero share.
-    const kpiShares: number[] = [];
-    for (const k of team?.kpis ?? []) {
-      const id = `${team!.slug}/${k.key}`;
-      const teamTotal = input.kpiValues.byTeam.get(id) ?? 0;
-      if (teamTotal > 0) {
-        kpiShares.push((input.kpiValues.byAgent.get(id)?.get(a.slug) ?? 0) / teamTotal);
-      }
-    }
     return {
       ...t,
       slug: a.slug,
@@ -369,11 +427,10 @@ export function buildTeamReport(input: {
       isLead: leadSlugs.has(a.slug),
       shareOfCents: share(t.cents, totals.cents),
       shareOfTokens: share(t.tokens, totals.tokens),
-      outcomeShare: meanOrNull(kpiShares),
       contract: {
         purpose: a.description,
         owner: team ? input.owners.byTeam.get(team.slug) ?? null : input.owners.workspace,
-        kpis: [],
+        measures: [],
         attainment: null,
         autonomy: input.autonomy.get(a.slug) ?? [],
         permissions: permissionKeys(a.approvalPolicy),
@@ -390,6 +447,7 @@ export function buildTeamReport(input: {
 
   const teams: TeamReportTeam[] = input.teams.map((team) => {
     const members = input.agents.filter(a => a.teamSlug === team.slug).map(member).sort(bySpend);
+    const memberSlugs = members.map(m => m.slug);
     const t = emptyTotals();
     for (const m of members) {
       // Re-add from the agg rows so byKind stays per kind, not per member.
@@ -397,16 +455,22 @@ export function buildTeamReport(input: {
         addTotals(t, row);
       }
     }
-    const kpis: KpiReading[] = (team.kpis ?? []).map((k) => {
-      const value = input.kpiValues.byTeam.get(`${team.slug}/${k.key}`) ?? 0;
-      return { ...k, value, progress: kpiProgress(k, value), met: value >= k.target };
-    });
+    const readings = effectiveMeasures(team).map(m => input.measures.get(`${team.slug}/${m.key}`)).filter((r): r is MeasureReading => r !== undefined);
+    const primary = primaryOutcome(readings);
+    const humanLoad = input.humanLoad.get(team.slug) ?? deriveHumanLoad(emptyHumanLoadCounts());
+    const autonomy = mergeAutonomy(members.map(m => m.contract.autonomy));
+    const permissions = [...new Set(members.flatMap(m => m.contract.permissions))].sort();
+    const byDimension = (d: MeasureReading['measure']['dimension']) => readings.find(r => r.measure.dimension === d) ?? null;
+    const budgets = members.map(m => m.budget).filter((b): b is NonNullable<MemberReport['budget']> => b !== null);
+    const spentCents = budgets.reduce((n, b) => n + b.currentCents, 0);
+    const limitCents = budgets.length > 0 && budgets.every(b => b.hardCentsLimit !== null) ? budgets.reduce((n, b) => n + (b.hardCentsLimit ?? 0), 0) : null;
+    const attained = readings.map(r => r.attainment).filter((a): a is number => a !== null);
     return {
       ...t,
       slug: team.slug,
       name: team.name,
       description: team.description,
-      goal: team.goal ?? null,
+      mission: team.goal ?? team.description ?? null,
       leadAgentSlug: team.leadAgentSlug,
       accent: team.leadAgentSlug ? agentsBySlug.get(team.leadAgentSlug)?.accent ?? null : null,
       shareOfCents: share(t.cents, totals.cents),
@@ -414,12 +478,24 @@ export function buildTeamReport(input: {
       contract: {
         purpose: team.goal ?? team.description ?? null,
         owner: input.owners.byTeam.get(team.slug) ?? null,
-        kpis,
-        attainment: meanOrNull(kpis.map(k => k.progress)),
-        autonomy: mergeAutonomy(members.map(m => m.contract.autonomy)),
-        // The team's permissions are the union of what its members name.
-        permissions: [...new Set(members.flatMap(m => m.contract.permissions))].sort(),
+        measures: readings,
+        attainment: meanOrNull(attained),
+        autonomy,
+        permissions,
       },
+      primary,
+      quality: { measure: byDimension('quality'), rate: humanLoad.qualityRate, decided: humanLoad.approvedClean + humanLoad.approvedEdited + humanLoad.rejected },
+      velocity: { measure: byDimension('velocity'), medianMs: humanLoad.turnaroundMedianMs },
+      economics: {
+        measure: byDimension('economics'),
+        cents: t.cents,
+        costPerOutcomeCents: primary ? costPerOutcomeCents(t.cents, primary.value) : null,
+        budget: { spentCents, limitCents, variance: budgetVariance(spentCents, limitCents) },
+      },
+      humanLoad,
+      control: controlSummary(autonomy, permissions, input.policies),
+      needsYou: { count: humanLoad.open.count, oldestAt: humanLoad.open.oldestAt, href: inboxHrefFor(memberSlugs) },
+      evidence: { workItems: humanLoad.workItems, completed: humanLoad.completedRuns + humanLoad.executed, chains: input.chains.get(team.slug) ?? [] },
       members,
     };
   }).sort((a, b) => b.cents - a.cents || a.name.localeCompare(b.name));
@@ -430,10 +506,32 @@ export function buildTeamReport(input: {
     .map(member)
     .sort(bySpend);
 
+  const orgLoad = deriveHumanLoad(sumHumanLoadCounts([...input.humanLoad.values()]));
+  const allReadings = teams.flatMap(t => t.contract.measures);
+  const setup = detectSetupState({
+    goal: input.goal,
+    teams: input.teams.map(t => ({ slug: t.slug, measures: effectiveMeasures(t) })),
+    unassignedAgents: ungrouped.length,
+    completedWorkEver: input.completedWorkEver,
+    autoExecuteActions: input.autoExecuteActions,
+  });
+
   return {
     window: input.window,
+    range: input.range,
+    workspace: { name: input.workspaceName, goal: input.goal, owner: input.owners.workspace },
     goal: input.goal,
     owner: input.owners.workspace,
+    setup,
+    headline: {
+      teamsOnTarget: teamsOnTarget(teams.map(t => t.primary)),
+      goalProgress: goalProgress(allReadings),
+      cents: totals.cents,
+      humanReviewMs: orgLoad.decisionLatencyMs,
+      autoCompletedRate: orgLoad.unattendedRate,
+      needsAttention: orgLoad.open.count,
+      needsAttentionOldestAt: orgLoad.open.oldestAt,
+    },
     attainment: meanOrNull(teams.map(t => t.contract.attainment).filter((a): a is number => a !== null)),
     autoExecuteActions: input.autoExecuteActions,
     totals,
@@ -443,19 +541,20 @@ export function buildTeamReport(input: {
 }
 
 /**
- * The full report for an org in a window. One pass over `worker_run` for
- * the (agent, kind) aggregate, one for models, one per distinct KPI
- * (key, window) pair, plus the org chart and budgets — all in parallel.
+ * The full report for an org in a window: the org chart, the run aggregate,
+ * every measure read from its source, human load, evidence chains, budgets
+ * and the ladder — in parallel where they do not depend on each other.
  * @param orgId - Tenant.
- * @param window - Report window; KPIs read their own authored window regardless.
+ * @param window - Report window; measures read their own authored window regardless.
  * @param now - The clock, injectable for tests.
  */
 export async function teamReport(orgId: string, window: ReportWindow = '7d', now: Date = new Date()): Promise<TeamReport> {
   const since = windowStart(window, now);
-  const runWhere = and(eq(workerRunSchema.orgId, orgId), since ? gte(workerRunSchema.createdAt, since) : undefined);
+  const range = { since, until: now };
+  const runWhere = and(eq(workerRunSchema.orgId, orgId), gte(workerRunSchema.createdAt, since), lt(workerRunSchema.createdAt, now));
 
-  const [project, teams, agents, agg, models, budgets, teamViews, workspaceLead, autonomy, trustRules] = await Promise.all([
-    db.select({ goal: projectSchema.goal }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1),
+  const [project, teams, agents, agg, models, budgets, teamViews, workspaceLead, autonomy, policies, trustRules, completedRuns, executedActions] = await Promise.all([
+    db.select({ name: projectSchema.name, goal: projectSchema.goal }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1),
     db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId)),
     db.select({
       slug: agentSchema.slug,
@@ -487,23 +586,37 @@ export async function teamReport(orgId: string, window: ReportWindow = '7d', now
     listTeams(orgId),
     getWorkspaceLead(orgId),
     readAutonomy(orgId, now),
+    effectivePolicies(orgId),
     db.select({ n: sql<number>`count(*)::int` }).from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.enabled, 'true'))),
+    db.select({ n: sql<number>`count(*)::int` }).from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), eq(workerRunSchema.status, 'completed'))),
+    db.select({ n: sql<number>`count(*)::int` }).from(actionRunSchema).where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'done'))),
   ]);
 
-  const kpiValues = await readKpiValues(orgId, teams, agents, now);
+  const scopes = teams.map(t => ({ slug: t.slug, teamSlug: t.slug, agentSlugs: agents.filter(a => a.teamSlug === t.slug).map(a => a.slug), measures: effectiveMeasures(t) }));
+  const [measures, humanLoad, chains] = await Promise.all([
+    readTeamMeasures(orgId, scopes, now),
+    readHumanLoad(orgId, scopes, range, now),
+    readOutcomeChains(orgId, scopes, range),
+  ]);
 
   return buildTeamReport({
     window,
+    range,
+    workspaceName: project[0]?.name ?? 'Workspace',
     goal: project[0]?.goal ?? null,
     teams,
     agents,
     agg: agg.map(r => ({ ...r, lastActivity: r.lastActivity ? new Date(r.lastActivity) : null })),
     models,
-    kpiValues,
+    measures,
+    humanLoad,
+    chains,
     budgets,
     owners: { byTeam: new Map(teamViews.map(v => [v.slug, v.accountable])), workspace: workspaceLead.accountable },
     autonomy,
+    policies,
     autoExecuteActions: Number(trustRules[0]?.n ?? 0),
+    completedWorkEver: Number(completedRuns[0]?.n ?? 0) + Number(executedActions[0]?.n ?? 0),
   });
 }
 
@@ -560,58 +673,9 @@ export function mergeAutonomy(members: AutonomyReading[][]): AutonomyReading[] {
     .sort((a, b) => rungIndex(b.rung) - rungIndex(a.rung) || b.n - a.n || a.actionId.localeCompare(b.actionId));
 }
 
-/**
- * Sum each team KPI's `counts.<key>` over the team's agents in the KPI's
- * own window. One query per distinct (key, window) so a workspace with
- * twenty KPIs on the same key costs one scan, not twenty.
- * @param orgId
- * @param teams
- * @param agents
- * @param now
- */
-async function readKpiValues(orgId: string, teams: TeamRow[], agents: AgentRow[], now: Date): Promise<KpiValues> {
-  const wanted = new Map<string, { key: string; window: ReportWindow }>();
-  for (const team of teams) {
-    for (const k of team.kpis ?? []) {
-      const key = k.source.replace(/^counts\./, '');
-      wanted.set(`${key}@${k.window ?? 'all'}`, { key, window: k.window ?? 'all' });
-    }
-  }
-  const perAgent = new Map<string, Map<string, number>>(); // `${key}@${window}` → agentSlug → sum
-  await Promise.all([...wanted.entries()].map(async ([id, { key, window }]) => {
-    const since = windowStart(window, now);
-    const rows = await db.select({
-      agentSlug: workerRunSchema.agentSlug,
-      total: sql<number>`coalesce(sum((${workerRunSchema.counts} ->> ${key})::numeric), 0)::float`,
-    })
-      .from(workerRunSchema)
-      .where(and(
-        eq(workerRunSchema.orgId, orgId),
-        since ? gte(workerRunSchema.createdAt, since) : undefined,
-        sql`${workerRunSchema.counts} ? ${key}`,
-      ))
-      .groupBy(workerRunSchema.agentSlug);
-    perAgent.set(id, new Map(rows.map(r => [r.agentSlug, Number(r.total)])));
-  }));
-
-  const out: KpiValues = { byTeam: new Map(), byAgent: new Map() };
-  for (const team of teams) {
-    const memberSlugs = agents.filter(a => a.teamSlug === team.slug).map(a => a.slug);
-    for (const k of team.kpis ?? []) {
-      const key = k.source.replace(/^counts\./, '');
-      const byAgent = perAgent.get(`${key}@${k.window ?? 'all'}`);
-      const id = `${team.slug}/${k.key}`;
-      const mine = new Map(memberSlugs.map(s => [s, byAgent?.get(s) ?? 0] as const));
-      out.byAgent.set(id, mine);
-      out.byTeam.set(id, [...mine.values()].reduce((a, b) => a + b, 0));
-    }
-  }
-  return out;
-}
-
 export type MemberDetail = {
   member: MemberReport;
-  team: { slug: string; name: string; goal: string | null } | null;
+  team: { slug: string; name: string; mission: string | null } | null;
   /** Newest first. */
   runs: WorkerRun[];
   /** Every `counts` key summed over the listed runs — what this member reports about its work. */
@@ -625,17 +689,19 @@ export type MemberDetail = {
  * @param opts - Window and paging.
  * @param opts.window
  * @param opts.limit
+ * @param opts.now
  */
-export async function memberReport(orgId: string, agentSlug: string, opts: { window?: ReportWindow; limit?: number } = {}): Promise<MemberDetail | null> {
+export async function memberReport(orgId: string, agentSlug: string, opts: { window?: ReportWindow; limit?: number; now?: Date } = {}): Promise<MemberDetail | null> {
   const window = opts.window ?? '7d';
-  const report = await teamReport(orgId, window);
+  const now = opts.now ?? new Date();
+  const report = await teamReport(orgId, window, now);
   const fromTeam = report.teams.flatMap(t => t.members.map(m => ({ m, t }))).find(x => x.m.slug === agentSlug);
   const member = fromTeam?.m ?? report.ungrouped.find(m => m.slug === agentSlug) ?? null;
   if (!member) {
     return null;
   }
-  const since = windowStart(window);
-  const runs = await db.select().from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), eq(workerRunSchema.agentSlug, agentSlug), since ? gte(workerRunSchema.createdAt, since) : undefined)).orderBy(desc(workerRunSchema.createdAt)).limit(opts.limit ?? 100);
+  const since = windowStart(window, now);
+  const runs = await db.select().from(workerRunSchema).where(and(eq(workerRunSchema.orgId, orgId), eq(workerRunSchema.agentSlug, agentSlug), gte(workerRunSchema.createdAt, since), lt(workerRunSchema.createdAt, now))).orderBy(desc(workerRunSchema.createdAt)).limit(opts.limit ?? 100);
   const counts: Record<string, number> = {};
   for (const r of runs) {
     for (const [k, v] of Object.entries(r.counts ?? {})) {
@@ -646,7 +712,7 @@ export async function memberReport(orgId: string, agentSlug: string, opts: { win
   }
   return {
     member,
-    team: fromTeam ? { slug: fromTeam.t.slug, name: fromTeam.t.name, goal: fromTeam.t.goal } : null,
+    team: fromTeam ? { slug: fromTeam.t.slug, name: fromTeam.t.name, mission: fromTeam.t.mission } : null,
     runs,
     counts,
   };

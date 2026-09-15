@@ -3,13 +3,15 @@
  * `{ subject, html, text, markdown }` out. No DB, no env, no clock (the data
  * carries `generatedAt`), so the snapshot test pins the exact mail.
  *
- * Order follows the Product Design Manifesto (`docs/MANIFESTO.md`): the mail
- * answers, in this order, **What changed? What needs me? Are we on track?
- * What happens next?** — outcomes and the needs-you count first, the per-team
- * table after, and tokens / cents / run counts last, as evidence. No metric
- * appears without the outcome it serves, and the whole thing should read in
- * one screen on a phone. `reportSections()` is that structure; the markdown
- * and the HTML both render from it so they cannot drift.
+ * Order follows the Product Design Manifesto (`docs/MANIFESTO.md`) and the
+ * team-report spec (`docs/specs/team-report-v2.md`): the mail leads with
+ * **Performance** — goal attainment per team with its provenance, human
+ * load, cost per outcome, what needs attention — then answers **What
+ * changed? What needs me? Are we on track? What happens next?**, with the
+ * per-team activity table after and tokens only in the evidence footer. No
+ * metric appears without the outcome it serves, and the whole thing should
+ * read in one screen on a phone. `reportSections()` is that structure; the
+ * markdown and the HTML both render from it so they cannot drift.
  *
  * Email constraints honoured here:
  *   - one column, ≤ 640px, table-based layout;
@@ -20,7 +22,7 @@
  *     `briefing` row so the report is readable in-app when mail is off.
  */
 
-import type { DailyTeamReportData, MemberStats, TeamStats } from './dailyTeamReportShape';
+import type { DailyTeamReportData, MemberStats, TeamPerformance, TeamStats } from './dailyTeamReportShape';
 import type { EmailStyles } from './markdownToEmailHtml';
 import { escapeHtml, markdownToEmailHtml, markdownToPlainText } from './markdownToEmailHtml';
 
@@ -76,6 +78,74 @@ function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/**
+ * "2h 18m" / "46 min" / "0".
+ * @param ms
+ */
+export function reviewTime(ms: number): string {
+  const m = Math.round(ms / 60_000);
+  if (m <= 0) {
+    return ms > 0 ? '<1 min' : '0';
+  }
+  if (m < 60) {
+    return `${m} min`;
+  }
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
+/**
+ * A measure reading in its unit — `$` as dollars, `%` as a percentage, else
+ * the number with the unit.
+ * @param value
+ * @param unit
+ */
+function measureValue(value: number, unit: string | undefined): string {
+  if (unit === '$') {
+    return usd(Math.round(value * 100));
+  }
+  if (unit === '%') {
+    return value <= 1 ? `${Math.round(value * 100)}%` : `${Math.round(value)}%`;
+  }
+  const n = Number.isInteger(value) ? value.toLocaleString('en-US') : value.toLocaleString('en-US', { maximumFractionDigits: 1 });
+  return unit ? `${n} ${unit}` : n;
+}
+
+const PROVENANCE_WORD: Record<string, string> = { 'verified': 'verified', 'observed': 'observed', 'human-confirmed': 'human-confirmed', 'agent-reported': 'agent-reported — the worker\'s own count' };
+
+/**
+ * One team's performance line for the Performance section, e.g.
+ * "**Founder GTM** — 8 / 10 referrals · 80% of weekly target · ↑3 · human-confirmed · 17 min review · $6.14/referral".
+ * @param t
+ */
+export function performanceLine(t: TeamPerformance): string {
+  const bits: string[] = [];
+  if (t.primary) {
+    const p = t.primary;
+    const value = p.value === null ? '—' : measureValue(p.value, p.unit);
+    bits.push(`${value} / ${measureValue(p.target, p.unit)} ${p.label.toLowerCase()}`);
+    if (p.attainment !== null) {
+      bits.push(`${Math.round(p.attainment * 100)}% of ${p.window === '24h' ? 'daily' : p.window === '7d' ? 'weekly' : p.window === '30d' ? '30-day' : 'quarterly'} target${p.met ? ' ✓' : ''}`);
+    }
+    if (p.delta !== null && p.delta !== 0) {
+      bits.push(`${p.delta > 0 ? '↑' : '↓'}${measureValue(Math.abs(p.delta), p.unit)} vs prior`);
+    }
+    bits.push(PROVENANCE_WORD[p.provenance] ?? p.provenance);
+  } else {
+    bits.push('no measure yet');
+  }
+  bits.push(t.humanLoad.interventions === 0 ? 'no human interventions' : `${reviewTime(t.humanLoad.reviewMs)} review over ${plural(t.humanLoad.interventions, 'intervention')}`);
+  if (t.costPerOutcomeCents !== null && t.primary) {
+    const unit = t.primary.unit && t.primary.unit !== '$' && t.primary.unit !== '%' ? t.primary.unit.replace(/s$/, '') : t.primary.label.toLowerCase().replace(/s$/, '');
+    bits.push(`${usd(Math.round(t.costPerOutcomeCents))}/${unit}`);
+  } else {
+    bits.push(`${usd(t.cents)} operating cost`);
+  }
+  if (t.needsYou > 0) {
+    bits.push(`**${plural(t.needsYou, 'item')} need${t.needsYou === 1 ? 's' : ''} you**`);
+  }
+  return `**${t.name}** — ${bits.join(' · ')}`;
+}
+
 function kindBadges(m: MemberStats): string {
   const parts: string[] = [];
   if (m.byKind.board) {
@@ -102,6 +172,8 @@ export type OnTrackStatus = 'on-track' | 'watch' | 'off-track';
  * them the same way.
  */
 export type ReportSections = {
+  /** Performance — goal attainment per team, human load, cost per outcome. Leads the mail. */
+  performance: { headline: string[]; teams: string[]; setup: string | null };
   /** What changed — outcomes, most consequential first. */
   changed: string[];
   /** What needs me — the count and the lines behind it. */
@@ -123,6 +195,33 @@ export type ReportSections = {
 export function reportSections(data: DailyTeamReportData): ReportSections {
   const { totals, needsYou } = data;
   const members = data.teams.flatMap(t => t.members);
+
+  // --- Performance --------------------------------------------------------
+  const perf = data.performance;
+  const performance: ReportSections['performance'] = { headline: [], teams: [], setup: null };
+  if (!perf) {
+    performance.setup = 'Team performance could not be read for this window.';
+  } else if (perf.setupNeeded) {
+    performance.setup = perf.goal
+      ? 'Performance is not measured yet — give each team a measure and a target, and this section fills in.'
+      : 'Performance is not measured yet — state the workspace outcome and give each team a measure and a target, and this section fills in.';
+  } else {
+    if (perf.goal) {
+      performance.headline.push(`Goal: _${perf.goal}_`);
+    }
+    const head: string[] = [];
+    head.push(`**${perf.teamsOnTarget.onTarget} / ${perf.teamsOnTarget.measured}** teams on target`);
+    if (perf.goalProgress !== null) {
+      head.push(`**${Math.round(perf.goalProgress * 100)}%** goal progress`);
+    }
+    head.push(`**${reviewTime(perf.humanReviewMs)}** human review`);
+    if (perf.autoCompletedRate !== null) {
+      head.push(`**${Math.round(perf.autoCompletedRate * 100)}%** of work needed nobody`);
+    }
+    head.push(perf.needsAttention > 0 ? `**${perf.needsAttention}** need attention` : 'no pending escalations');
+    performance.headline.push(head.join(' · '));
+    performance.teams = perf.teams.map(performanceLine);
+  }
   const activeTeams = data.teams.filter(t => t.members.some(m => m.completed > 0));
   const contributors = members.filter(m => m.completed > 0).sort((a, b) => b.completed - a.completed || b.cents - a.cents);
 
@@ -205,7 +304,13 @@ export function reportSections(data: DailyTeamReportData): ReportSections {
   if (trackLines.length === 0) {
     trackLines.push(totals.runs > 0 ? 'Nothing failed, nothing is stalled, no budget is near its cap.' : 'Nothing ran, so nothing to judge yet.');
   }
-  trackLines.push('KPI targets appear here once the workspace declares them (`kpis:` on a team).');
+  if (perf && !perf.setupNeeded && perf.teamsOnTarget.measured > 0) {
+    const missed = perf.teams.filter(t => t.primary && t.primary.value !== null && !t.primary.met);
+    if (missed.length > 0) {
+      trackLines.push(`${plural(missed.length, 'team is', 'teams are')} under target — ${missed.map(t => t.name).join(', ')}.`);
+      bump('watch');
+    }
+  }
 
   // --- What happens next --------------------------------------------------
   const next: string[] = [];
@@ -239,7 +344,7 @@ export function reportSections(data: DailyTeamReportData): ReportSections {
     { label: 'Needs you', value: `${needsYou.total}` },
   ];
 
-  return { changed, needsMe: { total: needsYou.total, lines: needsLines }, onTrack: { status, lines: trackLines }, next, rollup, evidence };
+  return { performance, changed, needsMe: { total: needsYou.total, lines: needsLines }, onTrack: { status, lines: trackLines }, next, rollup, evidence };
 }
 
 const STATUS_LABEL: Record<OnTrackStatus, string> = { 'on-track': 'On track', 'watch': 'Watch', 'off-track': 'Off track' };
@@ -255,6 +360,20 @@ export function reportMarkdown(data: DailyTeamReportData): string {
   lines.push(`# ${subjectFor(data)}`);
   lines.push('');
   lines.push(`_${STAMP_FMT.format(data.window.since)} → ${STAMP_FMT.format(data.window.until)} UTC_`);
+  lines.push('');
+  lines.push('## Performance');
+  lines.push('');
+  if (s.performance.setup) {
+    lines.push(`_${s.performance.setup}_`);
+  } else {
+    for (const l of s.performance.headline) {
+      lines.push(l);
+      lines.push('');
+    }
+    for (const l of s.performance.teams) {
+      lines.push(`- ${l}`);
+    }
+  }
   lines.push('');
   lines.push('## What changed');
   lines.push('');
@@ -388,6 +507,11 @@ export function renderDailyTeamReport(data: DailyTeamReportData): RenderedReport
   const body = [
     `<h1 style="${ST.h1}">${escapeHtml(subject)}</h1>`,
     `<p style="${ST.p}${MUTED}font-size:12px;">${escapeHtml(STAMP_FMT.format(data.window.since))} → ${escapeHtml(STAMP_FMT.format(data.window.until))} UTC</p>`,
+
+    h2('Performance'),
+    s.performance.setup
+      ? `<p style="${ST.p}${MUTED}">${escapeHtml(s.performance.setup)}</p>`
+      : `${s.performance.headline.map(l => `<p style="${ST.p}">${inline(l)}</p>`).join('')}${s.performance.teams.length > 0 ? bullets(s.performance.teams) : ''}`,
 
     h2('What changed'),
     bullets(s.changed),

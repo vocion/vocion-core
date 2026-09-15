@@ -659,9 +659,10 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
     // workspace default is inherited at read time, never baked in here.
     accountableUserId: await resolveAccountableUser(team.accountableUser, 'team', team.slug, errors),
     goal: team.goal ?? null,
-    // Declarative like the rest: authored KPIs land wholesale, an omitted
-    // block clears the column.
-    kpis: team.kpis,
+    // Declarative like the rest: authored measures land wholesale (a legacy
+    // `kpis:` block is already folded in by the schema), an omitted block
+    // clears the column. The deprecated `kpis` column is no longer written.
+    measures: team.measures,
   };
 
   if (!existing) {
@@ -677,7 +678,7 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
     && (existing.leadAgentSlug ?? null) === payload.leadAgentSlug
     && (existing.accountableUserId ?? null) === payload.accountableUserId
     && (existing.goal ?? null) === payload.goal
-    && JSON.stringify(existing.kpis ?? []) === JSON.stringify(payload.kpis)
+    && JSON.stringify(existing.measures ?? []) === JSON.stringify(payload.measures)
   ) {
     return 'unchanged';
   }
