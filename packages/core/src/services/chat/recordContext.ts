@@ -18,6 +18,8 @@ const ROUTES: Record<RecordType, (id: string) => string | undefined> = {
   'worker_run': id => `/dashboard/team-report/${encodeURIComponent(id)}`,
   'conversation': () => '/dashboard/chat',
   'canvas-tile': () => undefined,
+  // A `@page` tag points at wherever the person already is — no record route.
+  'page': () => undefined,
 };
 
 /**
