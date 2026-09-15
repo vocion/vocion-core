@@ -1,5 +1,6 @@
 import type { AskOption } from '@/models/Schema';
 import { and, asc, desc, eq, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
+import { verbosityHints } from '@/features/dashboard/inbox/askText';
 import { db } from '@/libs/DB';
 import { askSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
@@ -176,6 +177,13 @@ export type AskInput = {
  */
 export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?: string | null }): Promise<{ ask: Ask; created: boolean }> {
   const { orgId, ask } = opts;
+  // A hint, not a refusal: the screen clamps whatever arrives, but a filer
+  // reading its own log learns to write the question short and put the long
+  // form in contextMd.
+  const hints = verbosityHints(ask);
+  if (hints.length > 0) {
+    console.warn(`[AskService] verbose ask "${ask.title.slice(0, 60)}"${ask.sourceRef ? ` (${ask.sourceRef})` : ''}: ${hints.join('; ')}`);
+  }
   // Only the keys the caller actually sent. `undefined` means "not mentioned",
   // and an unmentioned field must survive a re-file.
   const mutable = Object.fromEntries(
