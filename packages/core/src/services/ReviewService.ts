@@ -751,7 +751,7 @@ export async function decide(
         // person who clicked it — the outcome rides back so the surface says so.
         execution = { status: outcome.status, error: outcome.error ?? null };
       } else {
-        await rejectAction(item.id, orgId, opts?.reason ?? opts?.note, { reviewedBy });
+        await rejectAction(item.id, orgId, opts?.reason?.trim() || opts?.note, { reviewedBy });
       }
       // The reviewer's note rides every verb: assignment note (visible on the
       // item), triage signal hint, and the learning capture below.
