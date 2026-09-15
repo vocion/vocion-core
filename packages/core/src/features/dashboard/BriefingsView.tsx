@@ -145,6 +145,7 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
             : (
                 <h2 className="text-base font-semibold text-muted-foreground">
                   No
+                  {' '}
                   {g.teamName}
                   {' '}
                   brief yet
