@@ -177,7 +177,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   // A turn went out: the intent has been consumed.
   const turnCount = session.messages.length;
   useEffect(() => {
-    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    // Reset keyed on the turn count — the same shape PageDock uses for its title.
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
     setIntent(null);
   }, [turnCount]);
   // The page's comment layer, when it has one: notes taken on the document
