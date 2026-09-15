@@ -3,6 +3,7 @@
 import type { AgentOption } from './types';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { usePageRecord } from '@/features/dashboard/context/PageContextProvider';
 import { ChatDock } from './ChatDock';
 
 /**
@@ -79,6 +80,8 @@ function routeOf(pathname: string): string {
 export function PageDock({ agents }: { agents: AgentOption[] }) {
   const pathname = routeOf(usePathname());
   const [title, setTitle] = useState('');
+  // The record the page declared (R4) — travels as `page_context.record`.
+  const { record } = usePageRecord();
 
   // The document title settles after the route commits; read it then, and
   // again if the page changes it (a record page titles itself after loading).
@@ -102,7 +105,7 @@ export function PageDock({ agents }: { agents: AgentOption[] }) {
     <ChatDock
       agents={agents}
       scopeLabel="Everything"
-      pageContext={{ path: pathname, title }}
+      pageContext={record ? { path: pathname, title, record } : { path: pathname, title }}
       defaultCollapsed={!isRecordRoute(pathname)}
     />
   );

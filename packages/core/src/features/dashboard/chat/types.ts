@@ -84,6 +84,8 @@ export type RecommendedAction = {
   rationale?: string;
   confidence?: number;
   agentSlug?: string;
+  /** Set when the server already filed it into the review queue (act-within-bounds). */
+  runId?: number;
 };
 
 export type ChatMessage = {

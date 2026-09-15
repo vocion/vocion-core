@@ -1,99 +1,80 @@
 'use client';
 
-import { ArrowUp, Sparkles, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PageContext } from '@/services/chat/pageContext';
+import { ArrowUp, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useRouter } from '@/libs/I18nNavigation';
+import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
+import { usePathname, useRouter } from '@/libs/I18nNavigation';
+import { recordRef } from '@/services/chat/recordContext';
+import { AskAboutThis } from './context/AskAboutThis';
 
-/** sessionStorage key ChatShell reads on mount to start a handoff chat. */
-export const CHAT_HANDOFF_KEY = 'vocion_chat_handoff';
-
-export type ChatHandoff = {
-  question: string;
-  contextTitle: string;
-  context: string;
-  /** Optional highlighted excerpt the question is specifically about. */
-  excerpt?: string;
-  /** Agent to answer — the brief's team lead (rollup → workspace lead). */
-  agentSlug?: string;
-};
+// Re-exported so existing importers keep working; the chat page reads the same key.
+export { CHAT_HANDOFF_KEY, type ChatHandoff } from '@/features/dashboard/chat/agentSurface';
 
 /**
- * Floating composer at the bottom of the Briefings page. Typing here moves
- * the conversation to /chat: the briefing rides along as context, a new
- * chat opens against the team lead, and the question is answered there.
+ * Floating composer at the bottom of the Briefings page. Typing here opens
+ * the agent surface with the question (R4): a mounted dock claims it and the
+ * turn is filed with the briefing as its record; with no surface on the page
+ * the person lands on /chat with the same intent, the briefing body riding
+ * along as fallback context — the pre-R4 behaviour, kept.
  *
- * Highlighting text inside [data-briefing-root] pops an "Ask Vocion"
- * tooltip — clicking it pins the selection to the pill as a quoted
- * excerpt, so the question targets that passage specifically.
+ * Highlighting text inside [data-briefing-root] pops an "Ask Vocion" pill
+ * (shared `AskAboutThis` selection watcher) — clicking it pins the selection
+ * to this composer as a quoted excerpt, so the question targets that passage.
  * @param props
+ * @param props.briefingId
  * @param props.briefingTitle
  * @param props.briefingContent
  * @param props.agentSlug
  */
-export const BriefingChatStarter = (props: { briefingTitle: string; briefingContent: string; agentSlug?: string }) => {
+export const BriefingChatStarter = (props: { briefingId: number; briefingTitle: string; briefingContent: string; agentSlug?: string }) => {
   const router = useRouter();
+  const pathname = usePathname();
   const [value, setValue] = useState('');
   const [quote, setQuote] = useState<string | null>(null);
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Portal target only exists client-side; render nothing during SSR.
-  // (useSyncExternalStore-style mount detection keeps the linter happy —
-  // no setState-in-effect.)
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     const id = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(id);
   }, []);
 
-  // Selection watcher — show the tooltip when a selection lands inside the
-  // briefing content ([data-briefing-root]).
-  useEffect(() => {
-    const onMouseUp = () => {
-      // Let the browser finalize the selection first.
-      requestAnimationFrame(() => {
-        const sel = window.getSelection();
-        const text = sel?.toString().trim() ?? '';
-        if (!sel || sel.isCollapsed || text.length < 4) {
-          setTooltip(null);
-          return;
-        }
-        const anchor = sel.anchorNode instanceof Element ? sel.anchorNode : sel.anchorNode?.parentElement;
-        if (!anchor?.closest('[data-briefing-root]')) {
-          setTooltip(null);
-          return;
-        }
-        const rect = sel.getRangeAt(0).getBoundingClientRect();
-        setTooltip({ x: rect.left + rect.width / 2, y: rect.top, text });
-      });
-    };
-    document.addEventListener('mouseup', onMouseUp);
-    return () => document.removeEventListener('mouseup', onMouseUp);
-  }, []);
+  const record = recordRef('briefing', props.briefingId, props.briefingTitle);
 
-  const pinQuote = useCallback(() => {
-    if (tooltip) {
-      setQuote(tooltip.text);
-      setTooltip(null);
-      window.getSelection()?.removeAllRanges();
-      inputRef.current?.focus();
-    }
-  }, [tooltip]);
+  // The selection pill pins the passage HERE rather than opening the surface
+  // straight away, so the person can type the question about it first.
+  useEffect(() => {
+    const onPin = (e: Event) => {
+      const text = (e as CustomEvent<{ text: string }>).detail?.text;
+      if (text) {
+        setQuote(text);
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('vocion:briefing-pin-quote', onPin);
+    return () => window.removeEventListener('vocion:briefing-pin-quote', onPin);
+  }, []);
 
   const start = () => {
     const question = value.trim();
     if (!question) {
       return;
     }
-    const handoff: ChatHandoff = {
-      question,
-      contextTitle: props.briefingTitle,
-      context: props.briefingContent,
-      excerpt: quote ?? undefined,
-      agentSlug: props.agentSlug,
+    const context: PageContext = {
+      path: pathname,
+      title: props.briefingTitle,
+      record,
+      openedFrom: true,
+      ...(quote ? { selection: { text: quote, quote: true } } : {}),
     };
-    sessionStorage.setItem(CHAT_HANDOFF_KEY, JSON.stringify(handoff));
-    router.push('/dashboard/chat');
+    openAgentSurface(
+      { prompt: question, send: true, context, agentSlug: props.agentSlug, fallbackContext: props.briefingContent },
+      href => router.push(href),
+    );
+    setValue('');
+    setQuote(null);
   };
 
   if (!mounted) {
@@ -106,26 +87,7 @@ export const BriefingChatStarter = (props: { briefingTitle: string; briefingCont
   // the body keeps the pill pinned to the real viewport.
   return createPortal(
     <>
-      {tooltip && (
-        <div
-          className="fixed z-50 -translate-x-1/2 -translate-y-full"
-          style={{ left: tooltip.x, top: tooltip.y - 8 }}
-        >
-          <button
-            type="button"
-            // mousedown, not click — click would collapse the selection first.
-            onMouseDown={(e) => {
-              e.preventDefault();
-              pinQuote();
-            }}
-            className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-lg transition hover:bg-muted"
-          >
-            <Sparkles className="size-3.5 text-primary" />
-            Ask Vocion
-          </button>
-        </div>
-      )}
-
+      <PinSelection />
       <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-6">
         <div className="pointer-events-auto w-full max-w-2xl">
           {quote && (
@@ -154,7 +116,7 @@ export const BriefingChatStarter = (props: { briefingTitle: string; briefingCont
                   start();
                 }
               }}
-              placeholder={quote ? 'Ask about the highlighted passage…' : 'Ask about this brief — continues in chat with the team lead…'}
+              placeholder={quote ? 'Ask about the highlighted passage…' : 'Ask about this brief — the team lead answers beside it…'}
               className="min-w-0 flex-1 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 sm:text-sm"
             />
             <button
@@ -172,4 +134,22 @@ export const BriefingChatStarter = (props: { briefingTitle: string; briefingCont
     </>,
     document.body,
   );
+
+  /**
+   * The shared selection watcher, wired to PIN into this composer instead of
+   * opening the surface — `AskAboutThis` fires the surface itself, so we
+   * intercept its pill through a tiny local event instead.
+   */
+  function PinSelection() {
+    return (
+      <AskAboutThis
+        record={record}
+        variant="none"
+        selectionRoot="[data-briefing-root]"
+        agentSlug={props.agentSlug}
+        fallbackContext={props.briefingContent}
+        onSelect={text => window.dispatchEvent(new CustomEvent('vocion:briefing-pin-quote', { detail: { text } }))}
+      />
+    );
+  }
 };

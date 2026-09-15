@@ -26,6 +26,13 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
   if (recs.length <= 1) {
     return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} />)}</>;
   }
+  // Everything the server already filed (act-within-bounds) is a card with a
+  // live status, not a stepper item — show those first, step through the rest.
+  const filed = recs.filter(r => r.runId !== undefined);
+  const open = recs.filter(r => r.runId === undefined);
+  if (open.length <= 1 && filed.length > 0) {
+    return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} />)}</>;
+  }
 
   const propose = async (rec: RecommendedAction): Promise<void> => {
     await client.review.propose({
