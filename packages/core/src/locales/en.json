@@ -123,5 +123,22 @@
     "plan_interval_month": "month",
     "plan_interval_year": "year",
     "next_renew_date": "Your subscription renews on {date}"
+  },
+  "Review": {
+    "all": "All",
+    "next_label": "Next:",
+    "more": "{count} more",
+    "up_next": "Up next",
+    "load_more": "Load more",
+    "skip_to": "Skip to",
+    "back": "Back",
+    "add_feedback": "Add feedback",
+    "hide_feedback": "Hide feedback",
+    "shortcuts": "shortcuts",
+    "shortcut_next": "Next",
+    "shortcut_prev": "Back",
+    "shortcut_approve": "Approve",
+    "shortcut_decline": "Decline",
+    "shortcut_snooze": "Snooze"
   }
 }

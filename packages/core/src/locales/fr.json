@@ -123,5 +123,22 @@
     "plan_interval_month": "mois",
     "plan_interval_year": "année",
     "next_renew_date": "Votre abonnement sera renouvelé le {date}"
+  },
+  "Review": {
+    "all": "Tout",
+    "next_label": "Suivant :",
+    "more": "{count} de plus",
+    "up_next": "À suivre",
+    "load_more": "Charger plus",
+    "skip_to": "Aller à",
+    "back": "Retour",
+    "add_feedback": "Ajouter un commentaire",
+    "hide_feedback": "Masquer le commentaire",
+    "shortcuts": "raccourcis",
+    "shortcut_next": "Suivant",
+    "shortcut_prev": "Retour",
+    "shortcut_approve": "Approuver",
+    "shortcut_decline": "Refuser",
+    "shortcut_snooze": "Reporter"
   }
 }
