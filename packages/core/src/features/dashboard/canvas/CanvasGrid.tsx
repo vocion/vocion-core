@@ -97,7 +97,10 @@ export function CanvasGrid({ state, dispatch, onSend, disabled }: {
 
       {hidden.length > 0 && (
         <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer select-none">Hidden · {hidden.length}</summary>
+          <summary className="cursor-pointer select-none">
+            Hidden ·
+            {hidden.length}
+          </summary>
           <ul className="mt-1 flex flex-wrap gap-1.5">
             {hidden.map(a => (
               <li key={a.id}>

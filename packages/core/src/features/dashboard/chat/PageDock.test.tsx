@@ -33,6 +33,11 @@ describe('route rules', () => {
   it('names the full-page chat, the routes with their own dock, and the single records', () => {
     expect(isChatPage('/dashboard/chat')).toBe(true);
     expect(isChatPage('/en/dashboard/chat')).toBe(true);
+    // One conversation expanded beside its canvas is still the chat page (058 §6).
+    expect(isChatPage('/dashboard/chat/42')).toBe(true);
+    expect(isChatPage('/en/dashboard/chat/42')).toBe(true);
+    expect(isChatPage('/dashboard/chat/42/settings')).toBe(false);
+    expect(isChatPage('/dashboard/chatter')).toBe(false);
     expect(isOwnDockRoute('/gtm/lead/88201')).toBe(true);
     expect(isOwnDockRoute('/gtm/personalization')).toBe(false);
 

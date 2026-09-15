@@ -39,7 +39,15 @@ export default async function CanvasesPage(props: { params: Promise<{ locale: st
                         <Link href={`/dashboard/chat/${c.conversationId}?grid=open&canvas=${c.id}`} className="flex items-center justify-between gap-4 px-4 py-3 text-sm hover:bg-muted/40">
                           <span className="min-w-0">
                             <span className="block truncate font-medium text-foreground">{c.name}</span>
-                            <span className="block text-xs text-muted-foreground">{c.tileCount} {c.tileCount === 1 ? 'tile' : 'tiles'} · saved {c.updatedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                            <span className="block text-xs text-muted-foreground">
+                              {c.tileCount}
+                              {' '}
+                              {c.tileCount === 1 ? 'tile' : 'tiles'}
+                              {' '}
+                              · saved
+                              {' '}
+                              {c.updatedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </span>
                           </span>
                           <LayoutGrid className="size-4 shrink-0 text-muted-foreground" />
                         </Link>
@@ -48,7 +56,12 @@ export default async function CanvasesPage(props: { params: Promise<{ locale: st
                         <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm text-muted-foreground">
                           <span className="min-w-0">
                             <span className="block truncate font-medium text-foreground">{c.name}</span>
-                            <span className="block text-xs">conversation deleted · {c.tileCount} tiles</span>
+                            <span className="block text-xs">
+                              conversation deleted ·
+                              {c.tileCount}
+                              {' '}
+                              tiles
+                            </span>
                           </span>
                         </div>
                       )}

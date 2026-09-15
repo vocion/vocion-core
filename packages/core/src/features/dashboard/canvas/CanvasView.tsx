@@ -39,8 +39,24 @@ export type CanvasViewProps = {
 
 export function CanvasView(props: CanvasViewProps) {
   const router = useRouter();
-  const session = useChatSession({ agents: props.agents, agentSlug: props.agentSlug });
+  // The reducer sits above the session so its (stable) dispatch can receive
+  // live `artifact` events through the session's `onEvent` seam.
   const [canvas, dispatch] = useReducer(canvasReducer, { ...initialCanvasState, artifacts: props.initialArtifacts });
+  const session = useChatSession({
+    agents: props.agents,
+    agentSlug: props.agentSlug,
+    onEvent: (evt, api) => {
+      if (evt.type === 'artifact' && evt.artifact) {
+        const artifact = evt.artifact as ArtifactPayload;
+        if (artifact.conversationId === null || artifact.conversationId === props.conversationId) {
+          dispatch({ type: 'upsert', artifact });
+          api.setActivity(`Rendered ${artifact.title}`);
+        }
+      }
+      // Not claimed: the chat surface's own handling (inline card) still runs.
+      return undefined;
+    },
+  });
   const [gridOpen, setGridOpen] = useState(props.gridOpen);
   const [saving, setSaving] = useState(false);
   const [saveName, setSaveName] = useState(props.savedCanvas?.name ?? props.conversationTitle);

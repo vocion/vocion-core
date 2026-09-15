@@ -18,7 +18,10 @@ export function ArtifactCard({ artifact, surface }: { artifact: ArtifactPayload;
     <div data-artifact-id={artifact.id} data-card={resolved.slug}>
       <Renderer data={resolved.data} surface={surface} />
       {resolved.fallbackReason && (
-        <p className="mt-1 text-[11px] text-muted-foreground">Shown raw — {resolved.fallbackReason}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Shown raw —
+          {resolved.fallbackReason}
+        </p>
       )}
     </div>
   );

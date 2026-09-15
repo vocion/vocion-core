@@ -196,6 +196,24 @@ export type UseChatSessionOptions = {
    * sets this; the scope already says what the conversation is about.
    */
   pageContext?: { path: string; title: string };
+  /**
+   * Extension seam (R2/R3): sees every stream event before the built-in
+   * cases. Return `true` to claim the event (the switch is skipped). The
+   * `api` exposes the same primitives the built-in cases use, so an
+   * extension can fold state into the latest assistant message without
+   * editing this file. The canvas uses it for `artifact` events.
+   */
+  onEvent?: (evt: { type: string; [k: string]: unknown }, api: ChatSessionEventApi) => boolean | undefined;
+};
+
+/** What an `onEvent` extension may do to the transcript. */
+export type ChatSessionEventApi = {
+  /** Replace the latest assistant message (no-op when the last message is the user's). */
+  appendToLatestAgent: (mutate: (m: ChatMessage) => ChatMessage) => void;
+  /** Fold any buffered text/trace deltas into state first, to keep ordering. */
+  flushDeltas: () => void;
+  /** Set the live activity line ("Rendering table…"); null clears it. */
+  setActivity: (text: string | null) => void;
 };
 
 /**
@@ -216,6 +234,7 @@ export type UseChatSessionOptions = {
  * @param root0.greeting - Empty-state greeting: org eyebrow + workspace name.
  * @param root0.scopeRef
  * @param root0.pageContext
+ * @param root0.onEvent
  */
 export function useChatSession({
   agents,
@@ -225,11 +244,14 @@ export function useChatSession({
   greeting,
   scopeRef,
   pageContext,
+  onEvent,
 }: UseChatSessionOptions) {
   // Read at send time through a ref so a route change between turns is
   // reflected without rebuilding `sendMessage`.
   const pageContextRef = useRef(pageContext);
   pageContextRef.current = pageContext;
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
   const { state: lastViewed, loading: lastViewedLoading, persist } = useLastViewedConversation();
 
   // Scoped mode: resolve the user's latest conversation for the record before
@@ -449,7 +471,10 @@ export function useChatSession({
   }, []);
 
   const handleEvent = useCallback((evt: { type: string; [k: string]: unknown }) => {
-    window.dispatchEvent(new CustomEvent('vocion:agent-event', { detail: evt })); // R2 seam: canvas (features/dashboard/canvas/useArtifactEvents) listens for `artifact` events
+    // Extension seam first (R2/R3): a claimed event skips the built-in cases.
+    if (onEventRef.current?.(evt, { appendToLatestAgent, flushDeltas, setActivity }) === true) {
+      return;
+    }
     switch (evt.type) {
       case 'thinking':
         setPhase('thinking');
