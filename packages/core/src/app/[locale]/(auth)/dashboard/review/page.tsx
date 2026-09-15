@@ -7,9 +7,11 @@ import { listWorkflowRuns } from '@/services/WorkflowService';
 
 /**
  * Review — ONE primary flow: focus mode over the agent-proposed action queue
- * (one item at a time, decide and move on; up-next rail instead of a long
- * list; no popups). Paused workflows are internal mechanics, not the
- * operator's main job — they're demoted to a collapsed section below.
+ * (one item at a time, decide and move on; a one-line "Next" instead of a
+ * rail; no popups). The page header (breadcrumb, item title, meta row) is
+ * rendered by ReviewFocus, since it names the current item. Paused workflows
+ * are internal mechanics, not the operator's main job — they're demoted to a
+ * collapsed section below.
  */
 
 export default async function ReviewPage(props: {
@@ -34,7 +36,6 @@ export default async function ReviewPage(props: {
 
   return (
     <>
-      <TitleBar title="Review" />
       <ReviewFocus />
 
       {workflowRuns.length > 0 && (
