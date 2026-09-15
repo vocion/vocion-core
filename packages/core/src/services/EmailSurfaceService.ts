@@ -4,6 +4,7 @@ import process from 'node:process';
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { mailEnabled, sendMail } from '@/libs/mail';
+import { mailboxFrom, mailDomain } from '@/libs/mail/mailbox';
 import { fetchReceivedEmail, htmlToText, normaliseSubject, referencedMessageIds, replySubject, stripAngles, stripQuotedHistory } from '@/libs/surfaces/email';
 import { accountMembershipSchema, conversationSchema, emailThreadSchema, projectSchema, userSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
@@ -31,36 +32,11 @@ import { appendMessage, createConversation, listMessages, toHistoryTurns } from 
  * its title and `surface = 'email'`.
  */
 
+export { addressOnDomain, defaultMailboxAddress, mailboxFrom, mailDomain } from '@/libs/mail/mailbox';
+
 /** Feature flag — the webhook 501s without it. Ships dark. */
 export function emailSurfaceEnabled(): boolean {
   return process.env.VOCION_EMAIL_SURFACE === '1';
-}
-
-/** The domain workspaces may claim addresses on. */
-export function mailDomain(): string | null {
-  const d = process.env.VOCION_MAIL_DOMAIN?.trim().toLowerCase();
-  return d || null;
-}
-
-/**
- * `<slug>@<domain>` — the address a workspace gets when it enables its
- * mailbox without naming one.
- * @param slug - Workspace (project) slug.
- * @param domain - `VOCION_MAIL_DOMAIN`.
- */
-export function defaultMailboxAddress(slug: string, domain: string): string {
-  return `${slug.toLowerCase()}@${domain}`;
-}
-
-/**
- * Whether a tenant may claim this address: it must be on the deployment's mail
- * domain. Anything else would let a workspace pose as another domain.
- * @param address - Candidate address.
- * @param domain - `VOCION_MAIL_DOMAIN`.
- */
-export function addressOnDomain(address: string, domain: string): boolean {
-  const at = address.lastIndexOf('@');
-  return at > 0 && address.slice(at + 1).toLowerCase() === domain.toLowerCase();
 }
 
 export type Mailbox = { orgId: string; projectSlug: string; projectName: string; address: string; leadAgentSlug: string | null; accountId: string; accountableUserId: string | null };
@@ -201,15 +177,6 @@ function defaultDeps(): EmailHandlerDeps {
 export function bodyOf(email: Pick<ReceivedEmail, 'text' | 'html'>): string {
   const raw = email.text?.trim() || (email.html ? htmlToText(email.html) : '');
   return stripQuotedHistory(raw);
-}
-
-/**
- * `Workspace name <address>` — the face outbound mail from a workspace wears.
- * @param box - The mailbox.
- */
-export function mailboxFrom(box: Pick<Mailbox, 'projectName' | 'address'>): string {
-  const name = box.projectName.replace(/[<>"]/g, '').trim();
-  return name ? `${name} <${box.address}>` : box.address;
 }
 
 /**

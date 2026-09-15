@@ -2,9 +2,9 @@ import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningSt
 import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upsert';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow } from '@/libs/sources/upsert';
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
-import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/services/EmailSurfaceService';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
