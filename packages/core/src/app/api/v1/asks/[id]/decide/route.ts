@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { decideAsk } from '@/services/AskService';
 import { authApi, isErrorResponse, jsonError, readIdParam, readJsonBody, requireCapability } from '../../../_shared';
-import { askErrorResponse, optStr } from '../../_lib';
+import { askErrorResponse, optStr, withAskUrl } from '../../_lib';
 
 /**
  * POST /api/v1/asks/:id/decide
@@ -39,7 +39,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   try {
     const ask = await decideAsk({ orgId: caller.orgId, id, decision, note: optStr(body, 'note') ?? null, decidedBy: caller.actorId });
-    return NextResponse.json({ ask });
+    return NextResponse.json({ ask: await withAskUrl(caller.orgId, ask) });
   } catch (error) {
     return askErrorResponse(error);
   }

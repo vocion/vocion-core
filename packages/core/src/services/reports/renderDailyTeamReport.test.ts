@@ -49,7 +49,7 @@ function fixture(): DailyTeamReportData {
       full: false,
       label: 'workspace briefing',
     },
-    links: { inbox: 'https://agents.example.com/dashboard/inbox', teamReport: 'https://agents.example.com/dashboard/team-report', briefings: 'https://agents.example.com/dashboard/briefings' },
+    links: { inbox: 'https://agents.example.com/w/vocion-workforce/dashboard/inbox', teamReport: 'https://agents.example.com/w/vocion-workforce/dashboard/team-report', briefings: 'https://agents.example.com/w/vocion-workforce/dashboard/briefings' },
     generatedAt: T0,
   };
 }
@@ -134,7 +134,7 @@ describe('renderDailyTeamReport', () => {
       'CEO carried 66.4% of the spend — one role is most of the bill.',
       'KPI targets appear here once the workspace declares them (`kpis:` on a team).',
     ]);
-    expect(s.next[0]).toContain('[inbox](https://agents.example.com/dashboard/inbox)');
+    expect(s.next[0]).toContain('[inbox](https://agents.example.com/w/vocion-workforce/dashboard/inbox)');
     expect(s.next[1]).toContain('next report lands in 24 hours');
     expect(s.rollup).toMatchObject({ title: 'Workspace rollup — Mon, Sep 14', truncated: false });
     expect(s.evidence.map(e => e.label)).toEqual(['Runs', 'Completed', 'Failed / lost', 'Spend', 'Tokens', 'Board runs', 'Red-team runs', 'Needs you']);
@@ -202,8 +202,16 @@ describe('renderDailyTeamReport', () => {
 
     expect(r.subject).toBe('Team report — Vocion Workforce — Tuesday, Sep 15');
     expect(r.html).toContain('Open the inbox → 13 waiting');
-    expect(r.html).toContain('href="https://agents.example.com/dashboard/inbox"');
-    expect(r.html).toContain('href="https://agents.example.com/dashboard/team-report"');
+    expect(r.html).toContain('href="https://agents.example.com/w/vocion-workforce/dashboard/inbox"');
+    expect(r.html).toContain('href="https://agents.example.com/w/vocion-workforce/dashboard/team-report"');
+
+    // Every link in the mail carries the workspace: none may fall back to a
+    // bare `/dashboard/...` that opens whatever project the reader last had active.
+    const hrefs = [...r.html.matchAll(/href="([^"]+)"/g)].map(m => m[1]!);
+
+    expect(hrefs.length).toBeGreaterThan(0);
+    expect(hrefs.every(h => h.includes('/w/vocion-workforce/'))).toBe(true);
+    expect(r.html).not.toContain('agents.example.com/dashboard/');
 
     for (const slug of ['ceo', 'board', 'writer', 'red-team', 'idle-role', 'stray']) {
       expect(r.html).toContain(`>${slug}</span>`);
@@ -219,7 +227,7 @@ describe('renderDailyTeamReport', () => {
     expect(r.html).toMatch(/color-scheme:\s*light dark/);
     expect(r.html).not.toMatch(/<img|<link|<script/);
     expect(r.text).toContain('What needs me — 13');
-    expect(r.text).toContain('Open the inbox (https://agents.example.com/dashboard/inbox)');
+    expect(r.text).toContain('Open the inbox (https://agents.example.com/w/vocion-workforce/dashboard/inbox)');
     expect(r.markdown.startsWith('# Team report — Vocion Workforce — Tuesday, Sep 15')).toBe(true);
   });
 

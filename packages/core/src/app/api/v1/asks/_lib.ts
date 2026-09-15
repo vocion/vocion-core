@@ -1,6 +1,41 @@
 import type { NextResponse } from 'next/server';
+import type { Ask } from '@/services/AskService';
+import { workspaceUrl } from '@/libs/links';
 import { AskError } from '@/services/AskService';
+import { projectSlugById } from '@/services/ProjectService';
 import { jsonError } from '../_shared';
+
+/** An ask as the API returns it: the row plus the canonical link to decide it. */
+export type ApiAsk = Ask & {
+  /**
+   * Where a person decides this ask — `/w/<workspace>/dashboard/inbox/<id>`,
+   * absolute when `NEXT_PUBLIC_APP_URL` is set. Workspace-aware (libs/links.ts),
+   * so a filer can paste it into Slack or an approval file and it opens the
+   * right workspace. Null only when the project row is gone.
+   */
+  url: string | null;
+};
+
+/**
+ * Attach the canonical inbox link to each ask of one org. One slug lookup per
+ * response, not per row.
+ * @param orgId - Project id the asks belong to.
+ * @param asks - Rows from AskService.
+ */
+export async function withAskUrls<T extends Ask>(orgId: string, asks: T[]): Promise<(T & { url: string | null })[]> {
+  const slug = asks.length ? await projectSlugById(orgId) : null;
+  return asks.map(a => ({ ...a, url: slug ? workspaceUrl(slug, `/dashboard/inbox/${a.id}`, { absolute: true }) : null }));
+}
+
+/**
+ * {@link withAskUrls} for a single ask.
+ * @param orgId - Project id.
+ * @param ask - The row.
+ */
+export async function withAskUrl<T extends Ask>(orgId: string, ask: T): Promise<T & { url: string | null }> {
+  const [row] = await withAskUrls(orgId, [ask]);
+  return row!;
+}
 
 /**
  * Map an AskError onto the API's error envelope; rethrow anything else so a

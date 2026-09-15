@@ -41,15 +41,19 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // Surfaces the workspace switched on (workspace.yaml `surfaces:`), read from
   // the same project row the stale-session guard already fetches.
   let enabledSurfaces: SurfaceId[] = [];
+  // The workspace the shell is showing — named in the top bar so "where am I"
+  // is answered without opening the switcher (MANIFESTO §11).
+  let workspace: { slug: string; name: string } | null = null;
   if (orgId) {
     const [project] = await db
-      .select({ id: projectSchema.id, enabledSurfaces: projectSchema.enabledSurfaces })
+      .select({ id: projectSchema.id, slug: projectSchema.slug, name: projectSchema.name, enabledSurfaces: projectSchema.enabledSurfaces })
       .from(projectSchema)
       .where(eq(projectSchema.id, orgId))
       .limit(1);
     // Drop ids this core no longer registers, so a stale workspace list can't
     // put a broken link in the sidebar.
     enabledSurfaces = (project?.enabledSurfaces ?? []).filter(isSurfaceId);
+    workspace = project ? { slug: project.slug, name: project.name } : null;
     if (!project) {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
@@ -91,7 +95,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
       />
       <SidebarInset>
         <ShellBarActionsProvider>
-          <AppSidebarHeader />
+          <AppSidebarHeader workspace={workspace} />
 
           {/* The page and, beside it, the one conversation surface (058): the
               dock as a third column at a third of the screen, collapsed to a

@@ -2,39 +2,22 @@ import type { NextRequest } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 import { NextResponse } from 'next/server';
 import { SURFACE_PATH_SEGMENTS } from './features/navigation/surfaces';
+import { publicOrigin } from './libs/http/publicOrigin';
 import { routing } from './libs/I18nRouting';
+import { WORKSPACE_ENTRY_SEGMENT } from './libs/links';
 
 const handleI18nRouting = createMiddleware(routing);
 
 // Optional-surface segments (`gtm`, …) come from the registry rather than
 // being typed out here, so registering a surface under a new segment protects
 // it instead of shipping it readable until someone updates this regex.
-const PROTECTED_SEGMENTS = ['dashboard', 'onboarding', 'rpc', ...SURFACE_PATH_SEGMENTS];
+// `w` is the workspace entry route (`/w/<slug>/…`, libs/links.ts): it must be
+// protected so an unsigned reader of a mailed link gets sign-in with a
+// `callbackUrl` that round-trips the `/w/…` URL, and lands in the right
+// workspace after signing in.
+const PROTECTED_SEGMENTS = ['dashboard', 'onboarding', 'rpc', WORKSPACE_ENTRY_SEGMENT, ...SURFACE_PATH_SEGMENTS];
 const PROTECTED_PATH = new RegExp(`^/(?:[^/]+/)?(?:${PROTECTED_SEGMENTS.join('|')})(?:$|/|\\?)`);
 const AUTH_PATH = /^\/(?:[^/]+\/)?(?:sign-in|sign-up|setup|invite)(?:$|\/|\?)/;
-
-// Resolve the PUBLIC origin for redirects. Behind a reverse proxy (Caddy) the
-// server binds 0.0.0.0:3000, so `request.url` / `request.nextUrl.origin` carry
-// that internal address — using it for a redirect sends the browser to
-// `http://0.0.0.0:3000/...`, which is unreachable and blanks the app. Prefer an
-// explicitly configured public URL, then the proxy's forwarded headers, and
-// only fall back to the request origin for local/dev where they already match.
-function publicOrigin(request: NextRequest): string {
-  const configured = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL;
-  if (configured) {
-    try {
-      return new URL(configured).origin;
-    } catch {
-      // ignore a malformed env value and fall through to headers
-    }
-  }
-  const forwardedHost = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
-  if (forwardedHost) {
-    const proto = request.headers.get('x-forwarded-proto') ?? 'https';
-    return `${proto}://${forwardedHost}`;
-  }
-  return request.nextUrl.origin;
-}
 
 // Extract the locale prefix from a path — but ONLY if the first segment is an
 // actual configured locale. With `as-needed` prefixing, unprefixed paths like

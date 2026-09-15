@@ -25,9 +25,9 @@
  */
 
 import type { DailyTeamReportData, NeedsYou, ReportWindow, WorkerRunRow } from './dailyTeamReportShape';
-import process from 'node:process';
 import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { workspaceUrl } from '@/libs/links';
 import {
   actionRunSchema,
   agentBudgetSchema,
@@ -161,14 +161,6 @@ async function fetchBriefing(orgId: string, until: Date, selector?: BriefingSele
   return row ? { ...row, full: false, label: 'workspace briefing' } : null;
 }
 
-/** Base URL for links in the mail: `NEXT_PUBLIC_APP_URL`, trailing slash trimmed. */
-export function appBaseUrl(): string {
-  // Read from process.env, not `Env`, so the tsx worker and scripts (which do
-  // not always load the validated env) still produce a link.
-  const raw = process.env.NEXT_PUBLIC_APP_URL?.trim() ?? '';
-  return raw.replace(/\/+$/, '');
-}
-
 /** Which briefing the mail should carry instead of the workspace rollup. */
 export type BriefingSelector = { teamSlug?: string; agentSlug?: string };
 
@@ -220,14 +212,17 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
     budgets: budgets.map(b => ({ agentSlug: b.agentSlug, period: b.period, currentCents: Number(b.currentCents ?? 0), currentTokens: Number(b.currentTokens ?? 0), hardCentsLimit: b.hardCentsLimit === null ? null : Number(b.hardCentsLimit) })),
   });
 
-  const base = appBaseUrl();
+  // Workspace-aware links (libs/links.ts): the mail is about THIS project, so
+  // its links must open this project — not whichever one the reader's browser
+  // last had active.
+  const link = (path: string) => workspaceUrl(project.slug, path, { absolute: true });
   return {
     workspace: { id: project.id, name: project.name, slug: project.slug, accountableEmail },
     window: w,
     ...shaped,
     needsYou,
     rollup,
-    links: { inbox: `${base}/dashboard/inbox`, teamReport: `${base}/dashboard/team-report`, briefings: `${base}/dashboard/briefings` },
+    links: { inbox: link('/dashboard/inbox'), teamReport: link('/dashboard/team-report'), briefings: link('/dashboard/briefings') },
     generatedAt: new Date(),
   };
 }

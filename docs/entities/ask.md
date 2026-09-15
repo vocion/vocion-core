@@ -91,6 +91,7 @@ carries a *Recommended* chip and nothing more.
 | `risk` | `low` \| `medium` \| `high` | Shown as a chip on the row. |
 | `groupKey`, `groupTitle` | strings | Several asks under one key form one decision sheet. |
 | `contextUrl` | URL | The long form — the approval file, the PR, the run. `url` is accepted as an alias on POST. |
+| `url` | URL, read-only | Where a person decides this ask: `/w/<workspace>/dashboard/inbox/<id>`, absolute when `NEXT_PUBLIC_APP_URL` is set. Present on every API response; paste this into Slack or an approval file, not a bare `/dashboard/inbox` path. |
 | `contextMd` | markdown | Optional collapsed **Details**. |
 | `dueAt` | timestamp | Informational. |
 | `notifyAt`, `notified` | timestamp, boolean | Earliest time a notifier may ping about this ask, and whether one has. `AskService.pendingNotifications()` lists what is owed; nothing in core sends yet. |
