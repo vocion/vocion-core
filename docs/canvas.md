@@ -54,6 +54,24 @@ is written to the workspace repo from the app; the person commits the files.
 That is the manifesto's loop: a view one person needed once becomes a page
 everyone has ([MANIFESTO.md](./MANIFESTO.md) §6–7).
 
+## Serving files — never from `public/`
+
+File artifacts (`create_artifact`, `generate_image`) are written to
+`VOCION_ARTIFACTS_DIR` (default `<cwd>/.artifacts`) and served **only** through
+`GET /api/artifacts/<id>/<filename>` — a dashboard session or a `vcn_live_`
+token whose org owns the artifact; anything else is a 404. `<id>` is the
+artifact row id or the content-addressed file id `<orgId>-<hash>` (files from
+before the `artifact` table). Responses are `Cache-Control: private`.
+
+**Never leave `VOCION_ARTIFACTS_DIR` under `public/` in production.** Next
+serves `public/` to anyone with the URL; on 2026-09-15 a deployment with the
+old default (`public/artifacts`) exposed revenue briefs unauthenticated. The
+store logs a warning if it detects that layout in production. Legacy
+`/artifacts/<file>` URLs stored in rows or prose are rewritten to the route by
+`artifactHref()` (mission-run links, the file card). `VOCION_ARTIFACTS_URL_BASE`
+remains an override only for deployments that serve the directory behind their
+own auth.
+
 ## Surfaces
 
 `CardSurface` (`packages/sdk/src/cards.ts`) gained `'canvas'`. A card declares

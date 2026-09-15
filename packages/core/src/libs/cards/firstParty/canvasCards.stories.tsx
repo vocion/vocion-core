@@ -63,4 +63,4 @@ const record = { type: 'Deal', id: '61111439370', label: 'Northbeam — Operatio
 export const RecordChat: Story = { render: () => <div className="max-w-md"><RecordCardView data={record} surface="chat" /></div> };
 export const RecordCanvas: Story = { render: () => <RecordCardView data={record} surface="canvas" /> };
 
-export const LinkChat: Story = { render: () => <div className="max-w-md"><LinkCardView data={{ href: '/artifacts/x.csv', title: 'open-deals.csv', description: 'text/csv · 2 KB' }} surface="chat" /></div> };
+export const LinkChat: Story = { render: () => <div className="max-w-md"><LinkCardView data={{ href: '/api/artifacts/org-abc123/org-abc123.csv', title: 'open-deals.csv', description: 'text/csv · 2 KB' }} surface="chat" /></div> };
