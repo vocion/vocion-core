@@ -33,3 +33,30 @@ describe('AgentMessage inline citations', () => {
     expect(onCitationClick).toHaveBeenCalledWith(1);
   });
 });
+
+describe('AgentMessage attribution (§9.10)', () => {
+  it('renders a routed reply under the workspace with a "via <specialist>" eyebrow', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        via="via Proposal Writer"
+        message={{ role: 'assistant', content: 'Here is the brief.', runs: [{ type: 'text', text: 'Here is the brief.' }] }}
+      />,
+    );
+
+    await expect.element(page.getByText('Revenue')).toBeInTheDocument();
+    await expect.element(page.getByTestId('via-eyebrow')).toHaveTextContent('via Proposal Writer');
+  });
+
+  it('shows no eyebrow when the workspace agent answered itself', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: 'Pipeline is up 12%.', runs: [{ type: 'text', text: 'Pipeline is up 12%.' }] }}
+      />,
+    );
+
+    await expect.element(page.getByText('Pipeline is up 12%.')).toBeInTheDocument();
+    expect(page.getByTestId('via-eyebrow').query()).toBeNull();
+  });
+});

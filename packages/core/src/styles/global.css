@@ -65,16 +65,28 @@
   --color-ink: var(--ink);
   --color-ink-title: var(--ink-title);
   --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
   --color-rule: var(--rule);
+
+  /* Airy pass (B-034b, 2026-09-15). Colour stops doing structural work:
+     surfaces are soft greys, the one primary action per page is ink, and
+     amber is kept for brand marks, focus and links. */
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-soft: var(--surface-soft);
+  --color-action: var(--action);
+  --color-action-foreground: var(--action-foreground);
+  --shadow-pop: var(--shadow-pop);
 
   /* Typography stack — wired in app/[locale]/layout.tsx via next/font. */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: var(--font-outfit), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* Display face collapses onto the body face in the app (B-034b §1) — Outfit
+     stays on the marketing site, which loads it separately. */
+  --font-display: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 0.75rem;
 
   /* Brand palette — warm, port from rev-ai */
   --brand-amber: oklch(0.74 0.17 65); /* ≈ #F18700 */
@@ -94,7 +106,13 @@
   --ink: oklch(0.16 0 0); /* ≈ #0D0D0E */
   --ink-title: oklch(0.27 0 0); /* ≈ #2A2A2A */
   --ink-secondary: oklch(0.5 0 0); /* ≈ #6B6B6B */
-  --rule: oklch(0 0 0 / 8%);
+  --ink-muted: oklch(0.38 0 0); /* inactive nav labels — dark grey, not ink */
+  --rule: oklch(0 0 0 / 6%);
+  --surface-hover: oklch(0 0 0 / 3%);
+  --surface-soft: oklch(0.975 0 0);
+  --action: var(--ink);
+  --action-foreground: oklch(1 0 0);
+  --shadow-pop: 0 8px 30px oklch(0 0 0 / 8%);
 
   /* Shadcn surface tokens — light mode, neutral surfaces with warm accent */
   --background: oklch(1 0 0); /* #FFFFFF */
@@ -120,14 +138,16 @@
   --chart-3: var(--brand-pass);
   --chart-4: var(--brand-borderline);
   --chart-5: var(--brand-fail);
-  --sidebar: oklch(0.98 0 0); /* ≈ #FAFAFA */
-  --sidebar-foreground: var(--ink-title);
+  --sidebar: oklch(0.99 0 0);
+  /* Inactive labels are dark grey; the active pill is the darkest grey (8%)
+     with ink text; hover is lighter (--surface-hover, 3%). Focus ring subtle. */
+  --sidebar-foreground: var(--ink-muted);
   --sidebar-primary: var(--brand-amber);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: var(--brand-amber-tint);
-  --sidebar-accent-foreground: var(--brand-amber-deep);
+  --sidebar-accent: oklch(0 0 0 / 8%);
+  --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--rule);
-  --sidebar-ring: var(--brand-amber);
+  --sidebar-ring: oklch(0 0 0 / 15%);
 }
 
 .dark {
@@ -137,7 +157,13 @@
   --ink: oklch(0.98 0 0);
   --ink-title: oklch(0.92 0 0);
   --ink-secondary: oklch(0.65 0 0);
-  --rule: oklch(1 0 0 / 12%);
+  --ink-muted: oklch(0.78 0 0);
+  --rule: oklch(1 0 0 / 10%);
+  --surface-hover: oklch(1 0 0 / 4%);
+  --surface-soft: oklch(0.21 0 0);
+  --action: oklch(0.98 0 0);
+  --action-foreground: oklch(0.16 0 0);
+  --shadow-pop: 0 8px 30px oklch(0 0 0 / 40%);
 
   --background: oklch(0.16 0 0);
   --foreground: var(--ink);
@@ -161,10 +187,11 @@
   --sidebar-foreground: var(--ink-title);
   --sidebar-primary: var(--brand-amber);
   --sidebar-primary-foreground: oklch(0.16 0 0);
-  --sidebar-accent: oklch(0.3 0.06 65);
-  --sidebar-accent-foreground: var(--brand-amber);
+  --sidebar-foreground: var(--ink-muted);
+  --sidebar-accent: oklch(1 0 0 / 10%);
+  --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--rule);
-  --sidebar-ring: var(--brand-amber);
+  --sidebar-ring: oklch(1 0 0 / 20%);
 }
 
 @layer base {
@@ -180,8 +207,12 @@
   h3,
   h4,
   .font-display {
-    font-family: var(--font-display);
-    letter-spacing: -0.01em;
+    font-family: var(--font-sans);
+    letter-spacing: -0.015em;
+  }
+  /* Outline icons read lighter at 1.5 (B-034b §2). */
+  svg.lucide {
+    stroke-width: 1.5;
   }
 }
 

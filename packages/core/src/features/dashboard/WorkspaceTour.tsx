@@ -239,7 +239,7 @@ export function WorkspaceTour({ steps, title, autoStart }: {
         className="absolute z-10 max-h-[calc(100vh-24px)] w-[380px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-xl border border-border bg-background p-4 shadow-2xl"
         style={{ ...popStyle, pointerEvents: 'auto' }}
       >
-        <div className="mb-1 font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
+        <div className="mb-1 font-mono text-[12px] text-muted-foreground">
           {title}
           {' · '}
           {idx + 1}

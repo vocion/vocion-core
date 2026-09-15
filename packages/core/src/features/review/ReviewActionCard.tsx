@@ -289,7 +289,7 @@ export function ReviewActionCard(props: {
         <div className="p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">{card.system ?? run.actionId.split('.')[0]}</span>
+              <span className="rounded-full bg-muted px-2.5 py-0.5 text-[12px] font-medium">{card.system ?? run.actionId.split('.')[0]}</span>
               <span className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
                 <span className={`size-1.5 rounded-full ${run.status === 'failed' ? 'bg-red-500' : 'bg-emerald-500'}`} aria-hidden />
                 {STATUS_LABEL[run.status] ?? run.status}
@@ -300,14 +300,14 @@ export function ReviewActionCard(props: {
                   badge reading "Reject" would look like the item already had
                   been. Absent when the agent gave no view. */}
               {suggestion && (
-                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${suggestion.className}`}>
+                <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-medium ${suggestion.className}`}>
                   {suggestion.label}
                 </span>
               )}
             </div>
             {pct !== null && (
               <div className="shrink-0 rounded-xl bg-muted/60 px-3 py-1.5 text-right">
-                <span className="block text-[9px] font-semibold tracking-widest text-muted-foreground uppercase">Confidence</span>
+                <span className="block text-[12px] font-medium text-muted-foreground">Confidence</span>
                 <span className={`text-lg leading-tight font-bold ${tone(run.proposal?.confidence).split(' ').slice(1).join(' ')}`}>
                   {pct}
                   %
@@ -342,7 +342,7 @@ export function ReviewActionCard(props: {
           <dl className="flex flex-wrap gap-x-10 gap-y-2 border-t border-border/60 px-5 py-4">
             {card.provenance.map(p => (
               <div key={p.label}>
-                <dt className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">{p.label}</dt>
+                <dt className="text-[12px] font-medium text-muted-foreground">{p.label}</dt>
                 <dd className="text-sm font-semibold">{p.value}</dd>
               </div>
             ))}
@@ -357,7 +357,7 @@ export function ReviewActionCard(props: {
             <div className="flex items-start gap-3 rounded-xl bg-muted/50 p-4">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-amber-tint text-brand-amber-deep"><Sparkles className="size-4" aria-hidden /></span>
               <div className="min-w-0 flex-1">
-                <div className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">Recommended action</div>
+                <div className="text-[12px] font-medium text-muted-foreground">Recommended action</div>
                 <div className="text-base font-bold break-words">{card.recommendation.headline}</div>
                 {card.recommendation.detail && <p className="mt-1 text-sm break-words text-foreground/80">{card.recommendation.detail}</p>}
                 {card.links && card.links.length > 0 && (
@@ -379,7 +379,7 @@ export function ReviewActionCard(props: {
           <div className="border-t border-border/60 px-5 py-4">
             {card.contentHeading && (
               <div className="mb-1 flex items-baseline justify-between">
-                <span className="text-[11px] font-semibold tracking-widest text-muted-foreground uppercase">{card.contentHeading.label}</span>
+                <span className="text-[12px] font-medium text-muted-foreground">{card.contentHeading.label}</span>
                 {card.contentHeading.meta && <span className="text-[13px] text-muted-foreground">{card.contentHeading.meta}</span>}
               </div>
             )}
@@ -410,7 +410,7 @@ export function ReviewActionCard(props: {
             <dl className="space-y-1">
               {card.fields.map(f => (
                 <div key={f.label} className="flex gap-2 text-sm">
-                  <dt className="w-24 shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{f.label}</dt>
+                  <dt className="w-24 shrink-0 text-[12px] font-medium text-muted-foreground">{f.label}</dt>
                   <dd className="min-w-0 break-words">
                     {f.href
                       ? <a href={f.href} target="_blank" rel="noreferrer" className="text-brand-amber-deep underline decoration-brand-amber/40 underline-offset-2 hover:decoration-brand-amber">{f.value}</a>
@@ -421,13 +421,13 @@ export function ReviewActionCard(props: {
             </dl>
             {(card.summary ?? run.proposal?.rationale) && (
               <div className="flex gap-2 text-sm">
-                <span className="w-24 shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Summary</span>
+                <span className="w-24 shrink-0 text-[12px] font-medium text-muted-foreground">Summary</span>
                 <p className="min-w-0 break-words text-foreground/85">{card.summary ?? run.proposal?.rationale}</p>
               </div>
             )}
             {card.nextAction && (
               <div className="flex gap-2 text-sm">
-                <span className="w-24 shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Next</span>
+                <span className="w-24 shrink-0 text-[12px] font-medium text-muted-foreground">Next</span>
                 <p className="min-w-0 font-medium break-words">{card.nextAction}</p>
               </div>
             )}
@@ -437,13 +437,13 @@ export function ReviewActionCard(props: {
                   k === 'notes'
                     ? (
                         <label key={k} className="block">
-                          <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{k}</span>
+                          <span className="mb-1 block text-[12px] font-medium text-muted-foreground">{k}</span>
                           <textarea className={`${fieldClass} min-h-24 resize-y leading-relaxed`} value={v} onChange={ev => setPropertyEdits(e => ({ ...e, [k]: ev.target.value }))} disabled={held} />
                         </label>
                       )
                     : (
                         <label key={k} className="block">
-                          <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{k}</span>
+                          <span className="mb-1 block text-[12px] font-medium text-muted-foreground">{k}</span>
                           <input className={fieldClass} value={v} onChange={ev => setPropertyEdits(e => ({ ...e, [k]: ev.target.value }))} disabled={held} />
                         </label>
                       )
@@ -470,7 +470,7 @@ export function ReviewActionCard(props: {
             regeneration without instructions is a coin flip. */}
         <div className="border-t border-border/60 px-5 py-4">
           <label className="block">
-            <span className="mb-1 block text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+            <span className="mb-1 block text-[12px] font-medium text-muted-foreground">
               Feedback
               {' '}
               <span className="font-normal tracking-normal normal-case">(optional)</span>

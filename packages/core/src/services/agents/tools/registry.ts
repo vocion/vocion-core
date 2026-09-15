@@ -48,6 +48,7 @@ import {
 } from './learnings';
 import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
+import { pageContextTool } from './pageContext';
 import { personalizationTools } from './personalization';
 import { proposeActionTool } from './proposeAction';
 import { recommendActionTool } from './recommendAction';
@@ -118,6 +119,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     requestHumanReviewTool(ctx),
     proposeActionTool(ctx),
     recommendActionTool(ctx),
+    pageContextTool(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),

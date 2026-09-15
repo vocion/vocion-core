@@ -117,6 +117,20 @@ describe('candidate extractor outcomes', () => {
     expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).toHaveLength(1);
   });
 
+  it('recommends reject on a card the model called a duplicate, and nothing otherwise', async () => {
+    await propose([
+      record({ duplicateOf: 41, fields: { title: 'Open Mic Night', seriesMatch: 'possible duplicate of 41' } }),
+      record(),
+    ]);
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const byTitle = Object.fromEntries(runs.map(r => [(r.input as { title?: string }).title, r]));
+
+    expect(byTitle['Open Mic Night']?.proposal).toMatchObject({ suggestedDecision: 'reject' });
+    expect(byTitle['Open Mic Night']?.status).toBe('pending');
+    expect((byTitle['The Music of Hey Arnold! Live']?.proposal as { suggestedDecision?: string }).suggestedDecision).toBeUndefined();
+  });
+
   it('links the document to the candidate it created', async () => {
     await propose([record()]);
 
