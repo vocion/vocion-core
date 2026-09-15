@@ -6,6 +6,7 @@ vi.mock('@/libs/Orpc', () => ({
     chatWidget: {
       getState: vi.fn(),
       setState: vi.fn(),
+      setRail: vi.fn(async () => ({ railWidth: null, railOpen: null })),
     },
   },
 }));
@@ -28,26 +29,26 @@ afterEach(() => {
 describe('useLastViewedConversation', () => {
   it('resolves the server value and mirrors it into localStorage', async () => {
     const updatedAt = new Date('2026-08-06T12:00:00.000Z');
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt, railWidth: null, railOpen: null });
 
     const { result } = await renderHook(() => useLastViewedConversation());
 
     await vi.waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString() });
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString() });
+    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString(), railWidth: null, railOpen: null });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString(), railWidth: null, railOpen: null });
   });
 
   it('normalizes a server updatedAt that arrives as an ISO string (not a Date) into a stored ISO string', async () => {
     const updatedAtIso = '2026-08-06T12:00:00.000Z';
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso as never });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso as never, railWidth: null, railOpen: null });
 
     const { result } = await renderHook(() => useLastViewedConversation());
 
     await vi.waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso });
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso });
+    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso, railWidth: null, railOpen: null });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso, railWidth: null, railOpen: null });
   });
 
   it('falls back to localStorage when the server has no pointer yet', async () => {

@@ -2,7 +2,8 @@
 
 import type { RecommendedAction } from './types';
 import { ArrowRight, Check, Loader2, Mail, PencilLine, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
@@ -35,17 +36,25 @@ function fmtTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
+export function RecommendedActionCard({ rec, canApprove = true, onProposed, autoPropose = false }: {
   rec: RecommendedAction;
   /** Whether to offer the inline Approve. The server still authorizes the decision. */
   canApprove?: boolean;
   /** Fired once the run exists (tap or server-filed) so a stack can count it. */
   onProposed?: (runId: number) => void;
+  /**
+   * The thread runs at `act-within-bounds` (0094): propose into the review
+   * queue as soon as the card appears, and say so. Still nothing executes —
+   * the queue and trust rules gate every outward step. A card that already
+   * arrived with a server-filed `runId` (R4) has nothing left to propose.
+   */
+  autoPropose?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null);
   const [decideError, setDecideError] = useState<string | null>(null);
   const live = useActionRunStatus(phase.runId);
+  const autoFiredRef = useRef(rec.runId !== undefined);
 
   const prepare = async () => {
     setPhase({ status: 'working' });
@@ -78,6 +87,17 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
       setDeciding(null);
     }
   };
+
+  useEffect(() => {
+    if (autoPropose && !autoFiredRef.current) {
+      autoFiredRef.current = true;
+      // Proposing IS the effect here: the thread runs at act-within-bounds,
+      // so the card fires its one network call the moment it appears.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void prepare();
+    }
+    // `prepare` closes over `rec`, which is stable for the card's life.
+  }, [autoPropose]);
 
   const pct = rec.confidence !== undefined ? Math.round(rec.confidence * 100) : null;
   const isEmail = rec.actionId === 'gmail.send';
@@ -193,13 +213,13 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed }: {
                     </button>
                   </>
                 )}
-                <a
+                <Link
                   href="/dashboard/review"
                   className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
                 >
                   {status === 'pending' ? 'Open in review queue' : 'Open in review'}
                   <ArrowRight className="size-3.5" aria-hidden />
-                </a>
+                </Link>
                 {decideError && (
                   <span className="text-xs text-destructive">
                     Couldn’t decide it:

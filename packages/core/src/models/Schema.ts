@@ -1230,6 +1230,15 @@ export const conversationSchema = pgTable(
      */
     scopeRef: text('scope_ref'),
     /**
+     * How recommended actions behave in this thread (0094): `ask` — each
+     * recommendation is a card the person taps into the review queue;
+     * `act-within-bounds` — recommendations are proposed as they arrive and
+     * the card reports "in review". Neither executes anything; the review
+     * queue and trust rules still gate every outward action. Text, not an
+     * enum, so a new rung is a code change.
+     */
+    autonomy: text('autonomy').default('ask').notNull(),
+    /**
      * Where the conversation STARTED: the page context of its first turn
      * (path, title, the record the page was about, the highlighted passage).
      * Set once; later turns carry their own context on the wire only. Null
@@ -1245,6 +1254,9 @@ export const conversationSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
+    // Full-text search over titles for the rail's history search. Built
+    // CONCURRENTLY in migrations/concurrent/0094 — declared here for the ORM.
+    index('conversation_title_fts_idx').using('gin', sql`to_tsvector('simple', ${table.title})`),
     // Not unique. It serves `listConversations`, which filters on org and agent
     // and sorts by `updated_at` — a sort key, not an identity. Uniqueness only
     // meant that two conversations with one agent landing in the same
@@ -1325,8 +1337,21 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    * AgentMessage.
    */
   confidence: text('confidence'),
+  /**
+   * A thumb on this assistant turn (0094): `up` | `down` | null. The optional
+   * note beside it is what teaches the system — queued for the feedback
+   * classifier and, when it proposes a rule, a pending learning candidate.
+   */
+  feedbackRating: text('feedback_rating'),
+  feedbackNote: text('feedback_note'),
+  feedbackAt: timestamp('feedback_at', { mode: 'date' }),
+  feedbackBy: text('feedback_by'),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-});
+}, table => [
+  // Full-text search over message content for the rail's history search.
+  // Built CONCURRENTLY in migrations/concurrent/0094 — declared here for the ORM.
+  index('conversation_message_content_fts_idx').using('gin', sql`to_tsvector('simple', ${table.content})`),
+]);
 
 /**
  * anchored_comment — the reviewer's notes ON a span of a document, kept
@@ -1403,6 +1428,13 @@ export const chatWidgetStateSchema = pgTable(
     userId: text('user_id').notNull(),
     agentSlug: text('agent_slug').notNull(),
     conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
+    /**
+     * The rail's width in px and whether it is open (0094), so a second
+     * browser opens it the way the first left it. localStorage is the fast
+     * path; this row is what a new device reads. Null = never set.
+     */
+    railWidth: integer('rail_width'),
+    railOpen: boolean('rail_open'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

@@ -4,8 +4,10 @@ import type { AgentSurfaceRequest } from './agentSurface';
 import type { AgentOption } from './types';
 import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import type { PageContext } from '@/services/chat/pageContext';
-import { MessageCircle, PanelRightClose, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { MessageSquare, PanelRightClose, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { CommentChips } from '@/features/comments/AnchoredComments';
 import { useCommentLayer } from '@/features/comments/CommentLayer';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
@@ -16,8 +18,22 @@ import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
 import { publishDockOpen } from './dockState';
 import { EmptyState } from './EmptyState';
+import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
+import {
+  clampRailWidth,
+  defaultRailWidth,
+  RAIL_MAX_FRACTION,
+  RAIL_MIN_WIDTH,
+  RAIL_SHEET_BREAKPOINT,
+  readCollapsed,
+  readStoredRailWidth,
+  writeCollapsed,
+  writeStoredRailWidth,
+} from './railState';
+import { parseSearchCommand } from './routing';
+import { useTagSearch } from './tagSearch';
 import { useChatSession } from './useChatSession';
 
 export type ChatDockProps = {
@@ -34,8 +50,8 @@ export type ChatDockProps = {
   /** Where the person is, sent with each turn when the dock is not record-scoped (058). */
   pageContext?: PageContext;
   /**
-   * How the dock starts when this browser has never collapsed or opened one:
-   * open on a record (the decision is the point), collapsed to the button
+   * How the rail starts when this browser has never collapsed or opened one:
+   * open on a record (the decision is the point), collapsed to the edge tab
    * everywhere else (058). A stored choice wins over this.
    */
   defaultCollapsed?: boolean;
@@ -46,13 +62,14 @@ export type ChatDockProps = {
   run?: ReviewCardRun | null;
   /** Fired after a guided decision lands, so the page can re-resolve. */
   onDecided?: () => void;
+  /** A thread the URL names (`?conversation=<id>`) — resume it instead of starting fresh (§9). */
+  resumeConversationId?: number | null;
 };
 
-const COLLAPSE_KEY = 'vocion_chat_dock_collapsed';
-
 /**
- * Open, the dock takes a third of the viewport and never less than the old
- * 384px column (058). Below 1200px it covers the page instead (see the aside).
+ * Kept for callers and tests that read the legacy constant: the rail's
+ * width is now a pixel value (see `railState.ts`), not a class.
+ * @deprecated Width is stateful since §9; this is the default open width's class equivalent.
  */
 export const DOCK_WIDTH_CLASS = 'w-[max(24rem,33.333vw)]';
 
@@ -84,32 +101,38 @@ const EMPTY_RUN = {
   card: { title: '', fields: [] },
 } as unknown as ReviewCardRun;
 
-function readCollapsed(fallback: boolean): boolean {
-  try {
-    const stored = localStorage.getItem(COLLAPSE_KEY);
-    if (stored === null) {
-      return fallback;
-    }
-    return stored === '1';
-  } catch {
-    return fallback;
-  }
+/**
+ * Whether the viewport is too narrow for a side-by-side rail — below the
+ * breakpoint the rail covers the page as a sheet instead of narrowing it.
+ */
+function useNarrowViewport(): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${RAIL_SHEET_BREAKPOINT - 1}px)`);
+    const onChange = () => setNarrow(mql.matches);
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+    setNarrow(mql.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+  return narrow;
 }
 
 /**
- * The dock — the agent conversation as a third column beside the page
- * (agent-chat-surface.md §3, decided 2026-09-02: a core component, defaulting
- * to open, collapsible; the full-page chat stays as the everything scope).
+ * The rail — the agent conversation as a persistent, resizable third column
+ * beside every page (agent-chat-surface.md §3, §9): a core component,
+ * collapsible to a slim edge tab, toggled with ⌘J, its width remembered per
+ * user. The full-page chat stays as the everything scope.
  *
- * Same brain as the other two surfaces (`useChatSession`), scoped: it resumes
- * the current user's latest conversation FOR THIS RECORD, creates
- * conversations carrying the scope, and never touches the global last-viewed
- * pointers, so it cannot steal the full-page chat's thread. Below 1200px the
- * dock covers the page instead of narrowing it (032 §3.2).
+ * Same brain as the other surfaces (`useChatSession`). Record-scoped, it
+ * resumes the current user's latest conversation FOR THIS RECORD; everything-
+ * scoped, it opens a NEW conversation unless this browser session was already
+ * in one or the URL names one (§9). Below 1200px the rail covers the page as
+ * a sheet instead of narrowing it.
  *
- * Mounted by the record page (which knows its scope), not by the shell; the
- * shell's `PageDock` bails out on those routes so a page never carries two
- * chat surfaces (032 §6).
+ * Mounted once by the shell (`PageDock`) or by a record page that knows its
+ * scope; the shell's dock bails out on those routes so a page never carries
+ * two conversation surfaces (§6).
  * @param root0 - Component props.
  * @param root0.agents - Agents available to pick from. Empty array renders nothing.
  * @param root0.scopeRef - The record this dock is scoped to.
@@ -118,16 +141,17 @@ function readCollapsed(fallback: boolean): boolean {
  * @param root0.defaultCollapsed
  * @param root0.run
  * @param root0.onDecided
+ * @param root0.resumeConversationId
  */
-export function ChatDock({ agents, scopeRef, scopeLabel, pageContext, defaultCollapsed, run, onDecided }: ChatDockProps) {
+export function ChatDock({ agents, scopeRef, scopeLabel, pageContext, defaultCollapsed, run, onDecided, resumeConversationId }: ChatDockProps) {
   if (agents.length === 0) {
     return null;
   }
-  return <ChatDockInner agents={agents} scopeRef={scopeRef} scopeLabel={scopeLabel} pageContext={pageContext} defaultCollapsed={defaultCollapsed} run={run} onDecided={onDecided} />;
+  return <ChatDockInner agents={agents} scopeRef={scopeRef} scopeLabel={scopeLabel} pageContext={pageContext} defaultCollapsed={defaultCollapsed} run={run} onDecided={onDecided} resumeConversationId={resumeConversationId} />;
 }
 
 /**
- * The dock body — split from the wrapper so `useChatSession` (and its mount
+ * The rail body — split from the wrapper so `useChatSession` (and its mount
  * effects) never runs when there are no agents to talk to, the same guarantee
  * `PageDock` makes.
  * @param root0 - Component props.
@@ -138,12 +162,15 @@ export function ChatDock({ agents, scopeRef, scopeLabel, pageContext, defaultCol
  * @param root0.defaultCollapsed
  * @param root0.run
  * @param root0.onDecided
+ * @param root0.resumeConversationId
  */
-function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultCollapsed = false, run, onDecided }: ChatDockProps) {
+function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultCollapsed = false, run, onDecided, resumeConversationId = null }: ChatDockProps) {
+  const t = useTranslations('Chat');
   // Starts as the page says (open on a record, collapsed elsewhere) until the
-  // person collapses or opens one; that choice persists per browser and
-  // applies on every page (058).
+  // person collapses or opens one; that choice persists per browser (and per
+  // user, server-side) and applies on every page (058, §9).
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [width, setWidth] = useState<number>(() => defaultRailWidth(1440));
   // Intent a page affordance handed us (R4): a prompt to prefill and the
   // record / passage it is about. Cleared once a turn goes out. The record
   // the page declares can be dismissed for this dock session ("About: …" chip).
@@ -167,13 +194,15 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       openedFrom: true as const,
     };
   }, [pageContext, intent, recordDismissed]);
-  const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext });
+  const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
+  const tagSearch = useTagSearch(agents);
   // Latest session for the request listener (registered once, on mount).
   const sessionRef = useRef(session);
   useEffect(() => {
     sessionRef.current = session;
   });
   const asideRef = useRef<HTMLElement | null>(null);
+  const narrow = useNarrowViewport();
   // A turn went out: the intent has been consumed.
   const turnCount = session.messages.length;
   useEffect(() => {
@@ -197,17 +226,21 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   const cardsScrolledAway = cardAnchor < lastMessageIndex;
   const recallCards = () => setCardAnchor(lastMessageIndex);
 
-  // The dock IS this page's agent surface: claim any entry-point request
-  // (hotkey, titlebar, rail) by un-collapsing and taking focus (032 §6).
+  const setCollapsedPersisted = useCallback((next: boolean) => {
+    setCollapsed(next);
+    writeCollapsed(next);
+    session.persistRail({ railOpen: !next });
+  }, [session]);
+
+  // The rail IS this page's agent surface: claim any entry-point request
+  // (hotkey, titlebar, a page's "Ask about this") by opening and taking
+  // focus (§6).
   useEffect(() => {
     function onRequest(e: Event) {
       e.preventDefault();
       setCollapsed(false);
-      try {
-        localStorage.setItem(COLLAPSE_KEY, '0');
-      } catch {
-        /* storage unavailable */
-      }
+      writeCollapsed(false);
+      sessionRef.current.persistRail({ railOpen: true });
       // Intent (R4): prefill the composer and attach the record / passage the
       // affordance named — one surface, never a second input on the page.
       const req = agentSurfaceRequestOf(e);
@@ -227,12 +260,96 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     return () => window.removeEventListener(AGENT_SURFACE_EVENT, onRequest);
   }, []);
 
+  // ⌘J / Ctrl+J toggles the rail (§9). Bound here — not in the shell's
+  // hotkey component — because the rail is the thing being toggled.
   useEffect(() => {
-    // One-time read of a client-only value (localStorage) on mount; it cannot
-    // happen during render because it would mismatch the server-rendered default.
-    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'j' || e.defaultPrevented) {
+        return;
+      }
+      e.preventDefault();
+      setCollapsed((prev) => {
+        const next = !prev;
+        writeCollapsed(next);
+        if (!next) {
+          focusAgentComposer(asideRef.current);
+        }
+        return next;
+      });
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // One-time read of client-only values (localStorage, viewport) on mount; it
+  // cannot happen during render because it would mismatch the server render.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
     setCollapsed(readCollapsed(defaultCollapsed));
+    const stored = readStoredRailWidth();
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setWidth(clampRailWidth(stored ?? defaultRailWidth(window.innerWidth), window.innerWidth));
   }, [defaultCollapsed]);
+
+  // A second device: adopt the server-side geometry when this browser has
+  // never said anything itself.
+  const railState = session.railState;
+  useEffect(() => {
+    if (!railState) {
+      return;
+    }
+    if (readStoredRailWidth() === null && typeof railState.railWidth === 'number') {
+      const w = clampRailWidth(railState.railWidth, window.innerWidth);
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+      setWidth(w);
+      writeStoredRailWidth(w);
+    }
+    let storedCollapse: string | null = null;
+    try {
+      storedCollapse = localStorage.getItem('vocion_chat_dock_collapsed');
+    } catch {
+      /* storage unavailable */
+    }
+    if (storedCollapse === null && typeof railState.railOpen === 'boolean') {
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+      setCollapsed(!railState.railOpen);
+    }
+  }, [railState]);
+
+  // Drag the left edge to resize. Pointer capture keeps the drag alive when
+  // the cursor leaves the handle; the width persists on release only, so a
+  // drag is one write, not hundreds.
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const onResizeStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragRef.current = { startX: e.clientX, startWidth: width };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onResizeMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d) {
+      return;
+    }
+    setWidth(clampRailWidth(d.startWidth + (d.startX - e.clientX), window.innerWidth));
+  };
+  const onResizeEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) {
+      return;
+    }
+    dragRef.current = null;
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    writeStoredRailWidth(width);
+    session.persistRail({ railWidth: width });
+  };
+  const onResizeKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 64 : 16;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const next = clampRailWidth(width + (e.key === 'ArrowLeft' ? step : -step), window.innerWidth);
+      setWidth(next);
+      writeStoredRailWidth(next);
+      session.persistRail({ railWidth: next });
+    }
+  };
 
   /**
    * Send the message with any anchored notes attached, then mark them
@@ -275,73 +392,88 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     }
   };
 
-  // Tell the page beside the dock whether it has the room (the review queue
-  // folds its Up-next rail while the dock is open). Closed again on unmount.
+  // Tell the page beside the rail whether it has the room (the review queue
+  // folds its Up-next rail while the rail is open). Closed again on unmount.
   useEffect(() => {
-    publishDockOpen(!collapsed);
+    publishDockOpen(!collapsed && !narrow);
     return () => publishDockOpen(false);
-  }, [collapsed]);
+  }, [collapsed, narrow]);
 
-  const setCollapsedPersisted = (next: boolean) => {
-    setCollapsed(next);
-    try {
-      localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
-    } catch {
-      /* storage unavailable — state still holds for this session */
-    }
+  const showCards = run && (!guided.state.decided || guided.outcome);
+  const cardBlocks = showCards
+    ? [{
+        key: 'guided',
+        afterIndex: Math.min(cardAnchor, Math.max(lastMessageIndex, -1)),
+        node: (
+          <div className="rounded-xl border border-border bg-muted/20">
+            <GuidedReviewPanel run={run} guided={guided} pendingComments={comments?.open.length ?? 0} />
+          </div>
+        ),
+      }]
+    : [];
+
+  const autonomyCopy = {
+    ask: t('autonomy_ask'),
+    act: t('autonomy_act'),
+    askHint: t('autonomy_ask_hint'),
+    actHint: t('autonomy_act_hint'),
   };
 
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        onClick={() => setCollapsedPersisted(false)}
-        aria-label="Open the conversation"
-        title="Open the conversation"
-        className="fixed right-4 bottom-4 z-40 flex size-12 items-center justify-center rounded-full bg-brand-amber text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-brand-amber-deep"
-      >
-        <MessageCircle className="size-5" aria-hidden="true" />
-      </button>
-    );
-  }
+  // ONE identity (§9.10): unscoped, the rail is titled by the workspace's
+  // name with its initial as the mark; scoped, by the record it is about.
+  const workspaceKnown = agents.some(a => a.workspaceName);
+  const headerName = scopeRef ? scopeLabel : (workspaceKnown ? session.workspaceName : scopeLabel);
 
-  return (
-    <aside
-      ref={asideRef}
-      aria-label={scopeRef ? `Conversation about ${scopeLabel}` : 'Conversation'}
-      // Under the sticky 4rem header, the rest of the viewport: the composer
-      // is always the bottom edge of the pane (058).
-      className={`sticky top-16 z-30 flex h-[calc(100dvh-4rem)] ${DOCK_WIDTH_CLASS} shrink-0 flex-col border-l border-border bg-background max-[1199px]:fixed max-[1199px]:right-0 max-[1199px]:bottom-0 max-[1199px]:shadow-2xl`}
-    >
+  const body = (
+    <>
       {/* Scope header — names what this conversation is about, with the one
-          link back to everything (032 §3.1). */}
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+          link back to everything (032 §3.1), the history, and the collapse. */}
+      <div className="flex items-center gap-1 border-b border-border px-3 py-2.5 pl-4">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{scopeLabel}</div>
-          <div className="truncate text-xs text-muted-foreground">
-            {session.agent.name}
-            {' · '}
-            <Link href="/dashboard/chat" className="underline underline-offset-2 hover:text-foreground">
-              All conversations
+          <div className="flex items-center gap-2">
+            {!scopeRef && (
+              <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-md bg-foreground text-[10px] font-semibold text-background">
+                {headerName.slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            <span className="truncate text-sm font-semibold">{headerName}</span>
+            {session.autonomy === 'act-within-bounds' && (
+              <span data-testid="autonomy-chip" title={autonomyCopy.actHint} className="shrink-0 rounded-full border border-brand-amber/40 bg-brand-amber-tint px-1.5 py-0.5 text-[10px] font-medium text-brand-amber-deep">
+                {autonomyCopy.act}
+              </span>
+            )}
+          </div>
+          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {/* Scoped: the workspace agent is who answers about this record.
+                Unscoped the header already IS the workspace — no agent name
+                ever appears here (§9.10). */}
+            {scopeRef && workspaceKnown && (
+              <>
+                <span className="truncate">{session.workspaceName}</span>
+                <span>·</span>
+              </>
+            )}
+            <Link href="/dashboard/chat" className="truncate underline underline-offset-2 hover:text-foreground">
+              {t('all_conversations')}
             </Link>
           </div>
         </div>
-        {/* The one chat menu, same as the full page's: new chat, recent
-            threads, which agent answers. History lives here now that the
-            floating bubble and its panel are gone (058). */}
-        <ChatMenu
-          onNewChat={session.handleNewChat}
-          conversations={session.recentChats}
-          onPickConversation={id => void session.handlePickConversation(id)}
-          agents={agents}
-          currentSlug={session.agent.slug}
-          onSwitch={session.handleSwitchAgent}
-        />
+        {!scopeRef && (
+          <HistoryPopover
+            recent={session.recentChats}
+            currentId={session.conversationId}
+            onPick={id => void session.handlePickConversation(id)}
+            onNewChat={session.handleNewChat}
+            search={session.searchConversations}
+          />
+        )}
+        {/* New chat. History has its own popover; there is no agent to pick (§9.10). */}
+        <ChatMenu onNewChat={session.handleNewChat} />
         <button
           type="button"
           onClick={() => setCollapsedPersisted(true)}
-          aria-label="Collapse the conversation"
-          title="Collapse"
+          aria-label={t('collapse_rail')}
+          title={t('collapse_rail')}
           className="rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
         >
           <PanelRightClose className="size-4" aria-hidden="true" />
@@ -353,39 +485,27 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             mounted after a decision so the outcome card can state what
             happened — hiding the flow the moment it is decided would drop the
             one card that says so. */}
-        {(() => {
-          const showCards = run && (!guided.state.decided || guided.outcome);
-          const cardBlocks = showCards
-            ? [{
-                key: 'guided',
-                afterIndex: Math.min(cardAnchor, Math.max(lastMessageIndex, -1)),
-                node: (
-                  <div className="rounded-xl border border-border bg-muted/20">
-                    <GuidedReviewPanel run={run} guided={guided} pendingComments={comments?.open.length ?? 0} />
-                  </div>
-                ),
-              }]
-            : [];
-          return session.messages.length === 0 && cardBlocks.length === 0
-            ? (
-                <EmptyState
-                  greeting={session.emptyGreeting}
-                  suggestions={session.emptyChips}
-                  suggestionsLoading={session.emptyChipsLoading}
-                  onPick={session.handlePickSuggestion}
-                  disabled={!session.booted}
-                />
-              )
-            : (
-                <MessageList
-                  messages={session.messages}
-                  agentName={session.agent.name}
-                  streaming={session.isStreaming}
-                  activity={session.activity}
-                  blocks={cardBlocks}
-                />
-              );
-        })()}
+        {session.messages.length === 0 && cardBlocks.length === 0
+          ? (
+              <EmptyState
+                greeting={session.emptyGreeting}
+                suggestions={session.emptyChips}
+                suggestionsLoading={session.emptyChipsLoading}
+                onPick={session.handlePickSuggestion}
+                disabled={!session.booted}
+              />
+            )
+          : (
+              <MessageList
+                messages={session.messages}
+                agentName={session.workspaceName}
+                streaming={session.isStreaming}
+                activity={session.activity}
+                blocks={cardBlocks}
+                onFeedback={session.handleFeedback}
+                autonomy={session.autonomy}
+              />
+            )}
 
         {session.pendingHitl && (
           <HitlGate
@@ -463,13 +583,90 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           disabled={session.isStreaming || !session.booted}
           streaming={session.isStreaming}
           onStop={session.handleStop}
-          placeholder={session.agent.placeholder}
+          placeholder={session.composerPlaceholder}
+          commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
           armed={(comments?.open.length ?? 0) > 0}
           pastedText={session.pastedText}
           onPasteText={session.setPastedText}
           onClearPasted={() => session.setPastedText(null)}
+          tags={session.contextRefs}
+          onAddTag={session.addContextRef}
+          onRemoveTag={session.removeContextRef}
+          tagSearch={tagSearch}
+          autonomy={session.autonomy}
+          onAutonomyChange={session.setAutonomy}
+          autonomyCopy={autonomyCopy}
         />
       </div>
+    </>
+  );
+
+  const ariaLabel = scopeRef ? t('rail_label_about', { scope: scopeLabel }) : t('rail_label');
+
+  if (collapsed) {
+    // The edge tab: a slim handle on the right edge, not a floating bubble
+    // (§9). Click or ⌘J opens.
+    return (
+      <button
+        type="button"
+        onClick={() => setCollapsedPersisted(false)}
+        aria-label={t('open_rail')}
+        title={t('open_rail')}
+        data-testid="rail-edge-tab"
+        className="fixed top-1/2 right-0 z-40 flex -translate-y-1/2 flex-col items-center gap-2 rounded-l-xl border border-r-0 border-border bg-background px-1.5 py-3 text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+      >
+        <MessageSquare className="size-4" aria-hidden="true" />
+        <span className="text-[10px] font-medium tracking-wide [writing-mode:vertical-rl]">Chat</span>
+      </button>
+    );
+  }
+
+  if (narrow) {
+    // Below the breakpoint the rail covers the page as a sheet instead of
+    // narrowing it (032 §3.2).
+    return (
+      <Sheet open onOpenChange={open => setCollapsedPersisted(!open)}>
+        <SheetContent side="right" className="flex w-full max-w-[28rem] flex-col gap-0 p-0 sm:max-w-[28rem]" aria-label={ariaLabel}>
+          <SheetHeader className="sr-only">
+            <SheetTitle>{ariaLabel}</SheetTitle>
+            {/* One identity (§9.10): the sheet is described as the workspace, never an agent. */}
+            <SheetDescription>{headerName}</SheetDescription>
+          </SheetHeader>
+          <div ref={asideRef as React.RefObject<HTMLDivElement>} className="flex min-h-0 flex-1 flex-col">
+            {body}
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  return (
+    <aside
+      ref={asideRef}
+      aria-label={ariaLabel}
+      data-testid="agent-rail"
+      style={{ width }}
+      // Under the sticky 4rem header, the rest of the viewport: the composer
+      // is always the bottom edge of the pane (058).
+      className="relative sticky top-16 z-30 flex h-[calc(100dvh-4rem)] shrink-0 flex-col border-l border-border bg-background"
+    >
+      {/* The resize handle on the rail's left edge (§9): drag, or arrow keys
+          when focused. */}
+      <div
+        role="slider"
+        aria-label={t('resize_rail')}
+        aria-valuemin={RAIL_MIN_WIDTH}
+        aria-valuemax={Math.floor((typeof window === 'undefined' ? 1440 : window.innerWidth) * RAIL_MAX_FRACTION)}
+        aria-valuenow={width}
+        tabIndex={0}
+        onPointerDown={onResizeStart}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeEnd}
+        onPointerCancel={onResizeEnd}
+        onKeyDown={onResizeKey}
+        className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none transition select-none hover:bg-brand-amber/30 focus-visible:bg-brand-amber/40 focus-visible:outline-none"
+      />
+      {body}
     </aside>
   );
 }

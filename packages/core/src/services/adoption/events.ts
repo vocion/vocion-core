@@ -56,6 +56,18 @@ export const ADOPTION_EVENTS = {
   'chat.conversation_created': { agent: true },
   'chat.message_sent': { agent: true },
   /**
+   * A thumb on one assistant turn in the chat (0094). `rating` null = the
+   * person cleared their thumb. The note itself never travels here — it goes
+   * to the feedback classifier — only whether there was one.
+   */
+  'chat.feedback': {
+    agent: true,
+    meta: z.object({
+      rating: feedbackRating.nullable().optional(),
+      hasNote: z.boolean().optional(),
+    }),
+  },
+  /**
    * A conversation turn opened FROM a record via an "Ask about this"
    * affordance (briefing section, inbox ask, team-report row, record page) —
    * distinct from the hotkey. `recordType` says which surface hands work to

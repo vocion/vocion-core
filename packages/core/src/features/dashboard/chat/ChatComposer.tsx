@@ -1,23 +1,29 @@
 'use client';
 
-import { ArrowUp, Square, X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import type { ContextRef, ConversationAutonomy } from './types';
+import { ArrowUp, AtSign, Bot, CircleHelp, Square, Target, Users, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
- * Sticky-bottom composer (Phase C — rev-ai pattern).
+ * Sticky-bottom composer.
  *
  * - max-width 3xl, centered
  * - rounded-2xl with focus-within ring + amber-tinted shadow
  * - auto-resize textarea (24px → 220px)
  * - square send button, amber filled when enabled
  *
- * "Insert quarter, shoot aliens": textarea + send, nothing else. No
- * keyboard-hint row (Enter-to-send is a convention, not a lesson), no
- * inline "Clear conversation" — starting over lives in the chat's ⋯ menu.
+ * Three quiet affordances ride along (agent-chat-surface.md §9):
+ *   `@` tags a record (agent, team, mission) the message is about — a chip
+ *       beside the box, sent as `context_refs`, never inlined in the text;
+ *   `?` on an empty box shows the shortcuts;
+ *   the autonomy pill says how recommended actions behave in this thread —
+ *       Ask before acting (cards you tap) or Act within bounds (auto-proposed
+ *       into the review queue). Nothing executes without approval either way.
  *
- * Stateless: parent (`<ChatShell />`) owns the `value` + `onChange`
- * + `onSubmit` + `disabled`. Composer only handles autosize +
- * keyboard shortcuts.
+ * Stateless about the conversation: the parent owns `value`, `onChange`,
+ * `onSubmit`, `disabled`, the tags and the autonomy value. Copy for the
+ * autonomy pill and shortcuts comes in as props so this component needs no
+ * i18n provider (it renders in tests without one).
  */
 
 export type ChatComposerProps = {
@@ -38,10 +44,43 @@ export type ChatComposerProps = {
   onPasteText?: (text: string) => void;
   /** The chip's remove control. */
   onClearPasted?: () => void;
+  /** Records the next message is about (`@` tags). */
+  tags?: ContextRef[];
+  onRemoveTag?: (ref: ContextRef) => void;
+  onAddTag?: (ref: ContextRef) => void;
+  /** Resolve `@query` to taggable records. Absent = the `@` affordance is off. */
+  tagSearch?: (q: string) => Promise<ContextRef[]>;
+  /** How recommended actions behave in this thread (0094). Absent = no pill. */
+  autonomy?: ConversationAutonomy;
+  onAutonomyChange?: (next: ConversationAutonomy) => void;
+  /** Copy for the autonomy pill, supplied by the parent (which has the i18n provider). */
+  autonomyCopy?: { ask: string; act: string; askHint: string; actHint: string };
+  /** A slash command is armed (`/search …`) — the parent names the mode; rendered as a pill above the box. */
+  commandHint?: string;
 };
 
 /** Pastes at or above this length become a chip instead of flooding the box. */
 const PASTE_CHIP_THRESHOLD = 400;
+
+const TAG_ICON: Record<ContextRef['type'], typeof Bot> = {
+  agent: Bot,
+  team: Users,
+  mission: Target,
+  ask: AtSign,
+  object: AtSign,
+  briefing: AtSign,
+  deal: AtSign,
+  page: AtSign,
+};
+
+const SHORTCUTS: Array<[keys: string, what: string]> = [
+  ['Enter', 'Send'],
+  ['Shift + Enter', 'New line'],
+  ['@', 'Tag an agent, team or mission'],
+  ['/search …', 'Search only — no model in the loop'],
+  ['⌘ J', 'Open or collapse the conversation'],
+  ['?', 'These shortcuts'],
+];
 
 export function ChatComposer({
   value,
@@ -55,8 +94,22 @@ export function ChatComposer({
   pastedText,
   onPasteText,
   onClearPasted,
+  tags = [],
+  onRemoveTag,
+  onAddTag,
+  tagSearch,
+  autonomy,
+  onAutonomyChange,
+  autonomyCopy,
+  commandHint,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // The `@query` under the caret, when the person is tagging.
+  const tagMatch = tagSearch ? /(?:^|\s)@([\w-]*)$/.exec(value) : null;
+  const tagQuery = tagMatch ? tagMatch[1] ?? '' : null;
+  const [tagHits, setTagHits] = useState<ContextRef[]>([]);
+  const [tagCursor, setTagCursor] = useState(0);
 
   // Auto-resize the textarea to fit content (24 → 220 px).
   useEffect(() => {
@@ -68,7 +121,69 @@ export function ChatComposer({
     el.style.height = `${Math.min(220, Math.max(24, el.scrollHeight))}px`;
   }, [value]);
 
+  // Resolve the tag query as it is typed.
+  useEffect(() => {
+    if (tagQuery === null || !tagSearch) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+      setTagHits([]);
+      return;
+    }
+    let cancelled = false;
+    tagSearch(tagQuery).then((hits) => {
+      if (!cancelled) {
+        setTagHits(hits.slice(0, 8));
+        setTagCursor(0);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setTagHits([]);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tagQuery, tagSearch]);
+
+  const pickTag = (ref: ContextRef) => {
+    onAddTag?.(ref);
+    // Drop the `@query` the person typed; the chip carries it now.
+    onChange(value.replace(/(^|\s)@[\w-]*$/, '$1').trimEnd());
+    setTagHits([]);
+    textareaRef.current?.focus();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (tagQuery !== null && tagHits.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setTagCursor(c => (c + 1) % tagHits.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setTagCursor(c => (c - 1 + tagHits.length) % tagHits.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        pickTag(tagHits[tagCursor]!);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setTagHits([]);
+        return;
+      }
+    }
+    if (e.key === '?' && value.trim().length === 0) {
+      e.preventDefault();
+      setShortcutsOpen(v => !v);
+      return;
+    }
+    if (e.key === 'Escape' && shortcutsOpen) {
+      setShortcutsOpen(false);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (!disabled && (value.trim().length > 0 || pastedText || armed)) {
@@ -90,22 +205,83 @@ export function ChatComposer({
 
   const trimmed = value.trim();
   const sendEnabled = !disabled && (trimmed.length > 0 || Boolean(pastedText) || armed);
+  const showAutonomy = autonomy !== undefined && !!onAutonomyChange && !!autonomyCopy;
 
   return (
     <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-4 pt-4 pb-4 sm:px-6 sm:pt-6">
-      <div className="mx-auto max-w-3xl">
-        {pastedText && (
-          <div className="mb-1.5 flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-1.5 text-xs">
-            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-muted-foreground uppercase">Pasted</span>
-            <span className="min-w-0 flex-1 truncate text-muted-foreground">{pastedText.slice(0, 120)}</span>
-            <button
-              type="button"
-              onClick={() => onClearPasted?.()}
-              aria-label="Remove pasted content"
-              className="shrink-0 rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            >
-              <X className="size-3.5" aria-hidden="true" />
-            </button>
+      <div className="relative mx-auto max-w-3xl">
+        {shortcutsOpen && (
+          <div role="dialog" aria-label="Shortcuts" className="absolute bottom-full left-0 z-20 mb-2 w-64 rounded-xl border border-border bg-background p-2 text-xs shadow-lg">
+            <div className="flex items-center justify-between px-1.5 pb-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+              Shortcuts
+              <button type="button" onClick={() => setShortcutsOpen(false)} aria-label="Close shortcuts" className="rounded p-0.5 text-muted-foreground hover:bg-muted"><X className="size-3" aria-hidden /></button>
+            </div>
+            {SHORTCUTS.map(([keys, what]) => (
+              <div key={keys} className="flex items-center justify-between gap-3 px-1.5 py-1">
+                <span className="text-muted-foreground">{what}</span>
+                <kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[10px]">{keys}</kbd>
+              </div>
+            ))}
+          </div>
+        )}
+        {tagQuery !== null && tagHits.length > 0 && (
+          <ul role="listbox" aria-label="Tag a record" className="absolute bottom-full left-0 z-20 mb-2 w-72 rounded-xl border border-border bg-background p-1 text-sm shadow-lg">
+            {tagHits.map((h, i) => {
+              const Icon = TAG_ICON[h.type];
+              return (
+                <li key={`${h.type}:${h.id}`} role="option" aria-selected={i === tagCursor}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pickTag(h);
+                    }}
+                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${i === tagCursor ? 'bg-muted' : 'hover:bg-muted/60'}`}
+                  >
+                    <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate">{h.label}</span>
+                    <span className="text-[10px] tracking-wide text-muted-foreground uppercase">{h.type}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {(pastedText || tags.length > 0 || commandHint) && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            {tags.map((tag) => {
+              const Icon = TAG_ICON[tag.type];
+              return (
+                <span key={`${tag.type}:${tag.id}`} data-testid="composer-tag" className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs">
+                  <Icon className="size-3 text-muted-foreground" aria-hidden />
+                  <span className="max-w-40 truncate">{tag.label}</span>
+                  {onRemoveTag && (
+                    <button type="button" onClick={() => onRemoveTag(tag)} aria-label={`Remove ${tag.label}`} className="rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground">
+                      <X className="size-3" aria-hidden />
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+            {commandHint && (
+              <span data-testid="command-hint" className="inline-flex items-center gap-1.5 rounded-full border border-brand-amber/40 bg-brand-amber-tint px-2.5 py-1 text-xs font-medium text-brand-amber-deep">
+                {commandHint}
+              </span>
+            )}
+            {pastedText && (
+              <span className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-1.5 text-xs">
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-muted-foreground uppercase">Pasted</span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{pastedText.slice(0, 120)}</span>
+                <button
+                  type="button"
+                  onClick={() => onClearPasted?.()}
+                  aria-label="Remove pasted content"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  <X className="size-3.5" aria-hidden="true" />
+                </button>
+              </span>
+            )}
           </div>
         )}
         <form
@@ -132,6 +308,41 @@ export function ChatComposer({
             className="flex-1 resize-none border-0 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
             style={{ minHeight: 24, maxHeight: 220 }}
           />
+          {showAutonomy && (
+            <div role="radiogroup" aria-label="Autonomy" className="hidden shrink-0 items-center rounded-full border border-border bg-muted/30 p-0.5 text-[11px] sm:flex">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={autonomy === 'ask'}
+                title={autonomyCopy.askHint}
+                onClick={() => onAutonomyChange('ask')}
+                className={`rounded-full px-2 py-1 transition ${autonomy === 'ask' ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {autonomyCopy.ask}
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={autonomy === 'act-within-bounds'}
+                title={autonomyCopy.actHint}
+                onClick={() => onAutonomyChange('act-within-bounds')}
+                className={`rounded-full px-2 py-1 transition ${autonomy === 'act-within-bounds' ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {autonomyCopy.act}
+              </button>
+            </div>
+          )}
+          {tagSearch && (
+            <button
+              type="button"
+              onClick={() => setShortcutsOpen(v => !v)}
+              aria-label="Shortcuts"
+              title="Shortcuts (?)"
+              className="hidden size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition hover:text-foreground sm:flex"
+            >
+              <CircleHelp className="size-4" aria-hidden />
+            </button>
+          )}
           {streaming
             ? (
                 <button
