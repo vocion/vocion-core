@@ -197,6 +197,8 @@ harness execution role. An org's own stored key does not reach it.
 | `VOCION_DISABLE_RUNTIME=1` | Sends `agentcore-container` agents back to the in-process loop. For a dev machine with nothing on `:8080` |
 | `VOCION_DISABLE_AGENTCORE=1` | Same idea for `aws-managed-harness` agents — for a machine with no AWS credentials or no provisioned harness, where such an agent would otherwise be unchattable |
 | `VOCION_AGENT_RUNTIME_ARN` | Set: invoke the deployed AgentCore runtime over SigV4. Unset: plain HTTP to `VOCION_AGENT_RUNTIME_URL` (default `http://localhost:8080`) |
+| `VOCION_AGENT_RUNTIME_SECRET` | Required on both core and the local runtime for plain HTTP; sent as a bearer header and never committed. Not needed for the deployed path, which uses AgentCore's SigV4 boundary |
+| `VOCION_AGENT_RUNTIME_AUTH_MODE` | Runtime-side mode: `secret` by default; `agentcore` is set only by the managed AgentCore deployment |
 | `VOCION_TOOL_ENDPOINT_URL` | The callback URL sent to the container. Must be reachable from AWS on the deployed path |
 | `VOCION_AGENTCORE_REGION` | Region core signs `InvokeAgentRuntime` against (default `us-west-2`) |
 | `VOCION_AGENTCORE_MEMORY_ID` | Enables AgentCore Memory for conversations on `agentcore-container` |
