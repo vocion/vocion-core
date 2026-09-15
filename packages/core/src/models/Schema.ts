@@ -2027,6 +2027,14 @@ export const learningCandidateSchema = pgTable(
     decidedAt: timestamp('decided_at', { mode: 'date' }),
     /** The rule created on approval, so a candidate and its rule stay linked. */
     createdLearningId: integer('created_learning_id').references(() => learningSchema.id, { onDelete: 'set null' }),
+    /**
+     * Where this came from when it did not come from a `feedback_job` (0102):
+     * a Slack permalink, an ask ref, a conversation. Free text, because the
+     * provenance of "someone told us something" is a URL more often than it is
+     * a row id, and a candidate whose origin is unfindable teaches nobody why
+     * the rule exists.
+     */
+    sourceRef: text('source_ref'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -3194,6 +3202,60 @@ export const chatChannelBindingSchema = pgTable(
   table => [
     uniqueIndex('chat_channel_binding_surface_channel_idx').on(table.surface, table.channelId, table.teamId),
     index('chat_channel_binding_org_idx').on(table.orgId),
+  ],
+);
+
+/** An image a Slack post carries: a URL Slack (or a reader) can open, and what it shows. */
+export type SlackPostImage = { url: string; caption: string };
+
+/**
+ * Every message Vocion PUTS INTO Slack (migration 0102) — an announcement, a
+ * reply in a thread, the channel introduction.
+ *
+ * It exists because the `app_mention` payload carries the mention and nothing
+ * else: not the message it replies to. Reading that parent back out of Slack
+ * needs `channels:history` / `groups:history`, and a workspace may never grant
+ * them. When the parent is OUR OWN post — a release announcement somebody
+ * replied "any screenshots to go with this?" to — Vocion should not need a
+ * scope to remember what it said. This table is that memory, and
+ * `announced_label` / `announced_url` are what "this" resolves to.
+ *
+ * Deliberately not folded into `email_thread`: that table is keyed by RFC 5322
+ * Message-ID and requires a `conversation_id`, and an announcement has neither.
+ */
+export const slackPostSchema = pgTable(
+  'slack_post',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id'),
+    /** Slack workspace (`team_id`), when the poster knew it. */
+    teamId: text('team_id'),
+    channelId: text('channel_id').notNull(),
+    /** This message's own Slack timestamp id. */
+    ts: text('ts').notNull(),
+    /** The thread it landed in; null for a post that starts one. */
+    threadTs: text('thread_ts'),
+    /** `announcement` | `reply` | `introduction` */
+    kind: text('kind').default('reply').notNull(),
+    agentSlug: text('agent_slug'),
+    text: text('text').notNull(),
+    /** What the post was announcing — the thing "this" refers to in a reply. */
+    announcedLabel: text('announced_label'),
+    announcedUrl: text('announced_url'),
+    images: jsonb('images').$type<SlackPostImage[]>().default([]).notNull(),
+    /**
+     * True when this post already named the missing Slack scope out loud, so
+     * the sentence is said once per thread instead of on every reply.
+     */
+    degradedNotice: boolean('degraded_notice').default(false).notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('slack_post_channel_ts_uq').on(table.channelId, table.ts),
+    index('slack_post_channel_thread_idx').on(table.channelId, table.threadTs),
+    index('slack_post_org_created_idx').on(table.orgId, table.createdAt),
   ],
 );
 

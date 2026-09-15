@@ -226,6 +226,32 @@ assumption) and a `POST /rpc/agent/steer` to post into it. Until that decision
 is made, the transcript would have to pretend a tool said it — so it is not
 built, and the queue is the honest behaviour.
 
+## Slack → feedback → ask → work (2026-09-15)
+
+The surface is not only the dock. An agent answering in a Slack thread is on
+the same surface with a different frame, and the same rules apply: it must know
+where it is (§3.1's `scopeRef` becomes the channel and thread), and it must
+never hide the truth about what it could not see (§12). A thread's context is
+built before the turn and handed over as the same `PageContext` a dashboard
+page fills — channel, the message being replied to, the posters, the workspace
+answering, and an explicit list of the Slack scopes the install lacks with what
+each would have bought. When something is missing, the sentence the channel
+hears names the scope (``groups:history`` would let me read the message this
+thread started with) rather than saying there is no context.
+
+The loop that closes it is the manifesto's learning rule made structural. A
+mention that reads as feedback — decided by a cheap pure classifier, with the
+model asked only when that is unsure — is filed by the `file_feedback` tool as
+two things: a `learning_candidate` carrying the person's own words and a
+permalink back to where they said them, and, where the workspace has a team
+that builds, an ask of kind `recommendation` in its Needs-you inbox with *Plan
+and start* / *Add to backlog* / *Decline*. The agent's reply says what it filed
+and links the inbox item. **Approving the recommendation is what starts the
+work** — nothing executes from a chat client, which is decision 025 unchanged.
+So a person who says "you should have…" in a thread has, by the time they put
+their phone down, a decision waiting for them rather than a message somebody
+might read.
+
 ## Where things live
 
 | Concern | File |

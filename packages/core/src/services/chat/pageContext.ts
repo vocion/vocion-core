@@ -50,6 +50,75 @@ export type RecordRef = {
   href?: string;
 };
 
+/** One message in a chat thread, as the agent needs to see it. */
+export type ThreadPost = {
+  /** Who wrote it — a resolved display name, or the platform id when we could not resolve one. */
+  author: string;
+  /** The platform's user id, when the post had a human sender. */
+  authorId?: string;
+  text: string;
+  /** The platform's message id (Slack `ts`). */
+  ts?: string;
+  /** True when Vocion posted it. */
+  ours?: true;
+};
+
+/**
+ * A capability this turn did NOT have, and what it would have bought.
+ *
+ * Carried as data rather than left to the prompt so the reply can name the
+ * exact scope: "I can't read the earlier messages here — that needs
+ * `groups:history` on the Slack app" beats "no page context here".
+ */
+export type ContextGap = {
+  /** The permission's name in the platform's own vocabulary, e.g. `groups:history`. */
+  scope: string;
+  /** What having it would have let the agent do, in one clause. */
+  wouldHave: string;
+};
+
+/**
+ * The chat thread a turn arrived in — the Slack/Teams equivalent of "the page
+ * I am looking at". Built by the surface service before the agent runs, so
+ * "this", "here" and "that" resolve to the message someone replied to rather
+ * than to nothing.
+ */
+export type ThreadContext = {
+  surface: 'slack';
+  channelId: string;
+  /** The channel's human name, when a scope let us read it. */
+  channelName?: string;
+  /** The Vocion workspace the thread belongs to — a reply is scoped to it. */
+  workspaceName?: string;
+  workspaceSlug?: string;
+  /** The message the mention replied to, when we know it. */
+  parent?: ThreadPost;
+  /**
+   * Whether the parent is one of OUR posts. When it is, the parent came out of
+   * `slack_post` rather than out of Slack, and needs no history scope.
+   */
+  parentIsOurs: boolean;
+  /** What the parent post was announcing, when it was ours — what "this" means. */
+  announced?: { label: string; url?: string };
+  /** The rest of the thread so far, oldest first, when a scope let us read it. */
+  replies?: ThreadPost[];
+  /** Everyone who has posted in the thread, resolved where possible. */
+  posters?: { id: string; name: string }[];
+  /** Scopes this install does not hold, and what each would have added. */
+  gaps?: ContextGap[];
+  /**
+   * How an image posted here will reach the channel: uploaded as a file
+   * (`files:write`), or rendered from a Block Kit image block, which Slack
+   * fetches itself and therefore needs a publicly reachable URL.
+   *
+   * Not a `gap`: both rungs SHOW the picture. It changes which URLs are
+   * usable, not whether the agent can answer — a distinction worth keeping,
+   * because a gap is said out loud in the channel and this is not worth
+   * saying on every reply.
+   */
+  mediaMode?: 'upload' | 'blocks';
+};
+
 export type PageContext = {
   path: string;
   title: string;
@@ -64,6 +133,13 @@ export type PageContext = {
    * record, not from the hotkey. Drives the `chat.opened_from_context` event.
    */
   openedFrom?: true;
+  /**
+   * The chat thread the turn arrived in, for a turn that came from a chat
+   * surface rather than from a page. A thread is not a `RecordRef` — it is not
+   * a record in Vocion — so it travels as its own shape rather than being bent
+   * into `refs`.
+   */
+  thread?: ThreadContext;
 };
 
 const MAX = 200;
@@ -220,6 +296,42 @@ export function scopeRefToRecord(scopeRef: string): RecordRef | null {
   return { type, id: `${kind}:${id}`.slice(0, MAX_ID) };
 }
 
+/**
+ * The thread, written out for the model: where it is, what the message it
+ * answers actually said, who else is in it, and — said plainly — anything we
+ * could not see and the scope that would have shown it.
+ *
+ * The gap sentence is built HERE, in code, rather than left to the prompt. A
+ * model asked to "mention any missing context" writes "no page context here";
+ * a model handed the scope name writes the sentence a person can act on.
+ * @param t - The thread context.
+ */
+export function describeThread(t: ThreadContext): string {
+  const lines: string[] = [];
+  const where = t.channelName ? `#${t.channelName}` : `the channel \`${t.channelId}\``;
+  lines.push(`This is a ${t.surface === 'slack' ? 'Slack' : t.surface} thread in ${where}${t.workspaceName ? `, answering for the ${t.workspaceName} workspace` : ''}.`);
+  if (t.parent) {
+    const who = t.parentIsOurs ? 'I posted' : `${t.parent.author} posted`;
+    lines.push(`The message this thread is about — ${who} it:\n> ${t.parent.text.replace(/\n/g, '\n> ')}`);
+  }
+  if (t.announced) {
+    lines.push(`That post was announcing ${t.announced.label}${t.announced.url ? ` (${t.announced.url})` : ''}. When someone says "this" in this thread, that is what they mean.`);
+  }
+  if (t.replies && t.replies.length > 0) {
+    lines.push(`Replies so far:\n${t.replies.map(r => `- ${r.ours ? 'me' : r.author}: ${r.text}`).join('\n')}`);
+  }
+  if (t.posters && t.posters.length > 0) {
+    lines.push(`People in this thread: ${t.posters.map(p => p.name).join(', ')}.`);
+  }
+  if (t.mediaMode === 'blocks') {
+    lines.push('To show an image here I render it as an inline image block, which Slack fetches itself — so only a PUBLICLY reachable URL works. `find_screenshots` says which of its results qualify; one that does not can still be linked, but say it needs a sign-in.');
+  }
+  for (const gap of t.gaps ?? []) {
+    lines.push(`I could not ${gap.wouldHave} — that needs the \`${gap.scope}\` scope on this Slack app, which it does not have. Say so plainly if it matters to the answer; never claim to have no context at all.`);
+  }
+  return lines.join('\n');
+}
+
 function describeRecord(ref: RecordRef): string {
   const name = ref.label ? `"${ref.label}"` : ref.id;
   return `${ref.type.replace('_', ' ')} ${name}${ref.href ? ` (${ref.href})` : ''}`;
@@ -244,8 +356,13 @@ export function withPageContext(message: string, ctx: PageContext | null, refs: 
     return `${message}${tagged}`;
   }
   const lines: string[] = [];
-  const where = ctx.title ? `"${ctx.title}" (${ctx.path})` : ctx.path;
-  if (where.trim()) {
+  if (ctx.thread) {
+    lines.push(describeThread(ctx.thread));
+  }
+  // A chat turn has a title and no path; a page has both. Neither half is
+  // printed empty — `"a Slack thread" ()` reads like a bug.
+  const where = ctx.title && ctx.path ? `"${ctx.title}" (${ctx.path})` : (ctx.title || ctx.path);
+  if (where.trim() && !ctx.thread) {
     lines.push(`I am looking at ${where} in the app.`);
   }
   if (ctx.record) {
@@ -260,7 +377,9 @@ export function withPageContext(message: string, ctx: PageContext | null, refs: 
   lines.push(
     ctx.record || ctx.selection
       ? 'Unless I say otherwise, take my question to be about that record and passage. The `page_context` tool returns the same details as JSON.'
-      : 'Unless I say otherwise, take my question to be about what that page shows.',
+      : ctx.thread
+        ? 'Unless I say otherwise, take my question to be about this thread and what it is discussing. The `page_context` tool returns the same details as JSON.'
+        : 'Unless I say otherwise, take my question to be about what that page shows.',
   );
   return `${message}\n\n--- where I am ---\n${lines.join('\n')}${tagged}`;
 }
