@@ -6,17 +6,17 @@
  *
  * Supported config:
  *   - `urls: string[]` — explicit list to fetch
- *   - `urlsFrom: { url, arrayPath?, urlKey?, maxUrls? }` — read the list
+ *   - `urlsFrom: { url, arrayPath?, urlKey?, maxUrls? }`, read the list
  *     from a remote JSON endpoint, so a registry elsewhere owns it
- *   - `feedUrl: string` — a calendar/RSS/Atom feed to read instead of the
+ *   - `feedUrl: string`, a calendar/RSS/Atom feed to read instead of the
  *     listing, when someone already knows the site has one
- *   - `crawl: { startUrl, maxDepth?, maxPages?, include?, exclude? }` —
+ *   - `crawl: { startUrl, maxDepth?, maxPages?, include?, exclude? }`,
  *     same-origin BFS with optional path filters
  *
  * With `crawl` and no `feedUrl`, the connector picks the SMALLEST complete
  * source it can find, once per sync: a feed if the listing advertises one,
  * else a JSON listing, else the listing plus a capped depth-1 crawl. The
- * probes that answer that question are silent by design — see `fetchPage`.
+ * probes that answer that question are silent by design, see `fetchPage`.
  *
  * HTML to text is done with cheerio: the chrome (scripts, nav, footer,
  * cookie bars) comes out, and links, images, <time> stamps and JSON-LD
@@ -74,8 +74,8 @@ const PAGE_TIMEOUT_MS = 15_000;
 const PROBE_TIMEOUT_MS = 8_000;
 
 /**
- * zod 4's `.url()` accepts ANY scheme — `file://`, `javascript:` and
- * `webcal://` all pass it — so every URL that reaches `fetch` is checked
+ * zod 4's `.url()` accepts ANY scheme, `file://`, `javascript:` and
+ * `webcal://` all pass it, so every URL that reaches `fetch` is checked
  * against this as well.
  */
 const HTTP_URL_RE = /^https?:/i;
@@ -122,7 +122,7 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
  * the config names, then a feed the listing advertises, then a JSON listing,
  * then the listing plus a capped crawl of its detail pages.
  *
- * Nothing here is persisted — core has no home for a string (`cursor` is
+ * Nothing here is persisted, core has no home for a string (`cursor` is
  * nulled every run, `counts` is `Record<string, number>`), so the answer is
  * re-derived once per sync and the choice is named in the run log. The
  * durable copy of the answer belongs to whoever owns the source row.
@@ -166,7 +166,7 @@ async function* smallestSource(
 
 /**
  * Fetch and read one discovered feed. Returns null when it is not there, does
- * not answer, or does not look like the kind advertised — all silently, so a
+ * not answer, or does not look like the kind advertised, all silently, so a
  * site that never had a feed costs the run nothing.
  * @param candidate - the feed URL and the kind the page claimed it is.
  * @param ctx - the sync context.
@@ -193,7 +193,7 @@ async function readFeed(candidate: FeedCandidate, ctx: SourceContext): Promise<I
 /**
  * Read the source's URL list from a JSON endpoint.
  *
- * Failure is deliberately loud — one CONNECTOR-scope error — because the
+ * Failure is deliberately loud, one CONNECTOR-scope error, because the
  * runner reads a connector error as "a slice we could not fetch": it holds
  * the watermark, suppresses tombstoning for the whole run, and fails the run
  * when nothing else was saved. A registry that is down for an hour therefore
@@ -307,7 +307,7 @@ function valueAtPath(body: unknown, path: string): unknown {
 }
 
 /**
- * One list entry — a bare string or an object keyed by `urlKey` — as a URL we
+ * One list entry, a bare string or an object keyed by `urlKey`, as a URL we
  * are willing to fetch, or undefined.
  * @param raw - the entry as it came out of the JSON.
  * @param urlKey - the object key holding the URL.
@@ -318,7 +318,7 @@ function usableUrl(raw: unknown, urlKey: string): string | undefined {
     return undefined;
   }
   // `webcal:` is rewritten rather than rejected: it is an ICS feed over https
-  // under another name. Everything else non-http stays out — the explicit
+  // under another name. Everything else non-http stays out, the explicit
   // protocol test is the whole point, since zod's `.url()` waves `file://` and
   // `javascript:` through.
   const url = httpUrl(value.trim());
@@ -349,7 +349,7 @@ type FetchedPage = {
  * Fetch one URL and extract it, without deciding what it becomes.
  *
  * `probe: true` is the discovery mode: it reports a failure as `skipped`
- * instead of `error`. That matters more than it looks — a connector-scope
+ * instead of `error`. That matters more than it looks, a connector-scope
  * error sets `connectorFailureCount`, which holds the watermark and
  * suppresses tombstoning for the WHOLE run, so a 404 from guessing at a feed
  * URL would quietly break deletion on an otherwise healthy source.
@@ -380,7 +380,7 @@ async function fetchPage(
     const contentType = res.headers.get('content-type') ?? '';
     const isHtml = contentType.includes('text/html');
     // `+xml` covers `application/rss+xml` and `application/atom+xml`, which
-    // used to be skipped silently as an unsupported type — and an RSS feed is
+    // used to be skipped silently as an unsupported type, and an RSS feed is
     // the only feed some venues publish.
     const isPlain = contentType.startsWith('text/')
       || contentType.includes('application/json')
@@ -458,7 +458,7 @@ async function* fetchDocs(url: string, ctx: SourceContext): AsyncIterable<Ingest
 
 /**
  * One document per event, when the body is a feed. Null means "this is not a
- * feed, or it has no stable per-event key" — the caller then ingests the
+ * feed, or it has no stable per-event key", the caller then ingests the
  * whole file as one document, which is the fallback the id scheme needs:
  * index-based ids are never used, because one reorder or one removal
  * mid-feed turns every following id into an `updated` document, costing a
@@ -590,7 +590,7 @@ function topLevelJsonArray(page: FetchedPage): unknown[] | null {
 /**
  * Split a top-level JSON array into one document per item, keyed by the
  * item's own identifier where it has one and by a hash of the item where it
- * does not — never by its position in the array.
+ * does not, never by its position in the array.
  * @param page - the fetched feed.
  * @param items - the parsed top-level array.
  */
@@ -682,7 +682,7 @@ const SQUARESPACE_MARKERS = ['static1.squarespace.com', 'squarespace-cdn.com', '
 
 /**
  * What feeds this listing page advertises, best first. Nothing is fetched
- * here — these are candidates, and the caller probes them silently.
+ * here, these are candidates, and the caller probes them silently.
  * @param page - the fetched listing page.
  */
 function discoverFeeds(page: FetchedPage): FeedCandidate[] {
@@ -708,7 +708,7 @@ function discoverFeeds(page: FetchedPage): FeedCandidate[] {
     }
   }
   // Plenty of sites link their .ics from the body and never declare it in the
-  // head — "Add to calendar" buttons, mostly.
+  // head, "Add to calendar" buttons, mostly.
   for (const link of page.structure?.links ?? []) {
     if (ICS_PATH_RE.test(link.url) || link.url.toLowerCase().startsWith('webcal:') || ICAL_QUERY_RE.test(link.url)) {
       add(link.url, 'ics');
@@ -760,7 +760,7 @@ function tagAttr(tag: string, name: string): string | undefined {
 }
 
 /**
- * The same page asked for as JSON — the Squarespace listing answer.
+ * The same page asked for as JSON, the Squarespace listing answer.
  * @param url - the listing URL.
  */
 function withFormatJson(url: string): string {
@@ -805,7 +805,7 @@ function jsonObjectBody(page: FetchedPage): boolean {
 }
 
 /**
- * True when the listing's own JSON-LD already describes events — a signal
+ * True when the listing's own JSON-LD already describes events, a signal
  * worth naming in the run log, because it means the listing page alone may
  * carry what the detail pages would have said.
  * @param page - the fetched listing page.
@@ -884,8 +884,8 @@ const JSON_LD_TRUNCATED = '[structured data truncated]';
  * page lost the links to its own detail pages. cheerio parses the page
  * properly instead, so we can drop the chrome and keep the facts.
  *
- * `structure` is the same walk's structured half — the parsed JSON-LD, the
- * og:image and every URL the page published — kept instead of thrown away.
+ * `structure` is the same walk's structured half, the parsed JSON-LD, the
+ * og:image and every URL the page published, kept instead of thrown away.
  * It is optional on the return type because the two callers both write
  * `{ title: undefined, content: raw }` for non-HTML bodies; `content` is
  * byte-identical to what this returned before `structure` existed.
@@ -1255,7 +1255,7 @@ async function* crawl(cfg: CrawlConfig, ctx: SourceContext, seed?: FetchedPage):
     }
     if (!page || depth >= cfg.maxDepth) {
       // Nothing to read links out of, and `fetchPage` has already reported why
-      // — as a connector-scope error for a real failure, which is what keeps
+      // , as a connector-scope error for a real failure, which is what keeps
       // the runner from treating a half-read listing as a complete run and
       // hard-deleting last run's detail documents.
       continue;
@@ -1273,7 +1273,7 @@ async function* crawl(cfg: CrawlConfig, ctx: SourceContext, seed?: FetchedPage):
           queue.push({ url: next.toString(), depth: depth + 1 });
         }
       } catch {
-        /* malformed href — skip */
+        /* malformed href, skip */
       }
     }
   }
@@ -1357,7 +1357,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  *
  * `skipped` and never `error`: an error would count a connector failure,
  * which holds the watermark and suppresses tombstoning for the whole run.
- * There is nowhere else to put a string — the checkpoint's `counts` is
+ * There is nowhere else to put a string, the checkpoint's `counts` is
  * `Record<string, number>` and `cursor` is nulled every run.
  * @param ctx - the sync context.
  * @param uri - the URL the line is about, when there is one.

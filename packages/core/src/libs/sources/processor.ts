@@ -4,8 +4,8 @@
  * Same convention as `_connector` and `_manifestDir`: a reserved key inside
  * the stored `config_json` blob, stamped by whoever wrote the source (the
  * workspace applier, or the sources API), and read back at sync time. A
- * processor is not part of any connector's config — the same web source may or
- * may not extract candidates from what it fetches — so it cannot live inside
+ * processor is not part of any connector's config, the same web source may or
+ * may not extract candidates from what it fetches, so it cannot live inside
  * the connector's own schema, and a second column for a feature most tenants
  * never use is not worth a migration.
  *

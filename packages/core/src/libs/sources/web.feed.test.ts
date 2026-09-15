@@ -6,7 +6,7 @@
  * The split is a TEXT split and the tests hold it to that: components come out
  * on `BEGIN:VEVENT` … `END:VEVENT`, the UID line is the only field unfolded,
  * and nothing expands an RRULE or does TZID arithmetic. Ids are the feed's own
- * keys — never the item's position in the feed, because one reorder or one
+ * keys, never the item's position in the feed, because one reorder or one
  * removal mid-feed would then rewrite every id after it and cost a re-embed
  * and a model call per document.
  */

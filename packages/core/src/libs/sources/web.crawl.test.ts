@@ -7,7 +7,7 @@
  * looked complete with only the listing handled, and a complete full run
  * hard-deletes the previous run's detail documents. It now reads the body it
  * already holds, and a fetch that fails is reported as a connector-scope error
- * — which is what tells the runner to hold the watermark and suppress
+ *, which is what tells the runner to hold the watermark and suppress
  * tombstoning.
  */
 import type { SourceContext } from './types';

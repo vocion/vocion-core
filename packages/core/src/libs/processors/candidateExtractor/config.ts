@@ -15,7 +15,7 @@
  * schema names no tenant's concepts.
  *
  * `.strict()` everywhere, at every level. A silently-ignored typo in a config
- * key is a rule the operator believes is in force and is not — the worst
+ * key is a rule the operator believes is in force and is not, the worst
  * failure mode this file has, and the cheapest to prevent.
  */
 
@@ -36,7 +36,7 @@ const Slug = z.string().min(1).max(64).regex(/^[a-z][a-z0-9_-]*$/, 'must be a lo
 
 /** How a value read from a page is normalised before it is compared. */
 const NormaliseRule = z.object({
-  /** Words dropped before comparing — "the", "at", venue-type nouns. */
+  /** Words dropped before comparing, "the", "at", venue-type nouns. */
   dropWords: z.array(z.string().min(1)).max(50).optional(),
   /** Literal substitutions applied before comparing, e.g. `&` to `and`. */
   abbreviations: z.record(z.string().min(1), z.string()).optional(),
@@ -87,7 +87,7 @@ export const candidateExtractorConfigSchema = z.object({
    * Empty when the source declares no `defaults[keyedBy]`.
    */
   knownCandidates: z.object({
-    /** Field whose value selects which cards are relevant — the source's own venue, say. */
+    /** Field whose value selects which cards are relevant, the source's own venue, say. */
     keyedBy: FieldName,
     /** Field holding the card's date, read from the stored proposal. */
     dateField: FieldName,
@@ -119,7 +119,7 @@ export const candidateExtractorConfigSchema = z.object({
     /** Copy the matched object's values over the printed ones. */
     copyOnMatch: z.boolean().default(true),
   }).strict()).max(5).optional(),
-  /** Other candidates to propose alongside each record — a venue before its events. */
+  /** Other candidates to propose alongside each record, a venue before its events. */
   relatedProposals: z.array(z.object({
     objectType: Slug,
     /** Field on the proposed object to the record field it reads. */
@@ -146,7 +146,7 @@ export const candidateExtractorConfigSchema = z.object({
   }).strict().optional(),
   /**
    * Lower this sync's spending caps. Every value is optional and may only
-   * LOWER the code default — see `libs/processors/budget.ts`.
+   * LOWER the code default, see `libs/processors/budget.ts`.
    */
   limits: z.object({
     maxPages: z.number().int().nonnegative().optional(),

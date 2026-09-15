@@ -2,14 +2,14 @@
  * Registry of document processors, by slug.
  *
  * Deliberately NOT the static-import pattern of `libs/sources/registry.ts`.
- * A processor's `run` is the expensive half — a model client, a prompt, an
- * HTTP hop — and two static import graphs would pull it in whether a tenant
+ * A processor's `run` is the expensive half, a model client, a prompt, an
+ * HTTP hop, and two static import graphs would pull it in whether a tenant
  * uses it or not: `SourceSyncService` (and through it the Temporal worker) and
  * `libs/workspace/applier.ts`, which validates a processor's config
  * synchronously while applying a workspace.
  *
  * So each entry is split. Everything needed to VALIDATE and to decide whether
- * to run at all — the config schema, the name, `runsOn` — is eager and
+ * to run at all, the config schema, the name, `runsOn`, is eager and
  * model-free; `run` sits behind `load()`, a dynamic import that only happens
  * once a document has actually been ingested for a source that declares the
  * processor. Apply-time validation therefore never touches a model library, and
@@ -55,7 +55,7 @@ export function hasProcessor(slug: string): boolean {
 }
 
 /**
- * The schema validating a processor's config blob — eager, and free of any
+ * The schema validating a processor's config blob, eager, and free of any
  * model code, so the applier can call it while parsing a workspace.
  * @param slug - Processor slug, as written in a manifest's `processor.slug`.
  */

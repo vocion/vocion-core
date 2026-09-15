@@ -1,0 +1,213 @@
+/**
+ * One document, end to end, with the model stubbed: what the processor
+ * returns to `SourceSyncService` and what it left in the database.
+ *
+ * The fixture is a hand-cut miniature in the test file, which is this repo's
+ * convention for connector and extraction tests, a real captured page earns
+ * its place only where the capture itself is the thing under test.
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSyncBudget } from '../budget';
+
+const invoke = vi.fn();
+
+vi.mock('@/libs/DB');
+
+vi.mock('@/libs/llm/langchain', () => ({
+  buildChatModelForOrg: vi.fn(async () => ({ invoke, bindTools: vi.fn() })),
+  resolvedModelId: () => 'us.anthropic.claude-sonnet-4-6',
+}));
+
+vi.mock('@/services/BudgetService', () => ({
+  preflightCheck: async () => ({ ok: true }),
+  chargeUsage: async () => {},
+}));
+
+const { db } = await import('@/libs/DB');
+const { actionRunSchema, businessObjectSchema, businessObjectTypeSchema } = await import('@/models/Schema');
+const { forgetCachedObjectTypes } = await import('@/libs/actions/objects-propose-candidate');
+const { candidateExtractorConfigSchema } = await import('./config');
+const { run } = await import('./run');
+const { eq } = await import('drizzle-orm');
+
+const ORG = 'org_run';
+
+/**
+ * A calendar day relative to today, so the fixture does not rot.
+ * @param offset - Days from today.
+ */
+function day(offset: number): string {
+  const at = new Date();
+  at.setUTCDate(at.getUTCDate() + offset);
+  return at.toISOString().slice(0, 10);
+}
+
+const config = candidateExtractorConfigSchema.parse({
+  objectType: 'event-candidate',
+  agentSlug: 'event-ingestion-lead',
+  dedupOn: ['title', 'startDate', 'venueName'],
+  titleFrom: 'title',
+  promptFragment: 'Only events open to the public.',
+  timezone: 'America/New_York',
+  defaults: { venueName: 'Higher Ground', venueCity: 'South Burlington' },
+  knownCandidates: { keyedBy: 'venueName', dateField: 'startDate' },
+  dropIfPast: { field: 'startDate', keepIfField: 'end' },
+  allowedValues: { categories: ['Music', 'Comedy'] },
+  mustAppearInDocument: ['price'],
+  collapseWithinDocument: true,
+  relatedProposals: [{
+    objectType: 'venue-candidate',
+    fromFields: { name: 'venueName', city: 'venueCity' },
+    dedupOn: ['name', 'city'],
+    writeRunIdTo: 'venueCandidateRun',
+  }],
+  seriesLabel: {
+    sameOn: ['title', 'venueName'],
+    differsOn: 'startDate',
+    evidenceField: 'recurrence',
+    flagField: 'seriesMatch',
+  },
+});
+
+/** A trimmed listing page, the shape `extractFromHtml` hands the processor. */
+const document = {
+  externalId: 'https://highergroundmusic.com/events',
+  uri: 'https://highergroundmusic.com/events',
+  title: 'Upcoming shows',
+  content: [
+    'Upcoming shows at Higher Ground, South Burlington',
+    'Open Mic Night, every Thursday, 8pm. Free.',
+    'The Music of Hey Arnold! Live, 8pm. Tickets $28.',
+    'Last Month\'s Benefit, already happened.',
+  ].join('\n'),
+  metadata: {
+    jsonLd: [{ '@type': 'Event', 'name': 'Open Mic Night', 'url': 'https://highergroundmusic.com/e/open-mic' }],
+    links: [{ url: 'https://highergroundmusic.com/e/open-mic', text: 'Open Mic Night' }],
+  },
+};
+
+/** What the stubbed model returns for this document. */
+function answer() {
+  return {
+    content: JSON.stringify({
+      records: [
+        {
+          fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Higher Ground', categories: ['Music'], recurrence: 'every Thursday', price: 'Free' },
+          confidence: 0.9,
+          sourceUrl: 'https://highergroundmusic.com/e/open-mic',
+        },
+        {
+          fields: { title: 'The Music of Hey Arnold! Live', startDate: day(21), venueName: 'Higher Ground', categories: ['Music', 'Interpretive Dance'], price: '$28' },
+          confidence: 0.8,
+        },
+        // Duplicated by a "featured" block at the top of the same page.
+        {
+          fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Higher Ground', categories: ['Music'] },
+          confidence: 0.7,
+        },
+        // Already happened.
+        { fields: { title: 'Last Month\'s Benefit', startDate: day(-30), venueName: 'Higher Ground' }, confidence: 0.9 },
+        // The model was not sure.
+        { fields: { title: 'Rumoured Show', startDate: day(14), venueName: 'Higher Ground' }, confidence: 0.2 },
+      ],
+    }),
+    usage_metadata: { input_tokens: 3200, output_tokens: 420 },
+  };
+}
+
+function context(over: Record<string, unknown> = {}) {
+  return {
+    orgId: ORG,
+    sourceId: 1,
+    sourceSlug: 'higher-ground',
+    document,
+    outcome: { status: 'created' as const, documentId: 4242, chunks: 3 },
+    config,
+    budget: createSyncBudget(),
+    syncContext: { cache: new Map<string, unknown>() },
+    signal: new AbortController().signal,
+    onProgress: vi.fn(),
+    ...over,
+  };
+}
+
+describe('candidate extractor, one document end to end', () => {
+  beforeEach(async () => {
+    invoke.mockReset();
+    await db.delete(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    await db.delete(businessObjectSchema).where(eq(businessObjectSchema.orgId, ORG));
+    await db.delete(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.orgId, ORG));
+    forgetCachedObjectTypes();
+    for (const slug of ['event-candidate', 'venue-candidate']) {
+      await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug, label: slug, schema: {} });
+    }
+  });
+
+  it('returns a counts shape the run report can add up', async () => {
+    invoke.mockResolvedValue(answer());
+
+    const result = await run(context());
+
+    expect(result.counts).toMatchObject({
+      'found': 5,
+      'model_calls': 1,
+      'proposed': 2,
+      'skipped.past': 1,
+      'skipped.below_confidence': 1,
+      'skipped.bad_category': 1,
+      'collapsed': 1,
+      'venues.proposed': 1,
+    });
+
+    // Found is every outcome, and nothing else: the assertion the run report
+    // rests on.
+    const outcomes = (result.counts!.proposed ?? 0)
+      + (result.counts!.refreshed ?? 0)
+      + (result.counts!.already_decided ?? 0)
+      + (result.counts!['skipped.past'] ?? 0)
+      + (result.counts!['skipped.below_confidence'] ?? 0)
+      + (result.counts!.collapsed ?? 0);
+
+    expect(outcomes).toBe(result.counts!.found);
+    expect(result.produced).toBe(2);
+  });
+
+  it('applies the knobs to what it stored', async () => {
+    invoke.mockResolvedValue(answer());
+
+    await run(context());
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const events = runs.filter(row => (row.input as { objectType?: string }).objectType === 'event-candidate');
+    const arnold = events.find(row => (row.input as { title?: string }).title?.includes('Hey Arnold'));
+    const fields = (arnold?.input as { fields: Record<string, unknown> }).fields;
+
+    // The out-of-enum category went; the card stayed.
+    expect(fields.categories).toEqual(['Music']);
+    // The price's digits are on the page, so it survived.
+    expect(fields.price).toBe('$28');
+    // The source default filled the city the page never repeated.
+    expect(fields.venueCity).toBe('South Burlington');
+    // And the venue was proposed once and threaded onto the record.
+    expect(typeof fields.venueCandidateRun).toBe('number');
+    expect(runs.filter(row => (row.input as { objectType?: string }).objectType === 'venue-candidate')).toHaveLength(1);
+  });
+
+  it('reports a skip instead of throwing when the model never answers', async () => {
+    invoke.mockResolvedValue({ content: 'I could not read that page.' });
+
+    const result = await run(context());
+
+    expect(result).toMatchObject({ produced: 0, skipped: 1 });
+    expect(result.counts).toMatchObject({ model_invalid: 1, model_calls: 2 });
+    expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).toHaveLength(0);
+  });
+
+  it('spends one model call per document, whatever the document holds', async () => {
+    invoke.mockResolvedValue(answer());
+
+    await run(context());
+
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+});

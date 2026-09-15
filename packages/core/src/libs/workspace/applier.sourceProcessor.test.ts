@@ -147,7 +147,7 @@ describe('a source declaring a processor', () => {
 
   it('reports a mistyped key in the processor block instead of dropping it', () => {
     // `configg:` next to `slug:` reaches the loader, which is where the
-    // strictness has to live — the applier never sees a stripped key.
+    // strictness has to live, the applier never sees a stripped key.
     const dir = writeFixture({ processorBlock: { slug: 'candidate-extractor', configg: extractorConfig() } });
 
     expect(() => loadWorkspace(dir)).toThrow(/configg/);
@@ -204,7 +204,7 @@ describe('a source declaring a processor', () => {
 
   it('accepts a step and an agent this very apply is creating', async () => {
     // Steps and agents are applied before sources, but a dry run writes
-    // nothing — so the check reads the manifest as well as the tables, or the
+    // nothing, so the check reads the manifest as well as the tables, or the
     // first apply of a complete workspace would fail on its own contents.
     const dryRun = await applyWorkspace(
       loadWorkspace(writeFixture({

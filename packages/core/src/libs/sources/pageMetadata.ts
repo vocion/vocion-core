@@ -4,17 +4,17 @@
  *
  * `extractFromHtml` (`libs/sources/web.ts`) turns a page into text; the same
  * DOM walk also knows the page's JSON-LD, its og:image and every URL it
- * publishes. That used to be thrown away — the JSON-LD survived only as a text
- * section — so a downstream extractor had to re-parse prose to get facts the
+ * publishes. That used to be thrown away, the JSON-LD survived only as a text
+ * section, so a downstream extractor had to re-parse prose to get facts the
  * page had already stated in machine-readable form. `PageStructure` is that
  * half, kept.
  *
  * `pageMetadata` is the only thing that reaches `knowledge_document.metadata`,
  * and that column is compared with `canonicalJson` on every sync to decide
  * whether a document needs refreshing (`services/IngestionService.ts:215`).
- * Two consequences drive everything here: the output must be DETERMINISTIC —
+ * Two consequences drive everything here: the output must be DETERMINISTIC,
  * no clocks, no counters, no iteration order that depends on anything but the
- * page — and it must be BOUNDED, because a big listing page can carry
+ * page, and it must be BOUNDED, because a big listing page can carry
  * megabytes of JSON-LD and hundreds of links.
  */
 
@@ -33,7 +33,7 @@ export type PageStructure = {
    *
    * This is the PRE-STRIP list: it is collected before the chrome (nav,
    * header, footer, cookie bars) comes out, so it is a superset of the links
-   * that survive into `content`. That is deliberate — it is the gate a later
+   * that survive into `content`. That is deliberate, it is the gate a later
    * stage uses to decide whether a model-returned URL was actually published
    * by the page, and a gate wants the superset.
    */

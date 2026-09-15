@@ -1,10 +1,10 @@
 /**
- * DocumentProcessor — the shape of a per-document stage that runs AFTER a
+ * DocumentProcessor, the shape of a per-document stage that runs AFTER a
  * document has been ingested.
  *
  * A connector's job ends when a document is saved. Some workspaces need one
  * more step on top of that: read what just landed and turn it into structured
- * work — a proposal, a card, a candidate for review. That step is per tenant,
+ * work, a proposal, a card, a candidate for review. That step is per tenant,
  * usually expensive, and must never be able to fail an ingest, so it is a
  * separate contract rather than something bolted onto `SourceConnector`.
  *
@@ -13,7 +13,7 @@
  *
  *   - **A processor never fails a sync.** `SourceSyncService` wraps `run()` in
  *     its own try/catch, counts failures under their own `processor` scope, and
- *     leaves `counts.errors` — which gates tombstoning and the watermark — alone.
+ *     leaves `counts.errors`, which gates tombstoning and the watermark, alone.
  *   - **It only runs for the outcomes it asks for.** `runsOn` defaults to
  *     created and updated, so an unchanged document costs nothing.
  *   - **It spends from one shared budget.** Every processor invocation in a
@@ -68,7 +68,7 @@ export type ProcessorRunContext<TConfig = unknown> = {
   sourceSlug: string;
   /** The document as the connector yielded it. */
   document: IngestDoc;
-  /** What ingesting it did — created, updated, or unchanged. */
+  /** What ingesting it did, created, updated, or unchanged. */
   outcome: IngestResult;
   /** This source's processor config, already parsed by `configSchema`. */
   config: TConfig;
@@ -86,7 +86,7 @@ export type ProcessorRunContext<TConfig = unknown> = {
 };
 
 export type ProcessorResult = {
-  /** How many things this document produced — proposals, records, rows. */
+  /** How many things this document produced, proposals, records, rows. */
   produced: number;
   /** How many it deliberately did not produce, for any reason. */
   skipped: number;

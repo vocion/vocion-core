@@ -361,7 +361,7 @@ describe('extractFromHtml, lazy-loaded images', () => {
  * A miniature whose whole output is small enough to assert byte for byte.
  * `extractFromHtml` gained a third return field, and the browse tool
  * (`libs/tools/browse/builtin.ts`) reads the same `content` the connector
- * ingests — so this is the guard that says the text did not move.
+ * ingests, so this is the guard that says the text did not move.
  */
 const SMALL_URL = 'https://ex.test/e';
 const SMALL_HTML = `<!doctype html><html><head><title>T</title>

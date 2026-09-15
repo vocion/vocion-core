@@ -1,7 +1,7 @@
 /**
  * The document processor hook in `runSync`.
  *
- * A processor is a per-tenant stage that runs AFTER a document is ingested —
+ * A processor is a per-tenant stage that runs AFTER a document is ingested,
  * usually expensive, usually a model call. The whole design of the hook is
  * about containment, so that is what these tests pin:
  *
@@ -381,7 +381,7 @@ describe('the document processor hook', () => {
 
     await expect(runSync({ orgId: ORG_ID, sourceId: unknownSlug })).rejects.toThrow('unknown processor');
 
-    // Nothing claimed, so nothing is left marked running — the same promise
+    // Nothing claimed, so nothing is left marked running, the same promise
     // the unknown-connector throw above it makes.
     expect(await checkpointFor(unknownSlug)).toBeUndefined();
   });

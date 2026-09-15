@@ -27,7 +27,7 @@ import { getReplayCache } from './replayCache';
  * a model for a new purpose; lets us swap a role's underlying model
  * without grep-replacing IDs across services.
  */
-export type ModelRole = 'main' | 'classifier' | 'embedder' | 'skillTurn';
+export type ModelRole = 'main' | 'classifier' | 'embedder' | 'skillTurn' | 'extractor';
 
 /** Provider tag — narrow alphabet so the env validation is straightforward. */
 export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock';
@@ -49,12 +49,18 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
     // VOCION_LLM_MODEL_SKILLTURN, not hardcoded; a bigger model buys
     // first-time-right redrafts, not speed.
     skillTurn: 'claude-sonnet-4-6',
+    // Per-document candidate extraction from an ingested page: JSON only,
+    // no tools, one bounded call. Its own role so the cost/quality trade is
+    // measured through VOCION_LLM_MODEL_EXTRACTOR rather than riding on
+    // whatever `main` happens to be.
+    extractor: 'claude-sonnet-4-6',
   },
   openai: {
     main: 'gpt-4o',
     classifier: 'gpt-4o-mini',
     embedder: 'text-embedding-3-small',
     skillTurn: 'gpt-4o',
+    extractor: 'gpt-4o',
   },
   // Bedrock model ids, unlike the other two providers', are not the plain model
   // names. These are the US cross-region inference profiles (the `us.` prefix),
@@ -74,6 +80,7 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
     // `InvokeModel` rather than Converse.
     embedder: 'amazon.titan-embed-text-v1',
     skillTurn: 'us.anthropic.claude-sonnet-4-6',
+    extractor: 'us.anthropic.claude-sonnet-4-6',
   },
 };
 

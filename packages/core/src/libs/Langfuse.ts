@@ -200,6 +200,8 @@ export function cleanUsageDetails(input: Record<string, number | undefined>): Re
  *
  *   - `user-thumbs`     — 1 (up) / 0 (down). BOOLEAN.
  *   - `review-decision` — 1 (approved) / 0 (rejected). BOOLEAN.
+ *   - `extraction-ok`, 1 (the document produced records) / 0 (it was
+ *     skipped: no model answer, a spent budget, a timeout). BOOLEAN.
  *
  * Errors are swallowed by design — observability should never fail a
  * write. Returns true when the call was dispatched (still subject to
@@ -212,7 +214,7 @@ export function cleanUsageDetails(input: Record<string, number | undefined>): Re
  */
 export function pushScore(opts: {
   traceId: string | null | undefined;
-  name: 'user-thumbs' | 'review-decision';
+  name: 'user-thumbs' | 'review-decision' | 'extraction-ok';
   value: 0 | 1;
   comment?: string | null;
 }): boolean {

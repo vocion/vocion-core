@@ -2,7 +2,7 @@
  * `urlsFrom`: the web connector reading its URL list from somewhere else.
  *
  * The rules under test are the ones with teeth. A 200 carrying a valid EMPTY
- * array is a registry saying "nothing today" — a no-op, one `skipped` event,
+ * array is a registry saying "nothing today", a no-op, one `skipped` event,
  * no failure. Everything else that goes wrong is ONE connector-scope error,
  * because the runner reads a connector error as "a slice we could not fetch"
  * and therefore holds the watermark and suppresses tombstoning: a registry

@@ -23,7 +23,7 @@
  *
  * The same walk now guards a second rule, for a different reason. A
  * document processor's model stage pulls in LangChain and a Bedrock
- * client — seconds of boot time and megabytes of module graph that a
+ * client, seconds of boot time and megabytes of module graph that a
  * worker whose tenants declare no processor must never pay for. The
  * processor registry keeps its config schema eager (the applier
  * validates manifests with it) and its `run` behind a dynamic
@@ -45,7 +45,7 @@ const FORBIDDEN_MODULE = resolve(SOURCE_ROOT, 'libs/Logger.ts');
 const FORBIDDEN_FROM_WORKER = [
   {
     path: 'libs/llm/langchain.ts',
-    why: 'it builds chat models — LangChain and the Bedrock client — which only a processor\'s model stage needs, behind the registry\'s dynamic import.',
+    why: 'it builds chat models, LangChain and the Bedrock client, which only a processor\'s model stage needs, behind the registry\'s dynamic import.',
   },
   {
     path: 'libs/processors/candidateExtractor/run.ts',
@@ -186,7 +186,7 @@ describe('temporal-worker static imports', () => {
   it('does reach the processor registry, so the rules above are not vacuous', () => {
     const graph = staticImportGraph(WORKER_ENTRYPOINT);
 
-    // The registry IS in the worker's graph — the sync service looks up a
+    // The registry IS in the worker's graph, the sync service looks up a
     // source's processor on every run. What keeps the model stage out is the
     // dynamic import inside it, and nothing else.
     expect(graph.has(resolve(SOURCE_ROOT, 'libs/processors/registry.ts'))).toBe(true);

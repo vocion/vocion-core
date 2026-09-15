@@ -1,0 +1,275 @@
+/**
+ * What happens to the model's answer before anything is proposed.
+ *
+ * Three gates, in order:
+ *
+ *   1. **The envelope**, done in `model.ts`, by zod, so a malformed answer
+ *      earns the corrective retry rather than reaching here.
+ *   2. **Hard drops and the operator's knobs**, this file. Everything here is
+ *      deterministic and configuration-driven: a tenant cannot run code inside
+ *      core's processor, so each rule a tenant needs is a knob whose name says
+ *      what it does to a record and never whose rule it is.
+ *   3. **The object type's JSON Schema**, report only, through the action's
+ *      own `describeSchemaProblems`. A candidate that does not fit still
+ *      reaches the queue with the mismatch written on it, because a human
+ *      deciding on a flawed extraction beats an agent silently dropping it.
+ *      That is the philosophy of `objects-propose-candidate.ts`, and this
+ *      stage does not get to be stricter than the action it feeds.
+ *
+ * The URL rule is worth naming: a model-returned URL the page never published
+ * loses the URL, not the record. "Accepted only if the page published it" is a
+ * statement about the value; throwing away a correct event because its image
+ * link was invented would cost more than it saves.
+ */
+
+import type { CandidateExtractorConfig } from './config';
+import type { ExtractedRecord } from './model';
+import type { PageLink } from '@/libs/sources/pageMetadata';
+import { normaliseForKey } from '@/libs/actions/objects-propose-candidate';
+import { calendarDayOf } from './knownCards';
+
+/** A record that survived the gates, with whatever the gates had to say. */
+export type ValidatedRecord = ExtractedRecord & {
+  /** Per-record notes, shown to the reviewer as extraction notes. */
+  issues: string[];
+};
+
+export type ValidationOutput = {
+  records: ValidatedRecord[];
+  /** Flat counters for the run, merged under `extract.` by the runner. */
+  counts: Record<string, number>;
+  /** Run-level notes, for the processor result. */
+  notes: string[];
+};
+
+/**
+ * Today as a calendar day in a given zone.
+ * @param timezone - IANA zone name, or undefined for UTC.
+ * @param now - Clock, so a test can pin the day.
+ */
+export function calendarToday(timezone: string | undefined, now: Date = new Date()): string {
+  if (!timezone) {
+    return now.toISOString().slice(0, 10);
+  }
+  try {
+    // `en-CA` formats as YYYY-MM-DD, which is the comparison order we want.
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+  } catch {
+    // An unparseable zone is a config bug caught at apply time; falling back
+    // to UTC here keeps a run going rather than failing every document.
+    return now.toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * Digit runs in a value, which are what a document has to corroborate.
+ * @param value - The field value.
+ */
+function digitRuns(value: unknown): string[] {
+  return String(value ?? '').match(/\d+/g) ?? [];
+}
+
+/**
+ * Whether a value reads as filled in.
+ * @param value - The field value.
+ */
+function isBlank(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === 'string' && value.trim() === '')
+    || (Array.isArray(value) && value.length === 0);
+}
+
+/**
+ * Every URL the document itself published, the gate a model-returned URL has
+ * to pass.
+ * @param links - `metadata.links`, the pre-strip list.
+ * @param jsonLd - The page's JSON-LD blocks.
+ */
+function publishedUrls(links: PageLink[] | undefined, jsonLd: unknown[] | undefined): { exact: Set<string>; blob: string } {
+  const exact = new Set<string>();
+  for (const link of links ?? []) {
+    if (link?.url) {
+      exact.add(link.url);
+    }
+  }
+  // JSON-LD carries URLs inside nested objects (`offers.url`, `image`), so a
+  // substring check over the serialised blocks is the honest gate: the value
+  // has to literally occur in what the page published.
+  const blob = jsonLd && jsonLd.length > 0 ? JSON.stringify(jsonLd) : '';
+  return { exact, blob };
+}
+
+/**
+ * Apply every gate to one document's records.
+ * @param opts - Everything the gates read.
+ * @param opts.records - What the model returned.
+ * @param opts.config - The source's processor config.
+ * @param opts.pageText - The document's text, for the corroboration rule.
+ * @param opts.links - `metadata.links` from the page, for the URL gate.
+ * @param opts.jsonLd - `metadata.jsonLd` from the page, for the URL gate.
+ * @param opts.knownIds - Run ids the prompt actually carried.
+ * @param opts.today - Today as a calendar day in the config's timezone.
+ */
+export function validateRecords(opts: {
+  records: ExtractedRecord[];
+  config: CandidateExtractorConfig;
+  pageText: string;
+  links?: PageLink[];
+  jsonLd?: unknown[];
+  knownIds: Set<number>;
+  today: string;
+}): ValidationOutput {
+  const { config } = opts;
+  const counts: Record<string, number> = {};
+  const notes: string[] = [];
+  const bump = (key: string): void => {
+    counts[key] = (counts[key] ?? 0) + 1;
+  };
+
+  const urls = publishedUrls(opts.links, opts.jsonLd);
+  const published = (url: string | undefined): boolean => {
+    if (!url) {
+      return false;
+    }
+    return urls.exact.has(url) || (urls.blob !== '' && urls.blob.includes(url));
+  };
+
+  const kept: ValidatedRecord[] = [];
+  for (const raw of opts.records) {
+    const record: ValidatedRecord = { ...raw, fields: { ...raw.fields }, issues: [] };
+
+    // Defaults first: they are what a venue site's page leaves unsaid, and the
+    // identity check below has to see them.
+    for (const [field, value] of Object.entries(config.defaults ?? {})) {
+      if (isBlank(record.fields[field])) {
+        record.fields[field] = value;
+      }
+    }
+
+    if (record.confidence < config.minConfidence) {
+      bump('skipped.below_confidence');
+      continue;
+    }
+
+    const blankIdentity = config.dedupOn.filter(field => isBlank(record.fields[field]));
+    if (blankIdentity.length > 0) {
+      bump('skipped.incomplete');
+      continue;
+    }
+
+    if (config.dropIfPast) {
+      const day = calendarDayOf(record.fields[config.dropIfPast.field]);
+      const keepUntil = config.dropIfPast.keepIfField
+        ? calendarDayOf(record.fields[config.dropIfPast.keepIfField])
+        : null;
+      // The multi-day carve-out: something that started yesterday and runs to
+      // next week is still on.
+      if (day && day < opts.today && !(keepUntil && keepUntil >= opts.today)) {
+        bump('skipped.past');
+        continue;
+      }
+    }
+
+    let dropped = false;
+    for (const [field, allowed] of Object.entries(config.allowedValues ?? {})) {
+      const value = record.fields[field];
+      if (isBlank(value)) {
+        continue;
+      }
+      const allowedSet = new Set(allowed);
+      if (Array.isArray(value)) {
+        const ok = value.filter(item => allowedSet.has(String(item)));
+        if (ok.length === value.length) {
+          continue;
+        }
+        if (config.onViolation === 'dropRecord') {
+          dropped = true;
+          break;
+        }
+        record.fields[field] = ok;
+        record.issues.push(`${field}: dropped ${value.length - ok.length} value(s) the record type does not allow`);
+        bump('skipped.bad_category');
+      } else if (!allowedSet.has(String(value))) {
+        if (config.onViolation === 'dropRecord') {
+          dropped = true;
+          break;
+        }
+        delete record.fields[field];
+        record.issues.push(`${field}: "${String(value)}" is not one of the allowed values, so it was dropped`);
+        bump('skipped.bad_category');
+      }
+    }
+    if (dropped) {
+      bump('skipped.bad_category');
+      continue;
+    }
+
+    // "Never guess a price" as a check rather than a request: every digit run
+    // in the value has to occur in the document.
+    for (const field of config.mustAppearInDocument ?? []) {
+      const value = record.fields[field];
+      if (isBlank(value)) {
+        continue;
+      }
+      const runs = digitRuns(value);
+      if (runs.length > 0 && !runs.every(run => opts.pageText.includes(run))) {
+        delete record.fields[field];
+        record.issues.push(`${field}: dropped, its digits do not appear anywhere in the document`);
+      }
+    }
+
+    if (record.sourceUrl && !published(record.sourceUrl)) {
+      record.issues.push('the source URL was not published by the document, so it was dropped');
+      delete record.sourceUrl;
+    }
+    if (record.imageUrl && !published(record.imageUrl)) {
+      record.issues.push('the image URL was not published by the document, so it was dropped');
+      delete record.imageUrl;
+    }
+    if (config.imageFrom) {
+      const fromField = record.fields[config.imageFrom];
+      if (typeof fromField === 'string' && fromField !== '' && !published(fromField)) {
+        delete record.fields[config.imageFrom];
+        record.issues.push(`${config.imageFrom}: dropped, the document did not publish that URL`);
+      }
+    }
+
+    // The hallucination guard: an id the prompt never sent is not a fact about
+    // this org's queue. The field goes, the record stays.
+    for (const field of ['seriesOf', 'duplicateOf'] as const) {
+      const id = record[field];
+      if (id !== undefined && !opts.knownIds.has(id)) {
+        record[field] = undefined;
+        record.issues.push(`${field}: #${id} was not in the list this call carried, so it was ignored`);
+        bump('skipped.not_in_list');
+      }
+    }
+
+    kept.push(record);
+  }
+
+  if (!config.collapseWithinDocument) {
+    return { records: kept, counts, notes };
+  }
+
+  // One document listing the same thing twice, a listing page with a "featured"
+  // block above the calendar, is one record, not two proposals racing for the
+  // same dedup key.
+  const seen = new Map<string, ValidatedRecord>();
+  for (const record of kept) {
+    const key = config.dedupOn.map(field => normaliseForKey(record.fields[field])).join('|');
+    if (seen.has(key)) {
+      counts.collapsed = (counts.collapsed ?? 0) + 1;
+      continue;
+    }
+    seen.set(key, record);
+  }
+  if (counts.collapsed) {
+    notes.push(`${counts.collapsed} record(s) repeated inside the document and were collapsed`);
+  }
+  return { records: [...seen.values()], counts, notes };
+}

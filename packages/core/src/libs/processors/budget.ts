@@ -3,7 +3,7 @@
  *
  * The caps are per SYNC, not per document. A per-document counter would be
  * eight times looser than it reads, because `runSync` keeps up to
- * `MAX_CONCURRENT_INGESTS` documents in flight at once — eight documents each
+ * `MAX_CONCURRENT_INGESTS` documents in flight at once, eight documents each
  * "allowed one model call" is eight calls, every time.
  *
  * Two rules the whole design leans on:
@@ -39,7 +39,7 @@ export type SyncBudgetCaps = {
 
 /**
  * The ceilings. A manifest's `limits` block may lower any of these and can
- * never raise one — see `createSyncBudget`.
+ * never raise one, see `createSyncBudget`.
  *
  * `maxModelCalls` is 25 because the agent run that motivated this pipeline
  * spent 26 calls on five sources; `maxInputTokensPerSync` is 120,000, which is
@@ -58,7 +58,7 @@ export const SYNC_BUDGET_DEFAULTS: SyncBudgetCaps = {
 
 /**
  * The caps that count something up. `maxInputTokensPerCall` is a truncation
- * budget rather than a tally, and `maxWallClockMs` is time — both are read
+ * budget rather than a tally, and `maxWallClockMs` is time, both are read
  * off `caps` directly.
  */
 export type CountedCap = 'maxPages' | 'maxDetailHops' | 'maxModelCalls' | 'maxInputTokensPerSync' | 'maxProposalsPerSync';

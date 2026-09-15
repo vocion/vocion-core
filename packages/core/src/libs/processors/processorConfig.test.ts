@@ -3,7 +3,7 @@
  * `limits` block can lower.
  *
  * Both are what an operator's YAML actually meets, and both fail in the same
- * expensive way when they are lenient — a typo'd key silently dropped is a
+ * expensive way when they are lenient, a typo'd key silently dropped is a
  * rule the operator believes is in force and is not, and a cap a manifest can
  * RAISE is no cap at all. Nothing here imports the model stage, which is the
  * point: apply-time validation must never load it.
@@ -46,8 +46,8 @@ describe('candidate-extractor config', () => {
   });
 
   it('refuses anything path-shaped where a field name belongs', () => {
-    // No knob in this schema is ever a filesystem path — that is
-    // `_manifestDir`'s job, for connectors — so `../` must not parse into one.
+    // No knob in this schema is ever a filesystem path, that is
+    // `_manifestDir`'s job, for connectors, so `../` must not parse into one.
     expect(() => candidateExtractorConfigSchema.parse({ ...minimal, titleFrom: '../../etc/passwd' })).toThrow();
     expect(() => candidateExtractorConfigSchema.parse({ ...minimal, imageFrom: './image' })).toThrow();
     expect(() => candidateExtractorConfigSchema.parse({ ...minimal, defaults: { '../x': 'y' } })).toThrow();
