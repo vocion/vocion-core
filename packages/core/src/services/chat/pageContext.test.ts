@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeScopeRef, readPageContext, readRecordRef, scopeRefToRecord, withPageContext } from './pageContext';
+import { mergeScopeRef, readContextRefs, readPageContext, readRecordRef, scopeRefToRecord, withPageContext } from './pageContext';
 
 describe('readPageContext', () => {
   it('accepts two short strings and trims them', () => {
@@ -104,5 +104,46 @@ describe('withPageContext', () => {
     expect(out).toContain('I mentioned: deal "Spinutech".');
     expect(out).toContain('> Spinutech – $216K\n> stalling');
     expect(out).toContain('`page_context` tool');
+  });
+});
+
+describe('readContextRefs', () => {
+  it('keeps well-formed tags, drops malformed ones, and caps the list', () => {
+    const raw = [
+      { type: 'team', id: 'revenue-ops', label: 'RevOps', routeTo: 'revenue-lead' },
+      { type: 'mission', id: '  q3-pipeline ', label: 'Q3 pipeline' },
+      { type: 'deal', id: '', label: 'nothing' },
+      'not a ref',
+      null,
+      ...Array.from({ length: 20 }, (_, i) => ({ type: 'object', id: String(i), label: `o${i}` })),
+    ];
+
+    const refs = readContextRefs(raw);
+
+    expect(refs[0]).toEqual({ type: 'team', id: 'revenue-ops', label: 'RevOps' });
+    expect(refs[1]).toEqual({ type: 'mission', id: 'q3-pipeline', label: 'Q3 pipeline' });
+    expect(refs).toHaveLength(12);
+  });
+
+  it('reads anything that is not an array as no tags', () => {
+    expect(readContextRefs(undefined)).toEqual([]);
+    expect(readContextRefs({ type: 'team' })).toEqual([]);
+  });
+});
+
+describe('withPageContext with tagged records', () => {
+  it('lists the tagged records under the message so an @tag reaches the model, not only the router', () => {
+    const out = withPageContext('what is blocking?', null, [{ type: 'team', id: 'revenue-ops', label: 'RevOps' }]);
+
+    expect(out.startsWith('what is blocking?')).toBe(true);
+    expect(out).toContain('--- records I tagged ---');
+    expect(out).toContain('- team "RevOps" (team:revenue-ops)');
+  });
+
+  it('stacks the page note and the tags note in that order', () => {
+    const out = withPageContext('hi', { path: '/dashboard/review', title: 'Review' }, [{ type: 'deal', id: '9', label: '' }]);
+
+    expect(out.indexOf('--- where I am ---')).toBeLessThan(out.indexOf('--- records I tagged ---'));
+    expect(out).toContain('- deal "9" (deal:9)');
   });
 });

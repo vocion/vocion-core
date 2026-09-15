@@ -152,6 +152,8 @@
     "history_empty": "No conversations yet",
     "history_no_match": "Nothing matches",
     "new_chat": "New chat",
+    "via": "via {name}",
+    "search_mode": "Search only — retrieval, no model in the loop",
     "autonomy_ask": "Ask before acting",
     "autonomy_act": "Act within bounds",
     "autonomy_ask_hint": "Recommended actions are cards you tap into the review queue.",

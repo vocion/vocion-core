@@ -138,11 +138,14 @@ export async function POST(request: Request): Promise<Response> {
   // Where the person is when they ask (058): the everything-scoped dock off a
   // record page sends it; the model reads it under the message, the log
   // keeps the message as typed.
-  const { mergeScopeRef, readPageContext, withPageContext } = await import('@/services/chat/pageContext');
+  const { mergeScopeRef, readContextRefs, readPageContext, withPageContext } = await import('@/services/chat/pageContext');
   const { autoProposeRecommendation, readAutonomy } = await import('@/services/chat/autoPropose');
   // Structured (R4): page + record + highlighted passage + @-mentions. A
   // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
   const pageContext = mergeScopeRef(readPageContext(body.page_context), typeof body.scope_ref === 'string' ? body.scope_ref : null);
+  // `@` tags (§9.10): besides routing the turn's `agent_slug`, the tagged
+  // records reach the model as a note under the message.
+  const contextRefs = readContextRefs(body.context_refs);
   // Resolve the agent. Explicit `agent_slug` wins (an `@mention` routes one
   // turn); otherwise the WORKSPACE AGENT answers — the project's lead
   // (agent-chat-surface.md §9.10), falling back to the first agent when no
@@ -292,7 +295,7 @@ export async function POST(request: Request): Promise<Response> {
           allowedSourceSlugs,
           orgId,
           agentSlug,
-          message: withPageContext(message, pageContext),
+          message: withPageContext(message, pageContext, contextRefs),
           userId,
           conversationId: conversationId ?? undefined,
           conversationHistory,

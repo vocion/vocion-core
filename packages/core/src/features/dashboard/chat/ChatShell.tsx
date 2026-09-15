@@ -13,6 +13,7 @@ import { EmptyState } from './EmptyState';
 import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
+import { parseSearchCommand } from './routing';
 import { SourcesPanel } from './SourcesPanel';
 import { useTagSearch } from './tagSearch';
 import { useChatSession } from './useChatSession';
@@ -26,17 +27,17 @@ import { useChatSession } from './useChatSession';
  * behave identically and resume the same conversation.
  *
  * Agent identity is data-in: the server component that mounts ChatShell
- * passes the available agents (DB rows + the virtual `__search__` entry) and
- * optionally a starting `agentSlug`. The pre-v0.5.2 default to "Sales
- * Assistant" is gone.
+ * passes the workspace's agents (DB rows + the virtual `__search__` entry);
+ * the surface speaks as the WORKSPACE (§9.10) and nothing is picked. The
+ * pre-v0.5.2 default to "Sales Assistant" is gone.
  *
  * "Insert quarter, shoot aliens": the surface is messages + composer,
- * period. No permanent header, no picker on the canvas — new chat and
- * agent targeting live behind the single ⋯ menu, portaled into the shell
- * top bar so the conversation canvas stays clean.
+ * period. No permanent header, no agent picker anywhere (§9.10) — new chat
+ * lives behind the single ⋯ menu, portaled into the shell top bar so the
+ * conversation canvas stays clean.
  *
  * Component tree:
- *   <AgentSwitcher /> + <ChatMenu /> (portaled into the shell top bar)
+ *   <HistoryPopover /> + <ChatMenu /> (portaled into the shell top bar)
  *   <MessageList /> or <EmptyState />
  *   <SourcesPanel /> (right-side, optional)
  *   <HitlGate /> (above composer when pending)
@@ -225,6 +226,7 @@ function ChatShellInner({
             streaming={session.isStreaming}
             onStop={session.handleStop}
             placeholder={session.composerPlaceholder}
+            commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
             pastedText={session.pastedText}
             onPasteText={session.setPastedText}
             onClearPasted={() => session.setPastedText(null)}

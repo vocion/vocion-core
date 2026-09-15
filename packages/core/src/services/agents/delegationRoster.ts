@@ -113,12 +113,17 @@ export async function deriveDelegationRoster(orgId: string, lead: AgentRow): Pro
     .limit(1);
   const isWorkspaceLead = project?.leadAgentSlug === lead.slug;
 
+  // Every query orders by id: the roster's order is a product contract (the
+  // rail's delegate rows, the lead's routing list) and PGlite returns index
+  // order for wider rows without it — the same bug main fixed in
+  // missions/roster.ts.
   const children = await db
     .select()
     .from(agentSchema)
-    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, lead.slug)));
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, lead.slug)))
+    .orderBy(agentSchema.id);
 
-  const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId));
+  const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId)).orderBy(teamSchema.id);
   const relevantTeams = isWorkspaceLead ? teams : teams.filter(t => t.leadAgentSlug === lead.slug);
   const wanted = new Set<string>();
   for (const t of relevantTeams) {
@@ -139,6 +144,7 @@ export async function deriveDelegationRoster(orgId: string, lead: AgentRow): Pro
               ? inArray(agentSchema.teamSlug, teamSlugs)
               : inArray(agentSchema.slug, [...wanted]),
         ))
+        .orderBy(agentSchema.id)
     : [];
 
   return buildDelegationRoster({ lead, children, teams, teamAgents, isWorkspaceLead });

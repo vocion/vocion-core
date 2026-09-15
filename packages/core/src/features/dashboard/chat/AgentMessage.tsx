@@ -65,7 +65,7 @@ export type AgentMessageProps = {
   onFeedback?: (messageId: number, rating: 'up' | 'down' | null, note?: string | null) => void | Promise<void>;
   /** How recommended actions in this thread behave (0094). */
   autonomy?: ConversationAutonomy;
-  /** The specialist a routed turn was answered by — attribution only (§9.10). */
+  /** Preformatted attribution for a routed turn ("via Proposal Writer") — the workspace stays the speaker (§9.10). */
   via?: string;
 };
 
@@ -112,12 +112,8 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
       <div className="max-w-2xl min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <span>{agentName}</span>
-          {via && via !== agentName && (
-            <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">
-              via
-              {' '}
-              {via}
-            </span>
+          {via && (
+            <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
           )}
           {timestamp && <span className="tracking-normal normal-case">{formatTime(timestamp)}</span>}
           {sourceCount > 0 && (

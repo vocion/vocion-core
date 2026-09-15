@@ -60,13 +60,13 @@ describe('useChatSession', () => {
     expect(client.conversations.get).not.toHaveBeenCalled();
   });
 
-  it('resumes the thread this browser session was already in, and replays its messages', async () => {
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'specialist', conversationId: 5, updatedAt: new Date(), railWidth: null, railOpen: null });
-    sessionStorage.setItem('vocion:chat:session:specialist', '5');
+  it('resumes the thread this browser session was already in (keyed on the workspace agent), and replays its messages', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date(), railWidth: null, railOpen: null });
+    sessionStorage.setItem('vocion:chat:session:orchestrator', '5');
     vi.mocked(client.conversations.get).mockResolvedValue({
       id: 5,
       orgId: 'org_1',
-      agentSlug: 'specialist',
+      agentSlug: 'orchestrator',
       title: 'Prior thread',
       messageCount: 2,
       autonomy: 'act-within-bounds',
@@ -81,7 +81,7 @@ describe('useChatSession', () => {
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
     await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-    expect(result.current.agent.slug).toBe('specialist');
+    expect(result.current.agent.slug).toBe('orchestrator');
     expect(result.current.conversationId).toBe(5);
     expect(result.current.messages[0]).toMatchObject({ role: 'user', content: 'hi' });
     // Persisted ids and feedback ride along, and the thread's autonomy rung is adopted.
@@ -108,7 +108,7 @@ describe('useChatSession', () => {
     expect(sessionStorage.getItem('vocion:chat:session:orchestrator')).toBe('9');
   });
 
-  it('never resumes from the last-viewed pointer alone, however recent', async () => {
+  it('never resumes from the last-viewed pointer alone, however recent — and the pointer never picks the agent (§9.10)', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue({
       agentSlug: 'specialist',
       conversationId: 5,
@@ -121,7 +121,7 @@ describe('useChatSession', () => {
 
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
-    expect(result.current.agent.slug).toBe('specialist');
+    expect(result.current.agent.slug).toBe('orchestrator');
     expect(result.current.conversationId).toBeNull();
     expect(result.current.messages).toEqual([]);
     expect(client.conversations.get).not.toHaveBeenCalled();
@@ -175,6 +175,7 @@ describe('useChatSession', () => {
 
   it('handleNewChat clears the view and persists a null conversation pointer', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date(), railWidth: null, railOpen: null });
+    sessionStorage.setItem('vocion:chat:session:orchestrator', '5');
     vi.mocked(client.conversations.get).mockResolvedValue({
       id: 5,
       orgId: 'org_1',
