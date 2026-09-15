@@ -52,7 +52,6 @@ function RailHeader({ workspace = 'Revenue Team', autonomy = 'ask', width = 480 
   width?: number;
 }) {
   const [mode, setMode] = useState<ConversationAutonomy>(autonomy);
-  const compact = width < 400;
   return (
     <div style={{ width }} className="overflow-hidden rounded-xl border border-border bg-background">
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border pr-1.5 pl-3">
