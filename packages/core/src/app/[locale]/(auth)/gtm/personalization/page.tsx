@@ -2,8 +2,7 @@ import type { BriefRow } from '@/features/personalization/PersonalizationQueue';
 import { and, count, desc, eq, ne } from 'drizzle-orm';
 import { Sparkles } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import { EmptyState } from '@/components/ui/empty-state';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { ListEmpty, ListPage } from '@/components/patterns';
 import { PersonalizationQueue } from '@/features/personalization/PersonalizationQueue';
 import { QueueResetControl } from '@/features/personalization/QueueResetControl';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -31,6 +30,9 @@ import { ORG_ROLE } from '@/types/Auth';
  * Optional surface at `/gtm/personalization`. Linked only where
  * `workspace.yaml` lists `surfaces: [personalization]` (see
  * `features/navigation/surfaces.ts`).
+ *
+ * The reference implementation of the List archetype
+ * (`components/patterns`, `docs/design/patterns.md`).
  * @param props
  * @param props.params
  */
@@ -90,21 +92,14 @@ export default async function PersonalizationPage(props: {
   const canReset = Boolean(Env.VOCION_ALLOW_QUEUE_RESET) && has({ role: ORG_ROLE.ADMIN });
 
   return (
-    <>
-      <TitleBar
-        title="Personalization"
-        description="Researched leads waiting on your decision. Each row opens the lead's page: the brief, the evidence, and the decision. Nothing here has been sent."
-      />
-
-      {canReset && (
-        <div className="mb-3 flex justify-end">
-          <QueueResetControl rowCount={briefs.length} />
-        </div>
-      )}
-
+    <ListPage
+      title="Personalization"
+      description="Researched leads waiting on your decision. Each row opens the lead's page: the brief, the evidence, and the decision. Nothing here has been sent."
+      actions={canReset ? <QueueResetControl rowCount={briefs.length} /> : undefined}
+    >
       {briefs.length === 0
         ? (
-            <EmptyState
+            <ListEmpty
               icon={Sparkles}
               title="No briefs yet"
               description={waitingCount > 0
@@ -113,6 +108,6 @@ export default async function PersonalizationPage(props: {
             />
           )
         : <PersonalizationQueue briefs={briefs} />}
-    </>
+    </ListPage>
   );
 }

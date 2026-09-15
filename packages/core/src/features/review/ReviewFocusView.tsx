@@ -257,6 +257,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
               ))}
             </section>
             <StickyActionBar
+              labels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
               primary={{
                 'label': desc.isEmail ? (current.input.draft === true ? `${verb('approve').label} → draft` : `${verb('approve').label} & send`) : verb('approve').label,
                 'onClick': () => p.onDecide('approve'),

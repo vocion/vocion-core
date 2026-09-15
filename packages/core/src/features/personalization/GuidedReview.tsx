@@ -35,6 +35,18 @@ const readSaved = (runId: number, sends: GuidedSend[]): GuidedState | null => {
 };
 
 /**
+ * The revisions the guided review has saved for this run, as content edits —
+ * so a decision taken on the page (the sticky bar) carries a rewrite asked
+ * for in the conversation. Empty when nothing was revised or nothing saved.
+ * @param run - The pending run.
+ */
+export function savedGuidedEdits(run: ReviewCardRun): Array<{ id: string; body: string }> {
+  const sends = sendsFromCard(run.card);
+  const saved = readSaved(run.id, sends);
+  return saved ? contentEditsFor(saved, sends) : [];
+}
+
+/**
  * Guided review: the decision walked one send at a time, in the conversation
  * beside the lead.
  *

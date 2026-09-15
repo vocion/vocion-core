@@ -1,6 +1,7 @@
 'use client';
 
 import { Check, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from '@/components/ui/toast';
@@ -43,6 +44,7 @@ const INLINE_FIELD = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm trans
  * @param props.candidate
  */
 export function LearningDecision({ candidate }: { candidate: LearningCandidateView }) {
+  const t = useTranslations('Review');
   const router = useRouter();
   const current = candidate.editedRuleText ?? candidate.ruleText;
   const [draft, setDraft] = useState(current);
@@ -173,6 +175,7 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
 
       {open && (
         <StickyActionBar
+          labels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
           primary={{ 'label': verbs.primary.label, 'onClick': () => void decide('approve'), 'disabled': busy !== null || !draft.trim(), 'busy': busy === 'approve', 'icon': Check, 'shortcut': verbs.primary.shortcut, 'data-testid': 'learning-adopt' }}
           secondary={verbs.secondary.map(v => ({ 'label': v.label, 'onClick': () => void decide('reject'), 'disabled': busy !== null, 'busy': busy === 'reject', 'icon': X, 'shortcut': v.shortcut, 'tone': v.tone, 'data-testid': 'learning-reject' }))}
           field={{

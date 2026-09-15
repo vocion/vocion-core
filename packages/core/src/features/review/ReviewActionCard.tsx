@@ -4,6 +4,7 @@ import type { ContentEdit } from './contentKinds';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { ReviewCard, ReviewContentEdit } from '@/libs/actions/types';
 import { AlarmClock, Check, ChevronsDownUp, ChevronsUpDown, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
@@ -106,6 +107,7 @@ export function ReviewActionCard(props: {
    */
   presentation?: 'card' | 'page';
 }) {
+  const t = useTranslations('Review');
   const { run, onDecided, onRegenerated } = props;
   const page = props.presentation === 'page';
   // "Edit all" expands every send at once; a fresh run starts folded.
@@ -482,6 +484,7 @@ export function ReviewActionCard(props: {
         )}
 
         <StickyActionBar
+          labels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
           primary={{
             'label': execError ? `Retry ${approveVerb}` : approveVerb,
             'onClick': () => void decideRun('approve'),
