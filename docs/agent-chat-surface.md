@@ -110,22 +110,26 @@ agent is doing, and able to be talked back to.
    before the built-in reducer and may claim it — how a surface that knows a
    new event type (the canvas's `artifact`) folds it into the transcript
    without editing the hook.
-10. **One conversation, one lead, routing is delegation** (Chris, 2026-09-15:
-    "shouldn't I just be able to chat with the workspace lead?"). A fresh
-    conversation opens with the **workspace lead** (`workspace.yaml lead`) —
-    never the last-used agent. The lead routes: its delegable roster is
-    derived from the registry at compile time (`services/agents/
-    delegationRoster.ts`) — its registered children, then every team's lead
-    *and* members for the workspace lead, or its own team's members for a
-    team lead — so a workspace author never enumerates `subagents`. A hand-off
-    is a live `delegate` row in the rail with the specialist's name. Two
-    explicit overrides, neither sticky: `@agent` / `@team` in the composer
-    routes **that turn** to the specialist (a team tag → its lead; the reply
-    renders under the specialist's name; the conversation stays with the
-    lead), and "Talk directly to a specialist…" under ⋯ starts a conversation
-    *with* one (header shows "Direct · <name>" and "Back to <lead>"). Page
-    context — including a record's type when a page supplies one — rides
-    along untouched so the lead can route on it.
+10. **One workspace agent — routing is delegation** (Chris, 2026-09-15:
+    "let's get rid of this 'choose an agent'. We should always just be
+    chatting with the Vocion agent, scoped/named to the current Workspace").
+    There is exactly one conversational identity per workspace: the
+    **workspace agent**, shown by the workspace's name ("Ask Revenue", avatar
+    = the workspace initial), implemented as the workspace `lead` agent's
+    config (first agent when no lead is set) plus the delegation roster
+    derived at compile time (`services/agents/delegationRoster.ts`: the lead's
+    registered children, then every team's lead *and* members; a team lead
+    gets its own members). No agent picker exists anywhere in chat; `?agent=`
+    is accepted for old links and ignored; the stream route's default agent
+    is the workspace lead. Specialists appear only as attribution: a live
+    "→ Proposal Writer · drafting the brief" row in the rail and a small
+    "via Proposal Writer" eyebrow on a routed reply. Two power paths, both
+    per turn and neither advertised in the header: `@agent` / `@team` in the
+    composer routes that turn (a team tag → its lead; a Briefings hand-off
+    routes its first turn the same way), and `/search <query>` runs the
+    retrieval-only path. `conversation.agent_slug` keeps the lead. The empty
+    state says "Ask <Workspace>" with the workspace's chips — the lead's
+    suggestions plus one per team lead, capped at four — never an agent name.
 
 ## Where things live
 
@@ -140,6 +144,6 @@ agent is doing, and able to be talked back to.
 | Feedback | `MessageFeedback.tsx`, `services/ConversationService.ts#setMessageFeedback`, adoption event `chat.feedback` |
 | History + search | `HistoryPopover.tsx`, `services/ConversationService.ts#searchConversations` |
 | Autonomy | `conversation.autonomy`, `RecommendedActionCard.tsx` (`autoPropose`) |
-| Routing | `features/dashboard/chat/routing.ts` (default agent, `@` routing), `services/agents/delegationRoster.ts` (roster), `ChatMenu.tsx` ("Talk directly to a specialist…") |
+| Routing | `features/dashboard/chat/routing.ts` (default agent, `@` routing, `/search`, workspace chips), `services/agents/delegationRoster.ts` (roster), `rpc/agent/stream/route.ts` (server default = workspace lead) |
 | Entry function | `features/dashboard/chat/agentSurface.ts` |
 | Schema | migration `0094_conversation_feedback_search.sql` (+ `concurrent/0094_conversation_search_idx.sql`) |

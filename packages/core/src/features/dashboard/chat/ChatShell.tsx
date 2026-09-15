@@ -1,7 +1,7 @@
 'use client';
 
 import type { AgentOption } from './types';
-import { MessagesSquare, Undo2 } from 'lucide-react';
+import { MessagesSquare } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
@@ -46,8 +46,6 @@ import { useChatSession } from './useChatSession';
 export type ChatShellProps = {
   /** Agents available to pick from. The caller guarantees at least one entry. */
   agents: AgentOption[];
-  /** Initial selection. If absent, picks the first entry in `agents`. */
-  agentSlug?: string;
   /** Pre-fills the composer without sending (e.g. the org chart's seeded "how's the quarter?" prompt). */
   initialComposerValue?: string;
   /** Dynamic workspace-scoped empty-state chips (urgency + capability). */
@@ -76,7 +74,6 @@ export type ChatShellProps = {
  * a conversation — none of which should run with no agent to run it for.
  * @param props - Component props.
  * @param props.agents - Agents available to pick from. Empty renders the empty state.
- * @param props.agentSlug - Initial selection.
  * @param props.initialComposerValue - Text to pre-fill the composer with.
  * @param props.suggestions - Empty-state chips.
  * @param props.greeting - Empty-state greeting.
@@ -84,7 +81,6 @@ export type ChatShellProps = {
  */
 export function ChatShell({
   agents,
-  agentSlug,
   initialComposerValue,
   suggestions = [],
   greeting,
@@ -97,7 +93,6 @@ export function ChatShell({
   return (
     <ChatShellInner
       agents={agents}
-      agentSlug={agentSlug}
       initialComposerValue={initialComposerValue}
       suggestions={suggestions}
       greeting={greeting}
@@ -127,14 +122,13 @@ function NoAgentsToChatWith() {
 
 function ChatShellInner({
   agents,
-  agentSlug,
   initialComposerValue,
   suggestions = [],
   greeting,
   conversationId = null,
 }: ChatShellProps) {
   const t = useTranslations('Chat');
-  const session = useChatSession({ agents, agentSlug, initialComposerValue, suggestions, greeting, resumeConversationId: conversationId });
+  const session = useChatSession({ agents, initialComposerValue, suggestions, greeting, resumeConversationId: conversationId });
   const tagSearch = useTagSearch(agents);
   const autonomyCopy = {
     ask: t('autonomy_ask'),
@@ -161,10 +155,8 @@ function ChatShellInner({
           the account menu, so the conversation canvas stays clean. */}
       <ShellBarActionsPortal>
         <div className="flex items-center gap-1">
-          {/* Who is answering (§9): the lead by default, as a quiet chip; a
-              "Direct · <specialist>" chip with a way back when the person
-              chose to talk to one specialist for this conversation. */}
-          <SpeakerChip agentName={session.agent.name} leadName={agents.find(a => a.slug === session.leadSlug)?.name ?? session.agent.name} isDirect={session.isDirect} onBackToLead={session.handleBackToLead} />
+          {/* One identity (§9.10): the surface speaks as the workspace. */}
+          <span data-testid="speaker-chip" className="truncate text-sm font-medium text-foreground/80">{session.workspaceName}</span>
           <HistoryPopover
             recent={session.recentChats}
             currentId={session.conversationId}
@@ -172,12 +164,7 @@ function ChatShellInner({
             onNewChat={session.handleNewChat}
             search={session.searchConversations}
           />
-          <ChatMenu
-            onNewChat={session.handleNewChat}
-            agents={agents}
-            currentSlug={session.agent.slug}
-            onSwitch={session.handleSwitchAgent}
-          />
+          <ChatMenu onNewChat={session.handleNewChat} />
         </div>
       </ShellBarActionsPortal>
 
@@ -208,7 +195,7 @@ function ChatShellInner({
               : (
                   <MessageList
                     messages={session.messages}
-                    agentName={session.agent.name}
+                    agentName={session.workspaceName}
                     streaming={session.isStreaming}
                     activity={session.activity}
                     onShowSources={session.handleShowSources}
@@ -260,37 +247,5 @@ function ChatShellInner({
         />
       </div>
     </div>
-  );
-}
-
-/**
- * The header chip that says who answers (§9). Talking to the lead, it is the
- * lead's name, quiet. Talking directly to a specialist, it says so and
- * offers the way back — the specialist choice lives on this conversation
- * only, so "back" is a fresh conversation with the lead.
- * @param props
- * @param props.agentName - Who is answering now.
- * @param props.leadName - The workspace lead.
- * @param props.isDirect - True when a specialist (or search) is answering.
- * @param props.onBackToLead - Start a fresh conversation with the lead.
- */
-function SpeakerChip({ agentName, leadName, isDirect, onBackToLead }: { agentName: string; leadName: string; isDirect: boolean; onBackToLead: () => void }) {
-  if (!isDirect) {
-    return <span data-testid="speaker-chip" className="truncate text-sm font-medium text-foreground/80">{agentName}</span>;
-  }
-  return (
-    <span data-testid="speaker-chip" className="inline-flex items-center gap-1.5">
-      <span className="truncate rounded-full border border-brand-amber/40 bg-brand-amber-tint px-2 py-0.5 text-xs font-medium text-brand-amber-deep">
-        Direct ·
-        {' '}
-        {agentName}
-      </span>
-      <button type="button" onClick={onBackToLead} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground">
-        <Undo2 className="size-3" aria-hidden />
-        Back to
-        {' '}
-        {leadName}
-      </button>
-    </span>
   );
 }

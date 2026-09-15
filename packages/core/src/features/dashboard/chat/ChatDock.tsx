@@ -374,7 +374,12 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       <div className="flex items-center gap-1 border-b border-border px-3 py-2.5 pl-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold">{scopeLabel}</span>
+            {!scopeRef && (
+              <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-md bg-foreground text-[10px] font-semibold text-background">
+                {(session.workspaceName || scopeLabel).slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            <span className="truncate text-sm font-semibold">{scopeRef ? scopeLabel : (agents.some(a => a.workspaceName) ? session.workspaceName : scopeLabel)}</span>
             {session.autonomy === 'act-within-bounds' && (
               <span data-testid="autonomy-chip" title={autonomyCopy.actHint} className="shrink-0 rounded-full border border-brand-amber/40 bg-brand-amber-tint px-1.5 py-0.5 text-[10px] font-medium text-brand-amber-deep">
                 {autonomyCopy.act}
@@ -382,22 +387,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             )}
           </div>
           <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            {session.isDirect
-              ? (
-                  <>
-                    <span data-testid="direct-chip" className="truncate rounded-full border border-brand-amber/40 bg-brand-amber-tint px-1.5 py-0.5 text-[10px] font-medium text-brand-amber-deep">
-                      Direct ·
-                      {' '}
-                      {session.agent.name}
-                    </span>
-                    <button type="button" onClick={session.handleBackToLead} className="truncate underline underline-offset-2 hover:text-foreground">
-                      Back to
-                      {' '}
-                      {agents.find(a => a.slug === session.leadSlug)?.name ?? 'the lead'}
-                    </button>
-                  </>
-                )
-              : <span className="truncate">{session.agent.name}</span>}
+            <span className="truncate">{scopeRef ? session.workspaceName : session.agent.name === session.workspaceName ? '' : session.agent.name}</span>
             <span>·</span>
             <Link href="/dashboard/chat" className="truncate underline underline-offset-2 hover:text-foreground">
               {t('all_conversations')}
@@ -413,13 +403,8 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             search={session.searchConversations}
           />
         )}
-        {/* New chat + which agent answers. History moved to its own popover. */}
-        <ChatMenu
-          onNewChat={session.handleNewChat}
-          agents={agents}
-          currentSlug={session.agent.slug}
-          onSwitch={session.handleSwitchAgent}
-        />
+        {/* New chat. History has its own popover; there is no agent to pick (§9.10). */}
+        <ChatMenu onNewChat={session.handleNewChat} />
         <button
           type="button"
           onClick={() => setCollapsedPersisted(true)}
@@ -449,7 +434,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           : (
               <MessageList
                 messages={session.messages}
-                agentName={session.agent.name}
+                agentName={session.workspaceName}
                 streaming={session.isStreaming}
                 activity={session.activity}
                 blocks={cardBlocks}

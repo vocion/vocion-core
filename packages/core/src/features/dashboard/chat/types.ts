@@ -154,6 +154,8 @@ export type AgentOption = {
   role?: 'lead' | 'specialist';
   /** Slug of the primary this agent reports to. Undefined = a primary/coordinator. */
   parentSlug?: string;
+  /** The workspace this agent belongs to — the ONE name the chat surface speaks as (§9.10). */
+  workspaceName?: string;
 };
 
 /** HITL gate event payload — emitted by request_human_review tool. */

@@ -1,6 +1,5 @@
 'use client';
 
-import type { EmptyStateSuggestion } from './EmptyState';
 import type {
   AgentOption,
   AgentRun,
@@ -16,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { client } from '@/libs/Orpc';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
-import { defaultAgentSlug, routeTurn } from './routing';
+import { defaultAgentSlug, parseSearchCommand, routeTurn, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, mergeTraceNode } from './traceReducer';
 import { describeToolCall } from './WorkTimeline';
 
@@ -161,8 +160,6 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
 export type UseChatSessionOptions = {
   /** Agents available to pick from. The caller guarantees at least one entry. */
   agents: AgentOption[];
-  /** Initial selection. If absent, the first entry (the workspace lead) wins. */
-  agentSlug?: string;
   /** Pre-fills the composer without sending. */
   initialComposerValue?: string;
   /** Workspace-scoped empty-state chips, used while no specific agent is picked. */
@@ -223,7 +220,6 @@ export type ChatSessionEventApi = {
  * pointers described above. Callers render; they don't reach into any of it.
  * @param root0 - Hook options.
  * @param root0.agents - Agents available to pick from. The caller guarantees at least one entry.
- * @param root0.agentSlug - Initial selection. If absent, the first entry wins.
  * @param root0.initialComposerValue - Pre-fills the composer without sending.
  * @param root0.suggestions - Workspace-scoped empty-state chips.
  * @param root0.greeting - Empty-state greeting: org eyebrow + workspace name.
@@ -234,7 +230,6 @@ export type ChatSessionEventApi = {
  */
 export function useChatSession({
   agents,
-  agentSlug,
   initialComposerValue,
   suggestions = [],
   greeting,
@@ -310,7 +305,7 @@ export function useChatSession({
     }
     return [...set];
   }, [messages]);
-  const [currentSlug, setCurrentSlug] = useState<string | undefined>(agentSlug);
+  const [currentSlug, setCurrentSlug] = useState<string | undefined>(undefined);
   // Live activity line — what the team is doing RIGHT NOW during a long turn
   // (retrieval, subagent delegation, tool runs). Cleared once text streams.
   const [activity, setActivity] = useState<string | null>(null);
@@ -339,60 +334,19 @@ export function useChatSession({
   // resolves to a missing/deleted agent the `?? agents[0]` fallback keeps the
   // surface pointed at a real agent.
   const agent = (currentSlug ? agents.find(a => a.slug === currentSlug) : undefined) ?? agents[0]!;
-  // Default = the workspace view (agents[0] is the workspace lead). Nothing
-  // was specifically picked, so the surface speaks for the WORKSPACE: the
-  // "Ask <workspace>" greeting, the dynamic workspace chips, and a neutral
-  // composer. Once a specific agent/team is picked via the switcher, the
-  // greeting + placeholder name THAT agent and its own suggestions lead.
-  // The virtual __search__ entry isn't an agent, so it keeps the workspace
-  // greeting (its placeholder already explains itself).
-  const isDefaultView = agent.slug === agents[0]?.slug;
+  // ONE identity (§9.10): the surface speaks as the WORKSPACE — "Ask Revenue"
+  // — implemented as the lead's config plus its delegation roster. There is
+  // no picked agent; specialists appear only as attribution. `__search__` is
+  // reachable through the `/search` command, never as a persona.
   const isSearchOnly = agent.slug === '__search__';
-
-  // Per-agent chips are SYNTHESIZED server-side from that agent's declared
-  // context (mission × skills × tracker state — services/chat/synthesis.ts)
-  // and fetched lazily when the agent is picked. A picked agent NEVER falls
-  // back to the workspace chip set — wrong grounding ("How's the quarter?"
-  // on the GTM lead). While the fetch is in flight the empty state shows a
-  // skeleton shimmer; on failure the server already degraded to that agent's
-  // deterministic mission-derived chips, so an empty result here means the
-  // agent genuinely has nothing declared to suggest.
-  const [synthesizedChips, setSynthesizedChips] = useState<Record<string, EmptyStateSuggestion[]>>({});
-  const needsAgentChips = !isDefaultView && !isSearchOnly;
-  useEffect(() => {
-    if (!needsAgentChips) {
-      return;
-    }
-    const slug = agent.slug;
-    if (synthesizedChips[slug] !== undefined) {
-      return;
-    }
-    let cancelled = false;
-    client.chat.suggestions({ agentSlug: slug })
-      .then((chips) => {
-        if (!cancelled) {
-          setSynthesizedChips(prev => ({ ...prev, [slug]: chips.map(c => ({ label: c.label, prompt: c.prompt })) }));
-        }
-      })
-      .catch((error) => {
-        console.warn('useChatSession: failed to fetch synthesized chips for', slug, error);
-        if (!cancelled) {
-          setSynthesizedChips(prev => ({ ...prev, [slug]: [] }));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [needsAgentChips, agent.slug, synthesizedChips]);
-
-  const emptyChips = needsAgentChips ? (synthesizedChips[agent.slug] ?? []) : suggestions;
-  const emptyChipsLoading = needsAgentChips && synthesizedChips[agent.slug] === undefined;
-  const emptyGreeting = (isDefaultView || isSearchOnly)
-    ? greeting
-    : { eyebrow: greeting?.eyebrow, workspace: agent.name };
-  // Neutral composer on the workspace view (the ChatComposer default,
-  // "Ask anything…"); the agent's own placeholder once one is picked.
-  const composerPlaceholder = isDefaultView ? undefined : agent.placeholder;
+  const workspaceName = agents.find(a => a.workspaceName)?.workspaceName ?? greeting?.workspace ?? 'your workspace';
+  // Chips: the server's workspace set when it sent one, else the lead's own
+  // suggestions plus one per team lead, capped — no agent names.
+  const emptyChips = suggestions.length > 0 ? suggestions : workspaceChips(agents);
+  const emptyChipsLoading = false;
+  const emptyGreeting = greeting ?? { workspace: workspaceName };
+  // Neutral composer (the ChatComposer default, "Ask anything…").
+  const composerPlaceholder = undefined;
   const isStreaming = phase !== 'idle';
 
   /* --------------------------------------------------------------- */
@@ -656,6 +610,9 @@ export function useChatSession({
   // thread and a ref change doesn't re-render.
   const conversationIdRef = useRef<number | null>(null);
   const [conversationId, setConversationId] = useState<number | null>(null);
+  // A page hand-off may ask for ONE turn to go to a specialist (the brief's
+  // team lead); the conversation itself stays with the workspace agent.
+  const routeOnceRef = useRef<string | null>(null);
 
   /**
    * Points this chat at a thread: the synchronous ref, the render-visible
@@ -709,10 +666,6 @@ export function useChatSession({
   // In-flight turn's abort controller (Stop button).
   const abortRef = useRef<AbortController | null>(null);
   const streamStashRef = useRef<StreamStash | null>(null);
-
-  // Explicit agent switch = start FRESH (don't resume that agent's old
-  // thread). Set just before setCurrentSlug so the resume effect skips.
-  const freshSwitchRef = useRef(false);
 
   // Once the boot sequence settles (agent restored + conversation resumed or
   // confirmed empty), reveal the final view. Idempotent — safe to call on
@@ -840,10 +793,10 @@ export function useChatSession({
       return;
     }
 
-    // The workspace lead answers a fresh conversation (§9: one conversation,
-    // one lead) — never the last-used agent. An explicit `agentSlug` option
-    // (a deep link) still wins; a resumed thread brings its own agent below.
-    const target = agentSlug && agents.some(a => a.slug === agentSlug) ? agentSlug : defaultAgentSlug(agents);
+    // The workspace agent answers a fresh conversation (§9.10: one identity)
+    // — never a last-used or deep-linked agent. A resumed legacy thread that
+    // was opened with a specific agent brings that agent below.
+    const target = defaultAgentSlug(agents);
     setBootTarget(target);
     if (target !== agent.slug) {
       setCurrentSlug(target);
@@ -864,7 +817,7 @@ export function useChatSession({
       pendingResumeIdRef.current = null;
       settleBoot();
     }
-  }, [agents, agent.slug, agentSlug, settleBoot, lastViewedLoading, scopeRef, scopedBoot, resumeConversationId]);
+  }, [agents, agent.slug, settleBoot, lastViewedLoading, scopeRef, scopedBoot, resumeConversationId]);
 
   // Resume the agent's saved thread on mount / agent-switch, so navigating
   // away and back doesn't start over. __search__ is ephemeral and never
@@ -880,12 +833,6 @@ export function useChatSession({
       return;
     }
     hydratedSlugRef.current = slug;
-    if (freshSwitchRef.current) {
-      // Explicit switch to this agent — fresh chat, no resume.
-      freshSwitchRef.current = false;
-      settleBoot();
-      return;
-    }
     // A hand-off carries its own context and starts a fresh turn, so don't
     // resume a saved thread underneath it.
     if (handoffPendingAtBootRef.current) {
@@ -958,12 +905,16 @@ export function useChatSession({
     if ((!raw.trim() && !pastedText) || isStreaming) {
       return;
     }
+    // `/search <query>` is the retrieval-only path (§9.10) — the virtual
+    // search entry, reached by command rather than as a persona.
+    const command = parseSearchCommand(raw);
+    const searchAgent = command.searchOnly ? agents.find(a => a.slug === '__search__') : undefined;
     // Pasted material rides along under the instruction, clearly fenced, so
     // the instruction stays readable in the transcript and the agent still
     // receives the full text.
     const text = pastedText
-      ? `${raw.trim()}\n\n--- pasted ---\n${pastedText}`.trim()
-      : raw;
+      ? `${command.text.trim()}\n\n--- pasted ---\n${pastedText}`.trim()
+      : command.text;
     // Fresh turn — reset the per-turn trace accumulator.
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;
@@ -981,9 +932,11 @@ export function useChatSession({
     // `@agent` / `@team` routes THIS turn to a specialist; the conversation
     // stays with its own agent and the reply is rendered under the
     // specialist's name (§9).
-    const routed = routeTurn(refs, agents);
+    const onceSlug = routeOnceRef.current;
+    routeOnceRef.current = null;
+    const routed = searchAgent ?? routeTurn(refs, agents) ?? (onceSlug ? agents.find(a => a.slug === onceSlug) ?? null : null);
     const turnAgent = routed ?? agent;
-    if (routed) {
+    if (routed && routed.slug !== agent.slug) {
       appendToLatestAgent(m => ({ ...m, agentSlug: routed.slug, agentName: routed.name }));
     }
     if (conversationIdRef.current === null && agent.slug !== '__search__') {
@@ -1127,9 +1080,9 @@ export function useChatSession({
 
   // Handoff from another page (e.g. the Briefings composer): a stashed
   // { question, contextTitle, context } starts this chat — the context rides
-  // inside the first message so the agent (the team lead, agents[0]) can
-  // answer against it. One-shot: the stash is cleared before sending.
-  const pendingHandoffRef = useRef<{ forSlug: string; message: string } | null>(null);
+  // inside the first message. A stashed `agentSlug` (the brief's team lead)
+  // routes that ONE turn (§9.10); the conversation stays with the workspace
+  // agent. One-shot: the stash is cleared before sending.
   const handoffSentRef = useRef(false);
   useEffect(() => {
     if (bootTarget === null || handoffSentRef.current) {
@@ -1163,31 +1116,15 @@ export function useChatSession({
       }
       parts.push(`---\nCONTEXT — "${contextTitle}" (carried over from the Briefings page):\n\n${context}`);
       const message = parts.join('\n\n');
-      // Scope to the brief's team lead: switch agents first, send when the
-      // switch lands (the follow-up effect below watches agent.slug).
       if (target && target !== agent.slug && agents.some(a => a.slug === target)) {
-        pendingHandoffRef.current = { forSlug: target, message };
-        freshSwitchRef.current = true;
-        hydratedSlugRef.current = null;
-        setActiveConversation(target, null);
-        setCurrentSlug(target);
-      } else {
-        void sendMessage(message);
+        routeOnceRef.current = target;
       }
+      void sendMessage(message);
     } catch (error) {
       // malformed stash — ignore, nothing to send
       console.warn('useChatSession: could not parse the hand-off stash', error);
     }
-  }, [sendMessage, agent.slug, agents, setActiveConversation, bootTarget]);
-
-  // Fire the stashed handoff message once the agent switch has landed.
-  useEffect(() => {
-    const pending = pendingHandoffRef.current;
-    if (pending && pending.forSlug === agent.slug) {
-      pendingHandoffRef.current = null;
-      void sendMessage(pending.message);
-    }
-  }, [agent.slug, sendMessage]);
+  }, [sendMessage, agent.slug, agents, bootTarget]);
 
   const handleApproveHitl = useCallback(() => {
     setPendingHitl(null);
@@ -1218,24 +1155,8 @@ export function useChatSession({
     setActiveConversation(agent.slug, null);
   }, [resetTranscript, agent.slug, setActiveConversation]);
 
-  // "Talk directly to a specialist…": a fresh conversation WITH that agent
-  // (§9). The choice lives on that conversation only — a later new chat
-  // opens with the lead again; nothing is remembered across threads.
-  const handleSwitchAgent = useCallback((slug: string) => {
-    freshSwitchRef.current = true;
-    hydratedSlugRef.current = null;
-    resetTranscript();
-    setActiveConversation(slug, null);
-    setCurrentSlug(slug);
-  }, [resetTranscript, setActiveConversation]);
-
-  /** The workspace lead — who a fresh conversation opens with. */
+  /** The workspace lead — the config behind the workspace agent. */
   const leadSlug = defaultAgentSlug(agents);
-  /** True while talking directly to a specialist (or search) rather than the lead. */
-  const isDirect = agent.slug !== leadSlug;
-  const handleBackToLead = useCallback(() => {
-    handleSwitchAgent(leadSlug);
-  }, [handleSwitchAgent, leadSlug]);
 
   // Inline citation tap — open the Sources drawer focused on that `[n]`.
   const handleCitationClick = useCallback((n: number) => {
@@ -1395,11 +1316,10 @@ export function useChatSession({
     handleApproveHitl,
     handleRejectHitl,
     handleNewChat,
-    handleSwitchAgent,
-    /** The workspace lead's slug; `isDirect` is true while a specialist (or search) is answering instead (§9). */
+    /** The workspace lead's slug — the config behind the one workspace agent (§9.10). */
     leadSlug,
-    isDirect,
-    handleBackToLead,
+    /** The name the surface speaks as. */
+    workspaceName,
     handleCitationClick,
     handleShowSources,
     handlePickConversation,

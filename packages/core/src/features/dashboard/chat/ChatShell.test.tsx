@@ -49,18 +49,13 @@ describe('ChatShell', () => {
     await expect.element(page.getByText('GTM Orchestrator').first()).toBeInTheDocument();
   });
 
-  it('talking directly to a specialist is under the ⋯ menu, shows a Direct chip, and "Back to" returns to the lead (§9)', async () => {
+  it('has no agent picker: the surface speaks as the workspace and ⋯ offers only New chat (§9.10)', async () => {
     await render(wrap(<ChatShell agents={AGENTS} />));
 
     await page.getByRole('button', { name: 'Chat options' }).click();
-    await page.getByRole('menuitem', { name: /Pipeline Analyst/ }).click();
 
-    await expect.element(page.getByText('Direct · Pipeline Analyst')).toBeInTheDocument();
-
-    await page.getByRole('button', { name: /Back to GTM Orchestrator/ }).click();
-
-    await expect.element(page.getByText('Direct · Pipeline Analyst')).not.toBeInTheDocument();
-    await expect.element(page.getByText('GTM Orchestrator').first()).toBeInTheDocument();
+    await expect.element(page.getByRole('menuitem', { name: /New chat/ })).toBeVisible();
+    expect(page.getByRole('menuitem', { name: /Pipeline Analyst/ }).elements()).toHaveLength(0);
   });
 
   it('shows an empty state instead of crashing when there are no agents', async () => {

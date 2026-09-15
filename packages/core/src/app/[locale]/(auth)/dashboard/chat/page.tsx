@@ -13,10 +13,11 @@ import { workspaceGreeting } from '@/services/chat/workspaceLabel';
  * entry, so the list is empty only when no workspace resolved at all; the
  * shell renders an empty state for that instead of failing to pick a default.
  *
- * Deep-linkable: `?agent=<slug>` starts with that agent (unknown slugs fall
- * back to the workspace-coordinator default), `?prompt=<text>` pre-fills
- * the composer without sending, and `?conversation=<id>` resumes a thread —
- * otherwise the page opens a NEW conversation (agent-chat-surface.md §9).
+ * Deep-linkable: `?prompt=<text>` pre-fills the composer without sending and
+ * `?conversation=<id>` resumes a thread — otherwise the page opens a NEW
+ * conversation with the one workspace agent (agent-chat-surface.md §9, §9.10).
+ * `?agent=<slug>` is still accepted for old links but no longer picks an
+ * agent: there is nothing to pick.
  *
  * Deliberately chrome-free: no TitleBar, no header strip — "insert quarter,
  * shoot aliens." The surface is messages + composer; New chat / Switch agent
@@ -30,7 +31,7 @@ export default async function ChatPage(props: {
   searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string }>;
 }) {
   const { locale } = await props.params;
-  const { agent: requestedSlug, prompt: seededPrompt, conversation } = await props.searchParams;
+  const { prompt: seededPrompt, conversation } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId } = await auth();
 
@@ -54,7 +55,6 @@ export default async function ChatPage(props: {
     <div className="flex h-[calc(100vh-6rem)] flex-col">
       <ChatShell
         agents={agents}
-        agentSlug={requestedSlug ?? coordinatorSlug}
         greeting={greeting}
         suggestions={chips.map(c => ({ label: c.label, prompt: c.prompt }))}
         initialComposerValue={seededPrompt}
