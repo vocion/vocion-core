@@ -18,8 +18,8 @@ import { AutonomyControl } from './AutonomyControl';
  *
  * The story is the header's markup rather than a mounted `ChatDock`, which
  * would need the RPC client, the session and the SSE wire to render at all.
- * Both autonomy rungs are shown, plus the compact variant a 320px rail gets:
- * the chip drops to its icon and the tooltip carries the words.
+ * Both autonomy rungs are shown. The rung control is icon only at every
+ * width — the words live in its dropdown, beside the choice they describe.
  */
 
 const COPY = {
@@ -52,7 +52,6 @@ function RailHeader({ workspace = 'Revenue Team', autonomy = 'ask', width = 480 
   width?: number;
 }) {
   const [mode, setMode] = useState<ConversationAutonomy>(autonomy);
-  const compact = width < 400;
   return (
     <div style={{ width }} className="overflow-hidden rounded-xl border border-border bg-background">
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border pr-1.5 pl-3">
@@ -63,7 +62,7 @@ function RailHeader({ workspace = 'Revenue Team', autonomy = 'ask', width = 480 
           <span className="truncate text-sm font-semibold">{workspace}</span>
         </div>
         <GhostIcon label="Conversations"><History className="size-4" aria-hidden /></GhostIcon>
-        <AutonomyControl value={mode} onChange={setMode} copy={COPY} compact={compact} label="Autonomy" />
+        <AutonomyControl value={mode} onChange={setMode} copy={COPY} label="Autonomy" />
         <GhostIcon label="Chat options"><MoreHorizontal className="size-4" aria-hidden /></GhostIcon>
         <GhostIcon label="Collapse the conversation (⌘J)"><PanelRightClose className="size-4" aria-hidden /></GhostIcon>
       </div>

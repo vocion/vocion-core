@@ -7,10 +7,10 @@ import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/utils/Helpers';
-import { autonomyHint, autonomyLabel, autonomyOptions, isRaisedAutonomy } from './autonomyOptions';
+import { autonomyLabel, autonomyOptions, isRaisedAutonomy } from './autonomyOptions';
 
 /**
- * The conversation's autonomy rung, as one quiet header chip.
+ * The conversation's autonomy rung, as one quiet header icon.
  *
  * It was two segmented buttons inside the composer until 2026-09-15 (Chris:
  * "clean up this UI, buttons, hierarchy, sizing"). A rung is a setting for
@@ -19,11 +19,12 @@ import { autonomyHint, autonomyLabel, autonomyOptions, isRaisedAutonomy } from '
  * action (Manifesto §4 *simple beats flexible*, §11 *make the important
  * things obvious*).
  *
- * The chip states the current rung at a glance and opens a collision-aware
- * popover with both options, each carrying the one line that says what
- * choosing it means. `compact` drops the label to the icon alone — what a
- * 320px rail has room for — and the tooltip still names the rung, so the
- * mode is never more than a hover away.
+ * It is icon only (Chris, 2026-09-15: "that button should be icon only,
+ * explanation in the dropdown is ok, not persistent UI"). The header states
+ * where you are, not what a setting means: the icon carries the rung — a
+ * shield for ask-first, a bolt for raised — the tooltip names it, and the
+ * sentence explaining what choosing it means lives in the popover, next to
+ * the choice it describes.
  */
 
 export type AutonomyControlProps = {
@@ -31,13 +32,11 @@ export type AutonomyControlProps = {
   onChange: (next: ConversationAutonomy) => void;
   /** Copy from the caller, which owns the i18n provider. */
   copy: AutonomyCopy;
-  /** Icon only — a narrow rail. The tooltip still carries the label. */
-  compact?: boolean;
   /** Accessible name for the trigger (e.g. "Autonomy"). */
   label: string;
 };
 
-export function AutonomyControl({ value, onChange, copy, compact = false, label }: AutonomyControlProps) {
+export function AutonomyControl({ value, onChange, copy, label }: AutonomyControlProps) {
   const [open, setOpen] = useState(false);
   const raised = isRaisedAutonomy(value);
   const Icon = raised ? Zap : ShieldCheck;
@@ -50,21 +49,18 @@ export function AutonomyControl({ value, onChange, copy, compact = false, label 
             data-testid="autonomy-chip"
             aria-label={`${label}: ${autonomyLabel(value, copy)}`}
             className={cn(
-              // 32px tall, the same hit target as the header's icon buttons;
-              // a hairline only when the rung is raised, so the default rung
-              // adds no box to the header.
-              'flex h-8 max-w-[10.5rem] shrink-0 items-center gap-1.5 rounded-full text-[12px] font-medium transition-colors',
+              // A 32px square: the same hit target as the header's other
+              // icon buttons, and no wider than one.
+              'flex size-8 shrink-0 items-center justify-center rounded-full transition-colors',
               'hover:bg-surface-hover data-[state=open]:bg-surface-hover',
-              compact ? 'w-8 justify-center' : 'px-2.5',
               raised ? 'text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <Icon className="size-4 shrink-0" aria-hidden />
-            {!compact && <span className="truncate">{autonomyLabel(value, copy)}</span>}
           </PopoverPrimitive.Trigger>
         </TooltipTrigger>
         <TooltipContent side="bottom" align="end" collisionPadding={8}>
-          {autonomyHint(value, copy)}
+          {autonomyLabel(value, copy)}
         </TooltipContent>
       </Tooltip>
       <PopoverPrimitive.Portal>
