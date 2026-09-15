@@ -80,7 +80,6 @@ function DoThis(props: { record: ReturnType<typeof recordRef>; agentSlug?: strin
       variant="button"
       label="Do this"
       prompt={`Do this: ${props.text.trim()}`}
-      send
       agentSlug={props.agentSlug}
       fallbackContext={props.fallbackContext}
       className="ml-2 px-2 py-0.5 align-middle text-[11px] opacity-60 group-hover/bullet:opacity-100"
