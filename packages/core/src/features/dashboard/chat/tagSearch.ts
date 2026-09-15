@@ -20,8 +20,9 @@ export function useTagSearch(agents: AgentOption[]): (q: string) => Promise<Cont
     const cache = cacheRef.current;
     if (cache.teams === null) {
       try {
-        const res = await client.teams.list() as unknown as { teams: Array<{ slug: string; name: string }> };
-        cache.teams = (res.teams ?? []).map(r => ({ type: 'team' as const, id: r.slug, label: r.name }));
+        const res = await client.teams.list() as unknown as { teams: Array<{ slug: string; name: string; leadAgentSlug: string | null }> };
+        // A `@team` tag routes the turn to the team's lead (§9).
+        cache.teams = (res.teams ?? []).map(r => ({ type: 'team' as const, id: r.slug, label: r.name, ...(r.leadAgentSlug ? { routeTo: r.leadAgentSlug } : {}) }));
       } catch {
         cache.teams = [];
       }

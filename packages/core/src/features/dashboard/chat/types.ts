@@ -98,6 +98,8 @@ export type ContextRef = {
   type: 'agent' | 'team' | 'mission' | 'ask' | 'object' | 'briefing' | 'deal' | 'page';
   id: string;
   label: string;
+  /** For a team: the agent slug a `@team` tag routes the turn to (its lead). */
+  routeTo?: string;
 };
 
 export type ChatMessage = {
@@ -107,6 +109,9 @@ export type ChatMessage = {
   content: string;
   /** The person's thumb on this turn (assistant rows only), as stored. */
   feedback?: { rating: 'up' | 'down' | null; note: string | null };
+  /** When a turn was routed to a specialist (`@agent`), who answered — rendered as the speaker (§9). */
+  agentSlug?: string;
+  agentName?: string;
   /** A2UI recommended-action cards emitted during this turn (clickable). */
   recommendations?: RecommendedAction[];
   documents?: IndexedDocument[];

@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { client } from '@/libs/Orpc';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
+import { defaultAgentSlug, routeTurn } from './routing';
 import { failToolNode, finalizeTrace, mergeTraceNode } from './traceReducer';
 import { describeToolCall } from './WorkTimeline';
 
@@ -86,29 +87,6 @@ function writeStreamStash(stash: StreamStash | null): void {
     }
   } catch (error) {
     console.warn('useChatSession: could not save the resumable stream handle', error);
-  }
-}
-
-/**
- * The last agent the user was talking to — restored on refresh so a reload
- *  doesn't kick you back to the workspace default.
- */
-const ACTIVE_AGENT_KEY = 'vocion:chat:agent';
-
-function readActiveAgent(): string | null {
-  try {
-    return localStorage.getItem(ACTIVE_AGENT_KEY);
-  } catch (error) {
-    console.warn('useChatSession: could not read the active agent from localStorage', error);
-    return null;
-  }
-}
-
-function writeActiveAgent(slug: string): void {
-  try {
-    localStorage.setItem(ACTIVE_AGENT_KEY, slug);
-  } catch (error) {
-    console.warn('useChatSession: could not save the active agent to localStorage', error);
   }
 }
 
@@ -862,13 +840,10 @@ export function useChatSession({
       return;
     }
 
-    const storedAgent = readActiveAgent();
-    const serverAgent = lastViewed && agents.some(a => a.slug === lastViewed.agentSlug)
-      ? lastViewed.agentSlug
-      : null;
-    const target = (storedAgent && agents.some(a => a.slug === storedAgent))
-      ? storedAgent
-      : (serverAgent ?? agent.slug);
+    // The workspace lead answers a fresh conversation (§9: one conversation,
+    // one lead) — never the last-used agent. An explicit `agentSlug` option
+    // (a deep link) still wins; a resumed thread brings its own agent below.
+    const target = agentSlug && agents.some(a => a.slug === agentSlug) ? agentSlug : defaultAgentSlug(agents);
     setBootTarget(target);
     if (target !== agent.slug) {
       setCurrentSlug(target);
@@ -889,7 +864,7 @@ export function useChatSession({
       pendingResumeIdRef.current = null;
       settleBoot();
     }
-  }, [agents, agent.slug, settleBoot, lastViewedLoading, lastViewed, scopeRef, scopedBoot, resumeConversationId]);
+  }, [agents, agent.slug, agentSlug, settleBoot, lastViewedLoading, scopeRef, scopedBoot, resumeConversationId]);
 
   // Resume the agent's saved thread on mount / agent-switch, so navigating
   // away and back doesn't start over. __search__ is ephemeral and never
@@ -1003,13 +978,18 @@ export function useChatSession({
 
     const refs = contextRefs;
     setContextRefs([]);
+    // `@agent` / `@team` routes THIS turn to a specialist; the conversation
+    // stays with its own agent and the reply is rendered under the
+    // specialist's name (§9).
+    const routed = routeTurn(refs, agents);
+    const turnAgent = routed ?? agent;
+    if (routed) {
+      appendToLatestAgent(m => ({ ...m, agentSlug: routed.slug, agentName: routed.name }));
+    }
     if (conversationIdRef.current === null && agent.slug !== '__search__') {
       try {
         const conv = await client.conversations.create({ agentSlug: agent.slug, ...(scopeRef ? { scopeRef } : {}) });
         setActiveConversation(agent.slug, conv.id);
-        if (!scopeRef) {
-          writeActiveAgent(agent.slug);
-        }
         if (autonomy !== 'ask') {
           // The person's standing choice applies to the thread it just created.
           client.conversations.setAutonomy({ id: conv.id, autonomy }).catch((error) => {
@@ -1032,7 +1012,7 @@ export function useChatSession({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          agent_slug: agent.slug,
+          agent_slug: turnAgent.slug,
           ...(pageContextRef.current && !scopeRef ? { page_context: pageContextRef.current } : {}),
           ...(refs.length > 0 ? { context_refs: refs } : {}),
           // With a conversation attached the server replays its own
@@ -1129,7 +1109,7 @@ export function useChatSession({
       // the resume handle. It clears on normal completion / Stop instead.
       abortRef.current = null;
     }
-  }, [agent.slug, messages, isStreaming, pastedText, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId]);
+  }, [agent, agents, messages, isStreaming, pastedText, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId]);
 
   // Abort the in-flight turn (Stop button). The reader loop throws AbortError,
   // which the catch above treats as a clean finalize (no error breadcrumb).
@@ -1190,7 +1170,6 @@ export function useChatSession({
         freshSwitchRef.current = true;
         hydratedSlugRef.current = null;
         setActiveConversation(target, null);
-        writeActiveAgent(target);
         setCurrentSlug(target);
       } else {
         void sendMessage(message);
@@ -1239,17 +1218,24 @@ export function useChatSession({
     setActiveConversation(agent.slug, null);
   }, [resetTranscript, agent.slug, setActiveConversation]);
 
-  // Switching agents shows a fresh chat with that agent (the reported bug was
-  // switching landing you in an old thread). Persist the choice so a refresh
-  // keeps you here; abandon any prior saved thread for that agent.
+  // "Talk directly to a specialist…": a fresh conversation WITH that agent
+  // (§9). The choice lives on that conversation only — a later new chat
+  // opens with the lead again; nothing is remembered across threads.
   const handleSwitchAgent = useCallback((slug: string) => {
     freshSwitchRef.current = true;
     hydratedSlugRef.current = null;
     resetTranscript();
     setActiveConversation(slug, null);
-    writeActiveAgent(slug);
     setCurrentSlug(slug);
   }, [resetTranscript, setActiveConversation]);
+
+  /** The workspace lead — who a fresh conversation opens with. */
+  const leadSlug = defaultAgentSlug(agents);
+  /** True while talking directly to a specialist (or search) rather than the lead. */
+  const isDirect = agent.slug !== leadSlug;
+  const handleBackToLead = useCallback(() => {
+    handleSwitchAgent(leadSlug);
+  }, [handleSwitchAgent, leadSlug]);
 
   // Inline citation tap — open the Sources drawer focused on that `[n]`.
   const handleCitationClick = useCallback((n: number) => {
@@ -1302,7 +1288,6 @@ export function useChatSession({
         // panel is per-agent, but a stale list can still offer one) — follow
         // it rather than appending this agent's turns to someone else's thread.
         hydratedSlugRef.current = slug;
-        writeActiveAgent(slug);
         setCurrentSlug(slug);
       }
       setActiveConversation(slug, id);
@@ -1411,6 +1396,10 @@ export function useChatSession({
     handleRejectHitl,
     handleNewChat,
     handleSwitchAgent,
+    /** The workspace lead's slug; `isDirect` is true while a specialist (or search) is answering instead (§9). */
+    leadSlug,
+    isDirect,
+    handleBackToLead,
     handleCitationClick,
     handleShowSources,
     handlePickConversation,

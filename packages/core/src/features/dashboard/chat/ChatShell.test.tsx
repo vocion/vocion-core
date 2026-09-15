@@ -49,14 +49,18 @@ describe('ChatShell', () => {
     await expect.element(page.getByText('GTM Orchestrator').first()).toBeInTheDocument();
   });
 
-  it('switching agents from the empty-state title updates the displayed name', async () => {
-    const { getByText, getByRole } = page;
+  it('talking directly to a specialist is under the ⋯ menu, shows a Direct chip, and "Back to" returns to the lead (§9)', async () => {
     await render(wrap(<ChatShell agents={AGENTS} />));
 
-    await getByText('GTM Orchestrator').first().click();
-    await getByRole('menuitem', { name: 'Pipeline Analyst' }).click();
+    await page.getByRole('button', { name: 'Chat options' }).click();
+    await page.getByRole('menuitem', { name: /Pipeline Analyst/ }).click();
 
-    await expect.element(page.getByText('Pipeline Analyst', { exact: true }).first()).toBeInTheDocument();
+    await expect.element(page.getByText('Direct · Pipeline Analyst')).toBeInTheDocument();
+
+    await page.getByRole('button', { name: /Back to GTM Orchestrator/ }).click();
+
+    await expect.element(page.getByText('Direct · Pipeline Analyst')).not.toBeInTheDocument();
+    await expect.element(page.getByText('GTM Orchestrator').first()).toBeInTheDocument();
   });
 
   it('shows an empty state instead of crashing when there are no agents', async () => {

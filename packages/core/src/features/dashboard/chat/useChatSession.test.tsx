@@ -47,14 +47,14 @@ describe('useChatSession', () => {
     expect(result.current.conversationId).toBeNull();
   });
 
-  it('takes the AGENT from the server-side pointer but opens a NEW conversation — the pointer never chooses the thread (§9)', async () => {
+  it('opens a NEW conversation with the lead — the server pointer chooses neither the thread nor the agent (§9)', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'specialist', conversationId: 5, updatedAt: new Date(), railWidth: null, railOpen: null });
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
-    expect(result.current.agent.slug).toBe('specialist');
+    expect(result.current.agent.slug).toBe('orchestrator');
     expect(result.current.conversationId).toBeNull();
     expect(result.current.messages).toEqual([]);
     expect(client.conversations.get).not.toHaveBeenCalled();
@@ -138,15 +138,17 @@ describe('useChatSession', () => {
     expect(client.conversations.get).not.toHaveBeenCalled();
   });
 
-  it('prefers this browser\'s own remembered agent over the server-side pointer', async () => {
+  it('opens with the workspace lead — never a remembered agent, whether from this browser or the server pointer (§9)', async () => {
     localStorage.setItem('vocion:chat:agent', 'specialist');
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: null, updatedAt: new Date(), railWidth: null, railOpen: null });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'specialist', conversationId: null, updatedAt: new Date(), railWidth: null, railOpen: null });
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
-    expect(result.current.agent.slug).toBe('specialist');
+    expect(result.current.agent.slug).toBe('orchestrator');
+    expect(result.current.leadSlug).toBe('orchestrator');
+    expect(result.current.isDirect).toBe(false);
   });
 
   it('handleSwitchAgent clears messages, resets the conversation, and persists the new pointer', async () => {

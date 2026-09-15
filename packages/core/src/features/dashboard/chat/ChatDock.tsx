@@ -381,10 +381,25 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
               </span>
             )}
           </div>
-          <div className="truncate text-xs text-muted-foreground">
-            {session.agent.name}
-            {' · '}
-            <Link href="/dashboard/chat" className="underline underline-offset-2 hover:text-foreground">
+          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {session.isDirect
+              ? (
+                  <>
+                    <span data-testid="direct-chip" className="truncate rounded-full border border-brand-amber/40 bg-brand-amber-tint px-1.5 py-0.5 text-[10px] font-medium text-brand-amber-deep">
+                      Direct ·
+                      {' '}
+                      {session.agent.name}
+                    </span>
+                    <button type="button" onClick={session.handleBackToLead} className="truncate underline underline-offset-2 hover:text-foreground">
+                      Back to
+                      {' '}
+                      {agents.find(a => a.slug === session.leadSlug)?.name ?? 'the lead'}
+                    </button>
+                  </>
+                )
+              : <span className="truncate">{session.agent.name}</span>}
+            <span>·</span>
+            <Link href="/dashboard/chat" className="truncate underline underline-offset-2 hover:text-foreground">
               {t('all_conversations')}
             </Link>
           </div>

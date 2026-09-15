@@ -110,6 +110,22 @@ agent is doing, and able to be talked back to.
    before the built-in reducer and may claim it — how a surface that knows a
    new event type (the canvas's `artifact`) folds it into the transcript
    without editing the hook.
+10. **One conversation, one lead, routing is delegation** (Chris, 2026-09-15:
+    "shouldn't I just be able to chat with the workspace lead?"). A fresh
+    conversation opens with the **workspace lead** (`workspace.yaml lead`) —
+    never the last-used agent. The lead routes: its delegable roster is
+    derived from the registry at compile time (`services/agents/
+    delegationRoster.ts`) — its registered children, then every team's lead
+    *and* members for the workspace lead, or its own team's members for a
+    team lead — so a workspace author never enumerates `subagents`. A hand-off
+    is a live `delegate` row in the rail with the specialist's name. Two
+    explicit overrides, neither sticky: `@agent` / `@team` in the composer
+    routes **that turn** to the specialist (a team tag → its lead; the reply
+    renders under the specialist's name; the conversation stays with the
+    lead), and "Talk directly to a specialist…" under ⋯ starts a conversation
+    *with* one (header shows "Direct · <name>" and "Back to <lead>"). Page
+    context — including a record's type when a page supplies one — rides
+    along untouched so the lead can route on it.
 
 ## Where things live
 
@@ -124,5 +140,6 @@ agent is doing, and able to be talked back to.
 | Feedback | `MessageFeedback.tsx`, `services/ConversationService.ts#setMessageFeedback`, adoption event `chat.feedback` |
 | History + search | `HistoryPopover.tsx`, `services/ConversationService.ts#searchConversations` |
 | Autonomy | `conversation.autonomy`, `RecommendedActionCard.tsx` (`autoPropose`) |
+| Routing | `features/dashboard/chat/routing.ts` (default agent, `@` routing), `services/agents/delegationRoster.ts` (roster), `ChatMenu.tsx` ("Talk directly to a specialist…") |
 | Entry function | `features/dashboard/chat/agentSurface.ts` |
 | Schema | migration `0094_conversation_feedback_search.sql` (+ `concurrent/0094_conversation_search_idx.sql`) |
