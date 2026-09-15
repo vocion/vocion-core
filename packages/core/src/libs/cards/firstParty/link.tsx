@@ -13,7 +13,7 @@ import { linkSpecSchema } from '../specs';
 export const LINK_SLUG = 'link';
 
 export function LinkCardView({ data, surface }: { data: LinkSpec; surface: string }) {
-  const dense = surface !== 'canvas';
+  const dense = surface !== 'artifact';
   const internal = data.href.startsWith('/');
   return (
     <a
@@ -36,7 +36,7 @@ export const linkCard = defineCard({
   slug: LINK_SLUG,
   name: 'Link',
   description: 'Renders a destination — an in-app page, a file the agent produced, or an external URL — as a titled row with one line of context. Use instead of pasting a bare URL.',
-  surfaces: ['chat', 'canvas', 'workflow-run', 'review-queue', 'activity-feed'],
+  surfaces: ['chat', 'artifact', 'workflow-run', 'review-queue', 'activity-feed'],
   dataSchema: linkSpecSchema,
   Renderer: ({ data, surface }) => <LinkCardView data={data} surface={surface} />,
 });

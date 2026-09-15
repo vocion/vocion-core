@@ -125,8 +125,10 @@ agent is doing, and able to be talked back to.
    `ContextRef` shape for "the page I am on".
 9. **Extension seam.** `useChatSession({ onEvent })` sees every SSE event
    before the built-in reducer and may claim it — how a surface that knows a
-   new event type (the canvas's `artifact`) folds it into the transcript
-   without editing the hook.
+   new event type (the artifact pane's `artifact`) folds it into the
+   transcript without editing the hook — that is how a turn that made or
+   changed an artifact gets its chip (`ArtifactChips`) and how the pane beside
+   the conversation opens on it. See [artifacts.md](./artifacts.md).
 10. **One workspace agent — routing is delegation** (Chris, 2026-09-15:
     "let's get rid of this 'choose an agent'. We should always just be
     chatting with the Vocion agent, scoped/named to the current Workspace").

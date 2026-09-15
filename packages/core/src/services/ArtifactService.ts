@@ -1,40 +1,53 @@
 /**
- * ArtifactService — rendered output as data (migration 0095).
+ * ArtifactService — one live, versioned artifact, written by agents and
+ * people through the same door.
  *
- * An artifact is one thing an agent rendered for a person: a table, a
- * markdown note, a chart, a record card, a link, or a file. The `render_*`
- * tools create them (validated against `libs/cards/specs`), the chat shows
- * the card inline, the conversation's canvas places a tile, and a person can
- * save the arrangement as a named canvas and export it as a workspace page.
+ * An artifact is one thing beside a conversation: a table, a markdown note, a
+ * chart, a record card, a link, or a file. 0095 made it data; 0101 made it
+ * EDITABLE and VERSIONED. The person types in the pane and saves; the agent
+ * calls `update_artifact` from chat ("make the third column currency"). Both
+ * land here, both write an `artifact_version` row, so the version menu is a
+ * single honest audit trail instead of two half-histories.
  *
- * Tenant-scoped like everything else: every read and write filters on orgId.
+ * Rules the rest of the app depends on:
+ *
+ *   - `artifact.title` / `artifact.spec` ALWAYS mirror the head version.
+ *   - A version is never rewritten. Restoring v2 writes v6 carrying v2's
+ *     content, so "what did this look like on Tuesday" stays answerable.
+ *   - A burst of human saves inside {@link COLLAPSE_WINDOW_MS} collapses into
+ *     the head version — autosave must not turn the menu into keystrokes.
+ *   - Every read and write filters on orgId.
  */
 
 import type { ArtifactKind } from '@/libs/cards/specs';
 import type { ArtifactPayload } from '@/services/agents/types';
-import { and, asc, desc, eq, inArray, isNull, max, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { ARTIFACT_KINDS, SPEC_SCHEMA_FOR_KIND } from '@/libs/cards/specs';
 import { db } from '@/libs/DB';
-import { artifactSchema, canvasSchema } from '@/models/Schema';
+import { artifactSchema, artifactVersionSchema, conversationSchema } from '@/models/Schema';
 
 export type ArtifactRow = typeof artifactSchema.$inferSelect;
-export type CanvasRow = typeof canvasSchema.$inferSelect;
-export type TileSpan = 1 | 2 | 3;
-export type Tile = { slot: number; span: TileSpan };
+export type ArtifactVersionRow = typeof artifactVersionSchema.$inferSelect;
+
+/** Who made an edit. `agent` carries `agent:<slug>`; `human` a user id. */
+export type AuthorKind = 'agent' | 'human' | 'system';
+export type Author = { kind: AuthorKind; id?: string | null };
+
+/**
+ * Saves by the same person inside this window fold into the head version.
+ * Long enough that ⌘S-⌘S-⌘S is one version; short enough that a pause and a
+ * second thought is two.
+ */
+export const COLLAPSE_WINDOW_MS = 30_000;
+
+/** Folder paths are flat text, not a tree — `revenue/weekly`, never `../`. */
+const MAX_FOLDER = 120;
 
 export class ArtifactError extends Error {
-  constructor(public readonly code: 'INVALID_SPEC' | 'NOT_FOUND' | 'INVALID_KIND', message: string) {
+  constructor(public readonly code: 'INVALID_SPEC' | 'NOT_FOUND' | 'INVALID_KIND' | 'CONFLICT', message: string) {
     super(message);
     this.name = 'ArtifactError';
   }
-}
-
-/**
- * Default span per kind: tables and charts want room; records and links don't.
- * @param kind
- */
-export function defaultSpan(kind: ArtifactKind): TileSpan {
-  return kind === 'table' || kind === 'chart' ? 2 : 1;
 }
 
 /**
@@ -57,6 +70,23 @@ export function validateSpec(kind: string, spec: unknown): { kind: ArtifactKind;
   return { kind: k, spec: parsed.data as Record<string, unknown> };
 }
 
+/**
+ * `revenue / Weekly ` → `revenue/weekly`; anything empty or traversing → null.
+ * @param raw - What a person typed into the folder field, or a tool passed.
+ */
+export function normaliseFolder(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const parts = raw
+    .toLowerCase()
+    .split('/')
+    .map(p => p.trim().replaceAll(/[^a-z0-9\- _]+/g, '').replaceAll(/\s+/g, '-'))
+    .filter(p => p !== '' && p !== '.' && p !== '..');
+  const path = parts.join('/').slice(0, MAX_FOLDER);
+  return path || null;
+}
+
 export function toPayload(row: ArtifactRow): ArtifactPayload {
   return {
     id: row.id,
@@ -65,124 +95,278 @@ export function toPayload(row: ArtifactRow): ArtifactPayload {
     title: row.title,
     spec: row.spec,
     url: row.url,
-    tile: row.tile ?? null,
-    pinned: row.pinned,
+    messageId: row.messageId ?? null,
+    folder: row.folder ?? null,
+    version: row.currentVersion,
+    authorKind: row.lastAuthorKind,
+    authorId: row.lastAuthorId ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export function toVersionPayload(row: ArtifactVersionRow): ArtifactVersionPayload {
+  return {
+    id: row.id,
+    artifactId: row.artifactId,
+    version: row.version,
+    title: row.title,
+    spec: row.spec,
+    authorKind: row.authorKind,
+    authorId: row.authorId ?? null,
+    changeSummary: row.changeSummary ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
 
-/**
- * Next free slot on a conversation's canvas — one past the highest occupied
- * slot, so a new tile lands after the existing ones instead of over them.
- * @param orgId
- * @param conversationId
- */
-async function nextSlot(orgId: string, conversationId: number | null): Promise<number> {
-  if (conversationId === null) {
-    return 0;
-  }
-  const [row] = await db
-    .select({ m: max(sql<number>`(${artifactSchema.tile}->>'slot')::int`) })
-    .from(artifactSchema)
-    .where(and(eq(artifactSchema.orgId, orgId), eq(artifactSchema.conversationId, conversationId), eq(artifactSchema.pinned, true)));
-  // Drivers disagree on the type of an aggregated jsonb cast (number in
-  // node-postgres, string in PGlite) — normalise before comparing.
-  const m = row?.m === null || row?.m === undefined ? Number.NaN : Number(row.m);
-  return Number.isFinite(m) ? m + 1 : 0;
+export type ArtifactVersionPayload = {
+  id: number;
+  artifactId: number;
+  version: number;
+  title: string;
+  spec: Record<string, unknown>;
+  authorKind: AuthorKind;
+  authorId: string | null;
+  changeSummary: string | null;
+  createdAt: string;
+};
+
+function authorId(author: Author): string | null {
+  return author.id ?? null;
 }
 
-export async function createArtifact(input: {
+/* ------------------------------------------------------------------ */
+/* Write path                                                          */
+/* ------------------------------------------------------------------ */
+
+export type CreateArtifactInput = {
   orgId: string;
   projectId?: string | null;
   conversationId?: number | null;
   messageId?: number | null;
+  runId?: string | null;
   kind: string;
   title: string;
   spec: unknown;
   url?: string | null;
-  /** Requested slot (a "fill this tile" ask); default = next free slot. */
-  slot?: number | null;
-  span?: TileSpan | null;
-  createdBy?: string | null;
-}): Promise<ArtifactRow> {
+  folder?: string | null;
+  author: Author;
+  changeSummary?: string | null;
+};
+
+/**
+ * Create an artifact and its v1 in one go.
+ * @param input
+ */
+export async function createArtifact(input: CreateArtifactInput): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow }> {
   const { kind, spec } = validateSpec(input.kind, input.spec);
-  const conversationId = input.conversationId ?? null;
-  const slot = typeof input.slot === 'number' && input.slot >= 0 ? input.slot : await nextSlot(input.orgId, conversationId);
-  const tile: Tile = { slot, span: input.span ?? defaultSpan(kind) };
+  const title = input.title.trim() || kind;
   const [row] = await db
     .insert(artifactSchema)
     .values({
       orgId: input.orgId,
       projectId: input.projectId ?? null,
-      conversationId,
+      conversationId: input.conversationId ?? null,
       messageId: input.messageId ?? null,
       kind,
-      title: input.title.trim() || kind,
+      title,
       spec,
       url: input.url ?? null,
-      tile,
-      pinned: true,
-      createdBy: input.createdBy ?? null,
+      folder: normaliseFolder(input.folder),
+      currentVersion: 1,
+      lastAuthorKind: input.author.kind,
+      lastAuthorId: authorId(input.author),
+      createdBy: authorId(input.author),
     })
     .returning();
-  return row!;
-}
-
-export async function getArtifact(opts: { orgId: string; id: number }): Promise<ArtifactRow | null> {
-  const [row] = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)));
-  return row ?? null;
-}
-
-export async function listArtifactsForConversation(opts: { orgId: string; conversationId: number; includeUnpinned?: boolean }): Promise<ArtifactRow[]> {
-  const where = [eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.conversationId, opts.conversationId)];
-  if (!opts.includeUnpinned) {
-    where.push(eq(artifactSchema.pinned, true));
-  }
-  return db.select().from(artifactSchema).where(and(...where)).orderBy(asc(artifactSchema.createdAt), asc(artifactSchema.id));
-}
-
-export async function updateArtifactSpec(opts: { orgId: string; id: number; title?: string; spec: unknown }): Promise<ArtifactRow | null> {
-  const existing = await getArtifact(opts);
-  if (!existing) {
-    return null;
-  }
-  const { spec } = validateSpec(existing.kind, opts.spec);
-  const [row] = await db
-    .update(artifactSchema)
-    .set({ spec, ...(opts.title ? { title: opts.title } : {}) })
-    .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)))
+  const artifact = row!;
+  const [version] = await db
+    .insert(artifactVersionSchema)
+    .values({
+      orgId: input.orgId,
+      artifactId: artifact.id,
+      version: 1,
+      kind,
+      title,
+      spec,
+      authorKind: input.author.kind,
+      authorId: authorId(input.author),
+      runId: input.runId ?? null,
+      messageId: input.messageId ?? null,
+      changeSummary: input.changeSummary?.trim() || 'Created',
+    })
     .returning();
-  return row ?? null;
+  const [withHead] = await db
+    .update(artifactSchema)
+    .set({ headVersionId: version!.id })
+    .where(and(eq(artifactSchema.orgId, input.orgId), eq(artifactSchema.id, artifact.id)))
+    .returning();
+  return { artifact: withHead ?? artifact, version: version! };
 }
 
-export async function setArtifactTile(opts: { orgId: string; id: number; tile: Tile }): Promise<ArtifactRow | null> {
+export type UpdateArtifactInput = {
+  orgId: string;
+  id: number;
+  title?: string | null;
+  /** Full replacement spec. Mutually exclusive with `contentMarkdown` in practice. */
+  spec?: unknown;
+  /** Sugar for markdown artifacts: replaces `spec.md` and leaves the rest alone. */
+  contentMarkdown?: string | null;
+  folder?: string | null;
+  author: Author;
+  changeSummary?: string | null;
+  runId?: string | null;
+  messageId?: number | null;
+  /**
+   * Refuse the write when the head has moved on (the agent edited while a
+   * person was typing). The pane sends it on an ordinary save and omits it
+   * for "Keep mine", which deliberately writes on top.
+   */
+  ifVersion?: number | null;
+  /**
+   * Never fold into the head version, whatever the collapse window says. Set
+   * by a restore: "I put the old wording back" is a deliberate act with its
+   * own line in the menu, not a continuation of the save before it.
+   */
+  noCollapse?: boolean;
+};
+
+/**
+ * Write a new head version. Returns the artifact, the version row, and
+ * whether the write folded into the previous version instead of adding one.
+ * @param input
+ */
+export async function updateArtifact(input: UpdateArtifactInput): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow; collapsed: boolean }> {
+  const existing = await getArtifact({ orgId: input.orgId, id: input.id });
+  if (!existing) {
+    throw new ArtifactError('NOT_FOUND', `artifact #${input.id} not found`);
+  }
+  if (typeof input.ifVersion === 'number' && input.ifVersion !== existing.currentVersion) {
+    throw new ArtifactError('CONFLICT', `artifact #${input.id} is at v${existing.currentVersion}, not v${input.ifVersion}`);
+  }
+
+  const nextSpecRaw = input.spec !== undefined && input.spec !== null
+    ? input.spec
+    : typeof input.contentMarkdown === 'string'
+      ? { ...existing.spec, md: input.contentMarkdown }
+      : existing.spec;
+  const { spec } = validateSpec(existing.kind, nextSpecRaw);
+  const title = (input.title ?? '').trim() || existing.title;
+  const folder = input.folder === undefined ? existing.folder : normaliseFolder(input.folder);
+  const summary = input.changeSummary?.trim() || null;
+
+  const head = existing.headVersionId ? await getVersionRowById(input.orgId, existing.headVersionId) : null;
+  const collapsed = Boolean(
+    !input.noCollapse
+    && head
+    && head.authorKind === 'human'
+    && input.author.kind === 'human'
+    && head.authorId === authorId(input.author)
+    && Date.now() - head.createdAt.getTime() < COLLAPSE_WINDOW_MS,
+  );
+
+  const version = collapsed
+    ? (await db
+        .update(artifactVersionSchema)
+        .set({ title, spec, changeSummary: summary ?? head!.changeSummary })
+        .where(and(eq(artifactVersionSchema.orgId, input.orgId), eq(artifactVersionSchema.id, head!.id)))
+        .returning())[0]!
+    : (await db
+        .insert(artifactVersionSchema)
+        .values({
+          orgId: input.orgId,
+          artifactId: existing.id,
+          version: existing.currentVersion + 1,
+          kind: existing.kind,
+          title,
+          spec,
+          authorKind: input.author.kind,
+          authorId: authorId(input.author),
+          runId: input.runId ?? null,
+          messageId: input.messageId ?? null,
+          changeSummary: summary,
+        })
+        .returning())[0]!;
+
+  const [artifact] = await db
+    .update(artifactSchema)
+    .set({
+      title,
+      spec,
+      folder,
+      currentVersion: version.version,
+      headVersionId: version.id,
+      lastAuthorKind: input.author.kind,
+      lastAuthorId: authorId(input.author),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(artifactSchema.orgId, input.orgId), eq(artifactSchema.id, existing.id)))
+    .returning();
+  return { artifact: artifact!, version, collapsed };
+}
+
+/**
+ * Restore an older version by writing it forward as a NEW head. History is
+ * append-only, so "restore v2" is a v6 that happens to carry v2's content.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.id
+ * @param opts.version
+ * @param opts.author
+ */
+export async function restoreArtifactVersion(opts: { orgId: string; id: number; version: number; author: Author }): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow }> {
+  const source = await getArtifactVersion({ orgId: opts.orgId, artifactId: opts.id, version: opts.version });
+  if (!source) {
+    throw new ArtifactError('NOT_FOUND', `artifact #${opts.id} has no v${opts.version}`);
+  }
+  const { artifact, version } = await updateArtifact({
+    orgId: opts.orgId,
+    id: opts.id,
+    title: source.title,
+    spec: source.spec,
+    author: opts.author,
+    changeSummary: `Restored v${source.version}`,
+    noCollapse: true,
+  });
+  return { artifact, version };
+}
+
+/**
+ * Folder is metadata, not content: moving an artifact does not make a version.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.id
+ * @param opts.folder
+ */
+export async function setArtifactFolder(opts: { orgId: string; id: number; folder: string | null }): Promise<ArtifactRow | null> {
   const [row] = await db
     .update(artifactSchema)
-    .set({ tile: opts.tile })
+    .set({ folder: normaliseFolder(opts.folder), updatedAt: new Date() })
     .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)))
     .returning();
   return row ?? null;
 }
 
 /**
- * Reorder several tiles at once (a drag). `tiles` is the full new placement.
+ * Attach the assistant message a turn produced to the artifacts it touched.
+ *
+ * The message does not exist while the tools run — it is persisted as the
+ * stream closes — so the link is made afterwards. Without it a reloaded
+ * transcript has no chip saying which turn made which artifact, and the only
+ * way back to one is the log.
  * @param opts
  * @param opts.orgId
- * @param opts.tiles
+ * @param opts.artifactIds
+ * @param opts.messageId
  */
-export async function setArtifactTiles(opts: { orgId: string; tiles: Array<{ id: number; tile: Tile }> }): Promise<void> {
-  for (const t of opts.tiles) {
-    await setArtifactTile({ orgId: opts.orgId, id: t.id, tile: t.tile });
+export async function stampArtifactsWithMessage(opts: { orgId: string; artifactIds: number[]; messageId: number }): Promise<void> {
+  if (opts.artifactIds.length === 0) {
+    return;
   }
-}
-
-export async function setArtifactPinned(opts: { orgId: string; id: number; pinned: boolean }): Promise<ArtifactRow | null> {
-  const [row] = await db
+  await db
     .update(artifactSchema)
-    .set({ pinned: opts.pinned })
-    .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)))
-    .returning();
-  return row ?? null;
+    .set({ messageId: opts.messageId })
+    .where(and(eq(artifactSchema.orgId, opts.orgId), inArray(artifactSchema.id, opts.artifactIds)));
 }
 
 export async function deleteArtifact(opts: { orgId: string; id: number }): Promise<void> {
@@ -190,75 +374,126 @@ export async function deleteArtifact(opts: { orgId: string; id: number }): Promi
 }
 
 /* ------------------------------------------------------------------ */
-/* Canvases                                                            */
+/* Read path                                                           */
 /* ------------------------------------------------------------------ */
 
+export async function getArtifact(opts: { orgId: string; id: number }): Promise<ArtifactRow | null> {
+  const [row] = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)));
+  return row ?? null;
+}
+
+async function getVersionRowById(orgId: string, id: number): Promise<ArtifactVersionRow | null> {
+  const [row] = await db.select().from(artifactVersionSchema).where(and(eq(artifactVersionSchema.orgId, orgId), eq(artifactVersionSchema.id, id)));
+  return row ?? null;
+}
+
+export async function getArtifactVersion(opts: { orgId: string; artifactId: number; version: number }): Promise<ArtifactVersionRow | null> {
+  const [row] = await db
+    .select()
+    .from(artifactVersionSchema)
+    .where(and(
+      eq(artifactVersionSchema.orgId, opts.orgId),
+      eq(artifactVersionSchema.artifactId, opts.artifactId),
+      eq(artifactVersionSchema.version, opts.version),
+    ));
+  return row ?? null;
+}
+
 /**
- * Save the conversation's current pinned tiles under a name. The layout is
- * copied so the saved canvas is stable even if tiles move later; the
- * artifacts themselves are shared (canvas_id points at the latest save).
+ * Newest first — the order the version menu reads in.
  * @param opts
  * @param opts.orgId
- * @param opts.projectId
- * @param opts.conversationId
- * @param opts.name
- * @param opts.createdBy
+ * @param opts.artifactId
+ * @param opts.limit
  */
-export async function saveCanvas(opts: {
-  orgId: string;
-  projectId?: string | null;
-  conversationId: number;
-  name: string;
-  createdBy?: string | null;
-}): Promise<{ canvas: CanvasRow; artifacts: ArtifactRow[] }> {
-  const name = opts.name.trim();
-  if (!name) {
-    throw new ArtifactError('INVALID_SPEC', 'a canvas needs a name');
-  }
-  const artifacts = await listArtifactsForConversation({ orgId: opts.orgId, conversationId: opts.conversationId });
-  const layout = artifacts.map((a, i) => ({ artifactId: a.id, slot: a.tile?.slot ?? i, span: a.tile?.span ?? defaultSpan(a.kind as ArtifactKind) }));
-  const [canvas] = await db
-    .insert(canvasSchema)
-    .values({ orgId: opts.orgId, projectId: opts.projectId ?? null, conversationId: opts.conversationId, name, layout, createdBy: opts.createdBy ?? null })
-    .returning();
-  if (artifacts.length > 0) {
-    await db
-      .update(artifactSchema)
-      .set({ canvasId: canvas!.id })
-      .where(and(eq(artifactSchema.orgId, opts.orgId), inArray(artifactSchema.id, artifacts.map(a => a.id))));
-  }
-  return { canvas: canvas!, artifacts };
-}
-
-export async function listCanvases(opts: { orgId: string; limit?: number }): Promise<Array<CanvasRow & { tileCount: number }>> {
-  const rows = await db
+export async function listArtifactVersions(opts: { orgId: string; artifactId: number; limit?: number }): Promise<ArtifactVersionRow[]> {
+  return db
     .select()
-    .from(canvasSchema)
-    .where(eq(canvasSchema.orgId, opts.orgId))
-    .orderBy(desc(canvasSchema.updatedAt))
-    .limit(opts.limit ?? 100);
-  return rows.map(r => ({ ...r, tileCount: r.layout.length }));
+    .from(artifactVersionSchema)
+    .where(and(eq(artifactVersionSchema.orgId, opts.orgId), eq(artifactVersionSchema.artifactId, opts.artifactId)))
+    .orderBy(desc(artifactVersionSchema.version))
+    .limit(opts.limit ?? 50);
 }
 
-export async function getCanvas(opts: { orgId: string; id: number }): Promise<{ canvas: CanvasRow; artifacts: ArtifactRow[] } | null> {
-  const [canvas] = await db.select().from(canvasSchema).where(and(eq(canvasSchema.orgId, opts.orgId), eq(canvasSchema.id, opts.id)));
-  if (!canvas) {
-    return null;
+/**
+ * Every artifact of one conversation, oldest first — what the chat's chips refer to.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.conversationId
+ */
+export async function listArtifactsForConversation(opts: { orgId: string; conversationId: number }): Promise<ArtifactRow[]> {
+  return db
+    .select()
+    .from(artifactSchema)
+    .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.conversationId, opts.conversationId)))
+    .orderBy(asc(artifactSchema.createdAt), asc(artifactSchema.id));
+}
+
+/** One row of the artifacts log. */
+export type ArtifactListItem = ArtifactPayload & {
+  versions: number;
+  conversationTitle: string | null;
+};
+
+export type ArtifactListFilter = {
+  orgId: string;
+  /** Substring of the title. */
+  search?: string | null;
+  kinds?: string[] | null;
+  folder?: string | null;
+  limit?: number;
+};
+
+/**
+ * The log: a workspace's artifacts, most recently edited first, with the
+ * version count and the conversation that produced each one.
+ * @param filter
+ */
+export async function listArtifacts(filter: ArtifactListFilter): Promise<ArtifactListItem[]> {
+  const where = [eq(artifactSchema.orgId, filter.orgId)];
+  const search = filter.search?.trim();
+  if (search) {
+    where.push(ilike(artifactSchema.title, `%${search}%`));
   }
-  const ids = canvas.layout.map(l => l.artifactId);
-  const artifacts = ids.length
-    ? await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, opts.orgId), inArray(artifactSchema.id, ids)))
-    : [];
-  // Present the saved layout, not the live tiles.
-  const bySlot = new Map(canvas.layout.map(l => [l.artifactId, l]));
-  const placed = artifacts
-    .map(a => ({ ...a, tile: bySlot.get(a.id) ? { slot: bySlot.get(a.id)!.slot, span: bySlot.get(a.id)!.span } : a.tile }))
-    .sort((a, b) => (a.tile?.slot ?? 0) - (b.tile?.slot ?? 0));
-  return { canvas, artifacts: placed };
+  const kinds = (filter.kinds ?? []).filter(k => (ARTIFACT_KINDS as readonly string[]).includes(k));
+  if (kinds.length > 0) {
+    where.push(inArray(artifactSchema.kind, kinds));
+  }
+  const folder = normaliseFolder(filter.folder);
+  if (folder) {
+    where.push(or(eq(artifactSchema.folder, folder), ilike(artifactSchema.folder, `${folder}/%`))!);
+  }
+  const rows = await db
+    .select({
+      artifact: artifactSchema,
+      conversationTitle: conversationSchema.title,
+      versions: sql<number>`(select count(*) from ${artifactVersionSchema} v where v.artifact_id = ${artifactSchema.id})`,
+    })
+    .from(artifactSchema)
+    .leftJoin(conversationSchema, eq(conversationSchema.id, artifactSchema.conversationId))
+    .where(and(...where))
+    .orderBy(desc(artifactSchema.updatedAt), desc(artifactSchema.id))
+    .limit(filter.limit ?? 200);
+  return rows.map(r => ({
+    ...toPayload(r.artifact),
+    versions: Number(r.versions) || 1,
+    conversationTitle: r.conversationTitle ?? null,
+  }));
 }
 
-export async function deleteCanvas(opts: { orgId: string; id: number }): Promise<void> {
-  await db.delete(canvasSchema).where(and(eq(canvasSchema.orgId, opts.orgId), eq(canvasSchema.id, opts.id)));
+/**
+ * Distinct folder paths with a count — the log's chip filters.
+ * @param opts
+ * @param opts.orgId
+ */
+export async function listArtifactFolders(opts: { orgId: string }): Promise<Array<{ folder: string; count: number }>> {
+  const rows = await db
+    .select({ folder: artifactSchema.folder, n: count() })
+    .from(artifactSchema)
+    .where(and(eq(artifactSchema.orgId, opts.orgId), sql`${artifactSchema.folder} is not null`))
+    .groupBy(artifactSchema.folder)
+    .orderBy(asc(artifactSchema.folder));
+  return rows.filter(r => r.folder).map(r => ({ folder: r.folder!, count: Number(r.n) }));
 }
 
 /**

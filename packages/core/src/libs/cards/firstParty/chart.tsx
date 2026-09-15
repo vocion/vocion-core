@@ -56,7 +56,7 @@ function fmt(v: number, unit?: string): string {
 }
 
 export function ChartCardView({ data, surface }: { data: ChartSpec; surface: string }) {
-  const dense = surface !== 'canvas';
+  const dense = surface !== 'artifact';
   const w = 640;
   const h = dense ? 220 : 320;
   const pad = { top: 12, right: 12, bottom: 28, left: 44 };
@@ -167,7 +167,7 @@ export const chartCard = defineCard({
   slug: CHART_SLUG,
   name: 'Chart',
   description: 'Renders a line, bar, or area chart (up to eight series on one y axis) as inline SVG. Use for change over time or magnitude across categories — pipeline by month, runs per agent, cost per week. Not for a single headline number (say it in text).',
-  surfaces: ['chat', 'canvas', 'workflow-run', 'review-queue', 'activity-feed'],
+  surfaces: ['chat', 'artifact', 'workflow-run', 'review-queue', 'activity-feed'],
   dataSchema: chartSpecSchema,
   Renderer: ({ data, surface }) => <ChartCardView data={data} surface={surface} />,
 });

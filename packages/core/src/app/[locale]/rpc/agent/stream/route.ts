@@ -19,6 +19,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { openStream } from '@/libs/streams/buffer';
 import { track } from '@/services/adoption/track';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
+import { stampArtifactsWithMessage } from '@/services/ArtifactService';
 import {
   appendMessage,
   createConversation,
@@ -45,6 +46,23 @@ class RunCollector {
   // Merged by id, mirroring the client's fold (start → progress* → done),
   // so the persisted trace equals what the live surface showed.
   private readonly trace = new Map<string, ConversationTraceNode>();
+  /**
+   * Artifacts this turn created or changed. Stamped onto the assistant
+   * message once it is persisted, so a RELOADED transcript still shows the
+   * chip where the thing came from — otherwise the pane holds the current
+   * artifact and nothing in the history says which turn made which.
+   */
+  private readonly artifactIds = new Set<number>();
+
+  onArtifact(id: number): void {
+    if (Number.isInteger(id) && id > 0) {
+      this.artifactIds.add(id);
+    }
+  }
+
+  get touchedArtifactIds(): number[] {
+    return [...this.artifactIds];
+  }
 
   onTraceNode(event: Record<string, unknown>): void {
     const id = typeof event.id === 'string' ? event.id : null;
@@ -261,6 +279,8 @@ export async function POST(request: Request): Promise<Response> {
             collector.onDocuments(event.documents as CollectedDoc[]);
           } else if (event.type === 'trace_node') {
             collector.onTraceNode(event as unknown as Record<string, unknown>);
+          } else if (event.type === 'artifact' && !event.pending) {
+            collector.onArtifact(event.artifact.id);
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -314,7 +334,7 @@ export async function POST(request: Request): Promise<Response> {
           const { text, runs, documents, trace } = collector.finalise();
           if (text || runs.length > 0) {
             try {
-              await appendMessage({
+              const msg = await appendMessage({
                 orgId,
                 conversationId,
                 role: 'assistant',
@@ -323,6 +343,10 @@ export async function POST(request: Request): Promise<Response> {
                 documents,
                 trace,
               });
+              const touched = collector.touchedArtifactIds;
+              if (touched.length > 0) {
+                await stampArtifactsWithMessage({ orgId, artifactIds: touched, messageId: msg.id });
+              }
             } catch {
               /* conversation may have been deleted mid-stream */
             }

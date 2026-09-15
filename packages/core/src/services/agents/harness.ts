@@ -276,6 +276,20 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   ].join(' ');
   systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE].filter(Boolean).join('\n\n');
 
+  // Artifact discipline (0101). One artifact is open beside the conversation
+  // at a time and the person edits it in place, so the default move on "make
+  // the third column currency" is to CHANGE that artifact, not to render a
+  // near-duplicate beside it. Models do not infer this: without the rule they
+  // treat every ask as a fresh render and the log fills with v1s.
+  const ARTIFACT_DISCIPLINE = [
+    'ARTIFACTS (the pane beside this conversation):',
+    'A deliverable — a table you assembled, a document, a chart, one record — goes in an ARTIFACT via render_table / render_markdown / render_chart / render_record, not pasted into the reply. One artifact is open beside the person at a time; they can edit it themselves.',
+    'When the person refers to "this", "it", "the table", "the doc", "that chart", or asks for a change to something you already produced — "make the third column currency", "add a section on risks", "sort by owner", "drop the last row", "retitle it" — call read_artifact and then update_artifact. Do NOT render a second artifact; updating is what keeps one version history instead of a pile of near-duplicates.',
+    'update_artifact needs a one-line `change_summary` in the past tense ("made Amount a currency column") — the person reads it in the version menu.',
+    'Render a NEW artifact only when the content is genuinely a different thing from the open one.',
+  ].join(' ');
+  systemPrompt = [systemPrompt, ARTIFACT_DISCIPLINE].filter(Boolean).join('\n\n');
+
   // deepagents auto-injects a built-in `general-purpose` subagent whose prompt
   // is generic (DEFAULT_SUBAGENT_PROMPT — no answer-style rules). So when the
   // lead delegates "what should I do" to it, that subagent calls lookup_objects

@@ -6,11 +6,11 @@ import { MarkdownCardView } from './markdown';
 import { RecordCardView } from './record';
 
 /**
- * The five canvas cards on both surfaces. `chat` is dense and truncated;
- * `canvas` is the full tile. Same data, same component, two densities.
+ * The five artifact cards on both surfaces. `chat` is dense and truncated;
+ * `artifact` is the full pane. Same data, same component, two densities.
  */
 const meta: Meta = {
-  title: 'Cards/Canvas cards',
+  title: 'Cards/Artifact cards',
   parameters: { layout: 'padded' },
 };
 export default meta;
@@ -38,7 +38,7 @@ const deals = {
 };
 
 export const DataTableChat: Story = { render: () => <div className="max-w-md"><DataTableCardView data={deals} surface="chat" /></div> };
-export const DataTableCanvas: Story = { render: () => <DataTableCardView data={deals} surface="canvas" /> };
+export const DataTablePane: Story = { render: () => <DataTableCardView data={deals} surface="artifact" /> };
 
 const chart = {
   title: 'Weighted pipeline by month',
@@ -52,15 +52,15 @@ const chart = {
   stacked: true,
 };
 export const ChartChat: Story = { render: () => <div className="max-w-md"><ChartCardView data={chart} surface="chat" /></div> };
-export const ChartCanvasLine: Story = { render: () => <ChartCardView data={{ ...chart, type: 'line', stacked: false }} surface="canvas" /> };
-export const ChartCanvasArea: Story = { render: () => <ChartCardView data={{ ...chart, type: 'area' }} surface="canvas" /> };
+export const ChartPaneLine: Story = { render: () => <ChartCardView data={{ ...chart, type: 'line', stacked: false }} surface="artifact" /> };
+export const ChartPaneArea: Story = { render: () => <ChartCardView data={{ ...chart, type: 'area' }} surface="artifact" /> };
 
 const md = { title: 'Lerner call — prep', md: '## Goal\nDecide whether this is a services deal or an acquisition conversation.\n\n- [x] Data room sent\n- [ ] Confirm TTM\n- [ ] Ask about the board timeline\n\n| Topic | Owner |\n|---|---|\n| Valuation frame | Chris |\n| Integration | Jamie |' };
 export const MarkdownChat: Story = { render: () => <div className="max-w-md"><MarkdownCardView data={md} surface="chat" /></div> };
-export const MarkdownCanvas: Story = { render: () => <MarkdownCardView data={md} surface="canvas" /> };
+export const MarkdownPane: Story = { render: () => <MarkdownCardView data={md} surface="artifact" /> };
 
 const record = { type: 'Deal', id: '61111439370', label: 'Northbeam — Operational AI', href: '/dashboard/objects/61111439370', status: 'Contract sent', fields: [{ k: 'Amount', v: '$110,000' }, { k: 'Close', v: 'Sep 19' }, { k: 'Owner', v: 'Chris' }, { k: 'Last touch', v: '3 days ago' }] };
 export const RecordChat: Story = { render: () => <div className="max-w-md"><RecordCardView data={record} surface="chat" /></div> };
-export const RecordCanvas: Story = { render: () => <RecordCardView data={record} surface="canvas" /> };
+export const RecordPane: Story = { render: () => <RecordCardView data={record} surface="artifact" /> };
 
 export const LinkChat: Story = { render: () => <div className="max-w-md"><LinkCardView data={{ href: '/api/artifacts/org-abc123/org-abc123.csv', title: 'open-deals.csv', description: 'text/csv · 2 KB' }} surface="chat" /></div> };

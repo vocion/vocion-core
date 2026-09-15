@@ -29,7 +29,7 @@ import type { z, ZodTypeAny } from 'zod';
  * run-detail is wider + scrollable). A Card declares the surfaces it knows how
  * to render in.
  */
-export type CardSurface = 'chat' | 'canvas' | 'workflow-run' | 'review-queue' | 'activity-feed';
+export type CardSurface = 'chat' | 'artifact' | 'workflow-run' | 'review-queue' | 'activity-feed';
 
 /**
  * Props passed to a Card's `Renderer`. `data` is the validated payload (it's

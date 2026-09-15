@@ -1,4 +1,5 @@
 import type { TraceNode } from './types';
+import type { ArtifactPayload } from '@/services/agents/types';
 
 /**
  * Fold one `trace_node` SSE event into the turn's accumulating trace.
@@ -65,4 +66,44 @@ export function summarizeLiveTrace(trace: TraceNode[]): { current: TraceNode | n
   const roots = trace.filter(n => !n.parentId && n.kind !== 'reason');
   const inflight = [...trace].reverse().find(n => n.status === 'start' || n.status === 'progress') ?? null;
   return { current: inflight, steps: roots.length, done: roots.filter(n => n.status === 'done' || n.status === 'error').length };
+}
+
+/**
+ * Fold one `artifact` SSE event into the artifact the pane is showing.
+ *
+ * Three shapes arrive on the same event type and the pane must not confuse
+ * them:
+ *
+ *   `pending: true`  a shell — the title is known, the body is not. The row
+ *                    does not exist yet, so its id is a placeholder.
+ *   `delta`          more markdown for the pending body; appends.
+ *   neither          the settled row. It REPLACES the accumulated body, so a
+ *                    dropped or duplicated delta cannot leave the pane
+ *                    showing something the database does not hold.
+ *
+ * Pure, so the pane and the tests agree on what a half-written artifact looks
+ * like mid-turn.
+ * @param prev - The artifact as accumulated so far, if any.
+ * @param event - The incoming event.
+ * @param event.artifact
+ * @param event.pending
+ * @param event.delta
+ */
+export function mergeArtifactEvent(
+  prev: (ArtifactPayload & { pending?: boolean }) | undefined,
+  event: { artifact: ArtifactPayload; pending?: boolean; delta?: string },
+): ArtifactPayload & { pending?: boolean } {
+  if (event.pending) {
+    const md = `${String(prev?.pending ? prev.spec?.md ?? '' : '')}${event.delta ?? ''}`;
+    return {
+      ...(prev ?? event.artifact),
+      ...event.artifact,
+      spec: { ...event.artifact.spec, ...(md ? { md } : {}) },
+      pending: true,
+    };
+  }
+  if (event.delta && prev?.pending) {
+    return { ...prev, spec: { ...prev.spec, md: `${String(prev.spec?.md ?? '')}${event.delta}` }, pending: true };
+  }
+  return { ...event.artifact, pending: false };
 }
