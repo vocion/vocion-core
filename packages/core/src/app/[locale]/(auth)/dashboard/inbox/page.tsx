@@ -1,28 +1,31 @@
-import type { InboxGroup, InboxSort, InboxTab } from '@/services/InboxService';
+import type { InboxKind, InboxSort, InboxTab } from '@/services/InboxService';
 import { Inbox as InboxIcon } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { InboxControls } from '@/features/dashboard/inbox/InboxControls';
 import { InboxList } from '@/features/dashboard/inbox/InboxList';
-import { agoLabel, waitingFor } from '@/features/dashboard/inbox/inboxMeta';
+import { contextLine } from '@/features/dashboard/inbox/inboxMeta';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { Link } from '@/libs/I18nNavigation';
-import { INBOX_GROUPS, INBOX_SORTS, INBOX_TABS, lastChange, listInbox } from '@/services/InboxService';
+import { INBOX_SORTS, INBOX_TABS, isInboxKind, listInbox } from '@/services/InboxService';
 
 /**
- * Needs you — everything waiting on a person, in one column: rulings,
- * approvals (proposed actions described for a person and grouped per record),
- * merges, inputs, recommendations, gates, runs that stopped, suggested rules.
- * Tabs, search, sort and filters live in the URL. Asks and decision sheets
- * open here; everything else links to the surface that decides it.
+ * Needs you — THE decision surface. Everything waiting on a person, in one
+ * column: proposals (agent actions described for a person and grouped per
+ * record), rulings, approvals, merges, inputs, credentials, gates,
+ * recommendations, runs that stopped, suggested rules. Kind chips filter it;
+ * tabs, search, sort and filters live in the URL. Every row opens a detail
+ * screen under `/dashboard/inbox/…` that decides it.
+ *
+ * The header is one line — "136 decisions, oldest waiting 53d." — under the
+ * headline (Chris, 2026-09-15: "probably the only context we need"). What
+ * changed is said by the toast that follows each decision, not by a
+ * standing column.
  */
 
 export const dynamic = 'force-dynamic';
 
-type Params = { tab?: string; q?: string; sort?: string; kinds?: string; agents?: string; group?: string };
-
-const CHANGE_VERB: Record<string, string> = { approved: 'Approved', rejected: 'Rejected', answered: 'Answered', new: 'New' };
+type Params = { tab?: string; q?: string; sort?: string; kind?: string; actionKind?: string; agents?: string };
 
 function list(value: string | undefined): string[] {
   return (value ?? '').split(',').map(s => s.trim()).filter(Boolean);
@@ -42,54 +45,23 @@ export default async function InboxPage(props: {
 
   const tab = ((INBOX_TABS as readonly string[]).includes(sp.tab ?? '') ? sp.tab : 'open') as InboxTab;
   const sort = ((INBOX_SORTS as readonly string[]).includes(sp.sort ?? '') ? sp.sort : tab === 'decided' ? 'newest' : 'oldest') as InboxSort;
-  const kinds = list(sp.kinds);
+  const kinds = list(sp.kind).filter(isInboxKind) as InboxKind[];
+  const actionKinds = list(sp.actionKind);
   const agents = list(sp.agents);
   const q = sp.q?.trim() ?? '';
-  const group = ((INBOX_GROUPS as readonly string[]).includes(sp.group ?? '') ? sp.group : null) as InboxGroup | null;
 
-  const [inbox, change] = await Promise.all([listInbox(orgId, { tab, q, sort, kinds, agents, group: group ?? undefined }), lastChange(orgId)]);
+  const inbox = await listInbox(orgId, { tab, q, sort, kinds, actionKinds, agents });
   const open = inbox.tabs.open;
-  const oldest = tab === 'open' ? inbox.items[0] : undefined;
-  const filtered = Boolean(q || kinds.length || agents.length || group);
+  // The oldest open row regardless of the current sort or filters: the queue's real age.
+  const oldest = tab === 'open' ? inbox.items.reduce<Date | undefined>((m, i) => (m === undefined || i.at < m ? i.at : m), undefined) : undefined;
+  const filtered = Boolean(q || kinds.length || actionKinds.length || agents.length);
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <TitleBar title="Needs you" />
-
-      {/* What needs me · What changed · What happens next — one line each. */}
-      <dl className="mb-5 grid gap-x-8 gap-y-2 border-y border-border py-3 text-sm sm:grid-cols-3">
-        <div>
-          <dt className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">What needs me</dt>
-          <dd className="mt-0.5">
-            {open === 0 ? 'Nothing right now.' : `${open} ${open === 1 ? 'decision' : 'decisions'}${oldest ? `, oldest waiting ${waitingFor(oldest.at)}` : ''}.`}
-          </dd>
-        </div>
-        <div className="min-w-0">
-          <dt className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">What changed</dt>
-          <dd className="mt-0.5 truncate">
-            {change
-              ? (
-                  <Link href={change.href} className="underline-offset-2 hover:underline">
-                    {`${CHANGE_VERB[change.verb]}: ${change.title} · ${agoLabel(change.at)}`}
-                  </Link>
-                )
-              : 'No decisions yet.'}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">What happens next</dt>
-          <dd className="mt-0.5">
-            {open === 0
-              ? 'The team keeps working; new asks land here.'
-              : oldest?.kind === 'review-sheet' || oldest?.kind === 'sheet'
-                ? `Open the ${oldest.count ?? 0}-item sheet at the top and decide them in one pass; each approval executes on submit.`
-                : 'Decide the oldest first; approvals execute immediately, and every answer reaches the team on its next cycle.'}
-          </dd>
-        </div>
-      </dl>
+      <TitleBar title="Needs you" description={<span data-testid="inbox-context">{contextLine(tab, open, oldest, inbox.total)}</span>} />
 
       <div className="mb-4">
-        <InboxControls tab={tab} q={q} sort={sort} kinds={kinds} agents={agents} facets={inbox.facets} tabs={inbox.tabs} />
+        <InboxControls tab={tab} q={q} sort={sort} kinds={kinds} actionKinds={actionKinds} agents={agents} facets={inbox.facets} counts={inbox.counts} tabs={inbox.tabs} />
       </div>
 
       {inbox.total === 0
@@ -100,14 +72,14 @@ export default async function InboxPage(props: {
               description={filtered
                 ? 'Clear the search or a filter to see the rest.'
                 : tab === 'open'
-                  ? 'Rulings, approvals, merges, credentials, recommendations and stopped runs land here as the team works. Nothing is waiting right now.'
+                  ? 'Proposals, rulings, approvals, merges, credentials, recommendations and stopped runs land here as the team works. Nothing is waiting right now.'
                   : tab === 'snoozed'
-                    ? 'Items you snooze from the review queue wait here until their time comes.'
-                    : 'Answered asks and decided proposals will be listed here, newest first.'}
+                    ? 'Proposals you snooze wait here until their time comes.'
+                    : 'Answered asks, decided proposals and adopted rules will be listed here, newest first.'}
               action={filtered ? { label: 'Clear filters', href: tab === 'open' ? '/dashboard/inbox' : `/dashboard/inbox?tab=${tab}` } : { label: 'See what the team did', href: '/dashboard/activity' }}
             />
           )
-        : <InboxList inbox={inbox} tab={tab} only={group} />}
+        : <InboxList inbox={inbox} tab={tab} />}
     </div>
   );
 }

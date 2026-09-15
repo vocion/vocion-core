@@ -1,53 +1,55 @@
-import type { AskKind } from '@/services/AskService';
-import type { ReviewRow, ReviewTab } from '@/services/inbox/reviewRows';
-import type { ReviewItem, ReviewKind } from '@/services/ReviewService';
+import type { InboxRef } from '@/services/inbox/inboxRef';
+import type { InboxKind, InboxSort, InboxTab } from '@/services/inbox/kinds';
+import type { ReviewRow } from '@/services/inbox/reviewRows';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema } from '@/models/Schema';
+import { askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
+import { humaniseActionId } from '@/services/inbox/describeActionRun';
+import { inboxHref } from '@/services/inbox/inboxRef';
+import { INBOX_KINDS, kindForAsk } from '@/services/inbox/kinds';
 import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
-import { listPending } from '@/services/ReviewService';
 
 /**
- * InboxService — ONE list of everything waiting on a person, wherever it is
- * recorded. Backs `/dashboard/inbox` ("Needs you") and the sidebar count.
+ * InboxService — THE list of everything waiting on a person, wherever it is
+ * recorded. Backs `/dashboard/inbox` ("Needs you"), its detail routes and the
+ * sidebar count. There is no second decision surface: the review queue's
+ * proposals, the asks, the stopped runs and the suggested rules are rows of
+ * one list, told apart by `kind`.
  *
- * Sources, and where each row deep-links:
- *   - open `ask` rows                                   → /dashboard/inbox/:id
- *   - proposed actions in the review queue, described
- *     for a person and grouped per record               → /dashboard/inbox/r/:recordKey, /dashboard/review
- *   - missions awaiting review, paused workflows         → the run page / review
- *   - `mission_run` paused, `worker_run` paused /
- *     awaiting review                                   → the run page / the agent
- *   - pending `learning_candidate` rows                 → /dashboard/learnings/:step
- *   - `worker_run` failed or lost in the last 24 hours  → the agent
+ * Kinds, and what each row opens:
+ *   proposal        an agent-proposed `action_run` (the old review queue),
+ *                   described for a person; several about one record collapse
+ *                   into one sheet row              → /dashboard/inbox/proposal-:id · /dashboard/inbox/r/:recordKey
+ *   ruling · approval · merge · input · credential · gate · recommendation
+ *                   an open `ask`; several under one group key are one sheet
+ *                                                   → /dashboard/inbox/:id · /dashboard/inbox/g/:groupKey
+ *   run             a paused / awaiting-review mission or workflow run, a
+ *                   paused / awaiting / failed / lost worker run
+ *                                                   → /dashboard/inbox/mission-:id · workflow-:id · worker-:id
+ *   learning        a pending `learning_candidate` (a suggested rule)
+ *                                                   → /dashboard/inbox/learning-:id
  *
- * Three tabs: open (all of the above), snoozed (actions snoozed into the
- * future), decided (answered asks and decided actions, newest first). Search,
- * sort and filters run here, in memory, over what is at most a few hundred
- * rows — the page persists them in the URL.
+ * Three tabs: open (all of the above), snoozed (proposals snoozed into the
+ * future), decided (answered asks, decided proposals, adopted or rejected
+ * rules, newest first). Search, sort and filters run here, in memory, over
+ * what is at most a few hundred rows — the page persists them in the URL.
  *
  * Read-only aggregation. Nothing here decides anything; each row points at
- * the surface that does.
+ * the detail screen that does, and every one of those writes the alignment
+ * ledger (`decision_alignment`) on the way out.
  */
 
-/** How the inbox groups rows. Kinds map onto groups below. */
-export type InboxGroup = 'rulings' | 'approvals' | 'merges' | 'inputs' | 'recommendations' | 'gates' | 'runs' | 'learnings';
-
-export const INBOX_GROUPS: readonly InboxGroup[] = ['rulings', 'approvals', 'merges', 'inputs', 'recommendations', 'gates', 'runs', 'learnings'];
-
-export type InboxItemKind = AskKind | 'sheet' | 'review' | 'review-sheet' | 'run' | 'learning';
-
-export type InboxTab = ReviewTab;
-export const INBOX_TABS: readonly InboxTab[] = ['open', 'snoozed', 'decided'];
-
-export type InboxSort = 'oldest' | 'newest' | 'value' | 'confidence';
-export const INBOX_SORTS: readonly InboxSort[] = ['oldest', 'newest', 'value', 'confidence'];
+export type { InboxKind, InboxSort, InboxTab } from '@/services/inbox/kinds';
+export { INBOX_KINDS, INBOX_SORTS, INBOX_TABS, isInboxKind, kindForAsk } from '@/services/inbox/kinds';
 
 export type InboxItem = {
   /** Stable key for React lists — `<source>:<id>`. */
   key: string;
-  kind: InboxItemKind;
-  group: InboxGroup;
+  kind: InboxKind;
+  /** `single` opens one thing; `sheet` opens several under one key (asks in a group, proposals about one record). */
+  shape: 'single' | 'sheet';
+  /** What the detail route resolves — unset on a sheet. */
+  ref?: InboxRef;
   title: string;
   /** "<Record> › <action kind> › proposed by <agent>" — the breadcrumb under the title. */
   subline?: string;
@@ -61,13 +63,13 @@ export type InboxItem = {
   at: Date;
   /** Where clicking goes. */
   href: string;
-  /** One line more — the review plane, the learning step, the error. */
+  /** One line more — the pause reason, the learning step, the error. */
   detail?: string;
   /** Set for ask rows, so the client can decide in place. */
   askId?: number;
   /** Set for a single proposed action, so the row can approve/reject in place. */
   reviewId?: number;
-  /** The action id (`hubspot.update`) — the kind filter chips. */
+  /** The action id (`hubspot.update`) — the action-kind filter chips. */
   actionId?: string;
   /** Set when this row is a decision sheet — several open items under one key. */
   groupKey?: string;
@@ -80,10 +82,12 @@ export type InboxItem = {
   /** Decided tab: what was chosen. */
   decision?: string | null;
   decidedBy?: string | null;
+  /** Decided tab: the note that travelled with the decision. */
+  note?: string | null;
 };
 
 export type InboxFacets = {
-  /** Action ids present, with counts — the kind chips. */
+  /** Action ids present, with counts — the action-kind chips under the proposal kind. */
   actionKinds: { id: string; count: number }[];
   /** Agents present, with counts — the agent chips. */
   agents: { slug: string; count: number }[];
@@ -93,63 +97,25 @@ export type InboxQuery = {
   tab?: InboxTab;
   q?: string;
   sort?: InboxSort;
-  /** Action ids to keep. Empty = all. */
-  kinds?: string[];
+  /** Kinds to keep. Empty = all. */
+  kinds?: InboxKind[];
+  /** Action ids to keep (proposals only). Empty = all. */
+  actionKinds?: string[];
   /** Agent slugs to keep. Empty = all. */
   agents?: string[];
-  /** One inbox group only (the chip). */
-  group?: InboxGroup;
 };
 
 export type Inbox = {
   items: InboxItem[];
-  /** Rows per group, for the section headers and the chips. */
-  counts: Record<InboxGroup, number>;
+  /** Rows per kind on this tab — the chip counts. Counted before the kind filter, after the others. */
+  counts: Record<InboxKind, number>;
   total: number;
   /** Rows per tab, before search/filter, for the tab labels. */
   tabs: Record<InboxTab, number>;
   facets: InboxFacets;
 };
 
-const ASK_GROUP: Record<AskKind, InboxGroup> = {
-  ruling: 'rulings',
-  approval: 'approvals',
-  merge: 'merges',
-  input: 'inputs',
-  credential: 'inputs',
-  recommendation: 'recommendations',
-  gate: 'gates',
-};
-
 const RECENT_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Group for an ask kind. An unknown kind (a row written by a newer core) is
- * shown under approvals rather than dropped.
- * @param kind
- */
-export function groupForAskKind(kind: string): InboxGroup {
-  return (ASK_GROUP as Record<string, InboxGroup>)[kind] ?? 'approvals';
-}
-
-/**
- * Where a non-action review-queue item is decided.
- * @param item
- */
-function reviewHref(item: ReviewItem): string {
-  const byKind: Record<ReviewKind, string> = {
-    action: '/dashboard/review',
-    mission: `/dashboard/missions/runs/${item.id}`,
-    workflow: '/dashboard/review',
-  };
-  return byKind[item.kind];
-}
-
-const REVIEW_DETAIL: Record<ReviewKind, string> = {
-  action: 'Proposed action awaiting review',
-  mission: 'Mission run awaiting review',
-  workflow: 'Workflow paused at an approval gate',
-};
 
 /**
  * The URL for one record's decision sheet.
@@ -160,57 +126,51 @@ export function recordSheetHref(recordKey: string): string {
 }
 
 /**
+ * One row from one proposal.
+ * @param r
+ * @param tab
+ */
+function proposalItem(r: ReviewRow, tab: InboxTab): InboxItem {
+  return {
+    key: `review:action:${r.id}`,
+    kind: 'proposal',
+    shape: 'single',
+    ref: { kind: 'proposal', id: r.id },
+    title: r.described.title,
+    subline: r.described.subline,
+    agentSlug: r.described.agentSlug,
+    teamSlug: null,
+    risk: null,
+    status: r.status,
+    at: tab === 'decided' ? (r.decidedAt ?? r.createdAt) : r.createdAt,
+    href: inboxHref('proposal', r.id),
+    detail: tab !== 'decided' && r.snoozedUntil && r.snoozedUntil > new Date() ? `Snoozed until ${r.snoozedUntil.toLocaleString()}` : undefined,
+    reviewId: r.id,
+    actionId: r.actionId,
+    confidence: r.described.confidence,
+    amount: r.described.amount,
+    currency: r.described.currency,
+    ...(tab === 'decided'
+      ? { decision: r.status === 'rejected' ? 'rejected' : 'approved', decidedBy: r.decidedBy, note: r.note }
+      : {}),
+  };
+}
+
+/**
  * One inbox row per proposed action, or one per record when several
  * proposals are about the same deal / contact / address.
  * @param rows - Action rows for the tab.
  * @param tab
  */
-function reviewItems(rows: ReviewRow[], tab: InboxTab): InboxItem[] {
+function proposalItems(rows: ReviewRow[], tab: InboxTab): InboxItem[] {
   if (tab === 'decided') {
-    return rows.map(r => ({
-      key: `review:action:${r.id}`,
-      kind: 'review',
-      group: 'approvals',
-      title: r.described.title,
-      subline: r.described.subline,
-      agentSlug: r.described.agentSlug,
-      teamSlug: null,
-      risk: null,
-      status: r.status,
-      at: r.decidedAt ?? r.createdAt,
-      href: '/dashboard/review',
-      reviewId: r.id,
-      actionId: r.actionId,
-      confidence: r.described.confidence,
-      amount: r.described.amount,
-      currency: r.described.currency,
-      decision: r.status === 'rejected' ? 'rejected' : 'approved',
-      decidedBy: r.decidedBy,
-    }));
+    return rows.map(r => proposalItem(r, tab));
   }
   const items: InboxItem[] = [];
   for (const g of groupByRecord(rows)) {
     if (g.rows.length === 1 || !g.record) {
       for (const r of g.rows) {
-        items.push({
-          key: `review:action:${r.id}`,
-          kind: 'review',
-          group: 'approvals',
-          title: r.described.title,
-          subline: r.described.subline,
-          agentSlug: r.described.agentSlug,
-          teamSlug: null,
-          risk: null,
-          status: r.status,
-          at: r.createdAt,
-          href: recordSheetHref(g.key),
-          detail: r.snoozedUntil && r.snoozedUntil > new Date() ? `Snoozed until ${r.snoozedUntil.toLocaleString()}` : undefined,
-          reviewId: r.id,
-          actionId: r.actionId,
-          confidence: r.described.confidence,
-          amount: r.described.amount,
-          currency: r.described.currency,
-        });
+        items.push(proposalItem(r, tab));
       }
       continue;
     }
@@ -221,8 +181,8 @@ function reviewItems(rows: ReviewRow[], tab: InboxTab): InboxItem[] {
     const amount = g.rows.map(r => r.described.amount).find((a): a is number => a !== null) ?? null;
     items.push({
       key: `review-sheet:${g.key}`,
-      kind: 'review-sheet',
-      group: 'approvals',
+      kind: 'proposal',
+      shape: 'sheet',
       title: `${g.record.name} — ${g.rows.length} proposals`,
       subline: [g.record.name, kinds.join(' + '), agents.length > 0 ? `proposed by ${agents.join(', ')}` : null].filter(Boolean).join(' › '),
       agentSlug: agents[0] ?? null,
@@ -266,9 +226,10 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
     const oldest = group.reduce((m, a) => (a.createdAt < m.createdAt ? a : m));
     rows.push({
       key: `sheet:${groupKey}`,
-      kind: 'sheet',
-      group: groupForAskKind(oldest.kind),
+      kind: kindForAsk(oldest.kind),
+      shape: 'sheet',
       title: oldest.groupTitle ?? `${group.length} questions`,
+      subline: [oldest.agentSlug ? `asked by ${oldest.agentSlug}` : null, `${group.length} questions`].filter(Boolean).join(' › '),
       agentSlug: oldest.agentSlug,
       teamSlug: oldest.teamSlug,
       risk: group.some(a => a.risk === 'high') ? 'high' : group.some(a => a.risk === 'medium') ? 'medium' : oldest.risk,
@@ -283,8 +244,9 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
   for (const a of standalone) {
     rows.push({
       key: `ask:${a.id}`,
-      kind: a.kind as AskKind,
-      group: groupForAskKind(a.kind),
+      kind: kindForAsk(a.kind),
+      shape: 'single',
+      ref: { kind: 'ask', id: a.id },
       title: a.title,
       subline: [a.agentSlug ? `asked by ${a.agentSlug}` : null, a.teamSlug ? `team ${a.teamSlug}` : null].filter(Boolean).join(' › ') || undefined,
       agentSlug: a.agentSlug,
@@ -292,7 +254,7 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
       risk: a.risk,
       status: a.status,
       at: a.createdAt,
-      href: `/dashboard/inbox/${a.id}`,
+      href: inboxHref('ask', a.id),
       askId: a.id,
     });
   }
@@ -300,20 +262,25 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
 }
 
 /**
- * Everything on the OPEN tab: asks, described + grouped proposed actions,
- * missions/workflows awaiting review, paused/failed runs, suggested rules.
+ * Everything on the OPEN tab: asks, described + grouped proposals, paused or
+ * awaiting-review missions and workflows, waiting / failed worker runs,
+ * suggested rules.
  * @param orgId
  */
 async function openItems(orgId: string): Promise<InboxItem[]> {
   const since = new Date(Date.now() - RECENT_FAILURE_WINDOW_MS);
-  const [asks, actions, review, pausedMissions, waitingWorkers, failedWorkers, candidates] = await Promise.all([
+  const [asks, actions, missions, workflows, waitingWorkers, failedWorkers, candidates] = await Promise.all([
     db.select().from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'))).orderBy(desc(askSchema.id)),
     listReviewRows(orgId, 'open'),
-    listPending(orgId, { kind: undefined }).then(items => items.filter(i => i.kind !== 'action')),
     db
-      .select({ id: missionRunSchema.id, title: missionRunSchema.title, status: missionRunSchema.status, pauseReason: missionRunSchema.pauseReason, at: missionRunSchema.updatedAt, team: missionRunSchema.team })
+      .select({ id: missionRunSchema.id, title: missionRunSchema.title, status: missionRunSchema.status, pauseReason: missionRunSchema.pauseReason, pausedAt: missionRunSchema.pausedAt, at: missionRunSchema.updatedAt, team: missionRunSchema.team })
       .from(missionRunSchema)
-      .where(and(eq(missionRunSchema.orgId, orgId), eq(missionRunSchema.status, 'paused'))),
+      .where(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.status, ['paused', 'awaiting_review']))),
+    db
+      .select({ id: workflowRunSchema.id, status: workflowRunSchema.status, pauseReason: workflowRunSchema.pauseReason, pausedAt: workflowRunSchema.pausedAt, at: workflowRunSchema.updatedAt, slug: workflowSchema.slug, name: workflowSchema.name })
+      .from(workflowRunSchema)
+      .leftJoin(workflowSchema, eq(workflowSchema.id, workflowRunSchema.workflowId))
+      .where(and(eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.status, 'paused'))),
     db
       .select({ id: workerRunSchema.id, agentSlug: workerRunSchema.agentSlug, status: workerRunSchema.status, at: workerRunSchema.updatedAt })
       .from(workerRunSchema)
@@ -330,38 +297,40 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
 
   return [
     ...askItems(asks),
-    ...reviewItems(actions, 'open'),
-    ...review.map((r): InboxItem => ({
-      key: `review:${r.kind}:${r.id}`,
-      kind: 'review',
-      group: 'approvals',
-      title: r.title,
-      subline: REVIEW_DETAIL[r.kind],
-      agentSlug: null,
-      teamSlug: null,
-      risk: null,
-      status: r.status,
-      // ReviewItem carries no timestamp for these planes; they sort at "now".
-      at: new Date(),
-      href: reviewHref(r),
-    })),
-    ...pausedMissions.map((m): InboxItem => ({
+    ...proposalItems(actions, 'open'),
+    ...missions.map((m): InboxItem => ({
       key: `mission:${m.id}`,
       kind: 'run',
-      group: 'runs',
+      shape: 'single',
+      ref: { kind: 'mission', id: m.id },
       title: m.title,
-      subline: m.pauseReason ?? 'Mission run paused',
+      subline: m.pauseReason ?? (m.status === 'awaiting_review' ? 'Mission run awaiting review' : 'Mission run paused'),
       agentSlug: m.team?.lead ?? null,
       teamSlug: null,
       risk: null,
       status: m.status,
-      at: m.at,
-      href: `/dashboard/missions/runs/${m.id}`,
+      at: m.pausedAt ?? m.at,
+      href: inboxHref('mission', m.id),
+    })),
+    ...workflows.map((w): InboxItem => ({
+      key: `workflow:${w.id}`,
+      kind: 'run',
+      shape: 'single',
+      ref: { kind: 'workflow', id: w.id },
+      title: `${w.name ?? w.slug ?? 'Workflow'} — run #${w.id}`,
+      subline: w.pauseReason ?? 'Workflow paused at an approval gate',
+      agentSlug: null,
+      teamSlug: null,
+      risk: null,
+      status: w.status,
+      at: w.pausedAt ?? w.at,
+      href: inboxHref('workflow', w.id),
     })),
     ...waitingWorkers.map((w): InboxItem => ({
       key: `worker:${w.id}`,
       kind: 'run',
-      group: 'runs',
+      shape: 'single',
+      ref: { kind: 'worker', id: w.id },
       title: `${w.agentSlug} — worker run #${w.id}`,
       subline: w.status === 'paused' ? 'External worker paused' : 'External worker awaiting review',
       agentSlug: w.agentSlug,
@@ -369,12 +338,13 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       risk: null,
       status: w.status,
       at: w.at,
-      href: `/dashboard/agents/${w.agentSlug}`,
+      href: inboxHref('worker', w.id),
     })),
     ...failedWorkers.map((w): InboxItem => ({
       key: `worker:${w.id}`,
       kind: 'run',
-      group: 'runs',
+      shape: 'single',
+      ref: { kind: 'worker', id: w.id },
       title: `${w.agentSlug} — worker run #${w.id} ${w.status}`,
       subline: w.error ?? (w.status === 'lost' ? 'Lease lapsed without a heartbeat' : 'Run failed'),
       agentSlug: w.agentSlug,
@@ -382,12 +352,13 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       risk: 'medium',
       status: w.status,
       at: w.at,
-      href: `/dashboard/agents/${w.agentSlug}`,
+      href: inboxHref('worker', w.id),
     })),
     ...candidates.map((c): InboxItem => ({
       key: `learning:${c.id}`,
       kind: 'learning',
-      group: 'learnings',
+      shape: 'single',
+      ref: { kind: 'learning', id: c.id },
       title: c.editedRuleText ?? c.ruleText,
       subline: `Suggested rule for ${c.stepName}`,
       agentSlug: null,
@@ -395,7 +366,7 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       risk: null,
       status: 'pending',
       at: c.at,
-      href: `/dashboard/learnings/${c.stepName}`,
+      href: inboxHref('learning', c.id),
     })),
   ];
 }
@@ -414,19 +385,52 @@ async function decidedAskItems(orgId: string, limit = 200): Promise<InboxItem[]>
     .limit(limit);
   return asks.map((a): InboxItem => ({
     key: `ask:${a.id}`,
-    kind: a.kind as AskKind,
-    group: groupForAskKind(a.kind),
+    kind: kindForAsk(a.kind),
+    shape: 'single',
+    ref: { kind: 'ask', id: a.id },
     title: a.title,
-    subline: [a.agentSlug ? `asked by ${a.agentSlug}` : null, a.decisionNote ? `“${a.decisionNote}”` : null].filter(Boolean).join(' › ') || undefined,
+    subline: a.agentSlug ? `asked by ${a.agentSlug}` : undefined,
     agentSlug: a.agentSlug,
     teamSlug: a.teamSlug,
     risk: a.risk,
     status: a.status,
     at: a.decidedAt ?? a.updatedAt,
-    href: `/dashboard/inbox/${a.id}`,
+    href: inboxHref('ask', a.id),
     askId: a.id,
     decision: a.decision ?? a.status,
     decidedBy: a.decidedBy,
+    note: a.decisionNote,
+  }));
+}
+
+/**
+ * Adopted or rejected rule candidates, as rows for the decided tab.
+ * @param orgId
+ * @param limit
+ */
+async function decidedLearningItems(orgId: string, limit = 200): Promise<InboxItem[]> {
+  const rows = await db
+    .select()
+    .from(learningCandidateSchema)
+    .where(and(eq(learningCandidateSchema.orgId, orgId), inArray(learningCandidateSchema.status, ['approved', 'rejected'])))
+    .orderBy(desc(learningCandidateSchema.decidedAt))
+    .limit(limit);
+  return rows.map((c): InboxItem => ({
+    key: `learning:${c.id}`,
+    kind: 'learning',
+    shape: 'single',
+    ref: { kind: 'learning', id: c.id },
+    title: c.editedRuleText ?? c.ruleText,
+    subline: `Suggested rule for ${c.stepName}`,
+    agentSlug: null,
+    teamSlug: null,
+    risk: null,
+    status: c.status,
+    at: c.decidedAt ?? c.updatedAt,
+    href: inboxHref('learning', c.id),
+    decision: c.status === 'approved' ? 'adopted' : 'rejected',
+    decidedBy: c.decidedBy,
+    note: c.rejectedReason,
   }));
 }
 
@@ -449,9 +453,9 @@ function search(items: InboxItem[], q: string): InboxItem[] {
  * @param items
  * @param sort
  */
-function sortItems(items: InboxItem[], sort: InboxSort): InboxItem[] {
-  const oldest = (a: InboxItem, b: InboxItem) => a.at.getTime() - b.at.getTime();
-  const byNumber = (pick: (i: InboxItem) => number | null | undefined) => (a: InboxItem, b: InboxItem) => {
+function sortItems<T extends { at: Date; amount?: number | null; confidence?: number | null }>(items: T[], sort: InboxSort): T[] {
+  const oldest = (a: T, b: T) => a.at.getTime() - b.at.getTime();
+  const byNumber = (pick: (i: T) => number | null | undefined) => (a: T, b: T) => {
     const av = pick(a) ?? null;
     const bv = pick(b) ?? null;
     if (av === bv) {
@@ -496,8 +500,28 @@ function facetsOf(items: InboxItem[]): InboxFacets {
 }
 
 /**
+ * Search, action-kind and agent filters — everything except the kind chips,
+ * which are applied after the counts are taken.
+ * @param items
+ * @param query
+ */
+function narrow(items: InboxItem[], query: InboxQuery): InboxItem[] {
+  let out = items;
+  if (query.actionKinds && query.actionKinds.length > 0) {
+    out = out.filter(i => i.actionId && query.actionKinds!.includes(i.actionId));
+  }
+  if (query.agents && query.agents.length > 0) {
+    out = out.filter(i => i.agentSlug && query.agents!.includes(i.agentSlug));
+  }
+  if (query.q) {
+    out = search(out, query.q);
+  }
+  return out;
+}
+
+/**
  * The inbox for one tab, searched, filtered and sorted. The default is the
- * open tab, oldest first — a queue, not a feed.
+ * open tab, every kind, oldest first — a queue, not a feed.
  * @param orgId
  * @param query
  */
@@ -508,36 +532,30 @@ export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<
   // you clicked it (Chris, 2026-09-15: "decided counts show 0 when not
   // selected and 7 when selected") — a count on a tab is a promise about what
   // is behind it, so it cannot depend on which tab you are standing on.
-  const [open, snoozedRows, decidedRows, decidedAsks] = await Promise.all([
+  const [open, snoozedRows, decidedRows, decidedAsks, decidedRules] = await Promise.all([
     openItems(orgId),
     listReviewRows(orgId, 'snoozed'),
     listReviewRows(orgId, 'decided'),
     decidedAskItems(orgId),
+    decidedLearningItems(orgId),
   ]);
-  const snoozed = reviewItems(snoozedRows, 'snoozed');
-  const decided = [...reviewItems(decidedRows, 'decided'), ...decidedAsks];
+  const snoozed = proposalItems(snoozedRows, 'snoozed');
+  const decided = [...proposalItems(decidedRows, 'decided'), ...decidedAsks, ...decidedRules];
   const tabs: Record<InboxTab, number> = { open: open.length, snoozed: snoozed.length, decided: decided.length };
 
-  let items = tab === 'open' ? open : tab === 'snoozed' ? snoozed : decided;
-  const facets = facetsOf(items);
+  const all = tab === 'open' ? open : tab === 'snoozed' ? snoozed : decided;
+  const facets = facetsOf(all);
+  let items = narrow(all, query);
+
+  const counts = Object.fromEntries(INBOX_KINDS.map(k => [k, 0])) as Record<InboxKind, number>;
+  for (const item of items) {
+    counts[item.kind] += 1;
+  }
   if (query.kinds && query.kinds.length > 0) {
-    items = items.filter(i => i.actionId && query.kinds!.includes(i.actionId));
-  }
-  if (query.agents && query.agents.length > 0) {
-    items = items.filter(i => i.agentSlug && query.agents!.includes(i.agentSlug));
-  }
-  if (query.q) {
-    items = search(items, query.q);
-  }
-  if (query.group) {
-    items = items.filter(i => i.group === query.group);
+    items = items.filter(i => query.kinds!.includes(i.kind));
   }
   sortItems(items, tab === 'decided' ? (query.sort ?? 'newest') : (query.sort ?? 'oldest'));
 
-  const counts = Object.fromEntries(INBOX_GROUPS.map(g => [g, 0])) as Record<InboxGroup, number>;
-  for (const item of items) {
-    counts[item.group] += 1;
-  }
   return { items, counts, total: items.length, tabs, facets };
 }
 
@@ -550,6 +568,34 @@ export async function needsYou(orgId: string): Promise<Inbox> {
   return listInbox(orgId, { tab: 'open' });
 }
 
+/** One proposal in the working queue — what the detail page's Up-next walks. */
+export type ProposalQueueEntry = { id: number; title: string; typeLabel: string; actionId: string };
+
+/**
+ * The open proposals, one per run, in the order the list shows them under
+ * the same filters — so the detail page's Up-next and `j`/`k` walk the
+ * filtered inbox, not a separate queue. Sheets are flattened into their rows,
+ * oldest first within the sheet.
+ * @param orgId
+ * @param query - The list's filters; `kinds` and `tab` are ignored (this is the proposal kind, open tab).
+ */
+export async function listProposalQueue(orgId: string, query: InboxQuery = {}): Promise<ProposalQueueEntry[]> {
+  const rows = await listReviewRows(orgId, 'open');
+  const items = narrow(proposalItems(rows, 'open'), query);
+  sortItems(items, query.sort ?? 'oldest');
+  const byId = new Map(rows.map(r => [r.id, r]));
+  const out: ProposalQueueEntry[] = [];
+  for (const item of items) {
+    const members = item.shape === 'sheet'
+      ? rows.filter(r => (r.described.record?.key ?? `run:${r.id}`) === item.groupKey).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      : [byId.get(item.reviewId!)!];
+    for (const r of members) {
+      out.push({ id: r.id, title: r.described.title, typeLabel: humaniseActionId(r.actionId), actionId: r.actionId });
+    }
+  }
+  return out;
+}
+
 /**
  * How many rows the open tab shows — the sidebar badge. A decision sheet (asks
  * under one key, proposals about one record) counts once, as on the page.
@@ -557,54 +603,20 @@ export async function needsYou(orgId: string): Promise<Inbox> {
  */
 export async function needsYouCount(orgId: string): Promise<number> {
   const since = new Date(Date.now() - RECENT_FAILURE_WINDOW_MS);
-  const count = (where: ReturnType<typeof and>, table: typeof missionRunSchema | typeof workerRunSchema | typeof learningCandidateSchema) =>
+  const count = (where: ReturnType<typeof and>, table: typeof missionRunSchema | typeof workerRunSchema | typeof learningCandidateSchema | typeof workflowRunSchema) =>
     db.select({ n: sql<number>`count(*)::int` }).from(table).where(where).then(([r]) => r?.n ?? 0);
 
-  const [asks, actions, otherReview, missions, workers, failed, candidates] = await Promise.all([
+  const [asks, actions, missions, workflows, workers, failed, candidates] = await Promise.all([
     db.select({ n: sql<number>`count(distinct coalesce(${askSchema.groupKey}, ${askSchema.id}::text))::int` })
       .from(askSchema)
       .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open')))
       .then(([r]) => r?.n ?? 0),
     listReviewRows(orgId, 'open').then(rows => groupByRecord(rows).length),
-    listPending(orgId).then(items => items.filter(i => i.kind !== 'action').length),
-    count(and(eq(missionRunSchema.orgId, orgId), eq(missionRunSchema.status, 'paused')), missionRunSchema),
+    count(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.status, ['paused', 'awaiting_review'])), missionRunSchema),
+    count(and(eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.status, 'paused')), workflowRunSchema),
     count(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['paused', 'awaiting_review'])), workerRunSchema),
     count(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['failed', 'lost']), gte(workerRunSchema.updatedAt, since)), workerRunSchema),
     count(and(eq(learningCandidateSchema.orgId, orgId), eq(learningCandidateSchema.status, 'pending')), learningCandidateSchema),
   ]);
-  return asks + actions + otherReview + missions + workers + failed + candidates;
-}
-
-/** The header's "What changed": the last decision, or the newest thing waiting. */
-export type InboxChange = { verb: 'approved' | 'rejected' | 'answered' | 'new'; title: string; href: string; at: Date };
-
-/**
- * The most recent decision in the inbox — an answered ask or a decided
- * proposal — or, when nothing has been decided yet, the newest open row.
- * Never a sync event: the header is about the team's decisions, not its plumbing.
- * @param orgId
- */
-export async function lastChange(orgId: string): Promise<InboxChange | null> {
-  const [[ask], [action]] = await Promise.all([
-    db
-      .select({ id: askSchema.id, title: askSchema.title, status: askSchema.status, at: askSchema.decidedAt })
-      .from(askSchema)
-      .where(and(eq(askSchema.orgId, orgId), inArray(askSchema.status, ['approved', 'rejected', 'done'])))
-      .orderBy(desc(askSchema.decidedAt))
-      .limit(1),
-    listReviewRows(orgId, 'decided', { limit: 1 }),
-  ]);
-  const candidates: InboxChange[] = [];
-  if (ask?.at) {
-    candidates.push({ verb: ask.status === 'approved' ? 'approved' : ask.status === 'rejected' ? 'rejected' : 'answered', title: ask.title, href: `/dashboard/inbox/${ask.id}`, at: ask.at });
-  }
-  if (action?.decidedAt) {
-    candidates.push({ verb: action.status === 'rejected' ? 'rejected' : 'approved', title: action.described.title, href: '/dashboard/inbox?tab=decided', at: action.decidedAt });
-  }
-  if (candidates.length > 0) {
-    return candidates.sort((a, b) => b.at.getTime() - a.at.getTime())[0]!;
-  }
-  const open = await openItems(orgId);
-  const newest = open.filter(i => i.kind !== 'review' || i.reviewId !== undefined).sort((a, b) => b.at.getTime() - a.at.getTime())[0];
-  return newest ? { verb: 'new', title: newest.title, href: newest.href, at: newest.at } : null;
+  return asks + actions + missions + workflows + workers + failed + candidates;
 }

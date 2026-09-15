@@ -1,6 +1,7 @@
 import type { SheetAsk } from './AskSheet';
 import type { ReviewRow } from '@/services/inbox/reviewRows';
 import { amountLabel, confidenceLabel, humaniseField } from '@/services/inbox/describeActionRun';
+import { inboxHref } from '@/services/inbox/inboxRef';
 
 /**
  * A proposed action as one question on a decision sheet: the human title, a
@@ -37,7 +38,7 @@ export function reviewRowToSheetAsk(row: ReviewRow): SheetAsk {
       { id: 'approve', label: 'Approve', description: `Execute this ${d.actionKind.replace(/^[A-Z](?![A-Z])/, m => m.toLowerCase())} now.`, recommended: isRecommended(row, 'approve') },
       { id: 'reject', label: 'Reject', description: 'Do not do this. Add a note and the team learns from it.', recommended: isRecommended(row, 'reject') },
     ],
-    contextUrl: '/dashboard/review',
+    contextUrl: inboxHref('proposal', row.id),
     contextMd: [evidence ? `**Evidence**\n\n${evidence}` : null, `**Payload**\n\n${raw}`].filter(Boolean).join('\n\n'),
     agentSlug: d.agentSlug,
     teamSlug: null,

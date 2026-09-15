@@ -82,6 +82,12 @@ export type DashboardRoute = {
    * beneath it while you are on that page.
    */
   tabOf?: string;
+  /**
+   * A palette row only — never a sidebar row, never a breadcrumb owner. For an
+   * alias onto a filtered view of a page that is already in the nav, so old
+   * muscle memory ("review") still finds the work without a second door to it.
+   */
+  paletteOnly?: boolean;
   /** For the page that OWNS a tab strip: the label of its own first tab (its title names the whole page). */
   tabTitle?: string;
   /** `DashboardLayout` message key for `tabTitle`. */
@@ -91,9 +97,12 @@ export type DashboardRoute = {
 export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── WORK ────────────────────────────────────────────────────────────────
   { url: '/dashboard/chat', title: 'Chat', group: 'Workspace', icon: MessageSquare, i18nKey: 'chat', keywords: ['ask', 'agent'] },
-  { url: '/dashboard/inbox', title: 'Needs you', group: 'Workspace', icon: Inbox, i18nKey: 'inbox', keywords: ['inbox', 'decisions', 'asks', 'approvals'] },
+  { url: '/dashboard/inbox', title: 'Needs you', group: 'Workspace', icon: Inbox, i18nKey: 'inbox', keywords: ['inbox', 'decisions', 'asks', 'approvals', 'proposals', 'review', 'queue'] },
   { url: '/dashboard/briefings', title: 'Briefings', group: 'Workspace', icon: Newspaper, i18nKey: 'briefings' },
-  { url: '/dashboard/review', title: 'Review', group: 'Workspace', icon: CheckSquare, i18nKey: 'review', keywords: ['approve', 'queue', 'hitl'] },
+  // Review is no longer a place: the queue is the `proposal` kind of Needs you
+  // (`/dashboard/review` 308s there). The row stays as a PALETTE alias so typing
+  // "review" still lands where the work is, without a second sidebar door.
+  { url: '/dashboard/inbox?kind=proposal', title: 'Needs you · Proposals', group: 'Workspace', icon: CheckSquare, paletteOnly: true, keywords: ['review', 'approve', 'queue', 'hitl', 'proposals'] },
   { url: '/dashboard/search', title: 'Search', group: 'Workspace', icon: BookOpen, i18nKey: 'search', keywords: ['knowledge', 'retrieval'] },
 
   // ── MANAGE · Team — who works for you and the shapes their work takes ───
@@ -141,9 +150,9 @@ function visibleRoutes(isAdmin: boolean): DashboardRoute[] {
   return DASHBOARD_ROUTES.filter(r => isAdmin || !r.adminOnly);
 }
 
-/** The WORK view's rows, in order. */
+/** The WORK view's rows, in order. Palette-only aliases are not rows. */
 export function workRoutes(): DashboardRoute[] {
-  return DASHBOARD_ROUTES.filter(r => r.group === 'Workspace');
+  return DASHBOARD_ROUTES.filter(r => r.group === 'Workspace' && !r.paletteOnly);
 }
 
 /** The MANAGE view's sections, each with its top-level rows (tabs excluded) in registry order. */

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
+import { Toaster } from '@/components/ui/toast';
 import { AppShell } from '@/features/dashboard/AppShell';
 
 type DashboardLayoutProps = {
@@ -23,5 +24,11 @@ export async function generateMetadata(props: DashboardLayoutProps): Promise<Met
 export default async function DashboardLayout(props: DashboardLayoutProps) {
   const { locale } = await props.params;
 
-  return <AppShell locale={locale}>{props.children}</AppShell>;
+  return (
+    <>
+      <AppShell locale={locale}>{props.children}</AppShell>
+      {/* The global toast queue — one mount for every dashboard page. */}
+      <Toaster />
+    </>
+  );
 }

@@ -9,12 +9,14 @@ import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 
 /**
- * The Review page header for one item: a breadcrumb with context
- * (Workspace › Review › type › record), the item as the H1 ("Enroll MQL in
- * sequence — Dale Heim · Agentix"), and ONE meta row — system · lane · who
- * proposed · confidence as an inline meter · how often people agreed with
- * this agent on this kind · what the agent suggests · where you are in the
- * queue — with Back and "Next: …" on the right.
+ * The decision-screen header every kind on "Needs you" shares: a breadcrumb
+ * with context (Workspace › Needs you › kind › record), the item as the H1
+ * ("Enroll MQL in sequence — Dale Heim · Agentix"), and ONE meta row —
+ * system · status · who proposed or asked · confidence as an inline meter ·
+ * how often people agreed with this agent on this kind · what the agent
+ * suggests · where you are in the queue — with Back and "Next: …" on the
+ * right. A proposal, an ask, a stopped run and a suggested rule all read the
+ * same way; only what sits under the header differs.
  *
  * Sets `document.title` to the H1 so the browser tab (and a shell breadcrumb
  * that reads the title) say what this page is. Chris, 2026-09-15: "better page
@@ -23,12 +25,21 @@ import { cn } from '@/utils/Helpers';
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Ready for review',
+  open: 'Waiting on you',
   approved: 'Approved',
   executing: 'Executing',
   done: 'Done',
   failed: 'Failed',
   rejected: 'Declined',
+  paused: 'Paused',
+  awaiting_review: 'Awaiting review',
+  lost: 'Lost',
+  cancelled: 'Cancelled',
+  completed: 'Completed',
+  superseded: 'Superseded',
 };
+
+const RED_STATUSES = new Set(['failed', 'lost', 'rejected', 'cancelled']);
 
 const SUGGESTION: Record<SuggestedDecision, { label: string; className: string }> = {
   approve: { label: 'Agent suggests approving', className: 'text-emerald-700 dark:text-emerald-300' },
@@ -91,14 +102,16 @@ export function ReviewHeader(props: {
   canBack?: boolean;
 }) {
   const t = useTranslations('Review');
+  const tInbox = useTranslations('Inbox');
+  const surface = tInbox('title');
   const { crumbs, title, subject } = props;
   useEffect(() => {
     const prev = document.title;
-    document.title = `${title} · Review`;
+    document.title = `${title} · ${surface}`;
     return () => {
       document.title = prev;
     };
-  }, [title]);
+  }, [title, surface]);
   const suggestion = props.suggestion ? SUGGESTION[props.suggestion] : undefined;
 
   const subline = subject ? [subject.role, subject.company].filter(Boolean).join(' · ') : '';
@@ -110,7 +123,7 @@ export function ReviewHeader(props: {
   }
   meta.push(
     <span key="status" className="inline-flex items-center gap-1.5">
-      <span className={cn('size-1.5 rounded-full', props.status === 'failed' ? 'bg-red-500' : 'bg-emerald-500')} aria-hidden />
+      <span className={cn('size-1.5 rounded-full', RED_STATUSES.has(props.status) ? 'bg-red-500' : props.status === 'paused' || props.status === 'awaiting_review' ? 'bg-amber-500' : 'bg-emerald-500')} aria-hidden />
       {STATUS_LABEL[props.status] ?? props.status}
     </span>,
   );
@@ -162,7 +175,7 @@ export function ReviewHeader(props: {
             </p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2 text-[13px] text-muted-foreground">
+        <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2 text-[13px] text-muted-foreground sm:shrink-0 sm:flex-nowrap">
           {props.canBack !== undefined && (
             <button
               type="button"

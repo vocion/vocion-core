@@ -11,7 +11,7 @@ one per rule.
 | **Schema** | `TrustManifestSchema` — `packages/core/src/libs/workspace/schemas.ts` |
 | **Applied to** | `trust_rule` (the execution record) + `autonomy_policy` (rung, risk tier, floor, evidence) |
 | **Runtime** | Auto-approval threshold check in `ActionService`; rung ↔ rule mapping in `services/autonomy/AutonomyService.ts` |
-| **Surface** | `/dashboard/autonomy` (the ladder), `/dashboard/review` (auto-executed list), Autonomy column on `/dashboard/team-report` |
+| **Surface** | `/dashboard/autonomy` (the ladder), Needs you (`/dashboard/inbox?kind=proposal`) for what still waits on a person, `GET /api/v1/reviews/auto-executed` for what a rule let through, Autonomy column on `/dashboard/team-report` |
 | **Layering** | Workspace-only — a base pack ships no trust rules |
 
 How a kind *earns* a higher rung — what counts as evidence, the defaults per

@@ -13,7 +13,7 @@ import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
  *
  * A page never introduces a new data model. Each page is a *derivative of a
  * core page archetype* — today `list` (the objects/type/[slug] shape),
- * `queue` (the review shape, read-only, linking into /dashboard/review for
+ * `queue` (the review shape, read-only, linking into /dashboard/inbox for
  * decisions) or `markdown` (the docs shape) — configured over data core
  * already owns: business objects, skill runs, or knowledge documents.
  *
@@ -114,7 +114,7 @@ export const PageManifestSchema = z.object({
    * Embed the core review queue on this page: agent-proposed actions
    * (action_run rows, optionally scoped by `skills` = action ids) and,
    * optionally, paused workflow runs. Same items, same approve/decline
-   * services as /dashboard/review — one queue. The `queue` archetype gets
+   * services as /dashboard/inbox — one queue. The `queue` archetype gets
    * this implicitly from its source when omitted.
    */
   review: z.object({

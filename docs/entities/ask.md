@@ -4,12 +4,14 @@ An **ask** is one question waiting on a **person**. A ruling the team is blocked
 for something it wants to do, a credential or an input it needs from you, a pull request ready for
 a human to merge, a change the team recommends to itself, a gate before a run may continue.
 
-Unlike an [action](./trust.md) in the review queue, nothing executes when an ask is answered.
-The answer *is* the outcome: whoever filed the ask — an agent, an external worker, a sync script —
-reads it back over the API and acts on it. Asks are runtime objects, not authored files; they are
-filed by code and answered on the **Needs you** page (`/dashboard/inbox`), which is where
-everything waiting on a person is listed together: asks, review-queue items, paused runs, and
-suggested rules.
+Unlike a [proposal](./trust.md) (an agent-proposed action), nothing executes when an ask is
+answered. The answer *is* the outcome: whoever filed the ask — an agent, an external worker, a sync
+script — reads it back over the API and acts on it. Asks are runtime objects, not authored files;
+they are filed by code and answered on **Needs you** (`/dashboard/inbox`), the [one decision
+surface](../guides/needs-you.md) where everything waiting on a person is listed together: proposals,
+asks, stopped runs and suggested rules, each tagged with its kind. An ask's `kind` is its inbox
+kind; the kind chips filter the list to it, and its detail screen wears the same chrome as a
+proposal's — breadcrumb › kind › record, the meta row with the asker's alignment, the sticky bar.
 
 ## The reference: answering from a phone
 
@@ -29,8 +31,11 @@ clear answer without reading a report.
   ruling, approval or recommendation an "other" answer sets `followUp`, because the asker has to
   read it and may need to ask again.
 - **A decision sheet** is several asks sharing a `groupKey`: answered as a stepper — one question
-  per screen, *Next →*, then a receipt listing every Question → Answer with an *Edit* per row and
-  one *Submit all*. Each submit is one decide call, so a sheet that half-fails stays editable.
+  per screen. *Next* submits that question's answer (one decide call), holds a visible pending
+  state until the server answers (never less than ~400 ms), and only then advances; a failure keeps
+  the question on screen with the selection intact. The receipt at the end lists every Question →
+  Answer with its outcome and a *Fix* on anything that failed, so a sheet that half-fails stays
+  editable. Each answer is confirmed by a toast naming the choice and what happens next.
 - **The list row is minimal**: title, kind chip, who asked, how long it has waited, risk. Nothing
   else — the question is read on its own screen.
 - **Every answer makes the system smarter.** A `reject` or an `other` with a note is queued for
@@ -85,7 +90,7 @@ carries a *Recommended* chip and nothing more.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `kind` | `approval` \| `input` \| `ruling` \| `credential` \| `merge` \| `recommendation` \| `gate` | What sort of thing is waiting. Groups the inbox. |
+| `kind` | `approval` \| `input` \| `ruling` \| `credential` \| `merge` \| `recommendation` \| `gate` | What sort of thing is waiting. The inbox kind — the chips on Needs you filter by it. |
 | `title` | string | The question, as a person would ask it. |
 | `body` | markdown, short | Why, and what happens on each answer. |
 | `options` | `{ id, label, description?, recommended?, confidence? }[]` | Named answers. Bare strings are accepted on POST and get `id = slug(label)`. At most one `recommended`. `confidence` (0–1) is how sure the asker is of that option — meant for the recommended one, so the sheet shows *Recommended with 72% confidence · agrees with you 92% (n=48)* the way a review card does. Advisory only. |
@@ -147,7 +152,7 @@ on `decision`, `decisionNote` and `followUp`.
   `(org_id, group_key)`; unique on `(org_id, source_ref)` where present.
 - **Service:** `services/AskService.ts` (file, list, decide, supersede, notifications);
   `services/InboxService.ts` aggregates everything waiting on a person.
-- **UI:** `/dashboard/inbox`, `/dashboard/inbox/:id`, `/dashboard/inbox/g/:groupKey`.
+- **UI:** `/dashboard/inbox` (filter with `?kind=<ask kind>`), `/dashboard/inbox/:id`, `/dashboard/inbox/g/:groupKey` — see [Needs you](../guides/needs-you.md).
 - **Adoption stream:** every answer lands as `ask.decided` with the kind and the resulting status.
 - **Learning:** `services/feedback/askFeedbackQueue.ts` queues corrections for the classifier;
   `services/alignment/AlignmentService.ts` records every answer as alignment evidence.

@@ -243,7 +243,7 @@ test('one record, one review item: propose, re-propose, decide, and link what th
   expect(proposal.confidence).toBeCloseTo(0.91);
 
   // ── The moderator's own surface ─────────────────────────────────────────
-  await page.goto(`${baseURL}/dashboard/review`);
+  await page.goto(`${baseURL}/dashboard/inbox/proposal-${firstBody.runId}`);
 
   await expect(page.getByTestId('review-focus')).toBeVisible();
   await expect(page.getByText(OPEN_MIC_TITLE).first()).toBeVisible();

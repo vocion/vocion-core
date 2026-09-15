@@ -5,6 +5,7 @@ import { ArrowRight, Check, Loader2, Mail, PencilLine, ShieldCheck, Sparkles, X 
 import { useEffect, useRef, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { inboxHref } from '@/services/inbox/inboxRef';
 import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
 /**
@@ -93,7 +94,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
       autoFiredRef.current = true;
       // Proposing IS the effect here: the thread runs at act-within-bounds,
       // so the card fires its one network call the moment it appears.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       void prepare();
     }
     // `prepare` closes over `rec`, which is stable for the card's life.
@@ -214,10 +215,10 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
                   </>
                 )}
                 <Link
-                  href="/dashboard/review"
+                  href={phase.runId !== undefined ? inboxHref('proposal', phase.runId) : '/dashboard/inbox?kind=proposal'}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
                 >
-                  {status === 'pending' ? 'Open in review queue' : 'Open in review'}
+                  {status === 'pending' ? 'Decide on Needs you' : 'Open on Needs you'}
                   <ArrowRight className="size-3.5" aria-hidden />
                 </Link>
                 {decideError && (
