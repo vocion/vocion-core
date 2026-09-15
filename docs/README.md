@@ -37,6 +37,11 @@ Workspace pages keep their own page because they are file-only: nothing is
 written to the database and `workspace:check` / `workspace:apply` do not know
 about them.
 
+## Guides
+
+- [Agents in Slack](./guides/slack.md) — mention an agent in a channel, it answers in the thread.
+- [Email — the daily team report](./guides/email.md) — outbound mail (Resend), the `daily-team-report` job, and the automation that schedules it per workspace.
+
 ## Deployment
 
 - [Multiple environments](./deployment/multiple-environments.md)

@@ -70,6 +70,24 @@ do:
 Exactly one of `workflow`, `checkMission`, and `job` is required. `prompt` is
 only allowed alongside `checkMission`.
 
+#### Built-in jobs
+
+| Job | What it does | Input |
+|---|---|---|
+| `daily-team-report` | Trailing-window team activity report — runs, spend and token weight per team and member, board/red-team runs, what needs a person, the latest workspace briefing. Stored as a workspace briefing; mailed when `VOCION_MAIL_ENABLED=1`. See [Email](../guides/email.md). | `to` (list, default: workspace `accountableUser`), `hours` (default 24), `mail`, `publish` |
+
+```yaml
+slug: daily-team-report
+name: Daily team report
+agent: ceo
+when:
+  schedule: '0 13 * * *'
+do:
+  job: daily-team-report
+  input:
+    hours: 24
+```
+
 ## Example
 
 ```yaml

@@ -4,16 +4,26 @@
  * sequences) and `checkMission` (agent runs). Used for work that is plain code,
  * not an agent or a workflow.
  *
- * Currently empty: discovery-call detection, the one job that lived here,
- * became agent-driven (an hourly `checkMission` automation carrying an
- * execution prompt; the tools are `services/agents/tools/discovery.ts`).
- * The registry stays because the `do: job` seam is still part of the
- * automation contract.
+ * Jobs:
+ *   - `daily-team-report` — the trailing-24h team activity report: stored as a
+ *     workspace briefing and, when `VOCION_MAIL_ENABLED=1`, mailed to the
+ *     workspace's accountable human (or `input.to`). `services/jobs/dailyTeamReport.ts`.
+ *
+ * (Discovery-call detection, the job that used to live here, became
+ * agent-driven — an hourly `checkMission` automation.)
  */
+
+import { DAILY_TEAM_REPORT_JOB, runDailyTeamReportJob } from './dailyTeamReport';
 
 type BuiltInJob = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
-const JOBS: Record<string, BuiltInJob> = {};
+const JOBS: Record<string, BuiltInJob> = {
+  [DAILY_TEAM_REPORT_JOB]: runDailyTeamReportJob,
+};
+
+export function builtInJobNames(): string[] {
+  return Object.keys(JOBS);
+}
 
 export function isBuiltInJob(name: string): boolean {
   return name in JOBS;
