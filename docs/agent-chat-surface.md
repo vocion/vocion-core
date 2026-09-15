@@ -154,6 +154,76 @@ agent is doing, and able to be talked back to.
     state says "Ask <Workspace>" with the workspace's chips — the lead's
     suggestions plus one per team lead, capped at four — never an agent name.
 
+## §12 — The composer never locks (2026-09-15)
+
+The box used to go `disabled` for the whole turn. That is the wrong default:
+the moment you most want to add "and skip the ones already closed" is halfway
+through the tool calls, and a locked box teaches people to stop thinking while
+the agent thinks.
+
+**The contract.** The textarea and the primary action stay live for the entire
+turn, with no visual disabled state at any point. Enter always does something
+useful:
+
+| Gesture | While idle | While a turn is streaming |
+|---|---|---|
+| `Enter` | sends | **queues** — never interrupts |
+| `⌘⏎` / `Ctrl+⏎` | sends | stops the turn and sends immediately |
+| `Esc` (empty box) | — | stops the turn |
+| `Esc` (with text) | — | nothing — a stray Esc must not eat a half-typed thought |
+
+**Queued rows.** Queued messages render as compact rows directly above the
+composer, oldest first: the text, an ✕ to drop it, and a click on the row to
+pull it back into the box for an edit. At most three are visible with a
+"+N more" (a phone keeps its viewport). The placeholder changes to
+"Queue a message… ⌘⏎ to send now" so the affordance is discoverable.
+
+**The flush.** When the turn LANDS the queue drains itself, one message per
+completed turn, in order, as separate user turns — nobody has to touch
+anything. When the turn is **stopped or fails**, the queue is kept and the
+composer says so ("The turn ended early — these were not sent."). A person's
+typing is never dropped quietly, and never sent without them noticing either.
+
+**Persistence** is `sessionStorage`, keyed per conversation, so the queue
+survives a rail resize, a collapse/expand and a route change inside the
+workspace. A `new` thread that acquires its id carries its queue across;
+switching to another thread adopts that thread's queue. A full page reload in
+a new tab starts empty, by design.
+
+### Why there is no mid-turn steering (yet)
+
+A queued message does **not** reach the turn that is already running. The
+investigation and the exact blocker, so nobody has to redo it:
+
+1. **There is a natural checkpoint.** LangChain v1 middleware exposes
+   `beforeModel` / `wrapModelCall`, which run between the tools node and the
+   next model call. `createDeepAgent` takes `middleware`, so a hook could drain
+   a per-run mailbox there. No checkpointer, no LangGraph state surgery, no
+   protocol change. That part is a day's work.
+2. **The blocker is the provider's message shape.** At that checkpoint the
+   messages are `[…, AIMessage(tool_calls), ToolMessage]`. Appending the
+   interjection as a `HumanMessage` puts two consecutive `user` turns on the
+   wire, and `@langchain/anthropic`'s `mergeMessages`
+   (`utils/message_inputs.js`) merges only consecutive *tool_result* user
+   turns — so it is sent as-is and Anthropic rejects it for alternating roles.
+   The only way to land the words in context without a redesign is to append
+   them to the last tool result, which makes the audit trail say a tool
+   returned something a person typed.
+3. **It would only ever work on one harness target.** `in-process` is the only
+   one where we own the loop. `agentcore-container`, `aws-managed-harness` and
+   `external-worker` run the loop in another process behind a one-shot
+   `POST /invocations` (or a queued `worker_run`) with no inbound channel
+   mid-turn — steering there is a protocol change on both sides.
+
+**The smallest unlock** is (2): a `steeringMiddleware` whose `wrapModelCall`
+rewrites `request.messages` so the interjection rides as an extra text block on
+the tool-result user turn, plus a decision on whether the persisted tool output
+carries it. Add a mailbox keyed by the `streamId` the route already mints (see
+`libs/streams/buffer.ts`, same in-process scope, same single-container
+assumption) and a `POST /rpc/agent/steer` to post into it. Until that decision
+is made, the transcript would have to pretend a tool said it — so it is not
+built, and the queue is the honest behaviour.
+
 ## Where things live
 
 | Concern | File |
@@ -162,6 +232,7 @@ agent is doing, and able to be talked back to.
 | The rail | `features/dashboard/chat/ChatDock.tsx`, `railState.ts` |
 | Resume rule | `features/dashboard/chat/resumeRule.ts` |
 | Stream reducer, session state | `features/dashboard/chat/useChatSession.ts`, `traceReducer.ts` |
+| Composer, queue + interrupt (§12) | `features/dashboard/chat/ChatComposer.tsx`, `queueReducer.ts`, `useSendQueue.ts`, `composerQueue.ts` |
 | Live / folded trace | `features/dashboard/chat/WorkTimeline.tsx` |
 | Link chips | `features/dashboard/chat/links.ts`, `AgentMessage.tsx` |
 | Feedback | `MessageFeedback.tsx`, `services/ConversationService.ts#setMessageFeedback`, adoption event `chat.feedback` |

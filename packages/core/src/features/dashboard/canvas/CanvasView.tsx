@@ -16,6 +16,7 @@ import { useCallback, useEffect, useReducer, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
+import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
 import { HitlGate } from '@/features/dashboard/chat/HitlGate';
 import { MessageList } from '@/features/dashboard/chat/MessageList';
 import { useChatSession } from '@/features/dashboard/chat/useChatSession';
@@ -56,6 +57,7 @@ export function CanvasView(props: CanvasViewProps) {
       return undefined;
     },
   });
+  const queueProps = useComposerQueueProps(session);
   const [gridOpen, setGridOpen] = useState(props.gridOpen);
   const [saving, setSaving] = useState(false);
   const [saveName, setSaveName] = useState(props.savedCanvas?.name ?? props.conversationTitle);
@@ -166,8 +168,9 @@ export function CanvasView(props: CanvasViewProps) {
               value={session.composerValue}
               onChange={session.setComposerValue}
               onSubmit={() => void session.sendMessage(session.composerValue)}
-              disabled={session.isStreaming || !session.booted}
+              disabled={!session.booted}
               streaming={session.isStreaming}
+              {...queueProps}
               onStop={session.handleStop}
               placeholder={session.composerPlaceholder}
               pastedText={session.pastedText}
