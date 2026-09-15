@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
+import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
 import { EmptyState } from './EmptyState';
@@ -165,6 +166,14 @@ function ChatShellInner({
             onNewChat={session.handleNewChat}
             search={session.searchConversations}
           />
+          {/* The conversation's rung rides with the conversation's identity on
+              every surface, not inside the composer (§9.7). */}
+          <AutonomyControl
+            value={session.autonomy}
+            onChange={session.setAutonomy}
+            copy={autonomyCopy}
+            label={t('autonomy')}
+          />
           <ChatMenu onNewChat={session.handleNewChat} />
         </div>
       </ShellBarActionsPortal>
@@ -234,9 +243,6 @@ function ChatShellInner({
             onAddTag={session.addContextRef}
             onRemoveTag={session.removeContextRef}
             tagSearch={tagSearch}
-            autonomy={session.autonomy}
-            onAutonomyChange={session.setAutonomy}
-            autonomyCopy={autonomyCopy}
           />
         </div>
 

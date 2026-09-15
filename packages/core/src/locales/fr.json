@@ -50,7 +50,8 @@
     "developers": "Développeurs",
     "usage_this_period": "Consommation de la période",
     "notifications": "Notifications",
-    "notifications_soon": "Notifications — bientôt"
+    "notifications_soon": "Notifications — bientôt",
+    "workspace_settings": "Paramètres de l’espace"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",
@@ -155,7 +156,6 @@
     "collapse_rail": "Réduire la conversation (⌘J)",
     "resize_rail": "Redimensionner la conversation",
     "all_conversations": "Toutes les conversations",
-    "history": "Historique",
     "search_placeholder": "Rechercher dans les conversations…",
     "history_today": "Aujourd’hui",
     "history_yesterday": "Hier",
@@ -174,7 +174,10 @@
     "feedback_add_note": "Ajouter une note",
     "feedback_note_placeholder": "Dites à l’équipe ce qu’il faut changer (facultatif)",
     "feedback_save": "Envoyer",
-    "feedback_saved": "Merci — l’équipe la lit à son prochain cycle."
+    "feedback_saved": "Merci — l’équipe la lit à son prochain cycle.",
+    "autonomy": "Autonomie",
+    "conversations": "Conversations",
+    "chat_options": "Options de discussion"
   },
   "Review": {
     "all": "Tout",

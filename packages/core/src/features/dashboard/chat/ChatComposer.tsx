@@ -1,29 +1,34 @@
 'use client';
 
-import type { ContextRef, ConversationAutonomy } from './types';
+import type { ContextRef } from './types';
 import { ArrowUp, AtSign, Bot, CircleHelp, Square, Target, Users, X } from 'lucide-react';
+import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * Sticky-bottom composer.
+ * Sticky-bottom composer — an input and ONE primary action.
  *
  * - max-width 3xl, centered
- * - rounded-2xl with focus-within ring + amber-tinted shadow
+ * - rounded-2xl, `focus-within:ring-1` in the ring token at low alpha with a
+ *   soft background shift (2026-09-15: it was a 4px amber halo plus a tinted
+ *   drop shadow, which read as an error state)
  * - auto-resize textarea (24px → 220px)
- * - square send button, amber filled when enabled
+ * - round send button, amber filled when enabled
  *
- * Three quiet affordances ride along (agent-chat-surface.md §9):
+ * Two quiet affordances ride along (agent-chat-surface.md §9):
  *   `@` tags a record (agent, team, mission) the message is about — a chip
  *       beside the box, sent as `context_refs`, never inlined in the text;
- *   `?` on an empty box shows the shortcuts;
- *   the autonomy pill says how recommended actions behave in this thread —
- *       Ask before acting (cards you tap) or Act within bounds (auto-proposed
- *       into the review queue). Nothing executes without approval either way.
+ *   `?` (the key on an empty box, or the small mark beside send) opens the
+ *       shortcuts in a collision-aware popover.
+ *
+ * The autonomy rung used to be a third thing in here — a two-segment toggle
+ * that dominated the box. It is a per-CONVERSATION setting, not a per-message
+ * action, so it moved to the rail header (`AutonomyControl`), leaving the
+ * composer with one primary action (Manifesto §4, §11).
  *
  * Stateless about the conversation: the parent owns `value`, `onChange`,
- * `onSubmit`, `disabled`, the tags and the autonomy value. Copy for the
- * autonomy pill and shortcuts comes in as props so this component needs no
- * i18n provider (it renders in tests without one).
+ * `onSubmit`, `disabled` and the tags. Copy for the shortcuts comes from this
+ * module, so the component renders in tests with no i18n provider.
  */
 
 export type ChatComposerProps = {
@@ -50,11 +55,6 @@ export type ChatComposerProps = {
   onAddTag?: (ref: ContextRef) => void;
   /** Resolve `@query` to taggable records. Absent = the `@` affordance is off. */
   tagSearch?: (q: string) => Promise<ContextRef[]>;
-  /** How recommended actions behave in this thread (0094). Absent = no pill. */
-  autonomy?: ConversationAutonomy;
-  onAutonomyChange?: (next: ConversationAutonomy) => void;
-  /** Copy for the autonomy pill, supplied by the parent (which has the i18n provider). */
-  autonomyCopy?: { ask: string; act: string; askHint: string; actHint: string };
   /** A slash command is armed (`/search …`) — the parent names the mode; rendered as a pill above the box. */
   commandHint?: string;
 };
@@ -98,9 +98,6 @@ export function ChatComposer({
   onRemoveTag,
   onAddTag,
   tagSearch,
-  autonomy,
-  onAutonomyChange,
-  autonomyCopy,
   commandHint,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -205,27 +202,12 @@ export function ChatComposer({
 
   const trimmed = value.trim();
   const sendEnabled = !disabled && (trimmed.length > 0 || Boolean(pastedText) || armed);
-  const showAutonomy = autonomy !== undefined && !!onAutonomyChange && !!autonomyCopy;
 
   return (
-    <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-4 pt-4 pb-4 sm:px-6 sm:pt-6">
+    <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-3 pt-3 pb-3 sm:px-6 sm:pt-4">
       <div className="relative mx-auto max-w-3xl">
-        {shortcutsOpen && (
-          <div role="dialog" aria-label="Shortcuts" className="absolute bottom-full left-0 z-20 mb-2 w-64 rounded-xl border border-border bg-background p-2 text-xs shadow-lg">
-            <div className="flex items-center justify-between px-1.5 pb-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-              Shortcuts
-              <button type="button" onClick={() => setShortcutsOpen(false)} aria-label="Close shortcuts" className="rounded p-0.5 text-muted-foreground hover:bg-muted"><X className="size-3" aria-hidden /></button>
-            </div>
-            {SHORTCUTS.map(([keys, what]) => (
-              <div key={keys} className="flex items-center justify-between gap-3 px-1.5 py-1">
-                <span className="text-muted-foreground">{what}</span>
-                <kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[10px]">{keys}</kbd>
-              </div>
-            ))}
-          </div>
-        )}
         {tagQuery !== null && tagHits.length > 0 && (
-          <ul role="listbox" aria-label="Tag a record" className="absolute bottom-full left-0 z-20 mb-2 w-72 rounded-xl border border-border bg-background p-1 text-sm shadow-lg">
+          <ul role="listbox" aria-label="Tag a record" className="absolute bottom-full left-0 z-20 mb-2 w-72 max-w-full rounded-xl border border-border bg-background p-1 text-sm shadow-(--shadow-pop)">
             {tagHits.map((h, i) => {
               const Icon = TAG_ICON[h.type];
               return (
@@ -284,87 +266,96 @@ export function ChatComposer({
             )}
           </div>
         )}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (sendEnabled) {
-              onSubmit();
-            }
-          }}
-          className="flex items-end gap-2 rounded-2xl border border-border bg-background px-4 py-3 shadow-sm transition focus-within:border-brand-amber focus-within:shadow-[0_8px_28px_rgba(241,135,0,0.10)] focus-within:ring-4 focus-within:ring-brand-amber-tint"
-        >
-          <textarea
-            ref={textareaRef}
-            data-agent-composer
-            value={value}
-            onChange={e => onChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder={placeholder ?? 'Ask anything…'}
-            disabled={disabled}
-            rows={1}
-            // 16px on mobile: iOS Safari auto-zooms (and scroll-cuts) any focused
-            // input under 16px. Compact 14px only from sm: up (no mobile zoom).
-            className="flex-1 resize-none border-0 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
-            style={{ minHeight: 24, maxHeight: 220 }}
-          />
-          {showAutonomy && (
-            <div role="radiogroup" aria-label="Autonomy" className="hidden shrink-0 items-center rounded-full border border-border bg-muted/30 p-0.5 text-[11px] sm:flex">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={autonomy === 'ask'}
-                title={autonomyCopy.askHint}
-                onClick={() => onAutonomyChange('ask')}
-                className={`rounded-full px-2 py-1 transition ${autonomy === 'ask' ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                {autonomyCopy.ask}
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={autonomy === 'act-within-bounds'}
-                title={autonomyCopy.actHint}
-                onClick={() => onAutonomyChange('act-within-bounds')}
-                className={`rounded-full px-2 py-1 transition ${autonomy === 'act-within-bounds' ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                {autonomyCopy.act}
-              </button>
-            </div>
-          )}
-          {tagSearch && (
-            <button
-              type="button"
-              onClick={() => setShortcutsOpen(v => !v)}
-              aria-label="Shortcuts"
-              title="Shortcuts (?)"
-              className="hidden size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition hover:text-foreground sm:flex"
+        <PopoverPrimitive.Root open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
+          <PopoverPrimitive.Anchor asChild>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (sendEnabled) {
+                  onSubmit();
+                }
+              }}
+              // Restrained focus: a 1px ring in the ring token at low alpha
+              // plus a soft ground shift. No halo, no thickened border.
+              className="flex items-end gap-1.5 rounded-2xl border border-border bg-background px-3 py-2 shadow-xs transition-colors focus-within:bg-surface-soft focus-within:ring-1 focus-within:ring-ring/40"
             >
-              <CircleHelp className="size-4" aria-hidden />
-            </button>
-          )}
-          {streaming
-            ? (
-                <button
-                  type="button"
-                  onClick={() => onStop?.()}
-                  className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm transition hover:border-brand-amber hover:text-brand-amber-deep sm:size-9"
-                  aria-label="Stop generating"
+              <textarea
+                ref={textareaRef}
+                data-agent-composer
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                placeholder={placeholder ?? 'Ask anything…'}
+                disabled={disabled}
+                rows={1}
+                // 16px on mobile: iOS Safari auto-zooms (and scroll-cuts) any focused
+                // input under 16px. Compact 14px only from sm: up (no mobile zoom).
+                className="flex-1 resize-none border-0 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                style={{ minHeight: 24, maxHeight: 220 }}
+              />
+              {tagSearch && (
+                <PopoverPrimitive.Trigger
+                  aria-label="Shortcuts"
+                  className="hidden size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground sm:flex"
                 >
-                  <Square className="size-3.5 fill-current" aria-hidden="true" />
-                </button>
-              )
-            : (
-                <button
-                  type="submit"
-                  disabled={!sendEnabled}
-                  className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-amber text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50 disabled:shadow-none disabled:hover:translate-y-0 sm:size-9"
-                  aria-label="Send message"
-                >
-                  <ArrowUp className="size-5 sm:size-[18px]" aria-hidden="true" />
-                </button>
+                  <CircleHelp className="size-4" aria-hidden />
+                </PopoverPrimitive.Trigger>
               )}
-        </form>
+              {streaming
+                ? (
+                    <button
+                      type="button"
+                      onClick={() => onStop?.()}
+                      className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:border-brand-amber hover:text-brand-amber-deep"
+                      aria-label="Stop generating"
+                    >
+                      <Square className="size-3.5 fill-current" aria-hidden="true" />
+                    </button>
+                  )
+                : (
+                    <button
+                      type="submit"
+                      disabled={!sendEnabled}
+                      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-amber text-white transition-colors hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50"
+                      aria-label="Send message"
+                    >
+                      <ArrowUp className="size-[18px]" aria-hidden="true" />
+                    </button>
+                  )}
+            </form>
+          </PopoverPrimitive.Anchor>
+          <PopoverPrimitive.Portal>
+            <PopoverPrimitive.Content
+              role="dialog"
+              aria-label="Shortcuts"
+              side="top"
+              align="end"
+              sideOffset={8}
+              // Anchored on the composer and told how much room to keep, so
+              // it never renders past the rail's right edge or off a phone.
+              collisionPadding={8}
+              // The caret stays in the box: `?` is typed there, and the sheet
+              // is a reference, not a form.
+              onOpenAutoFocus={e => e.preventDefault()}
+              onCloseAutoFocus={e => e.preventDefault()}
+              className="z-50 w-[min(17rem,calc(100vw-1rem))] rounded-xl border border-border bg-background p-2 text-xs shadow-(--shadow-pop) outline-none"
+            >
+              <div className="flex items-center justify-between px-1.5 pb-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                Shortcuts
+                <PopoverPrimitive.Close aria-label="Close shortcuts" className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-surface-hover">
+                  <X className="size-3" aria-hidden />
+                </PopoverPrimitive.Close>
+              </div>
+              {SHORTCUTS.map(([keys, what]) => (
+                <div key={keys} className="flex items-center justify-between gap-3 px-1.5 py-1">
+                  <span className="text-muted-foreground">{what}</span>
+                  <kbd className="shrink-0 rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[10px]">{keys}</kbd>
+                </div>
+              ))}
+            </PopoverPrimitive.Content>
+          </PopoverPrimitive.Portal>
+        </PopoverPrimitive.Root>
       </div>
     </div>
   );

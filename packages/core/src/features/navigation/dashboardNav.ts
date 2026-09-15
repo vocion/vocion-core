@@ -64,9 +64,9 @@ export const DASHBOARD_ROUTES: DashboardRoute[] = [
   { url: '/dashboard/observability', title: 'Observability', group: 'Observability', icon: LineChart, keywords: ['langfuse', 'traces', 'spend'] },
   { url: '/dashboard/team-report', title: 'Team report', group: 'Observability', icon: Network, keywords: ['outcome', 'kpi', 'spend', 'members'] },
   { url: '/dashboard/adoption', title: 'Adoption', group: 'Organization', icon: BarChart3, adminOnly: true },
-  { url: '/dashboard/members', title: 'Members', group: 'Organization', icon: UserPlus, keywords: ['users', 'invite'] },
-  { url: '/dashboard/api-tokens', title: 'API tokens', group: 'Organization', icon: KeyRound, adminOnly: true, keywords: ['credentials', 'keys'] },
-  { url: '/dashboard/admin', title: 'System', group: 'Organization', icon: ShieldCheck, keywords: ['status', 'admin'] },
+  { url: '/dashboard/members', title: 'Members', group: 'Organization', icon: UserPlus, keywords: ['users', 'invite', 'settings'] },
+  { url: '/dashboard/api-tokens', title: 'API tokens', group: 'Organization', icon: KeyRound, adminOnly: true, keywords: ['credentials', 'keys', 'settings'] },
+  { url: '/dashboard/admin', title: 'System', group: 'Organization', icon: ShieldCheck, keywords: ['status', 'admin', 'settings'] },
   { url: '/dashboard/workspace', title: 'Context', group: 'Build', icon: Database, keywords: ['workspace', 'yaml'] },
   { url: '/dashboard/profile', title: 'Profile', group: 'Organization', icon: Users },
 ];

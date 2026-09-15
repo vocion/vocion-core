@@ -211,12 +211,22 @@ describe('ChatDock', () => {
     await expect.element(page.getByRole('complementary')).not.toBeInTheDocument();
   });
 
-  it('defaults to open, with the scope in the header and the back-to-everything link', async () => {
+  it('defaults to open, with the scope as the header title and no underlined link under it', async () => {
     await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation about Pete Laverick' })).toBeInTheDocument();
     await expect.element(page.getByText('Pete Laverick')).toBeInTheDocument();
-    await expect.element(page.getByRole('link', { name: 'All conversations' })).toBeInTheDocument();
+    // The back-to-everything link left the header on 2026-09-15 — it read as
+    // an error and cost the header a second line. It is a row in the ⋯ menu.
+    await expect.element(page.getByRole('link', { name: 'All conversations' })).not.toBeInTheDocument();
+  });
+
+  it('puts the autonomy rung in the header, not in the composer', async () => {
+    await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" />));
+
+    // The chip names the current rung; the composer has one action left.
+    await expect.element(page.getByTestId('autonomy-chip')).toBeInTheDocument();
+    await expect.element(page.getByRole('radiogroup', { name: 'Autonomy' })).not.toBeInTheDocument();
   });
 
   it('resumes the user\'s scoped conversation instead of the global pointer', async () => {

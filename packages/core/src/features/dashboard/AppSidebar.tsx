@@ -24,6 +24,7 @@ import {
   Newspaper,
   PanelsTopLeft,
   Plug,
+  Settings2,
   ShieldCheck,
   Sparkles,
   TestTube,
@@ -36,6 +37,7 @@ import {
 import { useTranslations } from 'next-intl';
 import { useEffect, useMemo, useState } from 'react';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { InviteTeamCard } from '@/features/dashboard/InviteTeamCard';
@@ -43,7 +45,7 @@ import { applyPins, withoutPins } from '@/features/dashboard/nav/navPins';
 import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
 import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
 import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
-import { readNavView, writeNavView } from '@/features/dashboard/useNavView';
+import { OPEN_MANAGE_VIEW, readNavView, writeNavView } from '@/features/dashboard/useNavView';
 import { SurfaceNav } from '@/features/navigation/SurfaceNav';
 import { client } from '@/libs/Orpc';
 import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
@@ -54,10 +56,18 @@ import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
  *   WORK (default) — Workspace (the permanent Vocion pages), Pinned (this
  *                    person's pins, in pin order), Pages (the workspace's own
  *                    pages: tenant pages and saved canvases, 7 then "More
- *                    pages ›"), the invite card, and the workspace row.
- *   MANAGE         — entered via the quiet "Manage workspace" item at the
- *                    BOTTOM of the work view; the configuration sections,
- *                    every row pinnable, with "Back to work" at top.
+ *                    pages ›"), the invite card, a quiet "Manage workspace"
+ *                    row, and the workspace row.
+ *   MANAGE         — the configuration sections, every row pinnable, with
+ *                    "Back to work" at top.
+ *
+ * Three doors into MANAGE (Chris, 2026-09-15: "we lost nav access to
+ * workspace settings"): the visible row in the work nav (the primary one —
+ * a gear with a tooltip in the icon rail), the workspace popover's
+ * "Workspace settings" row, and the header avatar menu's item, which fires
+ * {@link OPEN_MANAGE_VIEW}. Everything configurational lives behind it, so
+ * one entry point buried in a popover that reads as a *switcher* was one
+ * entry point too few.
  *
  * The view persists per browser; pins and dismissed prompts persist per
  * (org, user) on the server with localStorage as the fast path. Airy pass
@@ -123,6 +133,14 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
   const [view, setView] = useState<NavView>('work');
   const [canvases, setCanvases] = useState<Canvas[]>([]);
   const prefs = useNavPrefs();
+
+  // The header's avatar menu asks for the manage view by event — it is a
+  // sidebar mode, not a route, so there is nothing to navigate to.
+  useEffect(() => {
+    const onOpen = () => setView('manage');
+    window.addEventListener(OPEN_MANAGE_VIEW, onOpen);
+    return () => window.removeEventListener(OPEN_MANAGE_VIEW, onOpen);
+  }, []);
 
   // Restore the persisted view after mount (SSR renders the default).
   useEffect(() => {
@@ -258,6 +276,12 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   {!prefs.dismissed.includes(INVITE_CARD) && <InviteTeamCard onDismiss={() => prefs.dismiss(INVITE_CARD)} />}
                   {/* Developers — API tokens for admins, the in-app docs otherwise. */}
                   <AppSidebarNav className="py-0" items={[{ title: t('developers'), url: isAdmin ? '/dashboard/api-tokens' : '/dashboard/docs', icon: Code2 }]} />
+                  {/* The visible door to MANAGE — everything configurational is
+                      behind it, so it is a row in the nav, not only a line in a
+                      popover. Icon rail: the gear alone, with a tooltip. */}
+                  <div className="px-2 pb-1 group-data-[collapsible=icon]:px-0">
+                    <ManageWorkspaceRow label={t('manage_workspace')} collapsed={collapsed} onOpen={() => pick('manage')} />
+                  </div>
                   {/* Workspace context: avatar · name · account · ⇄ Switch. */}
                   <div className="px-2 pb-2 group-data-[collapsible=icon]:px-0">
                     <WorkspaceSwitcherLive onManage={() => pick('manage')} />
@@ -268,15 +292,22 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
           : (
               <>
                 <div className="px-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => pick('work')}
-                    title={t('back_to_work')}
-                    className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-sidebar-foreground transition-colors hover:bg-surface-hover hover:text-foreground group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
-                  >
-                    <ArrowLeft className="size-4 shrink-0" aria-hidden />
-                    <span className="group-data-[collapsible=icon]:hidden">{t('back_to_work')}</span>
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => pick('work')}
+                        aria-label={t('back_to_work')}
+                        className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-sidebar-foreground transition-colors group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:bg-surface-hover hover:text-foreground"
+                      >
+                        <ArrowLeft className="size-4 shrink-0" aria-hidden />
+                        <span className="group-data-[collapsible=icon]:hidden">{t('back_to_work')}</span>
+                      </button>
+                    </TooltipTrigger>
+                    {/* The label is hidden in the icon rail; the way out must
+                        not be. */}
+                    <TooltipContent side="right" collisionPadding={8} hidden={!collapsed}>{t('back_to_work')}</TooltipContent>
+                  </Tooltip>
                 </div>
                 {/* MANAGE — who works for you + the shapes their work takes.
                     Every row is pinnable into the WORK view's Pinned group. */}
@@ -302,3 +333,34 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
     </Sidebar>
   );
 };
+
+/**
+ * The work view's door to MANAGE — a quiet row, one click in.
+ *
+ * Deliberately not a nav link: the manage view is a sidebar mode, so there is
+ * no URL to point at. Collapsed to the icon rail it is the gear alone and the
+ * tooltip carries the label, the same contract every other rail row keeps.
+ * @param props
+ * @param props.label - Translated label.
+ * @param props.collapsed - True in the icon rail, where the tooltip is the label.
+ * @param props.onOpen - Switch the sidebar to the manage view.
+ */
+function ManageWorkspaceRow({ label, collapsed, onOpen }: { label: string; collapsed: boolean; onOpen: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          data-testid="manage-workspace-row"
+          onClick={onOpen}
+          aria-label={label}
+          className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-sidebar-foreground transition-colors group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:bg-surface-hover hover:text-foreground"
+        >
+          <Settings2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="truncate group-data-[collapsible=icon]:hidden">{label}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" collisionPadding={8} hidden={!collapsed}>{label}</TooltipContent>
+    </Tooltip>
+  );
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeftRight, Bell, BookOpen, LogOut, Monitor, Moon, Search, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
+import { ArrowLeftRight, Bell, BookOpen, LogOut, Monitor, Moon, Search, Settings2, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
 import { useTheme } from 'next-themes';
@@ -26,6 +26,7 @@ import { openCommandPalette } from '@/features/dashboard/commandPaletteEvent';
 import { FeedbackButton } from '@/features/dashboard/FeedbackButton';
 import { shouldTriggerFindHotkey } from '@/features/dashboard/nav/workspaceSwitch';
 import { openWorkspaceSwitcher } from '@/features/dashboard/nav/WorkspaceSwitcher';
+import { openManageView } from '@/features/dashboard/useNavView';
 import { Link } from '@/libs/I18nNavigation';
 import { ShellBarActionsOutlet } from './ShellBarActions';
 
@@ -76,22 +77,24 @@ export const AppSidebarHeader = ({ workspace = null, usage = null }: {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
   return (
-    <header className="sticky top-0 z-40 grid h-[60px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-border/70 bg-background px-3 lg:px-6">
+    <header className="sticky top-0 z-40 grid h-[60px] shrink-0 grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-3 border-b border-border/70 bg-background px-3 lg:px-6">
       <div className="flex min-w-0 items-center gap-2">
         <SidebarTrigger className="-ml-1 size-11 text-muted-foreground sm:size-8" />
         <Breadcrumb workspaceName={workspace?.name ?? null} />
       </div>
 
-      {/* Centre: the one search field. */}
+      {/* Centre: the one search field. A bordered field with the ⌘K hint
+          inside it — as a borderless chip it read as an orphaned label
+          floating in the bar rather than something you click into. */}
       <button
         type="button"
         onClick={openCommandPalette}
         aria-label={tl('search_everything')}
-        className="hidden h-9 w-[22rem] items-center gap-2 rounded-lg bg-surface-soft px-3 text-[13px] text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-muted-foreground md:flex"
+        className="hidden h-9 w-full max-w-[22rem] min-w-40 items-center gap-2 rounded-lg border border-border/70 bg-surface-soft px-3 text-[13px] text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring/40 focus-visible:outline-none md:flex"
       >
         <Search className="size-4 shrink-0" aria-hidden />
-        <span className="flex-1 text-left">{tl('search_everything')}</span>
-        <kbd className="rounded border border-border/70 bg-background px-1 font-sans text-[10px] text-muted-foreground/70">⌘K</kbd>
+        <span className="flex-1 truncate text-left">{tl('search_everything')}</span>
+        <kbd className="shrink-0 rounded border border-border/70 bg-background px-1 font-sans text-[10px] text-muted-foreground/70">⌘K</kbd>
       </button>
 
       <div className="flex items-center justify-end gap-x-1 pr-0.5">
@@ -165,6 +168,14 @@ export const AppSidebarHeader = ({ workspace = null, usage = null }: {
                 )}
               </div>
             )}
+
+            {/* Everything configurational — teams, agents, connectors, members,
+                tokens — lives in the sidebar's manage view. This is one of its
+                three doors (the sidebar row is the primary one). */}
+            <DropdownMenuItem onClick={openManageView}>
+              <Settings2 className="mr-2 size-4 text-muted-foreground" aria-hidden />
+              {tl('workspace_settings')}
+            </DropdownMenuItem>
 
             {workspace && (
               <DropdownMenuItem onClick={openWorkspaceSwitcher} className="justify-between">

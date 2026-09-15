@@ -4,6 +4,7 @@ import { History, Search, SquarePen } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 export type HistoryHit = {
   id: number;
@@ -76,23 +77,31 @@ export function HistoryPopover({ recent, currentId, onPick, onNewChat, search }:
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <PopoverPrimitive.Trigger
-        aria-label={t('history')}
-        title={t('history')}
-        className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground data-[state=open]:text-foreground"
-      >
-        <History className="size-4" aria-hidden />
-      </PopoverPrimitive.Trigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverPrimitive.Trigger
+            aria-label={t('conversations')}
+            className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
+          >
+            <History className="size-4" aria-hidden />
+          </PopoverPrimitive.Trigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end" collisionPadding={8}>{t('conversations')}</TooltipContent>
+      </Tooltip>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           align="end"
+          side="bottom"
           sideOffset={6}
+          // The rail sits on the viewport's right edge: without a collision
+          // margin this 20rem panel renders past it.
+          collisionPadding={8}
           // Land the caret in the search box when the popover opens.
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             inputRef.current?.focus();
           }}
-          className="z-50 w-80 rounded-xl border border-border bg-background p-2 shadow-lg outline-none"
+          className="z-50 w-[min(20rem,calc(100vw-1rem))] rounded-xl border border-border bg-background p-2 shadow-(--shadow-pop) outline-none"
         >
           <label className="flex items-center gap-2 rounded-lg bg-muted/50 px-2.5 py-1.5 text-sm">
             <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
