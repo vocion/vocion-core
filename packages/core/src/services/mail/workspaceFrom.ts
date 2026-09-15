@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { mailboxFrom } from '@/libs/mail/mailbox';
 import { projectSchema } from '@/models/Schema';
-import { mailboxFrom } from '@/services/EmailSurfaceService';
 
 /**
  * The sender a workspace's outbound mail wears: its own mailbox
