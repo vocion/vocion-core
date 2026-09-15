@@ -29,8 +29,11 @@ export const Env = createEnv({
     LANGFUSE_PUBLIC_KEY: z.string().optional(),
     LANGFUSE_SECRET_KEY: z.string().optional(),
     /**
-     * Anthropic extended-thinking budget (tokens, e.g. 2048) for the
-     * `main` model role. Unset = thinking disabled (default behavior).
+     * Anthropic extended thinking for the `main` model role. Unset =
+     * thinking disabled (default behavior). On Claude 4.6 and newer the
+     * value is only the ON switch — the request goes out as adaptive
+     * thinking and the model sizes its own budget. On older Claude it is
+     * the token budget (e.g. 2048).
      * See `libs/llm/langchain.ts` — enabling this forces temperature 1
      * on the main model per the Anthropic API constraint.
      */
