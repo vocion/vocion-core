@@ -7,7 +7,14 @@ import { authApi, isErrorResponse, readJsonBody, writeApiErrorResponse } from '.
  *
  * Put a proposed action into the review queue. Body:
  *
- *   { actionId, input, agentSlug?, rationale?, confidence?, dedupKey?, expiresInDays? }
+ *   { actionId, input, agentSlug?, rationale?, confidence?, suggestedDecision?,
+ *     suggestedSnoozeUntil?, dedupKey?, expiresInDays? }
+ *
+ * `suggestedDecision` is what the proposing agent thinks the reviewer should
+ * do — `approve`, `reject` or `snooze`. It is advisory: it never releases the
+ * action, and a `reject` or `snooze` recommendation additionally keeps the
+ * item out of the trust ladder's reach. Anything outside those three values is
+ * a 400 rather than a silently dropped field.
  *
  * The proposal always lands `pending` — it rides the normal autonomy gate, so
  * this endpoint can never fire an action outright. Repeating a call with the
@@ -50,6 +57,11 @@ export async function POST(req: Request) {
       agentSlug: typeof body.agentSlug === 'string' ? body.agentSlug : undefined,
       rationale: typeof body.rationale === 'string' ? body.rationale : undefined,
       confidence: typeof body.confidence === 'number' ? body.confidence : undefined,
+      // Passed through as the caller wrote it, valid or not: apiProposeReview
+      // is where it is checked, so a bad value comes back as a 400 naming the
+      // three it could have been instead of vanishing on the way in.
+      suggestedDecision: typeof body.suggestedDecision === 'string' ? body.suggestedDecision : undefined,
+      suggestedSnoozeUntil: typeof body.suggestedSnoozeUntil === 'string' ? body.suggestedSnoozeUntil : undefined,
       dedupKey: typeof body.dedupKey === 'string' ? body.dedupKey : undefined,
       expiresInDays: typeof body.expiresInDays === 'number' ? body.expiresInDays : undefined,
     }));

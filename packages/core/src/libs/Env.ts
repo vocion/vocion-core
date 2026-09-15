@@ -41,6 +41,15 @@ export const Env = createEnv({
      * so taking the escape hatch away is a config change, not a deploy.
      */
     VOCION_ALLOW_QUEUE_RESET: z.string().optional(),
+    /**
+     * Outbound email (`libs/mail`). Ships dark: nothing is sent unless
+     * VOCION_MAIL_ENABLED is exactly '1'. The transport is Resend; the
+     * sender must be on a domain verified in Resend. Read through
+     * `mailEnabled()` / `mailConfig()`, not directly.
+     */
+    VOCION_MAIL_ENABLED: z.string().optional(),
+    RESEND_API_KEY: z.string().optional(),
+    VOCION_MAIL_FROM: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -76,6 +85,9 @@ export const Env = createEnv({
     LANGFUSE_SECRET_KEY: process.env.LANGFUSE_SECRET_KEY,
     VOCION_THINKING_BUDGET: process.env.VOCION_THINKING_BUDGET,
     VOCION_ALLOW_QUEUE_RESET: process.env.VOCION_ALLOW_QUEUE_RESET,
+    VOCION_MAIL_ENABLED: process.env.VOCION_MAIL_ENABLED,
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    VOCION_MAIL_FROM: process.env.VOCION_MAIL_FROM,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

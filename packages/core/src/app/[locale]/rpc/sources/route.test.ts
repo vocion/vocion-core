@@ -62,7 +62,7 @@ beforeEach(() => {
   });
   vi.mocked(documentCountsForOrg).mockResolvedValue({ 1: 43 });
   vi.mocked(latestSyncStateForOrg).mockResolvedValue({
-    1: { status: 'running', startedAt, completedAt: null, error: null, counts: {} },
+    1: { status: 'running', startedAt, completedAt: null, error: null, counts: {}, since: null, failures: [] },
   });
 });
 

@@ -1,6 +1,7 @@
 import type { WorkflowRunSummary } from '@/services/WorkflowService';
 import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
+import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { logger } from '@/libs/Logger';
 import { trackReviewDecision } from '@/services/adoption/attribution';
 import {
@@ -165,6 +166,10 @@ export const proposeFromRecommendationRoute = os
     agentSlug: z.string().optional(),
     rationale: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
+    /** What the agent thinks the reviewer should do. Advisory — never releases the action. */
+    suggestedDecision: z.enum(SUGGESTED_DECISIONS).optional(),
+    /** Only with `suggestedDecision: 'snooze'` — an ISO timestamp for the revisit. */
+    suggestedSnoozeUntil: z.string().optional(),
     /** Upsert key (object type + id + action) — re-surfacing updates in place. */
     dedupKey: z.string().optional(),
     /** Days until this suggestion goes stale (drops from the queue). */
@@ -180,7 +185,12 @@ export const proposeFromRecommendationRoute = os
       input: input.input,
       principal: { kind: 'agent', id: agentId, scope: { orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: userId ?? agentId,
-      proposal: { confidence: input.confidence, rationale: input.rationale },
+      proposal: {
+        confidence: input.confidence,
+        rationale: input.rationale,
+        suggestedDecision: input.suggestedDecision,
+        suggestedSnoozeUntil: input.suggestedSnoozeUntil,
+      },
       // Explicit key wins; otherwise derive a stable one from the action + its
       // primary target so the same owed action doesn't duplicate in the queue.
       dedupKey: input.dedupKey ?? deriveDedupKey(input.actionId, input.input),

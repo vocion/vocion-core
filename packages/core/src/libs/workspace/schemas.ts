@@ -691,6 +691,21 @@ export const SourceManifestSchema = z.object({
     visibility: z.enum(['org', 'restricted']).default('org'),
     users: z.array(z.string().email()).default([]),
   }).optional(),
+  /**
+   * A document processor to run over every document this source ingests, and
+   * the settings it runs with. The slug names an entry in
+   * `libs/processors/registry`; the config is validated against that
+   * processor's own schema when the workspace is applied, so a bad setting
+   * fails this source's apply instead of every document of every run.
+   *
+   * `.strict()` so a mistyped key here is reported rather than dropped: the
+   * enclosing object silently strips what it does not know, which for a rule
+   * the operator believes is in force is the worst way to be wrong.
+   */
+  processor: z.object({
+    slug: z.string().min(1).describe('Processor slug. Maps to a registered DocumentProcessor.'),
+    config: z.record(z.string(), z.unknown()).default({}),
+  }).strict().optional(),
   enabled: z.boolean().default(true),
 });
 export type SourceManifest = z.infer<typeof SourceManifestSchema>;

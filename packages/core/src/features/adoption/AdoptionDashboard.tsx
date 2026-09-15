@@ -269,6 +269,7 @@ export function AdoptionDashboard() {
                 <th className="px-3 py-2 text-left font-medium">Conversations</th>
                 <th className="px-3 py-2 text-left font-medium">Messages</th>
                 <th className="px-3 py-2 text-left font-medium" title="Approved as-is ÷ every judged decision. An edited or rewritten draft counts against the rate.">Approval rate</th>
+                <th className="px-3 py-2 text-left font-medium" title="How often the reviewer decided the same way the agent recommended. A different question from the approval rate, which asks whether the output was taken as-is. Counts only items the agent gave a recommendation on.">Agreement</th>
                 <th className="px-3 py-2 text-left font-medium" title="Items deferred instead of decided — not counted in the approval rate">Snoozes</th>
                 <th className="px-3 py-2 text-left font-medium" title="Thumbs up / thumbs down on runs">Feedback</th>
                 <th className="px-3 py-2 text-left font-medium">Learnings</th>
@@ -276,10 +277,10 @@ export function AdoptionDashboard() {
             </thead>
             <tbody>
               {!agents && (
-                <tr><td colSpan={8} className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</td></tr>
+                <tr><td colSpan={9} className="px-3 py-6 text-center text-xs text-muted-foreground">Loading…</td></tr>
               )}
               {agents?.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-6 text-center text-xs text-muted-foreground">No agent-attributed activity in this window</td></tr>
+                <tr><td colSpan={9} className="px-3 py-6 text-center text-xs text-muted-foreground">No agent-attributed activity in this window</td></tr>
               )}
               {agents?.map(a => (
                 <tr key={a.agentSlug} className="border-t border-border/50 text-xs">
@@ -292,6 +293,12 @@ export function AdoptionDashboard() {
                   <td className="px-3 py-2 tabular-nums">{a.conversations}</td>
                   <td className="px-3 py-2 tabular-nums">{a.messages}</td>
                   <td className="px-3 py-2 tabular-nums">{formatPercent(a.approvalRate)}</td>
+                  {/* An agent nobody has judged reads as a dash, never 0% —
+                      "no recommendations decided yet" and "always wrong" must
+                      not look the same. */}
+                  <td className="px-3 py-2 tabular-nums" title={a.agreement.decided > 0 ? `${a.agreement.agreed} of ${a.agreement.decided} decided the way this agent advised` : 'No recommendations decided in this window'}>
+                    {formatPercent(a.agreement.agreementRate)}
+                  </td>
                   <td className="px-3 py-2 tabular-nums">{a.snoozes}</td>
                   <td className="px-3 py-2 tabular-nums">
                     <span title="thumbs up">

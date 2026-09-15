@@ -12,7 +12,9 @@
 
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
@@ -32,6 +34,16 @@ export type ReviewItem = {
   /** When snoozed, hidden from the active queue until this time. */
   snoozedUntil?: Date | null;
   note?: string | null;
+  /**
+   * What the agent recommended doing with this — `approve`, `reject` or
+   * `snooze`. Undefined when the agent gave no view, and on every workflow and
+   * mission item, which carry no proposal envelope at all.
+   *
+   * On the thin row on purpose. A client building a lane of "everything the
+   * screener wants turned down" would otherwise need one detail fetch per item
+   * just to label rows it already has in hand.
+   */
+  suggestedDecision?: SuggestedDecision;
 };
 
 export type ListOptions = {
@@ -54,6 +66,18 @@ export type ListOptions = {
    * what a caller asking for a type this org has never produced must get.
    */
   actionIds?: string[];
+  /**
+   * Restrict to items where the AGENT recommended this — `approve`, `reject`
+   * or `snooze`. Only action runs carry a recommendation, so this narrows the
+   * queue to the action plane by definition: a workflow or mission item has no
+   * proposal envelope to match, and returning them under a filter about what
+   * an agent advised would be answering a different question than the one
+   * asked.
+   *
+   * Runs in the WHERE clause, like `actionIds`, so the total stays truthful
+   * rather than counting the whole queue and filtering the page.
+   */
+  suggestedDecision?: SuggestedDecision;
 };
 
 /** A page of the queue plus the total number of items the filters matched. */
@@ -63,6 +87,16 @@ export type PendingPage = {
   limit: number;
   offset: number;
 };
+
+/**
+ * The agent's recommendation, read out of the proposal blob as a plain string.
+ *
+ * Written once and shared by the SELECT, the WHERE and the COUNT so the three
+ * cannot drift into asking slightly different questions — and so the
+ * expression matches `action_run_suggested_decision_idx` exactly, which is the
+ * only way the index gets used at all.
+ */
+const suggestedDecisionColumn = sql<string | null>`${actionRunSchema.proposal} ->> 'suggestedDecision'`;
 
 /** The status that means "needs human review" for each kind. */
 const PENDING_STATUS: Record<ReviewKind, string> = {
@@ -250,6 +284,10 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     // of 50, filtering after the read would hand back whichever of the newest
     // 50 happened to match and call it the total.
     ...(opts.actionIds ? [inArray(actionRunSchema.actionId, opts.actionIds.length > 0 ? opts.actionIds : [''])] : []),
+    // Reads the key out of the proposal blob. `action_run_suggested_decision_idx`
+    // is the expression index behind this; it is partial on the same two
+    // statuses the clause above names, so the two have to stay in step.
+    ...(opts.suggestedDecision ? [eq(suggestedDecisionColumn, opts.suggestedDecision)] : []),
     ...routingFilters(opts, now),
   );
   const query = db
@@ -260,6 +298,7 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
       assignedTo: reviewAssignmentSchema.assignedTo,
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
+      suggestedDecision: suggestedDecisionColumn,
     })
     .from(actionRunSchema)
     .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
@@ -276,6 +315,10 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     assignedTo: row.assignedTo,
     snoozedUntil: row.snoozedUntil,
     note: row.note,
+    // Parsed rather than cast: the column is jsonb, so a value written by an
+    // older release or by hand can be any string at all, and a row claiming a
+    // recommendation nobody defined should read as having none.
+    suggestedDecision: parseSuggestedDecision(row.suggestedDecision),
   }));
   const total = await planeTotal(items.length, cap, async () => {
     const [counted] = await db
@@ -347,7 +390,11 @@ const EMPTY_PLANE: PlaneResult = { items: [], total: 0 };
  */
 async function listPlanes(orgId: string, opts: ListOptions, cap?: number): Promise<PlaneResult[]> {
   const now = new Date();
-  const wants = (kind: ReviewKind) => opts.kind === undefined || opts.kind === kind;
+  // A recommendation only exists on an action run, so asking for one excludes
+  // the other two planes rather than returning rows that could never match.
+  const planeCarriesRecommendation = (kind: ReviewKind) => kind === 'action' || opts.suggestedDecision === undefined;
+  const wants = (kind: ReviewKind) =>
+    (opts.kind === undefined || opts.kind === kind) && planeCarriesRecommendation(kind);
   return Promise.all([
     wants('workflow') ? listWorkflowPlane(orgId, opts, now, cap) : EMPTY_PLANE,
     wants('mission') ? listMissionPlane(orgId, opts, now, cap) : EMPTY_PLANE,
@@ -463,6 +510,7 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       ...routing,
       input: row.input ?? null,
       proposal: (row.proposal as Record<string, unknown> | null) ?? null,
+      suggestedDecision: parseSuggestedDecision(row.proposal?.suggestedDecision),
       card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
       record: row as unknown as Record<string, unknown>,
     };
@@ -694,6 +742,7 @@ export type DecideResult = {
  * @param opts.reviewedBy
  * @param opts.editedInput
  * @param opts.note
+ * @param opts.learn - `false` from an automated caller; trains nothing.
  * @param opts.externalRef
  * @param opts.externalRef.system
  * @param opts.externalRef.id
@@ -708,6 +757,13 @@ export async function decide(
     editedInput?: Record<string, unknown>;
     /** Reviewer's note for the agent — stored on the assignment, the triage signal, and the learning capture. */
     note?: string;
+    /**
+     * Whether this decision may train the proposing agent (default true).
+     * An automated caller, a sweep that rejects every past-dated proposal
+     * with one canned reason, passes `false`, so machine text never queues
+     * as a learning candidate a person then has to read and reject.
+     */
+    learn?: boolean;
     /**
      * The record the approver just created in its own system. Passed straight
      * to the action, which links its domain row to it. Ignored on reject.
@@ -743,7 +799,7 @@ export async function decide(
         // person who clicked it — the outcome rides back so the surface says so.
         execution = { status: outcome.status, error: outcome.error ?? null };
       } else {
-        await rejectAction(item.id, orgId, opts?.reason ?? opts?.note, { reviewedBy });
+        await rejectAction(item.id, orgId, opts?.reason?.trim() || opts?.note, { reviewedBy });
       }
       // The reviewer's note rides every verb: assignment note (visible on the
       // item), triage signal hint, and the learning capture below.
@@ -751,22 +807,41 @@ export async function decide(
         await upsertAssignment(orgId, item, { note: opts.note }).catch(() => {});
       }
       // Typed signal: edit-then-approve is a distinct signal from a clean
-      // approve (the operator changed the wording → weaker tone match).
+      // approve (the operator changed the wording → weaker tone match). The
+      // same signal names both the adoption event and the learning job below,
+      // so one decision cannot queue itself twice under two polarities.
+      const signal: ActionSignal = action === 'approve' ? (opts?.editedInput ? 'edit' : 'approve') : 'reject';
+      // The decision is training signal, but only a PROPOSAL of one: it is
+      // queued for the feedback classifier and becomes a learning candidate a
+      // person adopts, never a rule written into the agent's step behind the
+      // reviewer's back. Queued BEFORE the triage signal because both share
+      // the (source, externalId) key and the first writer owns the payload,
+      // this one carries the proposing agent's own learning step. Never blocks
+      // the decision itself, but a failure here is silently lost learning
+      // signal, so it is logged rather than swallowed.
+      await recordActionDecisionLearning({
+        runId: item.id,
+        orgId,
+        signal,
+        // A blank reason must fall through to the note, or the decision path
+        // skips and the note still queues via the signal path without a target.
+        text: opts?.reason?.trim() || opts?.note,
+        reviewedBy,
+        learn: opts?.learn,
+      }).catch((error) => {
+        console.warn(`[ReviewService] could not queue the decision on action run ${item.id} for learning`, error);
+      });
+      // `learn` rides here too: the note the reviewer typed queues through
+      // this path, so an opt-out that only covered the call above would still
+      // train the agent whenever a caller sent a note.
       await recordActionSignal({
         orgId,
         runId: item.id,
         userId: reviewedBy,
-        signal: action === 'approve' ? (opts?.editedInput ? 'edit' : 'approve') : 'reject',
+        signal,
         hint: opts?.note,
+        learn: opts?.learn,
       }).catch(() => {});
-      // The decision is training signal: record what a good/bad proposal
-      // looks like in the proposing agent's own learning step so it checks
-      // its next proposals against real operator judgment. Never blocks the
-      // decision itself — but a failure here is silently lost learning
-      // signal, so it is logged rather than swallowed.
-      await recordActionDecisionLearning(item.id, orgId, action, opts?.reason ?? opts?.note).catch((error) => {
-        console.warn(`[ReviewService] could not record decision-learning rule for action run ${item.id}`, error);
-      });
       return { execution };
     }
   }
@@ -824,8 +899,9 @@ const SIGNAL_TO_DECISION = {
  * @param opts.signal
  * @param opts.userId
  * @param opts.hint
+ * @param opts.learn - `false` from an automated caller; measured as always, but trains nothing.
  */
-export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string }): Promise<void> {
+export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string; learn?: boolean }): Promise<void> {
   try {
     const [run] = await db
       .select({
@@ -842,13 +918,29 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
     const agentSlug = run?.invokedBy?.startsWith('agent:')
       ? run.invokedBy.slice('agent:'.length)
       : run?.proposal?.agentSlug ?? undefined;
+    const suggestedDecision = parseSuggestedDecision(run?.proposal?.suggestedDecision);
     const { track } = await import('@/services/adoption/track');
     // Scope dimensions travel together: userId (individual) + orgId (workspace)
     // on the actor, actionId (action type) in meta.
     await track({ orgId: opts.orgId, userId: opts.userId ?? 'web' }, 'review.decided', {
       agentSlug,
       resource: ['action_run', opts.runId],
-      meta: { kind: 'action', decision: SIGNAL_TO_DECISION[opts.signal], ...(run?.actionId ? { actionId: run.actionId } : {}), ...(opts.hint ? { hint: opts.hint } : {}) },
+      meta: {
+        kind: 'action',
+        decision: SIGNAL_TO_DECISION[opts.signal],
+        ...(run?.actionId ? { actionId: run.actionId } : {}),
+        // The recommendation the reviewer was looking at, so agreement can be
+        // read off the event stream without joining back to a run whose
+        // envelope may since have been refreshed.
+        //
+        // The second of two places that write this onto `review.decided` —
+        // `adoption/attribution.ts`'s `trackReviewDecision` is the other, and
+        // it serves the workflow and mission planes. Actions come through here
+        // instead because the typed triage signal (edit, rewrite, skip …) has
+        // no home there. Keep the two in step.
+        ...(suggestedDecision ? { suggestedDecision } : {}),
+        ...(opts.hint ? { hint: opts.hint } : {}),
+      },
     });
     await queueSignalForLearning(opts, agentSlug);
   } catch {
@@ -882,6 +974,9 @@ const SIGNAL_POLARITY = {
  *   proposed from it.
  * - **`skip` never queues.** Skipping leaves the item pending; the reviewer has
  *   not judged it yet.
+ * - **`learn: false` never queues.** An automated caller deciding in bulk with
+ *   one canned reason is not a reviewer teaching the agent anything. The signal
+ *   is still measured, like the two rules above.
  *
  * Idempotent on (run, signal): re-deciding an item does not queue a second job.
  * @param opts
@@ -890,15 +985,16 @@ const SIGNAL_POLARITY = {
  * @param opts.signal
  * @param opts.userId
  * @param opts.hint
+ * @param opts.learn - `false` from an automated caller; trains nothing.
  * @param agentSlug - The agent that proposed the action, when known.
  */
 async function queueSignalForLearning(
-  opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string },
+  opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string; learn?: boolean },
   agentSlug: string | undefined,
 ): Promise<void> {
   const polarity = SIGNAL_POLARITY[opts.signal];
   const note = opts.hint?.trim();
-  if (!polarity || !note) {
+  if (opts.learn === false || !polarity || !note) {
     return;
   }
   try {
@@ -1040,8 +1136,8 @@ export async function rewriteDraft(opts: {
 const FALLBACK_LEARNING_STEP = 'crm-updates';
 
 /**
- * Which learning step a proposing agent's decision-training rule gets filed
- * under. Reads the agent's own `learningSteps` (workspace-authored — see
+ * Which learning step a proposing agent's decision-training candidate gets
+ * queued against. Reads the agent's own `learningSteps` (workspace-authored, see
  * `agentSchema.learningSteps` in models/Schema.ts) and takes the first one
  * declared, so an agent outside the CRM domain (an event-ingestion agent
  * proposing calendar candidates, say) trains its own bucket instead of one
@@ -1059,60 +1155,75 @@ async function resolveLearningStepForAgent(orgId: string, agentSlug: string): Pr
   if (declaredSteps.length > 0) {
     return declaredSteps[0]!;
   }
-  console.warn(`[ReviewService] agent "${agentSlug}" declares no learningSteps; filing its decision-training rule under the fallback step "${FALLBACK_LEARNING_STEP}"`);
+  console.warn(`[ReviewService] agent "${agentSlug}" declares no learningSteps; queueing its decision-training candidate against the fallback step "${FALLBACK_LEARNING_STEP}"`);
   return FALLBACK_LEARNING_STEP;
 }
 
 /**
- * Approve/reject on a proposed action → a learning rule. This is the capture
- * side of the trust ladder: accumulated decisions teach agents which update
- * classes are safe (approved) vs which need stronger evidence (rejected).
- * No-ops quietly when the proposing agent's learning step (see
- * {@link resolveLearningStepForAgent}) does not exist in the workspace yet.
- * @param runId
- * @param orgId
- * @param decision
- * @param reason
+ * Approve/reject on a proposed action → a QUEUED learning candidate.
+ *
+ * This is still the capture side of the trust ladder, but what it captures is
+ * what the REVIEWER wrote, not a sentence this file composes about the run.
+ * It used to write a `learning` row per decision ("do not propose this class
+ * again without stronger evidence"), straight into the step the proposing
+ * agent reads back every run, so half of a busy step was machine commentary
+ * on individual runs, phrased as standing policy. Now the reviewer's own words
+ * go on the feedback queue, the classifier proposes rule text from them, and a
+ * person adopts the candidate before any agent sees it.
+ *
+ * Two gates, both deliberate: there has to be human text (a bare click says
+ * the reviewer disagreed but not what to do differently, and asking a model to
+ * invent the reason produces rules nobody stated), and the proposal has to be
+ * an agent's own, a human-proposed action trains nobody.
+ * @param opts
+ * @param opts.runId - The action run being decided.
+ * @param opts.orgId - The workspace the run belongs to.
+ * @param opts.signal - The triage signal this decision recorded; its polarity rides along.
+ * @param opts.text - What the reviewer wrote: the decision reason, or their note for the agent.
+ * @param opts.reviewedBy - Who decided, so the resulting rule can name its evidence.
+ * @param opts.learn - `false` from an automated caller that must not train anything.
  */
-async function recordActionDecisionLearning(
-  runId: number,
-  orgId: string,
-  decision: 'approve' | 'reject',
-  reason?: string,
-): Promise<void> {
+async function recordActionDecisionLearning(opts: {
+  runId: number;
+  orgId: string;
+  signal: ActionSignal;
+  text?: string;
+  reviewedBy: string;
+  learn?: boolean;
+}): Promise<void> {
+  const note = opts.text?.trim();
+  const polarity = SIGNAL_POLARITY[opts.signal];
+  if (opts.learn === false || !note || !polarity) {
+    return;
+  }
   const [run] = await db
-    .select({
-      actionId: actionRunSchema.actionId,
-      input: actionRunSchema.input,
-      proposal: actionRunSchema.proposal,
-      invokedBy: actionRunSchema.invokedBy,
-    })
+    .select({ invokedBy: actionRunSchema.invokedBy })
     .from(actionRunSchema)
-    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+    .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
     .limit(1);
   if (!run || !run.invokedBy?.startsWith('agent:')) {
     return; // only agent proposals train agents
   }
   const agentSlug = run.invokedBy.slice('agent:'.length);
-  const stepName = await resolveLearningStepForAgent(orgId, agentSlug);
-  // The candidate's actual data lives under `fields` (see
-  // libs/actions/objects-propose-candidate.ts `CandidateInput.fields`) — the
-  // `properties` key this used to read was always undefined, which is why
-  // every rule used to read "updating [n/a]".
-  const input = (run.input ?? {}) as { objectType?: string; fields?: Record<string, unknown> };
-  const fieldNames = Object.keys(input.fields ?? {}).join(', ') || 'n/a';
-  const conf = run.proposal?.confidence != null ? ` (confidence ${run.proposal.confidence})` : '';
-  const rationale = run.proposal?.rationale ? ` Rationale was: ${run.proposal.rationale.slice(0, 140)}` : '';
-  const ruleText = decision === 'approve'
-    ? `APPROVED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${fieldNames}].${rationale} — this class of update matched operator judgment; similar evidence justifies similar proposals.`
-    : `REJECTED${conf}: ${run.actionId} on ${input.objectType ?? 'record'} updating [${fieldNames}].${reason ? ` Operator reason: ${reason}.` : ''}${rationale} — do not propose this class again without stronger evidence.`;
-  const { addLearning } = await import('./LearningsService');
-  await addLearning({
-    orgId,
-    stepName,
-    ruleText,
-    source: `action_run:${runId}`,
-    createdBy: 'review-decision',
-    agentSlug,
+  // Resolved here rather than left to the worker: without a target the
+  // recorder falls back to the org's FIRST learning step by id, which in a
+  // workspace running more than one domain is somebody else's bucket.
+  const targetSlug = await resolveLearningStepForAgent(opts.orgId, agentSlug);
+  const { enqueue } = await import('@/services/FeedbackWorkerService');
+  await enqueue({
+    orgId: opts.orgId,
+    source: 'review',
+    // The same key {@link queueSignalForLearning} uses, so a decision carrying
+    // both a reason and a note is ONE job instead of two near-identical
+    // classifier calls the duplicate judge then has to reconcile.
+    externalId: `action_run:${opts.runId}:${opts.signal}`,
+    payload: {
+      text: note,
+      targetSlug,
+      agentSlug,
+      sourceRunId: opts.runId,
+      submittedBy: opts.reviewedBy,
+      polarityHint: polarity,
+    },
   });
 }

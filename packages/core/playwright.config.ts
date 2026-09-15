@@ -52,30 +52,38 @@ export default defineConfig<ChromaticConfig>({
 
   // Run your local dev server before starting the tests:
   // https://playwright.dev/docs/test-advanced#launching-a-development-web-server-during-the-tests
-  webServer: {
-    command: process.env.CI ? 'npx run-p db-server:memory start --race' : 'npx run-p db-server:memory dev:next --race',
-    url: baseURL,
-    timeout: 60 * 1000,
-    reuseExistingServer: !process.env.CI,
-    gracefulShutdown: { signal: 'SIGTERM', timeout: 2 * 1000 },
-    env: {
-      NEXT_PUBLIC_SENTRY_DISABLED: 'true',
-      NEXT_PUBLIC_APP_URL: baseURL,
-      // Auth.js only trusts the request host when AUTH_URL or AUTH_TRUST_HOST
-      // is set, or when NODE_ENV is not production (@auth/core lib/utils/env.js).
-      // `next dev` gets the last fallback; CI runs `next start`, so without this
-      // every /api/auth call answers UntrustedHost and the browser specs time out.
-      AUTH_URL: baseURL,
-      // The local credential vault refuses to mint an ephemeral key when
-      // NODE_ENV is production (libs/crypto/localVault.ts), and CI runs
-      // `next start`, so without a key every "Save key" in the credentials
-      // specs answers "could not store key". Fixed, throwaway, and public on
-      // purpose: it encrypts test fixtures in a database that lives for the
-      // length of one run. Never reuse it anywhere real.
-      VOCION_CREDENTIAL_VAULT_KEY: process.env.VOCION_CREDENTIAL_VAULT_KEY ?? 'ZTJlLW9ubHktdmF1bHQta2V5LW5vdC1hLXNlY3JldCE=',
-      PORT,
-    },
-  },
+  //
+  // PLAYWRIGHT_SKIP_WEB_SERVER=1 leaves the app alone and tests whatever is
+  // already serving PLAYWRIGHT_BASE_URL. The case it exists for: a worktree
+  // running against a real Postgres, where the command below cannot be used —
+  // `db-server:memory` starts pglite on 5432, the port that Postgres already
+  // holds, and `--race` then takes the Next process down with it.
+  webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER
+    ? undefined
+    : {
+        command: process.env.CI ? 'npx run-p db-server:memory start --race' : 'npx run-p db-server:memory dev:next --race',
+        url: baseURL,
+        timeout: 60 * 1000,
+        reuseExistingServer: !process.env.CI,
+        gracefulShutdown: { signal: 'SIGTERM', timeout: 2 * 1000 },
+        env: {
+          NEXT_PUBLIC_SENTRY_DISABLED: 'true',
+          NEXT_PUBLIC_APP_URL: baseURL,
+          // Auth.js only trusts the request host when AUTH_URL or AUTH_TRUST_HOST
+          // is set, or when NODE_ENV is not production (@auth/core lib/utils/env.js).
+          // `next dev` gets the last fallback; CI runs `next start`, so without this
+          // every /api/auth call answers UntrustedHost and the browser specs time out.
+          AUTH_URL: baseURL,
+          // The local credential vault refuses to mint an ephemeral key when
+          // NODE_ENV is production (libs/crypto/localVault.ts), and CI runs
+          // `next start`, so without a key every "Save key" in the credentials
+          // specs answers "could not store key". Fixed, throwaway, and public on
+          // purpose: it encrypts test fixtures in a database that lives for the
+          // length of one run. Never reuse it anywhere real.
+          VOCION_CREDENTIAL_VAULT_KEY: process.env.VOCION_CREDENTIAL_VAULT_KEY ?? 'ZTJlLW9ubHktdmF1bHQta2V5LW5vdC1hLXNlY3JldCE=',
+          PORT,
+        },
+      },
 
   // Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions.
   use: {
@@ -189,6 +197,15 @@ export default defineConfig<ChromaticConfig>({
     {
       name: 'reviews-propose',
       testDir: './e2e/reviews-propose',
+      timeout: 60 * 1000,
+    },
+    // #320 — querying the queue by what the agent recommended (approve /
+    // reject / snooze), over real HTTP against a real running app. No browser:
+    // uses the `request` fixture only, so it never depends on `setup`.
+    // Run with: npx playwright test --project=reviews-suggested-decision
+    {
+      name: 'reviews-suggested-decision',
+      testDir: './e2e/reviews-suggested-decision',
       timeout: 60 * 1000,
     },
     ...(process.env.CI

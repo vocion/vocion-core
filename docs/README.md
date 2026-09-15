@@ -2,6 +2,7 @@
 
 ## Start here
 
+- [**Product Design Manifesto**](./MANIFESTO.md) — why Vocion exists and the bar every product decision is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth. Ends with the twelve-question test.
 - [**Getting started — build an agent workforce from zero**](./getting-started.md) — the tutorial. Explains the configuration-driven model, then builds a complete workforce file by file, with a worked example of every entity type. Read this first.
 - [**Workspaces (workspace-as-code)**](./workspace.md) — what a workspace is, how to create one, how to author and apply changes, and how base packs layer underneath.
 - [**Entity reference**](#entity-reference) — every authored file type, field by field.
@@ -35,6 +36,11 @@ default, and effect, plus a worked example and the rules the loader enforces.
 Workspace pages keep their own page because they are file-only: nothing is
 written to the database and `workspace:check` / `workspace:apply` do not know
 about them.
+
+## Guides
+
+- [Agents in Slack](./guides/slack.md) — mention an agent in a channel, it answers in the thread.
+- [Email — the daily team report](./guides/email.md) — outbound mail (Resend), the `daily-team-report` job, and the automation that schedules it per workspace.
 
 ## Deployment
 
