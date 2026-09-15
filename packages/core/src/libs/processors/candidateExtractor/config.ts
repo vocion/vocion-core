@@ -142,6 +142,25 @@ export const candidateExtractorConfigSchema = z.object({
     evidenceField: FieldName.optional(),
     /** Field the label is written into. */
     flagField: FieldName,
+    /**
+     * Field the group key is written into, so a reader can show every
+     * occurrence of one series together.
+     *
+     * The value is the run id of the FIRST card of the group, as a bare
+     * decimal string, and it is root-normalised at write time: a record whose
+     * anchor already carries a key inherits that key rather than pointing at
+     * the anchor, so a chain of occurrences collapses to one group in one hop
+     * and no consumer ever walks it.
+     *
+     * The anchor itself is never written to and carries no key, because
+     * nothing in this pipeline refreshes another card. That is deliberate, and
+     * it is why the key is the anchor's own run id rather than a synthetic
+     * value: the whole group is `fields[keyField] || String(card.id)`, which
+     * answers for the anchor and its followers with one comparison.
+     *
+     * Not part of the record's identity, so it never belongs in `dedupOn`.
+     */
+    keyField: FieldName.optional(),
     maxAnchors: z.number().int().positive().max(200).default(40),
   }).strict().optional(),
   /**

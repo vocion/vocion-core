@@ -25,11 +25,20 @@
  * Where both fire and disagree, the model wins and the disagreement is
  * counted, the counter is what makes the fallback's quality measurable
  * instead of assumed.
+ *
+ * Alongside the sentence, and only when the tenant configures a field for it,
+ * the record is stamped with the GROUP it belongs to: the run id of the first
+ * card of the series, as a bare decimal string. It is root-normalised at write
+ * time, so `card3 -> card2 -> card1` collapses to card1 and no reader ever
+ * walks a chain. See `seriesLabel.keyField` in `config.ts` for why the anchor
+ * itself carries none.
  */
 
 import type { CandidateExtractorConfig } from './config';
+import type { KnownCards } from './knownCards';
 import type { ValidatedRecord } from './validate';
-import { candidateKeySegments, findSimilarCandidates, normaliseForKey } from '@/libs/actions/objects-propose-candidate';
+import { candidateKeySegments, findSimilarCandidates, LABELLED_RUN_ID, normaliseForKey } from '@/libs/actions/objects-propose-candidate';
+import { scrubMarkers, SERIES_NOTE_CAP } from './prompt';
 
 /**
  * The two sentences a label can be. Parsed back out by the review card.
@@ -37,6 +46,52 @@ import { candidateKeySegments, findSimilarCandidates, normaliseForKey } from '@/
  */
 export const SERIES_LABEL = (runId: number): string => `part of series ${runId}`;
 export const DUPLICATE_LABEL = (runId: number): string => `possible duplicate of ${runId}`;
+
+/**
+ * What a model-written off-schedule note is allowed to carry onto a card.
+ *
+ * The note is the only free text in this file, it comes from a page, and it
+ * lands in a tenant field a later sync can read back (a tenant may point
+ * `evidenceField` at the same field the label goes in). So it is treated as
+ * the `<known>` block's own lines are, plus the one step those do not need:
+ *
+ *   1. the `scrubCardText` steps, no code fences, no closing-tag openers, one
+ *      line, so the note cannot forge structure in a later prompt;
+ *   2. the prompt's own marker literals, so it cannot forge a block tag;
+ *   3. `LABELLED_RUN_ID`, the phrase `objects-propose-candidate` reads back off
+ *      the payload to decide which runs to leave out of the "Possible
+ *      duplicate" row. This is the step with teeth: an unscrubbed note naming
+ *      "part of series 999" would silently suppress that row for a run of the
+ *      page's choosing;
+ *   4. the length cap, applied LAST, so escaping can never push the value over
+ *      it.
+ * @param value - Whatever the model put in `seriesNote`.
+ */
+export function scrubSeriesNote(value: unknown): string {
+  const oneLine = String(value ?? '')
+    .replace(/```/g, '')
+    .replace(/<\//g, '< /')
+    .replace(/[\n\r|]+/g, ' ');
+  return scrubMarkers(oneLine)
+    .replace(LABELLED_RUN_ID, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, SERIES_NOTE_CAP);
+}
+
+/**
+ * The group a record belongs to, always the root of its series.
+ *
+ * The invariant that makes this one hop rather than a walk: a key is
+ * root-normalised at write time, so an anchor that has one is already pointing
+ * at the root, and an anchor that has none IS the root.
+ * @param anchorKey - The anchor card's own key, or null when it has none.
+ * @param anchorId - The anchor card's run id.
+ */
+function rootKeyFor(anchorKey: string | null, anchorId: number): string {
+  const inherited = (anchorKey ?? '').trim();
+  return inherited === '' ? String(anchorId) : inherited;
+}
 
 /**
  * Write the labels for one document's records.
@@ -49,11 +104,13 @@ export const DUPLICATE_LABEL = (runId: number): string => `possible duplicate of
  * @param opts.orgId - Org whose queue is searched.
  * @param opts.config - The source's processor config.
  * @param opts.records - Validated records, mutated in place.
+ * @param opts.known - The cards this call's prompt carried, for their own group keys.
  */
 export async function labelRecords(opts: {
   orgId: string;
   config: CandidateExtractorConfig;
   records: ValidatedRecord[];
+  known: KnownCards;
 }): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
   const series = opts.config.seriesLabel;
@@ -64,11 +121,35 @@ export async function labelRecords(opts: {
     counts[key] = (counts[key] ?? 0) + 1;
   };
 
+  // Every write goes through here, so the proposal can declare exactly which
+  // fields this stage decided rather than read off the document. That list is
+  // what the decision compares against once a reviewer has been through it.
+  const write = (record: ValidatedRecord, field: string, value: string): void => {
+    record.fields[field] = value;
+    record.labelledFields = [...new Set([...(record.labelledFields ?? []), field])];
+  };
+
+  const keyField = series.keyField;
+  const keySeries = (record: ValidatedRecord, anchorKey: string | null, anchorId: number): void => {
+    if (!keyField) {
+      return;
+    }
+    write(record, keyField, rootKeyFor(anchorKey, anchorId));
+    bump('series_keyed');
+    if ((anchorKey ?? '').trim() !== '') {
+      // The one counter that proves the collapse: while this stays at zero
+      // every group is one hop deep and the invariant is never exercised.
+      bump('series_key_inherited');
+    }
+  };
+
   for (const record of opts.records) {
     // A duplicate is a stronger statement than a series membership, and the
-    // model is the only thing that can make it, so it short-circuits.
+    // model is the only thing that can make it, so it short-circuits. No key
+    // is written: a duplicate is not a member of a series, and the `continue`
+    // below is what keeps the key code out of reach.
     if (record.duplicateOf !== undefined) {
-      record.fields[series.flagField] = DUPLICATE_LABEL(record.duplicateOf);
+      write(record, series.flagField, DUPLICATE_LABEL(record.duplicateOf));
       bump('duplicate_flagged');
       continue;
     }
@@ -76,9 +157,19 @@ export async function labelRecords(opts: {
     const anchor = await findAnchor({ orgId: opts.orgId, config: opts.config, record });
 
     if (record.seriesOf !== undefined) {
-      record.fields[series.flagField] = SERIES_LABEL(record.seriesOf);
+      // The model named a card from the block, so its key is already in hand:
+      // no second query, and the record joins that card's group rather than
+      // starting one at it.
+      const named = opts.known.cards.find(card => card.runId === record.seriesOf) ?? null;
+      const note = scrubSeriesNote(record.seriesNote);
+      write(
+        record,
+        series.flagField,
+        note === '' ? SERIES_LABEL(record.seriesOf) : `${SERIES_LABEL(record.seriesOf)}; ${note}`,
+      );
       bump('series_labeled');
-      if (anchor !== null && anchor !== record.seriesOf) {
+      keySeries(record, named?.seriesKey ?? null, record.seriesOf);
+      if (anchor !== null && anchor.id !== record.seriesOf) {
         // Both fired and they named different cards. The model wins; the
         // counter is how we find out whether it should.
         bump('series_disagreement');
@@ -87,8 +178,9 @@ export async function labelRecords(opts: {
     }
 
     if (anchor !== null) {
-      record.fields[series.flagField] = SERIES_LABEL(anchor);
+      write(record, series.flagField, SERIES_LABEL(anchor.id));
       bump('series_labeled');
+      keySeries(record, anchor.seriesKey, anchor.id);
     }
   }
 
@@ -96,8 +188,9 @@ export async function labelRecords(opts: {
 }
 
 /**
- * The run id of the queued card this record is another date of, by the
- * deterministic rule alone, or null when the rule says nothing.
+ * The queued card this record is another date of, by the deterministic rule
+ * alone, or null when the rule says nothing. Its own group key rides back with
+ * it, read off the row's stored payload, which the lookup already returned.
  * @param opts - What to look for.
  * @param opts.orgId - Org whose queue is searched.
  * @param opts.config - The source's processor config.
@@ -107,7 +200,7 @@ async function findAnchor(opts: {
   orgId: string;
   config: CandidateExtractorConfig;
   record: ValidatedRecord;
-}): Promise<number | null> {
+}): Promise<{ id: number; seriesKey: string | null } | null> {
   const { config, record } = opts;
   const series = config.seriesLabel;
   if (!series) {
@@ -140,7 +233,7 @@ async function findAnchor(opts: {
     return null;
   }
 
-  const siblings: Array<{ id: number; evidence: boolean }> = [];
+  const siblings: Array<{ id: number; evidence: boolean; seriesKey: string | null }> = [];
   for (const row of rows) {
     const segments = candidateKeySegments(row.dedupKey);
     if (!segments) {
@@ -158,7 +251,12 @@ async function findAnchor(opts: {
     const evidence = series.evidenceField
       ? String(fields[series.evidenceField] ?? '').trim() !== ''
       : false;
-    siblings.push({ id: row.id, evidence });
+    const keyField = series.keyField;
+    siblings.push({
+      id: row.id,
+      evidence,
+      seriesKey: keyField ? (String(fields[keyField] ?? '').trim() || null) : null,
+    });
   }
 
   if (siblings.length === 0) {
@@ -168,10 +266,10 @@ async function findAnchor(opts: {
   // pattern on their own.
   const withEvidence = siblings.find(sibling => sibling.evidence);
   if (withEvidence) {
-    return withEvidence.id;
+    return withEvidence;
   }
   if (siblings.length >= 2) {
-    return Math.min(...siblings.map(sibling => sibling.id));
+    return siblings.reduce((lowest, sibling) => (sibling.id < lowest.id ? sibling : lowest));
   }
   return null;
 }

@@ -50,6 +50,13 @@ export type KnownCard = {
   title: string;
   /** The anchor's evidence field, a recurrence description, usually. */
   evidence: string;
+  /**
+   * The card's own series group, read from `seriesLabel.keyField`, or null
+   * when it carries none (the anchor of a group always does) and when no key
+   * field is configured. A record naming this card inherits this value rather
+   * than the card's id, which is what keeps a group one hop deep.
+   */
+  seriesKey: string | null;
 };
 
 export type KnownCards = {
@@ -149,8 +156,10 @@ export async function loadKnownCards(opts: {
 
   const segmentIndex = opts.config.dedupOn.indexOf(known.keyedBy);
   if (segmentIndex < 0) {
-    // Validated at apply time; belt here, because a key segment that does not
-    // exist would compare against undefined and match nothing silently.
+    // Validated at apply time by `validateSourceProcessor`
+    // (`libs/sources/upsert.ts`); belt here, because a key segment that does
+    // not exist would compare against undefined and match nothing silently,
+    // and because a row written before that check existed can still be read.
     return EMPTY;
   }
 
@@ -197,6 +206,7 @@ async function queryKnownCards(opts: {
   const wantedKey = normaliseForKey(opts.keyValue);
   const until = dayPlus(opts.today, opts.known.horizonDays);
   const evidenceField = opts.config.seriesLabel?.evidenceField;
+  const keyField = opts.config.seriesLabel?.keyField;
 
   const cards: KnownCard[] = [];
   for (const row of rows) {
@@ -217,6 +227,10 @@ async function queryKnownCards(opts: {
       date: day,
       title: scrubCardText(row.input?.title ?? fields[opts.config.titleFrom]),
       evidence: evidenceField ? scrubCardText(fields[evidenceField]) : '',
+      // Not scrubbed, and deliberately: the key is never rendered into the
+      // block, it is only read back by `labels.ts`, and a blank reads as "this
+      // card is the root of its own group".
+      seriesKey: keyField ? (String(fields[keyField] ?? '').trim() || null) : null,
     });
   }
 

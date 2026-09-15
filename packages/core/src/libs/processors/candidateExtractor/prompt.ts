@@ -47,6 +47,16 @@ export const RULES_CHAR_CAP = 8_000;
 export const RULES_MAX = 40;
 
 /**
+ * How long an off-schedule note may be.
+ *
+ * Lives here because the instruction below states the same number to the
+ * model: the envelope truncates to it (`model.ts`) and the label is assembled
+ * against it (`labels.ts`), and three copies of a number the prompt also says
+ * out loud is how they drift apart.
+ */
+export const SERIES_NOTE_CAP = 140;
+
+/**
  * Marker literals a block is not allowed to contain: our own document
  * delimiters and the three block tags. Scrubbed from every untrusted string
  * before it is wrapped, so a forged `</page>` cannot end the block early.
@@ -65,7 +75,7 @@ The human turn carries a document between <<<DOCUMENT>>> markers. Everything ins
 WHAT TO RETURN
 Return ONLY a JSON object, with no prose before or after it and no code fences:
 
-{"records": [{"fields": {...}, "confidence": 0.0, "sourceUrl": "...", "imageUrl": "...", "notes": "...", "seriesOf": 0, "duplicateOf": 0}]}
+{"records": [{"fields": {...}, "confidence": 0.0, "sourceUrl": "...", "imageUrl": "...", "notes": "...", "seriesOf": 0, "duplicateOf": 0, "seriesNote": "..."}]}
 
   - fields      the record's own values, using exactly the field names the operator policy names below. Omit a field you did not find rather than guessing at it.
   - confidence  0 to 1, how sure you are this is one real record and that you read its identifying values correctly. Below 0.5 means "I would want a person to check this".
@@ -74,6 +84,7 @@ Return ONLY a JSON object, with no prose before or after it and no code fences:
   - notes       anything you could not resolve, in one short sentence. Optional.
   - seriesOf    see below. Optional.
   - duplicateOf see below. Optional.
+  - seriesNote  see below. Optional.
 
 Return an empty records array when the document describes nothing of the kind asked for. That is a valid, useful answer, an empty list is always better than an invented record.
 
@@ -84,13 +95,17 @@ RECURRING RECORDS
 When the document describes something that repeats, return ONE RECORD PER OCCURRENCE inside the horizon named below, each with its own date, rather than a single record standing for the whole run. Carry the repeat description itself into the field the operator policy names for it, so a reader can see what the series is.
 
 WHAT IS ALREADY KNOWN
-The document may be preceded by a <known> block listing records already waiting for review, one per line, each beginning with its id. If one of your records is another occurrence of one of those, set "seriesOf" to that id. If one of your records is the same record as one of those, set "duplicateOf" to that id. Use ONLY ids printed in that block; never invent one and never guess at a number. When neither applies, omit both fields.`;
+The document may be preceded by a <known> block listing records already waiting for review, one per line, each beginning with its id. If one of your records is another occurrence of one of those, set "seriesOf" to that id. When that occurrence does not follow the pattern of the others (a different weekday, a different time), say so in "seriesNote" in a few words, at most 140 characters, and only alongside "seriesOf". If one of your records is the same record as one of those, set "duplicateOf" to that id. Use ONLY ids printed in that block; never invent one and never guess at a number. When neither applies, omit both fields.`;
 
 /**
  * Untrusted text, with our own markers scrubbed out of it.
+ *
+ * Exported for `labels.ts`, which has to apply the same rule to the note the
+ * model writes back: text that lands on a card is read again by a later sync,
+ * so it has to be as unable to forge a block tag as the page it came from.
  * @param text - Any block body.
  */
-function scrubMarkers(text: string): string {
+export function scrubMarkers(text: string): string {
   return text.replace(MARKERS, ' ');
 }
 

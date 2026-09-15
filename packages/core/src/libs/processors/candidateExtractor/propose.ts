@@ -145,6 +145,12 @@ export async function proposeRecords(opts: {
         rationale: `Extracted from ${opts.document.uri ?? opts.document.externalId} during a source sync.`,
         evidence: opts.document.uri ? [opts.document.uri] : undefined,
         agentSlug: opts.config.agentSlug,
+        // What this pipeline decided rather than read, named so the decision
+        // can be compared against it. From what `labels.ts` actually wrote,
+        // never from the config: a record nothing labelled declares nothing,
+        // and a declared field nobody wrote would score as cleared on every
+        // approve.
+        ...(record.labelledFields?.length ? { labels: record.labelledFields } : {}),
       },
     });
 

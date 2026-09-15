@@ -90,6 +90,7 @@ describe('candidate-extractor config', () => {
         differsOn: 'startDate',
         evidenceField: 'recurrence',
         flagField: 'seriesMatch',
+        keyField: 'seriesKey',
       },
       limits: { maxModelCalls: 5 },
       dryRun: true,
@@ -98,6 +99,22 @@ describe('candidate-extractor config', () => {
     expect(parsed.knownCandidates?.maxChars).toBe(4000);
     expect(parsed.seriesLabel?.maxAnchors).toBe(40);
     expect(parsed.resolveAgainst?.[0]?.copyOnMatch).toBe(true);
+  });
+
+  it('accepts seriesLabel without keyField and rejects an unknown key', () => {
+    // The group key is opt-in: a tenant that configures none gets the label
+    // and no key, which is the shape every existing source is in. And the
+    // block is `.strict()`, so a typo has to fail rather than be ignored.
+    const parsed = candidateExtractorConfigSchema.parse({
+      ...minimal,
+      seriesLabel: { sameOn: ['title'], differsOn: 'startDate', flagField: 'seriesMatch' },
+    });
+
+    expect(parsed.seriesLabel?.keyField).toBeUndefined();
+    expect(() => candidateExtractorConfigSchema.parse({
+      ...minimal,
+      seriesLabel: { sameOn: ['title'], differsOn: 'startDate', flagField: 'seriesMatch', keyFeild: 'seriesKey' },
+    })).toThrow(/keyFeild/);
   });
 
   it('caps followLinks at twenty pages a document', () => {

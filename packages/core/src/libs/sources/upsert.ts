@@ -109,8 +109,9 @@ export async function storedProcessorNames(orgId: string): Promise<KnownProcesso
  * `config_json`.
  *
  * Everything checked here would otherwise fail at run time, once per document,
- * for as long as nobody noticed: `getLearnings` throws on an unknown step, and
- * a mistyped agent slug degrades the learning loop silently.
+ * for as long as nobody noticed: `getLearnings` throws on an unknown step, a
+ * mistyped agent slug degrades the learning loop silently, and a field named
+ * outside `dedupOn` makes a key-segment comparison that can never match.
  * @param spec - The source declaring the processor.
  * @param known - What its config may name.
  */
@@ -123,7 +124,13 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
     throw new Error(`source "${spec.slug}" references unknown processor: "${spec.processor.slug}". Registered: ${listProcessorSlugs().join(', ')}`);
   }
   // Throws ZodError on bad input, same as the connector config below.
-  const parsed = schema.parse(spec.processor.config) as { learningSteps?: string[]; agentSlug?: string };
+  const parsed = schema.parse(spec.processor.config) as {
+    learningSteps?: string[];
+    agentSlug?: string;
+    dedupOn?: string[];
+    knownCandidates?: { keyedBy?: string };
+    seriesLabel?: { sameOn?: string[]; differsOn?: string };
+  };
   for (const step of parsed.learningSteps ?? []) {
     if (!known.learningSteps.has(step)) {
       throw new Error(`source "${spec.slug}" processor names unknown learning step: "${step}"`);
@@ -132,6 +139,25 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
   if (parsed.agentSlug && !known.agentSlugs.has(parsed.agentSlug)) {
     throw new Error(`source "${spec.slug}" processor names unknown agent: "${parsed.agentSlug}"`);
   }
+  // The identity-relative knobs. Both the known-cards block and the sibling
+  // rule compare dedup-key SEGMENTS, and a segment is found by the field's
+  // POSITION in `dedupOn` (`candidateExtractor/knownCards.ts`,
+  // `candidateExtractor/labels.ts`). A name that is not in `dedupOn` therefore
+  // has no segment: at run time it compares against undefined, matches
+  // nothing, and the operator is left with a rule they believe is in force.
+  // `knownCards.ts` has said "validated at apply time" since it shipped; this
+  // is that validation.
+  const identity = new Set(parsed.dedupOn ?? []);
+  const requireIdentity = (field: string | undefined, knob: string): void => {
+    if (field !== undefined && !identity.has(field)) {
+      throw new Error(`source "${spec.slug}" processor names "${field}" in ${knob}, which is not one of its dedupOn fields (${[...identity].join(', ')})`);
+    }
+  };
+  requireIdentity(parsed.knownCandidates?.keyedBy, 'knownCandidates.keyedBy');
+  for (const field of parsed.seriesLabel?.sameOn ?? []) {
+    requireIdentity(field, 'seriesLabel.sameOn');
+  }
+  requireIdentity(parsed.seriesLabel?.differsOn, 'seriesLabel.differsOn');
   return { slug: spec.processor.slug, config: spec.processor.config };
 }
 
