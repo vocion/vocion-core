@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAskKind, isAskRisk, isAskStatusFilter, listAsks, normaliseOptions, upsertAsk } from '@/services/AskService';
 import { authApi, isErrorResponse, jsonError, readJsonBody, readPagination } from '../_shared';
-import { askErrorResponse, optDate, optStr } from './_lib';
+import { askErrorResponse, optDate, optStr, withAskUrl, withAskUrls } from './_lib';
 
 /**
  * GET /api/v1/asks?status=open|decided|all&source=<prefix>&agentSlug=&kind=&groupKey=&limit=&offset=
@@ -29,7 +29,7 @@ export async function GET(req: Request) {
   if (kind !== undefined && !isAskKind(kind)) {
     return jsonError('VALIDATION_FAILED', 'kind must be one of approval|input|ruling|credential|merge|recommendation|gate', 400);
   }
-  return NextResponse.json(await listAsks(caller.orgId, {
+  const page = await listAsks(caller.orgId, {
     status,
     kind,
     source: url.searchParams.get('source') ?? undefined,
@@ -37,7 +37,8 @@ export async function GET(req: Request) {
     groupKey: url.searchParams.get('groupKey') ?? undefined,
     limit,
     offset,
-  }));
+  });
+  return NextResponse.json({ ...page, items: await withAskUrls(caller.orgId, page.items) });
 }
 
 /**
@@ -48,7 +49,9 @@ export async function GET(req: Request) {
  *
  * File a question for a person. `options` may be bare strings (id = slug of
  * the label) or objects; at most one may be `recommended`. `url` is accepted
- * as an alias of `contextUrl`. With a `sourceRef` this org has already filed,
+ * as an alias of `contextUrl`. The reply's `ask.url` is the workspace-aware
+ * link to decide it (`/w/<workspace>/dashboard/inbox/<id>`) — paste that, not a
+ * bare `/dashboard/inbox` path. With a `sourceRef` this org has already filed,
  * the row is updated in place and the reply is 200 — only the fields present
  * in the request change (send `null` to clear one); status and decision are
  * never touched by a re-file. A new ask is 201.
@@ -106,7 +109,7 @@ export async function POST(req: Request) {
         projectId: optStr(body, 'projectId'),
       },
     });
-    return NextResponse.json({ ask, created }, { status: created ? 201 : 200 });
+    return NextResponse.json({ ask: await withAskUrl(caller.orgId, ask), created }, { status: created ? 201 : 200 });
   } catch (error) {
     return askErrorResponse(error);
   }

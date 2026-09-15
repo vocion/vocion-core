@@ -2,6 +2,7 @@
 
 import { BarChart3, Check, ChevronRight, FileText, LogOut, Settings2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
+import { useLocale } from 'next-intl';
 import { useEffect, useState } from 'react';
 import {
   DropdownMenu,
@@ -13,7 +14,9 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Link, useRouter } from '@/libs/I18nNavigation';
+import { Link, usePathname } from '@/libs/I18nNavigation';
+import { routing } from '@/libs/I18nRouting';
+import { workspaceUrl } from '@/libs/links';
 import { client } from '@/libs/Orpc';
 
 /**
@@ -35,7 +38,9 @@ type Project = { id: string; slug: string; name: string; description: string | n
 
 export function WorkspaceMenu({ isAdmin = false, onManage }: { isAdmin?: boolean; onManage?: () => void }) {
   const { data: session } = useSession();
-  const router = useRouter();
+  // Locale-stripped path (`/dashboard/inbox`), so the switch keeps the page.
+  const pathname = usePathname();
+  const locale = useLocale();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
 
@@ -61,22 +66,17 @@ export function WorkspaceMenu({ isAdmin = false, onManage }: { isAdmin?: boolean
   const activeId = session?.user?.projectId ?? null;
   const active = projects?.find(p => p.id === activeId) ?? projects?.[0] ?? null;
 
-  const switchTo = async (id: string) => {
-    setSwitching(id);
-    try {
-      // Server validates the project belongs to the caller's account.
-      await client.projects.setActive({ projectId: id });
-      // Set the cookie client-side — tenancy is re-resolved from
-      // vocion_active_project on every session read, and setActive's oRPC
-      // response can't write cookies. Without this, the reload lands back
-      // on the old workspace.
-      const oneYear = 60 * 60 * 24 * 365;
-      document.cookie = `vocion_active_project=${id}; path=/; max-age=${oneYear}; SameSite=Lax`;
-      router.refresh();
-      window.location.reload();
-    } finally {
-      setSwitching(null);
-    }
+  const switchTo = (project: Project) => {
+    setSwitching(project.id);
+    // One mechanism for a switch: navigate through the workspace entry route
+    // (`/w/<slug>/<page>`, libs/links.ts). Its handler validates membership,
+    // sets `vocion_active_project` server-side and 302s to the page — the same
+    // path a mailed link takes, so the address bar, a shared URL and the
+    // sidebar can never disagree about which workspace is active. A full
+    // navigation (not router.push) because the target is a redirecting route
+    // handler, not a page.
+    const prefix = locale !== routing.defaultLocale ? `/${locale}` : '';
+    window.location.assign(`${prefix}${workspaceUrl(project.slug, `${pathname}${window.location.search}`)}`);
   };
 
   // Fixed-height row: skeleton while loading so the nav never shifts.
@@ -113,7 +113,7 @@ export function WorkspaceMenu({ isAdmin = false, onManage }: { isAdmin?: boolean
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-56">
                 {(projects ?? []).map(p => (
-                  <DropdownMenuItem key={p.id} onClick={() => void switchTo(p.id)} disabled={switching !== null}>
+                  <DropdownMenuItem key={p.id} onClick={() => switchTo(p)} disabled={switching !== null}>
                     <span className="flex-1 truncate">{p.name}</span>
                     {p.id === active?.id && <Check className="ml-2 size-4 shrink-0" aria-hidden />}
                   </DropdownMenuItem>

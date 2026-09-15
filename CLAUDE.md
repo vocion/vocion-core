@@ -344,7 +344,11 @@ credential stored under the previous one.
   `tenant_account` owns one or more `project` rows (`src/models/Schema.ts`)
 - Every Auth.js session carries `{ user: { id, accountId, projectId, role } }`
   (`src/libs/Auth.ts`); the active project is held in a `vocion_active_project`
-  cookie that the JWT callback honors on the next issue
+  cookie that the JWT callback honors on the next issue. The cookie is written
+  by the `/w/[workspace]` entry route (`app/[locale]/(auth)/w/…/route.ts`),
+  which the sidebar switcher navigates through; build every outbound link with
+  `workspaceUrl()` in `src/libs/links.ts` so it names the workspace
+  (`docs/routing.md`)
 - Data is scoped by project (via `auth()` → `projectId`). `guardAuth` in
   `src/routers/AuthGuards.ts` still returns `orgId` as an alias of `projectId`
   because the business-content tables keep their `org_id` column for now

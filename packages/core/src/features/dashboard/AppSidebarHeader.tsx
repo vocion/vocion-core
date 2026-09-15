@@ -23,17 +23,25 @@ import { AgentSurfaceButton } from '@/features/dashboard/chat/AgentSurfaceButton
 import { openCommandPalette } from '@/features/dashboard/commandPaletteEvent';
 import { FeedbackButton } from '@/features/dashboard/FeedbackButton';
 import { Link } from '@/libs/I18nNavigation';
+import { workspaceUrl } from '@/libs/links';
 import { ShellBarActionsOutlet } from './ShellBarActions';
 
 /**
- * The dashboard top bar. Airy pass (B-034b §3): 60px tall; sidebar toggle and
- * breadcrumb on the left; on the right a soft-grey search field that opens
- * the ⌘K palette, then Feedback / Docs / Ask as quiet pills, the page-owned
- * outlet (chat's New chat / Switch agent) and one account menu. Theme and the
- * © attribution live inside the account menu — the bar is chrome, so it
- * stays out of the way.
+ * The dashboard top bar. Airy pass (B-034b §3): 60px tall; sidebar toggle,
+ * workspace chip and breadcrumb on the left; on the right a soft-grey search
+ * field that opens the ⌘K palette, then Feedback / Docs / Ask as quiet pills,
+ * the page-owned outlet (chat's New chat / Switch agent) and one account menu.
+ * Theme and the © attribution live inside the account menu — the bar is
+ * chrome, so it stays out of the way.
+ *
+ * `workspace` names the active project beside the trigger as a small chip:
+ * its slug, linking to the workspace's own URL (`/w/<slug>`), so the answer to
+ * "which workspace am I looking at" is on screen and copyable. Absent, nothing
+ * renders (no project resolved).
+ * @param props - Component props.
+ * @param props.workspace - Active project's slug and name, or null.
  */
-export const AppSidebarHeader = () => {
+export const AppSidebarHeader = ({ workspace = null }: { workspace?: { slug: string; name: string } | null }) => {
   const { data: session } = useSession();
   const { theme, setTheme } = useTheme();
   const t = useTranslations('ThemeSwitcher');
@@ -52,6 +60,16 @@ export const AppSidebarHeader = () => {
     <header className="sticky top-0 z-40 flex h-[60px] shrink-0 items-center justify-between gap-3 border-b border-border/70 bg-background px-3 lg:px-6">
       <div className="flex min-w-0 items-center gap-2">
         <SidebarTrigger className="-ml-1 size-11 text-muted-foreground sm:size-8" />
+        {workspace && (
+          <a
+            href={workspaceUrl(workspace.slug, '/dashboard')}
+            title={`${workspace.name} — copy this link to open this workspace`}
+            data-testid="workspace-chip"
+            className="hidden max-w-48 truncate rounded-md border px-2 py-0.5 font-mono text-[11px] text-muted-foreground transition hover:text-foreground sm:inline-block"
+          >
+            {workspace.slug}
+          </a>
+        )}
         <Breadcrumb />
       </div>
 
