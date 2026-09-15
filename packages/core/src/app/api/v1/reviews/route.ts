@@ -13,6 +13,16 @@ import { authApi, isErrorResponse, readPagination, writeApiErrorResponse } from 
  * - `actionIds` — comma-separated registered action ids, to see one CARD TYPE
  *   (`personalization.enroll`) rather than one plane. `total` narrows with it.
  *   Pass `types=1` instead to get the types present with their counts.
+ * - `suggestedDecision` — `approve` | `reject` | `snooze`, to see the items the
+ *   AGENT recommended that outcome for. Composes with `actionIds` and
+ *   `assignedTo`, so several lanes can be cut from one pending set: everything
+ *   a screener wants turned down in one, what it wants approved in another.
+ *   Only action runs carry a recommendation, so this returns the action plane
+ *   alone. An unrecognised value is a 400, never a silent whole-queue read.
+ *   Note the tense: these are the verbs `/reviews/decide` takes, so it is
+ *   `reject`, not the `rejected` that a recorded decision reads as. The two
+ *   vocabularies sit next to each other in the same response, and `rejected`
+ *   here is the mistake worth expecting.
  * - `assignedTo` — a user id for that person's queue, or `unassigned` for triage.
  * - `includeSnoozed` — `true` to include items delayed into the future.
  * - `limit`, `offset` — the page window. The response carries the real total.
@@ -37,6 +47,7 @@ export async function GET(req: Request) {
       assignedTo: url.searchParams.get('assignedTo') ?? undefined,
       kind: url.searchParams.get('kind') ?? undefined,
       actionIds: actionIds === null ? undefined : actionIds.split(',').map(s => s.trim()).filter(Boolean),
+      suggestedDecision: url.searchParams.get('suggestedDecision') ?? undefined,
       includeSnoozed: url.searchParams.get('includeSnoozed') === 'true',
       limit,
       offset,

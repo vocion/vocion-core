@@ -14,6 +14,7 @@
  * one-directional.
  */
 
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { Action } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
 import { and, desc, eq, inArray } from 'drizzle-orm';
@@ -137,6 +138,8 @@ async function findDecidedRunForKey(
  * @param input.proposal.rationale
  * @param input.proposal.evidence
  * @param input.proposal.agentSlug
+ * @param input.proposal.suggestedDecision
+ * @param input.proposal.suggestedSnoozeUntil
  * @param input.dedupKey
  * @param input.expiresAt
  */
@@ -146,8 +149,21 @@ export async function proposeAction(input: {
   input: Record<string, unknown>;
   principal: Principal;
   invokedBy?: string;
-  /** Agent-proposal envelope — confidence (0–1), rationale, evidence uris. */
-  proposal?: { confidence?: number; rationale?: string; evidence?: string[]; agentSlug?: string };
+  /**
+   * Agent-proposal envelope — confidence (0–1), rationale, evidence uris, and
+   * the advisory `suggestedDecision` saying what the agent thinks the reviewer
+   * should do with this. The recommendation can only ever keep the proposal in
+   * the queue (see the guard below); it is never read as a reason to let one
+   * run without a person.
+   */
+  proposal?: {
+    confidence?: number;
+    rationale?: string;
+    evidence?: string[];
+    agentSlug?: string;
+    suggestedDecision?: SuggestedDecision;
+    suggestedSnoozeUntil?: string;
+  };
   /**
    * Upsert key for agent-suggested actions — (object type + id + action slug).
    * If a PENDING action_run already exists for (orgId, dedupKey), it is
@@ -329,6 +345,15 @@ export async function proposeAction(input: {
     // exists and a human opts in explicitly. Fails safe — it can only keep the
     // item in the review queue, never release it.
     if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll' || action.id === 'objects.propose_candidate') {
+      return { runId: run!.id, status: 'pending', outcome: 'created' };
+    }
+    // An agent that recommended anything other than approval does not get to
+    // have the trust ladder run its work anyway. Confidence and recommendation
+    // answer different questions — an agent can be highly confident that the
+    // right call is to turn this down — and a rule keyed on confidence alone
+    // would read that as "very sure, go ahead". Fails safe: it can only keep
+    // the item in the queue for a person, never release it.
+    if (input.proposal?.suggestedDecision === 'reject' || input.proposal?.suggestedDecision === 'snooze') {
       return { runId: run!.id, status: 'pending', outcome: 'created' };
     }
     // Trust ladder: an ENABLED rule whose threshold this proposal's

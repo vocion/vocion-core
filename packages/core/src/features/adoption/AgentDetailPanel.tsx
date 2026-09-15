@@ -49,11 +49,12 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
         <PeriodPicker value={days} onChange={setDays} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
         <StatCard label="Reach" value={a?.reach ?? 0} definition="Distinct users who interacted with this agent in the window" />
         <StatCard label="Conversations" value={a?.conversations ?? 0} />
         <StatCard label="Messages" value={a?.messages ?? 0} />
         <StatCard label="Approval rate" value={formatPercent(a?.approvalRate ?? null)} hint={a ? `${a.approvals}✓ ${a.rejections}✗ ${a.revisions}✎` : undefined} definition="Approved as-is ÷ every judged decision on this agent's runs. An edited or rewritten draft counts against the rate — the reviewer kept the action but not the wording." />
+        <StatCard label="Agreement" value={formatPercent(a?.agreement.agreementRate ?? null)} hint={a && a.agreement.decided > 0 ? `${a.agreement.agreed} of ${a.agreement.decided}` : undefined} definition="How often the reviewer decided the same way this agent recommended. Counts only items it gave a recommendation on, and a snooze it asked for counts as agreement. A different question from the approval rate, which asks whether its output survived untouched." />
         <StatCard label="Snoozes" value={a?.snoozes ?? 0} definition="Items deferred instead of decided — a snooze leaves the item pending, so it never moves the approval rate" />
         <StatCard label="Feedback" value={a ? `↑${a.feedbackUp} ↓${a.feedbackDown}` : '—'} />
       </div>

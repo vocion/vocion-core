@@ -2320,6 +2320,33 @@ export const actionRunSchema = pgTable(
        * drops out of every per-agent metric and learning attribution.
        */
       agentSlug?: string;
+      /**
+       * What the agent thinks the reviewer should DO with this item, as
+       * opposed to how sure it is that its payload is right. Confidence
+       * answers "how certain am I"; this answers "approve it, turn it down,
+       * or come back to it later".
+       *
+       * Advisory in one direction only, and deliberately so. No trust rule
+       * reads it to release work: an agent that could recommend `approve` into
+       * the auto-execute gate would be approving its own work. It can still
+       * hold work back — a `reject` or `snooze` recommendation keeps the item
+       * pending whatever its confidence (`ActionService.proposeAction`),
+       * because a rule keyed on confidence alone would otherwise run the thing
+       * the agent just advised against. Beyond that it feeds only the
+       * agreement metric, which compares it against what the person did.
+       *
+       * Absent on every run proposed before this shipped, and absent whenever
+       * an agent declines to give one — treat missing as "no recommendation",
+       * never as `approve`.
+       */
+      suggestedDecision?: 'approve' | 'reject' | 'snooze';
+      /**
+       * Only meaningful alongside `suggestedDecision: 'snooze'`: an ISO
+       * timestamp for when the agent thinks this is worth another look. A
+       * snooze recommendation without one still stands — the reviewer picks
+       * the horizon themselves.
+       */
+      suggestedSnoozeUntil?: string;
     }>(),
     /**
      * Idempotency/upsert key for agent-suggested actions — the review-card
@@ -2377,6 +2404,14 @@ export const actionRunSchema = pgTable(
     // Lookup for upsert-by-key (dedupe only pending items in code, so a decided
     // action can be re-proposed later — hence a plain index, not unique).
     index('action_run_dedup_idx').on(table.orgId, table.dedupKey),
+    // Filtering the queue by what the agent recommended reads a value inside
+    // the proposal blob, which no other index can serve. Kept to open work
+    // only (`status IN ('pending','failed')`, the same rows the queue draws
+    // from) so the index stays the size of the queue rather than the size of
+    // every decision ever made.
+    index('action_run_suggested_decision_idx')
+      .on(table.orgId, sql`(${table.proposal} ->> 'suggestedDecision')`)
+      .where(sql`${table.status} IN ('pending', 'failed')`),
   ],
 );
 

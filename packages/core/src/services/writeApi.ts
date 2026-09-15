@@ -18,6 +18,7 @@
 import type { Principal } from '@/services/authz';
 import type { PendingPage, ReviewDetail, ReviewItem, ReviewKind } from '@/services/ReviewService';
 import type { SourceSyncState } from '@/services/SourceSyncService';
+import { parseSuggestedDecision, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { emitEvent } from '@/services/EventService';
@@ -109,6 +110,13 @@ export type ListReviewsInput = {
    * rows of one plane.
    */
   actionIds?: string[];
+  /**
+   * Narrow to what the AGENT recommended — `approve`, `reject` or `snooze`.
+   * This is a queue of "everything my screener wants turned down", which is a
+   * different question from the card type or the plane, so it composes with
+   * both rather than replacing either.
+   */
+  suggestedDecision?: string;
   includeSnoozed?: boolean;
   limit?: number;
   offset?: number;
@@ -123,7 +131,14 @@ export async function apiListReviews(caller: ApiCaller, opts: ListReviewsInput =
   if (opts.kind !== undefined) {
     assertKind(opts.kind);
   }
+  // A misspelled filter must not read as "no filter" — that would hand back
+  // the whole queue and look like every item carried the recommendation the
+  // caller asked for.
+  if (opts.suggestedDecision !== undefined && parseSuggestedDecision(opts.suggestedDecision) === undefined) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', `suggestedDecision must be one of ${SUGGESTED_DECISIONS.join(', ')}`);
+  }
   return ReviewService.listPendingPage(caller.orgId, {
+    suggestedDecision: parseSuggestedDecision(opts.suggestedDecision),
     assignedTo: opts.assignedTo === undefined
       ? undefined
       : (opts.assignedTo === 'unassigned' ? null : opts.assignedTo),
@@ -350,6 +365,14 @@ export type ProposeInput = {
   agentSlug?: string;
   rationale?: string;
   confidence?: number;
+  /**
+   * What the agent thinks the reviewer should do. Advisory; never auto-runs
+   * anything. Typed loosely because it arrives off an HTTP body — validated
+   * below, so a bad value is a 400 rather than a dropped field.
+   */
+  suggestedDecision?: string;
+  /** Only with `suggestedDecision: 'snooze'` — an ISO timestamp for the revisit. */
+  suggestedSnoozeUntil?: string;
   dedupKey?: string;
   expiresInDays?: number;
 };
@@ -380,6 +403,12 @@ export async function apiProposeReview(caller: ApiCaller, input: ProposeInput) {
   if (input.expiresInDays !== undefined && (input.expiresInDays <= 0 || input.expiresInDays > MAX_PROPOSAL_LIFETIME_DAYS)) {
     throw new WriteApiError(400, 'VALIDATION_FAILED', `expiresInDays must be between 1 and ${MAX_PROPOSAL_LIFETIME_DAYS}`);
   }
+  // Refuse an unrecognised recommendation rather than dropping it. Storing a
+  // typo'd value would leave the run looking like it carried no opinion, and
+  // the agreement metric would quietly count nothing for that agent.
+  if (input.suggestedDecision !== undefined && parseSuggestedDecision(input.suggestedDecision) === undefined) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', `suggestedDecision must be one of ${SUGGESTED_DECISIONS.join(', ')}`);
+  }
   enforceQueueCapability(caller, 'propose a review item');
 
   const { proposeAction } = await import('@/services/ActionService');
@@ -393,7 +422,13 @@ export async function apiProposeReview(caller: ApiCaller, input: ProposeInput) {
       invokedBy: caller.actorId,
       // `invokedBy` below is the API caller, so the agent it acted for has to
       // travel in the envelope or the action ends up attributed to nobody.
-      proposal: { confidence: input.confidence, rationale: input.rationale, agentSlug: input.agentSlug },
+      proposal: {
+        confidence: input.confidence,
+        rationale: input.rationale,
+        agentSlug: input.agentSlug,
+        suggestedDecision: parseSuggestedDecision(input.suggestedDecision),
+        suggestedSnoozeUntil: input.suggestedSnoozeUntil,
+      },
       dedupKey: input.dedupKey,
       expiresAt: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * DAY_IN_MS) : undefined,
     });

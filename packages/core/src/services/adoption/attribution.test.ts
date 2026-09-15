@@ -227,3 +227,66 @@ describe('trackReviewSnooze', () => {
     expect(events[0]!.agentSlug).toBeNull();
   });
 });
+
+describe('stamping the agent recommendation onto a decision', () => {
+  /**
+   * A pending run proposed by an agent that gave a recommendation.
+   * @param suggestedDecision - What the agent advised, or undefined for no view.
+   */
+  async function proposedRun(suggestedDecision?: string): Promise<number> {
+    const [run] = await db
+      .insert(actionRunSchema)
+      .values({
+        orgId: ORG_A,
+        actionId: 'objects.propose_candidate',
+        status: 'pending',
+        input: {},
+        invokedBy: 'agent:applicant-screener',
+        proposal: { confidence: 0.7, ...(suggestedDecision ? { suggestedDecision } : {}) } as never,
+      })
+      .returning({ id: actionRunSchema.id });
+    return run!.id;
+  }
+
+  it('records what the agent advised alongside what the person decided', async () => {
+    // Copied onto the event rather than read back off the run later: a
+    // re-proposal can change the recommendation, and the honest comparison is
+    // against the advice the reviewer was actually looking at.
+    const runId = await proposedRun('reject');
+
+    await trackReviewDecision({ orgId: ORG_A, userId: 'usr-1' }, { kind: 'action', id: runId }, 'rejected');
+    const [event] = await db.select().from(userActivityEventSchema);
+
+    expect(event!.metadata).toMatchObject({ decision: 'rejected', suggestedDecision: 'reject' });
+    expect(event!.agentSlug).toBe('applicant-screener');
+  });
+
+  it('records the recommendation on a snooze too', async () => {
+    const runId = await proposedRun('snooze');
+
+    await trackReviewSnooze({ orgId: ORG_A, userId: 'usr-1' }, { kind: 'action', id: runId }, new Date(Date.now() + 60_000));
+    const [event] = await db.select().from(userActivityEventSchema);
+
+    expect(event!.metadata).toMatchObject({ suggestedDecision: 'snooze' });
+  });
+
+  it('leaves the field off when the agent gave no view', async () => {
+    // Absent must stay absent: an empty recommendation counted as "approve"
+    // would invent agreement nobody expressed.
+    const runId = await proposedRun();
+
+    await trackReviewDecision({ orgId: ORG_A, userId: 'usr-1' }, { kind: 'action', id: runId }, 'approved');
+    const [event] = await db.select().from(userActivityEventSchema);
+
+    expect(event!.metadata).not.toHaveProperty('suggestedDecision');
+  });
+
+  it('leaves the field off for a value nobody defined', async () => {
+    const runId = await proposedRun('rejected');
+
+    await trackReviewDecision({ orgId: ORG_A, userId: 'usr-1' }, { kind: 'action', id: runId }, 'rejected');
+    const [event] = await db.select().from(userActivityEventSchema);
+
+    expect(event!.metadata).not.toHaveProperty('suggestedDecision');
+  });
+});

@@ -1,6 +1,8 @@
 import type { SnoozeHorizon } from './events';
 import type { AdoptionActor } from './track';
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { and, eq } from 'drizzle-orm';
+import { parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 import { actionRunSchema, missionRunSchema } from '@/models/Schema';
 import { track } from './track';
@@ -19,13 +21,70 @@ import { track } from './track';
 
 export type ReviewRunKind = 'workflow' | 'mission' | 'action';
 
+/** What a run contributes to an adoption event: whose work it was, and what it advised. */
+export type RunAttribution = {
+  agentSlug: string | null;
+  /** The agent's recommendation, on action runs that carry one. */
+  suggestedDecision?: SuggestedDecision;
+};
+
 /**
- * Best-effort agent slug for a run. Never throws; returns null when the
- * run is missing or attribution would be a guess.
+ * Whose run this is and what it recommended. Never throws; the agent slug is
+ * null when the run is missing or attribution would be a guess.
  *
- * - mission  → the run's `team.lead`
- * - action   → the proposing `invokedBy: 'agent:<slug>'`
+ * - mission  → the run's `team.lead`, no recommendation
+ * - action   → the proposing `invokedBy: 'agent:<slug>'`, plus the envelope's
+ *              `suggestedDecision` when the agent gave one
  * - workflow → null (steps may span agents; no honest run-level owner)
+ *
+ * Both halves come from one read. They are wanted at the same moments — every
+ * decision, snooze and feedback capture — and a second query per event would
+ * double the cost of the adoption stream to learn something the first row
+ * already had.
+ * @param orgId
+ * @param kind
+ * @param runId
+ */
+export async function resolveRunAttribution(
+  orgId: string,
+  kind: ReviewRunKind,
+  runId: number,
+): Promise<RunAttribution> {
+  try {
+    switch (kind) {
+      case 'mission': {
+        const [run] = await db
+          .select({ team: missionRunSchema.team })
+          .from(missionRunSchema)
+          .where(and(eq(missionRunSchema.id, runId), eq(missionRunSchema.orgId, orgId)))
+          .limit(1);
+        return { agentSlug: run?.team?.lead ?? null };
+      }
+      case 'action': {
+        const [run] = await db
+          .select({ invokedBy: actionRunSchema.invokedBy, proposal: actionRunSchema.proposal })
+          .from(actionRunSchema)
+          .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+          .limit(1);
+        return {
+          // A proposal made over the API records its caller in invokedBy, so the
+          // envelope is the only place its agent is named.
+          agentSlug: agentSlugFromPrincipal(run?.invokedBy) ?? run?.proposal?.agentSlug ?? null,
+          suggestedDecision: parseSuggestedDecision(run?.proposal?.suggestedDecision),
+        };
+      }
+      case 'workflow':
+        return { agentSlug: null };
+    }
+  } catch {
+    return { agentSlug: null };
+  }
+}
+
+/**
+ * Best-effort agent slug for a run — {@link resolveRunAttribution} when the
+ * caller only wants the slug. Never throws; null when the run is missing or
+ * attribution would be a guess.
  * @param orgId
  * @param kind
  * @param runId
@@ -35,32 +94,8 @@ export async function resolveRunAgentSlug(
   kind: ReviewRunKind,
   runId: number,
 ): Promise<string | null> {
-  try {
-    switch (kind) {
-      case 'mission': {
-        const [run] = await db
-          .select({ team: missionRunSchema.team })
-          .from(missionRunSchema)
-          .where(and(eq(missionRunSchema.id, runId), eq(missionRunSchema.orgId, orgId)))
-          .limit(1);
-        return run?.team?.lead ?? null;
-      }
-      case 'action': {
-        const [run] = await db
-          .select({ invokedBy: actionRunSchema.invokedBy, proposal: actionRunSchema.proposal })
-          .from(actionRunSchema)
-          .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
-          .limit(1);
-        // A proposal made over the API records its caller in invokedBy, so the
-        // envelope is the only place its agent is named.
-        return agentSlugFromPrincipal(run?.invokedBy) ?? run?.proposal?.agentSlug ?? null;
-      }
-      case 'workflow':
-        return null;
-    }
-  } catch {
-    return null;
-  }
+  const { agentSlug } = await resolveRunAttribution(orgId, kind, runId);
+  return agentSlug;
 }
 
 /**
@@ -77,6 +112,17 @@ export function agentSlugFromPrincipal(principal: string | null | undefined): st
  * Record one HITL decision on the adoption stream, with agent
  * attribution resolved off the caller's critical path. Fire-and-forget:
  * returns a promise that never rejects (await it only in tests).
+ *
+ * Reached today by workflow and mission decisions only. An action's
+ * approve/reject emits its own `review.decided` from
+ * `ReviewService.recordActionSignal`, which needs the typed triage signal
+ * (edit, rewrite, skip …) this function has no way to express — so that one
+ * stamps `suggestedDecision` itself, from the same envelope. Two writers of
+ * one event shape: change the metadata here and the other has to move with it,
+ * or per-agent agreement silently starts counting one plane and not the other.
+ * The recommendation plumbing below is kept for the day actions route through
+ * here, and because a caller passing `kind: 'action'` should behave correctly
+ * rather than quietly drop the field.
  * @param actor
  * @param item
  * @param item.kind
@@ -92,13 +138,14 @@ export function trackReviewDecision(
   opts: { latencyMs?: number } = {},
 ): Promise<void> {
   return (async () => {
-    const agentSlug = await resolveRunAgentSlug(actor.orgId, item.kind, item.id);
+    const { agentSlug, suggestedDecision } = await resolveRunAttribution(actor.orgId, item.kind, item.id);
     await track(actor, 'review.decided', {
       agentSlug,
       resource: [`${item.kind}_run`, item.id],
       meta: {
         kind: item.kind,
         decision,
+        ...(suggestedDecision ? { suggestedDecision } : {}),
         ...(opts.latencyMs != null ? { latencyMs: opts.latencyMs } : {}),
       },
     });
@@ -149,11 +196,15 @@ export function trackReviewSnooze(
   until: Date,
 ): Promise<void> {
   return (async () => {
-    const agentSlug = await resolveRunAgentSlug(actor.orgId, item.kind, item.id);
+    const { agentSlug, suggestedDecision } = await resolveRunAttribution(actor.orgId, item.kind, item.id);
     await track(actor, 'review.snoozed', {
       agentSlug,
       resource: [`${item.kind}_run`, item.id],
-      meta: { kind: item.kind, deferredFor: bucketSnoozeHorizon(until) },
+      meta: {
+        kind: item.kind,
+        deferredFor: bucketSnoozeHorizon(until),
+        ...(suggestedDecision ? { suggestedDecision } : {}),
+      },
     });
   })().catch(() => {});
 }
