@@ -37,12 +37,14 @@ beforeAll(async () => {
   delete process.env.VOCION_ARTIFACTS_URL_BASE;
   saved = await saveArtifact({ orgId: ORG, data: 'a,b\n1,2\n', ext: 'csv', contentType: 'text/csv' });
 });
-afterAll(() => {
-  delete process.env.VOCION_ARTIFACTS_DIR;
-});
+
 beforeEach(() => {
   mockBearer.mockReset();
   mockSession.mockReset();
+});
+
+afterAll(() => {
+  delete process.env.VOCION_ARTIFACTS_DIR;
 });
 
 describe('GET /api/artifacts', () => {
@@ -54,6 +56,7 @@ describe('GET /api/artifacts', () => {
   it('serves a legacy content-addressed file to its own org with the right type, privately', async () => {
     session(ORG);
     const res = await getByName(req(saved.url), { params: Promise.resolve({ id: saved.id, filename: saved.filename }) });
+
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/text\/csv/);
     expect(res.headers.get('cache-control')).toMatch(/private/);
@@ -63,27 +66,36 @@ describe('GET /api/artifacts', () => {
   it('resolves a legacy id without a filename by scanning the directory', async () => {
     session(ORG);
     const res = await getById(req(`/api/artifacts/${saved.id}`), { params: Promise.resolve({ id: saved.id }) });
+
     expect(res.status).toBe(200);
   });
 
   it('is a 404 for another org — by session and by token', async () => {
     session(OTHER);
     const a = await getByName(req(saved.url), { params: Promise.resolve({ id: saved.id, filename: saved.filename }) });
+
     expect(a.status).toBe(404);
+
     mockSession.mockReset();
     mockBearer.mockResolvedValue({ orgId: OTHER, tokenId: 't1', principal: { kind: 'token', id: 't1', role: 'member', scope: { orgId: OTHER } } } as never);
     const b = await getByName(req(saved.url, 'vcn_live_x'), { params: Promise.resolve({ id: saved.id, filename: saved.filename }) });
+
     expect(b.status).toBe(404);
   });
 
   it('is a 401 with no credentials and a 404 for a mismatched filename or a traversal attempt', async () => {
     mockSession.mockResolvedValue({ userId: null, orgId: null } as never);
     const anon = await getById(req(`/api/artifacts/${saved.id}`), { params: Promise.resolve({ id: saved.id }) });
+
     expect(anon.status).toBe(401);
+
     session(ORG);
     const wrong = await getByName(req('/x'), { params: Promise.resolve({ id: saved.id, filename: `${ORG}-deadbeef.csv` }) });
+
     expect(wrong.status).toBe(404);
+
     const trav = await getByName(req('/x'), { params: Promise.resolve({ id: saved.id, filename: '../../etc/passwd' }) });
+
     expect(trav.status).toBe(404);
   });
 
@@ -92,11 +104,14 @@ describe('GET /api/artifacts', () => {
     const row = await createArtifact({ orgId: ORG, kind: 'file', title: 'Revenue brief', spec: { filename: `${ORG}-rowfile.md`, contentType: 'text/markdown', bytes: 7, url: `/api/artifacts/${ORG}-rowfile/${ORG}-rowfile.md` }, url: `/api/artifacts/${ORG}-rowfile/${ORG}-rowfile.md` });
     session(ORG);
     const ok = await getById(req(`/api/artifacts/${row.id}`), { params: Promise.resolve({ id: String(row.id) }) });
+
     expect(ok.status).toBe(200);
     expect(ok.headers.get('content-type')).toMatch(/markdown/);
     expect(ok.headers.get('content-disposition')).toContain('Revenue_brief.md');
+
     session(OTHER);
     const no = await getById(req(`/api/artifacts/${row.id}`), { params: Promise.resolve({ id: String(row.id) }) });
+
     expect(no.status).toBe(404);
   });
 });
