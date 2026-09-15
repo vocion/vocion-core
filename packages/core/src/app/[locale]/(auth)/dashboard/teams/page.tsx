@@ -165,7 +165,7 @@ function WorkspaceLeadBand({ workspace, teams }: { workspace: WorkspaceLeadView;
 
         <div className="mt-3.5 flex flex-wrap gap-2">
           <Link
-            href={`/dashboard/chat?agent=${encodeURIComponent(lead.slug)}&prompt=${encodeURIComponent(t('ask_quarter_prompt'))}`}
+            href={`/dashboard/chat?prompt=${encodeURIComponent(t('ask_quarter_prompt'))}`}
             className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-action px-3.5 py-1.5 text-[13px] font-medium text-action-foreground transition-colors hover:bg-action/90 sm:min-h-0"
           >
             {t('ask_quarter')}

@@ -78,3 +78,19 @@ describe('UserMessage clamp', () => {
     await expect.element(page.getByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
   });
 });
+
+describe('ChatComposer slash command hint (§9.10)', () => {
+  it('shows the mode pill the parent names while a /search command is armed', async () => {
+    await render(
+      <ChatComposer value="/search MSA unsigned" onChange={() => {}} onSubmit={() => {}} commandHint="Search only — retrieval, no model in the loop" />,
+    );
+
+    await expect.element(page.getByTestId('command-hint')).toHaveTextContent('Search only');
+  });
+
+  it('shows no pill for an ordinary message', async () => {
+    await render(<ChatComposer value="how is the quarter?" onChange={() => {}} onSubmit={() => {}} />);
+
+    expect(page.getByTestId('command-hint').query()).toBeNull();
+  });
+});

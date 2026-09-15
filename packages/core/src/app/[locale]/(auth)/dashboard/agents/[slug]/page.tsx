@@ -2,6 +2,8 @@ import { ArrowLeft, ArrowUpRight, CalendarClock, Compass, CornerUpLeft, GitBranc
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { createElement } from 'react';
+import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { RailGroup } from '@/features/dashboard/RailGroup';
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
@@ -14,6 +16,7 @@ import { getWorkspaceDirtyState } from '@/libs/workspace/dirty';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent, listAgents } from '@/services/AgentService';
 import { automationOwnerAgentSlug, listAutomations } from '@/services/AutomationService';
+import { recordRef } from '@/services/chat/recordContext';
 import { listMissions } from '@/services/MissionService';
 import { listSkillFolders } from '@/services/playbooks/catalog';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
@@ -124,6 +127,8 @@ export default async function AgentDetailPage(props: {
             <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground/80">
               {roleLabel}
             </span>
+            <AskAboutThis record={recordRef('agent', agent.slug, agent.name)} agentSlug={agent.slug} label="Ask this agent" className="ml-auto" />
+            <RecordContext record={recordRef('agent', agent.slug, agent.name)} />
           </div>
 
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">

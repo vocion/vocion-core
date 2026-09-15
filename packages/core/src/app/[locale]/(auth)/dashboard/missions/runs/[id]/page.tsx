@@ -1,8 +1,11 @@
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { MissionRunActions } from '@/features/dashboard/MissionRunActions';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { recordRef } from '@/services/chat/recordContext';
 import { getMissionRun } from '@/services/MissionService';
 
 const TASK_STATUS_TONE: Record<string, string> = {
@@ -41,7 +44,12 @@ export default async function MissionRunPage(props: {
 
   return (
     <>
-      <TitleBar title={run.title} description={`Mission · ${run.status.replace('_', ' ')}`} />
+      <RecordContext record={recordRef('mission_run', run.id, run.title)} />
+      <TitleBar
+        title={run.title}
+        description={`Mission · ${run.status.replace('_', ' ')}`}
+        actions={<AskAboutThis record={recordRef('mission_run', run.id, run.title)} />}
+      />
 
       <div className="mb-5">
         <MissionRunActions runId={run.id} status={run.status} />

@@ -28,15 +28,19 @@ import {
   update as updateObject,
 } from './BusinessObject';
 import { suggestions as chatSuggestions } from './Chat';
-import { getState as getChatWidgetState, setState as setChatWidgetState } from './ChatWidget';
+import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState as setChatWidgetState } from './ChatWidget';
 import {
   append as appendConvMessage,
   create as createConv,
+  feedback as feedbackConvMessage,
   get as getConv,
   latestForScope as latestConvForScope,
   list as listConvs,
   remove as removeConv,
   rename as renameConv,
+  search as searchConvs,
+  setAutonomy as setConvAutonomy,
+  tail as tailConv,
 } from './Conversations';
 import {
   runDetail as evalRunDetail,
@@ -191,6 +195,10 @@ export const router = {
     rename: renameConv,
     append: appendConvMessage,
     latestForScope: latestConvForScope,
+    search: searchConvs,
+    tail: tailConv,
+    feedback: feedbackConvMessage,
+    setAutonomy: setConvAutonomy,
   },
   learnings: {
     listSteps: listLearningSteps,
@@ -214,6 +222,7 @@ export const router = {
   chatWidget: {
     getState: getChatWidgetState,
     setState: setChatWidgetState,
+    setRail: setChatWidgetRail,
   },
   briefings: {
     regenerate: briefingsRegenerateRoute,
