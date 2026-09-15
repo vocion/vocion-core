@@ -1,23 +1,37 @@
 /**
  * Brand mark + wordmark + optional tagline.
  *
- * White-label slot, all build-time env (NEXT_PUBLIC_* is inlined at build):
+ * Defaults to the Vocion identity from vocion.ai — the "governed path" V mark
+ * (two independent rails: a violet→indigo→blue governance rail and a
+ * blue→cyan→green execution rail) shipped as static SVGs in `public/brand/`:
+ *   - /brand/vocion-primary-mark.svg — gradient mark. The default glyph; reads
+ *     on light and dark surfaces alike.
+ *   - /brand/vocion-mono-mark.svg    — single-colour ink (#0B1020) mark for
+ *     monochrome / print contexts. Light surfaces only.
+ *   - /brand/vocion-logo-lockup.svg  — mark + VOCION wordmark + descriptor as
+ *     one image. Ink text, so light surfaces only; opt in via
+ *     NEXT_PUBLIC_BRAND_LOCKUP (and supply a dark variant if you need one).
+ *
+ * White-label slot, all build-time env (NEXT_PUBLIC_* is inlined at build).
+ * Anything set here wins over the Vocion defaults — existing deployments keep
+ * rendering exactly what they passed:
  *   - NEXT_PUBLIC_BRAND_NAME    — the wordmark text. Default `Vocion`.
  *   - NEXT_PUBLIC_BRAND_TAGLINE — optional subhead under the wordmark
  *     (e.g. "agents by Vocion"). Omitted when unset.
- *   - NEXT_PUBLIC_BRAND_MARK    — optional glyph image src (path or data: URI).
- *     When set, it replaces the built-in Vocion bars mark. Deployments pass
- *     their own logo here so the OSS build carries no third-party art.
- *
- * The default mark is a "V" (voice / vocation) rising into a spark — drawn
- * with `currentColor` so it inherits the surrounding text color.
+ *   - NEXT_PUBLIC_BRAND_MARK    — glyph image src (path or data: URI). Replaces
+ *     the Vocion mark; deployments pass their own logo here so the OSS build
+ *     carries no third-party art.
+ *   - NEXT_PUBLIC_BRAND_LOCKUP / NEXT_PUBLIC_BRAND_LOCKUP_DARK — see below.
  * @param props
  * @param props.isTextHidden
  * @param props.size
  */
+/** The Vocion primary mark shipped in `public/brand/` — the default glyph. */
+export const VOCION_PRIMARY_MARK = '/brand/vocion-primary-mark.svg';
+
 const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion';
 const BRAND_TAGLINE = process.env.NEXT_PUBLIC_BRAND_TAGLINE || '';
-const BRAND_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || '';
+const BRAND_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || VOCION_PRIMARY_MARK;
 // Full lockup (mark + wordmark as ONE image). When set it replaces both the
 // glyph and the wordmark text — only the tagline renders beneath it. Use for
 // deployments whose brand asset already includes the company name.
@@ -51,12 +65,14 @@ export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' |
     );
   }
 
+  // Height-driven so non-square marks (the Vocion V is 180×130) keep their
+  // aspect ratio; a square white-label glyph renders at the same box as before.
   const iconSize
     = props.size === 'sm'
-      ? 'size-6'
+      ? 'h-6'
       : props.size === 'lg'
-        ? 'size-9'
-        : 'size-7';
+        ? 'h-9'
+        : 'h-7';
   const textSize
     = props.size === 'sm'
       ? 'text-base'
@@ -66,28 +82,8 @@ export const VocionLogo = (props: { isTextHidden?: boolean; size?: 'sm' | 'md' |
 
   return (
     <div className="inline-flex items-center gap-2">
-      {BRAND_MARK
-        ? (
-            // eslint-disable-next-line next/no-img-element
-            <img src={BRAND_MARK} alt="" className={`shrink-0 ${iconSize}`} aria-hidden="true" />
-          )
-        : (
-            <svg
-              className={`shrink-0 ${iconSize}`}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.4}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              {/* Vocion mark — a "V" (voice / vocation) rising into a spark. */}
-              <path d="M4.5 5.5 12 18.5 19.5 5.5" />
-              <circle cx="19.5" cy="5.5" r="1.7" fill="currentColor" stroke="none" />
-            </svg>
-          )}
+      {/* eslint-disable-next-line next/no-img-element */}
+      <img src={BRAND_MARK} alt="" className={`w-auto shrink-0 ${iconSize}`} aria-hidden="true" />
       {!props.isTextHidden && (
         <span className="flex min-w-0 flex-col leading-none">
           <span className={`font-semibold tracking-tight ${textSize}`}>{BRAND_NAME}</span>

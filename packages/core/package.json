@@ -57,6 +57,8 @@
     "langfuse:smoke": "dotenv -c -- tsx src/scripts/smoke-langfuse.ts",
     "langfuse:bootstrap": "dotenv -c -- tsx src/scripts/langfuse-bootstrap.ts",
     "eval:run": "dotenv -c -- tsx src/scripts/run-evals.ts",
+    "report:daily": "dotenv -c -- tsx src/scripts/report-daily.ts",
+    "eval:upgrade": "dotenv -c -- tsx src/scripts/model-upgrade-test.ts",
     "storybook": "storybook dev -p 6006",
     "storybook:test": "vitest run --config .storybook/vitest.config.mts",
     "build-storybook": "storybook build",

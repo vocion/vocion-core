@@ -1,5 +1,5 @@
 import type { ActivityItem, ActivityKind } from '@/services/ActivityService';
-import { Activity as ActivityIcon, AlertTriangle, CalendarClock, Compass, Database, GitBranch, Wrench, Zap } from 'lucide-react';
+import { Activity as ActivityIcon, AlertTriangle, CalendarClock, Compass, Database, GitBranch, Server, Wrench, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -24,8 +24,23 @@ const KIND_META: Record<ActivityKind, { label: string; icon: typeof Compass }> =
   event: { label: 'Events', icon: Zap },
   automation: { label: 'Automations', icon: CalendarClock },
   sync: { label: 'Syncs', icon: Database },
+  worker: { label: 'Worker runs', icon: Server },
   tool: { label: 'Tool calls', icon: Wrench },
 };
+
+/**
+ * Board reviews and red-team grades get their own badge — they are judgement over the work, not the work.
+ * @param runKind
+ */
+function runKindBadge(runKind: string | undefined): { label: string; tone: string } | null {
+  if (runKind === 'board') {
+    return { label: 'board', tone: 'border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300' };
+  }
+  if (runKind === 'red-team') {
+    return { label: 'red team', tone: 'border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300' };
+  }
+  return null;
+}
 
 function statusTone(status: string): string {
   if (status === 'completed' || status === 'triggered') {
@@ -42,11 +57,19 @@ function statusTone(status: string): string {
 
 function Row({ item }: { item: ActivityItem }) {
   const Icon = KIND_META[item.kind].icon;
+  const badge = runKindBadge(item.runKind);
   return (
     <Link href={item.href} className="flex items-center gap-3 border-b border-border py-2.5 text-sm last:border-0 hover:bg-muted/40">
       <Icon className="size-4 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium">{item.title}</span>
+        <span className="flex items-center gap-2">
+          <span className="truncate font-medium">{item.title}</span>
+          {badge && (
+            <span className={`shrink-0 rounded-sm border px-1.5 py-px text-[10px] font-semibold tracking-wide uppercase ${badge.tone}`}>
+              {badge.label}
+            </span>
+          )}
+        </span>
         {(item.detail || item.invokedBy) && (
           <span className="block truncate text-xs text-muted-foreground">
             {[item.invokedBy ? `by ${item.invokedBy}` : null, item.detail].filter(Boolean).join(' · ')}

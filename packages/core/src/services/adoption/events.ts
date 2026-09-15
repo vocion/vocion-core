@@ -68,6 +68,14 @@ export const ADOPTION_EVENTS = {
     }),
   },
   /**
+   * A conversation turn opened FROM a record via an "Ask about this"
+   * affordance (briefing section, inbox ask, team-report row, record page) —
+   * distinct from the hotkey. `recordType` says which surface hands work to
+   * the agent; the count against `chat.message_sent` is how much of the chat
+   * starts in context rather than cold.
+   */
+  'chat.opened_from_context': { agent: true, meta: z.object({ recordType: z.string().max(40) }) },
+  /**
    * One event for every HITL approval surface; the run kind travels in
    * metadata. `decision` is the TYPED triage signal — approve/edit/reject are
    * terminal; skip/save leave the item pending; rewrite = the human asked AI
@@ -157,6 +165,18 @@ export const ADOPTION_EVENTS = {
   'learning.candidate_decided': {
     agent: true,
     meta: z.object({ decision: z.enum(['approved', 'rejected']) }),
+  },
+  /**
+   * A person answered an ask — a ruling, an approval, a credential, a merge, a
+   * recommendation, a gate. Nothing executes on a decision, so the outcome is
+   * the status the ask landed in. `kind` says what sort of thing was waiting.
+   */
+  'ask.decided': {
+    agent: true,
+    meta: z.object({
+      kind: z.enum(['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate']),
+      status: z.enum(['approved', 'rejected', 'done', 'superseded']),
+    }),
   },
   /**
    * One assessed call = one event, whoever ordered it (scheduled mission

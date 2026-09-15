@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSurface } from '@/libs/surfaces/registry';
-import { handleInbound, slackEventsEnabled } from '@/services/ChatSurfaceService';
+import { handleInbound, handleJoined, slackEventsEnabled } from '@/services/ChatSurfaceService';
 
 /**
  * POST /api/webhooks/slack — Slack Events API endpoint (approval item 025, phase 1).
@@ -42,6 +42,12 @@ export async function POST(request: Request) {
   }
   if (request.headers.get('x-slack-retry-num')) {
     return NextResponse.json({ ok: true, ignored: 'retry' });
+  }
+  if (parsed.kind === 'joined') {
+    // The bot was invited somewhere. One introduction, posted the same
+    // fire-and-forget way as a reply; no agent runs.
+    void handleJoined(adapter, parsed.join).catch(() => {});
+    return NextResponse.json({ ok: true });
   }
   // Ack now; reply from the agent lands in the thread when it is ready.
   void handleInbound(adapter, parsed.inbound).catch(() => {});

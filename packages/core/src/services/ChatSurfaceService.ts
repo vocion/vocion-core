@@ -1,7 +1,7 @@
-import type { ChatInbound, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import type { ChatInbound, ChatJoin, ChatReplyTarget, ChatSurfaceAdapter } from '@/libs/surfaces/types';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { chatChannelBindingSchema } from '@/models/Schema';
+import { agentSchema, chatChannelBindingSchema } from '@/models/Schema';
 import { runAgentDeep } from '@/services/AgentService';
 import { preflightCheck } from '@/services/BudgetService';
 import { appendMessage, createConversation, latestConversationForScope, listMessages, toHistoryTurns } from '@/services/ConversationService';
@@ -79,21 +79,62 @@ export async function createBinding(opts: { orgId: string; surface: string; team
   return row!;
 }
 
+/** A name and an avatar to post under. Never an identity — presentation only. */
+export type ChatPersona = { displayName?: string | null; iconUrl?: string | null };
+
 /**
- * The channel + thread a reply goes to, wearing the binding's persona if it has
- * one. Absent persona fields are left off the object rather than set to null,
- * so an adapter — and the payload it builds — is unchanged for the bindings
- * that predate personas.
+ * Which face a reply wears: the binding's persona if the channel sets one,
+ * else the answering agent's own persona, else nothing — the app's name and
+ * icon, exactly as before personas existed.
+ *
+ * A persona resolves as a unit rather than field by field: a binding that
+ * sets only a name keeps the app's icon rather than borrowing the agent's,
+ * because half of one face on half of another is a third person nobody
+ * configured.
+ * @param binding - Persona fields from the resolved channel binding.
+ * @param agent - Persona from the agent that is answering, if it has one.
+ */
+export function resolvePersona(binding: ChatPersona, agent?: ChatPersona | null): ChatPersona {
+  if (binding.displayName || binding.iconUrl) {
+    return binding;
+  }
+  if (agent && (agent.displayName || agent.iconUrl)) {
+    return agent;
+  }
+  return {};
+}
+
+/**
+ * The channel + thread a reply goes to, wearing the resolved persona. Absent
+ * persona fields are left off the object rather than set to null, so an
+ * adapter — and the payload it builds — is unchanged for the bindings and
+ * agents that carry no persona.
  * @param binding - The resolved binding.
  * @param inbound - The message being answered.
+ * @param agentPersona - The answering agent's persona, if it has one.
  */
-export function replyTargetFor(binding: Pick<ChatChannelBinding, 'displayName' | 'iconUrl'>, inbound: Pick<ChatInbound, 'channelId' | 'threadRef'>): ChatReplyTarget {
+export function replyTargetFor(binding: Pick<ChatChannelBinding, 'displayName' | 'iconUrl'>, inbound: Pick<ChatInbound, 'channelId' | 'threadRef'>, agentPersona?: ChatPersona | null): ChatReplyTarget {
+  const persona = resolvePersona(binding, agentPersona);
   return {
     channelId: inbound.channelId,
     threadRef: inbound.threadRef,
-    ...(binding.displayName ? { displayName: binding.displayName } : {}),
-    ...(binding.iconUrl ? { iconUrl: binding.iconUrl } : {}),
+    ...(persona.displayName ? { displayName: persona.displayName } : {}),
+    ...(persona.iconUrl ? { iconUrl: persona.iconUrl } : {}),
   };
+}
+
+/**
+ * The persona of the agent that will answer, if it has one. One narrow read:
+ * the chat surface needs the face, not the agent row.
+ * @param orgId - Tenant.
+ * @param agentSlug - The answering agent.
+ */
+export async function agentPersona(orgId: string, agentSlug: string): Promise<ChatPersona | null> {
+  const [row] = await db.select({ persona: agentSchema.persona })
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agentSlug)))
+    .limit(1);
+  return row?.persona ?? null;
 }
 
 /**
@@ -107,6 +148,54 @@ export async function deleteBinding(orgId: string, id: number): Promise<boolean>
     .where(and(eq(chatChannelBindingSchema.orgId, orgId), eq(chatChannelBindingSchema.id, id)))
     .returning({ id: chatChannelBindingSchema.id });
   return rows.length > 0;
+}
+
+/**
+ * The one line a channel hears when the bot is invited. Short on purpose: who
+ * answers here, and how to ask. It names the agent, never claims to be a
+ * person, and starts no thread.
+ * @param binding - The binding that will answer this channel.
+ */
+function introductionText(binding: Pick<ChatChannelBinding, 'agentSlug' | 'displayName'>): string {
+  const name = binding.displayName ?? binding.agentSlug;
+  return `I'm ${name}, a Vocion agent. I answer here as \`${binding.agentSlug}\` — mention me and I'll reply in the thread.`;
+}
+
+/**
+ * The bot was added to a channel. Introduce whoever answers there so a fresh
+ * channel is never met with silence — the workspace catch-all binding is what
+ * answers a channel nobody has bound, so this is the same resolution the first
+ * mention would get, said out loud one message early.
+ *
+ * Nothing is created and nothing runs: no agent turn, no conversation, no
+ * budget spend. An unbound channel (no exact binding, no catch-all) stays
+ * silent rather than advertising an install that cannot answer.
+ * @param adapter - The surface the join came from.
+ * @param join - The normalised join event.
+ */
+export async function handleJoined(adapter: ChatSurfaceAdapter, join: ChatJoin): Promise<
+  | { outcome: 'unbound' }
+  | { outcome: 'introduced'; orgId: string; agentSlug: string; text: string }
+  | { outcome: 'failed'; orgId: string; agentSlug: string; error: string }
+> {
+  const binding = await resolveBinding(join.surface, join.teamId, join.channelId);
+  if (!binding) {
+    return { outcome: 'unbound' };
+  }
+  const { orgId, agentSlug } = binding;
+  const persona = resolvePersona(binding, await agentPersona(orgId, agentSlug));
+  const target: ChatReplyTarget = {
+    channelId: join.channelId,
+    ...(persona.displayName ? { displayName: persona.displayName } : {}),
+    ...(persona.iconUrl ? { iconUrl: persona.iconUrl } : {}),
+  };
+  const text = introductionText({ agentSlug, displayName: persona.displayName ?? null });
+  try {
+    await adapter.reply(target, text);
+    return { outcome: 'introduced', orgId, agentSlug, text };
+  } catch (error) {
+    return { outcome: 'failed', orgId, agentSlug, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /** Dependency seam so the handler is testable without a model or a network. */
@@ -136,7 +225,7 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     return { outcome: 'unbound' };
   }
   const { orgId, agentSlug } = binding;
-  const target = replyTargetFor(binding, inbound);
+  const target = replyTargetFor(binding, inbound, await agentPersona(orgId, agentSlug));
 
   const budget = await deps.preflight({ orgId, agentSlug });
   if (!budget.ok) {

@@ -8,6 +8,7 @@ import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
 import { PageDock } from '@/features/dashboard/chat/PageDock';
+import { PageContextProvider } from '@/features/dashboard/context/PageContextProvider';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
@@ -17,6 +18,7 @@ import { db } from '@/libs/DB';
 import { readWorkspacePages } from '@/libs/workspace/pages';
 import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
+import { needsYouCount } from '@/services/InboxService';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
 
@@ -40,15 +42,19 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // Surfaces the workspace switched on (workspace.yaml `surfaces:`), read from
   // the same project row the stale-session guard already fetches.
   let enabledSurfaces: SurfaceId[] = [];
+  // The workspace the shell is showing — named in the top bar so "where am I"
+  // is answered without opening the switcher (MANIFESTO §11).
+  let workspace: { slug: string; name: string } | null = null;
   if (orgId) {
     const [project] = await db
-      .select({ id: projectSchema.id, enabledSurfaces: projectSchema.enabledSurfaces })
+      .select({ id: projectSchema.id, slug: projectSchema.slug, name: projectSchema.name, enabledSurfaces: projectSchema.enabledSurfaces })
       .from(projectSchema)
       .where(eq(projectSchema.id, orgId))
       .limit(1);
     // Drop ids this core no longer registers, so a stale workspace list can't
     // put a broken link in the sidebar.
     enabledSurfaces = (project?.enabledSurfaces ?? []).filter(isSurfaceId);
+    workspace = project ? { slug: project.slug, name: project.name } : null;
     if (!project) {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
@@ -76,28 +82,34 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // Agent picker options for the dock. Empty outside an org — the dock
   // renders nothing rather than a picker with no agents in it.
   const agents = orgId ? (await loadChatAgentContext(orgId)).agents : [];
+  // The "Needs you" badge. Counted in SQL, and a failure here must never take
+  // the shell down — a badge that reads 0 is a smaller fault than no page.
+  const waiting = orgId ? await needsYouCount(orgId).catch(() => 0) : 0;
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <AppSidebar
         isAdmin={has({ role: ORG_ROLE.ADMIN })}
         enabledSurfaces={enabledSurfaces}
+        needsYouCount={waiting}
         workspacePages={readWorkspacePages().pages.filter(p => !p.nav.hidden).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
       />
       <SidebarInset>
         <ShellBarActionsProvider>
-          <AppSidebarHeader />
+          <AppSidebarHeader workspace={workspace} />
 
           {/* The page and, beside it, the one conversation surface (058): the
               dock as a third column at a third of the screen, collapsed to a
               button until opened. Record pages that mount their own scoped
               dock inside `children` are skipped by PageDock. */}
-          <div className="flex flex-1 items-stretch">
-            <div className="@container min-w-0 flex-1 px-4 py-4 sm:px-6">
-              {props.children}
+          <PageContextProvider>
+            <div className="flex flex-1 items-stretch">
+              <div className="@container min-w-0 flex-1 px-4 py-4 sm:px-6">
+                {props.children}
+              </div>
+              <PageDock agents={agents} />
             </div>
-            <PageDock agents={agents} />
-          </div>
+          </PageContextProvider>
         </ShellBarActionsProvider>
         {(() => {
           const tour = readWorkspaceTour();

@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
+import { tokenCostCents } from '@/libs/pricing';
 import { agentSchema } from '@/models/Schema';
 import { AnswerStreamer } from './agents/answerStream';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
@@ -175,11 +176,28 @@ export async function runAgentDeep(opts: {
   /** Persisted conversation id — keys the AgentCore Memory session on the runtime provider (Phase 5, opt-in). */
   conversationId?: number;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** Where the person is in the app for this turn — exposed to the `page_context` tool. */
+  pageContext?: import('./chat/pageContext').PageContext;
   onEvent?: (event: import('./agents/types').AgentEvent) => void;
+  /**
+   * Run this ONE turn on a named model instead of the agent's own. The
+   * model-upgrade test (`services/evals/modelUpgradeTest.ts`) is the caller.
+   * Forces the in-process loop: the other harness targets build their model
+   * from the agent row, and a payload field they would ignore is worse than
+   * an honest single path. Never cached — see `getCompiledAgent`.
+   */
+  modelOverride?: import('./agents/harness').ModelOverride;
 }): Promise<{
   response: string;
   traceId: string;
   toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>;
+  /**
+   * Token usage across every model turn of this run, priced by
+   * `tokenCostCents`. `model` is the id the provider reported on the last
+   * turn. Present on the in-process loop; the other harness targets report
+   * usage through their own channels and leave this undefined.
+   */
+  usage?: RunUsage;
 }> {
   // Local import keeps the legacy `runAgent` path from pulling
   // deepagents/LangChain modules at module-load time. (Cuts cold-start
@@ -251,9 +269,13 @@ export async function runAgentDeep(opts: {
     .from(agentSchema)
     .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.slug, opts.agentSlug)));
   const harness = agentRow?.harnessConfig;
-  const target = normalizeHarnessTarget(process.env.VOCION_AGENT_PROVIDER)
-    ?? normalizeHarnessTarget(harness?.runsOn ?? harness?.provider)
-    ?? defaultHarnessTargetFor(harness?.modelProvider);
+  // A model override pins the turn to the in-process loop, whatever the agent's
+  // harness says — see the option's doc comment.
+  const target = opts.modelOverride
+    ? 'in-process'
+    : normalizeHarnessTarget(process.env.VOCION_AGENT_PROVIDER)
+      ?? normalizeHarnessTarget(harness?.runsOn ?? harness?.provider)
+      ?? defaultHarnessTargetFor(harness?.modelProvider);
   if (target === 'agentcore-container' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
     return runAgentOnRuntime(opts);
@@ -269,14 +291,17 @@ export async function runAgentDeep(opts: {
     return runAgentOnAgentCoreHarness(opts);
   }
 
-  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug);
-  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId);
+  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride: opts.modelOverride });
+  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext);
   const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
   // Full (untruncated) tool outputs — the sanitizer needs the whole thing to
   // strip a verbatim echo (toolCallLog truncates for the event/audit surface).
   const rawToolOutputs: string[] = [];
+
+  // What this run cost, summed over every model turn the callback sees.
+  const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cents: 0, turns: 0 };
 
   // Langfuse trace via the v0.2 BaseCallbackHandler adapter.
   const { handler: langfuseHandler, trace } = createLangfuseCallback({
@@ -287,6 +312,16 @@ export async function runAgentDeep(opts: {
     input: { message: opts.message },
     metadata: { agentId: compiled.agentRow.id, runtime: 'deepagents' },
     onTurnEnd: async (turn) => {
+      usage.turns += 1;
+      usage.model = turn.model;
+      usage.inputTokens += turn.inputTokens ?? 0;
+      usage.outputTokens += turn.outputTokens ?? 0;
+      usage.cacheReadTokens += turn.cacheReadTokens ?? 0;
+      usage.cents += tokenCostCents(turn.model, {
+        inputTokens: turn.inputTokens,
+        outputTokens: turn.outputTokens,
+        cacheReadTokens: turn.cacheReadTokens,
+      });
       await chargeUsage({
         orgId: opts.orgId,
         agentSlug: opts.agentSlug,
@@ -538,5 +573,19 @@ export async function runAgentDeep(opts: {
     response: finalText,
     traceId: trace.id,
     toolCalls: toolCallLog,
+    usage,
   };
 }
+
+/** Token usage of one `runAgentDeep` call, summed over its model turns. */
+export type RunUsage = {
+  /** The id the provider reported on the last turn (`unknown` if it named none). */
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  /** USD cents via `tokenCostCents`; 0 for a model the price table does not know. */
+  cents: number;
+  /** Model turns — one per LLM call, so retries and tool loops count. */
+  turns: number;
+};

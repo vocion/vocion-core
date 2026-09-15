@@ -1,4 +1,5 @@
-import type { TeamManifest } from './schemas';
+import type { TeamManifestInput } from './schemas';
+import type { TeamKpi } from '@/models/Schema';
 
 /**
  * DB row → YAML manifest mapping for the team export round-trip (F1).
@@ -13,11 +14,14 @@ export type TeamExportRow = {
   description: string | null;
   leadAgentSlug: string | null;
   accountableUserId: string | null;
+  goal?: string | null;
+  kpis?: TeamKpi[] | null;
 };
 
 export type ProjectLeadRow = {
   leadAgentSlug: string | null;
   accountableUserId: string | null;
+  goal?: string | null;
 };
 
 /**
@@ -28,7 +32,7 @@ export type ProjectLeadRow = {
  * @param row
  * @param emailByUserId
  */
-export function teamRowToManifest(row: TeamExportRow, emailByUserId: Map<string, string>): TeamManifest {
+export function teamRowToManifest(row: TeamExportRow, emailByUserId: Map<string, string>): TeamManifestInput {
   return {
     name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
@@ -36,6 +40,10 @@ export function teamRowToManifest(row: TeamExportRow, emailByUserId: Map<string,
     ...(row.accountableUserId === null || !emailByUserId.has(row.accountableUserId)
       ? {}
       : { accountableUser: emailByUserId.get(row.accountableUserId)! }),
+    ...(row.goal ? { goal: row.goal } : {}),
+    // An empty list exports as an absent key (the schema defaults it back to
+    // []), so a team authored without `kpis:` round-trips with no new line.
+    ...(row.kpis && row.kpis.length > 0 ? { kpis: row.kpis.map(k => ({ ...k, window: k.window ?? 'all' as const })) } : {}),
   };
 }
 
@@ -45,9 +53,10 @@ export function teamRowToManifest(row: TeamExportRow, emailByUserId: Map<string,
  * @param project
  * @param emailByUserId
  */
-export function projectLeadToManifestKeys(project: ProjectLeadRow, emailByUserId: Map<string, string>): { lead?: string; accountableUser?: string } {
+export function projectLeadToManifestKeys(project: ProjectLeadRow, emailByUserId: Map<string, string>): { lead?: string; accountableUser?: string; goal?: string } {
   return {
     ...(project.leadAgentSlug === null ? {} : { lead: project.leadAgentSlug }),
+    ...(project.goal ? { goal: project.goal } : {}),
     ...(project.accountableUserId === null || !emailByUserId.has(project.accountableUserId)
       ? {}
       : { accountableUser: emailByUserId.get(project.accountableUserId)! }),

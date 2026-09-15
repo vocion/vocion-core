@@ -11,9 +11,15 @@
  *
  * Callable from CLI (`npm run eval:run -- --dataset <slug>`) and oRPC.
  * UI is a thin viewer over the rows.
+ *
+ * A run can name the model the agent under test runs on (`modelOverride`);
+ * `services/evals/modelUpgradeTest.ts` runs a dataset twice that way and
+ * compares the two on cost per passed case. Every case records its own
+ * token usage and cost so that comparison is a read over stored rows.
  */
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { LangChainProvider } from '@/libs/llm';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -96,10 +102,21 @@ export async function getRun(orgId: string, runId: number) {
 /* Run a dataset                                                       */
 /* ------------------------------------------------------------------ */
 
-export async function runDataset(opts: {
+export type RunDatasetOptions = {
   orgId: string;
   datasetSlug: string;
-}): Promise<{ runId: number; metrics: typeof evalRunSchema.$inferSelect['metrics'] }> {
+  /**
+   * Run the agent under test on this model instead of its own. The judge is
+   * unaffected — it stays on the `classifier` role so two runs of one dataset
+   * are graded by the same model. The model-upgrade test passes this; an
+   * ordinary run leaves it unset and `eval_run.model` NULL.
+   */
+  modelOverride?: string;
+  /** The override's vendor; inferred from the id's shape when omitted. */
+  providerOverride?: LangChainProvider;
+};
+
+export async function runDataset(opts: RunDatasetOptions): Promise<{ runId: number; metrics: typeof evalRunSchema.$inferSelect['metrics'] }> {
   const dataset = await getDataset(opts.orgId, opts.datasetSlug);
   if (!dataset) {
     throw new Error(`dataset ${opts.datasetSlug} not found for org ${opts.orgId}`);
@@ -113,6 +130,7 @@ export async function runDataset(opts: {
       datasetId: dataset.id,
       agentSlug: dataset.agentSlug,
       workspaceSha: workspaceSha ?? null,
+      model: opts.modelOverride ?? null,
       status: 'running',
     })
     .returning();
@@ -123,9 +141,17 @@ export async function runDataset(opts: {
   const judge = await buildChatModelForOrg('classifier', opts.orgId, { temperature: 0 });
   const items = dataset.items ?? [];
   const latencies: number[] = [];
+  const modelOverride = opts.modelOverride
+    ? { model: opts.modelOverride, ...(opts.providerOverride ? { provider: opts.providerOverride } : {}) }
+    : undefined;
   let toolCallCount = 0;
   let passed = 0;
   let failed = 0;
+  let totalCents = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTurns = 0;
+  let casesWithUsage = 0;
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
@@ -134,6 +160,7 @@ export async function runDataset(opts: {
     let traceId = '';
     let errored = false;
     let errorMessage = '';
+    let caseUsage: CaseUsage | null = null;
 
     try {
       const result = await runAgentDeep({
@@ -141,10 +168,19 @@ export async function runDataset(opts: {
         agentSlug: dataset.agentSlug,
         message: item.input,
         userId: 'eval-runner',
+        modelOverride,
       });
       agentResp = result.response;
       traceId = result.traceId;
       toolCallCount += result.toolCalls.length;
+      if (result.usage) {
+        caseUsage = { ...result.usage, toolCalls: result.toolCalls.length };
+        totalCents += result.usage.cents;
+        totalInputTokens += result.usage.inputTokens;
+        totalOutputTokens += result.usage.outputTokens;
+        totalTurns += result.usage.turns;
+        casesWithUsage += 1;
+      }
     } catch (err) {
       errored = true;
       errorMessage = (err as Error).message ?? 'agent run failed';
@@ -188,6 +224,7 @@ export async function runDataset(opts: {
       rationale,
       traceId: traceId || null,
       latencyMs,
+      usage: caseUsage,
     });
   }
 
@@ -196,6 +233,12 @@ export async function runDataset(opts: {
     toolCallCount,
     medianLatencyMs: median(latencies),
     failed,
+    passed,
+    totalCents: round4(totalCents),
+    totalInputTokens,
+    totalOutputTokens,
+    meanTurns: casesWithUsage > 0 ? round4(totalTurns / casesWithUsage) : 0,
+    costPerPassedCaseCents: passed > 0 ? round4(totalCents / passed) : null,
   };
 
   const [updated] = await db
@@ -287,6 +330,13 @@ async function scoreOne(
   }
   trace.update({ output: validated.data });
   return validated.data;
+}
+
+/** The per-case usage record stored on `eval_case_result.usage`. */
+export type CaseUsage = NonNullable<typeof evalCaseResultSchema.$inferSelect['usage']>;
+
+function round4(n: number): number {
+  return Math.round(n * 10_000) / 10_000;
 }
 
 function median(values: number[]): number {

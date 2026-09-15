@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { usd } from '@/services/evals/modelUpgradeTest';
 import { getDataset, getRun } from '@/services/EvalService';
 
 type Props = {
@@ -91,6 +92,13 @@ export default async function EvalRunDetailPage(props: Props) {
                 </span>
               </>
             )}
+            {run.model && (
+              <span className="font-mono text-xs">
+                model
+                {' '}
+                {run.model}
+              </span>
+            )}
             {run.workspaceSha && (
               <span className="font-mono text-xs">
                 context
@@ -109,6 +117,10 @@ export default async function EvalRunDetailPage(props: Props) {
           <Metric label="Cases" value={String(sortedResults.length)} />
           <Metric label="Failed" value={String(run.metrics?.failed ?? sortedResults.filter(r => r.verdict === 'fail' || r.verdict === 'error').length)} />
           <Metric label="Median latency" value={typeof run.metrics?.medianLatencyMs === 'number' ? `${run.metrics.medianLatencyMs}ms` : '—'} />
+          <Metric label="Total cost" value={typeof run.metrics?.totalCents === 'number' ? usd(run.metrics.totalCents) : '—'} />
+          <Metric label="Cost per passed case" value={typeof run.metrics?.costPerPassedCaseCents === 'number' ? usd(run.metrics.costPerPassedCaseCents) : '—'} />
+          <Metric label="Mean turns per case" value={typeof run.metrics?.meanTurns === 'number' ? run.metrics.meanTurns.toFixed(2) : '—'} />
+          <Metric label="Tokens in / out" value={typeof run.metrics?.totalInputTokens === 'number' ? `${run.metrics.totalInputTokens.toLocaleString('en-US')} / ${(run.metrics.totalOutputTokens ?? 0).toLocaleString('en-US')}` : '—'} />
         </dl>
       </section>
 
@@ -145,6 +157,19 @@ export default async function EvalRunDetailPage(props: Props) {
                             <span className="font-mono text-xs text-muted-foreground">
                               {r.latencyMs}
                               ms
+                            </span>
+                          )}
+                          {r.usage && (
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {usd(r.usage.cents)}
+                              {' · '}
+                              {r.usage.turns}
+                              {' '}
+                              turns
+                              {' · '}
+                              {r.usage.toolCalls}
+                              {' '}
+                              tools
                             </span>
                           )}
                         </div>

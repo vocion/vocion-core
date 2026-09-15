@@ -453,6 +453,7 @@ async function upsertAgent(
     playbookSlugs: agent.playbooks,
     learningSteps: agent.learningSteps,
     suggestions: agent.suggestions,
+    persona: agent.persona ?? null,
     accent: agent.accent ?? null,
     eyebrow: agent.eyebrow ?? null,
     langfuseProjectId: agent.langfuseProjectId ?? null,
@@ -649,6 +650,10 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
     // Explicit owner only — an omitted accountableUser stays NULL so the
     // workspace default is inherited at read time, never baked in here.
     accountableUserId: await resolveAccountableUser(team.accountableUser, 'team', team.slug, errors),
+    goal: team.goal ?? null,
+    // Declarative like the rest: authored KPIs land wholesale, an omitted
+    // block clears the column.
+    kpis: team.kpis,
   };
 
   if (!existing) {
@@ -663,6 +668,8 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
     && (existing.description ?? null) === payload.description
     && (existing.leadAgentSlug ?? null) === payload.leadAgentSlug
     && (existing.accountableUserId ?? null) === payload.accountableUserId
+    && (existing.goal ?? null) === payload.goal
+    && JSON.stringify(existing.kpis ?? []) === JSON.stringify(payload.kpis)
   ) {
     return 'unchanged';
   }
@@ -726,6 +733,7 @@ async function applyWorkspaceLeadConfig(
   const regenerateSkills = loaded.manifest.defaults?.regenerateSkills && Object.keys(loaded.manifest.defaults.regenerateSkills).length > 0
     ? loaded.manifest.defaults.regenerateSkills
     : null;
+  const goal = loaded.manifest.goal ?? null;
 
   const [project] = await db
     .select({
@@ -735,13 +743,14 @@ async function applyWorkspaceLeadConfig(
       enabledSurfaces: projectSchema.enabledSurfaces,
       embeddingConfig: projectSchema.embeddingConfig,
       regenerateSkills: projectSchema.regenerateSkills,
+      goal: projectSchema.goal,
     })
     .from(projectSchema)
     .where(eq(projectSchema.id, orgId))
     .limit(1);
 
   if (!project) {
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null || goal !== null) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -765,13 +774,14 @@ async function applyWorkspaceLeadConfig(
     && surfacesUnchanged
     && embeddingUnchanged
     && regenerateUnchanged
+    && (project.goal ?? null) === goal
   ) {
     return;
   }
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, goal })
       .where(eq(projectSchema.id, project.id));
   }
 }
@@ -1164,6 +1174,7 @@ function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unkn
     'playbookSlugs',
     'learningSteps',
     'suggestions',
+    'persona',
     'accent',
     'eyebrow',
     'langfuseProjectId',

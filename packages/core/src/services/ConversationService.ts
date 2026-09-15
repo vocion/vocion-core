@@ -8,7 +8,8 @@
  *   - `toHistoryTurns` drops tool entries before replaying to the agent.
  */
 
-import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import type { PageContext } from '@/services/chat/pageContext';
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { conversationMessageSchema, conversationSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
@@ -58,6 +59,8 @@ export async function createConversation(opts: {
   createdBy?: string;
   /** The record this conversation is scoped to (CRM mirror ref), when opened from a dock. */
   scopeRef?: string;
+  /** Where the first turn was asked from — persisted once (R4). */
+  context?: PageContext | null;
 }) {
   const title = (opts.initialTitle ?? DEFAULT_TITLE).trim() || DEFAULT_TITLE;
   const [row] = await db
@@ -68,6 +71,7 @@ export async function createConversation(opts: {
       title,
       createdBy: opts.createdBy ?? null,
       scopeRef: opts.scopeRef ?? null,
+      contextJson: opts.context ?? null,
     })
     .returning();
   if (opts.createdBy) {
@@ -77,6 +81,22 @@ export async function createConversation(opts: {
     });
   }
   return row!;
+}
+
+/**
+ * Record where a conversation started, once: the first turn's page context.
+ * A no-op when the row already has one, so a later turn from another page
+ * never overwrites the origin.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.id
+ * @param opts.context
+ */
+export async function setConversationContextIfEmpty(opts: { orgId: string; id: number; context: PageContext }): Promise<void> {
+  await db
+    .update(conversationSchema)
+    .set({ contextJson: opts.context })
+    .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id), isNull(conversationSchema.contextJson)));
 }
 
 export async function listConversations(opts: {

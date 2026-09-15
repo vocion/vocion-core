@@ -45,6 +45,12 @@ export const WorkspaceManifestSchema = z.object({
    * without their own `accountableUser` inherit this at read time.
    */
   accountableUser: z.string().email().optional(),
+  /**
+   * The workspace's top-line goal — one sentence. The team report reads
+   * every team's spend share and KPI progress against it. Applied to
+   * `project.goal`. Omit for none.
+   */
+  goal: z.string().min(1).optional(),
   defaults: z.object({
     model: z.string().optional(),
     temperature: z.string().optional(),
@@ -110,9 +116,29 @@ export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
  * disagree with its own path. Teams are flat by construction: there is
  * no parent field here and no parent column in the `team` table.
  */
+/**
+ * One team KPI. `source` is `counts.<key>`: the sum of that key in
+ * `worker_run.counts` across the team's agents, over `window` (default
+ * all time). Progress is computed at read time — nothing is stored.
+ */
+export const TeamKpiSchema = z.object({
+  key: SlugSchema.describe('stable id, e.g. prs_merged'),
+  label: z.string().min(1).describe('what a person reads, e.g. "Merged PRs"'),
+  target: z.number().positive().describe('the number that counts as done'),
+  baseline: z.number().min(0).optional().describe('where the reading stood when the contract was set; progress is measured from here'),
+  unit: z.string().optional().describe('suffix shown after the reading, e.g. "PRs"'),
+  source: z.string().regex(/^counts\.[\w-]+$/, 'source must be counts.<key>').describe('which worker_run.counts key is summed'),
+  window: z.enum(['24h', '7d', 'all']).default('all'),
+}).refine(k => k.baseline === undefined || k.baseline < k.target, 'baseline must be below target');
+export type TeamKpiManifest = z.infer<typeof TeamKpiSchema>;
+
 export const TeamManifestSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
+  /** The team's standing goal — one sentence, shown on the team report. */
+  goal: z.string().min(1).optional(),
+  /** The measures the team is graded on; each reads a worker_run.counts key. Keys unique per team. */
+  kpis: z.array(TeamKpiSchema).default([]).refine(k => new Set(k.map(x => x.key)).size === k.length, 'kpi keys must be unique within a team'),
   /**
    * Slug of the agent leading this team. Optional — a team may exist
    * before its lead is chosen (rendered "no lead yet") — but when set
@@ -128,6 +154,8 @@ export const TeamManifestSchema = z.object({
   accountableUser: z.string().email().optional(),
 });
 export type TeamManifest = z.infer<typeof TeamManifestSchema>;
+/** The authored shape — what a teams/<slug>.yaml file may contain before defaults apply. */
+export type TeamManifestInput = z.input<typeof TeamManifestSchema>;
 
 /**
  * `pack.yaml` — the identity of a base pack shipped inside vocion-core at
@@ -243,6 +271,17 @@ export const AgentManifestSchema = z.object({
     label: z.string(),
     prompt: z.string(),
   })).default([]),
+  /**
+   * The face this agent wears when it answers on a chat surface — the name
+   * and avatar a Slack reply is posted under. A channel binding's own
+   * persona still wins; this is the agent everywhere else. Presentation
+   * only: it changes no identity and no authorisation, and must never imply
+   * a human. `iconUrl` must be a public https URL — Slack fetches it itself.
+   */
+  persona: z.object({
+    displayName: z.string().min(1).optional(),
+    iconUrl: z.string().url().optional(),
+  }).optional(),
   /** CSS color name for the agent's chat header / sidebar. */
   accent: z.string().optional(),
   /** Short tagline shown above the chat title. */

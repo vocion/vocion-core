@@ -53,12 +53,15 @@ ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
 ARG NEXT_PUBLIC_LANGFUSE_BASE_URL=http://localhost:3200
 ARG NEXT_PUBLIC_LANGFUSE_PROJECT_ID=demo
-# White-label brand slot (sidebar + marketing). Defaults to Vocion; a deployment
-# overrides via --build-arg. NEXT_PUBLIC_* is inlined at build time, so these
-# must be ARG+ENV here (not runtime env).
-#   BRAND_NAME    — wordmark text (e.g. "metacto")
-#   BRAND_TAGLINE — subhead under the wordmark (e.g. "agents by Vocion")
-#   BRAND_MARK    — glyph image src / data: URI (deployment supplies its own art)
+# White-label brand slot (sidebar + sign-in). Defaults to the Vocion identity
+# from vocion.ai (public/brand/vocion-primary-mark.svg + wordmark "Vocion");
+# a deployment overrides via --build-arg. NEXT_PUBLIC_* is inlined at build
+# time, so these must be ARG+ENV here (not runtime env).
+#   BRAND_NAME        — wordmark text (e.g. "Metacto")
+#   BRAND_TAGLINE     — subhead under the wordmark (e.g. "agents by Vocion")
+#   BRAND_MARK        — glyph image src / data: URI; empty = Vocion primary mark
+#   BRAND_LOCKUP[_DARK] — mark+wordmark as one image (light / dark variants)
+#   BRAND_ATTRIBUTION — sidebar footer line
 ARG NEXT_PUBLIC_BRAND_NAME=Vocion
 ENV NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME}
 ARG NEXT_PUBLIC_BRAND_TAGLINE=

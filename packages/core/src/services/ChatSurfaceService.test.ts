@@ -4,13 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { chatChannelBindingSchema, conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
+const { agentSchema, chatChannelBindingSchema, conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
 const svc = await import('@/services/ChatSurfaceService');
 
 const ORG = 'org_chat';
 
-function fakeAdapter(): ChatSurfaceAdapter & { replies: { channelId: string; threadRef: string; displayName?: string; iconUrl?: string; text: string }[] } {
-  const replies: { channelId: string; threadRef: string; displayName?: string; iconUrl?: string; text: string }[] = [];
+function fakeAdapter(): ChatSurfaceAdapter & { replies: { channelId: string; threadRef?: string; displayName?: string; iconUrl?: string; text: string }[] } {
+  const replies: { channelId: string; threadRef?: string; displayName?: string; iconUrl?: string; text: string }[] = [];
   return {
     id: 'slack',
     replies,
@@ -24,10 +24,22 @@ function fakeAdapter(): ChatSurfaceAdapter & { replies: { channelId: string; thr
 
 const inbound: ChatInbound = { surface: 'slack', teamId: 'T1', channelId: 'C1', threadRef: '100.1', messageRef: '100.1', externalUserId: 'U42', text: 'how is the quarter?', isDirect: false };
 
+/**
+ * The answering agent's row — only the persona matters here.
+ * @param slug - Agent slug the binding points at.
+ * @param persona - The face it wears, if any.
+ * @param persona.displayName - Name its replies are posted under.
+ * @param persona.iconUrl - Avatar its replies are posted with.
+ */
+async function seedAgent(slug: string, persona?: { displayName?: string; iconUrl?: string }): Promise<void> {
+  await db.insert(agentSchema).values({ orgId: ORG, slug, name: slug, systemPrompt: 'you are a test', ...(persona ? { persona } : {}) });
+}
+
 beforeEach(async () => {
   await db.delete(conversationMessageSchema);
   await db.delete(conversationSchema);
   await db.delete(chatChannelBindingSchema);
+  await db.delete(agentSchema);
 });
 
 describe('bindings', () => {
@@ -45,6 +57,35 @@ describe('bindings', () => {
 
     expect(await svc.deleteBinding('other', b!.id)).toBe(false);
     expect(await svc.deleteBinding(ORG, b!.id)).toBe(true);
+  });
+});
+
+describe('handleJoined', () => {
+  const join = { surface: 'slack', teamId: 'T1', channelId: 'C9', botUserId: 'UBOT' };
+
+  it('introduces the binding that will answer, wearing its persona, and starts no thread', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C9', agentSlug: 'revenue-lead', displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png' });
+    const adapter = fakeAdapter();
+    const out = await svc.handleJoined(adapter, join);
+
+    expect(out).toMatchObject({ outcome: 'introduced', orgId: ORG, agentSlug: 'revenue-lead' });
+    expect(adapter.replies[0]).toMatchObject({ channelId: 'C9', displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png' });
+    expect(adapter.replies[0]!.threadRef).toBeUndefined();
+    expect(adapter.replies[0]!.text).toContain('Sterling Banks');
+    expect(adapter.replies[0]!.text).toContain('revenue-lead');
+  });
+
+  it('falls back to the workspace catch-all for a channel nobody bound, and stays silent with no binding at all', async () => {
+    const adapter = fakeAdapter();
+
+    expect(await svc.handleJoined(adapter, join)).toEqual({ outcome: 'unbound' });
+    expect(adapter.replies).toEqual([]);
+
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: '*', agentSlug: 'vocion' });
+
+    expect(await svc.handleJoined(adapter, join)).toMatchObject({ outcome: 'introduced', agentSlug: 'vocion' });
+    expect(adapter.replies[0]!.text).toContain('vocion');
+    expect(Object.keys(adapter.replies[0]!)).toEqual(['channelId', 'text']);
   });
 });
 
@@ -100,6 +141,25 @@ describe('handleInbound', () => {
     // toEqual, not toMatchObject: an undefined key would still reach the adapter.
     expect(adapter.replies).toEqual([{ channelId: 'C1', threadRef: '100.1', text: 'up 12%' }]);
     expect(Object.keys(adapter.replies[0]!)).toEqual(['channelId', 'threadRef', 'text']);
+  });
+
+  it('wears the answering agent persona when the binding sets none, and lets a binding persona win', async () => {
+    await seedAgent('revenue-lead', { displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png' });
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+    const deps = { runAgent: vi.fn(async () => ({ response: 'up 12%', traceId: 't', toolCalls: [] })) as never, preflight: vi.fn(async () => ({ ok: true as const })) };
+
+    await svc.handleInbound(adapter, inbound, deps);
+
+    expect(adapter.replies[0]).toEqual({ channelId: 'C1', threadRef: '100.1', displayName: 'Sterling Banks', iconUrl: 'https://www.vocion.ai/personas/sterling.png', text: 'up 12%' });
+
+    // The channel says otherwise: the binding's override still wins, whole.
+    await db.delete(chatChannelBindingSchema);
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead', displayName: 'Front Desk' });
+
+    await svc.handleInbound(adapter, inbound, deps);
+
+    expect(adapter.replies[1]).toEqual({ channelId: 'C1', threadRef: '100.1', displayName: 'Front Desk', text: 'up 12%' });
   });
 
   it('refuses over-budget agents with a short reply and never runs the agent', async () => {

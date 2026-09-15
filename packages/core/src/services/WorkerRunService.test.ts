@@ -54,6 +54,33 @@ describe('WorkerRunService — the lease protocol', () => {
     expect(done.result).toEqual({ prs: 2 });
   });
 
+  it('records what sort of run it was, which model did it, and the worker\'s summary (migration 0092)', async () => {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'board', kind: 'board', model: 'claude-fable-5-1' });
+
+    expect(run.kind).toBe('board');
+    expect(run.model).toBe('claude-fable-5-1');
+
+    const plain = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'writer' });
+
+    expect(plain.kind).toBe('worker');
+    expect(plain.model).toBeNull();
+
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    // The model that actually reported usage wins over the create-time guess.
+    const hb = await svc.heartbeatWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', usage: { model: 'claude-opus-5', inputTokens: 10, outputTokens: 5, cents: 3 } });
+
+    expect(hb.run.model).toBe('claude-opus-5');
+
+    const done = await svc.completeWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', summary: 'Closed the queue to three items.', counts: { prs_merged: 2 } });
+
+    expect(done.summary).toBe('Closed the queue to three items.');
+    expect(done.counts).toEqual({ prs_merged: 2 });
+
+    expect(await svc.listWorkerRuns(ORG, { kind: 'board' })).toHaveLength(1);
+    expect(svc.parseWorkerRunKind('red-team')).toBe('red-team');
+    expect(svc.parseWorkerRunKind('referee')).toBeNull();
+  });
+
   it('refuses a claim on a run someone else holds, and a heartbeat from a stranger', async () => {
     const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'ceo' });
     await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'a' });

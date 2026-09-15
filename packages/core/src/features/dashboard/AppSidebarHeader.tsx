@@ -20,6 +20,7 @@ import {
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { AgentSurfaceButton } from '@/features/dashboard/chat/AgentSurfaceButton';
 import { Link } from '@/libs/I18nNavigation';
+import { workspaceUrl } from '@/libs/links';
 import { ShellBarActionsOutlet } from './ShellBarActions';
 
 /**
@@ -29,8 +30,15 @@ import { ShellBarActionsOutlet } from './ShellBarActions';
  * New chat / Switch agent) portal into the outlet beside it via
  * ShellBarActions. Fewer, calmer controls — the bar is chrome, so it stays out
  * of the way.
+ *
+ * `workspace` names the active project beside the trigger as a small chip:
+ * its slug, linking to the workspace's own URL (`/w/<slug>`), so the answer to
+ * "which workspace am I looking at" is on screen and copyable. Absent, nothing
+ * renders (no project resolved).
+ * @param props - Component props.
+ * @param props.workspace - Active project's slug and name, or null.
  */
-export const AppSidebarHeader = () => {
+export const AppSidebarHeader = ({ workspace = null }: { workspace?: { slug: string; name: string } | null }) => {
   const { data: session } = useSession();
   const { theme, setTheme } = useTheme();
   const t = useTranslations('ThemeSwitcher');
@@ -47,6 +55,16 @@ export const AppSidebarHeader = () => {
     <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between gap-2 border-b bg-background px-2">
       <div className="flex items-center gap-2 px-2 sm:px-4">
         <SidebarTrigger className="-ml-1 size-11 sm:size-7" />
+        {workspace && (
+          <a
+            href={workspaceUrl(workspace.slug, '/dashboard')}
+            title={`${workspace.name} — copy this link to open this workspace`}
+            data-testid="workspace-chip"
+            className="hidden max-w-48 truncate rounded-md border px-2 py-0.5 font-mono text-[11px] text-muted-foreground transition hover:text-foreground sm:inline-block"
+          >
+            {workspace.slug}
+          </a>
+        )}
       </div>
 
       <div className="flex items-center gap-x-1.5 pr-1">

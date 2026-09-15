@@ -25,6 +25,22 @@ import { chargeUsage, preflightCheck } from '@/services/BudgetService';
 
 export type WorkerRunStatus = 'queued' | 'running' | 'paused' | 'awaiting_review' | 'completed' | 'failed' | 'cancelled' | 'lost';
 
+/**
+ * What sort of run a row records — the axis the team report groups and
+ * badges by. `worker` is the default and what every pre-0092 row means.
+ */
+export const WORKER_RUN_KINDS = ['lead', 'board', 'worker', 'red-team', 'compact', 'snapshot'] as const;
+export type WorkerRunKind = typeof WORKER_RUN_KINDS[number];
+
+/**
+ * Narrow a caller-supplied kind; anything unknown is refused rather than
+ * stored, so the report's badges never meet a spelling it does not know.
+ * @param raw - Whatever the body carried.
+ */
+export function parseWorkerRunKind(raw: unknown): WorkerRunKind | null {
+  return typeof raw === 'string' && (WORKER_RUN_KINDS as readonly string[]).includes(raw) ? raw as WorkerRunKind : null;
+}
+
 export type WorkerRun = typeof workerRunSchema.$inferSelect;
 
 /** Errors the API maps 1:1 onto HTTP — the code names the situation, the status the response. */
@@ -82,6 +98,8 @@ function toolClaimFor(run: WorkerRun): string {
  * @param opts.leaseSeconds
  * @param opts.createdBy
  * @param opts.workspaceSha
+ * @param opts.kind - What sort of run; defaults to `worker`.
+ * @param opts.model - The model expected to do the work; a heartbeat's `usage.model` overrides it.
  */
 export async function createWorkerRun(opts: {
   orgId: string;
@@ -92,10 +110,14 @@ export async function createWorkerRun(opts: {
   leaseSeconds?: number;
   createdBy?: string;
   workspaceSha?: string | null;
+  kind?: WorkerRunKind;
+  model?: string | null;
 }): Promise<WorkerRun> {
   const [row] = await db.insert(workerRunSchema).values({
     orgId: opts.orgId,
     agentSlug: opts.agentSlug,
+    kind: opts.kind ?? 'worker',
+    model: opts.model ?? null,
     input: opts.input ?? {},
     endsAt: opts.endsAt ?? null,
     capCents: opts.capCents ?? null,
@@ -122,13 +144,17 @@ export async function getWorkerRun(orgId: string, id: number): Promise<WorkerRun
  * @param opts - Filters and paging.
  * @param opts.status
  * @param opts.agentSlug
+ * @param opts.kind
  * @param opts.limit
  * @param opts.offset
  */
-export async function listWorkerRuns(orgId: string, opts: { status?: string; agentSlug?: string; limit?: number; offset?: number } = {}): Promise<WorkerRun[]> {
+export async function listWorkerRuns(orgId: string, opts: { status?: string; agentSlug?: string; kind?: string; limit?: number; offset?: number } = {}): Promise<WorkerRun[]> {
   const where = [eq(workerRunSchema.orgId, orgId)];
   if (opts.status) {
     where.push(eq(workerRunSchema.status, opts.status));
+  }
+  if (opts.kind) {
+    where.push(eq(workerRunSchema.kind, opts.kind));
   }
   if (opts.agentSlug) {
     where.push(eq(workerRunSchema.agentSlug, opts.agentSlug));
@@ -242,6 +268,8 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     counts: input.counts ? { ...run.counts, ...input.counts } : run.counts,
     tokens: run.tokens + tokens,
     cents: run.cents + (input.usage?.cents ?? 0),
+    // The model that actually did the work wins over whatever create guessed.
+    model: input.usage?.model ?? run.model,
     langfuseTraceId: input.langfuseTraceId ?? run.langfuseTraceId,
     failures,
     updatedAt: now,
@@ -274,14 +302,16 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
  * @param opts.workerId
  * @param opts.result
  * @param opts.counts
+ * @param opts.summary - The worker's one-paragraph account of the run.
  */
-export async function completeWorkerRun(opts: { orgId: string; id: number; workerId: string; result?: Record<string, unknown>; counts?: Record<string, number> }): Promise<WorkerRun> {
+export async function completeWorkerRun(opts: { orgId: string; id: number; workerId: string; result?: Record<string, unknown>; counts?: Record<string, number>; summary?: string | null }): Promise<WorkerRun> {
   const run = await mustGet(opts.orgId, opts.id);
   mustHoldLease(run, opts.workerId);
   const now = new Date();
   const [updated] = await db.update(workerRunSchema).set({
     status: run.stopRequested ? 'cancelled' : 'completed',
     result: opts.result ?? null,
+    summary: opts.summary ?? run.summary,
     counts: opts.counts ? { ...run.counts, ...opts.counts } : run.counts,
     completedAt: now,
     heartbeatAt: now,

@@ -12,6 +12,7 @@
     "observability_section_label": "Observabilité",
     "organization_section_label": "Organisation",
     "chat": "Chat",
+    "inbox": "À traiter",
     "search": "Rechercher",
     "review": "Révision",
     "observability": "Observabilité",
@@ -24,7 +25,8 @@
     "learnings": "Apprentissages",
     "evals": "Évaluations",
     "docs": "Docs",
-    "adoption": "Adoption"
+    "adoption": "Adoption",
+    "team_report": "Rapport d'équipe"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",
