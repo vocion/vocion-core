@@ -120,7 +120,7 @@ stored. Definitions, so the numbers can be argued with:
 |---|---|
 | **Attainment** | 0..1, capped, direction-aware. `higher`: (value − baseline) / (target − baseline). `lower`: 1 at or under target; above it, (baseline − value) / (baseline − target), or target / value with no baseline. |
 | **Trend** | value − the same reading over the window immediately before, with an arrow and whether the move is an improvement for the measure's direction. |
-| **Cost per outcome** | team operating cents in the window / the primary outcome's value. Null — shown as plain operating cost — when nothing was produced; spend over zero is not a ratio. |
+| **Cost per outcome** | team operating cents over the **primary measure's own window** / the primary outcome's value in that window — like with like, never a day of spend over a week of outcomes. Null — shown as plain operating cost — when nothing was produced (spend over zero is not a ratio) or nothing was spent (a $0.00 outcome is a gap in the cost record, not a bargain). |
 | **Quality rate** | approved without an edit / (approved + edited + rejected). Derived from decisions unless the team declares a `quality` measure. |
 | **Velocity** | median (finished − created) over the window's executed actions and completed runs, unless the team declares a `velocity` measure. |
 | **Human interventions** | decisions a person took: action approve / edit / reject + asks answered. |
