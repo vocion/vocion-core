@@ -48,9 +48,11 @@ import {
 } from './learnings';
 import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
+import { pageContextTool } from './pageContext';
 import { personalizationTools } from './personalization';
 import { proposeActionTool } from './proposeAction';
 import { recommendActionTool } from './recommendAction';
+import { renderArtifactTools } from './renderArtifacts';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
@@ -118,6 +120,10 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     requestHumanReviewTool(ctx),
     proposeActionTool(ctx),
     recommendActionTool(ctx),
+    // Canvas (0095): render_table / render_markdown / render_chart / render_record —
+    // no side effect outside the conversation, so on for every agent.
+    ...renderArtifactTools(ctx),
+    pageContextTool(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),

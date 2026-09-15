@@ -31,6 +31,7 @@ import { z } from 'zod';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModelForOrg, resolvedModelId } from '@/libs/llm/langchain';
+import { SERIES_NOTE_CAP } from './prompt';
 
 /** How long one extraction call may take. The outer per-document cap is 25s. */
 export const MODEL_TIMEOUT_MS = 20_000;
@@ -44,6 +45,12 @@ export type ExtractedRecord = {
   notes?: string;
   seriesOf?: number;
   duplicateOf?: number;
+  /**
+   * Why this occurrence does not follow the pattern of the rest of its series,
+   * in a few words. Only meaningful alongside `seriesOf`, and dropped by
+   * `validate.ts` when that id did not survive.
+   */
+  seriesNote?: string;
 };
 
 export type ExtractionResult
@@ -99,6 +106,11 @@ function envelopeSchema(maxRecords: number) {
       notes: z.string().max(2000).optional(),
       seriesOf: runRef,
       duplicateOf: runRef,
+      // Truncated, never rejected. `notes` above is a hard `.max(2000)`, and a
+      // value one character over a hard bound costs the corrective retry and
+      // can cost the whole document. A 141-character aside must never cost a
+      // card, so this follows `runRef` and transforms instead.
+      seriesNote: z.string().optional().transform(value => value?.slice(0, SERIES_NOTE_CAP)),
     })).max(maxRecords).default([]),
   });
 }

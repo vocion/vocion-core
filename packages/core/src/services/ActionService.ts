@@ -140,6 +140,7 @@ async function findDecidedRunForKey(
  * @param input.proposal.agentSlug
  * @param input.proposal.suggestedDecision
  * @param input.proposal.suggestedSnoozeUntil
+ * @param input.proposal.labels - Payload field names the proposer wrote as a judgement of its own.
  * @param input.dedupKey
  * @param input.expiresAt
  */
@@ -155,6 +156,10 @@ export async function proposeAction(input: {
    * should do with this. The recommendation can only ever keep the proposal in
    * the queue (see the guard below); it is never read as a reason to let one
    * run without a person.
+   *
+   * `labels` names the payload fields the proposer wrote as a JUDGEMENT rather
+   * than read off its source, so the decision can record what the reviewer did
+   * with each of them. Names only, never values.
    */
   proposal?: {
     confidence?: number;
@@ -163,6 +168,7 @@ export async function proposeAction(input: {
     agentSlug?: string;
     suggestedDecision?: SuggestedDecision;
     suggestedSnoozeUntil?: string;
+    labels?: string[];
   };
   /**
    * Upsert key for agent-suggested actions — (object type + id + action slug).

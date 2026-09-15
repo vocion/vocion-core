@@ -12,6 +12,7 @@
 
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
+import type { LabelVerdict } from '@/libs/actions/labelVerdict';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
@@ -787,7 +788,13 @@ export async function decide(
       return {};
     case 'action': {
       let execution: DecideResult['execution'];
+      let labels: Record<string, LabelVerdict> | undefined;
       if (action === 'approve') {
+        // BEFORE the write, and only here: `updateActionInput` replaces
+        // `input` wholesale and `onProposed` rewrites the object's metadata
+        // after it, so this is the last moment the values the proposer wrote
+        // still exist anywhere.
+        labels = await labelVerdicts(item.id, orgId, opts?.editedInput);
         // Edit-then-approve: if the operator edited the draft in the queue,
         // persist the edited payload FIRST (re-validated in ActionService),
         // so executeAction — which re-reads the row — sends what they see.
@@ -841,6 +848,7 @@ export async function decide(
         signal,
         hint: opts?.note,
         learn: opts?.learn,
+        labels,
       }).catch(() => {});
       return { execution };
     }
@@ -874,6 +882,79 @@ function trackDecision(
   })();
 }
 
+/**
+ * The stored `fields` object of an action input, whatever else it carries.
+ * @param input - An action payload, stored or edited.
+ */
+function fieldsOf(input: unknown): Record<string, unknown> {
+  const fields = (input as { fields?: unknown } | null | undefined)?.fields;
+  return fields && typeof fields === 'object' ? fields as Record<string, unknown> : {};
+}
+
+/**
+ * One field's value as the comparison sees it: a trimmed string, blank for absent.
+ * @param value - The stored or edited field value.
+ */
+function labelText(value: unknown): string {
+  return value == null ? '' : String(value).trim();
+}
+
+/**
+ * What a reviewer did to the labels a proposal declared, read at decide time.
+ *
+ * Called BEFORE `updateActionInput`, which replaces `input` wholesale, so the
+ * proposed values are still there to compare against. A proposal that declared
+ * nothing is measured not at all, which is what keeps this free for every
+ * caller that has never heard of a label.
+ * @param runId - The action run being decided.
+ * @param orgId - Org that owns it.
+ * @param editedInput - The payload the reviewer is approving, when they edited one.
+ */
+async function labelVerdicts(
+  runId: number,
+  orgId: string,
+  editedInput: Record<string, unknown> | undefined,
+): Promise<Record<string, LabelVerdict> | undefined> {
+  const [run] = await db
+    .select({ input: actionRunSchema.input, proposal: actionRunSchema.proposal })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+    .limit(1);
+  const declared = run?.proposal?.labels;
+  if (!Array.isArray(declared) || declared.length === 0) {
+    return undefined;
+  }
+
+  const before = fieldsOf(run?.input);
+  // A plain approve is a decision about the labels too: the reviewer looked at
+  // them and left them alone, which is the strongest "kept" there is.
+  const after = editedInput ? fieldsOf(editedInput) : before;
+
+  const verdicts: Record<string, LabelVerdict> = {};
+  for (const name of declared) {
+    if (typeof name !== 'string' || name === '') {
+      continue;
+    }
+    if (editedInput && !(name in after)) {
+      // Omission is not a clear: a reviewer clearing a label sends it as '',
+      // and a payload that never mentions the field was not edited on it.
+      continue;
+    }
+    const was = labelText(before[name]);
+    const now = labelText(after[name]);
+    if (was === now) {
+      verdicts[name] = 'kept';
+    } else if (was === '') {
+      verdicts[name] = 'added';
+    } else if (now === '') {
+      verdicts[name] = 'cleared';
+    } else {
+      verdicts[name] = 'changed';
+    }
+  }
+  return Object.keys(verdicts).length > 0 ? verdicts : undefined;
+}
+
 /** Every distinct triage decision on an agent-suggested action. */
 export type ActionSignal = 'approve' | 'edit' | 'reject' | 'skip' | 'save' | 'rewrite' | 'regenerate';
 
@@ -900,8 +981,9 @@ const SIGNAL_TO_DECISION = {
  * @param opts.userId
  * @param opts.hint
  * @param opts.learn - `false` from an automated caller; measured as always, but trains nothing.
+ * @param opts.labels - Per-field verdicts on the labels the proposal declared, read before the edit was written.
  */
-export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string; learn?: boolean }): Promise<void> {
+export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string; learn?: boolean; labels?: Record<string, LabelVerdict> }): Promise<void> {
   try {
     const [run] = await db
       .select({
@@ -938,7 +1020,15 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
         // it serves the workflow and mission planes. Actions come through here
         // instead because the typed triage signal (edit, rewrite, skip …) has
         // no home there. Keep the two in step.
+        //
+        // `labels` below is deliberately NOT mirrored over there, and that is
+        // the one asymmetry between them: only an action carries a proposal
+        // envelope to declare labels on, and only the action path re-reads the
+        // row before the edit is written, which is what the verdicts are read
+        // from. A workflow or mission that ever gains a labelled payload needs
+        // that read first, not a copy of this key.
         ...(suggestedDecision ? { suggestedDecision } : {}),
+        ...(opts.labels && Object.keys(opts.labels).length > 0 ? { labels: opts.labels } : {}),
         ...(opts.hint ? { hint: opts.hint } : {}),
       },
     });

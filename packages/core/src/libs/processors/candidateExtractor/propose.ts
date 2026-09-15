@@ -145,6 +145,17 @@ export async function proposeRecords(opts: {
         rationale: `Extracted from ${opts.document.uri ?? opts.document.externalId} during a source sync.`,
         evidence: opts.document.uri ? [opts.document.uri] : undefined,
         agentSlug: opts.config.agentSlug,
+        // What this pipeline decided rather than read, named so the decision
+        // can be compared against it. From what `labels.ts` actually wrote,
+        // never from the config: a record nothing labelled declares nothing,
+        // and a declared field nobody wrote would score as cleared on every
+        // approve.
+        ...(record.labelledFields?.length ? { labels: record.labelledFields } : {}),
+        // A card the model called a duplicate of a known one is a recommendation
+        // to turn it down; core keeps such a card pending for a person and only
+        // scores agreement with what the reviewer does. Everything else carries
+        // no recommendation until a measured threshold says approve is safe.
+        ...(record.duplicateOf !== undefined ? { suggestedDecision: 'reject' as const } : {}),
       },
     });
 

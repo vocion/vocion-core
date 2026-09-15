@@ -38,6 +38,11 @@ export type MailMessage = {
   replyTo?: MailAddress;
   /** Opaque tags the provider stores alongside the message (Resend: `tags`). */
   tags?: Record<string, string>;
+  /**
+   * Extra RFC 5322 headers — `In-Reply-To`, `References`, `Message-ID` — so a
+   * reply threads under the mail it answers in the recipient's client.
+   */
+  headers?: Record<string, string>;
 };
 
 export type SendMailResult

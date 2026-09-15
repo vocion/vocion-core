@@ -66,8 +66,29 @@ const config = candidateExtractorConfigSchema.parse({
     differsOn: 'startDate',
     evidenceField: 'recurrence',
     flagField: 'seriesMatch',
+    keyField: 'seriesKey',
   },
 });
+
+/**
+ * An earlier occurrence already in the queue, so the sibling rule has an
+ * anchor to point at and the labelling stage has something to do.
+ * @param offset - Days from today, inside the known-cards horizon.
+ */
+async function seedAnchor(offset: number): Promise<number> {
+  const [row] = await db.insert(actionRunSchema).values({
+    orgId: ORG,
+    actionId: 'objects.propose_candidate',
+    status: 'pending',
+    dedupKey: `objects.propose_candidate:event-candidate|open-mic-night|${day(offset)}|higher-ground`,
+    input: {
+      objectType: 'event-candidate',
+      title: 'Open Mic Night',
+      fields: { title: 'Open Mic Night', startDate: day(offset), venueName: 'Higher Ground', recurrence: 'every Thursday' },
+    },
+  }).returning({ id: actionRunSchema.id });
+  return row!.id;
+}
 
 /** A trimmed listing page, the shape `extractFromHtml` hands the processor. */
 const document = {
@@ -174,6 +195,7 @@ describe('candidate extractor, one document end to end', () => {
 
   it('applies the knobs to what it stored', async () => {
     invoke.mockResolvedValue(answer());
+    const anchor = await seedAnchor(3);
 
     await run(context());
 
@@ -181,6 +203,13 @@ describe('candidate extractor, one document end to end', () => {
     const events = runs.filter(row => (row.input as { objectType?: string }).objectType === 'event-candidate');
     const arnold = events.find(row => (row.input as { title?: string }).title?.includes('Hey Arnold'));
     const fields = (arnold?.input as { fields: Record<string, unknown> }).fields;
+    const openMic = events.find(row => row.id !== anchor && (row.input as { title?: string }).title === 'Open Mic Night');
+    const openMicFields = (openMic?.input as { fields: Record<string, unknown> }).fields;
+
+    // The later occurrence points at the queued one, and carries the group it
+    // belongs to: the anchor's own id, because the anchor is the root.
+    expect(openMicFields.seriesMatch).toBe(`part of series ${anchor}`);
+    expect(openMicFields.seriesKey).toBe(String(anchor));
 
     // The out-of-enum category went; the card stayed.
     expect(fields.categories).toEqual(['Music']);
@@ -191,6 +220,25 @@ describe('candidate extractor, one document end to end', () => {
     // And the venue was proposed once and threaded onto the record.
     expect(typeof fields.venueCandidateRun).toBe('number');
     expect(runs.filter(row => (row.input as { objectType?: string }).objectType === 'venue-candidate')).toHaveLength(1);
+  });
+
+  it('declares the fields it labelled on the proposal', async () => {
+    // Names only, and only the ones this run actually wrote: the decision
+    // reads them back to say what the reviewer did with each, and a field
+    // nobody wrote would score as cleared on every approve.
+    invoke.mockResolvedValue(answer());
+    const anchor = await seedAnchor(3);
+
+    await run(context());
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const events = runs.filter(row => (row.input as { objectType?: string }).objectType === 'event-candidate');
+    const openMic = events.find(row => row.id !== anchor && (row.input as { title?: string }).title === 'Open Mic Night');
+    const arnold = events.find(row => (row.input as { title?: string }).title?.includes('Hey Arnold'));
+
+    expect(openMic?.proposal?.labels).toEqual(['seriesMatch', 'seriesKey']);
+    // Nothing labelled this one, so it declares nothing at all.
+    expect(arnold?.proposal).not.toHaveProperty('labels');
   });
 
   it('reports a skip instead of throwing when the model never answers', async () => {

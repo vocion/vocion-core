@@ -2,17 +2,20 @@
 
 import type { AgentOption } from './types';
 import { MessagesSquare } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
-import { AgentSwitcher } from './AgentSwitcher';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
 import { EmptyState } from './EmptyState';
+import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
+import { parseSearchCommand } from './routing';
 import { SourcesPanel } from './SourcesPanel';
+import { useTagSearch } from './tagSearch';
 import { useChatSession } from './useChatSession';
 
 /**
@@ -24,17 +27,17 @@ import { useChatSession } from './useChatSession';
  * behave identically and resume the same conversation.
  *
  * Agent identity is data-in: the server component that mounts ChatShell
- * passes the available agents (DB rows + the virtual `__search__` entry) and
- * optionally a starting `agentSlug`. The pre-v0.5.2 default to "Sales
- * Assistant" is gone.
+ * passes the workspace's agents (DB rows + the virtual `__search__` entry);
+ * the surface speaks as the WORKSPACE (§9.10) and nothing is picked. The
+ * pre-v0.5.2 default to "Sales Assistant" is gone.
  *
  * "Insert quarter, shoot aliens": the surface is messages + composer,
- * period. No permanent header, no picker on the canvas — new chat and
- * agent targeting live behind the single ⋯ menu, portaled into the shell
- * top bar so the conversation canvas stays clean.
+ * period. No permanent header, no agent picker anywhere (§9.10) — new chat
+ * lives behind the single ⋯ menu, portaled into the shell top bar so the
+ * conversation canvas stays clean.
  *
  * Component tree:
- *   <AgentSwitcher /> + <ChatMenu /> (portaled into the shell top bar)
+ *   <HistoryPopover /> + <ChatMenu /> (portaled into the shell top bar)
  *   <MessageList /> or <EmptyState />
  *   <SourcesPanel /> (right-side, optional)
  *   <HitlGate /> (above composer when pending)
@@ -44,14 +47,14 @@ import { useChatSession } from './useChatSession';
 export type ChatShellProps = {
   /** Agents available to pick from. The caller guarantees at least one entry. */
   agents: AgentOption[];
-  /** Initial selection. If absent, picks the first entry in `agents`. */
-  agentSlug?: string;
   /** Pre-fills the composer without sending (e.g. the org chart's seeded "how's the quarter?" prompt). */
   initialComposerValue?: string;
   /** Dynamic workspace-scoped empty-state chips (urgency + capability). */
   suggestions?: Array<{ label: string; prompt: string }>;
   /** Empty-state greeting: org eyebrow + "Ask <workspace>". */
   greeting?: { eyebrow?: string; workspace: string };
+  /** A thread the URL names (`?conversation=<id>`) — resume it instead of starting fresh (§9). */
+  conversationId?: number | null;
 };
 
 /**
@@ -72,17 +75,17 @@ export type ChatShellProps = {
  * a conversation — none of which should run with no agent to run it for.
  * @param props - Component props.
  * @param props.agents - Agents available to pick from. Empty renders the empty state.
- * @param props.agentSlug - Initial selection.
  * @param props.initialComposerValue - Text to pre-fill the composer with.
  * @param props.suggestions - Empty-state chips.
  * @param props.greeting - Empty-state greeting.
+ * @param props.conversationId
  */
 export function ChatShell({
   agents,
-  agentSlug,
   initialComposerValue,
   suggestions = [],
   greeting,
+  conversationId = null,
 }: ChatShellProps) {
   if (agents.length === 0) {
     return <NoAgentsToChatWith />;
@@ -91,10 +94,10 @@ export function ChatShell({
   return (
     <ChatShellInner
       agents={agents}
-      agentSlug={agentSlug}
       initialComposerValue={initialComposerValue}
       suggestions={suggestions}
       greeting={greeting}
+      conversationId={conversationId}
     />
   );
 }
@@ -120,12 +123,20 @@ function NoAgentsToChatWith() {
 
 function ChatShellInner({
   agents,
-  agentSlug,
   initialComposerValue,
   suggestions = [],
   greeting,
+  conversationId = null,
 }: ChatShellProps) {
-  const session = useChatSession({ agents, agentSlug, initialComposerValue, suggestions, greeting });
+  const t = useTranslations('Chat');
+  const session = useChatSession({ agents, initialComposerValue, suggestions, greeting, resumeConversationId: conversationId });
+  const tagSearch = useTagSearch(agents);
+  const autonomyCopy = {
+    ask: t('autonomy_ask'),
+    act: t('autonomy_act'),
+    askHint: t('autonomy_ask_hint'),
+    actHint: t('autonomy_act_hint'),
+  };
 
   // The full-page chat IS this page's agent surface: an entry-point request
   // (the hotkey, a rail control) focuses the composer instead of opening a
@@ -145,21 +156,16 @@ function ChatShellInner({
           the account menu, so the conversation canvas stays clean. */}
       <ShellBarActionsPortal>
         <div className="flex items-center gap-1">
-          {/* Agent title = the switcher (caret dropdown). The ⋯ menu is a
-              single New-chat action for now — switching lives on the title,
-              not duplicated in the menu. */}
-          <AgentSwitcher
-            agents={agents}
-            currentSlug={session.agent.slug}
-            onSwitch={session.handleSwitchAgent}
-            label={session.agent.name}
-            variant="bar"
-          />
-          <ChatMenu
+          {/* One identity (§9.10): the surface speaks as the workspace. */}
+          <span data-testid="speaker-chip" className="truncate text-sm font-medium text-foreground/80">{session.workspaceName}</span>
+          <HistoryPopover
+            recent={session.recentChats}
+            currentId={session.conversationId}
+            onPick={id => void session.handlePickConversation(id)}
             onNewChat={session.handleNewChat}
-            conversations={session.recentChats}
-            onPickConversation={id => void session.handlePickConversation(id)}
+            search={session.searchConversations}
           />
+          <ChatMenu onNewChat={session.handleNewChat} />
         </div>
       </ShellBarActionsPortal>
 
@@ -185,25 +191,18 @@ function ChatShellInner({
                     suggestions={session.emptyChips}
                     suggestionsLoading={session.emptyChipsLoading}
                     onPick={session.handlePickSuggestion}
-                    titleSlot={(
-                      <AgentSwitcher
-                        agents={agents}
-                        currentSlug={session.agent.slug}
-                        onSwitch={session.handleSwitchAgent}
-                        label={session.emptyGreeting?.workspace ?? session.agent.name}
-                        variant="title"
-                      />
-                    )}
                   />
                 )
               : (
                   <MessageList
                     messages={session.messages}
-                    agentName={session.agent.name}
+                    agentName={session.workspaceName}
                     streaming={session.isStreaming}
                     activity={session.activity}
                     onShowSources={session.handleShowSources}
                     onCitationClick={session.handleCitationClick}
+                    onFeedback={session.handleFeedback}
+                    autonomy={session.autonomy}
                   />
                 )}
 
@@ -227,9 +226,17 @@ function ChatShellInner({
             streaming={session.isStreaming}
             onStop={session.handleStop}
             placeholder={session.composerPlaceholder}
+            commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
             pastedText={session.pastedText}
             onPasteText={session.setPastedText}
             onClearPasted={() => session.setPastedText(null)}
+            tags={session.contextRefs}
+            onAddTag={session.addContextRef}
+            onRemoveTag={session.removeContextRef}
+            tagSearch={tagSearch}
+            autonomy={session.autonomy}
+            onAutonomyChange={session.setAutonomy}
+            autonomyCopy={autonomyCopy}
           />
         </div>
 

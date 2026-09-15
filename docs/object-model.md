@@ -41,6 +41,8 @@ sweep. Field-by-field reference for each authored type:
 | Workspace version | `applyWorkspace` | `workspaceVersionSchema` | `workspace_version` | `/dashboard/workspace` |
 | [Worker run](./entities/worker-run.md) | `WorkerRunService` via `/api/v1/worker-runs` (external workers, ADR 0004) | `workerRunSchema` | `worker_run` (kind, model, summary, counts, tokens, cents) | `/dashboard/team-report` (by team/member, KPI progress), `/dashboard/activity?kind=worker` |
 | Conversation | chat SSE route | `conversationSchema` (+ messages) | `conversation`, `conversation_message` | `/dashboard/chat` |
+| Artifact | `render_table` / `render_markdown` / `render_chart` / `render_record` (and `create_artifact` files) via `ArtifactService` | `artifactSchema` | `artifact` | inline card in chat; tile on `/dashboard/chat/[id]?grid=open` |
+| Canvas | *Save canvas* on the expanded conversation | `canvasSchema` | `canvas` | `/dashboard/canvases`, reopen at `/dashboard/chat/[id]?canvas=<id>` |
 
 ## Deleted (2026-08, ADR 0003)
 

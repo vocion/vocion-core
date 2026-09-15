@@ -47,7 +47,7 @@ export function DocsFooter({ currentEntry, entries, linkBase }: Props) {
                   href={prev.slug === '' ? linkBase : `${linkBase}/${prev.slug}`}
                   className="group flex flex-col gap-1 rounded-md border border-border p-4 transition hover:border-primary"
                 >
-                  <span className="inline-flex items-center gap-1 text-xs tracking-wide text-muted-foreground uppercase">
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                     <ArrowLeft className="h-3 w-3" />
                     Previous
                   </span>
@@ -61,7 +61,7 @@ export function DocsFooter({ currentEntry, entries, linkBase }: Props) {
                   href={next.slug === '' ? linkBase : `${linkBase}/${next.slug}`}
                   className="group flex flex-col items-end gap-1 rounded-md border border-border p-4 text-right transition hover:border-primary"
                 >
-                  <span className="inline-flex items-center gap-1 text-xs tracking-wide text-muted-foreground uppercase">
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                     Next
                     <ArrowRight className="h-3 w-3" />
                   </span>

@@ -1,11 +1,16 @@
+import { NextIntlClientProvider } from 'next-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 
+import en from '@/locales/en.json';
+
 vi.mock('@/libs/Orpc', () => ({
   client: {
-    chatWidget: { getState: vi.fn(), setState: vi.fn() },
-    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn(), latestForScope: vi.fn() },
+    chatWidget: { getState: vi.fn(), setState: vi.fn(), setRail: vi.fn(async () => ({ railWidth: null, railOpen: null })) },
+    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn(), latestForScope: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(), feedback: vi.fn() },
+    teams: { list: vi.fn(async () => ({ workspace: null, teams: [] })) },
+    missions: { list: vi.fn(async () => []) },
   },
 }));
 
@@ -19,6 +24,14 @@ vi.mock('@/libs/I18nNavigation', () => ({
 const { client } = await import('@/libs/Orpc');
 const { ChatDock, DOCK_WIDTH_CLASS, isRecallAsk } = await import('./ChatDock');
 
+/**
+ * The chat surfaces read their copy from the `Chat` namespace; tests render inside the provider the shell supplies.
+ * @param ui
+ */
+function wrap(ui: React.ReactNode) {
+  return <NextIntlClientProvider locale="en" messages={en}>{ui}</NextIntlClientProvider>;
+}
+
 const AGENTS = [
   { slug: 'revops-lead', name: 'RevOps Lead', icon: 'bot' as const, placeholder: 'Ask about this lead…', role: 'lead' as const },
 ];
@@ -26,8 +39,13 @@ const AGENTS = [
 const SCOPE = 'contacts:9412';
 const COLLAPSE_KEY = 'vocion_chat_dock_collapsed';
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The rail is a side-by-side column only above RAIL_SHEET_BREAKPOINT (1200px);
+  // vitest's browser viewport defaults to 414px, where the dock is a Sheet and
+  // there is no `complementary` landmark to assert against.
+  await page.viewport(1440, 900);
   localStorage.clear();
+  sessionStorage.clear();
   vi.mocked(client.chatWidget.getState).mockReset().mockResolvedValue(null);
   vi.mocked(client.chatWidget.setState).mockReset().mockResolvedValue({ agentSlug: 'revops-lead', conversationId: null });
   vi.mocked(client.conversations.get).mockReset();
@@ -59,9 +77,9 @@ const RUN = {
 describe('ChatDock', () => {
   it('claims the one entry function: a collapsed dock reopens and takes focus', async () => {
     localStorage.setItem(COLLAPSE_KEY, '1');
-    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
 
-    await expect.element(page.getByRole('button', { name: 'Open the conversation' })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Open the conversation (⌘J)' })).toBeInTheDocument();
 
     const claimed = requestAgentSurface();
 
@@ -71,7 +89,7 @@ describe('ChatDock', () => {
   });
 
   it('puts the guided cards inline in the transcript, with the composer pinned to the bottom of the pane', async () => {
-    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />);
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />));
 
     const overview = await page.getByText('Enroll in: MSP Triage Nurture · 2 sends').element();
     const composer = await page.getByRole('textbox').element();
@@ -101,37 +119,65 @@ describe('ChatDock', () => {
     }
   });
 
-  it('opens to a third of the viewport, never under the old column width', async () => {
-    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
+  it('opens to a third of the viewport, never under the old column width, and the width is a pixel value it can resize', async () => {
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
 
     const aside = page.getByRole('complementary', { name: 'Conversation about Pete Laverick' });
 
     await expect.element(aside).toBeVisible();
+    // The legacy class is still exported for callers; the rail itself sizes in px (§9).
     expect(DOCK_WIDTH_CLASS).toBe('w-[max(24rem,33.333vw)]');
-    expect(aside.element().className).toContain(DOCK_WIDTH_CLASS);
+
+    const width = Number.parseInt((aside.element() as HTMLElement).style.width, 10);
+
+    expect(width).toBeGreaterThanOrEqual(384);
+    expect(width).toBeLessThanOrEqual(Math.max(384, Math.floor(window.innerWidth / 2)));
+    await expect.element(page.getByRole('slider', { name: 'Resize the conversation' })).toBeInTheDocument();
   });
 
-  it('carries the chat menu in its header: new chat, recent threads, which agent', async () => {
+  it('carries the chat menu (new chat only — no agent picker, §9.10) and, unscoped, a history popover with the recent threads', async () => {
     vi.mocked(client.conversations.list).mockResolvedValue([
       { id: 7, title: 'Earlier about the queue', messageCount: 4, updatedAt: new Date().toISOString() },
     ] as never);
-    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
+    localStorage.setItem(COLLAPSE_KEY, '0');
+    await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" />));
 
     await userEvent.click(page.getByRole('button', { name: 'Chat options' }));
 
     await expect.element(page.getByRole('menuitem', { name: /New chat/ })).toBeVisible();
-    await expect.element(page.getByRole('menuitem', { name: /Earlier about the queue/ })).toBeVisible();
+
+    await userEvent.keyboard('{Escape}');
+
+    await userEvent.click(page.getByRole('button', { name: 'History' }));
+
+    await expect.element(page.getByRole('button', { name: /Earlier about the queue/ })).toBeVisible();
+  });
+
+  it('⌘J toggles the rail', async () => {
+    localStorage.setItem(COLLAPSE_KEY, '0');
+    await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" />));
+
+    await expect.element(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
+
+    await userEvent.keyboard('{Meta>}j{/Meta}');
+
+    await expect.element(page.getByRole('button', { name: 'Open the conversation (⌘J)' })).toBeVisible();
+    expect(localStorage.getItem(COLLAPSE_KEY)).toBe('1');
+
+    await userEvent.keyboard('{Meta>}j{/Meta}');
+
+    await expect.element(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
   });
 
   it('without a scope it is the everything conversation, collapsed by default when the page says so', async () => {
-    await render(<ChatDock agents={AGENTS} scopeLabel="Everything" pageContext={{ path: '/dashboard/review', title: 'Review' }} defaultCollapsed />);
+    await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" pageContext={{ path: '/dashboard/review', title: 'Review' }} defaultCollapsed />));
 
-    await expect.element(page.getByRole('button', { name: 'Open the conversation' })).toBeVisible();
+    await expect.element(page.getByRole('button', { name: 'Open the conversation (⌘J)' })).toBeVisible();
     expect(page.getByRole('complementary').elements()).toHaveLength(0);
     // Not scoped: the global pointer, never the per-record lookup.
     expect(vi.mocked(client.conversations.latestForScope)).not.toHaveBeenCalled();
 
-    await userEvent.click(page.getByRole('button', { name: 'Open the conversation' }));
+    await userEvent.click(page.getByRole('button', { name: 'Open the conversation (⌘J)' }));
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
     await expect.element(page.getByText('Everything')).toBeVisible();
@@ -139,7 +185,7 @@ describe('ChatDock', () => {
 
   it('a stored choice wins over the page default, in both directions', async () => {
     localStorage.setItem(COLLAPSE_KEY, '0');
-    await render(<ChatDock agents={AGENTS} scopeLabel="Everything" defaultCollapsed />);
+    await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" defaultCollapsed />));
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
   });
@@ -151,7 +197,7 @@ describe('ChatDock', () => {
       return new Response('', { status: 500 });
     }));
     try {
-      await render(<ChatDock agents={AGENTS} scopeLabel="Everything" pageContext={{ path: '/dashboard/review', title: 'Review' }} />);
+      await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" pageContext={{ path: '/dashboard/review', title: 'Review' }} />));
       await userEvent.fill(page.getByRole('textbox'), 'what is waiting?');
       await userEvent.keyboard('{Enter}');
 
@@ -164,13 +210,13 @@ describe('ChatDock', () => {
   });
 
   it('renders nothing when there are no agents', async () => {
-    await render(<ChatDock agents={[]} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
+    await render(wrap(<ChatDock agents={[]} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
 
     await expect.element(page.getByRole('complementary')).not.toBeInTheDocument();
   });
 
   it('defaults to open, with the scope in the header and the back-to-everything link', async () => {
-    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation about Pete Laverick' })).toBeInTheDocument();
     await expect.element(page.getByText('Pete Laverick')).toBeInTheDocument();
@@ -191,7 +237,7 @@ describe('ChatDock', () => {
       ],
     } as never);
 
-    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
 
     await expect.element(page.getByText('The entrance path sets it.')).toBeInTheDocument();
     expect(vi.mocked(client.conversations.latestForScope)).toHaveBeenCalledWith({ scopeRef: SCOPE });
@@ -199,17 +245,45 @@ describe('ChatDock', () => {
   });
 
   it('collapses to the reopen button and the choice persists', async () => {
-    await render(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />);
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
 
-    await userEvent.click(page.getByRole('button', { name: 'Collapse the conversation' }));
+    await userEvent.click(page.getByRole('button', { name: 'Collapse the conversation (⌘J)' }));
 
-    await expect.element(page.getByRole('button', { name: 'Open the conversation' })).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Open the conversation (⌘J)' })).toBeInTheDocument();
     await expect.element(page.getByRole('complementary')).not.toBeInTheDocument();
     expect(localStorage.getItem(COLLAPSE_KEY)).toBe('1');
 
-    await userEvent.click(page.getByRole('button', { name: 'Open the conversation' }));
+    await userEvent.click(page.getByRole('button', { name: 'Open the conversation (⌘J)' }));
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation about Pete Laverick' })).toBeInTheDocument();
     expect(localStorage.getItem(COLLAPSE_KEY)).toBe('0');
+  });
+});
+
+describe('ChatDock speaks as the workspace (§9.10)', () => {
+  it('unscoped: the header is the workspace name and initial, never the lead agent, and the composer stays neutral', async () => {
+    localStorage.setItem(COLLAPSE_KEY, '0');
+    const agents = [{ ...AGENTS[0]!, workspaceName: 'Revenue' }];
+    await render(wrap(<ChatDock agents={agents} scopeLabel="Everything" />));
+
+    await expect.element(page.getByRole('textbox')).toHaveAttribute('placeholder', 'Ask anything…');
+
+    // The workspace is the title (and its initial the mark); the lead agent's name is nowhere.
+    await vi.waitFor(() => expect(page.getByText('Revenue', { exact: true }).elements().length).toBeGreaterThan(0));
+
+    expect(page.getByText('RevOps Lead').query()).toBeNull();
+    expect(page.getByText(/^Direct ·/).query()).toBeNull();
+    expect(page.getByText('Message RevOps Lead', { exact: false }).query()).toBeNull();
+  });
+
+  it('scoped: titled by the record, with the workspace — not an agent — as who answers', async () => {
+    const agents = [{ ...AGENTS[0]!, workspaceName: 'Revenue' }];
+    await render(wrap(<ChatDock agents={agents} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
+
+    // The record names the sheet (title + sr description) and the header — several matches, all correct.
+    await vi.waitFor(() => expect(page.getByText('Pete Laverick', { exact: true }).elements().length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(page.getByText('Revenue', { exact: true }).elements().length).toBeGreaterThan(0));
+
+    expect(page.getByText('RevOps Lead').query()).toBeNull();
   });
 });

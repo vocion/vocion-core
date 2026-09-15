@@ -152,6 +152,23 @@ describe('candidate extractor model call', () => {
     }));
   });
 
+  it('truncates an over-long series note instead of failing the answer', async () => {
+    // `notes` is a hard `.max(2000)`, so an over-long value there costs the
+    // corrective retry and can cost the document. A 141-character aside must
+    // never cost a card, so this one transforms rather than rejects.
+    invoke.mockResolvedValue({
+      content: JSON.stringify({
+        records: [{ fields: { title: 'Open Mic' }, confidence: 0.9, seriesOf: 41, seriesNote: 'x'.repeat(400) }],
+      }),
+    });
+
+    const result = await call();
+
+    expect(result.status).toBe('ok');
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(result.status === 'ok' && result.records[0]?.seriesNote).toHaveLength(140);
+  });
+
   it('refuses before the call when the sync has no model calls left', async () => {
     const budget = createSyncBudget({ limits: { maxModelCalls: 0 } });
 
