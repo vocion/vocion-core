@@ -133,6 +133,29 @@ describe('extraction prompt containment', () => {
     expect(block).not.toContain('#999');
   });
 
+  it('counts a long operator policy in its overhead, so the per-call cap holds', () => {
+    const long = (n: number) => 'x'.repeat(n);
+    const heavy = candidateExtractorConfigSchema.parse({
+      objectType: 'event-candidate',
+      agentSlug: 'event-ingestion-lead',
+      dedupOn: ['title', 'startDate', 'venueName'],
+      titleFrom: 'title',
+      promptFragment: long(8_000),
+    });
+    const built = buildExtractionPrompt({
+      config: heavy,
+      rules: long(8_000),
+      known: long(KNOWN_CHAR_CAP),
+      jsonLd: long(JSON_LD_CHAR_CAP),
+      pageText: long(PAGE_CHAR_CAP),
+      maxInputTokens: 10_000,
+    });
+
+    // Without the policy in the overhead this call landed near 10,900 tokens.
+    expect(built.estimatedTokens).toBeLessThanOrEqual(10_000);
+    expect(built.trimmed.length).toBeGreaterThan(0);
+  });
+
   it('trims rules, then JSON-LD, then known cards, and slices the page last', () => {
     const long = (n: number) => 'x'.repeat(n);
     const built = buildExtractionPrompt({

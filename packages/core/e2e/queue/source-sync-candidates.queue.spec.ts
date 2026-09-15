@@ -9,8 +9,8 @@ import { test } from '@playwright/test';
  *   re-sync                       → 0 new, N refreshed
  *   decide one, re-sync           → that one comes back `already_decided`
  *
- * Zero tokens: the processor's model stage is replaced by a deterministic
- * extractor over fixture pages, so nothing here calls out.
+ * Zero tokens, once it runs: the processor's model stage will be replaced by
+ * a deterministic extractor over fixture pages, so nothing here calls out.
  *
  * SKIPPED, deliberately: the model stage exists (libs/processors/
  * candidateExtractor/run.ts), but it has no seam for a deterministic run.
