@@ -130,7 +130,7 @@ describe('ChatDock', () => {
     await expect.element(page.getByRole('slider', { name: 'Resize the conversation' })).toBeInTheDocument();
   });
 
-  it('carries the chat menu (new chat, which agent) and, unscoped, a history popover with the recent threads', async () => {
+  it('carries the chat menu (new chat only — no agent picker, §9.10) and, unscoped, a history popover with the recent threads', async () => {
     vi.mocked(client.conversations.list).mockResolvedValue([
       { id: 7, title: 'Earlier about the queue', messageCount: 4, updatedAt: new Date().toISOString() },
     ] as never);

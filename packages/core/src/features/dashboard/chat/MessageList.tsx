@@ -99,7 +99,8 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
               : (
                   <AgentMessage
                     message={msg}
-                    agentName={msg.agentName ?? agentName}
+                    agentName={agentName}
+                    via={msg.agentName}
                     streaming={streaming && i === lastIdx}
                     activity={i === lastIdx ? activity : undefined}
                     onShowSources={onShowSources}

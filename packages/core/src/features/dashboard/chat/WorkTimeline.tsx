@@ -301,7 +301,7 @@ function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: 
     <li className={`relative py-1.5 pl-7 ${nested ? 'ml-4 border-l border-border/50' : ''}`}>
       <span className="absolute top-2 left-0 grid size-4 place-items-center"><TraceMarker node={node} /></span>
       <div className="flex flex-wrap items-baseline gap-x-1.5 text-[13px] leading-snug">
-        <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.label}</span>
+        <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.kind === 'delegate' ? `→ ${node.label}` : node.label}</span>
         {node.detail && <span className="min-w-0 text-muted-foreground">{node.detail}</span>}
         {node.result && (
           <span className="text-muted-foreground/80">
@@ -510,7 +510,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
                   key={n.id}
                   id={n.id}
                   icon={<TraceMarker node={n} />}
-                  label={n.label}
+                  label={n.kind === 'delegate' ? `→ ${n.label}` : n.label}
                   detail={n.detail}
                   radius={n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined)}
                   error={n.status === 'error'}

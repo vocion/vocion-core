@@ -1,12 +1,10 @@
 'use client';
 
-import type { AgentOption } from './types';
-import { Check, History, MoreHorizontal, SquarePen } from 'lucide-react';
+import { MoreHorizontal, SquarePen } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
@@ -14,35 +12,16 @@ import {
  * The one chat menu — the Claude-app "⋯ sheet" pattern.
  *
  * "Insert quarter, shoot aliens": the chat surface is messages + composer,
- * period. Everything configurational — starting over, pointing the chat at
- * a specific agent — lives behind this single small trigger. It's portaled
- * into the shell top bar (beside the account menu) rather than floating over
- * the conversation, so the canvas stays clean. The workspace lead answers by
- * default, so the agent list here is deliberately secondary UX: names + a
- * check, no section headers, no explanations.
- *
- * "Talk directly to a specialist…" (agent-chat-surface.md §9): the lead is
- * who you talk to; the roster here is the demoted escape hatch for going
- * straight to one specialist (or Search only) for one conversation. Every
- * agent is listed — specialists included — because that is the point of the
- * entry; the check marks who is answering now.
+ * period. There is no agent to pick (agent-chat-surface.md §9.10: one
+ * workspace agent, routing is delegation) and history has its own popover,
+ * so the menu is the one thing left that is configurational: starting over.
  */
 
 export type ChatMenuProps = {
   onNewChat: () => void;
-  /** Recent conversations for the current agent — the history picker. */
-  conversations?: Array<{ id: number; title: string }>;
-  onPickConversation?: (id: number) => void;
-  /** All available agents — specialists are filtered out here. */
-  agents?: AgentOption[];
-  currentSlug?: string;
-  onSwitch?: (slug: string) => void;
 };
 
-export function ChatMenu({ onNewChat, agents = [], currentSlug, onSwitch, conversations = [], onPickConversation }: ChatMenuProps) {
-  const roster = agents;
-  const switchable = roster.length > 1 && !!onSwitch;
-
+export function ChatMenu({ onNewChat }: ChatMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -52,40 +31,11 @@ export function ChatMenu({ onNewChat, agents = [], currentSlug, onSwitch, conver
       >
         <MoreHorizontal className="size-5" aria-hidden="true" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-60">
+      <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuItem onClick={onNewChat}>
           <SquarePen className="mr-2 size-4 text-muted-foreground" aria-hidden="true" />
           New chat
         </DropdownMenuItem>
-        {conversations.length > 0 && !!onPickConversation && (
-          <>
-            <DropdownMenuSeparator />
-            <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-              <History className="size-3" aria-hidden="true" />
-              Recent chats
-            </div>
-            {conversations.slice(0, 8).map(c => (
-              <DropdownMenuItem key={c.id} onClick={() => onPickConversation(c.id)}>
-                <span className="flex-1 truncate">{c.title}</span>
-              </DropdownMenuItem>
-            ))}
-          </>
-        )}
-        {switchable && (
-          <>
-            <DropdownMenuSeparator />
-            <div className="px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-              Talk directly to a specialist…
-            </div>
-            {roster.map(a => (
-              <DropdownMenuItem key={a.slug} onClick={() => onSwitch?.(a.slug)}>
-                <span className="flex-1 truncate">{a.name}</span>
-                {a.eyebrow && <span className="ml-2 truncate text-[10px] text-muted-foreground">{a.eyebrow}</span>}
-                {a.slug === currentSlug && <Check className="ml-2 size-4 shrink-0" aria-hidden="true" />}
-              </DropdownMenuItem>
-            ))}
-          </>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

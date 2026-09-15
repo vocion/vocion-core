@@ -148,23 +148,29 @@ describe('useChatSession', () => {
 
     expect(result.current.agent.slug).toBe('orchestrator');
     expect(result.current.leadSlug).toBe('orchestrator');
-    expect(result.current.isDirect).toBe(false);
   });
 
-  it('handleSwitchAgent clears messages, resets the conversation, and persists the new pointer', async () => {
+  it('`/search <query>` routes one turn to the retrieval-only path and sends the bare query (§9.10)', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
-    const { result, act } = await renderHook(() => useChatSession({ agents: AGENTS }));
+    vi.mocked(client.conversations.create).mockResolvedValue({ id: 3, agentSlug: 'orchestrator' } as never);
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const agents = [...AGENTS, { slug: '__search__', name: 'Search only', icon: 'search' as const, placeholder: 'Search…' }];
+
+    const { result, act } = await renderHook(() => useChatSession({ agents }));
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
-    act(() => {
-      result.current.handleSwitchAgent('specialist');
+    await act(async () => {
+      await result.current.sendMessage('/search spinutech governance');
     });
 
-    expect(result.current.agent.slug).toBe('specialist');
-    expect(result.current.messages).toEqual([]);
-    expect(result.current.conversationId).toBeNull();
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
 
-    await vi.waitFor(() => expect(client.chatWidget.setState).toHaveBeenCalledWith({ agentSlug: 'specialist', conversationId: null }));
+    expect(body.agent_slug).toBe('__search__');
+    expect(body.message).toBe('spinutech governance');
+    // The conversation stays with the workspace agent.
+    expect(result.current.agent.slug).toBe('orchestrator');
+    expect(result.current.messages[1]).toMatchObject({ role: 'assistant', agentName: 'Search only' });
   });
 
   it('handleNewChat clears the view and persists a null conversation pointer', async () => {

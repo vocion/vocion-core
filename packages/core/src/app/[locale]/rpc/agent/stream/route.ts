@@ -143,9 +143,10 @@ export async function POST(request: Request): Promise<Response> {
   // Structured (R4): page + record + highlighted passage + @-mentions. A
   // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
   const pageContext = mergeScopeRef(readPageContext(body.page_context), typeof body.scope_ref === 'string' ? body.scope_ref : null);
-  // Resolve the agent. Explicit `agent_slug` wins; otherwise fall back
-  // to the first agent for this project. 404 when zero agents authored
-  // — the pre-v0.5.2 hardcoded "sales-assistant" fallback is gone.
+  // Resolve the agent. Explicit `agent_slug` wins (an `@mention` routes one
+  // turn); otherwise the WORKSPACE AGENT answers — the project's lead
+  // (agent-chat-surface.md §9.10), falling back to the first agent when no
+  // lead is configured. 404 when zero agents authored.
   let agentSlug = body.agent_slug as string | undefined;
   if (!agentSlug) {
     const agents = await listAgents(orgId);
@@ -155,7 +156,9 @@ export async function POST(request: Request): Promise<Response> {
         { status: 404 },
       );
     }
-    agentSlug = agents[0]!.slug;
+    const { getWorkspaceLead } = await import('@/services/TeamService');
+    const lead = await getWorkspaceLead(orgId);
+    agentSlug = (lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug;
   }
   const clientHistory = (body.conversation_history as Array<{ role: 'user' | 'assistant'; content: string }>) ?? [];
   // Optional persistence — when the client supplies a conversation_id
