@@ -27,12 +27,13 @@
 
 import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
+import type { LangChainProvider } from '@/libs/llm';
 import { tool as makeTool } from '@langchain/core/tools';
 import { createDeepAgent, StateBackend } from 'deepagents';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { buildChatModelForOrg } from '@/libs/llm';
+import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
 import { agentSchema, playbookSchema, projectSchema, teamSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
@@ -116,6 +117,47 @@ export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
   };
 }
 
+/**
+ * A model named by the caller for ONE compiled graph, over whatever the agent's
+ * harness block says. The model-upgrade test is the caller: it runs the same
+ * agent on a baseline and a candidate model and compares the two.
+ *
+ * `provider` is optional; when absent it is read off the id's shape by
+ * `inferProviderForModel`, and an id whose shape says nothing is refused —
+ * handing an unknown id to the env-default vendor would fail on the first
+ * turn with a less useful error than this one.
+ */
+export type ModelOverride = {
+  model: string;
+  provider?: LangChainProvider;
+};
+
+/**
+ * The `buildChatModelForOrg` options for an agent, with an override applied.
+ *
+ * The override's `model` and `provider` win over the harness block; the
+ * harness block's `maxTokens` still applies, because a cap is about the
+ * agent's job, not about which model does it.
+ * @param harnessConfig - The agent's harness block, or an empty object.
+ * @param override - The caller's model, or undefined for the agent's own.
+ */
+export function chatModelOptionsWithOverride(
+  harnessConfig: HarnessModelConfig,
+  override: ModelOverride | undefined,
+): ReturnType<typeof chatModelOptionsFor> {
+  const base = chatModelOptionsFor(harnessConfig);
+  if (!override) {
+    return base;
+  }
+  const provider = override.provider ?? inferProviderForModel(override.model);
+  if (!provider) {
+    throw new Error(
+      `cannot tell which provider serves model "${override.model}"; pass provider explicitly (anthropic | openai | bedrock)`,
+    );
+  }
+  return { ...base, provider, model: override.model };
+}
+
 /* ------------------------------------------------------------------ */
 /* Build graph                                                         */
 /* ------------------------------------------------------------------ */
@@ -127,7 +169,7 @@ export type CompiledAgentGraph = {
   agentRow: typeof agentSchema.$inferSelect;
 };
 
-async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAgentGraph> {
+async function buildGraph(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<CompiledAgentGraph> {
   // Org-scoped, not slug-only: slugs repeat across projects (two workspaces on
   // one box, plus orphaned rows from older deploys), and an unscoped pick is
   // arbitrary — one org's chat silently compiling ANOTHER org's prompt/config.
@@ -274,7 +316,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     });
   }
 
-  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsFor(harnessConfig));
+  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsWithOverride(harnessConfig, modelOverride));
 
   // Only mount deepagents' SkillsMiddleware when THIS AGENT actually
   // mounts something. The middleware requires initialized state fields and
@@ -310,7 +352,18 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   return Object.assign({ graph, agentRow: row }, { __ctx: ctx }) as CompiledAgentGraph;
 }
 
-export async function getCompiledAgent(orgId: string, agentSlug: string): Promise<CompiledAgentGraph> {
+export async function getCompiledAgent(
+  orgId: string,
+  agentSlug: string,
+  opts: { modelOverride?: ModelOverride } = {},
+): Promise<CompiledAgentGraph> {
+  if (opts.modelOverride) {
+    // An overridden graph is built fresh and never cached: the cache is keyed
+    // on the agent, and a cached graph holding the candidate model would answer
+    // the next ordinary chat turn on it. Building per call is the price of
+    // keeping the agent's own model the only one the cache ever holds.
+    return buildGraph(orgId, agentSlug, opts.modelOverride);
+  }
   const key = cacheKey(orgId, agentSlug);
   const cached = graphCache.get(key);
   if (cached) {

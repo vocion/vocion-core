@@ -226,6 +226,7 @@ Still never auto-committed: a person adopts or rejects every candidate at `/dash
 ## Evals + budgets
 
 - `npm run eval:run -- --dataset <slug>` — run a context-authored dataset through the agent and score each case via an LLM judge. CI exits non-zero if pass-rate < 0.8.
+- `npm run eval:upgrade -- --dataset <slug> --baseline <model> --candidate <model>` — the model-upgrade test: the same dataset on two models, same judge, compared on **cost per passed case** (`services/evals/modelUpgradeTest.ts`, `POST /api/v1/evals/:slug/model-upgrade-test`, "Compare models" on `/dashboard/evals/<slug>`). Every eval case stores its token usage and cost (`eval_case_result.usage`); a run that named a model stamps it on `eval_run.model`. See `docs/guides/model-upgrade-test.md`. Cost reads 0 for a model missing from `libs/pricing.ts` — price it first.
 - `agent_budget` table caps per-period token + dollar spend per agent. Pre-flight refusal in `runAgentDeep` when over the hard cap. Opt-in: no row → no enforcement.
 
 ## Observability

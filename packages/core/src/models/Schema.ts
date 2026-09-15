@@ -1452,6 +1452,12 @@ export const evalRunSchema = pgTable('eval_run', {
   agentSlug: text('agent_slug').notNull(),
   /** Context SHA active when the dataset was run — for drift attribution. */
   workspaceSha: text('workspace_sha'),
+  /**
+   * The model the agent under test ran on when the caller named one (the
+   * model-upgrade test does). NULL = the agent's own configured model, which
+   * is what every run before this column existed used.
+   */
+  model: text('model'),
   /** running | succeeded | failed */
   status: text('status').default('running').notNull(),
   metrics: jsonb('metrics').$type<{
@@ -1459,6 +1465,15 @@ export const evalRunSchema = pgTable('eval_run', {
     toolCallCount?: number;
     medianLatencyMs?: number;
     failed?: number;
+    passed?: number;
+    /** Sum of per-case `usage.cents`; 0 when the model is unpriced. */
+    totalCents?: number;
+    totalInputTokens?: number;
+    totalOutputTokens?: number;
+    /** Mean model turns per case — retries and tool loops make this climb. */
+    meanTurns?: number;
+    /** totalCents / passed — the number the model-upgrade test compares. Null when nothing passed. */
+    costPerPassedCaseCents?: number | null;
   }>().default({}).notNull(),
   startedAt: timestamp('started_at', { mode: 'date' }).defaultNow().notNull(),
   completedAt: timestamp('completed_at', { mode: 'date' }),
@@ -1479,6 +1494,20 @@ export const evalCaseResultSchema = pgTable('eval_case_result', {
   /** Langfuse trace id for drill-down. */
   traceId: text('trace_id'),
   latencyMs: integer('latency_ms'),
+  /**
+   * What this one case cost: the agent run's token usage priced by
+   * `tokenCostCents`, plus how many model turns and tool calls it took.
+   * NULL on rows written before the column existed and on errored cases.
+   */
+  usage: jsonb('usage').$type<{
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cents: number;
+    turns: number;
+    toolCalls: number;
+  }>(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
 

@@ -9,7 +9,7 @@ the judge. Grading is on substantive equivalence, not literal string match.
 | **Path** | `evals/<slug>.yaml` |
 | **Schema** | `EvalDatasetManifestSchema` — `packages/core/src/libs/workspace/schemas.ts` |
 | **Applied to** | `eval_dataset` table |
-| **Runtime** | `npm run eval:run --workspace @vocion/core` |
+| **Runtime** | `npm run eval:run --workspace @vocion/core`; two models side by side: `npm run eval:upgrade` — see [the model-upgrade test](../guides/model-upgrade-test.md) |
 | **Surface** | `/api/v1/evals` |
 | **Layering** | Workspace-only — a base pack ships no eval datasets |
 
