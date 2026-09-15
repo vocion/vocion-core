@@ -120,10 +120,8 @@ export default async function AgentDetailPage(props: {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="font-display text-2xl leading-tight font-semibold tracking-tight">{agent.name}</h1>
-            <span
-              className={`rounded-md px-1.5 py-0.5 text-[12px] font-medium ${isWorkspaceLead ? 'text-background' : ''}`}
-              style={isWorkspaceLead ? { background: a.ink } : { background: a.tint, color: a.ink }}
-            >
+            {/* Airy pass (B-034b §4): outlined, not solid — the accent stays in the icon tile. */}
+            <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground/80">
               {roleLabel}
             </span>
           </div>

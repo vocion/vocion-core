@@ -102,10 +102,7 @@ function TeamsScreen({ workspace, teams, ungrouped }: {
           )
         : (
             <>
-              {/* hairline connector — one level, flat by design */}
-              {workspace.lead && <div className="mx-auto h-6 w-px bg-border" aria-hidden />}
-
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {teams.map(team => <TeamCard key={team.slug} team={team} />)}
               </div>
             </>
