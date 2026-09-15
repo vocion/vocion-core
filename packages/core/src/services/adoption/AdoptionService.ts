@@ -394,26 +394,32 @@ export type AdoptionAgentRow = {
  */
 export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise<AdoptionAgentRow[]> {
   const since = windowStart(days);
-  // Its own query rather than more FILTER clauses on the one below: agreement
-  // pairs two values per event, which a flat count per agent cannot express.
-  const agreementByAgent = await getAgentAgreement(orgId, days);
-  const result = await rows(sql`
-    SELECT agent_slug,
-      count(DISTINCT user_id)                                            AS reach,
-      count(*) FILTER (WHERE event_type = 'chat.conversation_created')   AS conversations,
-      count(*) FILTER (WHERE event_type = 'chat.message_sent')           AS messages,
-      count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'approved') AS approvals,
-      count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'rejected') AS rejections,
-      count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' IN ('edited', 'rewritten')) AS revisions,
-      count(*) FILTER (WHERE event_type = 'review.snoozed')              AS snoozes,
-      count(*) FILTER (WHERE event_type = 'review.feedback' AND metadata ->> 'rating' = 'up')   AS feedback_up,
-      count(*) FILTER (WHERE event_type = 'review.feedback' AND metadata ->> 'rating' = 'down') AS feedback_down,
-      count(*) FILTER (WHERE event_type = 'learning.added')              AS learnings
-    FROM user_activity_event
-    WHERE org_id = ${orgId} AND created_at >= ${since} AND agent_slug IS NOT NULL
-    GROUP BY agent_slug
-    ORDER BY reach DESC, messages DESC
-  `);
+  // Two queries rather than one, and run together rather than in turn.
+  // Separate because agreement groups at a finer grain than this one, and
+  // `reach` counts distinct users — which cannot be summed back up from that
+  // finer grain, so merging would keep a second query anyway while retyping
+  // `decisionOutcome` into SQL. Concurrent because they read the same table
+  // over the same window, so the wait is one round trip, not two.
+  const [agreementByAgent, result] = await Promise.all([
+    getAgentAgreement(orgId, days),
+    rows(sql`
+      SELECT agent_slug,
+        count(DISTINCT user_id)                                            AS reach,
+        count(*) FILTER (WHERE event_type = 'chat.conversation_created')   AS conversations,
+        count(*) FILTER (WHERE event_type = 'chat.message_sent')           AS messages,
+        count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'approved') AS approvals,
+        count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'rejected') AS rejections,
+        count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' IN ('edited', 'rewritten')) AS revisions,
+        count(*) FILTER (WHERE event_type = 'review.snoozed')              AS snoozes,
+        count(*) FILTER (WHERE event_type = 'review.feedback' AND metadata ->> 'rating' = 'up')   AS feedback_up,
+        count(*) FILTER (WHERE event_type = 'review.feedback' AND metadata ->> 'rating' = 'down') AS feedback_down,
+        count(*) FILTER (WHERE event_type = 'learning.added')              AS learnings
+      FROM user_activity_event
+      WHERE org_id = ${orgId} AND created_at >= ${since} AND agent_slug IS NOT NULL
+      GROUP BY agent_slug
+      ORDER BY reach DESC, messages DESC
+    `),
+  ]);
   return result.map((r) => {
     const approvals = num(r.approvals);
     const rejections = num(r.rejections);
