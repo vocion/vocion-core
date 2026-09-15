@@ -5,8 +5,8 @@ import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { MissionRunActions } from '@/features/dashboard/MissionRunActions';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { recordRef } from '@/services/chat/recordContext';
 import { artifactHref } from '@/libs/tools/artifacts/url';
+import { recordRef } from '@/services/chat/recordContext';
 import { getMissionRun } from '@/services/MissionService';
 
 const TASK_STATUS_TONE: Record<string, string> = {
