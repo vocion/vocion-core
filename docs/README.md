@@ -63,6 +63,7 @@ about them.
 ## Guides
 
 - [Agents in Slack](./guides/slack.md) — mention an agent in a channel, it answers in the thread.
+- [Team performance](./guides/team-performance.md) — the measurement model behind `/dashboard/team-report`: measures with provenance (verified · observed · human-confirmed · agent-reported), what Vocion derives (attainment, trend, cost per outcome, human load), the setup state, evidence chains and outcome lineage.
 - [Email](./guides/email.md) — outbound mail (Resend), the `daily-team-report` and `notify-asks` jobs, and a mailbox per workspace: mail `revenue@…` and the workspace lead answers in a threaded reply.
 - [The model-upgrade test](./guides/model-upgrade-test.md) — run one role's eval dataset on today's model and a new release, compare on cost per passed case.
 - [Needs you — the one decision surface](./guides/needs-you.md) — every kind of thing waiting on a person (proposals, asks, stopped runs, suggested rules) in one list; the detail by kind, the verbs and keys, and how each decision feeds learning and autonomy. `/dashboard/review` forwards here.

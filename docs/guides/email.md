@@ -159,9 +159,10 @@ npm run report:daily -- --org vocion-workforce --html /tmp/report.html   # eyeba
 
 | Section | Answers | Source |
 |---|---|---|
+| Performance | goal attainment per team — primary outcome vs target with its provenance, trend, human load (interventions, decision latency), cost per outcome, items needing a person — and the workspace headline: teams on target, goal progress when measures declare a weighted contribution, human review time, auto-completed work, needs attention. Setup copy when the workspace is not measured yet ([Team performance](./team-performance.md)) | `TeamReportService.teamReport` over the same window |
 | What changed | outcomes: runs completed and by whom, board-level reviews and red-team grades, failures | `worker_run` rows created in the window; `worker_run.kind` when the column exists |
 | What needs me | the count and the lines behind it | pending `action_run`; mission / workflow / worker runs `awaiting_review` or `paused`; pending `learning_candidate`; open `ask` rows when that table exists |
-| Are we on track | a verdict (on track / watch / off track) with the signals: failure rate, stalled runs, members near a hard budget cap, one role carrying most of the spend | `worker_run`, `agent_budget`. KPI targets join this section once a team declares `kpis:` |
+| Are we on track | a verdict (on track / watch / off track) with the signals: failure rate, stalled runs, members near a hard budget cap, one role carrying most of the spend, teams under their primary target | `worker_run`, `agent_budget`, `TeamReportService` |
 | What happens next | what unblocks the team, when the next report lands | the needs-you count, the window length |
 | From the workspace briefing | the lead's own narrative, excerpted (≈1,200 chars) with a link to the rest — or a selected team briefing in full (`input.briefing`) | newest `briefing` with `team_slug` NULL (or matching the selector) that is not itself a previous daily report |
 | Teams and members | per team: % weight of spend, runs; per member: done/runs, failed, weight, board/red-team flags | `worker_run` grouped by `agent.team_slug`; inactive agents omitted, silent active ones shown with zeros |

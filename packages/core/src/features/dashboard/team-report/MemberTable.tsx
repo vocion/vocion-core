@@ -8,12 +8,12 @@ import { ago, compact, pct, usd } from './format';
 import { KindMix } from './RunKindBadge';
 
 /**
- * The per-member table — dense, one line per agent. The first two number
- * columns are the manifesto's question: the member's share of the team's
- * OUTCOME (its part of the KPI readings) beside its share of the org's
- * SPEND. Then autonomy — the rung each action kind stands on and how often
- * the person agreed with it — then the evidence — runs by kind, cost, tokens,
- * model, last activity. Rows link to the member's runs.
+ * The per-member table — dense, one line per agent, inside Evidence. The
+ * member's share of the org's operating cost, then control — the rung each
+ * action kind stands on and how often the person agreed with it — then the
+ * activity: runs by kind, cost, tokens, model, last activity. No per-member
+ * "outcome share": a team's outcome is not split across agents (spec §3).
+ * Rows link to the member's runs.
  * @param props
  * @param props.members - Rows, in the order to show them.
  * @param props.window - Report window, for the link.
@@ -28,11 +28,10 @@ export function MemberTable({ members, window }: { members: MemberReport[]; wind
         <thead>
           <tr className="border-b border-border text-left text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
             <th className="py-2 pr-3 font-medium">Member</th>
-            <th className="py-2 pr-3 font-medium">Outcome share</th>
-            <th className="py-2 pr-3 font-medium">Spend share</th>
-            <th className="py-2 pr-3 font-medium">Autonomy</th>
+            <th className="py-2 pr-3 font-medium">Cost share</th>
+            <th className="py-2 pr-3 font-medium">Control</th>
             <th className="py-2 pr-3 font-medium">Runs</th>
-            <th className="py-2 pr-3 text-right font-medium">Spend</th>
+            <th className="py-2 pr-3 text-right font-medium">Cost</th>
             <th className="py-2 pr-3 text-right font-medium">Tokens</th>
             <th className="py-2 pr-3 font-medium">Model</th>
             <th className="py-2 text-right font-medium">Last active</th>
@@ -60,11 +59,6 @@ export function MemberTable({ members, window }: { members: MemberReport[]; wind
                     )}
                     {m.failed > 0 && <span className="shrink-0 text-[11px] text-rose-700 dark:text-rose-400">{`${m.failed} failed`}</span>}
                   </Link>
-                </td>
-                <td className="py-2 pr-3">
-                  {m.outcomeShare === null
-                    ? <span className="text-xs text-muted-foreground">—</span>
-                    : <ShareCell share={m.outcomeShare} tone="emerald" />}
                 </td>
                 <td className="py-2 pr-3"><ShareCell share={m.shareOfCents} tone="primary" /></td>
                 <td className="py-2 pr-3"><AutonomyReadings readings={m.contract.autonomy} compact /></td>

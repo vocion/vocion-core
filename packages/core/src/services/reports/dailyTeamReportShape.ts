@@ -61,9 +61,51 @@ export type NeedsYou = {
   total: number;
 };
 
+/** One team's performance for the mail — the same model as the team report page (docs/specs/team-report-v2.md). */
+export type TeamPerformance = {
+  slug: string;
+  name: string;
+  mission: string | null;
+  /** The primary outcome, read with provenance; null when the team declares no measure. */
+  primary: {
+    label: string;
+    value: number | null;
+    target: number;
+    unit?: string;
+    /** 0..1, capped, direction-aware. */
+    attainment: number | null;
+    met: boolean;
+    /** verified | observed | human-confirmed | agent-reported */
+    provenance: string;
+    trend: 'up' | 'down' | 'flat' | null;
+    delta: number | null;
+    window: string;
+  } | null;
+  humanLoad: { interventions: number; reviewMs: number; interventionRate: number | null; autonomousCompletionRate: number | null };
+  cents: number;
+  costPerOutcomeCents: number | null;
+  needsYou: number;
+};
+
+/** The workspace-level performance summary the mail leads with. */
+export type PerformanceSummary = {
+  goal: string | null;
+  /** True when the report page would show the setup checklist instead. */
+  setupNeeded: boolean;
+  teamsOnTarget: { onTarget: number; measured: number };
+  /** Normalized goal progress, 0..1 — only when measures declare a weighted contribution. */
+  goalProgress: number | null;
+  humanReviewMs: number;
+  autoCompletedRate: number | null;
+  needsAttention: number;
+  teams: TeamPerformance[];
+};
+
 export type DailyTeamReportData = {
   workspace: { id: string; name: string; slug: string; accountableEmail: string | null };
   window: ReportWindow;
+  /** Goal attainment, human load and cost per outcome per team. Absent when the report could not be read. */
+  performance?: PerformanceSummary;
   totals: {
     runs: number;
     completed: number;
