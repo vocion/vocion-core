@@ -140,9 +140,10 @@ describe('TeamReportService (PGlite)', () => {
     const core = eng.members.find(m => m.slug === 'core-engineer')!;
     const docs = eng.members.find(m => m.slug === 'docs-engineer')!;
 
-    // KPI readings: prs_merged (all) core 5 / docs 0; prs_24h core 1 / docs 1 → core 6 of 7, docs 1 of 7.
-    expect(core.outcomeShare).toBeCloseTo(6 / 7, 5);
-    expect(docs.outcomeShare).toBeCloseTo(1 / 7, 5);
+    // KPI readings: prs_merged (all) core 5 / docs 0 → shares 1 / 0; prs_24h core 1 / docs 1 → 0.5 / 0.5.
+    // Outcome share is the MEAN of per-KPI shares, so the two KPIs weigh equally whatever their units.
+    expect(core.outcomeShare).toBeCloseTo((1 + 0.5) / 2, 5);
+    expect(docs.outcomeShare).toBeCloseTo((0 + 0.5) / 2, 5);
     expect(core.shareOfCents).toBeCloseTo(0.2, 5);
     expect(core.contract).toMatchObject({ purpose: 'Framework changes, PR only.', autonomyLevel: 3, permissions: ['github.merge'] });
     expect(core.contract.owner).toMatchObject({ email: LILI.email });
@@ -266,6 +267,42 @@ describe('buildTeamReport (pure) + helpers', () => {
     expect(r.ungrouped.map(m => m.slug)).toEqual(['y']);
     expect(r.ungrouped[0]!.byKind).toEqual({ board: 1 });
     expect(r.attainment).toBe(0.25);
+  });
+
+  it('outcome share is the mean of per-KPI shares, so a rate KPI cannot swallow a count KPI', () => {
+    const teamRow = { id: 1, orgId: 'o', projectId: null, slug: 'eng', name: 'Eng', description: null, leadAgentSlug: null, accountableUserId: null, goal: null, createdAt: new Date(), updatedAt: new Date() };
+    const r = buildTeamReport({
+      window: 'all',
+      goal: null,
+      teams: [{ ...teamRow, kpis: [
+        { key: 'merged', label: 'Merged PRs', target: 10, source: 'counts.merged', window: 'all' },
+        { key: 'pass_rate', label: 'QA pass rate', target: 100, unit: '%', source: 'counts.pass_rate', window: 'all' },
+        { key: 'untouched', label: 'Nothing yet', target: 5, source: 'counts.untouched', window: 'all' },
+      ] }],
+      agents: [
+        { slug: 'a', name: 'A', description: null, icon: null, accent: null, teamSlug: 'eng', approvalPolicy: null },
+        { slug: 'b', name: 'B', description: null, icon: null, accent: null, teamSlug: 'eng', approvalPolicy: null },
+      ],
+      agg: [],
+      models: [],
+      kpiValues: {
+        byTeam: new Map([['eng/merged', 3], ['eng/pass_rate', 180], ['eng/untouched', 0]]),
+        byAgent: new Map([
+          ['eng/merged', new Map([['a', 1], ['b', 2]])],
+          ['eng/pass_rate', new Map([['a', 90], ['b', 90]])],
+          ['eng/untouched', new Map([['a', 0], ['b', 0]])],
+        ]),
+      },
+      budgets: [],
+      owners: { byTeam: new Map(), workspace: null },
+      autonomy: new Map(),
+      autoExecuteActions: 0,
+    });
+    const [a, b] = r.teams[0]!.members;
+
+    // a: 1/3 of PRs and half the rate → (0.333 + 0.5) / 2; the untouched KPI is skipped, not a zero.
+    expect(a!.outcomeShare).toBeCloseTo((1 / 3 + 0.5) / 2, 5);
+    expect(b!.outcomeShare).toBeCloseTo((2 / 3 + 0.5) / 2, 5);
   });
 
   it('kpiProgress and permissionKeys', () => {

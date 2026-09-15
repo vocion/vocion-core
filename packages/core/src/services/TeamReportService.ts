@@ -326,14 +326,19 @@ export function buildTeamReport(input: {
     const t = perAgent.get(a.slug) ?? emptyTotals();
     const b = budgetByAgent.get(a.slug);
     const team = a.teamSlug ? teamsBySlug.get(a.teamSlug) : undefined;
-    // Outcome share: this member's part of the team's KPI readings. Summed
-    // across the team's KPIs so a member that moves any measure counts.
-    let mine = 0;
-    let teamTotal = 0;
+    // Outcome share: this member's part of the team's KPI readings — the
+    // MEAN of its per-KPI shares, never a sum across KPIs. KPIs come in
+    // different units (a count of PRs beside a 0–100 rate), and summing lets
+    // the largest unit swallow the rest: one of three merged PRs read as
+    // "<1%" next to a rate KPI. KPIs the team has not moved yet are skipped
+    // rather than counted as a zero share.
+    const kpiShares: number[] = [];
     for (const k of team?.kpis ?? []) {
       const id = `${team!.slug}/${k.key}`;
-      mine += input.kpiValues.byAgent.get(id)?.get(a.slug) ?? 0;
-      teamTotal += input.kpiValues.byTeam.get(id) ?? 0;
+      const teamTotal = input.kpiValues.byTeam.get(id) ?? 0;
+      if (teamTotal > 0) {
+        kpiShares.push((input.kpiValues.byAgent.get(id)?.get(a.slug) ?? 0) / teamTotal);
+      }
     }
     return {
       ...t,
@@ -346,7 +351,7 @@ export function buildTeamReport(input: {
       isLead: leadSlugs.has(a.slug),
       shareOfCents: share(t.cents, totals.cents),
       shareOfTokens: share(t.tokens, totals.tokens),
-      outcomeShare: team && team.kpis.length > 0 && teamTotal > 0 ? mine / teamTotal : null,
+      outcomeShare: meanOrNull(kpiShares),
       contract: {
         purpose: a.description,
         owner: team ? input.owners.byTeam.get(team.slug) ?? null : input.owners.workspace,
