@@ -201,4 +201,19 @@ describe('recordActionDecisionLearning (via ReviewService.decide)', () => {
 
     expect(await queuedJobs()).toHaveLength(0);
   });
+
+  it('a blank reason falls through to the note and still targets the agent step', async () => {
+    const runId = await pendingAction();
+
+    await decide({ kind: 'action', id: runId }, 'reject', ORG, {
+      reason: '   ',
+      note: 'the price was the door fee, not the ticket',
+      reviewedBy: REVIEWER,
+    });
+
+    const jobs = await queuedJobs();
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.payload).toMatchObject({ text: 'the price was the door fee, not the ticket', targetSlug: STEP, polarityHint: 'correct' });
+  });
 });

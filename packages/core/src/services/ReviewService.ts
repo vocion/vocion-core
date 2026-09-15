@@ -694,7 +694,7 @@ export type DecideResult = {
  * @param opts.reviewedBy
  * @param opts.editedInput
  * @param opts.note
- * @param opts.learn
+ * @param opts.learn - `false` from an automated caller; trains nothing.
  * @param opts.externalRef
  * @param opts.externalRef.system
  * @param opts.externalRef.id
@@ -775,7 +775,9 @@ export async function decide(
         runId: item.id,
         orgId,
         signal,
-        text: opts?.reason ?? opts?.note,
+        // A blank reason must fall through to the note, or the decision path
+        // skips and the note still queues via the signal path without a target.
+        text: opts?.reason?.trim() || opts?.note,
         reviewedBy,
         learn: opts?.learn,
       }).catch((error) => {
@@ -919,7 +921,7 @@ const SIGNAL_POLARITY = {
  * @param opts.signal
  * @param opts.userId
  * @param opts.hint
- * @param opts.learn
+ * @param opts.learn - `false` from an automated caller; trains nothing.
  * @param agentSlug - The agent that proposed the action, when known.
  */
 async function queueSignalForLearning(
