@@ -148,7 +148,10 @@ proposal, `AskService.decideAsk` for an ask, `LearningCandidateService
   (the proposal container) over `features/review/ReviewFocusView.tsx`.
 - **Redirect:** `app/[locale]/(auth)/dashboard/review/page.tsx` → 308 to
   `/dashboard/inbox?kind=proposal`, `?type=` → `?actionKind=`.
-- **Palette:** typing "review" surfaces *Needs you · Proposals*.
+- **Nav:** the route registry (`features/navigation/dashboardNav.ts`) carries no
+  `/dashboard/review` row at all. The alias that keeps the old muscle memory —
+  *Needs you · Proposals* → `/dashboard/inbox?kind=proposal` — is marked
+  `paletteOnly`, so it answers ⌘K and never becomes a second sidebar door.
 - **API:** unchanged — `/api/v1/reviews/*` for proposals,
   `/api/v1/asks/*` for asks, `/api/v1/learning-candidates/*` for rules. The
   surface changed; the decide paths did not.

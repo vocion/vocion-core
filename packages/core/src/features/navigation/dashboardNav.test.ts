@@ -27,13 +27,26 @@ describe('dashboardNav registry', () => {
     }
   });
 
-  it('keeps WORK to the daily driver — no reports, no developers, no configuration', () => {
+  it('keeps WORK to the daily driver — no reports, no developers, no configuration, and no second decision door', () => {
     const work = workRoutes().map(r => r.url);
 
-    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/review', '/dashboard/search']);
+    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/search']);
     expect(work).not.toContain('/dashboard/team-report');
     expect(work).not.toContain('/dashboard/activity');
     expect(work).not.toContain('/dashboard/developers');
+    // Review folded into Needs you: no sidebar row, no route of its own.
+    expect(work).not.toContain('/dashboard/review');
+    expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/review')).toBe(false);
+  });
+
+  it('keeps the review alias in the palette only — the muscle memory, not a second door', () => {
+    const alias = DASHBOARD_ROUTES.find(r => r.paletteOnly)!;
+
+    expect(alias).toMatchObject({ url: '/dashboard/inbox?kind=proposal', title: 'Needs you · Proposals', group: 'Workspace' });
+    expect(alias.keywords).toContain('review');
+    expect(workRoutes().map(r => r.url)).not.toContain(alias.url);
+    // It is a Workspace row, so it never reaches a MANAGE section or the pinnable list either.
+    expect(manageRoutes(true).map(r => r.url)).not.toContain(alias.url);
   });
 
   it('derives the MANAGE sections in order, top-level rows only, tabs beneath their owner', () => {
@@ -68,6 +81,7 @@ describe('dashboardNav registry', () => {
       expect(owner!.group).toBe(tab.group);
       expect(owner!.tabOf).toBeUndefined();
     }
+
     // A pinned tab is a destination of its own — it is in the pinnable list …
     expect(manageRoutes(false).map(r => r.url)).toContain('/dashboard/agents');
     // … but not a row of its section.

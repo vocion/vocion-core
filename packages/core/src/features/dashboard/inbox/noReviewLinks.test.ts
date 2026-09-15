@@ -3,10 +3,11 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Review is not a destination any more. The only file allowed to name
- * `/dashboard/review` in source is the redirect that forwards it (and the
- * pure mapping it calls), plus the chat link classifier that recognises the
- * old shape so a pasted link still becomes a chip. Everything else — the
+ * Review is not a destination any more. The only CODE allowed to name
+ * `/dashboard/review` is the redirect that forwards it (and the pure mapping
+ * it calls), plus the chat link classifier that recognises the old shape so a
+ * pasted link still becomes a chip. Comments may mention it — saying where a
+ * redirect comes from is documentation, not a door. Everything else — the
  * email renderer, ask context URLs, the recommended-action card, Slack
  * replies, the briefing bullets, the object and page views — points at
  * `/dashboard/inbox`. This test keeps it that way.
@@ -45,8 +46,14 @@ describe('no /dashboard/review links remain', () => {
       const text = readFileSync(file, 'utf8');
       const lines = text.split('\n');
       lines.forEach((line, i) => {
+        const trimmed = line.trim();
+        // Prose may name the old path — a comment saying where a redirect
+        // comes from is documentation, not a door. Only code counts.
+        if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) {
+          return;
+        }
         if (line.includes('/dashboard/review')) {
-          offenders.push(`${rel}:${i + 1}: ${line.trim()}`);
+          offenders.push(`${rel}:${i + 1}: ${trimmed}`);
         }
       });
     }
