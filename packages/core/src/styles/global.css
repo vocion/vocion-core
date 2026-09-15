@@ -65,6 +65,7 @@
   --color-ink: var(--ink);
   --color-ink-title: var(--ink-title);
   --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
   --color-rule: var(--rule);
 
   /* Airy pass (B-034b, 2026-09-15). Colour stops doing structural work:
@@ -105,6 +106,7 @@
   --ink: oklch(0.16 0 0); /* ≈ #0D0D0E */
   --ink-title: oklch(0.27 0 0); /* ≈ #2A2A2A */
   --ink-secondary: oklch(0.5 0 0); /* ≈ #6B6B6B */
+  --ink-muted: oklch(0.38 0 0); /* inactive nav labels — dark grey, not ink */
   --rule: oklch(0 0 0 / 6%);
   --surface-hover: oklch(0 0 0 / 3%);
   --surface-soft: oklch(0.975 0 0);
@@ -137,14 +139,15 @@
   --chart-4: var(--brand-borderline);
   --chart-5: var(--brand-fail);
   --sidebar: oklch(0.99 0 0);
-  --sidebar-foreground: var(--ink-title);
+  /* Inactive labels are dark grey; the active pill is the darkest grey (8%)
+     with ink text; hover is lighter (--surface-hover, 3%). Focus ring subtle. */
+  --sidebar-foreground: var(--ink-muted);
   --sidebar-primary: var(--brand-amber);
   --sidebar-primary-foreground: oklch(1 0 0);
-  /* Active nav = a quiet grey pill; amber survives only as the icon colour. */
-  --sidebar-accent: oklch(0 0 0 / 4%);
+  --sidebar-accent: oklch(0 0 0 / 8%);
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--rule);
-  --sidebar-ring: var(--brand-amber);
+  --sidebar-ring: oklch(0 0 0 / 15%);
 }
 
 .dark {
@@ -154,6 +157,7 @@
   --ink: oklch(0.98 0 0);
   --ink-title: oklch(0.92 0 0);
   --ink-secondary: oklch(0.65 0 0);
+  --ink-muted: oklch(0.78 0 0);
   --rule: oklch(1 0 0 / 10%);
   --surface-hover: oklch(1 0 0 / 4%);
   --surface-soft: oklch(0.21 0 0);
@@ -183,10 +187,11 @@
   --sidebar-foreground: var(--ink-title);
   --sidebar-primary: var(--brand-amber);
   --sidebar-primary-foreground: oklch(0.16 0 0);
-  --sidebar-accent: oklch(1 0 0 / 6%);
+  --sidebar-foreground: var(--ink-muted);
+  --sidebar-accent: oklch(1 0 0 / 10%);
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--rule);
-  --sidebar-ring: var(--brand-amber);
+  --sidebar-ring: oklch(1 0 0 / 20%);
 }
 
 @layer base {

@@ -27,7 +27,17 @@
     "adoption": "Adoption",
     "needs_you": "À traiter",
     "back_to_work": "Retour au travail",
-    "search_hint": "Rechercher ou demander…"
+    "search_hint": "Rechercher ou demander…",
+    "pages": "Pages",
+    "pinned": "Épinglés",
+    "more_pages": "Plus de pages",
+    "pin": "Épingler",
+    "unpin": "Désépingler",
+    "team_report": "Rapport d’équipe",
+    "invite_title": "Inviter des collègues",
+    "invite_body": "Faites venir les personnes qui relisent et décident dans cet espace.",
+    "invite_cta": "Inviter",
+    "dismiss": "Fermer"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",

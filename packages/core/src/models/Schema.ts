@@ -1347,6 +1347,29 @@ export const conversationMessageRelations = relations(conversationMessageSchema,
 // not necessarily messaged. Read on mount by both the full-page chat and
 // the floating chat bubble so either surface resumes exactly where the
 // other left off.
+/**
+ * Per-user sidebar preferences: pinned nav URLs in pin order and dismissed
+ * shell prompts. One row per (org, user); localStorage is the fast path and
+ * this is the cross-device truth. Migration 0098.
+ */
+export const userNavPrefSchema = pgTable(
+  'user_nav_pref',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    pins: jsonb('pins').$type<string[]>().default([]).notNull(),
+    dismissed: jsonb('dismissed').$type<string[]>().default([]).notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('user_nav_pref_org_user_idx').on(table.orgId, table.userId),
+  ],
+);
+
 export const chatWidgetStateSchema = pgTable(
   'chat_widget_state',
   {
