@@ -69,19 +69,22 @@ function TeamsScreen({ workspace, teams, ungrouped }: {
 
   return (
     <>
-      <div className="flex items-start justify-between gap-4">
-        <TitleBar title={t('title_bar')} description={t('title_bar_description')} />
-        <Link
-          href="/dashboard/agents"
-          className="mt-1 inline-flex shrink-0 items-center gap-1 text-sm font-medium text-muted-foreground transition hover:text-primary"
-        >
-          {t('all_agents')}
-          <ArrowRight className="size-3.5" aria-hidden />
-        </Link>
-      </div>
+      <TitleBar
+        title={t('title_bar')}
+        description={t('title_bar_description')}
+        actions={(
+          <Link
+            href="/dashboard/agents"
+            className="inline-flex h-8 items-center gap-1 rounded-full px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+          >
+            {t('all_agents')}
+            <ArrowRight className="size-3.5" aria-hidden />
+          </Link>
+        )}
+      />
 
       {ownerless && (
-        <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-[var(--brand-amber)]/40 bg-[var(--brand-amber-tint)] px-4 py-2.5 text-sm text-[var(--brand-amber-deep)]">
+        <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-border/70 px-4 py-2.5 text-sm text-[var(--brand-amber-deep)]">
           <TriangleAlert className="size-4 shrink-0" aria-hidden />
           {t('no_owner_banner')}
         </div>
@@ -99,10 +102,7 @@ function TeamsScreen({ workspace, teams, ungrouped }: {
           )
         : (
             <>
-              {/* hairline connector — one level, flat by design */}
-              {workspace.lead && <div className="mx-auto h-6 w-px bg-border" aria-hidden />}
-
-              <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {teams.map(team => <TeamCard key={team.slug} team={team} />)}
               </div>
             </>
@@ -129,9 +129,11 @@ function WorkspaceLeadBand({ workspace, teams }: { workspace: WorkspaceLeadView;
   const coverage = consultCoverage(teams);
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border p-5 sm:flex-row sm:items-start" style={{ background: a.tint, borderColor: a.stripe }}>
+    // Airy pass (B-034b §4): the hero loses its tint and coloured border — white,
+    // a 48px orb avatar, one ink primary and one ghost; colour lives in the orb.
+    <div className="flex flex-col gap-4 rounded-xl border border-border/70 p-5 sm:flex-row sm:items-start">
       <div
-        className="flex size-11 shrink-0 items-center justify-center rounded-xl text-background"
+        className="flex size-12 shrink-0 items-center justify-center rounded-full text-background"
         style={{ background: a.stripe }}
       >
         {createElement(agentIcon(lead.icon, { primary: true }), { 'className': 'size-5', 'aria-hidden': true })}
@@ -139,11 +141,8 @@ function WorkspaceLeadBand({ workspace, teams }: { workspace: WorkspaceLeadView;
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2.5">
-          <h2 className="font-display text-base leading-tight font-semibold">{lead.name}</h2>
-          <span
-            className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-background uppercase"
-            style={{ background: a.ink }}
-          >
+          <h2 className="text-lg leading-tight font-semibold">{lead.name}</h2>
+          <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground/80">
             {t('workspace_lead_badge')}
           </span>
         </div>
@@ -167,15 +166,14 @@ function WorkspaceLeadBand({ workspace, teams }: { workspace: WorkspaceLeadView;
         <div className="mt-3.5 flex flex-wrap gap-2">
           <Link
             href={`/dashboard/chat?prompt=${encodeURIComponent(t('ask_quarter_prompt'))}`}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-semibold text-background transition hover:opacity-90 sm:min-h-0"
-            style={{ background: a.ink }}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-action px-3.5 py-1.5 text-[13px] font-medium text-action-foreground transition-colors hover:bg-action/90 sm:min-h-0"
           >
             {t('ask_quarter')}
             <ArrowRight className="size-3.5" aria-hidden />
           </Link>
           <Link
             href={`/dashboard/agents/${lead.slug}`}
-            className="inline-flex min-h-11 items-center rounded-lg border border-border bg-background px-3.5 py-1.5 text-sm font-medium transition hover:border-primary/30 sm:min-h-0"
+            className="inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground sm:min-h-0"
           >
             {t('view_profile')}
           </Link>
@@ -189,8 +187,8 @@ function WorkspaceLeadBand({ workspace, teams }: { workspace: WorkspaceLeadView;
 function NoWorkspaceLeadCallout() {
   const t = useTranslations('Teams');
   return (
-    <div className="rounded-2xl border border-dashed border-border bg-muted/30 px-5 py-4">
-      <div className="font-display text-sm font-semibold">{t('no_workspace_lead_title')}</div>
+    <div className="rounded-xl border border-dashed border-border px-5 py-4">
+      <div className="text-sm font-semibold">{t('no_workspace_lead_title')}</div>
       <p className="mt-1 text-sm text-muted-foreground">{t('no_workspace_lead_body')}</p>
       <p className="mt-1.5 font-mono text-[11px] text-muted-foreground/70">{t('no_workspace_lead_hint')}</p>
     </div>
@@ -211,13 +209,13 @@ function TeamCard({ team }: { team: TeamView }) {
   const specialists = team.members.filter(m => m.slug !== team.leadAgentSlug);
 
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-5 pt-6 shadow-xs transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
-      {/* accent top stripe */}
-      <span className="absolute inset-x-0 top-0 h-1" style={{ background: a.stripe }} aria-hidden />
-
+    // Airy pass (B-034b §4): no coloured top bar, no shadow, no lift — a hairline
+    // and a soft hover; the team's colour is a 6px dot before its name.
+    <div className="group relative flex flex-col rounded-xl border border-border/70 p-5 transition-colors hover:bg-surface-hover">
       <div className="flex items-baseline justify-between gap-2">
-        <Link href={`/dashboard/teams/${team.slug}`} className="min-w-0">
-          <h3 className="truncate font-display text-base leading-tight font-semibold hover:text-primary">{team.name}</h3>
+        <Link href={`/dashboard/teams/${team.slug}`} className="flex min-w-0 items-center gap-2">
+          <span className="size-1.5 shrink-0 rounded-full" style={{ background: a.stripe }} aria-hidden />
+          <h3 className="truncate text-base leading-tight font-semibold">{team.name}</h3>
         </Link>
         <span className="shrink-0 text-[11px] text-muted-foreground">
           {t('agent_count', { count: team.members.length })}
@@ -225,7 +223,7 @@ function TeamCard({ team }: { team: TeamView }) {
       </div>
 
       <div className="mt-3">
-        <div className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{t('lead_label')}</div>
+        <div className="mb-1 text-[12px] font-medium text-muted-foreground">{t('lead_label')}</div>
         {team.lead
           ? (
               <Link href={`/dashboard/agents/${team.lead.slug}`} className="inline-flex items-center gap-2">
@@ -244,7 +242,7 @@ function TeamCard({ team }: { team: TeamView }) {
               </Link>
             )
           : (
-              <div className="rounded-lg border border-dashed border-[var(--brand-amber)]/50 bg-[var(--brand-amber-tint)]/50 px-3 py-2">
+              <div className="rounded-lg border border-dashed border-border px-3 py-2">
                 <p className="text-xs text-[var(--brand-amber-deep)]">
                   <TriangleAlert className="mr-1 inline size-3 align-[-1px]" aria-hidden />
                   {t('no_lead_warning')}
@@ -265,8 +263,7 @@ function TeamCard({ team }: { team: TeamView }) {
             <Link
               key={s.slug}
               href={`/dashboard/agents/${s.slug}`}
-              className="rounded-full px-2 py-0.5 text-xs font-medium transition hover:opacity-80"
-              style={{ background: a.tint, color: a.ink }}
+              className="rounded-full bg-surface-soft px-2 py-0.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-surface-hover"
             >
               {s.name}
             </Link>
@@ -276,12 +273,12 @@ function TeamCard({ team }: { team: TeamView }) {
 
       <div className="mt-auto flex items-end justify-between gap-2 border-t border-border/60 pt-3">
         <div>
-          <div className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{t('owner_label')}</div>
+          <div className="mb-1 text-[12px] font-medium text-muted-foreground">{t('owner_label')}</div>
           <OwnerChip accountable={team.accountable} />
         </div>
         <Link
           href={`/dashboard/teams/${team.slug}`}
-          className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-foreground/60 transition group-hover:text-primary"
+          className="inline-flex shrink-0 items-center gap-1 text-[12px] font-medium text-muted-foreground transition-colors group-hover:text-foreground"
         >
           {t('view_team')}
           <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
@@ -301,7 +298,7 @@ function UngroupedStrip({ agents }: { agents: TeamAgent[] }) {
   const t = useTranslations('Teams');
   return (
     <section className="mt-8">
-      <div className="mb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{t('ungrouped_title')}</div>
+      <div className="mb-1 text-[12px] font-medium text-muted-foreground">{t('ungrouped_title')}</div>
       <p className="mb-3 text-xs text-muted-foreground">{t('ungrouped_hint', { count: agents.length })}</p>
       <div className="flex flex-wrap gap-2">
         {agents.map((agent) => {

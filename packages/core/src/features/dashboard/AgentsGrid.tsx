@@ -104,7 +104,7 @@ function ActiveCard({ card }: { card: AgentCard }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-display text-base leading-tight font-semibold">{card.name}</h3>
-            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase" style={{ background: a.tint, color: a.ink }}>
+            <span className="rounded-md px-1.5 py-0.5 text-[12px] font-medium" style={{ background: a.tint, color: a.ink }}>
               Lead
             </span>
           </div>
@@ -116,7 +116,7 @@ function ActiveCard({ card }: { card: AgentCard }) {
 
       {card.specialists.length > 0 && (
         <div className="mt-4">
-          <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{count(card.specialists.length, 'agent', 'agents')}</div>
+          <div className="mb-1.5 text-[12px] font-medium text-muted-foreground">{count(card.specialists.length, 'agent', 'agents')}</div>
           <div className="flex flex-wrap gap-1.5">
             {card.specialists.map(s => (
               <span key={s.slug} className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: a.tint, color: a.ink }}>
@@ -161,7 +161,7 @@ function GhostCard({ card }: { card: AgentCard }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-display text-base leading-tight font-semibold text-muted-foreground">{card.name}</h3>
-            <span className="rounded-md border border-border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+            <span className="rounded-md border border-border px-1.5 py-0.5 text-[12px] font-medium text-muted-foreground">
               Core · not activated
             </span>
           </div>
@@ -173,7 +173,7 @@ function GhostCard({ card }: { card: AgentCard }) {
 
       {card.specialists.length > 0 && (
         <div className="mt-4">
-          <div className="mb-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{count(card.specialists.length, 'agent', 'agents')}</div>
+          <div className="mb-1.5 text-[12px] font-medium text-muted-foreground">{count(card.specialists.length, 'agent', 'agents')}</div>
           <div className="flex flex-wrap gap-1.5">
             {card.specialists.map(s => (
               <span key={s.slug} className="rounded-full border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">

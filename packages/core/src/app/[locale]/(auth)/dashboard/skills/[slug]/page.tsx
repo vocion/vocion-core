@@ -166,12 +166,12 @@ export default async function SkillDetailPage(props: Props) {
 
         <aside className="space-y-6 text-sm">
           <section>
-            <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Provenance</h2>
+            <h2 className="mb-2 text-xs font-medium text-muted-foreground">Provenance</h2>
             <p className="text-muted-foreground">{originLabel}</p>
           </section>
 
           <section>
-            <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Mounted by</h2>
+            <h2 className="mb-2 text-xs font-medium text-muted-foreground">Mounted by</h2>
             {mountedBy.length === 0
               ? <p className="text-muted-foreground italic">No agent names it yet.</p>
               : (
@@ -187,7 +187,7 @@ export default async function SkillDetailPage(props: Props) {
 
           {row.kind === 'skill' && (row.attachedPlaybooks ?? []).length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Attached playbooks</h2>
+              <h2 className="mb-2 text-xs font-medium text-muted-foreground">Attached playbooks</h2>
               <div className="flex flex-wrap gap-1">
                 {(row.attachedPlaybooks ?? []).map(p => (
                   <Link key={p} href={`/dashboard/skills/${p}`}>
@@ -199,7 +199,7 @@ export default async function SkillDetailPage(props: Props) {
           )}
 
           <section>
-            <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Usage</h2>
+            <h2 className="mb-2 text-xs font-medium text-muted-foreground">Usage</h2>
             <p className="text-muted-foreground">
               {usage[slug] ?? 0}
               {' '}
@@ -213,7 +213,7 @@ export default async function SkillDetailPage(props: Props) {
           </section>
 
           <section>
-            <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Catalog</h2>
+            <h2 className="mb-2 text-xs font-medium text-muted-foreground">Catalog</h2>
             <dl className="space-y-1">
               <div className="flex justify-between gap-2">
                 <dt className="text-muted-foreground">Version</dt>

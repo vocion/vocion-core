@@ -49,8 +49,9 @@
         "src/routers/**"
       ],
       "ignoreDependencies": [
+        // shadcn umbrella package behind components/ui/{collapsible,tabs}.tsx — primitives kept for the next page that needs them
+        "radix-ui",
         "@radix-ui/react-accordion",
-        "@radix-ui/react-popover",
         "@tanstack/react-table",
         "react-hook-form",
         "@swc/helpers",

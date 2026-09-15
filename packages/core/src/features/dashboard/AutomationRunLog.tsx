@@ -32,7 +32,7 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
     <div className="overflow-x-auto rounded-md border border-border">
       <table className="w-full min-w-[52rem] text-xs">
         <thead>
-          <tr className="border-b border-border bg-muted/40 text-left text-[10px] tracking-wide text-muted-foreground uppercase">
+          <tr className="border-b border-border bg-muted/40 text-left text-[12px] text-muted-foreground">
             <th className={CELL}>Started</th>
             {showAutomation && <th className={CELL}>Automation</th>}
             <th className={CELL}>Kind</th>

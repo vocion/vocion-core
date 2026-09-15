@@ -71,8 +71,8 @@ function GroupBlock({
     .filter(child => groupMap.has(child));
 
   const headingClass = depth === 0
-    ? 'mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground'
-    : 'mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70';
+    ? 'mb-2 text-xs font-medium text-muted-foreground'
+    : 'mb-1.5 text-[12px] font-medium text-muted-foreground/70';
 
   const wrapperClass = depth === 0 ? '' : 'mt-3 border-l border-border/60 pl-3';
 
