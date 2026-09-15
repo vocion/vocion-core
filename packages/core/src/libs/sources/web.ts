@@ -14,9 +14,16 @@
  *     same-origin BFS with optional path filters
  *
  * With `crawl` and no `feedUrl`, the connector picks the SMALLEST complete
- * source it can find, once per sync: a feed if the listing advertises one,
+ * source it can find, per listing seed: a feed if the listing advertises one,
  * else a JSON listing, else the listing plus a capped depth-1 crawl. The
  * probes that answer that question are silent by design, see `fetchPage`.
+ *
+ * What a listed URL MEANS depends on whether `crawl` is configured with it.
+ * Alone, it is one document, fetched and ingested as it stands. Alongside a
+ * `crawl` block it is a listing SEED, and gets the same smallest-source
+ * question `crawl.startUrl` gets, which is what a registry-driven source
+ * (`urlsFrom` naming one entry URL per site) needs: without this, a site whose
+ * listing advertises an ics feed is ingested as one 800 KB HTML page.
  *
  * HTML to text is done with cheerio: the chrome (scripts, nav, footer,
  * cookie bars) comes out, and links, images, <time> stamps and JSON-LD
@@ -90,60 +97,103 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = webConfigSchema.parse(ctx.config);
 
-    // An explicit list, from the config or from a registry, is already the
-    // smallest source there is: nothing to discover, nothing to crawl.
     const listed = [...(cfg.urls ?? [])];
     if (cfg.urlsFrom) {
       listed.push(...await urlsFromRegistry(cfg.urlsFrom, ctx));
     }
-    if (listed.length) {
-      const urls = dedupe(listed.map(httpUrl));
+    const urls = dedupe(listed.map(httpUrl));
+
+    // No crawl block: an explicit list is already the smallest source there
+    // is, nothing to discover, nothing to crawl. This is the path every
+    // tenant listing URLs and nothing else is on, and it is untouched.
+    if (!cfg.crawl) {
+      if (!urls.length) {
+        // `urlsFrom` answered with nothing usable and there is no crawl to
+        // fall back on. It has already reported why, as an error or a no-op.
+        return;
+      }
       runNote(ctx, urls[0], `source: ${urls.length} listed URL${urls.length === 1 ? '' : 's'}`);
       for (const url of urls) {
         yield* fetchDocs(url, ctx);
       }
       return;
     }
-    if (!cfg.crawl) {
-      // `urlsFrom` answered with nothing usable and there is no crawl to fall
-      // back on. It has already reported why, as an error or as a no-op.
+
+    // A configured feed is the smallest source there is and skips discovery
+    // entirely, whether or not anything else was listed.
+    if (cfg.feedUrl) {
+      const url = httpUrl(cfg.feedUrl);
+      runNote(ctx, url, 'source: configured feed');
+      yield* fetchDocs(url, ctx);
       return;
     }
-    yield* smallestSource(cfg.feedUrl, cfg.crawl, ctx);
+
+    // With a crawl block, every listed URL is a listing SEED. A registry that
+    // answered nothing is the one case that does NOT fall back to `startUrl`:
+    // an empty list is how a source row is switched off, and falling back is
+    // how a switched-off source spends money.
+    let seeds = urls;
+    if (!seeds.length) {
+      if (cfg.urlsFrom) {
+        return;
+      }
+      seeds = [httpUrl(cfg.crawl.startUrl)];
+    }
+    if (seeds.length > 1) {
+      runNote(ctx, seeds[0], `source: ${seeds.length} listing seeds`);
+    }
+    // ONE page budget for the whole sync. `maxPages` bounds requests, and five
+    // seeds each allowed their own 60 pages is 300 requests, every run.
+    const pages: PageBudget = { attempted: 0 };
+    for (const seed of seeds) {
+      yield* smallestSource(seed, cfg.crawl, ctx, pages);
+    }
   },
 };
+
+/**
+ * Pages attempted across one sync, shared by every seed.
+ *
+ * `crawl()` used to own this counter, which was right while one sync meant one
+ * crawl. With a seed per listed URL it has to live above them, or `maxPages`
+ * silently becomes per seed.
+ */
+type PageBudget = { attempted: number };
 
 /* ------------------------------------------------------------------ */
 /* smallest-source selection                                           */
 /* ------------------------------------------------------------------ */
 
 /**
- * Read the smallest complete thing this source exposes, in order: the feed
- * the config names, then a feed the listing advertises, then a JSON listing,
- * then the listing plus a capped crawl of its detail pages.
+ * Read the smallest complete thing one listing seed exposes, in order: a feed
+ * the listing advertises, then a JSON listing, then the listing plus a capped
+ * crawl of its detail pages. A feed named by the config never gets here, it is
+ * answered in `sync` before any seed is read.
  *
  * Nothing here is persisted, core has no home for a string (`cursor` is
  * nulled every run, `counts` is `Record<string, number>`), so the answer is
- * re-derived once per sync and the choice is named in the run log. The
- * durable copy of the answer belongs to whoever owns the source row.
- * @param feedUrl - a feed from the config, which skips discovery entirely.
- * @param cfg - the crawl config, whose `startUrl` is the listing.
+ * re-derived once per seed per sync and the choice is named in the run log.
+ * The durable copy of the answer belongs to whoever owns the source row.
+ * @param seedUrl - the listing to read, from `crawl.startUrl` or from the list.
+ * @param cfg - the crawl config, whose `startUrl` is only the default seed.
  * @param ctx - the sync context.
+ * @param pages - the sync's shared page budget, spent across every seed.
  * @yields {IngestDoc} one document per page or per event, from whichever source won.
  */
 async function* smallestSource(
-  feedUrl: string | undefined,
+  seedUrl: string,
   cfg: CrawlConfig,
   ctx: SourceContext,
+  pages: PageBudget,
 ): AsyncIterable<IngestDoc> {
-  if (feedUrl) {
-    const url = httpUrl(feedUrl);
-    runNote(ctx, url, 'source: configured feed');
-    yield* fetchDocs(url, ctx);
+  if (pages.attempted >= cfg.maxPages) {
+    runNote(ctx, seedUrl, `source: page budget spent (${cfg.maxPages} pages), seed not read`);
     return;
   }
-
-  const listing = await fetchPage(httpUrl(cfg.startUrl), ctx);
+  // Counted before the fetch, and NOT counted again by `crawl`: the listing is
+  // one request whoever ends up reading it.
+  pages.attempted += 1;
+  const listing = await fetchPage(httpUrl(seedUrl), ctx);
   if (!listing) {
     return;
   }
@@ -161,7 +211,7 @@ async function* smallestSource(
   const jsonLdNote = hasEventJsonLd(listing) ? '; listing carries Event JSON-LD' : '';
   runNote(ctx, listing.url, `source: listing + depth-${cfg.maxDepth} crawl${jsonLdNote}`);
   // The listing body is handed to the crawl so the seed is not fetched twice.
-  yield* crawl(cfg, ctx, listing);
+  yield* crawl(cfg, ctx, listing, pages);
 }
 
 /**
@@ -1221,33 +1271,46 @@ function collapse(text: string): string {
 /* ------------------------------------------------------------------ */
 
 /**
- * Walk the site from `startUrl`, same origin only, bounded by `maxDepth` and
- * `maxPages`, with optional path filters.
+ * Walk the site from the seed page, same origin only, bounded by `maxDepth`
+ * and the sync's shared `maxPages`, with optional path filters.
  *
  * `maxPages` bounds pages ATTEMPTED, not pages ingested: the cost this cap
  * exists to control is requests, and a site answering 500 for half its detail
- * pages should not buy itself an unbounded crawl.
+ * pages should not buy itself an unbounded crawl. The counter belongs to the
+ * sync rather than to one crawl, because a source may have several seeds.
+ *
+ * The crawl starts at the SEED, not at `cfg.startUrl`: with a list of seeds
+ * they are not the same URL, and the origin the same-origin rule is read
+ * against is the seed's.
  * @param cfg - the crawl config, defaults already applied.
  * @param ctx - the sync context.
- * @param seed - the start page, when the caller already fetched it.
+ * @param seed - the start page, already fetched (and already counted) by the caller.
+ * @param pages - the sync's shared page budget.
  * @yields {IngestDoc} one document per page the crawl reaches.
  */
-async function* crawl(cfg: CrawlConfig, ctx: SourceContext, seed?: FetchedPage): AsyncIterable<IngestDoc> {
-  const startUrl = httpUrl(cfg.startUrl);
+async function* crawl(
+  cfg: CrawlConfig,
+  ctx: SourceContext,
+  seed: FetchedPage,
+  pages: PageBudget,
+): AsyncIterable<IngestDoc> {
+  const startUrl = seed.url;
   const startOrigin = new URL(startUrl).origin;
   const visited = new Set<string>();
   const queue: Array<{ url: string; depth: number }> = [{ url: startUrl, depth: 0 }];
-  let attempted = 0;
-  let pending = seed;
-  while (queue.length && attempted < cfg.maxPages) {
+  let pending: FetchedPage | undefined = seed;
+  while (queue.length && pages.attempted < cfg.maxPages) {
     const { url, depth } = queue.shift()!;
     if (visited.has(url)) {
       continue;
     }
     visited.add(url);
-    attempted += 1;
-    const page = pending?.url === url ? pending : await fetchPage(url, ctx);
+    const prefetched = pending?.url === url ? pending : undefined;
     pending = undefined;
+    if (!prefetched) {
+      pages.attempted += 1;
+    }
+    const page = prefetched ?? await fetchPage(url, ctx);
     if (page) {
       for (const doc of docsFromPage(page, ctx)) {
         yield doc;

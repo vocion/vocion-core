@@ -29,6 +29,8 @@ export type SyncBudgetCaps = {
   maxModelCalls: number;
   /** Input tokens one model call may carry, enforced by truncation. */
   maxInputTokensPerCall: number;
+  /** Milliseconds one model call may take before it is abandoned. */
+  modelTimeoutMs: number;
   /** Input tokens the whole sync may send. */
   maxInputTokensPerSync: number;
   /** Proposals the whole sync may write. */
@@ -45,12 +47,20 @@ export type SyncBudgetCaps = {
  * spent 26 calls on five sources; `maxInputTokensPerSync` is 120,000, which is
  * twelve full-size calls and binds before `maxModelCalls` when every call is
  * at its own 10,000-token ceiling.
+ *
+ * `modelTimeoutMs` is 60,000 because it was 20,000 and that number came from
+ * nowhere: the first dev shadow of this pipeline (2026-09-15) measured six
+ * Bedrock calls averaging 18.2s and topping out at 19.8s, none of which
+ * failed, and ALL of which were cut off by the 20s deadline. A cap set below
+ * what a healthy call costs is not a cap, it is a guaranteed failure, and it
+ * costs the retry and then the whole document.
  */
 export const SYNC_BUDGET_DEFAULTS: SyncBudgetCaps = {
   maxPages: 60,
   maxDetailHops: 40,
   maxModelCalls: 25,
   maxInputTokensPerCall: 10_000,
+  modelTimeoutMs: 60_000,
   maxInputTokensPerSync: 120_000,
   maxProposalsPerSync: 120,
   maxWallClockMs: 600_000,
@@ -58,8 +68,8 @@ export const SYNC_BUDGET_DEFAULTS: SyncBudgetCaps = {
 
 /**
  * The caps that count something up. `maxInputTokensPerCall` is a truncation
- * budget rather than a tally, and `maxWallClockMs` is time, both are read
- * off `caps` directly.
+ * budget rather than a tally, and `modelTimeoutMs` and `maxWallClockMs` are
+ * time, all three are read off `caps` directly.
  */
 export type CountedCap = 'maxPages' | 'maxDetailHops' | 'maxModelCalls' | 'maxInputTokensPerSync' | 'maxProposalsPerSync';
 

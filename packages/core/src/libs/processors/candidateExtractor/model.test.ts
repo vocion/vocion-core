@@ -92,7 +92,7 @@ describe('candidate extractor model call', () => {
     expect(vi.mocked(buildChatModelForOrg)).toHaveBeenCalledWith(
       'extractor',
       'org_extract',
-      { temperature: 0, maxTokens: 2048, streaming: false },
+      { temperature: 0, maxTokens: 4096, streaming: false },
     );
   });
 
@@ -134,6 +134,24 @@ describe('candidate extractor model call', () => {
     // A second attempt shares the deadline, so it would time out too.
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ status: 'skipped', reason: 'model_timeout' });
+  });
+
+  it('gives the call the model deadline from the budget, which a source may lower', async () => {
+    // The old 20s literal was below what a healthy Bedrock call costs (18.2s
+    // average on the first dev shadow), so the deadline is a cap now: the
+    // default is 60s and this source asked for 20ms, which it gets.
+    invoke.mockImplementation(async (_messages: unknown, options: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          const aborted = new Error('The operation was aborted due to timeout');
+          aborted.name = 'TimeoutError';
+          reject(aborted);
+        }, { once: true });
+      }));
+
+    const result = await call({ budget: createSyncBudget({ limits: { modelTimeoutMs: 20 } }) });
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'model_timeout', calls: 1 });
   });
 
   it('passes the cache read count through, so cached input is not billed at full rate', async () => {

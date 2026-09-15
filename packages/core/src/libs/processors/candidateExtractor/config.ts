@@ -22,6 +22,21 @@
 import { z } from 'zod';
 
 /**
+ * How long one DOCUMENT of this processor may take, end to end.
+ *
+ * Read eagerly by the registry, so it is a plain number here rather than
+ * anything derived from the model stage: importing that would drag LangChain
+ * into the Temporal worker, which is the whole reason this file exists.
+ *
+ * 150s is what the work actually costs when it goes well: two model attempts
+ * at the 60s default (`SYNC_BUDGET_DEFAULTS.modelTimeoutMs`), the one ticket
+ * hop a record may ask for, and writing the proposals. The generic 25s cap it
+ * replaces was below a single healthy model call, so every real extraction
+ * was abandoned mid-flight.
+ */
+export const CANDIDATE_EXTRACTOR_DOCUMENT_TIMEOUT_MS = 150_000;
+
+/**
  * A field name on the object type being extracted.
  *
  * Constrained rather than free text because these strings are read back as
@@ -194,6 +209,7 @@ export const candidateExtractorConfigSchema = z.object({
     maxDetailHops: z.number().int().nonnegative().optional(),
     maxModelCalls: z.number().int().nonnegative().optional(),
     maxInputTokensPerCall: z.number().int().nonnegative().optional(),
+    modelTimeoutMs: z.number().int().nonnegative().optional(),
     maxInputTokensPerSync: z.number().int().nonnegative().optional(),
     maxProposalsPerSync: z.number().int().nonnegative().optional(),
     maxWallClockMs: z.number().int().nonnegative().optional(),

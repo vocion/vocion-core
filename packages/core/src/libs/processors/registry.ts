@@ -18,7 +18,7 @@
 
 import type { z } from 'zod';
 import type { DocumentProcessor } from './types';
-import { candidateExtractorConfigSchema } from './candidateExtractor/config';
+import { CANDIDATE_EXTRACTOR_DOCUMENT_TIMEOUT_MS, candidateExtractorConfigSchema } from './candidateExtractor/config';
 
 /**
  * A processor as the registry holds it: its eager half, plus the loader for
@@ -34,6 +34,8 @@ const registry = new Map<string, RegisteredProcessor>([
     name: 'Candidate extractor',
     description: 'Reads each changed document and proposes review candidates of a configured object type.',
     configSchema: candidateExtractorConfigSchema,
+    // Two model attempts, a ticket hop and the proposals, see the constant.
+    documentTimeoutMs: CANDIDATE_EXTRACTOR_DOCUMENT_TIMEOUT_MS,
     load: () => import('./candidateExtractor/run'),
   }],
 ]);
