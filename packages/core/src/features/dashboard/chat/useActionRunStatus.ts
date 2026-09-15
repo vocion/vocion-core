@@ -26,12 +26,21 @@ export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed',
 const MIN_MS = 2_000;
 const MAX_MS = 30_000;
 
+/** A 4xx from the RPC layer — the request itself was refused, so do not retry it. */
+function isRequestRejected(err: unknown): boolean {
+  const status = (err as { status?: unknown; code?: unknown })?.status ?? (err as { code?: unknown })?.code;
+  return typeof status === 'number' && status >= 400 && status < 500;
+}
+
 export function useActionRunStatus(runId: number | undefined): ActionRunStatus | null {
   const [state, setState] = useState<ActionRunStatus | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (runId === undefined) {
+    // A run id that is not a positive integer is not a run: polling it just
+    // 400s, and the loop retried that forever — three red rows in the console
+    // on every inbox page (2026-09-15). Nothing to poll, nothing to say.
+    if (!Number.isInteger(runId) || (runId as number) <= 0) {
       return;
     }
     let cancelled = false;
@@ -56,8 +65,13 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
         if (TERMINAL_STATUSES.has(res.status)) {
           return;
         }
-      } catch {
+      } catch (err) {
         if (cancelled) {
+          return;
+        }
+        // A rejected REQUEST will be rejected the same way every time. Retry
+        // transport failures; give up on anything the server refused.
+        if (isRequestRejected(err)) {
           return;
         }
         unchanged += 1;
