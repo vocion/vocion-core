@@ -132,36 +132,25 @@ export async function supersedeRunningSync(
 }
 
 /**
- * The keys of an existing config an edit must not drop.
+ * What a config replacement keeps from the stored row.
  *
- * The dashboard's Save rebuilds the blob from the form, and the form only
- * knows the fields the connector declares. Everything else in the row is
- * invisible to it: the reserved `_connector`, `_manifestDir` and `_processor`
- * keys, and any key written by a path that is not the form — the sources API,
- * a manifest apply. Without this, one Save on such a source would strip them
- * and the next run would sync a different source than the operator has ever
- * configured.
+ * The dashboard form rebuilds the whole blob from the fields it knows, and
+ * a key it leaves out is dropped on purpose (see the crud tests: a stale
+ * `populate` must not merge forward). The one exception is the reserved
+ * `_`-prefixed keys, which no form ever shows: `_connector`, `_manifestDir`,
+ * `_processor`, `_name`. Written by a manifest apply or the sources API,
+ * they describe what the row IS rather than how it is configured, so a Save
+ * that dropped them would make the next run sync a different source than the
+ * operator has ever configured.
  *
- * Keys the connector DOES declare are left to the incoming blob, so clearing
- * a field still clears it.
+ * Declared keys the caller leaves out are still dropped, so a source whose
+ * config was written by the sources API (urlsFrom, feedUrl) and then saved
+ * from the dashboard form loses them until the next API upsert; the API
+ * writer is authoritative and re-asserts the blob.
  * @param existing - The stored config blob.
- * @param incoming - The replacement config, as the caller sent it.
- * @param configSchema - The connector's schema, which names the fields a form
- * can round-trip.
  */
-function preservedConfigKeys(
-  existing: Record<string, unknown>,
-  incoming: Record<string, unknown>,
-  configSchema: unknown,
-): Record<string, unknown> {
-  // A zod object exposes its fields as `shape`; anything else (a refined or
-  // wrapped schema that does not) declares nothing, and everything unknown to
-  // the incoming blob is kept.
-  const shape = (configSchema as { shape?: Record<string, unknown> }).shape;
-  const declared = new Set(Object.keys(shape ?? {}));
-  return Object.fromEntries(
-    Object.entries(existing).filter(([key]) => key.startsWith('_') || (!declared.has(key) && !(key in incoming))),
-  );
+function preservedConfigKeys(existing: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(existing).filter(([key]) => key.startsWith('_')));
 }
 
 /**
@@ -207,7 +196,7 @@ export async function updateSourceConfig(input: {
   connector.configSchema.parse(input.configJson);
   await db
     .update(knowledgeSourceSchema)
-    .set({ configJson: { ...preservedConfigKeys(existing, input.configJson, connector.configSchema), ...input.configJson, _connector: connectorSlug } })
+    .set({ configJson: { ...preservedConfigKeys(existing), ...input.configJson, _connector: connectorSlug } })
     .where(and(
       eq(knowledgeSourceSchema.id, input.sourceId),
       eq(knowledgeSourceSchema.orgId, input.orgId),
@@ -324,7 +313,7 @@ export type SyncResult = {
   /**
    * The first processor failure, verbatim. Kept off `counts`, which is typed
    * `Record<string, number>`, and off `errors`, which decides whether this run
-   * may delete documents — a processor that could not read a page says nothing
+   * may delete documents, a processor that could not read a page says nothing
    * about whether the source still holds it.
    */
   firstProcessorError: string | null;
@@ -589,8 +578,8 @@ async function announceSyncCompleted(orgId: string, payload: SourceSyncCompleted
 /**
  * How long one document's processor may run before the sync stops waiting.
  *
- * A processor talks to things the sync does not control — a model endpoint, a
- * ticket page — so "it will come back eventually" is not something the run can
+ * A processor talks to things the sync does not control, a model endpoint, a
+ * ticket page, so "it will come back eventually" is not something the run can
  * assume. Twenty-five seconds is one model call (20s) and a little more, NOT
  * the sum of every inner timeout: a document that also needs its retry and a
  * ticket hop is cut off on purpose rather than allowed to hold one of the
@@ -723,7 +712,7 @@ export async function runSync(opts: {
    * `Record<string, number>` and `finishSync` does not compile against anything
    * else. A processor's own counters are prefixed `extract.` so they can never
    * collide with the six the sync itself reports, and the object stays empty
-   * for a source that declares no processor — whose checkpoint then reads
+   * for a source that declares no processor, whose checkpoint then reads
    * exactly as it did before any of this existed.
    */
   const processorCounts: Record<string, number> = processor ? { processorErrors: 0, capHits: 0 } : {};
@@ -822,7 +811,7 @@ export async function runSync(opts: {
    *
    * Per sync, not per document, because up to `MAX_CONCURRENT_INGESTS`
    * documents are in flight at once: a per-document allowance would be eight
-   * times what it reads. A spent cap is never an error — the run carries on
+   * times what it reads. A spent cap is never an error, the run carries on
    * having done less.
    */
   const capsRecorded = new Set<string>();
@@ -841,7 +830,7 @@ export async function runSync(opts: {
         },
       })
     : undefined;
-  /** Shared across every processor invocation in this run — see ProcessorSyncContext. */
+  /** Shared across every processor invocation in this run, see ProcessorSyncContext. */
   const processorSyncContext: ProcessorSyncContext = { cache: new Map() };
 
   /**
@@ -902,7 +891,7 @@ export async function runSync(opts: {
       bumpProcessorCount('extract.produced', processed.produced);
       bumpProcessorCount('extract.skipped', processed.skipped);
       for (const [key, value] of Object.entries(processed.counts ?? {})) {
-        // Numbers only — the column cannot hold anything else.
+        // Numbers only, the column cannot hold anything else.
         if (Number.isFinite(value)) {
           bumpProcessorCount(`extract.${key}`, value);
         }
@@ -1331,6 +1320,21 @@ export type SourceSyncState = {
   error: string | null;
   /** What the run managed to do: created / updated / unchanged / tombstoned / errors. */
   counts: Record<string, number>;
+  /**
+   * The stored incremental watermark: the cutoff the next incremental run will
+   * fetch from, advanced by the last run that completed. Null for a source that
+   * has never stored one. Reported so a caller reading this over the API can
+   * tell "nothing changed upstream since this point" apart from "the run looked
+   * at nothing", which the counts alone cannot say.
+   */
+  since: Date | null;
+  /**
+   * The non-fatal failures the run carried on past, capped per scope when
+   * written. `errors` in `counts` is the true total; this is the readable
+   * record of what was skipped and why, including `processor`-scope failures
+   * that never touched the ingest counters.
+   */
+  failures: RecordedFailure[];
 };
 
 /**
@@ -1353,6 +1357,8 @@ export async function latestSyncStateForOrg(orgId: string): Promise<Record<numbe
       completedAt: sourceSyncCheckpointSchema.completedAt,
       error: sourceSyncCheckpointSchema.error,
       counts: sourceSyncCheckpointSchema.counts,
+      since: sourceSyncCheckpointSchema.since,
+      failures: sourceSyncCheckpointSchema.failures,
     })
     .from(sourceSyncCheckpointSchema)
     .where(eq(sourceSyncCheckpointSchema.orgId, orgId));
@@ -1372,6 +1378,8 @@ export async function latestSyncStateForOrg(orgId: string): Promise<Record<numbe
       completedAt: row.completedAt,
       error: row.error,
       counts: row.counts,
+      since: row.since,
+      failures: row.failures ?? [],
     };
   }
   return latestPerSource;

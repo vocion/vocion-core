@@ -1,12 +1,9 @@
 import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
-import type { ProcessorRef } from '@/libs/sources/processor';
+import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upsert';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { listProcessorSlugs, processorConfigSchema } from '@/libs/processors/registry';
-import { withManifestDir } from '@/libs/sources/manifestDir';
-import { withProcessor } from '@/libs/sources/processor';
-import { getConnector } from '@/libs/sources/registry';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { reconcileSourceSchedules, storedProcessorNames, upsertSourceRow } from '@/libs/sources/upsert';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -319,7 +316,7 @@ async function reconcileSchedules(
   const { ensureAutomationSchedule, removeAutomationSchedule } = await import('@/services/AutomationService');
   const { ensureWorkflowSchedule, removeWorkflowSchedule } = await import('@/services/WorkflowScheduleService');
   const { ensureMissionSchedule, removeMissionSchedule } = await import('@/services/MissionScheduleService');
-  const { ensureSourceSchedule, removeSourceSchedule, ensureSourceReconcileSchedule, removeSourceReconcileSchedule, startSourceFullSync } = await import('@/services/SourceScheduleService');
+  const { startSourceFullSync } = await import('@/services/SourceScheduleService');
   const { knowledgeSourceSchema: srcSchema } = await import('@/models/Schema');
 
   // Automations are the first-class WHEN. Schedule-whens get a Temporal
@@ -370,23 +367,9 @@ async function reconcileSchedules(
         .from(srcSchema)
         .where(and(eq(srcSchema.orgId, orgId), eq(srcSchema.slug, src.slug)));
 
-      if (src.enabled && src.schedule && row) {
-        await ensureSourceSchedule({ orgId, sourceId: row.id, sourceSlug: src.slug, cron: src.schedule });
-      } else {
-        await removeSourceSchedule(orgId, src.slug);
-      }
-
-      // Second cadence: the full-sync reconcile that prunes upstream deletions.
-      // Manifest `reconcileSchedule` wins; the connector's default applies when
-      // omitted; an explicit `false` disables the pass.
-      const reconcileCron = src.reconcileSchedule === false
-        ? undefined
-        : (src.reconcileSchedule ?? getConnector(src.kind)?.defaultReconcileCron);
-      if (src.enabled && reconcileCron && row) {
-        await ensureSourceReconcileSchedule({ orgId, sourceId: row.id, sourceSlug: src.slug, cron: reconcileCron });
-      } else {
-        await removeSourceReconcileSchedule(orgId, src.slug);
-      }
+      // Both cadences (incremental + reconcile), shared with the sources API so
+      // a source written either way ends up on the same schedules.
+      await reconcileSourceSchedules(orgId, specForSource(src), row?.id ?? null);
 
       // This apply changed the source's stored row — start a one-off full sync
       // so scope changes take effect now rather than at the next reconcile.
@@ -997,126 +980,56 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
   return 'updated';
 }
 
-/** What a processor's config may name, resolved once per apply. */
-type KnownProcessorNames = {
-  /** Learning step names that exist for this org, or will by the end of this apply. */
-  learningSteps: Set<string>;
-  /** Agent slugs, same. */
-  agentSlugs: Set<string>;
-};
-
 /**
  * The learning steps and agents a processor config is allowed to name.
  *
  * Both the stored rows and the ones this apply is about to write: steps are
  * applied before sources, but a DRY run writes nothing, so reading the tables
- * alone would fail the first apply of a workspace that declares both.
+ * alone would fail the first apply of a workspace that declares both. An API
+ * caller gets the stored half only, it has no pass in which to create them.
  * @param orgId - Org being applied to.
  * @param loaded - The workspace being applied.
  */
 async function knownProcessorNames(orgId: string, loaded: LoadedWorkspace): Promise<KnownProcessorNames> {
-  const [steps, agents] = await Promise.all([
-    db.select({ name: learningStepSchema.name }).from(learningStepSchema).where(eq(learningStepSchema.orgId, orgId)),
-    db.select({ slug: agentSchema.slug }).from(agentSchema).where(eq(agentSchema.orgId, orgId)),
-  ]);
+  const stored = await storedProcessorNames(orgId);
   return {
-    learningSteps: new Set([...steps.map(r => r.name), ...loaded.learningSteps.map(s => s.name)]),
-    agentSlugs: new Set([...agents.map(r => r.slug), ...loaded.agents.map(a => a.slug)]),
+    learningSteps: new Set([...stored.learningSteps, ...loaded.learningSteps.map(s => s.name)]),
+    agentSlugs: new Set([...stored.agentSlugs, ...loaded.agents.map(a => a.slug)]),
   };
 }
 
 /**
- * Validate a source's `processor:` block, and return what gets stamped into
- * `config_json`.
+ * Write one manifest-declared source row.
  *
- * Everything checked here would otherwise fail at run time, once per document,
- * for as long as nobody noticed: `getLearnings` throws on an unknown step, and
- * a mistyped agent slug degrades the learning loop silently. The stored blob
- * is the AUTHORED config, not the parsed one, so a later change to a default
- * does not rewrite every source row.
- * @param src - The source manifest declaring the processor.
- * @param known - What its config may name.
+ * The write itself is `upsertSourceRow`, shared with `POST /api/v1/sources` so
+ * the two writers cannot drift; this wrapper only turns a `LoadedSource` into
+ * the spec that function takes.
+ * @param orgId - Org being applied to.
+ * @param src - The source manifest.
+ * @param dryRun - Report the outcome without writing.
+ * @param known - What a processor config may name.
  */
-function validateProcessor(src: LoadedSource, known: KnownProcessorNames): ProcessorRef | undefined {
-  if (!src.processor) {
-    return undefined;
-  }
-  const schema = processorConfigSchema(src.processor.slug);
-  if (!schema) {
-    throw new Error(`source "${src.slug}" references unknown processor: "${src.processor.slug}". Registered: ${listProcessorSlugs().join(', ')}`);
-  }
-  // Throws ZodError on bad input, same as the connector config above.
-  const parsed = schema.parse(src.processor.config) as { learningSteps?: string[]; agentSlug?: string };
-  for (const step of parsed.learningSteps ?? []) {
-    if (!known.learningSteps.has(step)) {
-      throw new Error(`source "${src.slug}" processor names unknown learning step: "${step}"`);
-    }
-  }
-  if (parsed.agentSlug && !known.agentSlugs.has(parsed.agentSlug)) {
-    throw new Error(`source "${src.slug}" processor names unknown agent: "${parsed.agentSlug}"`);
-  }
-  return { slug: src.processor.slug, config: src.processor.config };
+async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean, known: KnownProcessorNames): Promise<UpsertOutcome> {
+  const { outcome } = await upsertSourceRow(orgId, specForSource(src), { known, dryRun });
+  return outcome;
 }
 
-async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean, known: KnownProcessorNames): Promise<UpsertOutcome> {
-  const connector = getConnector(src.kind);
-  if (!connector) {
-    throw new Error(`source "${src.slug}" references unknown connector kind: "${src.kind}". Registered: ${Array.from(new Set(['web', 'local-files'])).join(', ')}`);
-  }
-  // Validate the per-connector config blob. Throws ZodError on bad input.
-  connector.configSchema.parse(src.config);
-  const processor = validateProcessor(src, known);
-
-  const [existing] = await db
-    .select()
-    .from(knowledgeSourceSchema)
-    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, src.slug)));
-
-  // Store the connector slug in config_json under `_connector` so
-  // SourceSyncService.runSync can route to the right connector. This
-  // matches the convention used by the addSource() picker path.
-  //
-  // `_manifestDir` records the directory of the workspace manifest that
-  // declared this source, so a connector resolves relative path options
-  // against the manifest rather than against WORKSPACE_PATH. For a
-  // manifest at the workspace root the two are the same path, which is
-  // why this is backwards compatible.
-  //
-  // `_processor` is the same convention again: the per-document stage that
-  // runs after ingestion, absent from the blob entirely when none is declared.
-  const payload = {
-    orgId,
+/**
+ * A manifest source as the shared writer takes it.
+ * @param src - The loaded source manifest.
+ */
+function specForSource(src: LoadedSource): SourceUpsertSpec {
+  return {
     slug: src.slug,
-    kind: 'plugin' as const,
-    configJson: withProcessor(
-      withManifestDir({ ...src.config, _connector: src.kind }, src.manifestDir),
-      processor,
-    ) as Record<string, unknown>,
-    accessPolicy: src.access ?? null,
-    enabled: String(src.enabled),
+    kind: src.kind,
+    config: src.config,
+    enabled: src.enabled,
+    schedule: src.schedule,
+    reconcileSchedule: src.reconcileSchedule,
+    processor: src.processor,
+    access: src.access,
+    manifestDir: src.manifestDir,
   };
-
-  if (!existing) {
-    if (!dryRun) {
-      await db.insert(knowledgeSourceSchema).values(payload);
-    }
-    return 'created';
-  }
-
-  if (
-    existing.slug === payload.slug
-    && existing.kind === payload.kind
-    && existing.enabled === payload.enabled
-    && canonical(existing.configJson) === canonical(payload.configJson)
-    && canonical(existing.accessPolicy ?? null) === canonical(payload.accessPolicy)
-  ) {
-    return 'unchanged';
-  }
-
-  if (!dryRun) {
-    await db.update(knowledgeSourceSchema).set(payload).where(eq(knowledgeSourceSchema.id, existing.id));
-  }
-  return 'updated';
 }
 
 /**
