@@ -13,9 +13,26 @@ const TRACE: TraceNode[] = [
   { id: 't1', actor, kind: 'tool', status: 'done', label: 'Edited proposal.md', result: '+38 −12', tool: 'edit_file', args: '{"path":"proposal.md"}', resultDetail: 'section 4 rewritten' },
 ];
 
+/** After the turn the trace is one folded line; every test that reads the claims opens it first (§9). */
+async function renderUnfolded() {
+  await render(<WorkTimeline runs={[]} streaming={false} trace={TRACE} />);
+  await userEvent.click(page.getByRole('button', { name: /Worked it out/ }));
+}
+
 describe('WorkTimeline three-level transcript', () => {
-  it('renders one collapsed claim line per action, with the blast radius on the line', async () => {
+  it('folds a finished turn to one line — "Worked it out · N steps" — and opens on tap', async () => {
     await render(<WorkTimeline runs={[]} streaming={false} trace={TRACE} />);
+
+    await expect.element(page.getByRole('button', { name: /Worked it out · 3 steps/ })).toBeInTheDocument();
+    await expect.element(page.getByText('Searched the data room')).not.toBeInTheDocument();
+
+    await userEvent.click(page.getByRole('button', { name: /Worked it out/ }));
+
+    await expect.element(page.getByText('Searched the data room')).toBeInTheDocument();
+  });
+
+  it('renders one collapsed claim line per action, with the blast radius on the line', async () => {
+    await renderUnfolded();
 
     await expect.element(page.getByText('Searched the data room')).toBeInTheDocument();
     await expect.element(page.getByText('Edited proposal.md')).toBeInTheDocument();
@@ -25,7 +42,7 @@ describe('WorkTimeline three-level transcript', () => {
   });
 
   it('expands a claim to its steps, and a stepless claim to its payload', async () => {
-    await render(<WorkTimeline runs={[]} streaming={false} trace={TRACE} />);
+    await renderUnfolded();
 
     await userEvent.click(page.getByRole('button', { name: /Searched the data room/ }));
 
@@ -37,7 +54,7 @@ describe('WorkTimeline three-level transcript', () => {
   });
 
   it('reasoning is collapsed like everything else and opens to the text', async () => {
-    await render(<WorkTimeline runs={[]} streaming={false} trace={TRACE} />);
+    await renderUnfolded();
 
     await expect.element(page.getByText('The angle rests on two sourced facts.')).not.toBeInTheDocument();
 
@@ -47,7 +64,7 @@ describe('WorkTimeline three-level transcript', () => {
   });
 
   it('one control recollapses everything', async () => {
-    await render(<WorkTimeline runs={[]} streaming={false} trace={TRACE} />);
+    await renderUnfolded();
     await userEvent.click(page.getByRole('button', { name: /Searched the data room/ }));
     await userEvent.click(page.getByRole('button', { name: /Thought it through/ }));
 
@@ -58,10 +75,26 @@ describe('WorkTimeline three-level transcript', () => {
     await expect.element(page.getByRole('button', { name: 'Collapse all' })).not.toBeInTheDocument();
   });
 
-  it('a streaming turn shows the working verb, never claims', async () => {
-    await render(<WorkTimeline runs={[]} streaming trace={TRACE} activity="Rewriting section 4" />);
+  it('a streaming turn shows the working verb AND the live rows as they land, reasoning folded to its first line (§9)', async () => {
+    const live: TraceNode[] = [
+      { ...TRACE[0]!, status: 'done' },
+      { ...TRACE[1]!, status: 'done' },
+      { ...TRACE[3]!, status: 'start', label: 'Editing proposal.md…' },
+    ];
+    await render(<WorkTimeline runs={[]} streaming trace={live} activity="Rewriting section 4" />);
 
     await expect.element(page.getByText('Rewriting section 4')).toBeInTheDocument();
-    await expect.element(page.getByText('Edited proposal.md')).not.toBeInTheDocument();
+    await expect.element(page.getByText('Searched the data room')).toBeInTheDocument();
+    await expect.element(page.getByText('Editing proposal.md…')).toBeInTheDocument();
+    // Reasoning shows its first sentence on the folded line; the full text waits for a tap.
+    await expect.element(page.getByText(/The angle rests on two sourced facts\./)).toBeInTheDocument();
+    await expect.element(page.getByText('Found the precedent table')).not.toBeInTheDocument();
+  });
+
+  it('a tool error closes its row as an error with the message', async () => {
+    const errored: TraceNode[] = [{ ...TRACE[3]!, status: 'error', result: 'HubSpot 429' }];
+    await render(<WorkTimeline runs={[]} streaming trace={errored} activity={null} />);
+
+    await expect.element(page.getByText('HubSpot 429')).toBeInTheDocument();
   });
 });

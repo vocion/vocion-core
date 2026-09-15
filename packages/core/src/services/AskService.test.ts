@@ -66,6 +66,23 @@ describe('upsertAsk', () => {
   });
 });
 
+describe('upsertAsk — verbosity hint', () => {
+  it('warns (never throws) when a title or body is longer than reads well on a phone', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await svc.upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'Short title', body: 'Short body.' } });
+
+    expect(warn).not.toHaveBeenCalled();
+
+    const { ask } = await svc.upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'T'.repeat(90), body: 'B'.repeat(450), sourceRef: 'workforce:approvals/999' } });
+
+    expect(ask.title).toHaveLength(90);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toMatch(/verbose ask .*workforce:approvals\/999.*title is 90 chars.*body is 450 chars/);
+
+    warn.mockRestore();
+  });
+});
+
 describe('listAsks', () => {
   it('defaults to open, filters by decided/exact status, source prefix, kind and group', async () => {
     const open = await svc.upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'r1', sourceRef: 'workforce:a', groupKey: 'g1' } });

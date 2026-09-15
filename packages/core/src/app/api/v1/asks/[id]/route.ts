@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAsk } from '@/services/AskService';
 import { authApi, isErrorResponse, jsonError, readIdParam } from '../../_shared';
+import { withAskUrl } from '../_lib';
 
 /**
  * GET /api/v1/asks/:id — one ask, with its decision when it has one.
@@ -19,5 +20,5 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     return id;
   }
   const ask = await getAsk(caller.orgId, id);
-  return ask ? NextResponse.json({ ask }) : jsonError('NOT_FOUND', `No ask ${id}`, 404);
+  return ask ? NextResponse.json({ ask: await withAskUrl(caller.orgId, ask) }) : jsonError('NOT_FOUND', `No ask ${id}`, 404);
 }

@@ -61,6 +61,10 @@ VOCION_MAIL_FROM="Vocion <reports@metacto.com>"     # on the verified domain
 NEXT_PUBLIC_APP_URL=https://agents.metacto.com     # links in the mail
 ```
 
+Links in the mail are workspace-aware: `https://agents.metacto.com/w/<workspace-slug>/dashboard/inbox`
+opens the workspace the report is about, whichever one the reader last had active
+(see [routing](../routing.md)).
+
 `VOCION_MAIL_FROM` is the default sender for every message; a caller may
 override it per message. All three are declared in `libs/Env.ts` and documented
 in `.env.example`.

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { firstParagraph, isNearDuplicate, sentenceCase, splitBody } from './askText';
 import { KIND_LABEL, riskTone } from './inboxMeta';
 
 /** What the sheet needs to know about one open ask — the page hands it over from the server. */
@@ -47,8 +48,22 @@ const FIXED_ROWS: AskOption[] = [
  * @param props
  * @param props.asks - The OPEN asks to answer, in order.
  * @param props.title - The sheet's title (a group's `groupTitle`).
+ * @param props.endpoint
+ * @param props.allowOther
  */
-export function AskSheet({ asks, title }: { asks: SheetAsk[]; title?: string | null }) {
+export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true }: {
+  asks: SheetAsk[];
+  title?: string | null;
+  /**
+   * Where a decision is written. `ask` → `POST /api/v1/asks/:id/decide`;
+   * `review` → `POST /api/v1/reviews/decide` for a proposed action (the id is
+   * the action run), which enforces the same `approve` capability the review
+   * page does — the sheet never bypasses it.
+   */
+  endpoint?: 'ask' | 'review';
+  /** Offer the free-text "Other" row. Off for review items, which are approve/reject. */
+  allowOther?: boolean;
+}) {
   const router = useRouter();
   const multi = asks.length > 1;
   const [index, setIndex] = useState(0);
@@ -82,12 +97,19 @@ export function AskSheet({ asks, title }: { asks: SheetAsk[]; title?: string | n
 
   async function submitOne(ask: SheetAsk): Promise<Outcome> {
     const a = answerFor(ask.id);
+    const note = a.note.trim() || undefined;
     try {
-      const res = await fetch(`/api/v1/asks/${ask.id}/decide`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision: a.decision, note: a.note.trim() || undefined }),
-      });
+      const res = endpoint === 'review'
+        ? await fetch('/api/v1/reviews/decide', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'action', id: ask.id, action: a.decision === 'approve' ? 'approve' : 'reject', reason: note }),
+          })
+        : await fetch(`/api/v1/asks/${ask.id}/decide`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ decision: a.decision, note }),
+          });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         return { ok: false, error: body?.error?.message ?? `${res.status} ${res.statusText}` };
@@ -193,6 +215,11 @@ export function AskSheet({ asks, title }: { asks: SheetAsk[]; title?: string | n
 
   const answer = answerFor(current.id);
   const rows = current.options.length > 0 ? current.options : FIXED_ROWS;
+  // Simplest useful explanation first: two sentences of the body; the rest,
+  // the long-form markdown and the context link all live in one Details fold.
+  const body = splitBody(current.body);
+  const paragraph = firstParagraph(current.body);
+  const hasDetails = Boolean(body.rest || current.contextMd || current.contextUrl);
   const canAdvance = complete(answer);
   const outcome = outcomes[current.id];
 
@@ -208,10 +235,10 @@ export function AskSheet({ asks, title }: { asks: SheetAsk[]; title?: string | n
           {current.risk && <span className={`rounded-full border px-2 py-0.5 font-medium tracking-wide uppercase ${riskTone(current.risk)}`}>{`${current.risk} risk`}</span>}
           {current.agentSlug && <span className="text-muted-foreground">{`asked by ${current.agentSlug}`}</span>}
         </div>
-        <h1 className="mt-2 text-xl leading-snug font-semibold">{current.title}</h1>
-        {current.body && (
+        <h1 className="mt-2 line-clamp-2 text-xl leading-snug font-semibold" title={current.title}>{sentenceCase(current.title)}</h1>
+        {body.lead && (
           <div className="prose prose-sm mt-2 max-w-none text-muted-foreground dark:prose-invert">
-            <Markdown remarkPlugins={[remarkGfm]}>{current.body}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]}>{body.lead}</Markdown>
           </div>
         )}
       </header>
@@ -220,16 +247,18 @@ export function AskSheet({ asks, title }: { asks: SheetAsk[]; title?: string | n
         {rows.map(option => (
           <OptionRow
             key={option.id}
-            option={option}
+            option={isNearDuplicate(option.description, paragraph) ? { ...option, description: undefined } : option}
             selected={answer.decision === option.id}
             onSelect={() => setAnswer(current.id, { decision: option.id })}
           />
         ))}
-        <OptionRow
-          option={{ id: OTHER, label: 'Other', description: 'Answer in your own words. The team reads it and may come back with a follow-up.' }}
-          selected={answer.decision === OTHER}
-          onSelect={() => setAnswer(current.id, { decision: OTHER })}
-        />
+        {allowOther && (
+          <OptionRow
+            option={{ id: OTHER, label: 'Other', description: 'Answer in your own words. The team reads it and may come back with a follow-up.' }}
+            selected={answer.decision === OTHER}
+            onSelect={() => setAnswer(current.id, { decision: OTHER })}
+          />
+        )}
         {answer.decision === OTHER && (
           <textarea
             value={answer.note}
@@ -254,27 +283,31 @@ export function AskSheet({ asks, title }: { asks: SheetAsk[]; title?: string | n
         </details>
       )}
 
-      {(current.contextUrl || current.contextMd) && (
-        <section className="mt-4 space-y-2" aria-label="Evidence">
-          <p className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Evidence</p>
-          {current.contextUrl && (
-            <a href={current.contextUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary underline-offset-2 hover:underline">
-              Open the context
-              <ExternalLink className="size-3.5" aria-hidden />
-            </a>
-          )}
-          {current.contextMd && (
-            <details className="rounded-md border border-border">
-              <summary className="flex min-h-10 cursor-pointer items-center gap-1.5 px-3 text-sm font-medium">
-                <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
-                Details
-              </summary>
-              <div className="prose prose-sm max-w-none border-t border-border px-3 py-2 dark:prose-invert">
+      {hasDetails && (
+        <details className="mt-4 rounded-md border border-border">
+          <summary className="flex min-h-11 cursor-pointer items-center gap-1.5 px-3 text-sm font-medium">
+            <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+            {body.rest ? 'Show details' : 'Details'}
+          </summary>
+          <div className="space-y-3 border-t border-border px-3 py-3">
+            {body.rest && (
+              <div className="prose prose-sm max-w-none text-muted-foreground dark:prose-invert">
+                <Markdown remarkPlugins={[remarkGfm]}>{body.rest}</Markdown>
+              </div>
+            )}
+            {current.contextMd && (
+              <div className={`prose prose-sm max-w-none dark:prose-invert ${body.rest ? 'border-t border-border pt-3' : ''}`}>
                 <Markdown remarkPlugins={[remarkGfm]}>{current.contextMd}</Markdown>
               </div>
-            </details>
-          )}
-        </section>
+            )}
+            {current.contextUrl && (
+              <a href={current.contextUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary underline-offset-2 hover:underline">
+                Open the context
+                <ExternalLink className="size-3.5" aria-hidden />
+              </a>
+            )}
+          </div>
+        </details>
       )}
 
       {outcome && !outcome.ok && (
@@ -342,7 +375,11 @@ function OptionRow({ option, selected, onSelect }: { option: AskOption; selected
           {option.label}
           {option.recommended && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Recommended</span>}
         </span>
-        {option.description && <span className="mt-0.5 block text-sm text-muted-foreground">{option.description}</span>}
+        {option.description && (
+          <span className={`mt-0.5 text-sm text-muted-foreground ${selected ? 'block' : 'line-clamp-2'}`} title={selected ? undefined : option.description}>
+            {option.description}
+          </span>
+        )}
       </span>
     </button>
   );

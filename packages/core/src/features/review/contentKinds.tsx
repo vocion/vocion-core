@@ -75,7 +75,7 @@ function EmailContent({ item, position, edit, onEdit, defaultExpanded, disabled 
       {expanded && (
         <div className="space-y-2 pb-3 pl-9">
           <label className="block">
-            <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">subject</span>
+            <span className="mb-1 block text-[12px] font-medium text-muted-foreground">subject</span>
             <input
               className={fieldClass}
               value={subject}
@@ -84,7 +84,7 @@ function EmailContent({ item, position, edit, onEdit, defaultExpanded, disabled 
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground uppercase">body</span>
+            <span className="mb-1 block text-[12px] font-medium text-muted-foreground">body</span>
             <textarea
               className={`${fieldClass} min-h-28 resize-y leading-relaxed`}
               value={body}

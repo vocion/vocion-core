@@ -37,6 +37,47 @@ clear answer without reading a report.
   the feedback classifier the same way a review-queue rejection is, so a correction given three
   times becomes a rule rather than three notes.
 
+## Writing a good ask
+
+The screen clamps whatever arrives — a two-line title, two sentences of body, two lines per option
+— and folds the rest under **Details**, so a verbose ask still reads. But a filer that writes short
+gets a better answer, faster. The limits the server hints at in its log (a warning, never a
+refusal): **title ≤ 80 characters, body ≤ 400**. Put the long form in `contextMd`, the source in
+`contextUrl`, and let an option's `description` say what the body does not — a description that
+repeats the body's first paragraph is hidden as a duplicate.
+
+Before — three lines of title, nine of body, options that restate it:
+
+```json
+{
+  "title": "Decision needed on Slack app granularity for the Vocion Slack surface (item 032): should each Vocion project map to a single Slack app, or should every agent be its own Slack app and bot user?",
+  "body": "The Slack surface needs an identity model before #253 can ship. The company recommends one app per Slack-workspace × Vocion-project, with per-agent identity via chat:write.customize. A dedicated app would only be needed when an agent must be addressable directly. This has been open since cycle 52 and blocks the manifest reinstall in 035. The board reviewed three alternatives … (five more sentences)",
+  "options": [
+    { "id": "per-workspace", "label": "One app per workspace", "description": "The Slack surface needs an identity model before #253 can ship. The company recommends one app per Slack-workspace × Vocion-project …", "recommended": true },
+    { "id": "per-agent", "label": "One app per agent", "description": "Every agent is its own Slack app and bot user, which the company considered and …" }
+  ]
+}
+```
+
+After — the question, why it matters, and what each answer means; everything else behind Details:
+
+```json
+{
+  "title": "One Slack app per workspace, or one per agent?",
+  "body": "The Slack surface needs an identity model before #253 ships. It has blocked the manifest reinstall (035) since cycle 52.",
+  "options": [
+    { "id": "per-workspace", "label": "One app per workspace × project", "description": "Per-agent identity via chat:write.customize; a dedicated app only when an agent must be addressable.", "recommended": true },
+    { "id": "per-agent", "label": "One app per agent", "description": "Each agent is its own Slack app and bot user; more installs, cleaner addressing." }
+  ],
+  "contextUrl": "https://github.com/vocion/vocion-workforce/blob/main/company/approvals/pending/032-slack-app-granularity.md",
+  "contextMd": "## The three alternatives the board considered\n\n…"
+}
+```
+
+The `title` is the question a person would ask aloud. The `body` is the two sentences they need
+before choosing. An option's `description` is the consequence of picking it. The recommended option
+carries a *Recommended* chip and nothing more.
+
 ## Fields
 
 | Field | Type | Meaning |
@@ -50,6 +91,7 @@ clear answer without reading a report.
 | `risk` | `low` \| `medium` \| `high` | Shown as a chip on the row. |
 | `groupKey`, `groupTitle` | strings | Several asks under one key form one decision sheet. |
 | `contextUrl` | URL | The long form — the approval file, the PR, the run. `url` is accepted as an alias on POST. |
+| `url` | URL, read-only | Where a person decides this ask: `/w/<workspace>/dashboard/inbox/<id>`, absolute when `NEXT_PUBLIC_APP_URL` is set. Present on every API response; paste this into Slack or an approval file, not a bare `/dashboard/inbox` path. |
 | `contextMd` | markdown | Optional collapsed **Details**. |
 | `dueAt` | timestamp | Informational. |
 | `notifyAt`, `notified` | timestamp, boolean | Earliest time a notifier may ping about this ask, and whether one has. `AskService.pendingNotifications()` lists what is owed; nothing in core sends yet. |

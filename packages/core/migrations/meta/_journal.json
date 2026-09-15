@@ -661,10 +661,38 @@
       "breakpoints": true
     },
     {
+      "idx": 94,
+      "version": "7",
+      "when": 1787548600000,
+      "tag": "0094_conversation_feedback_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1787548700000,
+      "tag": "0095_artifact",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1787548800000,
+      "tag": "0096_conversation_context",
+      "breakpoints": true
+    },
+    {
       "idx": 97,
       "version": "7",
       "when": 1787548900000,
       "tag": "0097_workspace_mailbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1787552600000,
+      "tag": "0098_user_nav_pref",
       "breakpoints": true
     }
   ]

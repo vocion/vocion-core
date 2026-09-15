@@ -1,36 +1,18 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
-import { useEffect } from 'react';
-import { requestAgentSurface } from './agentSurface';
+import type { PaletteEntity } from '@/features/dashboard/palette/paletteGroups';
+import { CommandPalette } from '@/features/dashboard/CommandPalette';
 
 /**
- * The keyboard entry point: ⌘K (Ctrl+K) opens whatever agent surface the
- * page carries, through the same one function as every other entry point
- * (agent-chat-surface.md §6). Unclaimed — no surface mounted — falls back to
- * the everything-scoped chat page. Yields on the roadmap docs routes, whose
- * search owns ⌘K, and to any handler that already claimed the key.
+ * The keyboard entry point, mounted once by the shell. ⌘K (Ctrl+K) now opens
+ * the command palette — pages, agents, conversations and "Ask Vocion: …" in
+ * one field (B-034b §3). The rail keeps its own key (⌘J) and every other
+ * entry point still goes through `requestAgentSurface()`
+ * (agent-chat-surface.md §6); the palette's Ask row calls the same function.
+ * @param props
+ * @param props.isAdmin - Whether admin-only routes appear in the palette.
+ * @param props.agents - The workspace's chat agents, already loaded for the dock.
  */
-export function AgentSurfaceHotkey() {
-  const router = useRouter();
-  const pathname = usePathname();
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k' || e.defaultPrevented) {
-        return;
-      }
-      if (pathname.includes('/dashboard/roadmap')) {
-        return;
-      }
-      e.preventDefault();
-      if (!requestAgentSurface()) {
-        router.push('/dashboard/chat');
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [pathname, router]);
-
-  return null;
+export function AgentSurfaceHotkey({ isAdmin = false, agents = [] }: { isAdmin?: boolean; agents?: PaletteEntity[] }) {
+  return <CommandPalette isAdmin={isAdmin} agents={agents} />;
 }

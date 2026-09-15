@@ -3,9 +3,9 @@ import { renderHook } from 'vitest-browser-react';
 
 vi.mock('@/libs/Orpc', () => ({
   client: {
-    chatWidget: { getState: vi.fn(), setState: vi.fn() },
+    chatWidget: { getState: vi.fn(), setState: vi.fn(), setRail: vi.fn(async () => ({ railWidth: null, railOpen: null })) },
     chat: { suggestions: vi.fn() },
-    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn() },
+    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(async () => ({})), feedback: vi.fn(async () => ({})) },
   },
 }));
 
@@ -47,17 +47,32 @@ describe('useChatSession', () => {
     expect(result.current.conversationId).toBeNull();
   });
 
-  it('adopts the server-side pointer on a browser that has no local one, and replays its messages', async () => {
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'specialist', conversationId: 5, updatedAt: new Date() });
+  it('opens a NEW conversation with the lead — the server pointer chooses neither the thread nor the agent (§9)', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'specialist', conversationId: 5, updatedAt: new Date(), railWidth: null, railOpen: null });
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
+
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
+
+    expect(result.current.agent.slug).toBe('orchestrator');
+    expect(result.current.conversationId).toBeNull();
+    expect(result.current.messages).toEqual([]);
+    expect(client.conversations.get).not.toHaveBeenCalled();
+  });
+
+  it('resumes the thread this browser session was already in (keyed on the workspace agent), and replays its messages', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date(), railWidth: null, railOpen: null });
+    sessionStorage.setItem('vocion:chat:session:orchestrator', '5');
     vi.mocked(client.conversations.get).mockResolvedValue({
       id: 5,
       orgId: 'org_1',
-      agentSlug: 'specialist',
+      agentSlug: 'orchestrator',
       title: 'Prior thread',
       messageCount: 2,
+      autonomy: 'act-within-bounds',
       messages: [
         { id: 1, conversationId: 5, role: 'user', content: 'hi', runsJson: null, createdAt: new Date() },
-        { id: 2, conversationId: 5, role: 'assistant', content: 'hello', runsJson: null, createdAt: new Date() },
+        { id: 2, conversationId: 5, role: 'assistant', content: 'hello', runsJson: null, createdAt: new Date(), feedbackRating: 'up', feedbackNote: null },
       ],
     } as never);
 
@@ -66,30 +81,54 @@ describe('useChatSession', () => {
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
     await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-    expect(result.current.agent.slug).toBe('specialist');
+    expect(result.current.agent.slug).toBe('orchestrator');
     expect(result.current.conversationId).toBe(5);
     expect(result.current.messages[0]).toMatchObject({ role: 'user', content: 'hi' });
+    // Persisted ids and feedback ride along, and the thread's autonomy rung is adopted.
+    expect(result.current.messages[1]).toMatchObject({ id: 2, feedback: { rating: 'up', note: null } });
+    expect(result.current.autonomy).toBe('act-within-bounds');
   });
 
-  it('does not auto-resume a conversation last viewed on a previous day', async () => {
+  it('resumes the thread the URL names (`?conversation=<id>`) even on a fresh session', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
+    vi.mocked(client.conversations.get).mockResolvedValue({
+      id: 9,
+      orgId: 'org_1',
+      agentSlug: 'orchestrator',
+      title: 'Shared link',
+      messageCount: 1,
+      messages: [{ id: 1, conversationId: 9, role: 'user', content: 'from a link', runsJson: null, createdAt: new Date() }],
+    } as never);
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS, resumeConversationId: 9 }));
+
+    await vi.waitFor(() => expect(result.current.conversationId).toBe(9));
+
+    expect(result.current.messages[0]).toMatchObject({ content: 'from a link' });
+    expect(sessionStorage.getItem('vocion:chat:session:orchestrator')).toBe('9');
+  });
+
+  it('never resumes from the last-viewed pointer alone, however recent — and the pointer never picks the agent (§9.10)', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue({
       agentSlug: 'specialist',
       conversationId: 5,
       updatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+      railWidth: null,
+      railOpen: null,
     });
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
-    expect(result.current.agent.slug).toBe('specialist');
+    expect(result.current.agent.slug).toBe('orchestrator');
     expect(result.current.conversationId).toBeNull();
     expect(result.current.messages).toEqual([]);
     expect(client.conversations.get).not.toHaveBeenCalled();
   });
 
   it('falls back to the first agent when the persisted agentSlug no longer exists', async () => {
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'deleted-agent', conversationId: 99, updatedAt: new Date() });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'deleted-agent', conversationId: 99, updatedAt: new Date(), railWidth: null, railOpen: null });
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
@@ -99,35 +138,44 @@ describe('useChatSession', () => {
     expect(client.conversations.get).not.toHaveBeenCalled();
   });
 
-  it('prefers this browser\'s own remembered agent over the server-side pointer', async () => {
+  it('opens with the workspace lead — never a remembered agent, whether from this browser or the server pointer (§9)', async () => {
     localStorage.setItem('vocion:chat:agent', 'specialist');
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: null, updatedAt: new Date() });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'specialist', conversationId: null, updatedAt: new Date(), railWidth: null, railOpen: null });
 
     const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
 
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
-    expect(result.current.agent.slug).toBe('specialist');
+    expect(result.current.agent.slug).toBe('orchestrator');
+    expect(result.current.leadSlug).toBe('orchestrator');
   });
 
-  it('handleSwitchAgent clears messages, resets the conversation, and persists the new pointer', async () => {
+  it('`/search <query>` routes one turn to the retrieval-only path and sends the bare query (§9.10)', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
-    const { result, act } = await renderHook(() => useChatSession({ agents: AGENTS }));
+    vi.mocked(client.conversations.create).mockResolvedValue({ id: 3, agentSlug: 'orchestrator' } as never);
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('data: {"type":"done","response":"ok"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const agents = [...AGENTS, { slug: '__search__', name: 'Search only', icon: 'search' as const, placeholder: 'Search…' }];
+
+    const { result, act } = await renderHook(() => useChatSession({ agents }));
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
-    act(() => {
-      result.current.handleSwitchAgent('specialist');
+    await act(async () => {
+      await result.current.sendMessage('/search spinutech governance');
     });
 
-    expect(result.current.agent.slug).toBe('specialist');
-    expect(result.current.messages).toEqual([]);
-    expect(result.current.conversationId).toBeNull();
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
 
-    await vi.waitFor(() => expect(client.chatWidget.setState).toHaveBeenCalledWith({ agentSlug: 'specialist', conversationId: null }));
+    expect(body.agent_slug).toBe('__search__');
+    expect(body.message).toBe('spinutech governance');
+    // The conversation stays with the workspace agent.
+    expect(result.current.agent.slug).toBe('orchestrator');
+    expect(result.current.messages[1]).toMatchObject({ role: 'assistant', agentName: 'Search only' });
   });
 
   it('handleNewChat clears the view and persists a null conversation pointer', async () => {
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date() });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date(), railWidth: null, railOpen: null });
+    sessionStorage.setItem('vocion:chat:session:orchestrator', '5');
     vi.mocked(client.conversations.get).mockResolvedValue({
       id: 5,
       orgId: 'org_1',
@@ -185,7 +233,7 @@ describe('useChatSession', () => {
       context: 'Some carried-over context.',
     }));
 
-    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date() });
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 5, updatedAt: new Date(), railWidth: null, railOpen: null });
     vi.mocked(client.conversations.create).mockResolvedValue({ id: 9 } as never);
 
     // Minimal valid SSE response so the hand-off's sendMessage resolves

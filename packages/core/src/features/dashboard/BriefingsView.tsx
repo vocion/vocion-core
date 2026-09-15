@@ -2,12 +2,11 @@
 
 import { Check, Clock, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
 import { useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { BriefingChatStarter } from './BriefingChatStarter';
+import { BriefingSections } from './BriefingSections';
 
 /**
  * Briefings — BY TEAM. Tabs: the workspace ROLLUP first, then one per team.
@@ -146,6 +145,7 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
             : (
                 <h2 className="text-base font-semibold text-muted-foreground">
                   No
+                  {' '}
                   {g.teamName}
                   {' '}
                   brief yet
@@ -178,13 +178,13 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
 
       {viewing && (
         <div data-briefing-root className="prose prose-sm mt-4 max-w-none rounded-2xl border border-border bg-card p-5 dark:prose-invert">
-          <Markdown remarkPlugins={[remarkGfm]}>{viewing.content}</Markdown>
+          <BriefingSections briefingId={viewing.id} briefingTitle={viewing.title} content={viewing.content} agentSlug={g.leadSlug ?? undefined} />
         </div>
       )}
 
       {history.length > 0 && (
         <div className="mt-5">
-          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+          <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium tracking-[0.1em] text-muted-foreground">
             <Clock className="size-3.5" aria-hidden />
             Previous briefs
           </div>
@@ -209,6 +209,7 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
       {viewing && (
         <BriefingChatStarter
           key={`${g.teamSlug ?? 'rollup'}-${viewing.id}`}
+          briefingId={viewing.id}
           briefingTitle={viewing.title}
           briefingContent={viewing.content}
           agentSlug={g.leadSlug ?? undefined}
