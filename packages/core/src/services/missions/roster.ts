@@ -33,10 +33,15 @@ export async function resolveMissionRoster(orgId: string, leadSlug: string): Pro
     .limit(1);
 
   if (project?.leadAgentSlug === leadSlug) {
+    // Ordered by id so the roster is authoring order, whatever access path
+    // the planner picks. Without it a wider `team` row (0092 added goal and
+    // kpis) flipped PGlite from a seq scan to the (org_id, slug) index and
+    // the members came back alphabetical.
     const teams = await db
       .select({ name: teamSchema.name, leadAgentSlug: teamSchema.leadAgentSlug })
       .from(teamSchema)
-      .where(eq(teamSchema.orgId, orgId));
+      .where(eq(teamSchema.orgId, orgId))
+      .orderBy(teamSchema.id);
     if (teams.length > 0) {
       const members = [...new Set(
         teams
