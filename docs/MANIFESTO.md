@@ -245,6 +245,50 @@ foundation, not the user experience.**
 
 ---
 
+## 18. Implementation is the forcing function
+
+Roadmaps drift toward what sounds important. Building something real tells the truth.
+
+A feature earns its place by being needed to finish actual work — a deployment, a client
+outcome, a dogfood use case — not by being proposed. Use the product, find where it fails, and
+close that gap. The backlog should read as a record of what implementation demanded, not a wish
+list written in advance.
+
+- Prefer the gap you hit today over the gap you predict for next quarter.
+- A capability nobody hit a wall without is speculation.
+- Feedback from real use becomes work, not just a reply (§6).
+- If a feature cannot name the thing it unblocked, it is not ready to build.
+
+This is why Vocion runs inside its own company before anyone else's. **If we did not need it to
+finish something, we do not need it yet.**
+
+## 19. Extend the core. Keep the specifics at the edge.
+
+Two questions before any new surface: **How can we simplify this? How can we make this
+universal?**
+
+Every screen, component and interaction pattern should be one of a small number of shapes, used
+everywhere. When a need does not fit one, the answer is almost always to extend the shape rather
+than build a second one beside it — and that holds *especially* when the gap is legitimate. A
+real gap closed generically makes the whole platform better. The same gap closed locally makes
+one screen better and the platform worse.
+
+- Extend a core component before adding a custom one.
+- Extend an interaction pattern before inventing a second way to do the same job.
+- Two surfaces doing the same job is a defect, not a choice (§4).
+- A one-off is a core gap someone decided not to fix.
+
+But universal does not mean everything belongs in the core. Anything true only for one industry,
+one customer, or one vertical workflow is a **concretion**, and concretions do not belong in the
+platform. They belong in templates, workspaces and the marketplace, where they can be specific,
+opinionated and disposable without taxing everyone else.
+
+- The core holds the general capability. A template holds the specific application of it.
+- If it names an industry, a customer, or a single workflow, it is not core.
+- Every vertical added to the core is paid for by every workspace that will never use it.
+
+**Generalize into the core. Specialize at the edge.**
+
 ## The Vocion loop
 
 Every part of Vocion should reinforce the same cycle:
@@ -290,14 +334,17 @@ Before shipping anything, ask:
 2. Can we measure whether it worked?
 3. Who is accountable for the result?
 4. Can this be simpler?
-5. Does the user know what to do next?
-6. Did this interaction teach the system something?
-7. Will repeated use reduce unnecessary human effort?
-8. Can the system safely become more capable because of it?
-9. Does this improve the business or the person doing the work?
-10. Is complexity hidden without hiding the truth?
-11. Does this feel good to use?
-12. Would we be proud to use this every day?
+5. Did real work demand this, or did we imagine it?
+6. Can this extend something we already have, instead of adding a second way to do the same job?
+7. Is this general enough for every workspace, or is it a concretion that belongs in a template?
+8. Does the user know what to do next?
+9. Did this interaction teach the system something?
+10. Will repeated use reduce unnecessary human effort?
+11. Can the system safely become more capable because of it?
+12. Does this improve the business or the person doing the work?
+13. Is complexity hidden without hiding the truth?
+14. Does this feel good to use?
+15. Would we be proud to use this every day?
 
 **If we cannot answer those questions, it is not finished.**
 
