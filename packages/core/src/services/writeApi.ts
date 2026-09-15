@@ -179,6 +179,13 @@ export type DecideInput = {
   action: 'approve' | 'reject';
   reason?: string;
   /**
+   * Whether this decision may train the proposing agent (default true). An
+   * automated caller, a cron rejecting every past-dated proposal with one
+   * canned reason, passes `false` so its machine text never queues as a
+   * learning candidate.
+   */
+  learn?: boolean;
+  /**
    * Corrected payload for edit-then-approve. Only applied on `approve`. On a
    * workflow this is the input the run resumes with.
    */
@@ -214,6 +221,7 @@ export async function apiDecideReview(
     caller.orgId,
     {
       reason: input.reason,
+      learn: input.learn,
       reviewedBy: caller.actorId,
       editedInput: input.action === 'approve' ? input.editedInput : undefined,
       externalRef: input.action === 'approve' ? input.externalRef : undefined,
