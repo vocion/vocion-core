@@ -39,7 +39,11 @@ const AGENTS = [
 const SCOPE = 'contacts:9412';
 const COLLAPSE_KEY = 'vocion_chat_dock_collapsed';
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The rail is a side-by-side column only above RAIL_SHEET_BREAKPOINT (1200px);
+  // vitest's browser viewport defaults to 414px, where the dock is a Sheet and
+  // there is no `complementary` landmark to assert against.
+  await page.viewport(1440, 900);
   localStorage.clear();
   sessionStorage.clear();
   vi.mocked(client.chatWidget.getState).mockReset().mockResolvedValue(null);

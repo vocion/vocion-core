@@ -37,7 +37,11 @@ const AGENTS = [
   { slug: 'revops-lead', name: 'RevOps Lead', icon: 'bot' as const, placeholder: 'Ask…', role: 'lead' as const },
 ];
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The rail is a side-by-side column only above RAIL_SHEET_BREAKPOINT (1200px);
+  // vitest's browser viewport defaults to 414px, where the dock is a Sheet and
+  // there is no `complementary` landmark to assert against.
+  await page.viewport(1440, 900);
   localStorage.clear();
   document.title = 'Review';
 });

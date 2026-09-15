@@ -35,8 +35,8 @@ describe('useLastViewedConversation', () => {
 
     await vi.waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString() });
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString() });
+    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString(), railWidth: null, railOpen: null });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString(), railWidth: null, railOpen: null });
   });
 
   it('normalizes a server updatedAt that arrives as an ISO string (not a Date) into a stored ISO string', async () => {
@@ -47,8 +47,8 @@ describe('useLastViewedConversation', () => {
 
     await vi.waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso });
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso });
+    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso, railWidth: null, railOpen: null });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso, railWidth: null, railOpen: null });
   });
 
   it('falls back to localStorage when the server has no pointer yet', async () => {
