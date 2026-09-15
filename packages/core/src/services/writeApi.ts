@@ -17,6 +17,7 @@
 
 import type { Principal } from '@/services/authz';
 import type { PendingPage, ReviewDetail, ReviewItem, ReviewKind } from '@/services/ReviewService';
+import type { SourceSyncState } from '@/services/SourceSyncService';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { emitEvent } from '@/services/EventService';
@@ -428,4 +429,245 @@ export async function apiEmitEvent(
     invokedBy: caller.actorId,
   });
   return { ok: true, ...result };
+}
+
+/* ------------------------------------------------------------------ */
+/* Sources                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What one source's last (or current) sync run did.
+ *
+ * Dates are ISO strings, not `Date`s: this crosses HTTP, and a caller reading
+ * `startedAt` out of JSON should get the same thing whether it read the body or
+ * this type.
+ */
+export type ApiSourceRun = {
+  status: SourceSyncState['status'];
+  startedAt: string;
+  completedAt: string | null;
+  /** The stored incremental watermark the next run will fetch from; null when there is none. */
+  since: string | null;
+  counts: Record<string, number>;
+  /** The non-fatal failures the run carried on past, including processor-scope ones. */
+  failures: Array<{ scope: string; message: string; uri?: string }>;
+};
+
+export type ApiSourceListItem = {
+  slug: string;
+  name: string;
+  /** Connector slug (`web`, `local-files`, …), read from the config's `_connector` stamp. */
+  connector: string;
+  enabled: boolean;
+  lastSyncedAt: string | null;
+  documentCount?: number;
+  run: ApiSourceRun | null;
+};
+
+/**
+ * Every source this org has, with its latest checkpoint, the reporting surface
+ * a tenant's own scheduler reads to find out what its sources actually did.
+ *
+ * Composed exactly as the dashboard's `/rpc/sources` composes it (list +
+ * document counts + checkpoints), so the two can never disagree about what a
+ * run did. `failures` is what makes a processor error visible without a
+ * database: the counts say how many, this says which and why.
+ * @param caller
+ */
+export async function apiListSources(caller: ApiCaller): Promise<{ sources: ApiSourceListItem[] }> {
+  const { documentCountsForOrg, latestSyncStateForOrg, listSources } = await import('@/services/SourceSyncService');
+  const { sourceNameOf } = await import('@/libs/sources/upsert');
+  const [sources, documentCounts, syncState] = await Promise.all([
+    listSources(caller.orgId),
+    documentCountsForOrg(caller.orgId),
+    latestSyncStateForOrg(caller.orgId),
+  ]);
+  return {
+    sources: sources.map((s) => {
+      const run = syncState[s.id];
+      return {
+        slug: s.slug,
+        name: sourceNameOf(s.config, s.slug),
+        connector: (s.config?._connector as string | undefined) ?? s.kind ?? s.slug,
+        // `knowledge_source.enabled` is a TEXT column holding 'true' / 'false'.
+        // A JSON client should never have to know that.
+        enabled: s.enabled === 'true',
+        lastSyncedAt: s.lastSyncedAt?.toISOString() ?? null,
+        documentCount: documentCounts[s.id] ?? 0,
+        run: run ? apiRunOf(run) : null,
+      };
+    }),
+  };
+}
+
+export type UpsertSourceInput = {
+  slug: string;
+  name?: string;
+  /** Connector kind, must name a registered connector. */
+  kind: string;
+  config: Record<string, unknown>;
+  schedule?: string;
+  reconcileSchedule?: string | false;
+  enabled?: boolean;
+  processor?: { slug: string; config?: Record<string, unknown> };
+};
+
+/**
+ * Create or replace one source, by slug.
+ *
+ * **Authoritative**: the stored config blob is REPLACED, reserved stamps and
+ * all. That is the contract with a tenant whose own system of record owns the
+ * source list, a mirrored change has to land, and the dashboard's edit path
+ * (`updateSourceConfig`, which preserves unknown and `_`-prefixed keys) is the
+ * one that must not clobber what it did not author. It is emphatically not
+ * `addSource`, whose find-or-create would answer 200 and store nothing.
+ *
+ * Both Temporal schedules are made to match in the same call, so a source
+ * arrives syncing rather than waiting for somebody to notice.
+ * @param caller
+ * @param input
+ */
+export async function apiUpsertSource(
+  caller: ApiCaller,
+  input: UpsertSourceInput,
+): Promise<{ source: { slug: string; created: boolean } }> {
+  if (!input.slug || typeof input.slug !== 'string') {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'slug is required');
+  }
+  if (!input.kind || typeof input.kind !== 'string') {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'kind is required');
+  }
+  if (input.config !== undefined && (typeof input.config !== 'object' || input.config === null || Array.isArray(input.config))) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'config must be an object');
+  }
+
+  const { reconcileSourceSchedules, storedProcessorNames, upsertSourceRow } = await import('@/libs/sources/upsert');
+  const spec = {
+    slug: input.slug,
+    name: input.name,
+    kind: input.kind,
+    config: input.config ?? {},
+    enabled: input.enabled ?? true,
+    schedule: input.schedule,
+    reconcileSchedule: input.reconcileSchedule,
+    processor: input.processor ? { slug: input.processor.slug, config: input.processor.config ?? {} } : undefined,
+  };
+
+  let written: { outcome: 'created' | 'updated' | 'unchanged'; id: number | null };
+  try {
+    written = await upsertSourceRow(caller.orgId, spec, { known: await storedProcessorNames(caller.orgId) });
+  } catch (error) {
+    // An unknown connector, a config the connector's schema rejects, an
+    // unregistered processor or a processor naming a step this org does not
+    // have are all the caller's mistake, not a server fault.
+    console.error(`[writeApi] upsertSource("${input.slug}") failed`, error);
+    throw new WriteApiError(400, 'VALIDATION_FAILED', error instanceof Error ? error.message : 'Could not save that source');
+  }
+
+  // The row is written; the schedules may not be. Say so rather than answering
+  // 200 over a source that will never sync, the upsert is idempotent, so the
+  // caller's retry (or its reconcile pass) heals it.
+  try {
+    await reconcileSourceSchedules(caller.orgId, spec, written.id);
+  } catch (error) {
+    console.error(`[writeApi] source "${input.slug}" was saved but its schedule could not be set`, error);
+    throw new WriteApiError(
+      503,
+      'SCHEDULE_UNAVAILABLE',
+      `Source "${input.slug}" was saved, but its sync schedule could not be set. Retry this upsert once the scheduler is reachable.`,
+    );
+  }
+
+  return { source: { slug: input.slug, created: written.outcome === 'created' } };
+}
+
+/**
+ * Start a full sync of one source, off the request path.
+ *
+ * Asynchronous on purpose: a crawl runs for minutes, so this hands the work to
+ * Temporal and answers 202 with the checkpoint as it stands. The caller polls
+ * `GET /api/v1/sources` for the outcome. A run already holding the source is a
+ * 409, `latestSyncStateForOrg` already reports a dead run as `abandoned`, so
+ * a stuck source is never permanently unsyncable and this does no window
+ * arithmetic of its own.
+ * @param caller
+ * @param slug - The source to sync.
+ */
+export async function apiSyncSource(caller: ApiCaller, slug: string): Promise<{ run: ApiSourceRun | null }> {
+  if (!slug || typeof slug !== 'string') {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'slug is required');
+  }
+  const { latestSyncStateForOrg, listSources } = await import('@/services/SourceSyncService');
+  const source = (await listSources(caller.orgId)).find(s => s.slug === slug);
+  if (!source) {
+    throw new WriteApiError(404, 'NOT_FOUND', `No source "${slug}" in this workspace`);
+  }
+
+  const state = (await latestSyncStateForOrg(caller.orgId))[source.id] ?? null;
+  if (state?.status === 'running') {
+    throw new WriteApiError(409, 'CONFLICT', `Source "${slug}" is already syncing. Wait for that run to finish, then try again.`);
+  }
+
+  const { startSourceFullSync } = await import('@/services/SourceScheduleService');
+  await startSourceFullSync({ orgId: caller.orgId, sourceId: source.id, sourceSlug: slug });
+  return { run: state ? apiRunOf(state) : null };
+}
+
+/**
+ * A checkpoint as the API reports it.
+ * @param state - The stored checkpoint.
+ */
+function apiRunOf(state: SourceSyncState): ApiSourceRun {
+  return {
+    status: state.status,
+    startedAt: state.startedAt.toISOString(),
+    completedAt: state.completedAt?.toISOString() ?? null,
+    since: state.since?.toISOString() ?? null,
+    counts: state.counts,
+    failures: state.failures.map(f => ({ scope: f.scope, message: f.message, ...(f.uri ? { uri: f.uri } : {}) })),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Budgets                                                             */
+/* ------------------------------------------------------------------ */
+
+export type ApiAgentBudget = {
+  agentSlug: string;
+  period: string;
+  currentTokens: number;
+  currentCents: number;
+  softTokenLimit: number | null;
+  softCentsLimit: number | null;
+  hardTokenLimit: number | null;
+  hardCentsLimit: number | null;
+  periodStartedAt: string;
+};
+
+/**
+ * Every agent budget row for the caller's org, limits included.
+ *
+ * Read-only to the caller, but not a pure read: `listAgentBudgets` rolls the
+ * period boundary as it goes (idempotently), so the counters returned are the
+ * ACTIVE period's rather than a stale one's. The dashboard's observability page
+ * renders cents totals only; the limit columns are the half an operator needs
+ * to answer "would this run be refused?", and there was no API surface at all.
+ * @param caller
+ */
+export async function apiListAgentBudgets(caller: ApiCaller): Promise<{ budgets: ApiAgentBudget[] }> {
+  const { listAgentBudgets } = await import('@/services/BudgetService');
+  const rows = await listAgentBudgets(caller.orgId);
+  return {
+    budgets: rows.map(r => ({
+      agentSlug: r.agentSlug,
+      period: r.period,
+      currentTokens: r.currentTokens,
+      currentCents: r.currentCents,
+      softTokenLimit: r.softTokenLimit,
+      softCentsLimit: r.softCentsLimit,
+      hardTokenLimit: r.hardTokenLimit,
+      hardCentsLimit: r.hardCentsLimit,
+      periodStartedAt: r.periodStartedAt.toISOString(),
+    })),
+  };
 }
