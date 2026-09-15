@@ -35,7 +35,7 @@ describe('card specs', () => {
   it('reshapes a file artifact into the link card payload', () => {
     const p = cardPayloadFor('file', { filename: 'deals.csv', contentType: 'text/csv', bytes: 2048, url: '/artifacts/x.csv' });
 
-    expect(p).toMatchObject({ __card: 'link', href: '/artifacts/x.csv', title: 'deals.csv' });
+    expect(p).toMatchObject({ __card: 'link', href: '/api/artifacts/x/x.csv', title: 'deals.csv' });
     expect(String(p.description)).toContain('2 KB');
     expect(cardPayloadFor('table', { columns: [] })).toMatchObject({ __card: 'data-table' });
   });

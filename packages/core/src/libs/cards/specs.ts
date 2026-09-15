@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { artifactHref } from '@/libs/tools/artifacts/url';
 
 /** A cell value. Dates arrive as ISO strings; the table formats by column type. */
 export const cellValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -120,7 +121,7 @@ export const SPEC_SCHEMA_FOR_KIND = {
 export function cardPayloadFor(kind: ArtifactKind, spec: Record<string, unknown>): Record<string, unknown> {
   if (kind === 'file') {
     const f = spec as Partial<FileSpec>;
-    return { __card: 'link', href: f.url ?? '#', title: f.filename ?? 'file', description: [f.contentType, f.bytes ? `${Math.max(1, Math.round(f.bytes / 1024))} KB` : null].filter(Boolean).join(' · ') };
+    return { __card: 'link', href: artifactHref(f.url), title: f.filename ?? 'file', description: [f.contentType, f.bytes ? `${Math.max(1, Math.round(f.bytes / 1024))} KB` : null].filter(Boolean).join(' · ') };
   }
   return { __card: CARD_SLUG_FOR_KIND[kind], ...spec };
 }
