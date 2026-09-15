@@ -4,11 +4,13 @@ import type { ActionRun } from '@/features/review/ReviewFocusView';
 import type { ProposalQueueEntry } from '@/services/InboxService';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from '@/components/ui/toast';
 import { describeAction, ReviewFocusView } from '@/features/review/ReviewFocusView';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
 import { client } from '@/libs/Orpc';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { decisionCrumbs } from './inbox/inboxMeta';
+import { withMinimumPending } from './inbox/pending';
 
 /**
  * The `proposal` kind's decision screen on "Needs you" — the data half. The
@@ -108,6 +110,7 @@ export function ReviewFocus(props: {
   const onSave = () => {
     signal('save');
     setDecided(d => d + 1);
+    toast.info(`Saved for later · ${describeAction(run).title}`, { description: 'Still pending; it stays on Needs you.' });
     leave();
   };
 
@@ -123,11 +126,22 @@ export function ReviewFocus(props: {
 
   const onDecide = async (decision: 'approve' | 'reject') => {
     setBusy(true);
+    const title = describeAction(run).title;
     try {
       const editedInput = decision === 'approve' ? buildEditedInput() : undefined;
-      await client.review.decideAction({ id: run.id, decision, ...(editedInput ? { editedInput } : {}) });
+      const outcome = await withMinimumPending(client.review.decideAction({ id: run.id, decision, ...(editedInput ? { editedInput } : {}) }));
+      if (decision === 'approve' && outcome.execution?.status === 'failed') {
+        toast.error(`Approved, but it failed to run · ${title}`, { description: outcome.execution.error ?? 'The action threw. It stays on Needs you; Approve again to retry.' });
+        router.refresh();
+        return;
+      }
       setDecided(d => d + 1);
+      toast.success(`${decision === 'approve' ? 'Approved' : 'Declined'} · ${title}`, {
+        description: decision === 'approve' ? (editedInput ? 'Your edited version is executing now.' : 'Executing now.') : 'Nothing runs; the agent learns from it.',
+      });
       leave();
+    } catch (err) {
+      toast.error(`Could not ${decision === 'approve' ? 'approve' : 'decline'} · ${title}`, { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusy(false);
     }
@@ -140,6 +154,7 @@ export function ReviewFocus(props: {
       router.refresh();
       return;
     }
+    // The card has already said what happened (its own toast); this moves on.
     setDecided(d => d + 1);
     leave();
   };

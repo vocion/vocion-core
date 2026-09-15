@@ -1,5 +1,6 @@
 'use client';
 
+import type { Chip } from './ChipRow';
 import type { InboxFacets, InboxKind, InboxSort, InboxTab } from '@/services/InboxService';
 import { Search, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -7,13 +8,15 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { INBOX_KINDS } from '@/services/inbox/kinds';
+import { ChipRow } from './ChipRow';
 import { INBOX_KIND_META } from './inboxMeta';
 
 const SORTS: readonly InboxSort[] = ['oldest', 'newest', 'value', 'confidence'];
 
 /**
  * Tabs, search, sort, the kind chips and — under them — the action-kind and
- * agent chips. Every control writes to the URL and nothing else, so the page
+ * agent chips, each row on ONE line with a "+N more" menu for the rest
+ * (`ChipRow`). Every control writes to the URL and nothing else, so the page
  * re-renders on the server with the same view a person can bookmark or paste
  * into a chat. `?kind=proposal,ruling` · `?actionKind=hubspot.update` ·
  * `?agents=deal-desk` · `?q=` · `?sort=` · `?tab=`.
@@ -68,8 +71,8 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
   const go = (patch: Record<string, string | null>) => router.replace(withParams(patch), { scroll: false });
 
   function toggle(key: 'kind' | 'actionKind' | 'agents', value: string) {
-    const current = key === 'kind' ? kinds : key === 'actionKind' ? actionKinds : agents;
-    const next = (current as string[]).includes(value) ? (current as string[]).filter(v => v !== value) : [...current, value];
+    const current: string[] = key === 'kind' ? kinds : key === 'actionKind' ? actionKinds : agents;
+    const next = current.includes(value) ? current.filter(v => v !== value) : [...current, value];
     go({ [key]: next.join(',') });
   }
 
@@ -81,19 +84,26 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
     timer.current = setTimeout(() => go({ q: value.trim() }), 300);
   }
 
-  const chip = (active: boolean) =>
-    `inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[13px] transition focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none ${
-      active ? 'bg-[var(--action,var(--foreground))] text-[var(--action-foreground,var(--background))]' : 'text-foreground/80 hover:bg-[var(--surface-hover,var(--muted))]'
-    }`;
-  const smallChip = (active: boolean) =>
-    `inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 text-xs transition ${
-      active ? 'border-foreground/70 bg-foreground text-background' : 'border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground'
-    }`;
-
   const total = INBOX_KINDS.reduce((sum, k) => sum + counts[k], 0);
-  const presentKinds = INBOX_KINDS.filter(k => counts[k] > 0 || kinds.includes(k));
   const filtered = kinds.length > 0 || actionKinds.length > 0 || agents.length > 0 || Boolean(q);
   const defaultSort: InboxSort = tab === 'decided' ? 'newest' : 'oldest';
+
+  const kindChips: Chip[] = [
+    { key: 'all', label: t('all'), count: total, active: kinds.length === 0, pinned: true, onToggle: () => go({ kind: null }) },
+    ...INBOX_KINDS.filter(k => counts[k] > 0 || kinds.includes(k)).map<Chip>(k => ({
+      key: k,
+      label: INBOX_KIND_META[k].plural,
+      count: counts[k],
+      active: kinds.includes(k),
+      title: INBOX_KIND_META[k].blurb,
+      onToggle: () => toggle('kind', k),
+    })),
+  ];
+
+  const facetChips: Chip[] = [
+    ...facets.actionKinds.map<Chip>(k => ({ key: `action:${k.id}`, label: humaniseActionId(k.id), count: k.count, active: actionKinds.includes(k.id), title: k.id, onToggle: () => toggle('actionKind', k.id) })),
+    ...facets.agents.map<Chip>(a => ({ key: `agent:${a.slug}`, label: a.slug, count: a.count, active: agents.includes(a.slug), onToggle: () => toggle('agents', a.slug) })),
+  ];
 
   return (
     <div className="space-y-3">
@@ -147,37 +157,14 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
         </label>
       </div>
 
-      {/* The kind chips: "All · 12" then each kind present, filled in ink when active. Multi-select. */}
-      <div role="group" aria-label={t('filter_kind')} data-testid="inbox-kind-filter" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-0.5 sm:mx-0 sm:flex-wrap sm:px-0">
-        <button type="button" aria-pressed={kinds.length === 0} onClick={() => go({ kind: null })} className={chip(kinds.length === 0)}>
-          {t('all')}
-          <span aria-hidden className="opacity-50">·</span>
-          <span className="tabular-nums opacity-70">{total}</span>
-        </button>
-        {presentKinds.map(k => (
-          <button key={k} type="button" aria-pressed={kinds.includes(k)} onClick={() => toggle('kind', k)} className={chip(kinds.includes(k))} title={INBOX_KIND_META[k].blurb}>
-            {INBOX_KIND_META[k].plural}
-            <span aria-hidden className="opacity-50">·</span>
-            <span className="tabular-nums opacity-70">{counts[k]}</span>
-          </button>
-        ))}
+      {/* The kind chips: "All · 12" then each kind present — one line, the rest behind "+N more". */}
+      <div data-testid="inbox-kind-filter">
+        <ChipRow chips={kindChips} size="md" label={t('filter_kind')} />
       </div>
 
-      {(facets.actionKinds.length > 0 || facets.agents.length > 0) && (
-        <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-0.5 sm:mx-0 sm:flex-wrap sm:px-0">
-          {facets.actionKinds.map(k => (
-            <button key={k.id} type="button" aria-pressed={actionKinds.includes(k.id)} onClick={() => toggle('actionKind', k.id)} className={smallChip(actionKinds.includes(k.id))} title={k.id}>
-              {humaniseActionId(k.id)}
-              <span className="tabular-nums opacity-70">{k.count}</span>
-            </button>
-          ))}
-          {facets.actionKinds.length > 0 && facets.agents.length > 0 && <span className="mx-1 self-center text-border">|</span>}
-          {facets.agents.map(a => (
-            <button key={a.slug} type="button" aria-pressed={agents.includes(a.slug)} onClick={() => toggle('agents', a.slug)} className={smallChip(agents.includes(a.slug))}>
-              {a.slug}
-              <span className="tabular-nums opacity-70">{a.count}</span>
-            </button>
-          ))}
+      {facetChips.length > 0 && (
+        <div className="flex items-center gap-2">
+          <ChipRow chips={facetChips} size="sm" label={t('filter_facets')} className="min-w-0 flex-1" />
           {filtered && (
             <button type="button" onClick={() => go({ kind: null, actionKind: null, agents: null, q: null })} className="inline-flex h-7 shrink-0 items-center gap-1 px-2 text-xs whitespace-nowrap text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
               {t('clear')}

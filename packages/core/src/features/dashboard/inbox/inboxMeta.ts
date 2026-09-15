@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import type { InboxKind } from '@/services/InboxService';
+import type { InboxKind, InboxTab } from '@/services/InboxService';
 import { CheckSquare, ClipboardCheck, DoorOpen, Gavel, GitMerge, KeyRound, Lightbulb, MessageSquareText, PlayCircle, Sparkles } from 'lucide-react';
 
 /** How each kind is named and drawn. Order here is the order of the chips. */
@@ -88,4 +88,24 @@ export function decisionCrumbs(kind: InboxKind, record?: string | null): Array<{
     crumbs.push({ label: record });
   }
   return crumbs;
+}
+
+/**
+ * "136 decisions, oldest waiting 53d." — or, on the other tabs, what the tab holds.
+ * @param tab
+ * @param open - Open rows, unfiltered.
+ * @param oldest - The oldest open row's timestamp, when there is one.
+ * @param shown - Rows on this tab after filters.
+ */
+export function contextLine(tab: InboxTab, open: number, oldest: Date | undefined, shown: number): string {
+  if (tab === 'decided') {
+    return shown === 0 ? 'No decisions yet.' : `${shown} decided, newest first.`;
+  }
+  if (tab === 'snoozed') {
+    return shown === 0 ? 'Nothing snoozed.' : `${shown} snoozed, back when their time comes.`;
+  }
+  if (open === 0) {
+    return 'Nothing right now — the team keeps working; new decisions land here.';
+  }
+  return `${open} ${open === 1 ? 'decision' : 'decisions'}${oldest ? `, oldest waiting ${waitingFor(oldest)}` : ''}.`;
 }

@@ -620,37 +620,3 @@ export async function needsYouCount(orgId: string): Promise<number> {
   ]);
   return asks + actions + missions + workflows + workers + failed + candidates;
 }
-
-/** The header's "What changed": the last decision, or the newest thing waiting. */
-export type InboxChange = { verb: 'approved' | 'rejected' | 'answered' | 'new'; title: string; href: string; at: Date };
-
-/**
- * The most recent decision in the inbox — an answered ask or a decided
- * proposal — or, when nothing has been decided yet, the newest open row.
- * Never a sync event: the header is about the team's decisions, not its plumbing.
- * @param orgId
- */
-export async function lastChange(orgId: string): Promise<InboxChange | null> {
-  const [[ask], [action]] = await Promise.all([
-    db
-      .select({ id: askSchema.id, title: askSchema.title, status: askSchema.status, at: askSchema.decidedAt })
-      .from(askSchema)
-      .where(and(eq(askSchema.orgId, orgId), inArray(askSchema.status, ['approved', 'rejected', 'done'])))
-      .orderBy(desc(askSchema.decidedAt))
-      .limit(1),
-    listReviewRows(orgId, 'decided', { limit: 1 }),
-  ]);
-  const candidates: InboxChange[] = [];
-  if (ask?.at) {
-    candidates.push({ verb: ask.status === 'approved' ? 'approved' : ask.status === 'rejected' ? 'rejected' : 'answered', title: ask.title, href: inboxHref('ask', ask.id), at: ask.at });
-  }
-  if (action?.decidedAt) {
-    candidates.push({ verb: action.status === 'rejected' ? 'rejected' : 'approved', title: action.described.title, href: inboxHref('proposal', action.id), at: action.decidedAt });
-  }
-  if (candidates.length > 0) {
-    return candidates.sort((a, b) => b.at.getTime() - a.at.getTime())[0]!;
-  }
-  const open = await openItems(orgId);
-  const newest = open.sort((a, b) => b.at.getTime() - a.at.getTime())[0];
-  return newest ? { verb: 'new', title: newest.title, href: newest.href, at: newest.at } : null;
-}

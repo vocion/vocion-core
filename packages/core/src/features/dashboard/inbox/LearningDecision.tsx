@@ -3,12 +3,14 @@
 import { Check, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
 import { Link } from '@/libs/I18nNavigation';
 import { DECISION_VERBS, verbForShortcut } from './decisionVerbs';
 import { decisionCrumbs } from './inboxMeta';
+import { withMinimumPending } from './pending';
 
 /** One rule candidate, as the server page hands it over. */
 export type LearningCandidateView = {
@@ -81,28 +83,35 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
     setBusy(decision);
     setError(null);
     try {
-      if (draft.trim() && draft !== current) {
-        const patched = await fetch(`/api/v1/learning-candidates/${candidate.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ editedRuleText: draft }),
-        });
-        if (!patched.ok) {
-          throw new Error(await messageFor(patched));
+      await withMinimumPending((async () => {
+        if (draft.trim() && draft !== current) {
+          const patched = await fetch(`/api/v1/learning-candidates/${candidate.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ editedRuleText: draft }),
+          });
+          if (!patched.ok) {
+            throw new Error(await messageFor(patched));
+          }
         }
-      }
-      const res = await fetch(`/api/v1/learning-candidates/${candidate.id}/decide`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: decision, reason: decision === 'reject' ? reason.trim() : undefined }),
+        const res = await fetch(`/api/v1/learning-candidates/${candidate.id}/decide`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: decision, reason: decision === 'reject' ? reason.trim() : undefined }),
+        });
+        if (!res.ok) {
+          throw new Error(await messageFor(res));
+        }
+      })());
+      toast.success(`${decision === 'approve' ? 'Adopted' : 'Rejected'} · ${draft.trim().slice(0, 80)}`, {
+        description: decision === 'approve' ? `Agents read it at /learnings/${candidate.stepName}.md on their next run.` : 'Dropped; your reason is kept for the classifier.',
       });
-      if (!res.ok) {
-        throw new Error(await messageFor(res));
-      }
       router.push('/dashboard/inbox?kind=learning');
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      toast.error(`Could not ${decision === 'approve' ? 'adopt' : 'reject'} the rule`, { description: message });
     } finally {
       setBusy(null);
     }

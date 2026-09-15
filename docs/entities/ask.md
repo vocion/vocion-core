@@ -31,8 +31,11 @@ clear answer without reading a report.
   ruling, approval or recommendation an "other" answer sets `followUp`, because the asker has to
   read it and may need to ask again.
 - **A decision sheet** is several asks sharing a `groupKey`: answered as a stepper — one question
-  per screen, *Next →*, then a receipt listing every Question → Answer with an *Edit* per row and
-  one *Submit all*. Each submit is one decide call, so a sheet that half-fails stays editable.
+  per screen. *Next* submits that question's answer (one decide call), holds a visible pending
+  state until the server answers (never less than ~400 ms), and only then advances; a failure keeps
+  the question on screen with the selection intact. The receipt at the end lists every Question →
+  Answer with its outcome and a *Fix* on anything that failed, so a sheet that half-fails stays
+  editable. Each answer is confirmed by a toast naming the choice and what happens next.
 - **The list row is minimal**: title, kind chip, who asked, how long it has waited, risk. Nothing
   else — the question is read on its own screen.
 - **Every answer makes the system smarter.** A `reject` or an `other` with a note is queued for

@@ -37,13 +37,22 @@ out (`services/inbox/inboxRef.ts`).
 ## The list
 
 One flat queue, **oldest first** by default — a queue, not a feed. The header
-answers Manifesto #11's three questions in one line each: *what needs me*,
-*what changed* (the last decision anyone took), *what happens next*.
+is one line under the headline — *136 decisions, oldest waiting 53d.* — and
+nothing else (Chris, 2026-09-15: "probably the only context we need"). What
+changed is said by the toast that follows each decision; what happens next
+is in that toast's second line.
 
 - **Kind chips** with counts filter the list (`?kind=proposal,ruling`). The
   counts stay put while a chip is active so you can see what else waits.
 - Under them, **action-kind** chips (`?actionKind=hubspot.update`) and
   **agent** chips (`?agents=deal-desk`) narrow proposals further.
+- Each chip row is **one line**. `ChipRow` measures the real width of every
+  chip and of the "+N more" control, shows as many as fit
+  (`fitChips`), and folds the rest into a "+N more" menu where each is still
+  a checkbox that toggles the same filter. Pinned ("All") first, active
+  chips next, so a chip you turned on is never the one that hides. A
+  ResizeObserver re-decides on every width change; nothing hard-codes a
+  count.
 - **Search** (`?q=`) matches what you see on the row; **sort** (`?sort=`) is
   oldest · newest · highest value · highest confidence.
 - **Tabs**: *Open* · *Decided* (every kind that can be decided — proposals,
@@ -72,13 +81,32 @@ kind's verbs. What sits between them is the kind's own detail.
 | Kind | Detail | Verbs in the bar | Keys |
 |---|---|---|---|
 | Proposal | The action's card: drafts and sends (editable in place), the CRM diff, the research, the rationale, the evidence. Edits travel with Approve. Regenerate when the action supports it, driven by the one feedback field. | **Approve** · Decline · Snooze · Save for later · Skip | `a` approve · `d` decline · `s` snooze · `j` next · `k` back · `?` help |
-| Ask (any ask kind) | The question, the short body, the options as tall touchable rows with the recommended one pre-selected, **Other** with a free-text answer, Details folded underneath. A group is a stepper with a receipt and one Submit all. | **Submit** (the chosen option is the verb) · Back | — |
+| Ask (any ask kind) | The question, the short body, the options as tall touchable rows with the recommended one pre-selected, **Other** with a free-text answer, Details folded underneath. A group is a stepper: Next submits each answer in turn; a receipt closes the sheet. | **Submit** / **Next** (the chosen option is the verb) · Back | — |
 | Run | A compact status page: why it stopped, a few facts, a link to the full run. | **Resume** · Cancel run (missions and workflows; a worker run only opens) | `a` resume · `d` cancel |
 | Suggested rule | The rule, editable in place; which step it lands in; whether it says "keep doing" or "change"; how many times it was asked for. | **Adopt as rule** · Reject (a reason is required) | `a` adopt · `d` reject |
 
 The verbs, their labels, their keys and which appear on a list row all come
 from one table — `features/dashboard/inbox/decisionVerbs.ts` — so the sticky
 bar, the hover verbs and the keyboard never disagree.
+
+**Every submit is visibly pending.** Approve, Decline, Snooze, Resume, Adopt,
+a row's quick verbs, the sheet's Submit and Next: the control disables and
+shows a small spinner while the mutation is in flight, holds that state for
+at least ~400 ms (`withMinimumPending`, `MIN_PENDING_MS`) so a fast server
+does not flash, and exactly as long as the server takes when that is longer.
+Nothing advances optimistically; the option list is disabled meanwhile so a
+second click cannot double-submit; the keyboard respects the pending state.
+On an ask sheet, **Next submits** — the question's answer is written before
+the sheet advances, and a failure keeps the question on screen with the
+selection intact.
+
+**Every decision says what it did.** When a decision resolves, a toast
+(`@/components/ui/toast`) names what was decided and what happens next —
+*Approved · Update Spinutech — Executing now.*; *Declined · … — Nothing runs;
+the agent learns from it.*; *Snoozed · … — Back on Needs you Thursday.*;
+*Resumed · … — The run continues.*; *Adopted · … — Agents read it on their
+next run.* A failure is `toast.error` with the server's message, and the
+screen stays where it was.
 
 **Up next** on a proposal walks the *filtered inbox list*, not a separate
 queue: the filters in the URL when you opened the proposal ride along on

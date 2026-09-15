@@ -4,6 +4,7 @@ import type { InboxRefKind } from '@/services/inbox/inboxRef';
 import { ArrowUpRight, Play, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
@@ -11,6 +12,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { DECISION_VERBS, verbForShortcut } from './decisionVerbs';
 import { decisionCrumbs } from './inboxMeta';
+import { withMinimumPending } from './pending';
 
 /** What the compact run screen needs to know — the server page hands it over. */
 export type RunSummary = {
@@ -50,15 +52,21 @@ export function RunDecision({ run }: { run: RunSummary }) {
     setBusy(verb);
     setError(null);
     try {
-      if (run.kind === 'mission') {
-        await (verb === 'resume' ? client.missions.resume({ id: run.id }) : client.missions.cancel({ id: run.id }));
-      } else if (run.kind === 'workflow') {
-        await (verb === 'resume' ? client.review.resumeWorkflow({ id: run.id }) : client.review.cancelWorkflow({ id: run.id }));
-      }
+      const work: Promise<unknown> = run.kind === 'mission'
+        ? (verb === 'resume' ? client.missions.resume({ id: run.id }) : client.missions.cancel({ id: run.id }))
+        : run.kind === 'workflow'
+          ? (verb === 'resume' ? client.review.resumeWorkflow({ id: run.id }) : client.review.cancelWorkflow({ id: run.id }))
+          : Promise.resolve();
+      await withMinimumPending(work);
+      toast.success(`${verb === 'resume' ? 'Resumed' : 'Cancelled'} · ${run.title}`, {
+        description: verb === 'resume' ? 'The run continues from where it paused.' : 'Stopped; nothing more runs.',
+      });
       router.push('/dashboard/inbox?kind=run');
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      toast.error(`Could not ${verb} · ${run.title}`, { description: message });
       // Someone else may have resolved this run already — re-read it.
       router.refresh();
     } finally {

@@ -206,6 +206,7 @@
     "sort_value": "Valeur la plus élevée",
     "sort_confidence": "Confiance la plus élevée",
     "filter_kind": "Filtrer par type",
+    "filter_facets": "Filtrer par action ou agent",
     "all": "Tout",
     "clear": "Effacer"
   },

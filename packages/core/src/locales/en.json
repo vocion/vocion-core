@@ -206,6 +206,7 @@
     "sort_value": "Highest value",
     "sort_confidence": "Highest confidence",
     "filter_kind": "Filter by kind",
+    "filter_facets": "Filter by action or agent",
     "all": "All",
     "clear": "Clear"
   },

@@ -2,11 +2,12 @@
 
 import type { AskOption } from '@/models/Schema';
 import type { InboxKind } from '@/services/InboxService';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ExternalLink, Pencil } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ExternalLink, RotateCcw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { kindForAsk } from '@/services/inbox/kinds';
@@ -14,6 +15,7 @@ import { FIXED_ROWS, labelFor, OTHER } from './askOptions';
 import { firstParagraph, isNearDuplicate, sentenceCase, splitBody } from './askText';
 import { DECISION_VERBS } from './decisionVerbs';
 import { decisionCrumbs, KIND_LABEL, riskTone } from './inboxMeta';
+import { withMinimumPending } from './pending';
 
 /** What the sheet needs to know about one open ask — the page hands it over from the server. */
 export type SheetAsk = {
@@ -36,12 +38,27 @@ type Outcome = { ok: true } | { ok: false; error: string };
 
 
 /**
+ * What happens next, for the toast — an answer is read by the team; an approved proposal runs.
+ * @param endpoint
+ * @param decision
+ */
+function nextFor(endpoint: 'ask' | 'review', decision: string): string {
+  if (endpoint === 'review') {
+    return decision === 'approve' ? 'Executing now.' : 'Nothing runs; the agent learns from it.';
+  }
+  return decision === OTHER ? 'The team reads your answer and may come back with a follow-up.' : 'The team reads your answer on its next cycle.';
+}
+
+/**
  * The question screen and, for a group, the stepper around it — one question
  * per screen, options as tall touchable rows, an "Other" row that opens a
- * textarea, Next → advances, and a receipt at the end that lists every
- * Question → Answer with an Edit per row before one "Submit all". A single
- * ask is the same screen with Submit in place of Next. Each submit is one
- * `POST /api/v1/asks/:id/decide`; a sheet that half-fails stays editable.
+ * textarea. **Next submits.** Each question's answer is written the moment
+ * you press Next (one `POST /api/v1/asks/:id/decide`), the button holds a
+ * pending state until the server answers — never less than ~400ms, so a fast
+ * server does not flash — and only then does the sheet advance. A failure
+ * keeps the question on screen with the selection intact. The receipt at the
+ * end lists every Question → Answer with its outcome and a Retry for anything
+ * that failed. A single ask is the same screen with Submit in place of Next.
  *
  * Wears the same chrome as every other decision on "Needs you": the
  * `ReviewHeader` (breadcrumb › kind › record, one meta row with the asker,
@@ -54,8 +71,8 @@ type Outcome = { ok: true } | { ok: false; error: string };
  * @param props
  * @param props.asks - The OPEN asks to answer, in order.
  * @param props.title - The sheet's title (a group's `groupTitle`).
- * @param props.endpoint
- * @param props.allowOther
+ * @param props.endpoint - Where a decision is written (see below).
+ * @param props.allowOther - Offer the free-text "Other" row. Off for review items, which are approve/reject.
  * @param props.kind - The inbox kind the crumbs name; defaults to the current ask's.
  * @param props.crumbs - Breadcrumb override.
  */
@@ -71,7 +88,6 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
    * page does — the sheet never bypasses it.
    */
   endpoint?: 'ask' | 'review';
-  /** Offer the free-text "Other" row. Off for review items, which are approve/reject. */
   allowOther?: boolean;
 }) {
   const router = useRouter();
@@ -90,7 +106,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
     return initial;
   });
   const [outcomes, setOutcomes] = useState<Record<number, Outcome>>({});
-  const [submitting, setSubmitting] = useState(false);
+  const [pending, setPending] = useState(false);
 
   const current = asks[index];
   if (!current) {
@@ -99,7 +115,8 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
 
   const answerFor = (id: number): Answer => answers[id] ?? { decision: '', note: '' };
   const complete = (a: Answer) => a.decision !== '' && (a.decision !== OTHER || a.note.trim() !== '');
-  const remaining = asks.filter(a => outcomes[a.id]?.ok !== true);
+  const submitted = (id: number) => outcomes[id]?.ok === true;
+  const remaining = asks.filter(a => !submitted(a.id));
 
   function setAnswer(id: number, patch: Partial<Answer>) {
     setAnswers(prev => ({ ...prev, [id]: { ...answerFor(id), ...patch } }));
@@ -130,16 +147,56 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
     }
   }
 
-  async function submitAll() {
-    setSubmitting(true);
-    const next: Record<number, Outcome> = { ...outcomes };
-    for (const ask of remaining) {
-      next[ask.id] = await submitOne(ask);
-      setOutcomes({ ...next });
+  /**
+   * Write one answer with the pending floor, record the outcome, say what
+   * happened. Returns whether it landed.
+   * @param ask
+   */
+  async function decideOne(ask: SheetAsk): Promise<boolean> {
+    setPending(true);
+    const outcome = await withMinimumPending(submitOne(ask));
+    setOutcomes(prev => ({ ...prev, [ask.id]: outcome }));
+    setPending(false);
+    const chosen = labelFor(ask, answerFor(ask.id).decision);
+    if (outcome.ok) {
+      toast.success(`${chosen} · ${sentenceCase(ask.title)}`, { description: nextFor(endpoint, answerFor(ask.id).decision) });
+    } else {
+      toast.error(`Could not submit “${sentenceCase(ask.title)}”`, { description: outcome.error });
     }
-    setSubmitting(false);
-    if (Object.values(next).every(o => o.ok)) {
+    return outcome.ok;
+  }
+
+  /** Next on the stepper: submit this answer, then move to the next unanswered question or the receipt. */
+  async function next() {
+    if (!submitted(current!.id)) {
+      const ok = await decideOne(current!);
+      if (!ok) {
+        return;
+      }
+    }
+    const after = asks.findIndex((a, i) => i > index && !submitted(a.id));
+    if (after >= 0) {
+      setIndex(after);
+    } else {
+      setStage('receipt');
+    }
+  }
+
+  /** A single ask: submit and go back to the list. */
+  async function submitSingle() {
+    const ok = await decideOne(current!);
+    if (ok) {
+      router.push('/dashboard/inbox');
       router.refresh();
+    }
+  }
+
+  /** Receipt: retry everything that failed, one at a time. */
+  async function retryRemaining() {
+    for (const ask of remaining) {
+      if (!(await decideOne(ask))) {
+        return;
+      }
     }
   }
 
@@ -147,11 +204,13 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
   const sheetCrumbs = crumbs ?? decisionCrumbs(sheetKind, multi ? title ?? null : null);
 
   if (stage === 'receipt') {
-    const allDone = asks.every(a => outcomes[a.id]?.ok);
+    const allDone = remaining.length === 0;
     return (
-      <div className="mx-auto w-full max-w-3xl">
-        <ReviewHeader crumbs={sheetCrumbs} title={title ?? 'Your answers'} system="Receipt" status={allDone ? 'done' : 'open'} position={`${asks.length} ${asks.length === 1 ? 'answer' : 'answers'}`} />
-        <p className="mt-3 text-sm text-muted-foreground">Check each answer. Edit any row, then submit them all at once.</p>
+      <div className="mx-auto w-full max-w-3xl" data-testid="ask-receipt">
+        <ReviewHeader crumbs={sheetCrumbs} title={title ?? 'Your answers'} system="Receipt" status={allDone ? 'done' : 'open'} position={`${asks.length - remaining.length} of ${asks.length} answered`} />
+        <p className="mt-3 text-sm text-muted-foreground">
+          {allDone ? 'Every answer is in. The team reads them on its next cycle.' : 'Some answers did not land. Fix them and retry; the rest are already in.'}
+        </p>
         <ol className="mt-4 divide-y divide-border border-y border-border">
           {asks.map((ask, i) => {
             const a = answerFor(ask.id);
@@ -172,15 +231,15 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
                   : (
                       <button
                         type="button"
-                        disabled={submitting}
+                        disabled={pending}
                         onClick={() => {
                           setIndex(i);
                           setStage('question');
                         }}
                         className="inline-flex min-h-10 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                       >
-                        <Pencil className="size-3.5" aria-hidden />
-                        Edit
+                        <RotateCcw className="size-3.5" aria-hidden />
+                        Fix
                       </button>
                     )}
               </li>
@@ -189,13 +248,21 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
         </ol>
         <StickyActionBar
           primary={allDone
-            ? { 'label': 'All submitted', 'onClick': () => router.push('/dashboard/inbox'), 'icon': Check, 'data-testid': 'ask-submit' }
-            : {
-                'label': remaining.length === asks.length ? 'Submit all' : `Submit ${remaining.length} remaining`,
-                'onClick': () => void submitAll(),
-                'disabled': submitting || remaining.some(a => !complete(answerFor(a.id))),
-                'busy': submitting,
+            ? {
+                'label': 'Done',
+                'onClick': () => {
+                  router.push('/dashboard/inbox');
+                  router.refresh();
+                },
                 'icon': Check,
+                'data-testid': 'ask-submit',
+              }
+            : {
+                'label': `Retry ${remaining.length} ${remaining.length === 1 ? 'answer' : 'answers'}`,
+                'onClick': () => void retryRemaining(),
+                'disabled': pending || remaining.some(a => !complete(answerFor(a.id))),
+                'busy': pending,
+                'icon': RotateCcw,
                 'data-testid': 'ask-submit',
               }}
           secondary={allDone
@@ -203,7 +270,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
             : [{
                 label: 'Back',
                 icon: ArrowLeft,
-                disabled: submitting,
+                disabled: pending,
                 onClick: () => {
                   setIndex(asks.length - 1);
                   setStage('question');
@@ -215,28 +282,34 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
   }
 
   const answer = answerFor(current.id);
+  const done = submitted(current.id);
   const rows = current.options.length > 0 ? current.options : FIXED_ROWS;
   // Simplest useful explanation first: two sentences of the body; the rest,
   // the long-form markdown and the context link all live in one Details fold.
   const body = splitBody(current.body);
   const paragraph = firstParagraph(current.body);
   const hasDetails = Boolean(body.rest || current.contextMd || current.contextUrl);
-  const canAdvance = complete(answer);
+  const canAdvance = done || complete(answer);
   const outcome = outcomes[current.id];
+  const locked = pending || done;
 
   const recommended = current.options.find(o => o.recommended);
   const verbs = DECISION_VERBS[sheetKind];
+  const chosen = answer.decision ? labelFor(current, answer.decision) : null;
+  const last = !asks.some((a, i) => i > index && !submitted(a.id));
   const primaryLabel = multi
-    ? (answer.decision ? `${labelFor(current, answer.decision)} · ${index + 1 < asks.length ? 'Next' : 'Review answers'}` : index + 1 < asks.length ? 'Next' : 'Review answers')
-    : (answer.decision ? `${verbs.primary.label} · ${labelFor(current, answer.decision)}` : verbs.primary.label);
+    ? done
+      ? (last ? 'Review answers' : 'Next')
+      : `${chosen ?? 'Choose an answer'}${chosen ? ` · ${last ? 'Submit' : 'Next'}` : ''}`
+    : (chosen ? `${verbs.primary.label} · ${chosen}` : verbs.primary.label);
 
   return (
-    <div className="mx-auto w-full max-w-3xl" data-testid="ask-sheet">
+    <div className="mx-auto w-full max-w-3xl" data-testid="ask-sheet" data-pending={pending || undefined}>
       <ReviewHeader
         crumbs={sheetCrumbs}
         title={sentenceCase(current.title)}
         system={KIND_LABEL[current.kind] ?? current.kind}
-        status="open"
+        status={done ? 'done' : 'open'}
         proposedBy={current.agentSlug ? `asked by ${current.agentSlug}` : null}
         confidence={typeof recommended?.confidence === 'number' ? recommended.confidence : undefined}
         alignment={current.alignment}
@@ -251,12 +324,13 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
         </div>
       )}
 
-      <div role="radiogroup" aria-label="Your answer" className="mt-4 space-y-2">
+      <div role="radiogroup" aria-label="Your answer" aria-busy={pending || undefined} className={`mt-4 space-y-2 transition ${locked ? 'opacity-70' : ''}`}>
         {rows.map(option => (
           <OptionRow
             key={option.id}
             option={isNearDuplicate(option.description, paragraph) ? { ...option, description: undefined } : option}
             selected={answer.decision === option.id}
+            disabled={locked}
             onSelect={() => setAnswer(current.id, { decision: option.id })}
           />
         ))}
@@ -264,6 +338,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
           <OptionRow
             option={{ id: OTHER, label: 'Other', description: 'Answer in your own words. The team reads it and may come back with a follow-up.' }}
             selected={answer.decision === OTHER}
+            disabled={locked}
             onSelect={() => setAnswer(current.id, { decision: OTHER })}
           />
         )}
@@ -272,19 +347,28 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
             value={answer.note}
             onChange={e => setAnswer(current.id, { note: e.target.value })}
             rows={4}
+            disabled={locked}
             placeholder="What should happen instead?"
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
           />
         )}
       </div>
 
-      {answer.decision !== '' && answer.decision !== OTHER && (
+      {done && (
+        <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400" data-testid="ask-answered">
+          <Check className="size-4" aria-hidden />
+          {`Answered: ${chosen ?? answer.decision}`}
+        </p>
+      )}
+
+      {!done && answer.decision !== '' && answer.decision !== OTHER && (
         <details className="mt-3">
           <summary className="inline-flex min-h-10 cursor-pointer items-center text-sm text-muted-foreground hover:text-foreground">Add a note</summary>
           <textarea
             value={answer.note}
             onChange={e => setAnswer(current.id, { note: e.target.value })}
             rows={3}
+            disabled={locked}
             placeholder="Optional — travels back with the answer."
             className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
           />
@@ -319,20 +403,20 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
       )}
 
       {outcome && !outcome.ok && (
-        <div className="mt-3 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">{outcome.error}</div>
+        <div role="alert" className="mt-3 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">{outcome.error}</div>
       )}
 
       <StickyActionBar
         primary={multi
-          ? { 'label': primaryLabel, 'onClick': () => (index + 1 < asks.length ? setIndex(i => i + 1) : setStage('receipt')), 'disabled': !canAdvance, 'icon': ArrowRight, 'data-testid': 'ask-submit' }
-          : { 'label': primaryLabel, 'onClick': () => void submitAll(), 'disabled': !canAdvance || submitting, 'busy': submitting, 'icon': Check, 'data-testid': 'ask-submit' }}
-        secondary={multi && index > 0 ? [{ label: 'Back', icon: ArrowLeft, onClick: () => setIndex(i => i - 1) }] : []}
+          ? { 'label': primaryLabel, 'onClick': () => void next(), 'disabled': !canAdvance || pending, 'busy': pending, 'icon': done ? ArrowRight : (last ? Check : ArrowRight), 'data-testid': 'ask-submit' }
+          : { 'label': primaryLabel, 'onClick': () => void submitSingle(), 'disabled': !canAdvance || pending, 'busy': pending, 'icon': Check, 'data-testid': 'ask-submit' }}
+        secondary={multi && index > 0 ? [{ label: 'Back', icon: ArrowLeft, disabled: pending, onClick: () => setIndex(i => i - 1) }] : []}
       />
     </div>
   );
 }
 
-function OptionRow({ option, selected, onSelect }: { option: AskOption; selected: boolean; onSelect: () => void }) {
+function OptionRow({ option, selected, disabled, onSelect }: { option: AskOption; selected: boolean; disabled?: boolean; onSelect: () => void }) {
   // "Simple beats flexible": the recommended row is the one obvious primary
   // action — drawn heavier and pre-selected — every other row is secondary.
   const primary = option.recommended === true;
@@ -341,9 +425,10 @@ function OptionRow({ option, selected, onSelect }: { option: AskOption; selected
       type="button"
       role="radio"
       aria-checked={selected}
+      disabled={disabled}
       onClick={onSelect}
-      className={`flex min-h-14 w-full items-start gap-3 rounded-md border px-4 py-3 text-left transition ${
-        selected ? 'border-primary bg-primary/5 ring-1 ring-primary/40' : primary ? 'border-primary/50 hover:bg-primary/5' : 'border-border hover:bg-muted/40'
+      className={`flex min-h-14 w-full items-start gap-3 rounded-md border px-4 py-3 text-left transition disabled:cursor-default ${
+        selected ? 'border-primary bg-primary/5 ring-1 ring-primary/40' : primary ? 'border-primary/50 enabled:hover:bg-primary/5' : 'border-border enabled:hover:bg-muted/40'
       }`}
     >
       <span className={`mt-1 size-4 shrink-0 rounded-full border ${selected ? 'border-primary bg-primary' : 'border-muted-foreground/50'}`} aria-hidden>

@@ -5,10 +5,12 @@ import type { InboxItem, InboxTab } from '@/services/InboxService';
 import { ArrowUpRight, Check, ChevronRight, Loader2, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { toast } from '@/components/ui/toast';
 import { Link } from '@/libs/I18nNavigation';
 import { amountLabel, confidenceLabel } from '@/services/inbox/describeActionRun';
 import { rowVerbs } from './decisionVerbs';
 import { agoLabel, INBOX_KIND_META, riskTone, waitingFor } from './inboxMeta';
+import { withMinimumPending } from './pending';
 
 /**
  * One 44px row: title and breadcrumb subline (kind first) on the left;
@@ -37,14 +39,17 @@ export function InboxRow({ item, tab }: { item: InboxItem; tab: InboxTab }) {
     setBusy(verb.id);
     setError(null);
     try {
-      const res = await postDecision(item, verb);
+      const res = await withMinimumPending(postDecision(item, verb));
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error?.message ?? `${res.status} ${res.statusText}`);
       }
+      toast.success(`${verb.label} · ${item.title}`, { description: nextFor(item, verb) });
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      toast.error(`Could not ${verb.label.toLowerCase()} “${item.title}”`, { description: message });
     } finally {
       setBusy(null);
     }
@@ -116,8 +121,23 @@ export function InboxRow({ item, tab }: { item: InboxItem; tab: InboxTab }) {
 }
 
 /**
+ * What happens next, for the toast — the header no longer carries "what changed".
+ * @param item - The row.
+ * @param verb - The verb taken.
+ */
+function nextFor(item: InboxItem, verb: DecisionVerb): string {
+  if (item.kind === 'proposal') {
+    return verb.id === 'approve' ? 'Executing now.' : 'Nothing runs; the agent learns from it.';
+  }
+  if (item.kind === 'learning') {
+    return verb.id === 'approve' ? 'The agent reads the rule on its next run.' : 'Dropped; the reason is kept for the classifier.';
+  }
+  return 'The team reads your answer on its next cycle.';
+}
+
+/**
  * A row can decide in place when it carries the id its endpoint needs.
- * @param item
+ * @param item - The row.
  */
 function canQuickDecide(item: InboxItem): boolean {
   return item.reviewId !== undefined || item.askId !== undefined || (item.kind === 'learning' && item.ref !== undefined);

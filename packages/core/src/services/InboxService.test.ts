@@ -13,7 +13,7 @@ vi.mock('@/services/FeedbackWorkerService', () => ({ enqueue: vi.fn(async () => 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } = await import('@/models/Schema');
 const { upsertAsk, decideAsk, normaliseOptions } = await import('@/services/AskService');
-const { INBOX_KINDS, lastChange, listInbox, listProposalQueue, needsYou, needsYouCount } = await import('@/services/InboxService');
+const { INBOX_KINDS, listInbox, listProposalQueue, needsYou, needsYouCount } = await import('@/services/InboxService');
 
 const ORG = 'org_inbox_test';
 const day = 24 * 60 * 60 * 1000;
@@ -183,7 +183,7 @@ describe('InboxService — proposals', () => {
     expect((await listProposalQueue(ORG, { sort: 'confidence' }))[0]!.actionId).toBe('gmail.send');
   });
 
-  it('lists decided proposals, asks and rules on the decided tab with who decided and the note, and names the last decision in "what changed"', async () => {
+  it('lists decided proposals, asks and rules on the decided tab with who decided and the note', async () => {
     await seedActions();
     const ask = await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'Slack granularity?' } });
     await decideAsk({ orgId: ORG, id: ask.ask.id, decision: 'approve', note: 'one app per workspace', decidedBy: 'user_chris' });
@@ -197,10 +197,6 @@ describe('InboxService — proposals', () => {
     expect(decided.items[2]).toMatchObject({ kind: 'learning', decision: 'rejected', note: 'too vague' });
     expect(decided.counts).toMatchObject({ ruling: 1, proposal: 1, learning: 1 });
     expect((await listInbox(ORG, { tab: 'decided', kinds: ['learning'] })).items).toHaveLength(1);
-
-    const change = await lastChange(ORG);
-
-    expect(change).toMatchObject({ verb: 'approved', title: 'Slack granularity?', href: `/dashboard/inbox/${ask.ask.id}` });
     expect(await needsYouCount(ORG)).toBe((await listInbox(ORG)).total);
   });
 });
