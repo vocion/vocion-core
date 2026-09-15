@@ -25,8 +25,16 @@ function subscribeTitle(onChange: () => void) {
   return () => obs.disconnect();
 }
 
+const BRAND = (process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion').toLowerCase();
+
+/** The page's own title, or '' when it is only the app's generic one. */
 function readTitle() {
-  return document.title.replace(/\s*[|·–-]\s*Vocion.*$/i, '').trim();
+  const t = document.title.replace(/\s*[|·–-]\s*Vocion.*$/i, '').trim();
+  const generic = t.toLowerCase();
+  if (generic === BRAND || generic === `${BRAND} dashboard` || generic === 'vocion dashboard' || generic === 'dashboard') {
+    return '';
+  }
+  return t;
 }
 
 export function Breadcrumb() {
