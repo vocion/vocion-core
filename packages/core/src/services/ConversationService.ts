@@ -393,6 +393,12 @@ export type ConversationSearchHit = {
   title: string;
   agentSlug: string;
   updatedAt: Date;
+  /** Where the thread began: 'app' | 'slack' | 'email'. */
+  surface: string;
+  /** Turns so far — how a list says "a question" apart from "a working session". */
+  messageCount: number;
+  /** The record this thread is about, when it was opened from one. */
+  scopeRef: string | null;
   /** The matched message's content around the hit, when the match was in a message. */
   snippet: string | null;
 };
@@ -403,30 +409,47 @@ export type ConversationSearchHit = {
  *
  * Full-text (`simple` dictionary, no stemming surprises across languages)
  * plus a case-insensitive substring match so a two-letter fragment still
- * finds something. Everything-scoped threads only: a record-scoped thread is
- * one person's and belongs to its record page (agent-chat-surface.md §8.6).
+ * finds something. Everything-scoped threads by default: a record-scoped
+ * thread is one person's and belongs to its record page
+ * (agent-chat-surface.md §8.6). `includeScopedFor` widens that to the
+ * caller's OWN scoped threads — what /dashboard/conversations shows, because
+ * a person looking for "all my conversations" means the one about the deal
+ * too, and it is still only ever their own. Never pass another user's id.
  * Indexed by the GIN builds in migrations/concurrent/0094 in production.
  * @param opts
  * @param opts.orgId
  * @param opts.q - The query; blank returns the most recent threads.
  * @param opts.limit
  * @param opts.agentSlug - Restrict to one agent's threads.
+ * @param opts.includeScopedFor - Also include record-scoped threads this user created.
  */
 export async function searchConversations(opts: {
   orgId: string;
   q: string;
   limit?: number;
   agentSlug?: string;
+  includeScopedFor?: string;
 }): Promise<ConversationSearchHit[]> {
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
   const q = opts.q.trim();
-  const base = [eq(conversationSchema.orgId, opts.orgId), sql`${conversationSchema.scopeRef} IS NULL`];
+  const visible = opts.includeScopedFor
+    ? or(sql`${conversationSchema.scopeRef} IS NULL`, eq(conversationSchema.createdBy, opts.includeScopedFor))
+    : sql`${conversationSchema.scopeRef} IS NULL`;
+  const base = [eq(conversationSchema.orgId, opts.orgId), visible];
   if (opts.agentSlug) {
     base.push(eq(conversationSchema.agentSlug, opts.agentSlug));
   }
   if (!q) {
     const rows = await db
-      .select({ id: conversationSchema.id, title: conversationSchema.title, agentSlug: conversationSchema.agentSlug, updatedAt: conversationSchema.updatedAt })
+      .select({
+      id: conversationSchema.id,
+      title: conversationSchema.title,
+      agentSlug: conversationSchema.agentSlug,
+      updatedAt: conversationSchema.updatedAt,
+      surface: conversationSchema.surface,
+      messageCount: conversationSchema.messageCount,
+      scopeRef: conversationSchema.scopeRef,
+    })
       .from(conversationSchema)
       .where(and(...base))
       .orderBy(desc(conversationSchema.updatedAt))
@@ -455,7 +478,15 @@ export async function searchConversations(opts: {
   }
   const convIds = [...snippetByConv.keys()];
   const rows = await db
-    .select({ id: conversationSchema.id, title: conversationSchema.title, agentSlug: conversationSchema.agentSlug, updatedAt: conversationSchema.updatedAt })
+    .select({
+      id: conversationSchema.id,
+      title: conversationSchema.title,
+      agentSlug: conversationSchema.agentSlug,
+      updatedAt: conversationSchema.updatedAt,
+      surface: conversationSchema.surface,
+      messageCount: conversationSchema.messageCount,
+      scopeRef: conversationSchema.scopeRef,
+    })
     .from(conversationSchema)
     .where(and(
       ...base,

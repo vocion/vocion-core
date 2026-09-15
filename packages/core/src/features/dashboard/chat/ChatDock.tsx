@@ -172,6 +172,10 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   // person collapses or opens one; that choice persists per browser (and per
   // user, server-side) and applies on every page (058, §9).
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  // The surface listener is bound once; it reads collapse state through a ref
+  // so a toggle request always sees the rail's current state.
+  const collapsedRef = useRef(collapsed);
+  collapsedRef.current = collapsed;
   const [width, setWidth] = useState<number>(() => defaultRailWidth(1440));
   // Intent a page affordance handed us (R4): a prompt to prefill and the
   // record / passage it is about. Cleared once a turn goes out. The record
@@ -240,12 +244,22 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   useEffect(() => {
     function onRequest(e: Event) {
       e.preventDefault();
+      const req = agentSurfaceRequestOf(e);
+      // A toggle request with nothing to apply closes an open rail, so the
+      // titlebar control is one button that both opens and collapses. A
+      // request carrying intent always opens — someone asking about a record
+      // means to talk, never to close.
+      if (req.toggle && !collapsedRef.current && req.prompt === undefined && !req.context) {
+        setCollapsed(true);
+        writeCollapsed(true);
+        sessionRef.current.persistRail({ railOpen: false });
+        return;
+      }
       setCollapsed(false);
       writeCollapsed(false);
       sessionRef.current.persistRail({ railOpen: true });
       // Intent (R4): prefill the composer and attach the record / passage the
       // affordance named — one surface, never a second input on the page.
-      const req = agentSurfaceRequestOf(e);
       if (req.prompt !== undefined || req.context) {
         setIntent(req);
         setRecordDismissed(false);
@@ -472,7 +486,6 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           value={session.autonomy}
           onChange={session.setAutonomy}
           copy={autonomyCopy}
-          compact={compact}
           label={t('autonomy')}
         />
         {/* New chat + all conversations. There is no agent to pick (§9.10). */}

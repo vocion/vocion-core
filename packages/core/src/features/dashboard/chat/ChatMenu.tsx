@@ -19,9 +19,11 @@ import { Link } from '@/libs/I18nNavigation';
  * period. There is no agent to pick (agent-chat-surface.md §9.10: one
  * workspace agent, routing is delegation) and history has its own popover,
  * so the menu holds the two things left that are not the conversation:
- * starting over, and the way out to the full-page chat. That second row was
- * an underlined link in the rail header until 2026-09-15, where it read as an
- * error and stole a whole line from a 48px header.
+ * starting over, and the way out to the list of every thread. That second
+ * row was an underlined link in the rail header until 2026-09-15, where it
+ * read as an error and stole a whole line from a 48px header — and it pointed
+ * at `/dashboard/chat`, which opens a NEW chat rather than listing the old
+ * ones. It goes to `/dashboard/conversations` now.
  */
 
 export type ChatMenuProps = {
@@ -50,7 +52,7 @@ export function ChatMenu({ onNewChat }: ChatMenuProps) {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/dashboard/chat">
+          <Link href="/dashboard/conversations">
             <MessagesSquare className="mr-2 size-4 text-muted-foreground" aria-hidden="true" />
             {t('all_conversations')}
           </Link>
