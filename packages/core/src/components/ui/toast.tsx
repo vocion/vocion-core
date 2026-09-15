@@ -1,124 +1,220 @@
 'use client';
 
-import { CheckCircle2, Info, X, XCircle } from 'lucide-react';
-import { useSyncExternalStore } from 'react';
+import { CheckCircle2, CircleAlert, Info, Loader2, X } from 'lucide-react';
+import { Toast as ToastPrimitive } from 'radix-ui';
+import { useEffect, useState } from 'react';
 import { cn } from '@/utils/Helpers';
 
 /**
- * The global toast — a module-level singleton any client component can call
- * with no provider at the call site; `<Toaster />` is mounted once in the
- * dashboard layout.
+ * The app's one notification surface.
  *
- *   toast.success('Approved · Add github.* family', { description: 'Executing now.', action: { label: 'Undo', onClick } });
- *   toast.error('Could not approve', { description: err.message });
- *   toast.info('Snoozed until tomorrow');
+ * Vocion had none until 2026-09-15 (Chris, after approving a decision: "what
+ * do we have for toast/notifications so I can see what was done? do we have a
+ * global implementation for that to build or leverage?"). The answer was no,
+ * so this is it — built on the Radix Toast primitive already in the
+ * dependency tree rather than a new library.
  *
- * PLACEHOLDER. This file implements the contract of the toast landing on
- * `workforce/2026-09-15-toasts` (same path, same API) so the decision surface
- * can call it and still build before that branch merges into the release.
- * When the two meet, take theirs — nothing here is meant to survive.
+ * A toast reports what the system DID, in the person's words, right after
+ * they did it (Manifesto §11 *make the important things obvious*, and
+ * *hide complexity, never hide truth*). It is not a place for progress, for
+ * anything the person has to read to continue, or for errors that belong on
+ * the form that produced them.
+ *
+ * Call it from anywhere on the client — the store is module level, so no
+ * context import at the call site:
+ *
+ * ```ts
+ * toast.success('Approved · Add github.* family', {
+ *   description: 'Queued for the review queue.',
+ *   action: { label: 'Undo', onClick: () => undo(id) },
+ * });
+ * ```
+ *
+ * `toast.promise` covers the submit-then-report shape: it shows a pending
+ * toast while the work runs and rewrites it in place with the outcome, so a
+ * person never watches two toasts for one action.
  */
 
-export type ToastTone = 'success' | 'error' | 'info';
+export type ToastTone = 'success' | 'error' | 'info' | 'pending';
+
+export type ToastAction = { label: string; onClick: () => void };
 
 export type ToastOptions = {
   description?: string;
-  action?: { label: string; onClick: () => void };
-  /** Milliseconds on screen. Errors stay longer by default. */
+  action?: ToastAction;
+  /** ms before it dismisses itself; 0 keeps it until dismissed. Errors default to 0. */
   duration?: number;
 };
 
-export type ToastRecord = ToastOptions & { id: number; tone: ToastTone; title: string };
+export type ToastRecord = ToastOptions & {
+  id: number;
+  tone: ToastTone;
+  title: string;
+};
 
-const listeners = new Set<() => void>();
-let items: ToastRecord[] = [];
-let seq = 0;
-const EMPTY: ToastRecord[] = [];
+type Listener = (toasts: ToastRecord[]) => void;
+
+let nextId = 1;
+let records: ToastRecord[] = [];
+const listeners = new Set<Listener>();
+
+/** Most recent first, and never more than this many on screen at once. */
+const MAX_VISIBLE = 3;
 
 function emit() {
-  for (const l of listeners) {
-    l();
+  for (const listener of listeners) {
+    listener(records);
   }
 }
 
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+function upsert(record: ToastRecord) {
+  const at = records.findIndex(r => r.id === record.id);
+  records = at >= 0
+    ? records.map(r => (r.id === record.id ? record : r))
+    : [record, ...records].slice(0, MAX_VISIBLE);
+  emit();
 }
 
 function dismiss(id: number) {
-  items = items.filter(t => t.id !== id);
+  records = records.filter(r => r.id !== id);
   emit();
 }
 
-function push(tone: ToastTone, title: string, opts: ToastOptions = {}): number {
-  const id = ++seq;
-  items = [...items.slice(-3), { id, tone, title, ...opts }];
-  emit();
-  const duration = opts.duration ?? (tone === 'error' ? 8000 : 4500);
-  if (duration > 0 && typeof window !== 'undefined') {
-    window.setTimeout(() => dismiss(id), duration);
+function defaultDuration(tone: ToastTone): number {
+  if (tone === 'error') {
+    // An error is the one thing worth making someone dismiss: it usually
+    // names something they have to do differently.
+    return 0;
   }
+  return tone === 'pending' ? 0 : 5000;
+}
+
+function show(tone: ToastTone, title: string, opts: ToastOptions = {}, id = nextId++): number {
+  upsert({ id, tone, title, ...opts, duration: opts.duration ?? defaultDuration(tone) });
   return id;
 }
 
 export const toast = {
-  success: (title: string, opts?: ToastOptions) => push('success', title, opts),
-  error: (title: string, opts?: ToastOptions) => push('error', title, opts),
-  info: (title: string, opts?: ToastOptions) => push('info', title, opts),
+  success: (title: string, opts?: ToastOptions) => show('success', title, opts),
+  error: (title: string, opts?: ToastOptions) => show('error', title, opts),
+  info: (title: string, opts?: ToastOptions) => show('info', title, opts),
+  /** A toast that stays until you resolve it with `toast.success`/`toast.error` on the same id. */
+  pending: (title: string, opts?: ToastOptions) => show('pending', title, opts),
+  /** Rewrite an existing toast in place — the id comes from any of the above. */
+  update: (id: number, tone: ToastTone, title: string, opts?: ToastOptions) => show(tone, title, opts, id),
   dismiss,
+  /**
+   * Run work behind one toast: pending while it runs, the outcome in its
+   * place when it settles. The promise's own result and rejection are
+   * re-thrown unchanged, so callers keep their control flow.
+   * @param work - The promise to report on.
+   * @param copy - What to say at each stage.
+   * @param copy.pending - Title while it runs.
+   * @param copy.success - Title, or a function of the result, when it resolves.
+   * @param copy.error - Title, or a function of the error, when it rejects.
+   */
+  async promise<T>(work: Promise<T>, copy: {
+    pending: string;
+    success: string | ((value: T) => string);
+    error: string | ((err: unknown) => string);
+  }): Promise<T> {
+    const id = show('pending', copy.pending);
+    try {
+      const value = await work;
+      show('success', typeof copy.success === 'function' ? copy.success(value) : copy.success, {}, id);
+      return value;
+    } catch (err) {
+      show('error', typeof copy.error === 'function' ? copy.error(err) : copy.error, {}, id);
+      throw err;
+    }
+  },
 };
 
-const ICON: Record<ToastTone, typeof Info> = { success: CheckCircle2, error: XCircle, info: Info };
-const TONE: Record<ToastTone, string> = {
+const TONE_ICON = {
+  success: CheckCircle2,
+  error: CircleAlert,
+  info: Info,
+  pending: Loader2,
+} as const;
+
+const TONE_CLASS = {
   success: 'text-emerald-600 dark:text-emerald-400',
-  error: 'text-red-600 dark:text-red-400',
+  error: 'text-destructive',
   info: 'text-muted-foreground',
-};
+  pending: 'text-muted-foreground',
+} as const;
 
-/** Mount once. Renders the live queue bottom-right, newest last, each dismissible. */
+/**
+ * Mounted once, in the dashboard shell. Renders whatever the store holds.
+ */
 export function Toaster() {
-  // The queue is an external store: a new array on every change, so React re-renders on it; empty on the server.
-  const list = useSyncExternalStore(subscribe, () => items, () => EMPTY);
-  if (list.length === 0) {
-    return null;
-  }
+  const [items, setItems] = useState<ToastRecord[]>(records);
+
+  useEffect(() => {
+    listeners.add(setItems);
+    return () => {
+      listeners.delete(setItems);
+    };
+  }, []);
+
   return (
-    <div aria-live="polite" className="pointer-events-none fixed inset-x-3 bottom-3 z-50 flex flex-col items-end gap-2 sm:inset-x-auto sm:right-4 sm:bottom-4" data-testid="toaster">
-      {list.map((t) => {
-        const Icon = ICON[t.tone];
+    <ToastPrimitive.Provider swipeDirection="right">
+      {items.map((item) => {
+        const Icon = TONE_ICON[item.tone];
         return (
-          <div
-            key={t.id}
-            role="status"
-            data-tone={t.tone}
-            className="pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-lg border border-border bg-background/95 px-3.5 py-3 text-sm shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85"
+          <ToastPrimitive.Root
+            key={item.id}
+            duration={item.duration === 0 ? Number.POSITIVE_INFINITY : item.duration}
+            onOpenChange={open => !open && dismiss(item.id)}
+            className={cn(
+              'flex items-start gap-3 rounded-xl border border-border bg-background p-3 shadow-(--shadow-pop)',
+              'data-[state=open]:animate-in data-[state=open]:slide-in-from-right-2 data-[state=open]:fade-in',
+              'data-[state=closed]:animate-out data-[state=closed]:fade-out',
+            )}
           >
-            <Icon className={cn('mt-0.5 size-4 shrink-0', TONE[t.tone])} aria-hidden />
+            <Icon
+              className={cn('mt-0.5 size-4 shrink-0', TONE_CLASS[item.tone], item.tone === 'pending' && 'animate-spin')}
+              aria-hidden="true"
+            />
             <div className="min-w-0 flex-1">
-              <p className="font-medium break-words">{t.title}</p>
-              {t.description && <p className="mt-0.5 text-[13px] break-words text-muted-foreground">{t.description}</p>}
-              {t.action && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    t.action!.onClick();
-                    dismiss(t.id);
-                  }}
-                  className="mt-1.5 text-[13px] font-medium underline decoration-border underline-offset-2 hover:decoration-foreground"
+              <ToastPrimitive.Title className="text-[13px] font-medium text-foreground">{item.title}</ToastPrimitive.Title>
+              {item.description && (
+                <ToastPrimitive.Description className="mt-0.5 text-[12px] leading-snug text-muted-foreground">
+                  {item.description}
+                </ToastPrimitive.Description>
+              )}
+              {item.action && (
+                <ToastPrimitive.Action
+                  altText={item.action.label}
+                  onClick={item.action.onClick}
+                  className="mt-1.5 rounded-md px-2 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-surface-hover"
                 >
-                  {t.action.label}
-                </button>
+                  {item.action.label}
+                </ToastPrimitive.Action>
               )}
             </div>
-            <button type="button" onClick={() => dismiss(t.id)} aria-label="Dismiss" className="-mr-1 rounded p-1 text-muted-foreground hover:text-foreground">
-              <X className="size-3.5" aria-hidden />
-            </button>
-          </div>
+            <ToastPrimitive.Close
+              aria-label="Dismiss"
+              className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+            >
+              <X className="size-3.5" aria-hidden="true" />
+            </ToastPrimitive.Close>
+          </ToastPrimitive.Root>
         );
       })}
-    </div>
+      <ToastPrimitive.Viewport className="fixed right-4 bottom-4 z-100 flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2 outline-none" />
+    </ToastPrimitive.Provider>
   );
+}
+
+/** Test seam: drop every toast and every listener between cases. */
+export function __resetToasts() {
+  records = [];
+  nextId = 1;
+  listeners.clear();
+}
+
+/** Test seam: what the store currently holds, newest first. */
+export function __toasts(): ToastRecord[] {
+  return records;
 }
