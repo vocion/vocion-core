@@ -47,11 +47,13 @@ export const RECORD_ROUTES: RegExp[] = [
 ];
 
 /**
- * The full-page chat IS the conversation; no dock, no button (058).
+ * The full-page chat IS the conversation; no dock, no button (058 §6). That
+ * includes one conversation expanded beside its canvas
+ * (`/dashboard/chat/<id>`), which carries its own transcript and composer.
  * @param pathname
  */
 export function isChatPage(pathname: string): boolean {
-  return pathname === '/dashboard/chat' || pathname.endsWith('/dashboard/chat');
+  return /\/dashboard\/chat(?:\/[^/]+)?$/.test(pathname);
 }
 
 export function isOwnDockRoute(pathname: string): boolean {

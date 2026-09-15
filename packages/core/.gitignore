@@ -11,3 +11,5 @@ src/wsx-ext
 demo/seed-db/
 test-results/
 playwright-report/
+# tool-generated files (create_artifact, generate_image); served only via /api/artifacts
+.artifacts/

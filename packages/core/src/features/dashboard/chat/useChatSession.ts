@@ -433,7 +433,8 @@ export function useChatSession({
   const handleEvent = useCallback((evt: { type: string; [k: string]: unknown }) => {
     // Extension seam first: a surface that knows a new event type (the
     // canvas's `artifact`) claims it here; everything else falls through.
-    if (onEventRef.current?.(evt, { appendToLatestAgent, flushDeltas, setActivity })) {
+    // Strict `=== true`: an extension that only observes returns undefined.
+    if (onEventRef.current?.(evt, { appendToLatestAgent, flushDeltas, setActivity }) === true) {
       return;
     }
     switch (evt.type) {

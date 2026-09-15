@@ -9,6 +9,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { toChartSvg, toCsv } from '@/libs/tools/artifacts/build';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
+import { createArtifact as recordArtifact, toPayload } from '@/services/ArtifactService';
 
 /**
  * Models often stringify nested tool args — parse JSON strings back to objects.
@@ -61,6 +62,22 @@ export function createArtifactTool(ctx: RuntimeContext) {
         }
 
         const artifact = await saveArtifact({ orgId: ctx.orgId, data, ext, contentType });
+        // 0095: the file is also a row, so the conversation's canvas and the
+        // mission page can list it instead of regex-harvesting the URL from prose.
+        try {
+          const row = await recordArtifact({
+            orgId: ctx.orgId,
+            conversationId: ctx.conversationId ?? null,
+            kind: 'file',
+            title: args.title ?? artifact.filename,
+            spec: { filename: artifact.filename, contentType: artifact.contentType, bytes: artifact.bytes, url: artifact.url },
+            url: artifact.url,
+            createdBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId ?? null,
+          });
+          ctx.emit({ type: 'artifact', artifact: toPayload(row) });
+        } catch (err) {
+          console.warn('[create_artifact] file saved but artifact row not recorded', (err as Error).message);
+        }
         return `Artifact created: ${artifact.filename}\nURL: ${artifact.url} (${Math.round(artifact.bytes / 1024) || 1} KB)`;
       } catch (err) {
         return `Could not create artifact: ${(err as Error).message ?? 'unknown error'}`;
@@ -72,6 +89,7 @@ export function createArtifactTool(ctx: RuntimeContext) {
         'Create a downloadable file and return its URL. kind="csv" (from `rows`), kind="chart" (bar/line from `chart.points`), or kind="doc" (markdown/HTML from `doc.content`). Use for deliverables like reports, exports, and simple charts.',
       schema: z.object({
         kind: z.enum(['csv', 'chart', 'doc']),
+        title: z.string().optional().describe('Display title for the file card (defaults to the filename)'),
         rows: z.array(z.record(z.string(), z.union([z.string(), z.number()]))).optional().describe('CSV rows (array of flat objects)'),
         // Models routinely pass nested objects as a JSON STRING ("{\"format\":…}").
         // A strict object schema rejects that and the tool invoke throws, killing

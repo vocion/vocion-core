@@ -668,6 +668,13 @@
       "breakpoints": true
     },
     {
+      "idx": 95,
+      "version": "7",
+      "when": 1787548700000,
+      "tag": "0095_artifact",
+      "breakpoints": true
+    },
+    {
       "idx": 96,
       "version": "7",
       "when": 1787548800000,
