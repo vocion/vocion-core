@@ -50,6 +50,15 @@ export const Env = createEnv({
     VOCION_MAIL_ENABLED: z.string().optional(),
     RESEND_API_KEY: z.string().optional(),
     VOCION_MAIL_FROM: z.string().optional(),
+    /**
+     * Email as a chat surface (`libs/surfaces/email.ts`). Ships dark:
+     * `VOCION_EMAIL_SURFACE=1` turns the Resend inbound webhook on;
+     * `VOCION_MAIL_DOMAIN` is the domain workspaces may claim addresses on;
+     * `RESEND_WEBHOOK_SECRET` signs the webhook (Svix, `whsec_…`).
+     */
+    VOCION_EMAIL_SURFACE: z.string().optional(),
+    VOCION_MAIL_DOMAIN: z.string().optional(),
+    RESEND_WEBHOOK_SECRET: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -88,6 +97,9 @@ export const Env = createEnv({
     VOCION_MAIL_ENABLED: process.env.VOCION_MAIL_ENABLED,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     VOCION_MAIL_FROM: process.env.VOCION_MAIL_FROM,
+    VOCION_EMAIL_SURFACE: process.env.VOCION_EMAIL_SURFACE,
+    VOCION_MAIL_DOMAIN: process.env.VOCION_MAIL_DOMAIN,
+    RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

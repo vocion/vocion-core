@@ -43,7 +43,7 @@ about them.
 ## Guides
 
 - [Agents in Slack](./guides/slack.md) — mention an agent in a channel, it answers in the thread.
-- [Email — the daily team report](./guides/email.md) — outbound mail (Resend), the `daily-team-report` job, and the automation that schedules it per workspace.
+- [Email](./guides/email.md) — outbound mail (Resend), the `daily-team-report` and `notify-asks` jobs, and a mailbox per workspace: mail `revenue@…` and the workspace lead answers in a threaded reply.
 - [The model-upgrade test](./guides/model-upgrade-test.md) — run one role's eval dataset on today's model and a new release, compare on cost per passed case.
 - [Acting from context](./guides/act-from-context.md) — structured page/record context on every turn, the `page_context` tool, `<AskAboutThis>`, opening the surface with intent, recommended-action status streaming back, and the `act-within-bounds` autonomy path.
 
