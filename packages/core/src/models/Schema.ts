@@ -218,6 +218,13 @@ export const projectSchema = pgTable(
      * `goal:` in workspace.yaml. NULL = none stated.
      */
     goal: text('goal'),
+    /**
+     * The workspace's mailbox (migration 0097): the address people write to,
+     * answered by the workspace lead. Authored as `mailbox:` in workspace.yaml;
+     * default address `<slug>@<VOCION_MAIL_DOMAIN>`. Null/false = no mailbox.
+     */
+    mailboxAddress: text('mailbox_address'),
+    mailboxEnabled: boolean('mailbox_enabled').default(false).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1229,6 +1236,12 @@ export const conversationSchema = pgTable(
      * (orgId, scopeRef, createdBy). See agent-chat-surface.md §3.1, §8.6.
      */
     scopeRef: text('scope_ref'),
+    /**
+     * Where the conversation started (migration 0097): 'app' (the dock or the
+     * full page), 'slack', 'email'. Presentation hint for history — an
+     * envelope chip on a thread that began as a mail — never authorisation.
+     */
+    surface: text('surface').default('app').notNull(),
     messageCount: integer('message_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -2977,5 +2990,34 @@ export const chatChannelBindingSchema = pgTable(
   table => [
     uniqueIndex('chat_channel_binding_surface_channel_idx').on(table.surface, table.channelId, table.teamId),
     index('chat_channel_binding_org_idx').on(table.orgId),
+  ],
+);
+
+/**
+ * Email threading for the mailbox surface (migration 0097). One row per mail
+ * in or out of a conversation, keyed by RFC 5322 Message-ID, so a reply
+ * carrying In-Reply-To / References finds its conversation, and a redelivered
+ * webhook (same `received_email_id`) is dropped before it runs an agent twice.
+ */
+export const emailThreadSchema = pgTable(
+  'email_thread',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    conversationId: integer('conversation_id').notNull().references(() => conversationSchema.id, { onDelete: 'cascade' }),
+    /** RFC 5322 Message-ID, angle brackets stripped. */
+    messageId: text('message_id').notNull(),
+    /** Resend's id for a received email — the idempotency key for the webhook. */
+    receivedEmailId: text('received_email_id'),
+    /** 'in' (a person wrote to the workspace) | 'out' (the workspace replied). */
+    direction: text('direction').notNull(),
+    fromAddress: text('from_address'),
+    subject: text('subject'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('email_thread_org_message_id_uq').on(table.orgId, table.messageId),
+    uniqueIndex('email_thread_received_email_id_uq').on(table.receivedEmailId).where(sql`${table.receivedEmailId} IS NOT NULL`),
+    index('email_thread_conversation_idx').on(table.conversationId),
   ],
 );

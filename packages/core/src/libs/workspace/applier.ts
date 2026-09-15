@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow } from '@/libs/sources/upsert';
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/services/EmailSurfaceService';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -738,19 +739,43 @@ async function applyWorkspaceLeadConfig(
   const [project] = await db
     .select({
       id: projectSchema.id,
+      slug: projectSchema.slug,
       leadAgentSlug: projectSchema.leadAgentSlug,
       accountableUserId: projectSchema.accountableUserId,
       enabledSurfaces: projectSchema.enabledSurfaces,
       embeddingConfig: projectSchema.embeddingConfig,
       regenerateSkills: projectSchema.regenerateSkills,
       goal: projectSchema.goal,
+      mailboxAddress: projectSchema.mailboxAddress,
+      mailboxEnabled: projectSchema.mailboxEnabled,
     })
     .from(projectSchema)
     .where(eq(projectSchema.id, orgId))
     .limit(1);
 
+  // Mailbox: `mailbox.enabled` claims `<slug>@<VOCION_MAIL_DOMAIN>` (or the
+  // named address, which must be on that domain). No domain configured, or an
+  // address off it, is an error — a workspace must not pose as another host.
+  const mailboxManifest = loaded.manifest.mailbox;
+  let mailboxEnabled = false;
+  let mailboxAddress: string | null = null;
+  if (mailboxManifest?.enabled) {
+    const domain = mailDomain();
+    if (!domain) {
+      errors.push({ resource: 'workspace', slug: 'workspace.yaml', message: 'mailbox.enabled is set but VOCION_MAIL_DOMAIN is not configured on this deployment' });
+    } else {
+      const candidate = (mailboxManifest.address ?? defaultMailboxAddress(project?.slug ?? loaded.manifest.name, domain)).toLowerCase();
+      if (!addressOnDomain(candidate, domain)) {
+        errors.push({ resource: 'workspace', slug: 'workspace.yaml', message: `mailbox.address "${candidate}" is not on ${domain}; a workspace may only claim addresses on the deployment's mail domain` });
+      } else {
+        mailboxEnabled = true;
+        mailboxAddress = candidate;
+      }
+    }
+  }
+
   if (!project) {
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null || goal !== null) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -775,13 +800,15 @@ async function applyWorkspaceLeadConfig(
     && embeddingUnchanged
     && regenerateUnchanged
     && (project.goal ?? null) === goal
+    && project.mailboxEnabled === mailboxEnabled
+    && (project.mailboxAddress ?? null) === mailboxAddress
   ) {
     return;
   }
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, goal })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, goal, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }
