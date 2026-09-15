@@ -2,6 +2,7 @@
 
 import type { AgentOption } from './types';
 import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
+import type { PageContext } from '@/services/chat/pageContext';
 import { MessageCircle, PanelRightClose } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { CommentChips } from '@/features/comments/AnchoredComments';
@@ -30,7 +31,7 @@ export type ChatDockProps = {
   /** Human name of the scope for the header (e.g. the lead's name, or "Everything"). */
   scopeLabel: string;
   /** Where the person is, sent with each turn when the dock is not record-scoped (058). */
-  pageContext?: { path: string; title: string };
+  pageContext?: PageContext;
   /**
    * How the dock starts when this browser has never collapsed or opened one:
    * open on a record (the decision is the point), collapsed to the button

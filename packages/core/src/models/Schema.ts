@@ -1189,6 +1189,14 @@ export const conversationSchema = pgTable(
      * (orgId, scopeRef, createdBy). See agent-chat-surface.md §3.1, §8.6.
      */
     scopeRef: text('scope_ref'),
+    /**
+     * Where the conversation STARTED: the page context of its first turn
+     * (path, title, the record the page was about, the highlighted passage).
+     * Set once; later turns carry their own context on the wire only. Null
+     * for threads opened from the hotkey or the full-page chat with nothing
+     * in view. Shape: `PageContext` in services/chat/pageContext.ts.
+     */
+    contextJson: jsonb('context_json').$type<import('@/services/chat/pageContext').PageContext>(),
     messageCount: integer('message_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()

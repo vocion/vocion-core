@@ -36,6 +36,10 @@ Workspace pages keep their own page because they are file-only: nothing is
 written to the database and `workspace:check` / `workspace:apply` do not know
 about them.
 
+## Guides
+
+- [Acting from context](./guides/act-from-context.md) — structured page/record context on every turn, the `page_context` tool, `<AskAboutThis>`, opening the surface with intent, recommended-action status streaming back, and the `act-within-bounds` autonomy path.
+
 ## Deployment
 
 - [Multiple environments](./deployment/multiple-environments.md)

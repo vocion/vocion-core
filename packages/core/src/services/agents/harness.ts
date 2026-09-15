@@ -345,9 +345,11 @@ export function bindRequestEmit(
   missionSlug?: string,
   missionRunId?: number,
   conversationId?: number,
+  pageContext?: RuntimeContext['pageContext'],
 ): void {
   const internal = compiled as unknown as { __ctx: RuntimeContext };
   internal.__ctx.emit = emit;
+  internal.__ctx.pageContext = pageContext;
   internal.__ctx.userId = userId;
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
   internal.__ctx.missionSlug = missionSlug;

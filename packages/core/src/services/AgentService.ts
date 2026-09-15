@@ -175,6 +175,8 @@ export async function runAgentDeep(opts: {
   /** Persisted conversation id — keys the AgentCore Memory session on the runtime provider (Phase 5, opt-in). */
   conversationId?: number;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** Where the person is in the app for this turn — exposed to the `page_context` tool. */
+  pageContext?: import('./chat/pageContext').PageContext;
   onEvent?: (event: import('./agents/types').AgentEvent) => void;
 }): Promise<{
   response: string;
@@ -270,7 +272,7 @@ export async function runAgentDeep(opts: {
   }
 
   const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug);
-  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId);
+  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext);
   const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];

@@ -56,6 +56,14 @@ export const ADOPTION_EVENTS = {
   'chat.conversation_created': { agent: true },
   'chat.message_sent': { agent: true },
   /**
+   * A conversation turn opened FROM a record via an "Ask about this"
+   * affordance (briefing section, inbox ask, team-report row, record page) —
+   * distinct from the hotkey. `recordType` says which surface hands work to
+   * the agent; the count against `chat.message_sent` is how much of the chat
+   * starts in context rather than cold.
+   */
+  'chat.opened_from_context': { agent: true, meta: z.object({ recordType: z.string().max(40) }) },
+  /**
    * One event for every HITL approval surface; the run kind travels in
    * metadata. `decision` is the TYPED triage signal — approve/edit/reject are
    * terminal; skip/save leave the item pending; rewrite = the human asked AI
