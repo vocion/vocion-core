@@ -17,6 +17,18 @@ a setting, one obvious action over five, and lead every surface with the outcome
 Contract: purpose, owner, KPI, baseline, target, permissions, quality threshold, escalation,
 current performance, autonomy level) with activity metrics as the evidence layer underneath.
 
+Two rules from §18–§19 bind day-to-day engineering here, so they are worth restating:
+
+- **Implementation is the forcing function.** Build what real work demanded, not what was
+  imagined. If a change cannot name the thing it unblocked, it is not ready to build.
+- **Extend the core; keep specifics at the edge.** Ask *how can we simplify this* and *how can we
+  make this universal* before adding any surface. Extend an existing component or interaction
+  pattern rather than building a second one beside it — especially when the gap is real, because
+  a real gap closed generically improves the whole platform while the same gap closed locally
+  improves one screen and degrades the rest. Anything true only for one industry, customer or
+  vertical workflow is a **concretion**: it belongs in a template, workspace or the marketplace,
+  never in the core. Two surfaces doing the same job is a defect.
+
 ## Tech Stack
 
 - **Framework:** Next.js 16 (App Router) + React 19 + TypeScript (strict)
