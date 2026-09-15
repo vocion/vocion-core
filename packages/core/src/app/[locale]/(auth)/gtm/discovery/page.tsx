@@ -1,8 +1,9 @@
+import type { DiscoveryEntry } from '@/features/discovery/DiscoveryLedger';
 import { desc, eq } from 'drizzle-orm';
 import { Radar } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import { EmptyState } from '@/components/ui/empty-state';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { ListEmpty, ListPage } from '@/components/patterns';
+import { DiscoveryLedger } from '@/features/discovery/DiscoveryLedger';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { actionRunSchema, discoveryCandidateSchema } from '@/models/Schema';
@@ -14,6 +15,10 @@ import { actionRunSchema, discoveryCandidateSchema } from '@/models/Schema';
  * the eventual human decision. Dropped calls are rows here too — a call
  * classified as not-discovery has its scores and reasoning, not an absence —
  * and matched-but-not-assessed calls show their `skipped_reason`.
+ *
+ * The reference implementation of the Ledger archetype
+ * (`components/patterns`, `docs/design/patterns.md`). This file reads; the
+ * ledger itself is `features/discovery/DiscoveryLedger`.
  * @param props
  * @param props.params
  */
@@ -31,8 +36,6 @@ export default async function DiscoveryLedgerPage(props: {
     .select({
       candidate: discoveryCandidateSchema,
       reviewStatus: actionRunSchema.status,
-      reviewInvokedBy: actionRunSchema.invokedBy,
-      reviewExecutedAt: actionRunSchema.executedAt,
     })
     .from(discoveryCandidateSchema)
     .leftJoin(actionRunSchema, eq(actionRunSchema.id, discoveryCandidateSchema.reviewActionRunId))
@@ -40,129 +43,48 @@ export default async function DiscoveryLedgerPage(props: {
     .orderBy(desc(discoveryCandidateSchema.matchedAt))
     .limit(200);
 
-  return (
-    <>
-      <TitleBar
-        title="Discovery ledger"
-        description="Every call the detection agent assessed — what it read, how it scored, the thresholds it decided under, and what a human did with it."
-      />
+  // Dates cross the server/client boundary as ISO strings.
+  const entries: DiscoveryEntry[] = rows.map(({ candidate: c, reviewStatus }) => ({
+    id: c.id,
+    title: c.meetingTitle ?? c.meetingExternalId,
+    when: c.meetingStart?.toISOString() ?? null,
+    matchedAt: c.matchedAt.toISOString(),
+    matchReason: c.matchReason,
+    status: c.status,
+    route: c.route,
+    classification: c.classification
+      ? {
+          isDiscovery: c.classification.isDiscovery,
+          isDiscoveryConfidence: c.classification.isDiscoveryConfidence,
+          proposalReady: c.classification.proposalReady,
+          proposalReadyConfidence: c.classification.proposalReadyConfidence,
+          reasoning: c.classification.reasoning,
+        }
+      : null,
+    thresholds: c.thresholds,
+    skippedReason: c.skippedReason,
+    classifierVersion: c.classifierVersion,
+    assessedBy: c.assessedBy,
+    transcriptHash: c.transcriptHash,
+    workspaceSha: c.workspaceSha,
+    reviewActionRunId: c.reviewActionRunId,
+    reviewStatus: reviewStatus ?? null,
+  }));
 
-      {rows.length === 0
+  return (
+    <ListPage
+      title="Discovery ledger"
+      description="Every call the detection agent assessed — what it read, how it scored, the thresholds it decided under, and what a human did with it."
+    >
+      {entries.length === 0
         ? (
-            <EmptyState
+            <ListEmpty
               icon={Radar}
               title="No assessed calls yet"
               description="The hourly discovery check records every matched meeting here — or ask the RevOps Lead to run a detection pass in chat."
             />
           )
-        : (
-            <div className="flex flex-col gap-2">
-              {rows.map(({ candidate: c, reviewStatus }) => {
-                const cls = c.classification;
-                return (
-                  <div key={c.id} className="rounded-lg border border-border bg-background p-4 text-sm">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <div className="font-medium">
-                        {c.meetingTitle ?? c.meetingExternalId}
-                        {c.meetingStart && (
-                          <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                            {c.meetingStart.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 text-[11px]">
-                        {c.route && (
-                          <span className={`rounded px-1.5 py-0.5 font-medium ${c.route === 'drop' ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'}`}>
-                            {c.route}
-                          </span>
-                        )}
-                        <span className="text-muted-foreground">{c.status}</span>
-                        {reviewStatus && (
-                          <span className="text-muted-foreground" title="Review-queue decision">
-                            review:
-                            {' '}
-                            {reviewStatus}
-                          </span>
-                        )}
-                        {c.skippedReason && (
-                          <span className="text-amber-600" title="Matched but not assessed">
-                            skipped:
-                            {' '}
-                            {c.skippedReason}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-1 text-[12px] text-muted-foreground">{c.matchReason}</div>
-
-                    {cls && (
-                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
-                        <span>
-                          discovery
-                          {' '}
-                          {cls.isDiscovery ? 'yes' : 'no'}
-                          {' '}
-                          (
-                          {cls.isDiscoveryConfidence.toFixed(2)}
-                          )
-                        </span>
-                        <span>
-                          proposal-ready
-                          {' '}
-                          {cls.proposalReady ? 'yes' : 'no'}
-                          {' '}
-                          (
-                          {cls.proposalReadyConfidence.toFixed(2)}
-                          )
-                        </span>
-                        {c.thresholds && (
-                          <span className="text-muted-foreground">
-                            thresholds
-                            {' '}
-                            {c.thresholds.discovery}
-                            {' / '}
-                            {c.thresholds.ready}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {cls?.reasoning && (
-                      <div className="mt-1 text-[12px] text-muted-foreground">{cls.reasoning}</div>
-                    )}
-
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground/80">
-                      {c.classifierVersion && (
-                        <span title="Model + prompt version">{c.classifierVersion}</span>
-                      )}
-                      {c.assessedBy?.agentSlug && (
-                        <span title={c.assessedBy.missionRunId ? `mission_run #${c.assessedBy.missionRunId}` : 'chat turn'}>
-                          by
-                          {' '}
-                          {c.assessedBy.agentSlug}
-                          {c.assessedBy.missionRunId ? ` (mission run #${c.assessedBy.missionRunId})` : ''}
-                        </span>
-                      )}
-                      {c.transcriptHash && (
-                        <span title="knowledge_document.contentHash at read time">
-                          transcript
-                          {' '}
-                          {c.transcriptHash.slice(0, 12)}
-                        </span>
-                      )}
-                      {c.workspaceSha && (
-                        <span title="Workspace sha at assessment">
-                          ws
-                          {' '}
-                          {c.workspaceSha.slice(0, 12)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-    </>
+        : <DiscoveryLedger entries={entries} />}
+    </ListPage>
   );
 }

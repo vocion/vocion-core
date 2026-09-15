@@ -10,6 +10,7 @@
 - [**Object model**](./object-model.md) — the lookup table: where each object is authored, its schema symbol, its table, its runtime, its UI surface. Includes runtime-only objects (tool calls, runs, events).
 - [**Canvas — rendered output as data**](./canvas.md) — `render_*` tools, the `artifact`/`canvas` tables, the cards that render them on the chat and the canvas beside a conversation, and exporting a saved canvas as a workspace page.
 - [**Routing — the workspace in the URL**](./routing.md) — why `/w/<slug>/…` exists, what the entry route does, and the phase-2 design for `/{account}/{workspace}/…` as the canonical URL.
+- [**Dashboard patterns — List, Detail, Ledger**](./design/patterns.md) — the UI pattern library every dashboard page composes from: which archetype for which page, anatomy, do/don't, and the migration checklist for the remaining pages.
 - [**Review operations in the base pack**](./review-ops.md) — the review-queue agents and approval-drafting skills that ship in `core@2.1.0`, how to activate them, and how to override one.
 
 ## Entity reference

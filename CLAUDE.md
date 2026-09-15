@@ -447,3 +447,6 @@ requirements/                       # Product specs and case studies
 - Strict TypeScript
 - T3 Env for validated environment variables
 - All translations in `src/locales/` - developers maintain `en.json`
+- **New dashboard pages use `components/patterns`** (List / Detail / Ledger — see
+  `docs/design/patterns.md`); don't hand-roll list/detail/ledger layouts. Hairlines not
+  boxes, one primary action per screen, numbers right-aligned in a `Column`.

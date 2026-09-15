@@ -1,0 +1,37 @@
+/**
+ * `components/patterns` — the three dashboard archetypes. New dashboard
+ * pages compose these; nobody hand-rolls a list, a detail or a ledger layout.
+ * Read `docs/design/patterns.md` first.
+ */
+
+// Detail
+export {
+  Accordion,
+  type AccordionItem,
+  ConfidenceMeter,
+  type Crumb,
+  DetailColumns,
+  DetailMeta,
+  DetailPage,
+  type DotTone,
+  type Fact,
+  FactList,
+  type Maybe,
+  MetaChip,
+  RightColumn,
+  Section,
+  StatusDot,
+} from './DetailPage';
+export { citationLabel, evidenceSource, type EvidenceSource, isCitationUrl } from './evidence';
+export { type EvidenceItem, EvidenceList, SourceChip } from './EvidenceList';
+// Ledger
+export { LedgerEntry, LedgerGroup, type ProvenanceItem, ProvenanceLine, ScoreChip, type ScoreChipProps, type Verdict, VerdictBadge } from './Ledger';
+
+// List
+export { ListEmpty, ListPage } from './ListPage';
+export { Column, COLUMN, type ColumnKind, ListRow, type ListRowProps, ListRows, Subline } from './ListRow';
+export { FilterChip, ListToolbar, type ToolbarChip, type ToolbarSort, type ToolbarTab } from './ListToolbar';
+export { applyListState, flipDirection, type ListState, type ListStateConfig, parseListState, type SortDirection, toggleChip, useListUrlState } from './listUrlState';
+
+export { formatScore, scorePercent, type ScoreVerdict, scoreVerdict } from './scoreChip';
+export { type BarAction, type BarField, StickyActionBar } from './StickyActionBar';
