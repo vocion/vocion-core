@@ -31,14 +31,22 @@ export type ModelRole = 'main' | 'classifier' | 'embedder' | 'skillTurn' | 'extr
 
 /** Provider tag — narrow alphabet so the env validation is straightforward. */
 /**
- * Claude 4.6+ (Sonnet 4.6, Opus 4.6/4.7/4.8, Sonnet 5, Opus 5, Fable 5/5.1,
- * Mythos) reject `temperature` / `top_p` / `top_k` with a 400
- * ("`temperature` is deprecated for this model"). Older Claude and every
- * other provider still accept them. Bedrock ids carry the same model name
- * inside their decoration, so match on the substring.
+ * Whether this Anthropic model REFUSES sampling parameters.
+ *
+ * Claude 4.7, 4.8 and the whole 5 family answer `temperature` / `top_p` /
+ * `top_k` with a 400 ("`temperature` is deprecated for this model"). The 4.6
+ * generation only deprecated them and still honours what it is sent, which
+ * matters because `claude-sonnet-4-6` is the default main model: dropping the
+ * parameter there would silently move every default call off `temperature: 0`
+ * and make deterministic work non-deterministic. So the line is drawn at 4.7,
+ * not at "4.6 and newer" — an earlier version of this function included 4.6
+ * and would have done exactly that.
+ *
+ * Bedrock ids decorate the model name (`us.anthropic.claude-sonnet-5-v1:0`),
+ * so the match is deliberately a substring rather than an exact id.
  */
 export function anthropicOmitsSampling(model: string): boolean {
-  return /claude-(?:sonnet-4-6|opus-4-[678]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
+  return /claude-(?:opus-4-[78]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
 }
 
 export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock';
@@ -329,7 +337,11 @@ export function buildChatModel(
       return withReplay(new ChatBedrockConverse({
         model,
         region: opts.region ?? bedrockRegion(),
-        temperature,
+        // Bedrock is a different transport to the same models, so it refuses
+        // the same parameters. This branch sent `temperature` unconditionally
+        // until 2026-09-15, which meant a 5-family model reached through
+        // Bedrock still 400'd after the Anthropic branch was fixed.
+        ...(anthropicOmitsSampling(model) ? {} : { temperature }),
         streaming,
         ...(opts.awsCredentials ? { credentials: opts.awsCredentials } : {}),
         ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
