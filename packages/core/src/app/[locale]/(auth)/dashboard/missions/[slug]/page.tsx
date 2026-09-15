@@ -3,6 +3,8 @@ import { Activity, CalendarClock, NotebookPen, Plus, Target, Users } from 'lucid
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { StatusPill } from '@/components/ui/status-pill';
+import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { MissionCheckButton } from '@/features/dashboard/MissionCheckButton';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -13,6 +15,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { agentSchema, missionSchema } from '@/models/Schema';
 import { listAutomations } from '@/services/AutomationService';
+import { recordRef } from '@/services/chat/recordContext';
 import { isEntityStatus } from '@/types/Status';
 
 /**
@@ -53,9 +56,11 @@ export default async function MissionDetailPage(props: {
 
   return (
     <>
+      <RecordContext record={recordRef('mission', slug, mission.name)} />
       <TitleBar
         title={mission.name}
         description={mission.description ?? 'Standing mission'}
+        actions={<AskAboutThis record={recordRef('mission', slug, mission.name)} agentSlug={mission.agentSlug ?? undefined} />}
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
