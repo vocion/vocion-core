@@ -32,6 +32,9 @@ export const NO_DOCK_ROUTES: RegExp[] = [
  * record counts; lists, settings and catalogs do not.
  */
 export const RECORD_ROUTES: RegExp[] = [
+  // A briefing is the record a person came to work from (R4): the rail opens
+  // beside it, and the page's own composer is gone — one surface (058 §6).
+  /\/dashboard\/briefings(?:\/[^/]+)?$/,
   /\/dashboard\/missions\/runs\/[^/]+$/,
   /\/dashboard\/missions\/(?!new$|runs(?:\/|$))[^/]+$/,
   /\/dashboard\/objects\/(?!type(?:\/|$))[^/]+$/,

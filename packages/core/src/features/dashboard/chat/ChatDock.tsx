@@ -1,16 +1,17 @@
 'use client';
 
+import type { AgentSurfaceRequest } from './agentSurface';
 import type { AgentOption } from './types';
 import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import type { PageContext } from '@/services/chat/pageContext';
-import { MessageCircle, PanelRightClose } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { MessageCircle, PanelRightClose, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CommentChips } from '@/features/comments/AnchoredComments';
 import { useCommentLayer } from '@/features/comments/CommentLayer';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { Link } from '@/libs/I18nNavigation';
-import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
+import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
 import { publishDockOpen } from './dockState';
@@ -143,8 +144,42 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   // person collapses or opens one; that choice persists per browser and
   // applies on every page (058).
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
-  const session = useChatSession({ agents, scopeRef, pageContext });
+  // Intent a page affordance handed us (R4): a prompt to prefill and the
+  // record / passage it is about. Cleared once a turn goes out. The record
+  // the page declares can be dismissed for this dock session ("About: …" chip).
+  const [intent, setIntent] = useState<AgentSurfaceRequest | null>(null);
+  const [recordDismissed, setRecordDismissed] = useState(false);
+  const effectiveContext = useMemo<PageContext | undefined>(() => {
+    const base = pageContext ? { ...pageContext } : undefined;
+    if (base && recordDismissed) {
+      delete base.record;
+    }
+    const c = intent?.context;
+    if (!c) {
+      return base;
+    }
+    return {
+      path: base?.path ?? c.path,
+      title: base?.title ?? c.title,
+      ...(c.record ?? base?.record ? { record: c.record ?? base?.record } : {}),
+      ...(c.selection ? { selection: c.selection } : {}),
+      ...(c.refs ? { refs: c.refs } : {}),
+      openedFrom: true as const,
+    };
+  }, [pageContext, intent, recordDismissed]);
+  const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext });
+  // Latest session for the request listener (registered once, on mount).
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  });
   const asideRef = useRef<HTMLElement | null>(null);
+  // A turn went out: the intent has been consumed.
+  const turnCount = session.messages.length;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setIntent(null);
+  }, [turnCount]);
   // The page's comment layer, when it has one: notes taken on the document
   // beside this dock ride out with the next message (043).
   const comments = useCommentLayer();
@@ -171,6 +206,19 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
         localStorage.setItem(COLLAPSE_KEY, '0');
       } catch {
         /* storage unavailable */
+      }
+      // Intent (R4): prefill the composer and attach the record / passage the
+      // affordance named — one surface, never a second input on the page.
+      const req = agentSurfaceRequestOf(e);
+      if (req.prompt !== undefined || req.context) {
+        setIntent(req);
+        setRecordDismissed(false);
+        if (req.prompt !== undefined) {
+          sessionRef.current.setComposerValue(req.prompt);
+        }
+        if (req.send && req.prompt?.trim()) {
+          void sessionRef.current.sendMessage(req.prompt);
+        }
       }
       focusAgentComposer(asideRef.current);
     }
@@ -370,6 +418,43 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           />
         )}
 
+        {effectiveContext?.record && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5" data-testid="dock-context-chips">
+            <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+              <span className="shrink-0">About:</span>
+              <span className="truncate font-medium text-foreground/85">{effectiveContext.record.label ?? `${effectiveContext.record.type.replace('_', ' ')} ${effectiveContext.record.id}`}</span>
+              <button
+                type="button"
+                aria-label="Ask without this record"
+                title="Ask without this record"
+                onClick={() => {
+                  setRecordDismissed(true);
+                  setIntent(i => (i ? { ...i, context: i.context ? { ...i.context, record: undefined } : undefined } : i));
+                }}
+                className="ml-0.5 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3" aria-hidden />
+              </button>
+            </span>
+            {effectiveContext.selection && (
+              <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground italic">
+                <span className="truncate">
+                  “
+                  {effectiveContext.selection.text}
+                  ”
+                </span>
+                <button
+                  type="button"
+                  aria-label="Remove the quoted passage"
+                  onClick={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, selection: undefined } } : i))}
+                  className="ml-0.5 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-3" aria-hidden />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
         <ChatComposer
           value={session.composerValue}
           onChange={session.setComposerValue}

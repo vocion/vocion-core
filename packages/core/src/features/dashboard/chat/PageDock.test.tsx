@@ -36,7 +36,7 @@ describe('route rules', () => {
     expect(isOwnDockRoute('/gtm/lead/88201')).toBe(true);
     expect(isOwnDockRoute('/gtm/personalization')).toBe(false);
 
-    for (const record of ['/dashboard/missions/runs/42', '/dashboard/missions/discovery-followup', '/dashboard/objects/17', '/dashboard/agents/revenue-lead', '/dashboard/connectors/hubspot', '/dashboard/evals/brief/runs/3', '/dashboard/adoption/users/u1', '/dashboard/learnings/global']) {
+    for (const record of ['/dashboard/briefings', '/dashboard/briefings/61', '/dashboard/missions/runs/42', '/dashboard/missions/discovery-followup', '/dashboard/objects/17', '/dashboard/agents/revenue-lead', '/dashboard/connectors/hubspot', '/dashboard/evals/brief/runs/3', '/dashboard/adoption/users/u1', '/dashboard/learnings/global']) {
       expect(isRecordRoute(record), record).toBe(true);
     }
     for (const list of ['/dashboard/review', '/dashboard/missions', '/dashboard/missions/new', '/dashboard/objects', '/dashboard/objects/type/event', '/dashboard/agents', '/dashboard', '/gtm/personalization', '/dashboard/adoption']) {

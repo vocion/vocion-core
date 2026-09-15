@@ -68,6 +68,24 @@ the person highlights inside that root. Placed today on the Briefings page
 (every `##` section, and "Do this" on each bullet of an action section — see
 `BriefingSections.tsx`), agent, mission, mission-run and object pages.
 
+**One surface per page (058 §6).** Affordances only ever *prefill* the mounted
+surface (`send: false`); they never render a second input. The Briefings page
+therefore has no composer of its own any more — `BriefingChatStarter` is now
+just the record declaration plus the selection watcher. Briefing routes count
+as record routes in `PageDock`, so the rail opens by default beside the brief.
+
+**Context chip.** When the dock opens on a page that declared a record, the
+composer shows a dismissible chip — *About: Revenue Briefing — Mon, Sep 15* —
+and, after a selection ask, the quoted passage. Dismissing the chip asks
+without the record for the rest of that dock session; a fresh affordance click
+brings it back. The dock reads intent with `agentSurfaceRequestOf(event)` in
+its `AGENT_SURFACE_EVENT` listener (prefill → attach → focus; `send: true`
+sends at once).
+
+> `docs/agent-chat-surface.md` (the spec these rules cite) is not in the repo;
+> the route and one-surface rules live as doc-comments in `PageDock.tsx` /
+> `ChatDock.tsx`. R2 owns promoting them into a document.
+
 ## 3. Action status streams back
 
 `RecommendedActionCard` proposes into the review queue and then follows the run
