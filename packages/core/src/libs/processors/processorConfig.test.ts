@@ -171,6 +171,19 @@ describe('the sync budget', () => {
     expect(budget.caps.maxProposalsPerSync).toBe(SYNC_BUDGET_DEFAULTS.maxProposalsPerSync);
   });
 
+  it('lets a source lower modelTimeoutMs but never raise it', () => {
+    // The deadline is a cap like any other: the 60s default is the ceiling,
+    // and it is 60s because 20s was below what a healthy call costs and so
+    // abandoned every real extraction mid-flight.
+    expect(SYNC_BUDGET_DEFAULTS.modelTimeoutMs).toBe(60_000);
+    expect(createSyncBudget({ limits: { modelTimeoutMs: 30_000 } }).caps.modelTimeoutMs).toBe(30_000);
+    expect(createSyncBudget({ limits: { modelTimeoutMs: 600_000 } }).caps.modelTimeoutMs).toBe(60_000);
+    expect(candidateExtractorConfigSchema.parse({
+      ...minimal,
+      limits: { modelTimeoutMs: 30_000 },
+    }).limits?.modelTimeoutMs).toBe(30_000);
+  });
+
   it('ignores a limits value that is not a number at all', () => {
     // The blob is read back from the database, where an older writer may have
     // left anything at all.

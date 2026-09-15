@@ -576,22 +576,36 @@ async function announceSyncCompleted(orgId: string, payload: SourceSyncCompleted
 }
 
 /**
- * How long one document's processor may run before the sync stops waiting.
+ * How long one document's processor may run when it declares no budget of its
+ * own, before the sync stops waiting.
  *
  * A processor talks to things the sync does not control, a model endpoint, a
  * ticket page, so "it will come back eventually" is not something the run can
- * assume. Twenty-five seconds is one model call (20s) and a little more, NOT
- * the sum of every inner timeout: a document that also needs its retry and a
- * ticket hop is cut off on purpose rather than allowed to hold one of the
- * eight ingest slots for a minute. The abandoned work is signalled to stop and
- * its document is counted as a processor failure; the sync carries on.
+ * assume. This number is the floor for a processor that never said what its
+ * document costs; one that knows says so, in `documentTimeoutMs`. It used to
+ * be the only number there was, at 25s, which was BELOW the cost of a single
+ * healthy model call and therefore abandoned every real extraction mid-flight.
+ * The abandoned work is signalled to stop and its document is counted as a
+ * processor failure; the sync carries on.
+ *
+ * The per-SYNC wall clock (`SYNC_BUDGET_DEFAULTS.maxWallClockMs`, 600s) is
+ * unchanged and still bounds the whole processor side of a run.
  */
 const PROCESSOR_TIMEOUT_MS = 25_000;
 
-/** The timeout in force, overridable so tests need not wait it out. */
-function processorTimeoutMs(): number {
+/**
+ * The timeout in force for one document.
+ *
+ * The env override wins over everything, including a processor's own
+ * declaration, so a test need not wait out a two-and-a-half-minute budget.
+ * @param declared - The processor's own `documentTimeoutMs`, when it has one.
+ */
+function processorTimeoutMs(declared?: number): number {
   const override = Number(process.env.VOCION_PROCESSOR_TIMEOUT_MS);
-  return Number.isFinite(override) && override > 0 ? override : PROCESSOR_TIMEOUT_MS;
+  if (Number.isFinite(override) && override > 0) {
+    return override;
+  }
+  return declared ?? PROCESSOR_TIMEOUT_MS;
 }
 
 /** This source's processor, resolved once at the start of a run. */
@@ -603,6 +617,8 @@ type ResolvedProcessor = {
   config: unknown;
   /** The manifest's cap lowering, if it declared any. */
   limits: SyncBudgetLimits | undefined;
+  /** How long one document of it may take, when it declares a budget of its own. */
+  documentTimeoutMs: number | undefined;
   load: RegisteredProcessor['load'];
 };
 
@@ -631,6 +647,7 @@ function resolveProcessor(sourceId: number, config: Record<string, unknown>): Re
     runsOn: new Set(registered.runsOn ?? DEFAULT_RUNS_ON),
     config: parsed,
     limits: parsed.limits,
+    documentTimeoutMs: registered.documentTimeoutMs,
     load: registered.load,
   };
 }
@@ -862,11 +879,12 @@ export async function runSync(opts: {
         return;
       }
       const { run } = await processor.load();
-      const timeout = AbortSignal.timeout(processorTimeoutMs());
+      const budgetMs = processorTimeoutMs(processor.documentTimeoutMs);
+      const timeout = AbortSignal.timeout(budgetMs);
       const abandoned = new Promise<never>((_resolve, reject) => {
         timeout.addEventListener(
           'abort',
-          () => reject(new Error(`the processor did not finish within ${processorTimeoutMs()}ms`)),
+          () => reject(new Error(`the processor did not finish within ${budgetMs}ms`)),
           { once: true },
         );
       });
