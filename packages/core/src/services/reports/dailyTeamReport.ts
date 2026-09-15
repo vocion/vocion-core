@@ -65,10 +65,17 @@ async function tableExists(table: string): Promise<boolean> {
 
 async function fetchWorkerRuns(orgId: string, window: ReportWindow): Promise<WorkerRunRow[]> {
   const hasKind = await columnExists('worker_run', 'kind');
+  // Bind the window as UTC ISO text, not a JS Date: node-postgres serialises a
+  // Date with the host's offset and `timestamp without time zone` drops it,
+  // which shifted the window by the host's UTC offset (0 runs matched on a PDT
+  // host against a UTC database). Drizzle's own query builder writes UTC text
+  // on insert, so this is what the column actually holds.
   const res: any = await db.execute(sql`
     select agent_slug, status, ${hasKind ? sql`kind` : sql`null::text`} as kind, tokens, cents, created_at
     from worker_run
-    where org_id = ${orgId} and created_at >= ${window.since} and created_at < ${window.until}
+    where org_id = ${orgId}
+      and created_at >= ${window.since.toISOString()}::timestamp
+      and created_at < ${window.until.toISOString()}::timestamp
   `);
   const rows = (res.rows ?? res) as { agent_slug: string; status: string; kind: string | null; tokens: number | string; cents: number | string; created_at: Date | string }[];
   return rows.map(r => ({
@@ -116,6 +123,44 @@ async function fetchNeedsYou(orgId: string): Promise<NeedsYou> {
   };
 }
 
+/**
+ * The briefing the mail carries. With a selector: the latest briefing for that
+ * team and/or agent, marked `full`. Without one, or when nothing matches: the
+ * latest workspace rollup (team_slug NULL), excerpted by the renderer. Either
+ * way, never a previous copy of this very report.
+ * @param orgId - Project id.
+ * @param until - Upper bound on `created_at`.
+ * @param selector - Team and/or agent slug to match.
+ */
+async function fetchBriefing(orgId: string, until: Date, selector?: BriefingSelector): Promise<DailyTeamReportData['rollup']> {
+  const notOurs = sql`${briefingSchema.agentSlug} is distinct from ${DAILY_TEAM_REPORT_PUBLISHER}`;
+  const cols = { id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt };
+  if (selector && (selector.teamSlug || selector.agentSlug)) {
+    const [row] = await db
+      .select(cols)
+      .from(briefingSchema)
+      .where(and(
+        eq(briefingSchema.orgId, orgId),
+        lt(briefingSchema.createdAt, until),
+        notOurs,
+        selector.teamSlug ? eq(briefingSchema.teamSlug, selector.teamSlug) : undefined,
+        selector.agentSlug ? eq(briefingSchema.agentSlug, selector.agentSlug) : undefined,
+      ))
+      .orderBy(desc(briefingSchema.createdAt))
+      .limit(1);
+    if (row) {
+      return { ...row, full: true, label: selector.teamSlug ? `${selector.teamSlug} briefing` : `${selector.agentSlug} briefing` };
+    }
+  }
+  const [row] = await db
+    .select(cols)
+    .from(briefingSchema)
+    .where(and(eq(briefingSchema.orgId, orgId), isNull(briefingSchema.teamSlug), lt(briefingSchema.createdAt, until), notOurs))
+    .orderBy(desc(briefingSchema.createdAt))
+    .limit(1);
+  return row ? { ...row, full: false, label: 'workspace briefing' } : null;
+}
+
 /** Base URL for links in the mail: `NEXT_PUBLIC_APP_URL`, trailing slash trimmed. */
 export function appBaseUrl(): string {
   // Read from process.env, not `Env`, so the tsx worker and scripts (which do
@@ -124,12 +169,20 @@ export function appBaseUrl(): string {
   return raw.replace(/\/+$/, '');
 }
 
+/** Which briefing the mail should carry instead of the workspace rollup. */
+export type BriefingSelector = { teamSlug?: string; agentSlug?: string };
+
 /**
  * Read everything the report needs for one org and one window.
  * @param orgId - Project id.
  * @param window - Defaults to the trailing 24 hours ending now.
+ * @param opts - `briefing`: carry the latest briefing matching this team and/or
+ * agent, in full, with its title as the subject — the revenue workspace mails
+ * its `revops` "Revenue Briefing" this way. Falls back to the rollup when no
+ * such briefing exists.
+ * @param opts.briefing - Team and/or agent slug to match.
  */
-export async function collectDailyTeamReport(orgId: string, window?: Partial<ReportWindow>): Promise<DailyTeamReportData> {
+export async function collectDailyTeamReport(orgId: string, window?: Partial<ReportWindow>, opts: { briefing?: BriefingSelector } = {}): Promise<DailyTeamReportData> {
   const until = window?.until ?? new Date();
   const since = window?.since ?? new Date(until.getTime() - 24 * 60 * 60 * 1000);
   const w: ReportWindow = { since, until };
@@ -156,19 +209,9 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
       .where(eq(agentBudgetSchema.orgId, orgId)),
     fetchWorkerRuns(orgId, w),
     fetchNeedsYou(orgId),
-    db.select({ id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt })
-      .from(briefingSchema)
-      .where(and(
-        eq(briefingSchema.orgId, orgId),
-        isNull(briefingSchema.teamSlug),
-        lt(briefingSchema.createdAt, until),
-        // not a previous copy of this very report
-        sql`${briefingSchema.agentSlug} is distinct from ${DAILY_TEAM_REPORT_PUBLISHER}`,
-      ))
-      .orderBy(desc(briefingSchema.createdAt))
-      .limit(1),
+    fetchBriefing(orgId, until, opts.briefing),
   ]);
-  const rollup = rollupRows[0] ?? null;
+  const rollup = rollupRows;
 
   const shaped = shapeDailyTeamReport({
     runs,

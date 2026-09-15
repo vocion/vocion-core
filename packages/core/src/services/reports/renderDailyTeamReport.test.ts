@@ -46,6 +46,8 @@ function fixture(): DailyTeamReportData {
       title: 'Workspace rollup — Mon, Sep 14',
       content: '## Priorities\n\n- Merge the **four** clean PRs\n- Rule on `032` <Slack granularity>\n\n| PR | State |\n|---|---|\n| #33 | clean |',
       createdAt: new Date('2026-09-14T13:05:00Z'),
+      full: false,
+      label: 'workspace briefing',
     },
     links: { inbox: 'https://agents.example.com/dashboard/inbox', teamReport: 'https://agents.example.com/dashboard/team-report', briefings: 'https://agents.example.com/dashboard/briefings' },
     generatedAt: T0,
@@ -167,6 +169,21 @@ describe('renderDailyTeamReport', () => {
     exec.members[0] = { ...exec.members[0]!, budgetCents: 40_000 };
 
     expect(reportSections(d).onTrack.lines).toContain('CEO has hit its hard budget cap ($400 of $400) — new runs will be refused.');
+  });
+
+  it('renders a selected team briefing in full and makes its title the subject', () => {
+    const d = fixture();
+    d.rollup = { ...d.rollup!, title: 'Revenue Briefing — Tue, Sep 15', content: `## Pipeline\n\n${'word '.repeat(600)}`, full: true, label: 'revops briefing' };
+    const r = renderDailyTeamReport(d);
+    const s = reportSections(d);
+
+    expect(r.subject).toBe('Revenue Briefing — Tue, Sep 15');
+    expect(s.rollup).toMatchObject({ truncated: false, label: 'revops briefing' });
+    expect(s.rollup!.excerpt.length).toBeGreaterThan(2000);
+    expect(r.markdown).toContain('## From the revops briefing');
+    expect(r.html).not.toContain('Read the full briefing');
+    // the four questions still lead
+    expect(r.markdown.indexOf('## What needs me')).toBeLessThan(r.markdown.indexOf('## From the revops briefing'));
   });
 
   it('excerpts a long briefing and links to the rest', () => {

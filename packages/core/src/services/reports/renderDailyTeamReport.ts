@@ -88,6 +88,9 @@ function kindBadges(m: MemberStats): string {
 }
 
 export function subjectFor(data: DailyTeamReportData): string {
+  if (data.rollup?.full) {
+    return data.rollup.title;
+  }
   return `Team report — ${data.workspace.name} — ${WEEKDAY_FMT.format(data.window.until)}`;
 }
 
@@ -108,7 +111,7 @@ export type ReportSections = {
   /** What happens next. */
   next: string[];
   /** The workspace briefing, excerpted; `truncated` says a link is owed. */
-  rollup: { title: string; publishedAt: string; excerpt: string; truncated: boolean } | null;
+  rollup: { title: string; publishedAt: string; excerpt: string; truncated: boolean; label: string } | null;
   /** Evidence — the counts everything above is derived from. */
   evidence: { label: string; value: string }[];
 };
@@ -218,9 +221,10 @@ export function reportSections(data: DailyTeamReportData): ReportSections {
   let rollup: ReportSections['rollup'] = null;
   if (data.rollup) {
     const content = data.rollup.content.trim();
-    const truncated = content.length > ROLLUP_EXCERPT_CHARS;
+    // A briefing the job was pointed at rides in full; the rollup is excerpted.
+    const truncated = !data.rollup.full && content.length > ROLLUP_EXCERPT_CHARS;
     const excerpt = truncated ? `${content.slice(0, ROLLUP_EXCERPT_CHARS).replace(/\s+\S*$/, '')}…` : content;
-    rollup = { title: data.rollup.title, publishedAt: `${STAMP_FMT.format(data.rollup.createdAt)} UTC`, excerpt, truncated };
+    rollup = { title: data.rollup.title, publishedAt: `${STAMP_FMT.format(data.rollup.createdAt)} UTC`, excerpt, truncated, label: data.rollup.label };
   }
 
   // --- Evidence -----------------------------------------------------------
@@ -283,7 +287,7 @@ export function reportMarkdown(data: DailyTeamReportData): string {
   }
   lines.push('');
   if (s.rollup) {
-    lines.push('## From the workspace briefing');
+    lines.push(`## From the ${s.rollup.label}`);
     lines.push('');
     lines.push(`_${s.rollup.title} — ${s.rollup.publishedAt}_`);
     lines.push('');

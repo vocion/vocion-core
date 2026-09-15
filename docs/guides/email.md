@@ -86,6 +86,32 @@ Apply the workspace (`npm run workspace:apply -- <path> --project <id>`) and
 the Temporal schedule is reconciled like every other automation. Fire it once by
 hand from `/dashboard/automation` to see the first report.
 
+### Mailing a team's own briefing
+
+By default the mail carries an excerpt of the **workspace rollup**. A workspace
+whose lead publishes a team briefing — the revenue workspace's
+"Revenue Briefing — <date>" from `revenue-lead` on team `revops` — can mail that
+instead: `input.briefing` selects the latest briefing for a team and/or agent,
+renders it **in full**, and makes its title the subject. The four questions and
+the team table still lead.
+
+```yaml
+# automations/morning-briefing-email.yaml  (metacto-revenue)
+slug: morning-briefing-email
+name: Email the morning revenue briefing
+agent: revenue-lead
+when:
+  schedule: '15 12 * * 1-5' # 15 minutes after morning-briefing publishes
+do:
+  job: daily-team-report
+  input:
+    briefing:
+      teamSlug: revops # and/or agentSlug: revenue-lead
+```
+
+If no briefing matches, the job falls back to the workspace rollup and the
+default subject.
+
 ### Job input
 
 | Field | Type | Default | Effect |
@@ -94,6 +120,7 @@ hand from `/dashboard/automation` to see the first report.
 | `hours` | number | `24` | Length of the trailing window. |
 | `mail` | boolean | `true` | `false` stores the briefing and sends nothing, even with the flag on. |
 | `publish` | boolean | `true` | `false` skips the briefing row (mail only). |
+| `briefing` | `{ teamSlug?, agentSlug? }` | — (workspace rollup) | Carry the latest matching team/agent briefing in full; its title becomes the subject. |
 
 ### What the job returns
 
@@ -132,7 +159,7 @@ npm run report:daily -- --org vocion-workforce --html /tmp/report.html   # eyeba
 | What needs me | the count and the lines behind it | pending `action_run`; mission / workflow / worker runs `awaiting_review` or `paused`; pending `learning_candidate`; open `ask` rows when that table exists |
 | Are we on track | a verdict (on track / watch / off track) with the signals: failure rate, stalled runs, members near a hard budget cap, one role carrying most of the spend | `worker_run`, `agent_budget`. KPI targets join this section once a team declares `kpis:` |
 | What happens next | what unblocks the team, when the next report lands | the needs-you count, the window length |
-| From the workspace briefing | the lead's own narrative, excerpted (≈1,200 chars) with a link to the rest | newest `briefing` with `team_slug` NULL that is not itself a previous daily report |
+| From the workspace briefing | the lead's own narrative, excerpted (≈1,200 chars) with a link to the rest — or a selected team briefing in full (`input.briefing`) | newest `briefing` with `team_slug` NULL (or matching the selector) that is not itself a previous daily report |
 | Teams and members | per team: % weight of spend, runs; per member: done/runs, failed, weight, board/red-team flags | `worker_run` grouped by `agent.team_slug`; inactive agents omitted, silent active ones shown with zeros |
 | Evidence | runs, completed, failed/lost, spend, tokens, board runs, red-team runs, needs-you — the numbers the sections above are derived from | the same rows |
 

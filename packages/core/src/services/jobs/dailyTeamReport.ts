@@ -5,6 +5,9 @@
  *     when: { schedule: '0 13 * * *' }
  *     do:   { job: daily-team-report, input: { to: [chris@example.com], hours: 24 } }
  *
+ *   Or, to mail a team's own briefing in full with its title as the subject:
+ *     do:   { job: daily-team-report, input: { briefing: { teamSlug: revops } } }
+ *
  * Collects the trailing window (`services/reports/dailyTeamReport.ts`),
  * renders it (`renderDailyTeamReport`), stores the markdown as a workspace-
  * rollup `briefing` so it is readable in-app whether or not mail is on, then
@@ -30,6 +33,12 @@ export type DailyTeamReportJobInput = {
   mail?: boolean;
   /** Skip storing the briefing row. Default false. */
   publish?: boolean;
+  /**
+   * Carry a specific briefing instead of the workspace rollup: the latest one
+   * for this team and/or agent, in full, with its title as the subject. The
+   * revenue workspace mails its `revops` "Revenue Briefing" this way.
+   */
+  briefing?: { teamSlug?: string; agentSlug?: string };
 };
 
 export type DailyTeamReportJobResult = {
@@ -54,7 +63,10 @@ export async function runDailyTeamReportJob(orgId: string, rawInput: Record<stri
   const until = new Date();
   const since = new Date(until.getTime() - hours * 60 * 60 * 1000);
 
-  const data = await collectDailyTeamReport(orgId, { since, until });
+  const briefing = input.briefing && typeof input.briefing === 'object'
+    ? { teamSlug: typeof input.briefing.teamSlug === 'string' ? input.briefing.teamSlug : undefined, agentSlug: typeof input.briefing.agentSlug === 'string' ? input.briefing.agentSlug : undefined }
+    : undefined;
+  const data = await collectDailyTeamReport(orgId, { since, until }, { briefing });
   const rendered = renderDailyTeamReport(data);
 
   let briefingId: number | null = null;

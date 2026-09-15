@@ -81,10 +81,17 @@ describe('collectDailyTeamReport', () => {
     const d = await collectDailyTeamReport(ORG, { since: new Date(NOW.getTime() - 24 * 3_600_000), until: NOW });
 
     expect(d.workspace).toEqual({ id: ORG, name: 'Vocion Workforce', slug: 'vocion-workforce', accountableEmail: 'chris@example.com' });
-    expect(d.totals).toMatchObject({ runs: 3, completed: 2, failed: 0, tokens: 1510, cents: 1005, kindsKnown: false });
+    expect(d.totals).toMatchObject({ runs: 3, completed: 2, failed: 0, tokens: 1510, cents: 1005 });
+    // `kindsKnown` follows the schema: false before the worker_run.kind migration, true after it.
+    expect(typeof d.totals.kindsKnown).toBe('boolean');
     expect(d.teams.map(t => [t.name, t.cents])).toEqual([['Executive', 900], ['Content', 105]]);
     expect(d.teams[1]!.members[0]).toMatchObject({ agentSlug: 'writer', runs: 2, completed: 1, weightPct: 10.4 });
-    expect(d.needsYou).toEqual({ pendingActions: 1, runsAwaitingReview: 1, runsPaused: 0, pendingLearningCandidates: 1, openAsks: null, total: 3 });
+
+    // `openAsks` is null before the ask table exists and a count after it — the probe follows the schema.
+    const { openAsks, ...needsYou } = d.needsYou;
+
+    expect([null, 0]).toContain(openAsks);
+    expect(needsYou).toEqual({ pendingActions: 1, runsAwaitingReview: 1, runsPaused: 0, pendingLearningCandidates: 1, total: 3 });
     expect(d.rollup).toMatchObject({ title: 'Workspace rollup — Mon' });
     expect(d.links.inbox).toBe('https://agents.example.com/dashboard/inbox');
   });
@@ -147,6 +154,21 @@ describe('daily-team-report job', () => {
 
     delete process.env.RESEND_API_KEY;
     delete process.env.VOCION_MAIL_FROM;
+  });
+
+  it('input.briefing carries a team briefing in full and uses its title as the subject', async () => {
+    const r = await runDailyTeamReportJob(ORG, { briefing: { teamSlug: 'content' }, publish: false });
+
+    expect(r.subject).toBe('Content brief');
+
+    const d = await collectDailyTeamReport(ORG, undefined, { briefing: { teamSlug: 'content', agentSlug: 'writer' } });
+
+    expect(d.rollup).toMatchObject({ title: 'Content brief', content: 'team only', full: true, label: 'content briefing' });
+
+    // no such briefing → fall back to the workspace rollup, default subject
+    const fallback = await collectDailyTeamReport(ORG, undefined, { briefing: { teamSlug: 'nope' } });
+
+    expect(fallback.rollup).toMatchObject({ title: 'Workspace rollup — Mon', full: false, label: 'workspace briefing' });
   });
 
   it('input.mail=false skips mail even when enabled', async () => {

@@ -77,7 +77,13 @@ export type DailyTeamReportData = {
   };
   teams: TeamStats[];
   needsYou: NeedsYou;
-  rollup: { id: number; title: string; content: string; createdAt: Date } | null;
+  /**
+   * The briefing the mail carries. Default: the latest workspace rollup,
+   * excerpted (`full: false`, `label: 'workspace briefing'`). When the job is
+   * pointed at a team's briefing (`input.briefing`), it is rendered in full
+   * and its title becomes the subject (`full: true`).
+   */
+  rollup: { id: number; title: string; content: string; createdAt: Date; full: boolean; label: string } | null;
   links: { inbox: string; teamReport: string; briefings: string };
   generatedAt: Date;
 };
