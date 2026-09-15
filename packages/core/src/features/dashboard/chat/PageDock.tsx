@@ -21,6 +21,7 @@ export const OWN_DOCK_ROUTES: RegExp[] = [/\/gtm\/lead\//];
 export const NO_DOCK_ROUTES: RegExp[] = [
   /\/dashboard\/inbox\/(?!g(?:\/|$))[^/]+$/,
   /\/dashboard\/inbox\/g\/[^/]+$/,
+  /\/dashboard\/inbox\/r\/[^/]+$/,
 ];
 
 /**
