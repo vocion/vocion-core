@@ -16,6 +16,7 @@
  * test can prove nested values survive the round trip.
  */
 import { describe, expect, it } from 'vitest';
+import { JSON_LD_BLOCK_CAP, LINK_CAP, LINK_TEXT_CAP, pageMetadata } from './pageMetadata';
 import { extractFromHtml } from './web';
 
 const JSON_LD_HEADING = 'Structured data (JSON-LD):';
@@ -353,5 +354,120 @@ describe('extractFromHtml, lazy-loaded images', () => {
 
     expect(content).not.toContain('[image');
     expect(content).toContain('Real text.');
+  });
+});
+
+/**
+ * A miniature whose whole output is small enough to assert byte for byte.
+ * `extractFromHtml` gained a third return field, and the browse tool
+ * (`libs/tools/browse/builtin.ts`) reads the same `content` the connector
+ * ingests — so this is the guard that says the text did not move.
+ */
+const SMALL_URL = 'https://ex.test/e';
+const SMALL_HTML = `<!doctype html><html><head><title>T</title>
+<meta property="og:image" content="/i.jpg">
+<script type="application/ld+json">{"@type":"Event","name":"N"}</script></head>
+<body><nav><a href="/nav">Nav</a></nav>
+<main><p>Hello <a href="/t">buy</a>.</p></main></body></html>`;
+
+const SMALL_CONTENT = [
+  'Image: https://ex.test/i.jpg',
+  '',
+  'Hello buy (https://ex.test/t).',
+  '',
+  'Structured data (JSON-LD):',
+  '{"@type":"Event","name":"N"}',
+].join('\n');
+
+describe('extractFromHtml, the content contract', () => {
+  it('returns exactly the text it always did', () => {
+    const { content } = extractFromHtml(SMALL_HTML, SMALL_URL);
+
+    expect(content).toBe(SMALL_CONTENT);
+  });
+
+  it('is unchanged by the structure it now also returns', () => {
+    const { content, structure } = extractFromHtml(SMALL_HTML, SMALL_URL);
+
+    expect(content).toBe(SMALL_CONTENT);
+    expect(structure?.jsonLd).toBeDefined();
+  });
+});
+
+describe('extractFromHtml, the structure it returns', () => {
+  it('returns the JSON-LD parsed, not re-stringified into the text', () => {
+    const { structure } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
+
+    expect(structure?.jsonLd).toHaveLength(1);
+    expect(structure?.jsonLd?.[0]).toMatchObject({
+      '@type': 'Event',
+      'startDate': '2026-11-01T00:00:00+00:00',
+      'offers': { price: '31.00-36.00', url: 'https://wl.seetickets.us/event/hey-arnold/702172' },
+    });
+  });
+
+  it('returns the og:image absolute, entities decoded', () => {
+    const { structure } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
+
+    expect(structure?.ogImage).toBe('https://highergroundmusic.com/?og_img=1&pid=40405');
+  });
+
+  it('returns every URL the page published, chrome included, though the text drops the chrome', () => {
+    const { content, structure } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
+    const urls = structure?.links?.map(link => link.url) ?? [];
+
+    expect(urls).toContain('https://highergroundmusic.com/venue-info/');
+    expect(urls).toContain('https://highergroundmusic.com/tickets/702172');
+    expect(content).not.toContain('Venue Info');
+  });
+
+  it('returns each URL once, with its link text', () => {
+    const { structure } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
+    const urls = structure?.links?.map(link => link.url) ?? [];
+
+    expect(occurrences(urls.join('\n'), 'https://highergroundmusic.com/tickets/702172')).toBe(1);
+    expect(structure?.links?.find(link => link.url.endsWith('/tickets/702172'))?.text).toBe('Buy now');
+  });
+
+  it('leaves out the fields the page has nothing for', () => {
+    const { structure } = extractFromHtml('<html><body><p>Just words.</p></body></html>');
+
+    expect(structure).toEqual({});
+  });
+});
+
+describe('pageMetadata, the blob that reaches the document row', () => {
+  it('omits empty parts, so a plain page still writes nothing extra', () => {
+    expect(pageMetadata(undefined)).toEqual({});
+    expect(pageMetadata({})).toEqual({});
+  });
+
+  it('caps the JSON-LD at whole blocks and says it truncated', () => {
+    const big = { padding: 'x'.repeat(30_000) };
+    const alsoBig = { padding: 'y'.repeat(30_000) };
+    const meta = pageMetadata({ jsonLd: [{ keep: 1 }, big, alsoBig] });
+
+    expect(meta.jsonLd).toEqual([{ keep: 1 }, big]);
+    expect(meta.truncated).toBe(true);
+  });
+
+  it('caps the block count too', () => {
+    const blocks = Array.from({ length: JSON_LD_BLOCK_CAP + 3 }, (_v, i) => ({ i }));
+    const meta = pageMetadata({ jsonLd: blocks });
+
+    expect(meta.jsonLd).toHaveLength(JSON_LD_BLOCK_CAP);
+    expect(meta.truncated).toBe(true);
+  });
+
+  it('caps the link list and slices link text', () => {
+    const links = Array.from({ length: LINK_CAP + 2 }, (_v, i) => ({
+      url: `https://ex.test/${i}`,
+      text: 'y'.repeat(LINK_TEXT_CAP + 50),
+    }));
+    const meta = pageMetadata({ links });
+
+    expect(meta.links).toHaveLength(LINK_CAP);
+    expect((meta.links as Array<{ text: string }>)[0]?.text).toHaveLength(LINK_TEXT_CAP);
+    expect(meta.truncated).toBe(true);
   });
 });
