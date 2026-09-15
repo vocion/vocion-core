@@ -449,6 +449,7 @@ export function useChatSession({
   }, []);
 
   const handleEvent = useCallback((evt: { type: string; [k: string]: unknown }) => {
+    window.dispatchEvent(new CustomEvent('vocion:agent-event', { detail: evt })); // R2 seam: canvas (features/dashboard/canvas/useArtifactEvents) listens for `artifact` events
     switch (evt.type) {
       case 'thinking':
         setPhase('thinking');

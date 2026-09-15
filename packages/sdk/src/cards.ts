@@ -25,10 +25,11 @@ import type { z, ZodTypeAny } from 'zod';
 
 /**
  * Where a Card can render. Different surfaces have different visual budgets
- * (chat is tight + inline; run-detail is wider + scrollable). A Card declares
- * the surfaces it knows how to render in.
+ * (chat is tight + inline; canvas is a full-size tile beside the conversation;
+ * run-detail is wider + scrollable). A Card declares the surfaces it knows how
+ * to render in.
  */
-export type CardSurface = 'chat' | 'workflow-run' | 'review-queue' | 'activity-feed';
+export type CardSurface = 'chat' | 'canvas' | 'workflow-run' | 'review-queue' | 'activity-feed';
 
 /**
  * Props passed to a Card's `Renderer`. `data` is the validated payload (it's

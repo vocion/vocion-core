@@ -13,6 +13,19 @@ import {
   remove as removeComment,
 } from './AnchoredComments';
 import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
+import {
+  exportCanvasRoute,
+  get as getArtifactRoute,
+  getCanvasRoute,
+  listForConversation as listArtifactsForConversationRoute,
+  listCanvasesRoute,
+  placeTiles as placeArtifactTilesRoute,
+  remove as removeArtifactRoute,
+  removeCanvasRoute,
+  saveCanvasRoute,
+  setPinned as setArtifactPinnedRoute,
+  updateSpec as updateArtifactSpecRoute,
+} from './Artifacts';
 import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
@@ -176,6 +189,21 @@ export const router = {
     create: createComment,
     apply: applyComment,
     delete: removeComment,
+  },
+  artifacts: {
+    listForConversation: listArtifactsForConversationRoute,
+    get: getArtifactRoute,
+    updateSpec: updateArtifactSpecRoute,
+    placeTiles: placeArtifactTilesRoute,
+    setPinned: setArtifactPinnedRoute,
+    remove: removeArtifactRoute,
+    canvases: {
+      save: saveCanvasRoute,
+      list: listCanvasesRoute,
+      get: getCanvasRoute,
+      remove: removeCanvasRoute,
+      exportPage: exportCanvasRoute,
+    },
   },
   conversations: {
     list: listConvs,

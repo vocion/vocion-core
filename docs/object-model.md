@@ -39,6 +39,8 @@ sweep. Field-by-field reference for each authored type:
 | Source sync | `SourceSyncService.runSync` | `sourceSyncCheckpointSchema` | `source_sync_checkpoint` | `/dashboard/sources`, Activity |
 | Workspace version | `applyWorkspace` | `workspaceVersionSchema` | `workspace_version` | `/dashboard/workspace` |
 | Conversation | chat SSE route | `conversationSchema` (+ messages) | `conversation`, `conversation_message` | `/dashboard/chat` |
+| Artifact | `render_table` / `render_markdown` / `render_chart` / `render_record` (and `create_artifact` files) via `ArtifactService` | `artifactSchema` | `artifact` | inline card in chat; tile on `/dashboard/chat/[id]?grid=open` |
+| Canvas | *Save canvas* on the expanded conversation | `canvasSchema` | `canvas` | `/dashboard/canvases`, reopen at `/dashboard/chat/[id]?canvas=<id>` |
 
 ## Deleted (2026-08, ADR 0003)
 

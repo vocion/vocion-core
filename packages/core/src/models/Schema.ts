@@ -2822,3 +2822,65 @@ export const chatChannelBindingSchema = pgTable(
     index('chat_channel_binding_org_idx').on(table.orgId),
   ],
 );
+
+/* ------------------------------------------------------------------ */
+/* Canvas — rendered output as data (migration 0095)                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * canvas — a named, saved arrangement of artifacts beside a conversation.
+ * `layout` mirrors each pinned artifact's `tile` at save time so a canvas can
+ * be reopened even after tiles move on the live conversation. Exportable as a
+ * workspace page (`libs/canvas/exportPage.ts`).
+ */
+export const canvasSchema = pgTable(
+  'canvas',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    layout: jsonb('layout').$type<Array<{ artifactId: number; slot: number; span: 1 | 2 | 3 }>>().default([]).notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => [
+    index('canvas_org_updated_idx').on(table.orgId, table.updatedAt),
+  ],
+);
+
+/**
+ * artifact — one thing an agent rendered: a data table, a markdown note, a
+ * chart, a record card, a link, or a file. `spec` is the typed card payload
+ * that `libs/cards` renders on the chat and canvas surfaces (validated by the
+ * `render_*` tool that wrote it). `tile` is its slot/span on the
+ * conversation's canvas; `pinned` = shown there. Files (the pre-0095
+ * `create_artifact` path) keep their served `url`.
+ */
+export const artifactSchema = pgTable(
+  'artifact',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
+    messageId: integer('message_id'),
+    canvasId: integer('canvas_id').references(() => canvasSchema.id, { onDelete: 'set null' }),
+    /** 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' */
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    spec: jsonb('spec').$type<Record<string, unknown>>().default({}).notNull(),
+    url: text('url'),
+    tile: jsonb('tile').$type<{ slot: number; span: 1 | 2 | 3 }>(),
+    pinned: boolean('pinned').default(true).notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => [
+    index('artifact_org_conversation_idx').on(table.orgId, table.conversationId, table.createdAt),
+    index('artifact_org_canvas_idx').on(table.orgId, table.canvasId),
+  ],
+);
