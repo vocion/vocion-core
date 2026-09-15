@@ -105,7 +105,10 @@ describe('InboxService — proposed actions', () => {
     const inbox = await listInbox(ORG);
 
     // Three rows: the deal's sheet, the enrollment, and the email (an address is its own record).
-    expect(inbox.tabs).toEqual({ open: 3, snoozed: 0, decided: 0 });
+    // The decided count is the fixture's one decided row, reported from the
+    // OPEN tab — a tab's count says what is behind it, not what the tab you
+    // are standing on happened to load (it read 0 here until 2026-09-15).
+    expect(inbox.tabs).toEqual({ open: 3, snoozed: 0, decided: 1 });
 
     const [first, second] = inbox.items; // oldest first
 
