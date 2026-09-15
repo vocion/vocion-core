@@ -1,8 +1,10 @@
+import type { Metadata } from 'next';
 import type { TeamAgent, TeamView, WorkspaceLeadView } from '@/services/TeamService';
 import { ArrowRight, TriangleAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
 import { createElement } from 'react';
+import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
 import {
   consultCoverage,
   hasOwnerAnywhere,
@@ -11,7 +13,7 @@ import {
 } from '@/features/dashboard/teams/helpers';
 import { OwnerChip } from '@/features/dashboard/teams/OwnerChip';
 import { TeamsEmptyState } from '@/features/dashboard/teams/TeamsEmptyState';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { combinedPageTitle } from '@/features/navigation/combinedPages';
 import { agentAccent } from '@/libs/agentAccents';
 import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -26,7 +28,13 @@ import { getWorkspaceLead, listTeamAgents, listTeams } from '@/services/TeamServ
  * explicit-vs-inherited provenance is labeled in plain text. Speaks only
  * names, roles, and teams — YAML stays in the empty/degraded states'
  * small print and behind team detail's "under the hood".
+ *
+ * The Teams tab of "Teams & agents" (nav sweep, 2026-09-15): the org chart
+ * and the roster are one thing seen two ways, so they share one page and a
+ * tab strip; `/dashboard/agents` is the other tab.
  */
+
+export const metadata: Metadata = { title: combinedPageTitle('/dashboard/teams') };
 
 export default async function TeamsPage(props: {
   params: Promise<{ locale: string }>;
@@ -69,19 +77,7 @@ function TeamsScreen({ workspace, teams, ungrouped }: {
 
   return (
     <>
-      <TitleBar
-        title={t('title_bar')}
-        description={t('title_bar_description')}
-        actions={(
-          <Link
-            href="/dashboard/agents"
-            className="inline-flex h-8 items-center gap-1 rounded-full px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
-          >
-            {t('all_agents')}
-            <ArrowRight className="size-3.5" aria-hidden />
-          </Link>
-        )}
-      />
+      <CombinedPageHeader active="/dashboard/teams" description={t('title_bar_description')} />
 
       {ownerless && (
         <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-border/70 px-4 py-2.5 text-sm text-[var(--brand-amber-deep)]">

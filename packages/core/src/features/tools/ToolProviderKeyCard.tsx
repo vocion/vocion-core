@@ -235,8 +235,8 @@ export function ToolProviderKeyCard(props: ToolProviderKeyCardProps) {
           <Button type="submit" size="sm" disabled={saving}>
             {saving ? 'Saving…' : saveLabel}
           </Button>
-          <Link href="/dashboard/api-tokens" className="text-xs text-muted-foreground hover:text-foreground">
-            Manage in API credentials
+          <Link href="/dashboard/developers" className="text-xs text-muted-foreground hover:text-foreground">
+            Manage in Developers
           </Link>
         </div>
       </form>

@@ -17,7 +17,9 @@ import en from '@/locales/en.json';
  *
  * `ManageView` is the other half of the pair Chris asked back for on
  * 2026-09-15 ("we lost nav access to workspace settings"): the visible row is
- * the way in, "Back to work" the way out, and both survive the icon rail.
+ * the way in, "Back to work" the way out, and both survive the icon rail. Its
+ * sections (Team · Knowledge · Build · Insights · Organization) and the WORK
+ * rows both come from `features/navigation/dashboardNav.ts`.
  */
 const PAGES = [
   { title: 'Deal desk', url: '/dashboard/p/deal-desk', section: 'Pages' },
