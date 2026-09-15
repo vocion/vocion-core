@@ -77,6 +77,7 @@ import {
   start as startMissionRoute,
   submitFeedback as submitMissionFeedbackRoute,
 } from './Missions';
+import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNavPins } from './Nav';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
@@ -151,6 +152,11 @@ export const router = {
   projects: {
     list: listProjects,
     setActive: setActiveProject,
+  },
+  nav: {
+    getPrefs: getNavPrefs,
+    setPins: setNavPins,
+    dismiss: dismissNavPrompt,
   },
   teams: {
     list: listTeamsRoute,

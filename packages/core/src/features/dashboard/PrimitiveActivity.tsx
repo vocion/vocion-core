@@ -58,7 +58,7 @@ function Cell({ label, value }: { label: React.ReactNode; value: number | string
   return (
     <div className="px-4 py-3 text-center">
       <div className="text-lg font-semibold tabular-nums">{value}</div>
-      <div className="mt-0.5 flex items-center justify-center gap-1 text-[10px] tracking-wide text-muted-foreground uppercase">
+      <div className="mt-0.5 flex items-center justify-center gap-1 text-[12px] text-muted-foreground">
         {label}
       </div>
     </div>

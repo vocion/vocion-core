@@ -20,7 +20,7 @@ const TASK_STATUS_TONE: Record<string, string> = {
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-background p-5">
-      <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</h2>
+      <h2 className="mb-3 text-xs font-medium text-muted-foreground">{title}</h2>
       {children}
     </section>
   );

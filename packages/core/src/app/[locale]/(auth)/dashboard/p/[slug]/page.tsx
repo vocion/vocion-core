@@ -353,7 +353,7 @@ export default async function WorkspacePage(props: {
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   {fields.map(f => (
-                    <th key={f.key} className="px-4 py-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    <th key={f.key} className="px-4 py-2 text-xs font-medium text-muted-foreground">
                       {f.label ?? f.key}
                     </th>
                   ))}

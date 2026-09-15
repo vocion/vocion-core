@@ -43,7 +43,7 @@ export default async function MissionsPage(props: { params: Promise<{ locale: st
           )
         : (
             <>
-              <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Standing missions</h2>
+              <h2 className="mb-3 text-xs font-medium text-muted-foreground">Standing missions</h2>
               <p className="mb-3 text-xs text-muted-foreground">
                 Missions with a schedule get checked on that cadence: the lead reviews the goal against current state, does only what's needed, and reports. Repeatable procedures should be Workflows instead.
               </p>

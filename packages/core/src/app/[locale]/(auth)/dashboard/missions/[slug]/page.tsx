@@ -84,7 +84,7 @@ export default async function MissionDetailPage(props: {
           <p className="text-sm leading-relaxed">{mission.goal}</p>
           {(mission.successCriteria ?? []).length > 0 && (
             <>
-              <h3 className="mt-4 mb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">Success criteria</h3>
+              <h3 className="mt-4 mb-1.5 text-xs font-medium text-muted-foreground">Success criteria</h3>
               <ul className="list-disc space-y-1.5 pl-5 text-sm text-foreground/85">
                 {(mission.successCriteria ?? []).map(c => <li key={c.slice(0, 40)}>{c}</li>)}
               </ul>
@@ -92,7 +92,7 @@ export default async function MissionDetailPage(props: {
           )}
           {(mission.desiredArtifacts ?? []).length > 0 && (
             <>
-              <h3 className="mt-4 mb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">Deliverables</h3>
+              <h3 className="mt-4 mb-1.5 text-xs font-medium text-muted-foreground">Deliverables</h3>
               <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
                 {(mission.desiredArtifacts ?? []).map(a => <li key={a.slice(0, 40)}>{a}</li>)}
               </ul>
@@ -110,12 +110,12 @@ export default async function MissionDetailPage(props: {
               <Link href={`/dashboard/agents/${mission.agentSlug}`} className="rounded-full border border-border px-2.5 py-1 font-medium hover:bg-muted">
                 {ownerAgent?.name ?? mission.agentSlug}
                 {' '}
-                <span className="text-[10px] text-muted-foreground uppercase">{ownerAgent?.role ?? 'agent'}</span>
+                <span className="text-[12px] text-muted-foreground">{ownerAgent?.role ?? 'agent'}</span>
               </Link>
             </div>
             {isLead && specialists.length > 0 && (
               <>
-                <h3 className="mt-4 mb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">Specialists it can hand off to</h3>
+                <h3 className="mt-4 mb-1.5 text-xs font-medium text-muted-foreground">Specialists it can hand off to</h3>
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   {specialists.map(s => (
                     <Link key={s.slug} href={`/dashboard/agents/${s.slug}`} className="rounded-full border border-border px-2.5 py-1 hover:bg-muted">

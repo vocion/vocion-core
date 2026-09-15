@@ -26,7 +26,19 @@
     "evals": "Evals",
     "docs": "Docs",
     "adoption": "Adoption",
-    "team_report": "Team report"
+    "needs_you": "Needs you",
+    "back_to_work": "Back to work",
+    "search_hint": "Search or ask…",
+    "pages": "Pages",
+    "pinned": "Pinned",
+    "more_pages": "More pages",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "team_report": "Team report",
+    "invite_title": "Invite team members",
+    "invite_body": "Bring the people who review and decide into this workspace.",
+    "invite_cta": "Invite",
+    "dismiss": "Dismiss"
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",
