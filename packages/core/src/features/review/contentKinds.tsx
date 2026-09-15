@@ -23,7 +23,14 @@ export type ContentRenderProps = {
   edit?: ContentEdit;
   onEdit?: (patch: ContentEdit) => void;
   defaultExpanded?: boolean;
+  /** Controlled expansion ("Edit all" on the page); the row's own toggle still works when undefined. */
+  expanded?: boolean;
   disabled?: boolean;
+  /**
+   * `inline` — the airy page presentation: no bordered inputs, the text sits
+   * in the flow and takes a soft fill only on focus. Default is the boxed card.
+   */
+  inline?: boolean;
 };
 
 const registry = new Map<string, ComponentType<ContentRenderProps>>();
@@ -51,42 +58,48 @@ function UnknownContent({ item }: ContentRenderProps) {
 }
 
 const fieldClass = 'w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none transition focus:border-brand-amber';
+// Inline editing: the text reads like text until you touch it (B-034b §2 —
+// soft fills, no chrome borders). The pencil on the row is the affordance.
+const inlineFieldClass = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm outline-none transition hover:bg-[var(--surface-hover,var(--muted))] focus:bg-[var(--surface-soft,var(--muted))]';
 
-function EmailContent({ item, position, edit, onEdit, defaultExpanded, disabled }: ContentRenderProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded ?? false);
+function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded: controlled, disabled, inline }: ContentRenderProps) {
+  const [own, setOwn] = useState(defaultExpanded ?? false);
+  const expanded = controlled ?? own;
+  const setExpanded = (fn: (e: boolean) => boolean) => setOwn(fn(expanded));
+  const field = inline ? inlineFieldClass : fieldClass;
   if (item.kind !== 'email') {
     return null;
   }
   const subject = edit?.subject ?? item.subject ?? '';
   const body = edit?.body ?? item.body;
   return (
-    <div className="border-b border-border/60 last:border-b-0">
+    <div className={inline ? 'border-b border-rule last:border-b-0' : 'border-b border-border/60 last:border-b-0'}>
       <button
         type="button"
         onClick={() => setExpanded(e => !e)}
         aria-expanded={expanded}
-        className="flex w-full items-center gap-3 py-3 text-left"
+        className={`group flex w-full items-center gap-3 py-3 text-left ${inline ? 'rounded-md transition hover:bg-[var(--surface-hover,var(--muted))]' : ''}`}
       >
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold">{position}</span>
+        <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${inline ? 'bg-muted/60 text-muted-foreground' : 'bg-muted'}`}>{position}</span>
         <span className="shrink-0 text-[13px] text-muted-foreground">{item.label}</span>
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{subject || body.split('\n')[0]}</span>
-        <PenLine className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
+        <span className={`min-w-0 flex-1 truncate text-sm ${inline ? 'font-medium' : 'font-semibold'}`}>{subject || body.split('\n')[0]}</span>
+        <PenLine className={`size-3.5 shrink-0 text-muted-foreground/60 ${inline ? 'opacity-0 transition group-hover:opacity-100' : ''}`} aria-hidden />
       </button>
       {expanded && (
         <div className="space-y-2 pb-3 pl-9">
           <label className="block">
-            <span className="mb-1 block text-[12px] font-medium text-muted-foreground">subject</span>
+            <span className={`mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground ${inline ? '' : 'uppercase'}`}>{inline ? 'Subject' : 'subject'}</span>
             <input
-              className={fieldClass}
+              className={field}
               value={subject}
               onChange={ev => onEdit?.({ subject: ev.target.value })}
               disabled={disabled || !onEdit}
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-[12px] font-medium text-muted-foreground">body</span>
+            <span className={`mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground ${inline ? '' : 'uppercase'}`}>{inline ? 'Body' : 'body'}</span>
             <textarea
-              className={`${fieldClass} min-h-28 resize-y leading-relaxed`}
+              className={`${field} min-h-28 resize-y leading-relaxed`}
               value={body}
               onChange={ev => onEdit?.({ body: ev.target.value })}
               disabled={disabled || !onEdit}

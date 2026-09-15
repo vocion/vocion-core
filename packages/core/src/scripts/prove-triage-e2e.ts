@@ -68,7 +68,7 @@ async function main(): Promise<void> {
     // Focus mode IS the page now — no button, no modal.
     const focus = page.getByTestId('review-focus');
     await focus.waitFor({ state: 'visible', timeout: 20_000 });
-    opened = (await page.getByText(/\d+ in queue/i).count()) > 0;
+    opened = (await page.getByTestId('queue-position').count()) > 0;
     const firstLabel = await page.locator('input').nth(1).inputValue().catch(() => null); // subject field of the focused item
 
     // Rewrite-with-AI on card 1 (a seeded gmail.send, newest → first): the body

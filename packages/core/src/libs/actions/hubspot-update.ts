@@ -33,7 +33,7 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
   // surface. Editing stays on the shell's property editor (input.properties).
   async reviewCard(_ctx, input) {
     return {
-      title: `Update HubSpot ${input.objectType.replace(/s$/, '')} record`,
+      title: `Update HubSpot ${input.objectType === 'companies' ? 'company' : input.objectType.replace(/s$/, '')} record`,
       system: 'HubSpot CRM',
       fields: [
         { label: 'Record', value: `${input.objectType}:${input.objectId}` },

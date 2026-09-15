@@ -1,86 +1,26 @@
 'use client';
 
-import type { ReviewCard } from '@/libs/actions/types';
-import { ArrowLeft, ArrowRight, Bookmark, Check, Loader2, Mail, RefreshCw, ShieldCheck, SkipForward, Sparkles, X } from 'lucide-react';
+import type { ActionRun } from '@/features/review/ReviewFocusView';
+import type { ReviewType } from '@/features/review/reviewQueueModel';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { TokenSelect } from '@/components/ui/token-select';
-import { ReviewActionCard } from '@/features/review/ReviewActionCard';
+import { describeAction, ReviewFocusView } from '@/features/review/ReviewFocusView';
+import { typeLabel } from '@/features/review/reviewQueueModel';
+import { shortcutFor } from '@/features/review/reviewShortcuts';
 import { client } from '@/libs/Orpc';
-import { useDockOpen } from './chat/dockState';
-import { upNextPage } from './upNextPage';
-
-/** One card type pending for the org, with its real count and registered name. */
-type ReviewType = { actionId: string; label: string; count: number };
 
 /**
- * Review — FOCUS MODE with a human header. Every item leads with WHAT is
- * being approved in plain language (the action, the system it touches, the
- * concrete changes). No raw payload anywhere on the surface: the run record
- * in the database is the debugging surface.
+ * Review — FOCUS MODE: one item at a time, decide and move on. This is the
+ * data half: the queue window, the type filter in the URL, skip/back/save,
+ * the generic edit-and-steer path, and the queue keyboard (`j`/`k`/`?`). The
+ * page itself is `features/review/ReviewFocusView`; the item's own decision
+ * (`a`/`d`/`s`) belongs to the card in page presentation.
  *
- * An action that presents a structured card renders through the shared
- * `ReviewActionCard` template — the same card, editing, note, snooze and
- * decide path every deciding surface uses. Actions without one keep the
- * generic layout below: steerable, editable in place. Back returns to the
- * previous item; the Up-next rail jumps anywhere. No popups. gmail.send
- * never auto-sends.
+ * No popups. gmail.send never auto-sends. The run record in the database is
+ * the debugging surface — no raw payload here.
  */
-
-type ActionRun = {
-  id: number;
-  actionId: string;
-  status: string;
-  input: Record<string, unknown>;
-  invokedBy: string | null;
-  createdAt: string | Date;
-  proposal: { confidence?: number; rationale?: string } | null;
-  /** In-flight regeneration stamp — the card disables itself on this server truth. */
-  regeneratingSince?: Date | string | null;
-  regenerateNote?: string | null;
-  /** The last execution failure — set on `failed` runs, which stay in the queue. */
-  error?: string | null;
-  /** Structured presentation, when the action defines one (server-built). */
-  card?: ReviewCard;
-};
-
-function tone(c?: number): string {
-  if (c === undefined) {
-    return 'bg-muted text-muted-foreground';
-  }
-  if (c >= 0.85) {
-    return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
-  }
-  if (c >= 0.7) {
-    return 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
-  }
-  return 'bg-orange-500/10 text-orange-600 dark:text-orange-400';
-}
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
-
-/**
- * The human answer to "what am I approving?" — action verb + target system +
- * object, derived from the registered action id and its input.
- * @param p
- */
-function describeAction(p: ActionRun): { title: string; system: string; isEmail: boolean } {
-  const input = p.input;
-  // An action that presents itself wins — one definition, consistent cards.
-  if (p.card) {
-    return { title: p.card.title, system: p.card.system ?? p.actionId.split('.')[0] ?? 'system', isEmail: false };
-  }
-  if (p.actionId === 'gmail.send') {
-    const draft = input.draft === true;
-    return { title: `${draft ? 'Draft email' : 'SEND email'} → ${str(input.to) || 'recipient'}`, system: 'Gmail', isEmail: true };
-  }
-  if (p.actionId.startsWith('hubspot.')) {
-    const objectType = str(input.objectType) || 'record';
-    return { title: `Update HubSpot ${objectType.replace(/s$/, '')} record`, system: 'HubSpot CRM', isEmail: false };
-  }
-  return { title: p.actionId, system: p.actionId.split('.')[0] ?? 'system', isEmail: false };
-}
 
 export function ReviewFocus() {
   const router = useRouter();
@@ -89,7 +29,6 @@ export function ReviewFocus() {
   // sent to whoever should work it. Repeated `?type=` params, so several card
   // types can be worked as one queue.
   const activeTypes = params.getAll('type').flatMap(v => v.split(',')).filter(Boolean);
-  // The array identity changes every render; the VALUE is what the fetch depends on.
   const typeKey = activeTypes.join(',');
   const [items, setItems] = useState<ActionRun[]>([]);
   const [types, setTypes] = useState<ReviewType[]>([]);
@@ -103,12 +42,13 @@ export function ReviewFocus() {
   const [steer, setSteer] = useState('');
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [decided, setDecided] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       // The filter goes to the SERVER, so a filtered queue draws its whole
-      // window from the matching rows. Filtering the fetched page instead
-      // would show whichever of the newest 50 happened to match.
+      // window from the matching rows.
       const chosen = typeKey === '' ? [] : typeKey.split(',');
       const [page, present] = await Promise.all([
         client.review.listPendingActions(chosen.length > 0 ? { actionIds: chosen } : {}),
@@ -143,42 +83,12 @@ export function ReviewFocus() {
     router.push(search ? `/dashboard/review?${search}` : '/dashboard/review');
   };
 
-  const typeTotal = types.reduce((sum, t) => sum + t.count, 0);
-  const filter = (
-    <div className="mb-4" data-testid="review-type-filter">
-      <TokenSelect
-        label="Filter by card type"
-        options={types.map(t => ({ value: t.actionId, label: t.label, count: t.count }))}
-        selected={activeTypes}
-        onChange={selectTypes}
-        placeholder="Filter"
-        emptyLabel={`All types · ${typeTotal}`}
-      />
-    </div>
-  );
-
   const queue = [...items.filter(i => !skipped.has(i.id)), ...items.filter(i => skipped.has(i.id))];
-  const current = (pinnedId != null && items.find(i => i.id === pinnedId)) || queue[0];
-  // The Up-next rail gives way to the conversation dock: folded to its header
-  // while the dock is open, unless the person opens it by hand; the hand
-  // choice resets when the dock changes (Valerie, 2026-09-10). "+N more"
-  // grows the list by a page of fifty per click.
-  const dockOpen = useDockOpen();
-  const [railChoice, setRailChoice] = useState<boolean | null>(null);
-  const [railExpansions, setRailExpansions] = useState(0);
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
-    setRailChoice(null);
-  }, [dockOpen]);
-  const railFolded = railChoice ?? dockOpen;
-  const [loadingMore, setLoadingMore] = useState(false);
-  /**
-   * "+N more": widen the rail's window by a page and, when the loaded queue is
-   * shorter than the queue itself, fetch the next page from the server and
-   * append it (deduped by id, since the queue can move under us).
-   */
-  const showMoreUpNext = useCallback(async () => {
-    setRailExpansions(n => n + 1);
+  const current = (pinnedId != null && items.find(i => i.id === pinnedId)) || queue[0] || null;
+  const index = current ? queue.findIndex(i => i.id === current.id) : -1;
+
+  /** Widen the loaded window by a page when the Up-next menu asks for more. */
+  const loadMore = useCallback(async () => {
     if (items.length >= total || loadingMore) {
       return;
     }
@@ -196,14 +106,13 @@ export function ReviewFocus() {
       });
       setTotal(page.total);
     } catch {
-      /* the window still widened over what is loaded; the next click retries */
+      /* the next open retries */
     } finally {
       setLoadingMore(false);
     }
   }, [items.length, total, loadingMore, typeKey]);
-  const desc = current ? describeAction(current) : null;
 
-  // Editable working copy of the item's human fields.
+  // Editable working copy of a presenter-less item's human fields.
   useEffect(() => {
     setSteer('');
     if (!current) {
@@ -268,7 +177,7 @@ export function ReviewFocus() {
     if (!current) {
       return undefined;
     }
-    if (desc?.isEmail) {
+    if (describeAction(current).isEmail) {
       return { ...current.input, ...edited };
     }
     if (current.input.properties) {
@@ -293,10 +202,9 @@ export function ReviewFocus() {
     }
   };
 
-  // The shared card owns its own decide/snooze; this just drops the item.
-  // A regenerate is NOT a decision: the card holds its place — pinned, so the
-  // queue cannot advance past it — and neither the queue count nor the
-  // decided counter moves.
+  // The card owns its own decide/snooze; this just drops the item. A
+  // regenerate is NOT a decision: the card holds its place — pinned, so the
+  // queue cannot advance past it.
   const onCardDecided = (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => {
     if (!current) {
       return;
@@ -310,8 +218,6 @@ export function ReviewFocus() {
     setDecided(d => d + 1);
   };
 
-  // The regeneration completed: refetch so the SAME pinned card re-renders
-  // with the new content — same run id, no duplicate, no queue shuffle.
   const onCardRegenerated = () => {
     void refresh();
   };
@@ -323,7 +229,6 @@ export function ReviewFocus() {
     setSteering(true);
     try {
       const res = await client.review.rewriteDraft({ runId: current.id, hint: steer.trim() || undefined });
-      // The rewrite lands in the long-text field (body or notes).
       setEdited(e => ('body' in e ? { ...e, body: res.body } : { ...e, notes: res.body }));
       setSteer('');
     } catch {
@@ -333,215 +238,71 @@ export function ReviewFocus() {
     }
   };
 
-  if (!loaded) {
-    return <div className="flex justify-center py-16"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
-  }
+  // Queue keyboard: j next, k back, ? help. Approve/decline/snooze on a card
+  // item are the card's keys; a generic item takes them here.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const action = shortcutFor({ key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, target: e.target as HTMLElement | null });
+      if (!action) {
+        return;
+      }
+      if (action === 'next') {
+        e.preventDefault();
+        onSkip();
+      } else if (action === 'prev') {
+        e.preventDefault();
+        onBack();
+      } else if (action === 'help') {
+        e.preventDefault();
+        setShowHelp(h => !h);
+      } else if (current && !current.card && !busy && !steering) {
+        if (action === 'approve') {
+          e.preventDefault();
+          void onDecide('approve');
+        } else if (action === 'decline') {
+          e.preventDefault();
+          void onDecide('reject');
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
-  if (!current || !desc) {
-    const chosen = types.filter(ty => activeTypes.includes(ty.actionId));
-    const chosenLabel = chosen.length === 1 ? chosen[0]!.label : null;
-    return (
-      <>
-        {filter}
-        <div className="rounded-2xl border border-border px-6 py-12 text-center">
-          <ShieldCheck className="mx-auto size-8 text-brand-amber-deep" aria-hidden />
-          <div className="mt-2 text-base font-semibold">
-            {chosenLabel
-              ? `No ${chosenLabel} cards left`
-              : activeTypes.length > 0 ? 'None of these types left' : 'All caught up'}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {decided > 0 ? `${decided} handled this session. ` : ''}
-            {activeTypes.length > 0
-              ? 'Other card types are still waiting — clear the filter to see them.'
-              : 'New agent proposals land here for your decision.'}
-          </p>
-        </div>
-      </>
-    );
-  }
-
-  const pct = current.proposal?.confidence !== undefined ? Math.round(current.proposal.confidence * 100) : null;
-  const fieldClass = 'w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none transition focus:border-brand-amber';
-  const longField = desc.isEmail ? 'body' : 'notes';
+  const upNext = queue
+    .filter(i => i.id !== current?.id)
+    .slice(0, 10)
+    .map(i => ({ id: i.id, title: describeAction(i).title, typeLabel: typeLabel(types, i.actionId) }));
 
   return (
-    <>
-      {filter}
-      <div className="flex gap-6" data-testid="review-focus">
-        <div className="min-w-0 flex-1">
-          <div className="mb-2 flex items-center justify-between px-1">
-            <button
-              type="button"
-              onClick={onBack}
-              disabled={history.length === 0}
-              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition enabled:hover:text-foreground disabled:opacity-40"
-            >
-              <ArrowLeft className="size-3.5" aria-hidden />
-              Back
-            </button>
-            {/* The queue's real size, not the window's: a page of 50 out of 557
-              pending items reads as "50 in queue" and hides the backlog. */}
-            <span className="font-mono text-[11px] text-muted-foreground" title={total > queue.length ? `${queue.length} loaded of ${total} matching` : undefined}>
-              {total}
-              {' '}
-              in queue
-            </span>
-          </div>
-
-          {current.card && (
-            <ReviewActionCard run={{ ...current, card: current.card }} onDecided={onCardDecided} onRegenerated={onCardRegenerated} />
-          )}
-
-          {!current.card && (
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              {/* WHAT am I approving — plain language, system badge, then why. */}
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-amber-tint text-brand-amber-deep">
-                  {desc.isEmail ? <Mail className="size-4" aria-hidden /> : <RefreshCw className="size-4" aria-hidden />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-base leading-snug font-semibold break-words">{desc.title}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[12px] font-medium">{desc.system}</span>
-                    {pct !== null && (
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tone(current.proposal?.confidence)}`}>
-                        {pct}
-                        %
-                      </span>
-                    )}
-                    {current.input.draft === true && <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">dry run → Drafts</span>}
-                    {current.invokedBy && <span className="text-[11px] text-muted-foreground">{current.invokedBy.replace('agent:', 'proposed by ')}</span>}
-                  </div>
-                </div>
-              </div>
-              {/* Card-carrying runs render through ReviewActionCard above; here the rationale is the surface. */}
-              {current.proposal?.rationale && <p className="mt-3 text-sm break-words text-foreground/85">{current.proposal.rationale}</p>}
-
-              {/* The concrete changes — every field editable; your version is what runs. */}
-              <div className="mt-4 space-y-2">
-                {Object.entries(edited).map(([k, v]) => (
-                  k === longField
-                    ? (
-                        <label key={k} className="block">
-                          <span className="mb-1 block text-[12px] font-medium text-muted-foreground">{k}</span>
-                          <textarea className={`${fieldClass} min-h-32 resize-y leading-relaxed`} value={v} onChange={ev => setEdited(e => ({ ...e, [k]: ev.target.value }))} disabled={busy || steering} />
-                        </label>
-                      )
-                    : (
-                        <label key={k} className="block">
-                          <span className="mb-1 block text-[12px] font-medium text-muted-foreground">{k}</span>
-                          <input className={fieldClass} value={v} onChange={ev => setEdited(e => ({ ...e, [k]: ev.target.value }))} disabled={busy || steering} />
-                        </label>
-                      )
-                ))}
-              </div>
-
-              {/* Steer — tell the agent what to change; it rewrites, you re-review. */}
-              <div className="mt-3 flex items-center gap-2">
-                <input
-                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-brand-amber"
-                  placeholder="Steer the agent — e.g. shorter, mention the July 20 call, firmer ask"
-                  value={steer}
-                  onChange={ev => setSteer(ev.target.value)}
-                  disabled={busy || steering}
-                  onKeyDown={(ev) => {
-                    if (ev.key === 'Enter') {
-                      ev.preventDefault();
-                      void onSteer();
-                    }
-                  }}
-                />
-                <Button size="sm" variant="outline" onClick={() => void onSteer()} disabled={busy || steering}>
-                  {steering ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                  Rewrite
-                </Button>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Button size="sm" variant="ghost" onClick={onSkip} disabled={busy}>
-                  <SkipForward className="size-3.5" />
-                  Skip
-                </Button>
-                <Button size="sm" variant="outline" onClick={onSave} disabled={busy}>
-                  <Bookmark className="size-3.5" />
-                  Save for later
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => void onDecide('reject')} disabled={busy}>
-                  <X className="size-3.5" />
-                  Reject
-                </Button>
-                <Button size="sm" onClick={() => void onDecide('approve')} disabled={busy}>
-                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-                  {desc.isEmail ? (current.input.draft === true ? 'Approve → draft' : 'Approve & send') : 'Approve'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Up-next rail — jump anywhere; Back returns. Folds to its header
-            while the dock is open; "+N more" pages the list by fifty. */}
-        {queue.length > 1 && (() => {
-          const others = queue.filter(i => i.id !== current.id);
-          // Counted against the whole queue, not just what is loaded: "+141
-          // more" with 150 in the queue, however many rows the page holds.
-          const upNextTotal = Math.max(total - 1, others.length);
-          const { shown, remaining } = upNextPage(upNextTotal, railExpansions);
-          return (
-            <aside aria-label="Up next" className={`hidden shrink-0 lg:block ${railFolded ? 'w-auto' : 'w-64'}`}>
-              <div className="mb-2 flex items-center gap-2 px-1 text-[12px] font-medium tracking-[0.1em] text-muted-foreground">
-                <span>
-                  Up next
-                  {railFolded ? ` · ${upNextTotal}` : ''}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setRailChoice(!railFolded)}
-                  className="rounded px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-muted-foreground normal-case transition hover:bg-muted hover:text-foreground"
-                  aria-expanded={!railFolded}
-                >
-                  {railFolded ? 'Show' : 'Hide'}
-                </button>
-              </div>
-              {!railFolded && (
-                <ul className="space-y-1.5">
-                  {others.slice(0, shown).map((item) => {
-                    const d = describeAction(item);
-                    return (
-                      <li key={item.id}>
-                        <button
-                          type="button"
-                          onClick={() => goTo(item.id)}
-                          className="group flex w-full items-center gap-2 rounded-lg border border-border/60 px-2.5 py-2 text-left text-xs transition hover:border-brand-amber/40"
-                        >
-                          <span className="min-w-0 flex-1 truncate">{d.title}</span>
-                          <ArrowRight className="size-3 shrink-0 text-muted-foreground/50 transition group-hover:text-brand-amber-deep" aria-hidden />
-                        </button>
-                      </li>
-                    );
-                  })}
-                  {remaining > 0 && (
-                    <li>
-                      <button
-                        type="button"
-                        onClick={() => void showMoreUpNext()}
-                        disabled={loadingMore}
-                        className="w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-60"
-                      >
-                        +
-                        {remaining}
-                        {' '}
-                        more
-                      </button>
-                    </li>
-                  )}
-                </ul>
-              )}
-            </aside>
-          );
-        })()}
-      </div>
-    </>
+    <ReviewFocusView
+      loaded={loaded}
+      types={types}
+      activeTypes={activeTypes}
+      onChangeTypes={selectTypes}
+      current={current}
+      index={index}
+      total={total}
+      upNext={upNext}
+      onSkipTo={goTo}
+      onLoadMore={items.length < total ? () => void loadMore() : undefined}
+      canBack={history.length > 0}
+      onBack={onBack}
+      onSkip={onSkip}
+      onSave={onSave}
+      onCardDecided={onCardDecided}
+      onCardRegenerated={onCardRegenerated}
+      edited={edited}
+      onEditField={(k, v) => setEdited(e => ({ ...e, [k]: v }))}
+      steer={steer}
+      onSteerChange={setSteer}
+      onSteer={() => void onSteer()}
+      steering={steering}
+      busy={busy}
+      onDecide={d => void onDecide(d)}
+      decided={decided}
+      showHelp={showHelp}
+      onToggleHelp={() => setShowHelp(h => !h)}
+    />
   );
 }

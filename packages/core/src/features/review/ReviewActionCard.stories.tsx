@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
+import { NextIntlClientProvider } from 'next-intl';
+import messages from '@/locales/en.json';
 import { ReviewActionCard } from './ReviewActionCard';
 
 /**
@@ -12,6 +14,9 @@ const meta: Meta<typeof ReviewActionCard> = {
   title: 'Review/ReviewActionCard',
   component: ReviewActionCard,
   parameters: { layout: 'padded' },
+  // The page presentation's sticky bar reads the Review messages; the card
+  // presentation needs no provider but tolerates one.
+  decorators: [Story => <NextIntlClientProvider locale="en" messages={messages}><Story /></NextIntlClientProvider>],
 };
 
 export default meta;
@@ -170,4 +175,14 @@ export const RegenerationStale: Story = {
       regenerateNote: 'Send 2 is too pushy — soften the ask.',
     },
   },
+};
+
+/**
+ * The Review page presentation of the same MQL card: no outer box, hairline
+ * sections, the header owned by the page, and the decision in a sticky bar.
+ */
+export const PagePresentation: Story = {
+  args: { ...MqlEnrollment.args, presentation: 'page' },
+  parameters: { layout: 'fullscreen' },
+  decorators: [Story => <div className="mx-auto max-w-5xl px-6 py-4"><Story /></div>],
 };
