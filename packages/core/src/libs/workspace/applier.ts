@@ -1,7 +1,10 @@
 import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
+import type { ProcessorRef } from '@/libs/sources/processor';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { listProcessorSlugs, processorConfigSchema } from '@/libs/processors/registry';
 import { withManifestDir } from '@/libs/sources/manifestDir';
+import { withProcessor } from '@/libs/sources/processor';
 import { getConnector } from '@/libs/sources/registry';
 import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
@@ -193,9 +196,15 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // created sources are excluded: their credentials arrive via the Sources UI
   // after apply, so an immediate sync could only fail.
   const configChangedSourceSlugs = new Set<string>();
+  // Only paid for when a source declares a processor: two reads, so that a
+  // typo'd learning step or agent fails one source's apply rather than
+  // degrading every run afterwards.
+  const processorNames = loaded.sources.some(src => src.processor)
+    ? await knownProcessorNames(orgId, loaded)
+    : { learningSteps: new Set<string>(), agentSlugs: new Set<string>() };
   for (const src of loaded.sources) {
     try {
-      const outcome = await upsertSource(orgId, src, dryRun);
+      const outcome = await upsertSource(orgId, src, dryRun, processorNames);
       bump(counts.sources, outcome);
       if (outcome === 'updated' && src.enabled) {
         configChangedSourceSlugs.add(src.slug);
@@ -988,13 +997,75 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
   return 'updated';
 }
 
-async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean): Promise<UpsertOutcome> {
+/** What a processor's config may name, resolved once per apply. */
+type KnownProcessorNames = {
+  /** Learning step names that exist for this org, or will by the end of this apply. */
+  learningSteps: Set<string>;
+  /** Agent slugs, same. */
+  agentSlugs: Set<string>;
+};
+
+/**
+ * The learning steps and agents a processor config is allowed to name.
+ *
+ * Both the stored rows and the ones this apply is about to write: steps are
+ * applied before sources, but a DRY run writes nothing, so reading the tables
+ * alone would fail the first apply of a workspace that declares both.
+ * @param orgId - Org being applied to.
+ * @param loaded - The workspace being applied.
+ */
+async function knownProcessorNames(orgId: string, loaded: LoadedWorkspace): Promise<KnownProcessorNames> {
+  const [steps, agents] = await Promise.all([
+    db.select({ name: learningStepSchema.name }).from(learningStepSchema).where(eq(learningStepSchema.orgId, orgId)),
+    db.select({ slug: agentSchema.slug }).from(agentSchema).where(eq(agentSchema.orgId, orgId)),
+  ]);
+  return {
+    learningSteps: new Set([...steps.map(r => r.name), ...loaded.learningSteps.map(s => s.name)]),
+    agentSlugs: new Set([...agents.map(r => r.slug), ...loaded.agents.map(a => a.slug)]),
+  };
+}
+
+/**
+ * Validate a source's `processor:` block, and return what gets stamped into
+ * `config_json`.
+ *
+ * Everything checked here would otherwise fail at run time, once per document,
+ * for as long as nobody noticed: `getLearnings` throws on an unknown step, and
+ * a mistyped agent slug degrades the learning loop silently. The stored blob
+ * is the AUTHORED config, not the parsed one, so a later change to a default
+ * does not rewrite every source row.
+ * @param src - The source manifest declaring the processor.
+ * @param known - What its config may name.
+ */
+function validateProcessor(src: LoadedSource, known: KnownProcessorNames): ProcessorRef | undefined {
+  if (!src.processor) {
+    return undefined;
+  }
+  const schema = processorConfigSchema(src.processor.slug);
+  if (!schema) {
+    throw new Error(`source "${src.slug}" references unknown processor: "${src.processor.slug}". Registered: ${listProcessorSlugs().join(', ')}`);
+  }
+  // Throws ZodError on bad input, same as the connector config above.
+  const parsed = schema.parse(src.processor.config) as { learningSteps?: string[]; agentSlug?: string };
+  for (const step of parsed.learningSteps ?? []) {
+    if (!known.learningSteps.has(step)) {
+      throw new Error(`source "${src.slug}" processor names unknown learning step: "${step}"`);
+    }
+  }
+  if (parsed.agentSlug && !known.agentSlugs.has(parsed.agentSlug)) {
+    throw new Error(`source "${src.slug}" processor names unknown agent: "${parsed.agentSlug}"`);
+  }
+  return { slug: src.processor.slug, config: src.processor.config };
+}
+
+async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean, known: KnownProcessorNames): Promise<UpsertOutcome> {
   const connector = getConnector(src.kind);
   if (!connector) {
     throw new Error(`source "${src.slug}" references unknown connector kind: "${src.kind}". Registered: ${Array.from(new Set(['web', 'local-files'])).join(', ')}`);
   }
   // Validate the per-connector config blob. Throws ZodError on bad input.
   connector.configSchema.parse(src.config);
+  const processor = validateProcessor(src, known);
 
   const [existing] = await db
     .select()
@@ -1010,11 +1081,17 @@ async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean): 
   // against the manifest rather than against WORKSPACE_PATH. For a
   // manifest at the workspace root the two are the same path, which is
   // why this is backwards compatible.
+  //
+  // `_processor` is the same convention again: the per-document stage that
+  // runs after ingestion, absent from the blob entirely when none is declared.
   const payload = {
     orgId,
     slug: src.slug,
     kind: 'plugin' as const,
-    configJson: withManifestDir({ ...src.config, _connector: src.kind }, src.manifestDir) as Record<string, unknown>,
+    configJson: withProcessor(
+      withManifestDir({ ...src.config, _connector: src.kind }, src.manifestDir),
+      processor,
+    ) as Record<string, unknown>,
     accessPolicy: src.access ?? null,
     enabled: String(src.enabled),
   };

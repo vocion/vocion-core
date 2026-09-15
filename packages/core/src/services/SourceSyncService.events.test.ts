@@ -29,7 +29,9 @@ vi.mock('@/services/IngestionService', () => ({
   ensureSource: vi.fn(async () => ({ sourceId: 1, orgId: 'org', sourceSlug: 'kb' })),
   markSourceSynced: vi.fn(async () => {}),
   deleteDocumentsGoneFromSource: vi.fn(async () => ({ deleted: 0 })),
-  ingestDocument: vi.fn(async () => ({ status: 'created' })),
+  // A real ingest answers with the document's id. Neither suite declares a
+  // `_processor`, so the post-ingest hook never fires here either way.
+  ingestDocument: vi.fn(async () => ({ status: 'created', documentId: 1, chunks: 1 })),
 }));
 
 const { z } = await import('zod');
