@@ -1,20 +1,25 @@
-import type { Inbox, InboxGroup, InboxItem } from '@/services/InboxService';
-import { ArrowUpRight, ChevronRight } from 'lucide-react';
-import { Link } from '@/libs/I18nNavigation';
+import type { Inbox, InboxGroup, InboxTab } from '@/services/InboxService';
 import { INBOX_GROUPS } from '@/services/InboxService';
-import { INBOX_GROUP_META, KIND_LABEL, riskTone, waitingFor } from './inboxMeta';
+import { INBOX_GROUP_META } from './inboxMeta';
+import { InboxRow } from './InboxRow';
 
 /**
- * The "Needs you" list: one section per group, longest-waiting first, one
- * column. A row is title + kind chip + who asked + age + risk and nothing
- * else — the question itself is read on its own screen. An ask or a decision
- * sheet opens here; a review item, a run, a suggested rule go to their native
- * surface.
+ * The "Needs you" list: one section per group, hairline dividers, 44px rows.
+ * On the decided and snoozed tabs there is one flat list — grouping by kind
+ * is for deciding, not for reading history.
  * @param props
  * @param props.inbox
+ * @param props.tab
  * @param props.only - Show one group only (the chip filter).
  */
-export function InboxList({ inbox, only }: { inbox: Inbox; only?: InboxGroup | null }) {
+export function InboxList({ inbox, tab, only }: { inbox: Inbox; tab: InboxTab; only?: InboxGroup | null }) {
+  if (tab !== 'open') {
+    return (
+      <ul className="divide-y divide-border border-y border-border">
+        {inbox.items.map(item => <InboxRow key={item.key} item={item} tab={tab} />)}
+      </ul>
+    );
+  }
   const groups = INBOX_GROUPS.filter(g => (only ? g === only : true) && inbox.counts[g] > 0);
   return (
     <div className="space-y-6">
@@ -23,46 +28,23 @@ export function InboxList({ inbox, only }: { inbox: Inbox; only?: InboxGroup | n
         const Icon = meta.icon;
         return (
           <section key={group} aria-labelledby={`inbox-${group}`}>
-            <div className="mb-1.5 flex items-center gap-2 px-1">
-              <Icon className="size-4 text-muted-foreground" aria-hidden />
-              <h2 id={`inbox-${group}`} className="text-sm font-semibold">{meta.label}</h2>
-              <span className="text-xs text-muted-foreground tabular-nums">{inbox.counts[group]}</span>
+            <div className="mb-1 flex items-center gap-2 px-3">
+              <Icon className="size-3.5 text-muted-foreground" aria-hidden />
+              <h2 id={`inbox-${group}`} className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{meta.label}</h2>
+              <span className="text-xs text-muted-foreground/70 tabular-nums">{inbox.counts[group]}</span>
+              <span className="ml-auto hidden text-[11px] text-muted-foreground/70 md:flex md:gap-3">
+                <span className="w-12 text-right">conf.</span>
+                <span className="w-20 text-right">amount</span>
+                <span className="w-12 text-right">age</span>
+                <span className="w-[76px]" />
+              </span>
             </div>
-            <div className="rounded-md border border-border">
-              {inbox.items.filter(i => i.group === group).map(item => <Row key={item.key} item={item} />)}
-            </div>
+            <ul className="divide-y divide-border border-y border-border">
+              {inbox.items.filter(i => i.group === group).map(item => <InboxRow key={item.key} item={item} tab={tab} />)}
+            </ul>
           </section>
         );
       })}
     </div>
-  );
-}
-
-function Row({ item }: { item: InboxItem }) {
-  const opensHere = item.kind === 'sheet' || item.askId !== undefined;
-  const who = item.agentSlug ?? (item.teamSlug ? `team ${item.teamSlug}` : null);
-  return (
-    <Link
-      href={item.href}
-      className="flex min-h-14 items-center gap-3 border-b border-border px-3 py-2.5 transition last:border-0 hover:bg-muted/40 active:bg-muted/60"
-    >
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm leading-snug font-medium">{item.title}</span>
-        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span className="rounded-full border border-border px-1.5 py-px text-[10px] font-medium">{KIND_LABEL[item.kind] ?? item.kind}</span>
-          {item.kind === 'sheet' && item.count ? <span>{`${item.count} questions`}</span> : null}
-          {who && <span className="truncate">{who}</span>}
-          <span className="tabular-nums" title={item.at.toLocaleString()}>{waitingFor(item.at)}</span>
-        </span>
-      </span>
-      {item.risk && (
-        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase ${riskTone(item.risk)}`}>
-          {item.risk}
-        </span>
-      )}
-      {opensHere
-        ? <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        : <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
-    </Link>
   );
 }

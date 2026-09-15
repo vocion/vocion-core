@@ -47,8 +47,22 @@ const FIXED_ROWS: AskOption[] = [
  * @param props
  * @param props.asks - The OPEN asks to answer, in order.
  * @param props.title - The sheet's title (a group's `groupTitle`).
+ * @param props.endpoint
+ * @param props.allowOther
  */
-export function AskSheet({ asks, title }: { asks: SheetAsk[]; title?: string | null }) {
+export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true }: {
+  asks: SheetAsk[];
+  title?: string | null;
+  /**
+   * Where a decision is written. `ask` → `POST /api/v1/asks/:id/decide`;
+   * `review` → `POST /api/v1/reviews/decide` for a proposed action (the id is
+   * the action run), which enforces the same `approve` capability the review
+   * page does — the sheet never bypasses it.
+   */
+  endpoint?: 'ask' | 'review';
+  /** Offer the free-text "Other" row. Off for review items, which are approve/reject. */
+  allowOther?: boolean;
+}) {
   const router = useRouter();
   const multi = asks.length > 1;
   const [index, setIndex] = useState(0);
@@ -82,12 +96,19 @@ export function AskSheet({ asks, title }: { asks: SheetAsk[]; title?: string | n
 
   async function submitOne(ask: SheetAsk): Promise<Outcome> {
     const a = answerFor(ask.id);
+    const note = a.note.trim() || undefined;
     try {
-      const res = await fetch(`/api/v1/asks/${ask.id}/decide`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision: a.decision, note: a.note.trim() || undefined }),
-      });
+      const res = endpoint === 'review'
+        ? await fetch('/api/v1/reviews/decide', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'action', id: ask.id, action: a.decision === 'approve' ? 'approve' : 'reject', reason: note }),
+          })
+        : await fetch(`/api/v1/asks/${ask.id}/decide`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ decision: a.decision, note }),
+          });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         return { ok: false, error: body?.error?.message ?? `${res.status} ${res.statusText}` };
@@ -225,11 +246,13 @@ export function AskSheet({ asks, title }: { asks: SheetAsk[]; title?: string | n
             onSelect={() => setAnswer(current.id, { decision: option.id })}
           />
         ))}
-        <OptionRow
-          option={{ id: OTHER, label: 'Other', description: 'Answer in your own words. The team reads it and may come back with a follow-up.' }}
-          selected={answer.decision === OTHER}
-          onSelect={() => setAnswer(current.id, { decision: OTHER })}
-        />
+        {allowOther && (
+          <OptionRow
+            option={{ id: OTHER, label: 'Other', description: 'Answer in your own words. The team reads it and may come back with a follow-up.' }}
+            selected={answer.decision === OTHER}
+            onSelect={() => setAnswer(current.id, { decision: OTHER })}
+          />
+        )}
         {answer.decision === OTHER && (
           <textarea
             value={answer.note}
