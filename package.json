@@ -4,7 +4,7 @@
   "private": true,
   "description": "Vocion \u2014 monorepo root. See packages/core for the framework, packages/sdk for the plugin contract, packages/plugins/* for shipped plugins.",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.3"
   },
   "workspaces": [
     "packages/core",

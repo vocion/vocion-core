@@ -7,12 +7,17 @@ import { authApi, isErrorResponse, readJsonBody, writeApiErrorResponse } from '.
  *
  * Approve or reject a queued item. Body:
  *
- *   { kind, id, action, reason?, editedInput?, externalRef? }
+ *   { kind, id, action, reason?, learn?, editedInput?, externalRef? }
  *
  * where `kind` is `workflow` | `mission` | `action` and `action` is `approve`
  * or `reject`. `editedInput` is the edit-then-approve payload — corrected
  * fields for an action, or the input a paused workflow resumes with. It is
  * ignored on reject.
+ *
+ * `learn` defaults to true: a decision carrying a human reason queues that
+ * reason for the learning classifier, where it becomes a candidate a person
+ * adopts. An automated caller deciding in bulk with one canned reason passes
+ * `learn: false` so it trains nothing.
  *
  * `externalRef` is `{ system, id }` naming the record the caller created in
  * its own system before approving — an admin panel publishes the record, then
@@ -56,6 +61,7 @@ export async function POST(req: Request) {
       id: Number(body.id),
       action: body.action as 'approve' | 'reject',
       reason: typeof body.reason === 'string' ? body.reason : undefined,
+      learn: typeof body.learn === 'boolean' ? body.learn : undefined,
       editedInput: body.editedInput && typeof body.editedInput === 'object'
         ? body.editedInput as Record<string, unknown>
         : undefined,

@@ -2045,13 +2045,15 @@ export const sourceSyncCheckpointSchema = pgTable(
      * skipped instead of only showing a lower document count.
      *
      * `scope` says which layer reported it: `connector` for a whole slice of the
-     * source that never arrived, `document` for one item that would not save.
-     * Capped per scope when written (see SourceSyncService) so a run failing on
-     * hundreds of documents cannot crowd out the record of a collection that
-     * never loaded, nor grow this row without bound.
+     * source that never arrived, `document` for one item that would not save,
+     * `processor` for a per-document stage that ran after ingestion and failed
+     * on its own terms (which never counts as an ingest error). Capped per
+     * scope when written (see SourceSyncService) so a run failing on hundreds
+     * of documents cannot crowd out the record of a collection that never
+     * loaded, nor grow this row without bound.
      */
     failures: jsonb('failures')
-      .$type<{ scope: 'connector' | 'document'; uri?: string; message: string; at: string }[]>()
+      .$type<{ scope: 'connector' | 'document' | 'processor'; uri?: string; message: string; at: string }[]>()
       .default([])
       .notNull(),
   },

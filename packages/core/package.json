@@ -5,7 +5,7 @@
   "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.3"
   },
   "scripts": {
     "dev:spotlight": "npx @spotlightjs/spotlight",

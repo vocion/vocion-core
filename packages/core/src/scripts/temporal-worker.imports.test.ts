@@ -20,6 +20,15 @@
  * in it. Modules that need to log use the deferred-import helper the
  * affected files already carry (see `libs/Langfuse.ts`), which this
  * check allows because a dynamic `import()` is not a static edge.
+ *
+ * The same walk now guards a second rule, for a different reason. A
+ * document processor's model stage pulls in LangChain and a Bedrock
+ * client, seconds of boot time and megabytes of module graph that a
+ * worker whose tenants declare no processor must never pay for. The
+ * processor registry keeps its config schema eager (the applier
+ * validates manifests with it) and its `run` behind a dynamic
+ * `import()`. That split is only load-bearing while it holds, so the
+ * model-side files are asserted unreachable here.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -28,6 +37,28 @@ import { describe, expect, it } from 'vitest';
 const SOURCE_ROOT = resolve(__dirname, '..');
 const WORKER_ENTRYPOINT = resolve(__dirname, 'temporal-worker.ts');
 const FORBIDDEN_MODULE = resolve(SOURCE_ROOT, 'libs/Logger.ts');
+
+/**
+ * Model-side modules the worker must not reach statically, each with the
+ * reason a reviewer needs when the assertion fires.
+ */
+const FORBIDDEN_FROM_WORKER = [
+  {
+    path: 'libs/llm/langchain.ts',
+    why: 'it builds chat models, LangChain and the Bedrock client, which only a processor\'s model stage needs, behind the registry\'s dynamic import.',
+  },
+  {
+    path: 'libs/processors/candidateExtractor/run.ts',
+    why: 'it is the candidate-extractor\'s model stage, reached through `load()` in libs/processors/registry.ts and nowhere else.',
+  },
+];
+
+/**
+ * The one file under `candidateExtractor/` the worker IS meant to reach:
+ * the config schema, which `libs/workspace/applier.ts` validates manifests
+ * against and which imports nothing but zod.
+ */
+const ALLOWED_EXTRACTOR_MODULE = resolve(SOURCE_ROOT, 'libs/processors/candidateExtractor/config.ts');
 
 /**
  * Static import specifiers in a source file.
@@ -125,6 +156,41 @@ describe('temporal-worker static imports', () => {
         + 'Use the deferred-import log helper instead — see libs/Langfuse.ts.'
         : undefined,
     ).toBeUndefined();
+  });
+
+  it.each(FORBIDDEN_FROM_WORKER)('never reaches $path', ({ path, why }) => {
+    const graph = staticImportGraph(WORKER_ENTRYPOINT);
+    const chain = graph.get(resolve(SOURCE_ROOT, path));
+
+    const readableChain = chain
+      ?.map(file => file.replace(`${SOURCE_ROOT}/`, ''))
+      .join('\n    → ');
+
+    expect(
+      chain,
+      chain
+        ? `The Temporal worker now statically imports ${path}:\n\n    ${readableChain}\n\n${why}`
+        : undefined,
+    ).toBeUndefined();
+  });
+
+  it('reaches nothing else under candidateExtractor either, only its config schema', () => {
+    const graph = staticImportGraph(WORKER_ENTRYPOINT);
+    const extractorDir = resolve(SOURCE_ROOT, 'libs/processors/candidateExtractor');
+    const reached = [...graph.keys()]
+      .filter(file => file.startsWith(`${extractorDir}/`) && file !== ALLOWED_EXTRACTOR_MODULE && !file.endsWith('.test.ts'));
+
+    expect(reached.map(file => file.replace(`${SOURCE_ROOT}/`, ''))).toEqual([]);
+  });
+
+  it('does reach the processor registry, so the rules above are not vacuous', () => {
+    const graph = staticImportGraph(WORKER_ENTRYPOINT);
+
+    // The registry IS in the worker's graph, the sync service looks up a
+    // source's processor on every run. What keeps the model stage out is the
+    // dynamic import inside it, and nothing else.
+    expect(graph.has(resolve(SOURCE_ROOT, 'libs/processors/registry.ts'))).toBe(true);
+    expect(graph.has(ALLOWED_EXTRACTOR_MODULE)).toBe(true);
   });
 
   it('resolves a real graph, so a pass is not just a broken walker', () => {

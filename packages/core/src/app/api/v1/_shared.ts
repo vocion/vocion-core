@@ -80,8 +80,22 @@ export async function authApi(req?: Request): Promise<ApiCaller | NextResponseTy
  * const denied = requireCapability(caller, 'approve');
  * if (denied) { return denied; }
  * ```
+ *
+ * The capability strings `/api/v1` uses today:
+ *
+ * - `approve`, decide, route, snooze or triage a review item, and decide a
+ *   learning candidate. Owners, PMs and client-reviewers hold it by role.
+ * - `manage_sources`, read and write the source registry
+ *   (`/api/v1/sources`, `/api/v1/sources/:slug/sync`) and read agent budgets
+ *   (`/api/v1/budgets`). Nothing grants it by role, so a tenant token driving
+ *   the registry must carry `manage_sources` or `*` in its grants.
+ *
+ * Note that this is a grant check in mode `'mutate'`: an owner/PM token and any
+ * `['*']` token pass whatever the string, and a narrow-grant token is refused
+ * the plain reads too. That asymmetry is deliberate, the registry says which
+ * sites a tenant scrapes, which is not public within a workspace.
  * @param caller
- * @param action - The capability name, e.g. `approve` or `draft`.
+ * @param action - The capability name, e.g. `approve` or `manage_sources`.
  */
 export function requireCapability(caller: ApiCaller, action: string): NextResponseType | null {
   try {
