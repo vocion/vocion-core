@@ -26,8 +26,21 @@ export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed',
 const MIN_MS = 2_000;
 const MAX_MS = 30_000;
 
-/** A 4xx from the RPC layer — the request itself was refused, so do not retry it. */
-function isRequestRejected(err: unknown): boolean {
+/**
+ * Whether this id is worth polling. A run id is a database key: anything that
+ * is not a positive integer is not a run, and asking about it just 400s.
+ * @param runId - The candidate id.
+ */
+export function isPollableRunId(runId: number | undefined): runId is number {
+  return typeof runId === 'number' && Number.isInteger(runId) && runId > 0;
+}
+
+/**
+ * A 4xx from the RPC layer — the request itself was refused, so do not retry
+ * it. A dropped connection carries no status and is worth another go.
+ * @param err - Whatever the call threw.
+ */
+export function isRequestRejected(err: unknown): boolean {
   const status = (err as { status?: unknown; code?: unknown })?.status ?? (err as { code?: unknown })?.code;
   return typeof status === 'number' && status >= 400 && status < 500;
 }
@@ -40,16 +53,17 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
     // A run id that is not a positive integer is not a run: polling it just
     // 400s, and the loop retried that forever — three red rows in the console
     // on every inbox page (2026-09-15). Nothing to poll, nothing to say.
-    if (!Number.isInteger(runId) || (runId as number) <= 0) {
+    if (!isPollableRunId(runId)) {
       return;
     }
+    const id = runId;
     let cancelled = false;
     let delay = MIN_MS;
     let unchanged = 0;
 
     const tick = async () => {
       try {
-        const res = await client.review.actionStatus({ id: runId }) as { status: string; decidedBy: string | null; decidedAt: string | null };
+        const res = await client.review.actionStatus({ id }) as { status: string; decidedBy: string | null; decidedAt: string | null };
         if (cancelled) {
           return;
         }

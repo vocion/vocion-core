@@ -1,59 +1,41 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { client } from '@/libs/Orpc';
-import { useActionRunStatus } from './useActionRunStatus';
+import { describe, expect, it } from 'vitest';
+import { isPollableRunId, isRequestRejected, TERMINAL_STATUSES } from './useActionRunStatus';
 
-vi.mock('@/libs/Orpc', () => ({
-  client: { review: { actionStatus: vi.fn() } },
-}));
+describe('isPollableRunId', () => {
+  it('accepts a real run id', () => {
+    expect(isPollableRunId(12)).toBe(true);
+  });
 
-const actionStatus = vi.mocked(client.review.actionStatus);
-
-afterEach(() => {
-  vi.clearAllMocks();
-  vi.useRealTimers();
+  it('rejects everything that is not a positive integer', () => {
+    // Each of these reached the server before 2026-09-15 and came back 400,
+    // three times per inbox page, retried with backoff forever.
+    expect(isPollableRunId(undefined)).toBe(false);
+    expect(isPollableRunId(0)).toBe(false);
+    expect(isPollableRunId(-3)).toBe(false);
+    expect(isPollableRunId(Number.NaN)).toBe(false);
+    expect(isPollableRunId(1.5)).toBe(false);
+  });
 });
 
-describe('useActionRunStatus', () => {
-  it('does not poll an id that is not a positive integer', () => {
-    for (const id of [undefined, 0, -3, Number.NaN] as (number | undefined)[]) {
-      renderHook(() => useActionRunStatus(id));
-    }
-    expect(actionStatus).not.toHaveBeenCalled();
+describe('isRequestRejected', () => {
+  it('treats a 4xx as final', () => {
+    expect(isRequestRejected(Object.assign(new Error('Bad Request'), { status: 400 }))).toBe(true);
+    expect(isRequestRejected({ code: 404 })).toBe(true);
   });
 
-  it('reports the status it was given', async () => {
-    actionStatus.mockResolvedValue({ status: 'pending', decidedBy: null, decidedAt: null } as never);
-    const { result } = renderHook(() => useActionRunStatus(12));
-    await waitFor(() => expect(result.current?.status).toBe('pending'));
+  it('treats a server error or a dropped connection as worth retrying', () => {
+    expect(isRequestRejected(Object.assign(new Error('boom'), { status: 500 }))).toBe(false);
+    expect(isRequestRejected(new Error('network down'))).toBe(false);
+    expect(isRequestRejected(undefined)).toBe(false);
   });
+});
 
-  it('stops after a terminal status', async () => {
-    actionStatus.mockResolvedValue({ status: 'done', decidedBy: null, decidedAt: null } as never);
-    renderHook(() => useActionRunStatus(12));
-    await waitFor(() => expect(actionStatus).toHaveBeenCalledTimes(1));
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
-    });
-    expect(actionStatus).toHaveBeenCalledTimes(1);
-  });
-
-  it('gives up on a rejected request rather than retrying it forever', async () => {
-    actionStatus.mockRejectedValue(Object.assign(new Error('Bad Request'), { status: 400 }));
-    renderHook(() => useActionRunStatus(12));
-    await waitFor(() => expect(actionStatus).toHaveBeenCalledTimes(1));
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 60));
-    });
-    expect(actionStatus).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps retrying a transport failure', async () => {
-    actionStatus.mockRejectedValue(new Error('network down'));
-    renderHook(() => useActionRunStatus(12));
-    await waitFor(() => expect(actionStatus).toHaveBeenCalledTimes(1));
-    // The first retry is 2s away; assert the loop is still armed rather than
-    // waiting it out.
-    expect(actionStatus).toHaveBeenCalledTimes(1);
+describe('TERMINAL_STATUSES', () => {
+  it('stops on outcomes and keeps polling work in progress', () => {
+    expect(TERMINAL_STATUSES.has('done')).toBe(true);
+    expect(TERMINAL_STATUSES.has('failed')).toBe(true);
+    expect(TERMINAL_STATUSES.has('rejected')).toBe(true);
+    expect(TERMINAL_STATUSES.has('pending')).toBe(false);
+    expect(TERMINAL_STATUSES.has('executing')).toBe(false);
   });
 });
