@@ -16,8 +16,11 @@ import { ProvenanceChip } from './ProvenanceChip';
  */
 export function PrimaryOutcome({ teamSlug, reading, now = new Date() }: { teamSlug: string; reading: MeasureReading; now?: Date }) {
   const m = reading.measure;
-  const value = reading.value === null ? '—' : measureValue(reading.value, m.unit);
-  const target = measureValue(m.target, m.unit);
+  // A word unit ("referrals") is carried by the label, so the figures stay bare: "8 / 10 qualified referrals".
+  const symbolic = m.unit === '$' || m.unit === '%';
+  const figure = (n: number) => (symbolic ? measureValue(n, m.unit) : measureValue(n, undefined));
+  const value = reading.value === null ? '—' : figure(reading.value);
+  const target = figure(m.target);
   const attainment = reading.attainment === null ? null : pct(reading.attainment);
   const Trend = reading.trend === 'up' ? ArrowUpRight : reading.trend === 'down' ? ArrowDownRight : ArrowRight;
   const trendTone = reading.improving === null ? 'text-muted-foreground' : reading.improving ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400';
@@ -33,7 +36,7 @@ export function PrimaryOutcome({ teamSlug, reading, now = new Date() }: { teamSl
             <span className="text-2xl text-muted-foreground sm:text-3xl">{target}</span>
           </span>
         </LineageSheet>
-        <span className="text-base font-medium text-foreground/90">{m.label.toLowerCase()}</span>
+        <span className="text-base font-medium text-foreground/90">{m.label}</span>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums">
         {attainment !== null

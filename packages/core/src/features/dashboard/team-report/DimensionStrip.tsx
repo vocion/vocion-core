@@ -1,5 +1,6 @@
 import type { MeasureReading } from '@/services/team-report';
 import type { TeamReportTeam } from '@/services/TeamReportService';
+import { windowPhrase } from '@/services/team-report';
 import { durationMs, measureValue, pct, usd } from './format';
 import { ProvenanceChip } from './ProvenanceChip';
 
@@ -40,8 +41,8 @@ export function DimensionStrip({ team, now = new Date() }: { team: TeamReportTea
         now={now}
         value={team.economics.costPerOutcomeCents === null ? usd(team.economics.cents) : `${usd(team.economics.costPerOutcomeCents)}/${perUnit}`}
         note={team.economics.costPerOutcomeCents === null
-          ? (team.primary ? 'operating cost · no outcome to divide by yet' : 'operating cost')
-          : `${usd(team.economics.cents)} operating cost${team.economics.budget.variance !== null ? ` · ${team.economics.budget.variance > 0 ? '+' : ''}${Math.round(team.economics.budget.variance * 100)}% vs budget` : ''}`}
+          ? (team.primary ? (team.primary.value && team.primary.value > 0 ? 'operating cost · no spend recorded against this outcome' : 'operating cost · no outcome to divide by yet') : 'operating cost')
+          : `${usd(team.economics.primaryWindowCents ?? team.economics.cents)} operating cost ${windowPhrase(team.primary!.measure.window)}${team.economics.budget.variance !== null ? ` · ${team.economics.budget.variance > 0 ? '+' : ''}${Math.round(team.economics.budget.variance * 100)}% vs budget` : ''}`}
       />
       <Cell
         label="Human load"

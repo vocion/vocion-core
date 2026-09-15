@@ -18,6 +18,7 @@ import { actionRunSchema, decisionAlignmentSchema, knowledgeDocumentSchema, know
 import { isHubspotSource } from '@/services/CrmRecordsService';
 import { describeActionRun } from '@/services/inbox/describeActionRun';
 import { actionAgentSlug } from './humanLoad';
+import { personNames } from './lineage';
 
 export type OutcomeChain = {
   actionRunId: number;
@@ -119,6 +120,8 @@ export async function readOutcomeChains(orgId: string, teams: { slug: string; ag
       decisionOf.set(d.subjectId, { decision: d.decision, decidedBy: d.decidedBy, decidedAt: new Date(d.decidedAt) });
     }
   }
+  const names = await personNames(orgId, [...decisions.map(d => d.decidedBy), ...rows.map(r => r.decidedBy)]);
+  const who = (id: string | null) => (id ? names.get(id) ?? id : null);
   const teamOf = new Map<string, string>();
   for (const t of teams) {
     for (const a of t.agentSlugs) {
@@ -148,7 +151,7 @@ export async function readOutcomeChains(orgId: string, teams: { slug: string; ag
       record: d.record ? { kind: d.record.kind, name: d.record.name, hubspotId } : null,
       decision: r.autoApproved && !dec
         ? { kind: 'auto-executed', by: null, at: r.executedAt ? new Date(r.executedAt) : null }
-        : { kind: (dec?.decision as 'approved' | 'edited' | 'rejected' | undefined) ?? 'approved', by: dec?.decidedBy ?? r.decidedBy ?? null, at: dec?.decidedAt ?? (r.decidedAt ? new Date(r.decidedAt) : null) },
+        : { kind: (dec?.decision as 'approved' | 'edited' | 'rejected' | undefined) ?? 'approved', by: who(dec?.decidedBy ?? r.decidedBy ?? null), at: dec?.decidedAt ?? (r.decidedAt ? new Date(r.decidedAt) : null) },
       executedAt: r.executedAt ? new Date(r.executedAt) : null,
       externalEvent: state,
       costCents: null,

@@ -69,12 +69,16 @@ export function trendOf(value: number | null, previous: number | null, direction
 
 /**
  * Cents per unit of outcome — "$17.75 / referral". Null when nothing was
- * produced: spend with no outcome is a number on its own, not a ratio.
- * @param cents - The team's operating cost in the window.
- * @param outcomeValue - The primary outcome's reading in the same window.
+ * produced (spend with no outcome is a number on its own, not a ratio) and
+ * null when nothing was spent (an outcome that cost $0.00 is a gap in the
+ * cost record, not a bargain). Both sides must be read over the SAME window
+ * — the measure's — or the ratio compares a day of spend with a week of
+ * outcomes.
+ * @param cents - The team's operating cost in the measure's window.
+ * @param outcomeValue - The primary outcome's reading in that window.
  */
 export function costPerOutcomeCents(cents: number, outcomeValue: number | null): number | null {
-  if (outcomeValue === null || outcomeValue <= 0) {
+  if (outcomeValue === null || outcomeValue <= 0 || cents <= 0) {
     return null;
   }
   return cents / outcomeValue;

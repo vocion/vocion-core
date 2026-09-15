@@ -121,13 +121,15 @@ export function performanceLine(t: TeamPerformance): string {
   const bits: string[] = [];
   if (t.primary) {
     const p = t.primary;
-    const value = p.value === null ? '—' : measureValue(p.value, p.unit);
-    bits.push(`${value} / ${measureValue(p.target, p.unit)} ${p.label.toLowerCase()}`);
+    // A word unit is carried by the label, so the figures stay bare: "8 / 10 qualified referrals".
+    const unit = p.unit === '$' || p.unit === '%' ? p.unit : undefined;
+    const value = p.value === null ? '—' : measureValue(p.value, unit);
+    bits.push(`${value} / ${measureValue(p.target, unit)} ${p.label}`);
     if (p.attainment !== null) {
       bits.push(`${Math.round(p.attainment * 100)}% of ${p.window === '24h' ? 'daily' : p.window === '7d' ? 'weekly' : p.window === '30d' ? '30-day' : 'quarterly'} target${p.met ? ' ✓' : ''}`);
     }
     if (p.delta !== null && p.delta !== 0) {
-      bits.push(`${p.delta > 0 ? '↑' : '↓'}${measureValue(Math.abs(p.delta), p.unit)} vs prior`);
+      bits.push(`${p.delta > 0 ? '↑' : '↓'}${measureValue(Math.abs(p.delta), unit)} vs prior`);
     }
     bits.push(PROVENANCE_WORD[p.provenance] ?? p.provenance);
   } else {
@@ -135,10 +137,12 @@ export function performanceLine(t: TeamPerformance): string {
   }
   bits.push(t.humanLoad.interventions === 0 ? 'no human interventions' : `${reviewTime(t.humanLoad.reviewMs)} review over ${plural(t.humanLoad.interventions, 'intervention')}`);
   if (t.costPerOutcomeCents !== null && t.primary) {
-    const unit = t.primary.unit && t.primary.unit !== '$' && t.primary.unit !== '%' ? t.primary.unit.replace(/s$/, '') : t.primary.label.toLowerCase().replace(/s$/, '');
-    bits.push(`${usd(Math.round(t.costPerOutcomeCents))}/${unit}`);
-  } else {
+    const per = t.primary.unit && t.primary.unit !== '$' && t.primary.unit !== '%' ? t.primary.unit.replace(/s$/, '') : t.primary.label.toLowerCase().replace(/s$/, '');
+    bits.push(`${usd(Math.round(t.costPerOutcomeCents))}/${per}`);
+  } else if (t.cents > 0) {
     bits.push(`${usd(t.cents)} operating cost`);
+  } else {
+    bits.push('no spend in the window');
   }
   if (t.needsYou > 0) {
     bits.push(`**${plural(t.needsYou, 'item')} need${t.needsYou === 1 ? 's' : ''} you**`);
@@ -207,7 +211,7 @@ export function reportSections(data: DailyTeamReportData): ReportSections {
       : 'Performance is not measured yet — state the workspace outcome and give each team a measure and a target, and this section fills in.';
   } else {
     if (perf.goal) {
-      performance.headline.push(`Goal: _${perf.goal}_`);
+      performance.headline.push(`Goal: ${perf.goal}`);
     }
     const head: string[] = [];
     head.push(`**${perf.teamsOnTarget.onTarget} / ${perf.teamsOnTarget.measured}** teams on target`);

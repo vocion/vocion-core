@@ -295,8 +295,9 @@ describe('team-report module (PGlite)', () => {
       expect(auto.externalEvent).toMatchObject({ summary: 'Deal now at Proposal' });
       expect(auto.costCents).toBeNull();
 
-      expect(g[1]!.decision).toMatchObject({ kind: 'edited', by: LILI.id });
-      expect(g[4]!.decision).toMatchObject({ kind: 'approved', by: CHRIS.id });
+      // Deciders resolve to people, never ids.
+      expect(g[1]!.decision).toMatchObject({ kind: 'edited', by: LILI.name });
+      expect(g[4]!.decision).toMatchObject({ kind: 'approved', by: CHRIS.name });
       expect(g[4]!.externalEvent).toBeNull();
     });
   });

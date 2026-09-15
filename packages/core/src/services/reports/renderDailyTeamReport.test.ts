@@ -157,17 +157,18 @@ describe('renderDailyTeamReport', () => {
 
     expect(s.performance.setup).toBeNull();
     expect(s.performance.headline).toEqual([
-      'Goal: _Be found first for AI-workforce-in-production._',
+      'Goal: Be found first for AI-workforce-in-production.',
       '**1 / 2** teams on target · **88%** goal progress · **2h 18m** human review · **78%** of work needed nobody · **3** need attention',
     ]);
-    expect(s.performance.teams[0]).toBe('**Executive** — 8 PRs / 10 PRs merged prs · 80% of weekly target · ↑3 PRs vs prior · human-confirmed · 17 min review over 12 interventions · $6.14/PR · **2 items need you**');
-    expect(s.performance.teams[1]).toBe('**Content** — 3 posts / 3 posts posts published · 100% of weekly target ✓ · agent-reported — the worker\'s own count · no human interventions · $4.67/post');
+    expect(s.performance.teams[0]).toBe('**Executive** — 8 / 10 Merged PRs · 80% of weekly target · ↑3 vs prior · human-confirmed · 17 min review over 12 interventions · $6.14/PR · **2 items need you**');
+    expect(s.performance.teams[1]).toBe('**Content** — 3 / 3 Posts published · 100% of weekly target ✓ · agent-reported — the worker\'s own count · no human interventions · $4.67/post');
     expect(s.performance.teams[2]).toBe('**Board** — no measure yet · no human interventions · $31.30 operating cost · **1 item needs you**');
+    expect(performanceLine({ slug: 'q', name: 'Quiet', mission: null, primary: null, humanLoad: { interventions: 0, reviewMs: 0, interventionRate: null, autonomousCompletionRate: null }, cents: 0, costPerOutcomeCents: null, needsYou: 0 })).toBe('**Quiet** — no measure yet · no human interventions · no spend in the window');
     expect(reviewTime(0)).toBe('0');
     expect(reviewTime(20_000)).toBe('<1 min');
     expect(reviewTime(46 * 60_000)).toBe('46 min');
     expect(performanceLine({ slug: 'x', name: 'X', mission: null, primary: { label: 'Pipeline', value: 417_000, target: 1_500_000, unit: '$', attainment: 0.278, met: false, provenance: 'verified', trend: null, delta: null, window: 'quarter' }, humanLoad: { interventions: 1, reviewMs: 60_000, interventionRate: null, autonomousCompletionRate: null }, cents: 38_400, costPerOutcomeCents: null, needsYou: 0 }))
-      .toBe('**X** — $417,000 / $1,500,000 pipeline · 28% of quarterly target · verified · 1 min review over 1 intervention · $384 operating cost');
+      .toBe('**X** — $417,000 / $1,500,000 Pipeline · 28% of quarterly target · verified · 1 min review over 1 intervention · $384 operating cost');
   });
 
   it('performance: setup copy when the workspace is not measured, and when the read failed', () => {

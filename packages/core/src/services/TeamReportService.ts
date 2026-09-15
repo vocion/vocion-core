@@ -38,7 +38,7 @@ import { actionRunSchema, agentBudgetSchema, agentSchema, projectSchema, teamSch
 import { scoresByAgentAndKey, splitAgentKey } from '@/services/alignment/AlignmentService';
 import { effectivePolicies } from '@/services/autonomy/AutonomyService';
 import { DEFAULT_RUNG, defaultRiskTier, rungAutomates, rungIndex } from '@/services/autonomy/rungs';
-import { budgetVariance, costPerOutcomeCents, deriveHumanLoad, detectSetupState, emptyHumanLoadCounts, goalProgress, primaryOutcome, readHumanLoad, readOutcomeChains, readTeamMeasures, sumHumanLoadCounts, teamsOnTarget } from '@/services/team-report';
+import { budgetVariance, costPerOutcomeCents, deriveHumanLoad, detectSetupState, emptyHumanLoadCounts, goalProgress, measureRange, primaryOutcome, readHumanLoad, readOutcomeChains, readTeamMeasures, sumHumanLoadCounts, teamsOnTarget } from '@/services/team-report';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
 
 export type ReportWindow = '24h' | '7d' | '30d';
@@ -141,8 +141,11 @@ export type VelocityReading = DimensionReading & {
 };
 
 export type EconomicsReading = DimensionReading & {
+  /** Operating cost in the page's window. */
   cents: number;
-  /** Team cents / primary outcome value; null when nothing was produced. */
+  /** Operating cost over the PRIMARY MEASURE's window — the numerator of cost per outcome. */
+  primaryWindowCents: number | null;
+  /** primaryWindowCents / primary outcome value; null when nothing was produced or nothing spent. */
   costPerOutcomeCents: number | null;
   budget: { spentCents: number; limitCents: number | null; variance: number | null };
 };
@@ -355,6 +358,7 @@ export function controlSummary(autonomy: AutonomyReading[], permissions: string[
  * @param input.models - One row per (agent, model) in the window.
  * @param input.measures - Every measure reading, keyed `${teamSlug}/${key}`.
  * @param input.humanLoad - Per team slug (and `null` for unattributed work).
+ * @param input.primaryCents - Per team slug, operating cents over its primary measure's window (falls back to the page window).
  * @param input.chains - Evidence chains per team slug.
  * @param input.budgets - Live period budgets, any period.
  * @param input.owners - Accountable human per team slug (resolved by TeamService) and the workspace default.
@@ -376,6 +380,7 @@ export function buildTeamReport(input: {
   models: ModelRow[];
   measures: Map<string, MeasureReading>;
   humanLoad: Map<string | null, HumanLoad>;
+  primaryCents?: Map<string, number>;
   chains: Map<string, OutcomeChain[]>;
   budgets: BudgetRow[];
   owners: { byTeam: Map<string, AccountableUser | null>; workspace: AccountableUser | null };
@@ -465,6 +470,7 @@ export function buildTeamReport(input: {
     const spentCents = budgets.reduce((n, b) => n + b.currentCents, 0);
     const limitCents = budgets.length > 0 && budgets.every(b => b.hardCentsLimit !== null) ? budgets.reduce((n, b) => n + (b.hardCentsLimit ?? 0), 0) : null;
     const attained = readings.map(r => r.attainment).filter((a): a is number => a !== null);
+    const primaryWindowCents = primary ? input.primaryCents?.get(team.slug) ?? t.cents : null;
     return {
       ...t,
       slug: team.slug,
@@ -489,7 +495,8 @@ export function buildTeamReport(input: {
       economics: {
         measure: byDimension('economics'),
         cents: t.cents,
-        costPerOutcomeCents: primary ? costPerOutcomeCents(t.cents, primary.value) : null,
+        primaryWindowCents,
+        costPerOutcomeCents: primary && primaryWindowCents !== null ? costPerOutcomeCents(primaryWindowCents, primary.value) : null,
         budget: { spentCents, limitCents, variance: budgetVariance(spentCents, limitCents) },
       },
       humanLoad,
@@ -593,10 +600,11 @@ export async function teamReport(orgId: string, window: ReportWindow = '7d', now
   ]);
 
   const scopes = teams.map(t => ({ slug: t.slug, teamSlug: t.slug, agentSlugs: agents.filter(a => a.teamSlug === t.slug).map(a => a.slug), measures: effectiveMeasures(t) }));
-  const [measures, humanLoad, chains] = await Promise.all([
+  const [measures, humanLoad, chains, primaryCents] = await Promise.all([
     readTeamMeasures(orgId, scopes, now),
     readHumanLoad(orgId, scopes, range, now),
     readOutcomeChains(orgId, scopes, range),
+    readPrimaryWindowCents(orgId, scopes, now),
   ]);
 
   return buildTeamReport({
@@ -610,6 +618,7 @@ export async function teamReport(orgId: string, window: ReportWindow = '7d', now
     models,
     measures,
     humanLoad,
+    primaryCents,
     chains,
     budgets,
     owners: { byTeam: new Map(teamViews.map(v => [v.slug, v.accountable])), workspace: workspaceLead.accountable },
@@ -618,6 +627,38 @@ export async function teamReport(orgId: string, window: ReportWindow = '7d', now
     autoExecuteActions: Number(trustRules[0]?.n ?? 0),
     completedWorkEver: Number(completedRuns[0]?.n ?? 0) + Number(executedActions[0]?.n ?? 0),
   });
+}
+
+/**
+ * Each team's operating cents over its PRIMARY measure's own window, so cost
+ * per outcome divides like with like (a daily page must not divide a day of
+ * spend by a week of outcomes). One aggregate per distinct window.
+ * @param orgId
+ * @param scopes - Teams with their agents and measures.
+ * @param now
+ */
+async function readPrimaryWindowCents(orgId: string, scopes: Array<{ slug: string; agentSlugs: string[]; measures: ReturnType<typeof effectiveMeasures> }>, now: Date): Promise<Map<string, number>> {
+  const windowOf = new Map(scopes.map(s => [s.slug, (s.measures.find(m => m.dimension === 'outcome') ?? s.measures[0])?.window] as const));
+  const windows = [...new Set([...windowOf.values()].filter((w): w is NonNullable<typeof w> => w !== undefined))];
+  const centsByAgent = new Map<string, Map<string, number>>();
+  await Promise.all(windows.map(async (w) => {
+    const r = measureRange(w, now);
+    const rows = await db.select({ agentSlug: workerRunSchema.agentSlug, cents: sql<number>`coalesce(sum(${workerRunSchema.cents}), 0)::int` })
+      .from(workerRunSchema)
+      .where(and(eq(workerRunSchema.orgId, orgId), gte(workerRunSchema.createdAt, r.since), lt(workerRunSchema.createdAt, r.until)))
+      .groupBy(workerRunSchema.agentSlug);
+    centsByAgent.set(w, new Map(rows.map(x => [x.agentSlug, Number(x.cents)])));
+  }));
+  const out = new Map<string, number>();
+  for (const s of scopes) {
+    const w = windowOf.get(s.slug);
+    if (!w) {
+      continue;
+    }
+    const byAgent = centsByAgent.get(w) ?? new Map<string, number>();
+    out.set(s.slug, s.agentSlugs.reduce((n, a) => n + (byAgent.get(a) ?? 0), 0));
+  }
+  return out;
 }
 
 /**

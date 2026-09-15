@@ -136,12 +136,16 @@ export function planWorkforceConfig(input: ConfigureInput, existing: { workspace
         }
       }
     }
-    if (!doc.name) {
-      doc.name = slug;
+    // `name` leads the file, as a person would write it.
+    const ordered: Record<string, unknown> = { name: doc.name ?? slug };
+    for (const [k, v] of Object.entries(doc)) {
+      if (k !== 'name') {
+        ordered[k] = v;
+      }
     }
     // Validate the whole team file so a half-edited file is never written.
-    TeamManifestSchema.parse(doc);
-    const after = dump(doc);
+    TeamManifestSchema.parse(ordered);
+    const after = dump(ordered);
     files.push({ path: `teams/${slug}.yaml`, before, after, unchanged: after === before });
   }
   return files;

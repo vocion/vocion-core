@@ -56,10 +56,11 @@ describe('trendOf', () => {
 });
 
 describe('cost per outcome, rates, median, budget variance', () => {
-  it('cost per outcome is cents per unit, and null with nothing produced', () => {
+  it('cost per outcome is cents per unit, and null with nothing produced or nothing spent', () => {
     expect(costPerOutcomeCents(14_200, 8)).toBe(1775);
     expect(costPerOutcomeCents(14_200, 0)).toBeNull();
     expect(costPerOutcomeCents(14_200, null)).toBeNull();
+    expect(costPerOutcomeCents(0, 8)).toBeNull();
   });
 
   it('a rate over nothing is unknown, not zero', () => {

@@ -17,7 +17,7 @@ import type { MeasureReading, MeasureWindow, TeamMeasure } from './measures';
 import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { effectiveMeasures } from '@/libs/workspace/team-export';
-import { actionRunSchema, askSchema, decisionAlignmentSchema, teamSchema, workerRunSchema } from '@/models/Schema';
+import { actionRunSchema, askSchema, decisionAlignmentSchema, teamSchema, userSchema, workerRunSchema } from '@/models/Schema';
 import { queryCrmRecords } from '@/services/CrmRecordsService';
 import { describeActionRun } from '@/services/inbox/describeActionRun';
 import { listTeamAgents } from '@/services/TeamService';
@@ -64,6 +64,22 @@ export type LineageFunnel = {
 };
 
 const ITEM_LIMIT = 25;
+
+/**
+ * User ids → display names, for "approved by Chris Fitkin" rather than an id.
+ * Ids that are not users (a token, a service) come back unmapped.
+ * @param orgId
+ * @param ids
+ */
+export async function personNames(orgId: string, ids: Array<string | null | undefined>): Promise<Map<string, string>> {
+  void orgId;
+  const wanted = [...new Set(ids.filter((x): x is string => typeof x === 'string' && x.length > 0))];
+  if (wanted.length === 0) {
+    return new Map();
+  }
+  const rows = await db.select({ id: userSchema.id, name: userSchema.name, email: userSchema.email }).from(userSchema).where(inArray(userSchema.id, wanted));
+  return new Map(rows.map(r => [r.id, r.name?.trim() || r.email]));
+}
 
 function usd(cents: number): string {
   const d = cents / 100;
@@ -124,7 +140,7 @@ export async function trace(orgId: string, teamSlug: string, measureKey: string,
           .from(workerRunSchema)
           .where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.agentSlug, agentSlugs), gte(workerRunSchema.createdAt, range.since), lt(workerRunSchema.createdAt, range.until)))
           .orderBy(desc(workerRunSchema.createdAt)),
-    db.select({ id: askSchema.id, title: askSchema.title, kind: askSchema.kind, status: askSchema.status, decision: askSchema.decision, createdAt: askSchema.createdAt, decidedAt: askSchema.decidedAt })
+    db.select({ id: askSchema.id, title: askSchema.title, kind: askSchema.kind, status: askSchema.status, decision: askSchema.decision, createdAt: askSchema.createdAt, decidedAt: askSchema.decidedAt, decidedBy: askSchema.decidedBy })
       .from(askSchema)
       .where(and(
         eq(askSchema.orgId, orgId),
@@ -148,6 +164,7 @@ export async function trace(orgId: string, teamSlug: string, measureKey: string,
     }
   }
 
+  const deciders = await personNames(orgId, [...decisions.map(d => d.decidedBy), ...asks.map(a => a.decidedBy)]);
   const describe = (p: typeof proposals[number]) => describeActionRun({ id: p.id, actionId: p.actionId, input: p.input, proposal: p.proposal, invokedBy: p.invokedBy });
   const proposalItem = (p: typeof proposals[number]): LineageItem => {
     const d = describe(p);
@@ -158,7 +175,7 @@ export async function trace(orgId: string, teamSlug: string, measureKey: string,
       title: d.title,
       href: `/dashboard/inbox?q=${encodeURIComponent(d.title)}&tab=${p.status === 'pending' ? 'open' : 'decided'}`,
       at: new Date(p.createdAt),
-      detail: [d.actionKind, `by ${who}`, dec ? `${dec.decision}${dec.decidedBy ? ` by ${dec.decidedBy}` : ''}` : p.status].join(' · '),
+      detail: [d.actionKind, `by ${who}`, dec ? `${dec.decision}${dec.decidedBy ? ` by ${deciders.get(dec.decidedBy) ?? dec.decidedBy}` : ''}` : p.status].join(' · '),
     };
   };
 
@@ -166,7 +183,7 @@ export async function trace(orgId: string, teamSlug: string, measureKey: string,
   const approvedAsks = asks.filter(a => a.decidedAt && ['approved', 'done'].includes(a.status));
   const approvedItems: LineageItem[] = [
     ...approvedProposals.map(proposalItem),
-    ...approvedAsks.map((a): LineageItem => ({ id: `ask:${a.id}`, title: a.title, href: `/dashboard/inbox/${a.id}`, at: new Date(a.createdAt), detail: `${a.kind} · ${a.decision ?? a.status}` })),
+    ...approvedAsks.map((a): LineageItem => ({ id: `ask:${a.id}`, title: a.title, href: `/dashboard/inbox/${a.id}`, at: new Date(a.createdAt), detail: `${a.kind} · ${a.decision ?? a.status}${a.decidedBy ? ` by ${deciders.get(a.decidedBy) ?? a.decidedBy}` : ''}` })),
   ].sort((x, y) => (y.at?.getTime() ?? 0) - (x.at?.getTime() ?? 0));
 
   const runItems: LineageItem[] = runs.map(r => ({
