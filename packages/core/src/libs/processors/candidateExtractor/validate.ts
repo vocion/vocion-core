@@ -32,6 +32,13 @@ import { calendarDayOf } from './knownCards';
 export type ValidatedRecord = ExtractedRecord & {
   /** Per-record notes, shown to the reviewer as extraction notes. */
   issues: string[];
+  /**
+   * Fields `labels.ts` wrote itself, rather than read off the document. Set by
+   * that stage and declared on the proposal by `propose.ts`, so a reviewer's
+   * decision can say what happened to each one. Absent on a record nothing
+   * labelled, which declares nothing.
+   */
+  labelledFields?: string[];
 };
 
 export type ValidationOutput = {
@@ -247,6 +254,14 @@ export function validateRecords(opts: {
         record.issues.push(`${field}: #${id} was not in the list this call carried, so it was ignored`);
         bump('skipped.not_in_list');
       }
+    }
+
+    // A note about a series only means anything next to the id it qualifies.
+    // AFTER the guard above, which is itself able to clear `seriesOf`: a note
+    // kept alongside a dropped id would describe a relationship the card no
+    // longer claims.
+    if (record.seriesOf === undefined && record.seriesNote !== undefined) {
+      record.seriesNote = undefined;
     }
 
     kept.push(record);

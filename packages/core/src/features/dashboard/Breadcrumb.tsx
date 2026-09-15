@@ -14,7 +14,10 @@ import { Link } from '@/libs/I18nNavigation';
  * knows it, so "which workspace am I in" is answered top-left of the page.
  */
 
-/** Subscribe to `<title>` changes the same way PageDock does — pages set it after paint. */
+/**
+ * Subscribe to `<title>` changes the same way PageDock does — pages set it after paint.
+ * @param onChange
+ */
 function subscribeTitle(onChange: () => void) {
   const el = document.querySelector('title');
   if (!el) {

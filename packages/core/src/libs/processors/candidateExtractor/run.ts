@@ -201,7 +201,7 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     dryRun: config.dryRun,
   }));
 
-  merge(counts, await labelRecords({ orgId: ctx.orgId, config, records: validated.records }));
+  merge(counts, await labelRecords({ orgId: ctx.orgId, config, records: validated.records, known }));
 
   const proposed = await proposeRecords({
     orgId: ctx.orgId,

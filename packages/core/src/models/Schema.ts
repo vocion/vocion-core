@@ -2479,6 +2479,19 @@ export const actionRunSchema = pgTable(
        * the horizon themselves.
        */
       suggestedSnoozeUntil?: string;
+      /**
+       * Payload field NAMES the proposer wrote as a judgement of its own
+       * rather than read off the document it was working from: a series
+       * label, a group key. Names only; the values live in `input.fields`
+       * where the reviewer edits them.
+       *
+       * Declared so `ReviewService.decide` can say what the reviewer did with
+       * each one before `updateActionInput` replaces `input` wholesale, which
+       * is the last moment the proposed values still exist. Absent means the
+       * proposer judged nothing, and nothing is measured, never that every
+       * field was read off the page.
+       */
+      labels?: string[];
     }>(),
     /**
      * Idempotency/upsert key for agent-suggested actions — the review-card

@@ -14,7 +14,11 @@ export type PinnableItem = {
   badge?: number;
 };
 
-/** Pinned items in pin order; pins whose item no longer exists are dropped. */
+/**
+ * Pinned items in pin order; pins whose item no longer exists are dropped.
+ * @param items
+ * @param pins
+ */
 export function applyPins<T extends { url: string }>(items: T[], pins: string[]): T[] {
   const byUrl = new Map(items.map(i => [i.url, i]));
   const out: T[] = [];
@@ -27,18 +31,31 @@ export function applyPins<T extends { url: string }>(items: T[], pins: string[])
   return out;
 }
 
-/** Everything not pinned, original order preserved. */
+/**
+ * Everything not pinned, original order preserved.
+ * @param items
+ * @param pins
+ */
 export function withoutPins<T extends { url: string }>(items: T[], pins: string[]): T[] {
   const set = new Set(pins);
   return items.filter(i => !set.has(i.url));
 }
 
-/** One gesture: pinned → unpinned; unpinned → appended (pin order = pin time). */
+/**
+ * One gesture: pinned → unpinned; unpinned → appended (pin order = pin time).
+ * @param pins
+ * @param url
+ */
 export function togglePin(pins: string[], url: string): string[] {
   return pins.includes(url) ? pins.filter(p => p !== url) : [...pins, url];
 }
 
-/** Move a pin to a new index (drag-to-reorder); no-op for unknown urls. */
+/**
+ * Move a pin to a new index (drag-to-reorder); no-op for unknown urls.
+ * @param pins
+ * @param url
+ * @param toIndex
+ */
 export function movePin(pins: string[], url: string, toIndex: number): string[] {
   const from = pins.indexOf(url);
   if (from === -1) {
@@ -49,7 +66,11 @@ export function movePin(pins: string[], url: string, toIndex: number): string[] 
   return next;
 }
 
-/** Split a list into the first `max` and the overflow for a "More …" submenu. */
+/**
+ * Split a list into the first `max` and the overflow for a "More …" submenu.
+ * @param items
+ * @param max
+ */
 export function splitOverflow<T>(items: T[], max: number): { shown: T[]; more: T[] } {
   return items.length <= max ? { shown: items, more: [] } : { shown: items.slice(0, max), more: items.slice(max) };
 }

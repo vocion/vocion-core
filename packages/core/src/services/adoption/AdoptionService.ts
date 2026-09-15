@@ -12,6 +12,7 @@
 
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { sql } from 'drizzle-orm';
+import { LABEL_VERDICTS } from '@/libs/actions/labelVerdict';
 import { decisionOutcome, parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 
@@ -384,6 +385,20 @@ export type AdoptionAgentRow = {
    * a while.
    */
   agreement: AdoptionAgentAgreement;
+  /**
+   * Whether the labels this agent wrote onto its own proposals survived
+   * review, per labelled field.
+   *
+   * A third question again: `approvalRate` asks whether the output survived,
+   * `agreement` whether the call was right, and this one whether a particular
+   * judgement inside the payload was right. An extractor that picks the right
+   * cards and puts half of them in the wrong series scores well on both of the
+   * others and badly here, which is the whole reason it exists.
+   *
+   * Empty for every agent that declares no labels, which is all of them until
+   * a pipeline starts declaring some.
+   */
+  labelAgreement: AdoptionAgentLabelAgreement;
 };
 
 /**
@@ -400,8 +415,9 @@ export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise
   // finer grain, so merging would keep a second query anyway while retyping
   // `decisionOutcome` into SQL. Concurrent because they read the same table
   // over the same window, so the wait is one round trip, not two.
-  const [agreementByAgent, result] = await Promise.all([
+  const [agreementByAgent, labelAgreementByAgent, result] = await Promise.all([
     getAgentAgreement(orgId, days),
+    getAgentLabelAgreement(orgId, days),
     rows(sql`
       SELECT agent_slug,
         count(DISTINCT user_id)                                            AS reach,
@@ -439,6 +455,7 @@ export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise
       feedbackDown: num(r.feedback_down),
       learnings: num(r.learnings),
       agreement: agreementByAgent.get(String(r.agent_slug)) ?? noAgreementYet(),
+      labelAgreement: labelAgreementByAgent.get(String(r.agent_slug)) ?? noLabelAgreementYet(),
     };
   });
 }
@@ -548,6 +565,122 @@ export async function getAgentAgreement(orgId: string, days: AdoptionWindow): Pr
   for (const agreement of byAgent.values()) {
     agreement.matrix.sort((a, b) => b.count - a.count);
     agreement.agreementRate = agreement.decided > 0 ? agreement.agreed / agreement.decided : null;
+  }
+  return byAgent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Label agreement: what the reviewer did to the labels it wrote      */
+/* ------------------------------------------------------------------ */
+
+/** One labelled field's tally for an agent, over the window. */
+export type LabelFieldAgreement = {
+  /** The payload field the proposer declared, e.g. `seriesMatch`. */
+  field: string;
+  kept: number;
+  changed: number;
+  cleared: number;
+  /** The reviewer filled in a label the proposer left empty. */
+  added: number;
+  /**
+   * kept + changed + cleared: decisions on a label the agent actually wrote.
+   * `added` is outside it because there was no judgement of the agent's to
+   * agree or disagree with. Whether that is the right denominator is Drew's
+   * call (open as of 2026-09-15), and it is why both numbers are on the row
+   * rather than one rate.
+   */
+  judged: number;
+};
+
+export type AdoptionAgentLabelAgreement = {
+  /** Per-field tallies, most-judged field first. */
+  fields: LabelFieldAgreement[];
+  /** `judged`, summed over every field. */
+  judged: number;
+  /** Of those, how many the reviewer left exactly as the agent wrote them. */
+  kept: number;
+  /**
+   * kept ÷ judged, or null when this agent has never had a label judged.
+   * Null, never zero, for the same reason `agreementRate` is: an agent nobody
+   * has corrected has no score, and 0% would read as "always wrong".
+   */
+  keptRate: number | null;
+};
+
+/**
+ * A fresh empty tally, a function rather than a shared constant so no caller
+ * can mutate the blank one everyone else is handed.
+ */
+function noLabelAgreementYet(): AdoptionAgentLabelAgreement {
+  return { fields: [], judged: 0, kept: 0, keptRate: null };
+}
+
+/**
+ * How often each agent's own labels survived review, per labelled field.
+ *
+ * Distinct from `getAgentAgreement`: that one compares a recommendation
+ * against a decision, this one compares a value the agent wrote into the
+ * payload against what the reviewer left behind. An agent can be right about
+ * every call and wrong about every grouping, and only this reads that.
+ *
+ * Grouped in SQL over `metadata -> 'labels'`, which `ReviewService.decide`
+ * writes only when the proposal declared labels, so an agent that declares
+ * none is absent rather than scored.
+ * @param orgId - Org whose decisions are read.
+ * @param days - Window, in days.
+ */
+export async function getAgentLabelAgreement(orgId: string, days: AdoptionWindow): Promise<Map<string, AdoptionAgentLabelAgreement>> {
+  const since = windowStart(days);
+  // `jsonb_each_text` is strict, so a row with no `labels` key expands to no
+  // rows and drops out of the implicit lateral join. The CASE is what makes
+  // that true for a row whose `labels` is not an object at all: jsonb accepts
+  // anything, the function raises on a scalar, and one bad row must not cost
+  // the whole panel its numbers.
+  const result = await rows(sql`
+    SELECT agent_slug,
+      k.key                            AS field,
+      k.value                          AS verdict,
+      count(*)                         AS occurrences
+    FROM user_activity_event,
+      jsonb_each_text(CASE WHEN jsonb_typeof(metadata -> 'labels') = 'object' THEN metadata -> 'labels' END) k
+    WHERE org_id = ${orgId}
+      AND created_at >= ${since}
+      AND agent_slug IS NOT NULL
+      AND event_type = 'review.decided'
+    GROUP BY agent_slug, field, verdict
+  `);
+
+  const byAgent = new Map<string, AdoptionAgentLabelAgreement>();
+  for (const row of result) {
+    const verdict = LABEL_VERDICTS.find(known => known === row.verdict);
+    const field = String(row.field ?? '');
+    if (!verdict || field === '') {
+      // A verdict nobody defined is not a verdict. Same rule as
+      // `parseSuggestedDecision`: jsonb will hold anything a writer put there.
+      continue;
+    }
+    const agentSlug = String(row.agent_slug);
+    const agreement = byAgent.get(agentSlug) ?? noLabelAgreementYet();
+    const count = num(row.occurrences);
+    const existing = agreement.fields.find(cell => cell.field === field);
+    const cell = existing ?? { field, kept: 0, changed: 0, cleared: 0, added: 0, judged: 0 };
+    cell[verdict] += count;
+    if (verdict !== 'added') {
+      cell.judged += count;
+      agreement.judged += count;
+    }
+    if (verdict === 'kept') {
+      agreement.kept += count;
+    }
+    if (!existing) {
+      agreement.fields.push(cell);
+    }
+    byAgent.set(agentSlug, agreement);
+  }
+
+  for (const agreement of byAgent.values()) {
+    agreement.fields.sort((a, b) => b.judged - a.judged || a.field.localeCompare(b.field));
+    agreement.keptRate = agreement.judged > 0 ? agreement.kept / agreement.judged : null;
   }
   return byAgent;
 }

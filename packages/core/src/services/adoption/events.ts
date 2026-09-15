@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LABEL_VERDICTS } from '@/libs/actions/labelVerdict';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 
 /**
@@ -107,6 +108,20 @@ export const ADOPTION_EVENTS = {
        * approval, and never to be counted as one.
        */
       suggestedDecision: z.enum(SUGGESTED_DECISIONS).optional(),
+      /**
+       * What the reviewer did with each field the proposal declared as a
+       * label of its own making: kept it, changed it, cleared it, or filled
+       * one in the proposer left empty.
+       *
+       * Field NAMES as keys and verdict ENUMS as values, which is as far as
+       * this envelope goes: the before and after values are message content
+       * and stay out, exactly as the rule at the top of this file says. The
+       * tenant's own correction note is where a person reads what changed.
+       *
+       * Absent when the proposal declared no labels, which is every proposal
+       * that judges nothing, and must never be read as "nothing was edited".
+       */
+      labels: z.record(z.string(), z.enum(LABEL_VERDICTS)).optional(),
     }),
   },
   'review.feedback': {

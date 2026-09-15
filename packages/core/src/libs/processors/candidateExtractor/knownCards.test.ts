@@ -42,6 +42,7 @@ function configWith(over: Record<string, unknown> = {}) {
  * @param opts.status - Run status; pending unless stated.
  * @param opts.recurrence - The card's repeat description, if it has one.
  * @param opts.type - Object type slug; the event type unless stated.
+ * @param opts.seriesKey - The group this card already belongs to, if any.
  */
 async function seedCard(opts: {
   title: string;
@@ -50,6 +51,7 @@ async function seedCard(opts: {
   status?: string;
   recurrence?: string;
   type?: string;
+  seriesKey?: string;
 }) {
   const key = `objects.propose_candidate:${opts.type ?? 'event-candidate'}|${opts.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}|${opts.startDate}|${opts.venueKey}`;
   const [row] = await db.insert(actionRunSchema).values({
@@ -60,7 +62,12 @@ async function seedCard(opts: {
     input: {
       objectType: opts.type ?? 'event-candidate',
       title: opts.title,
-      fields: { title: opts.title, startDate: opts.startDate, recurrence: opts.recurrence ?? '' },
+      fields: {
+        title: opts.title,
+        startDate: opts.startDate,
+        recurrence: opts.recurrence ?? '',
+        ...(opts.seriesKey ? { seriesKey: opts.seriesKey } : {}),
+      },
     },
   }).returning({ id: actionRunSchema.id });
   return row!.id;
@@ -176,6 +183,28 @@ describe('known cards block', () => {
     // in `labels.ts` is what catches a card proposed earlier in the same run.
     expect(second).toBe(first);
     expect(second.ids.size).toBe(1);
+  });
+
+  it('carries each card\'s series key, or null when no key field is configured', async () => {
+    // What makes the group one hop deep: a record naming the second card has
+    // to inherit `41` rather than start a fresh group at that card's id.
+    const root = await seedCard({ title: 'Open Mic Night', startDate: '2026-11-12', venueKey: 'higher-ground' });
+    await seedCard({ title: 'Open Mic Night', startDate: '2026-11-19', venueKey: 'higher-ground', seriesKey: String(root) });
+
+    const keyed = await loadKnownCards({
+      orgId: ORG,
+      config: configWith({
+        seriesLabel: { sameOn: ['title', 'venueName'], differsOn: 'startDate', evidenceField: 'recurrence', flagField: 'seriesMatch', keyField: 'seriesKey' },
+      }),
+      syncContext: freshContext(),
+      today: TODAY,
+    });
+    const unkeyed = await loadKnownCards({ orgId: ORG, config: configWith(), syncContext: freshContext(), today: TODAY });
+
+    expect(keyed.cards.map(card => card.seriesKey)).toEqual([null, String(root)]);
+    // No key field configured: every card reads as keyless, and `labels.ts`
+    // writes nothing.
+    expect(unkeyed.cards.map(card => card.seriesKey)).toEqual([null, null]);
   });
 
   it('renders the recurrence as the fourth column, or a dash', async () => {

@@ -93,7 +93,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
       autoFiredRef.current = true;
       // Proposing IS the effect here: the thread runs at act-within-bounds,
       // so the card fires its one network call the moment it appears.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       void prepare();
     }
     // `prepare` closes over `rec`, which is stable for the card's life.

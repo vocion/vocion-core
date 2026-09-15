@@ -270,7 +270,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                     type="button"
                     onClick={() => pick('work')}
                     title={t('back_to_work')}
-                    className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-sidebar-foreground transition-colors hover:bg-surface-hover hover:text-foreground group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+                    className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-sidebar-foreground transition-colors group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:bg-surface-hover hover:text-foreground"
                   >
                     <ArrowLeft className="size-4 shrink-0" aria-hidden />
                     <span className="group-data-[collapsible=icon]:hidden">{t('back_to_work')}</span>

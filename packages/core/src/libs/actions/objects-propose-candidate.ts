@@ -114,8 +114,14 @@ export type CandidateInput = z.infer<typeof candidateInputShape>;
  * the label is named by the tenant's own config (`seriesLabel.flagField`), and
  * this file never learns a tenant's field names. Any string value on the
  * record may carry one.
+ *
+ * Exported so the one writer of those labels
+ * (`libs/processors/candidateExtractor/labels.ts`) can strip the phrase out of
+ * model-written text before it lands on a card. A second copy of this pattern
+ * over there would be free to drift, and the drift would be silent: text that
+ * still matches here suppresses a duplicate row nobody asked to hide.
  */
-const LABELLED_RUN_ID = /\b(?:part of series|possible duplicate of)\s+#?(\d+)\b/gi;
+export const LABELLED_RUN_ID = /\b(?:part of series|possible duplicate of)\s+#?(\d+)\b/gi;
 
 /**
  * Run ids the payload itself names as an identified series anchor or duplicate.
