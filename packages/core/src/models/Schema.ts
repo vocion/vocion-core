@@ -212,6 +212,12 @@ export const projectSchema = pgTable(
      * back to its full pass.
      */
     regenerateSkills: jsonb('regenerate_skills').$type<Record<string, string>>(),
+    /**
+     * The workspace's top-line goal — one sentence every team's weight and
+     * progress is read against on the team report. Authored as top-level
+     * `goal:` in workspace.yaml. NULL = none stated.
+     */
+    goal: text('goal'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -719,6 +725,22 @@ export const agentSchema = pgTable(
  * (F3) and feedback routing (F4) — those land as FKs to `team.id`,
  * zero columns here now.
  */
+/**
+ * One team KPI as stored on `team.kpis`. `source` names what is counted:
+ * `counts.<key>` sums that key of `worker_run.counts` over the team's agents,
+ * within `window` (default: all time).
+ */
+export type TeamKpi = {
+  key: string;
+  label: string;
+  target: number;
+  /** Where the reading stood when the contract was set; progress is measured from here. */
+  baseline?: number;
+  unit?: string;
+  source: string;
+  window?: '24h' | '7d' | 'all';
+};
+
 export const teamSchema = pgTable(
   'team',
   {
@@ -741,6 +763,14 @@ export const teamSchema = pgTable(
      * resolved at read time (TeamService), never baked into the row.
      */
     accountableUserId: text('accountable_user_id').references(() => userSchema.id, { onDelete: 'set null' }),
+    /** The team's standing goal, authored as `goal:` in teams/<slug>.yaml. */
+    goal: text('goal'),
+    /**
+     * The measures the team is graded on (F3). Each reads a `worker_run.counts`
+     * key summed over the team's agents, so progress is computed at read
+     * time from what the workers report — never stored. Authored as `kpis:`.
+     */
+    kpis: jsonb('kpis').$type<TeamKpi[]>().default([]).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -2745,8 +2775,19 @@ export const workerRunSchema = pgTable(
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
     agentSlug: text('agent_slug').notNull(),
+    /**
+     * What sort of run: `lead` (a lead's planning/dispatch cycle), `board`
+     * (the board-level review of the whole company), `worker` (one dispatched
+     * job — the default), `red-team` (an adversarial grade), `compact`
+     * (bookkeeping), `snapshot` (a periodic state report). Text, like status.
+     */
+    kind: text('kind').default('worker').notNull(),
     /** `queued` | `running` | `paused` | `awaiting_review` | `completed` | `failed` | `cancelled` | `lost` */
     status: text('status').default('queued').notNull(),
+    /** The model the worker reported (first heartbeat's `usage.model`, or set at create). */
+    model: text('model'),
+    /** The worker's own one-paragraph account of the run, set on complete. */
+    summary: text('summary'),
     /** What the worker was asked to do — free-form, worker-defined. */
     input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
     /** Whoever holds the lease. Set on claim; a re-claim after `lost` bumps `attempt`. */

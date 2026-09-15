@@ -12,6 +12,7 @@ import {
   Cpu,
   Database,
   FileText,
+  Gauge,
   GitBranch,
   Inbox,
   KeyRound,
@@ -193,6 +194,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   label={t('observability_section_label')}
                   items={[
                     { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
+                    { title: t('team_report'), url: '/dashboard/team-report', icon: Gauge },
                   ]}
                 />
 

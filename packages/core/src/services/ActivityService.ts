@@ -19,11 +19,12 @@ import {
   missionSchema,
   sourceSyncCheckpointSchema,
   toolCallSchema,
+  workerRunSchema,
   workflowRunSchema,
   workflowSchema,
 } from '@/models/Schema';
 
-export type ActivityKind = 'mission' | 'workflow' | 'event' | 'sync' | 'tool' | 'automation';
+export type ActivityKind = 'mission' | 'workflow' | 'event' | 'sync' | 'tool' | 'automation' | 'worker';
 
 export type ActivityItem = {
   kind: ActivityKind;
@@ -44,6 +45,12 @@ export type ActivityItem = {
   at: Date;
   /** One-line extra (error message, counts, event targets). */
   detail?: string;
+  /**
+   * For `worker` rows: the run's `kind` (lead | board | worker | red-team |
+   * compact | snapshot), so the feed can badge a board review or a red-team
+   * grade distinctly from ordinary work.
+   */
+  runKind?: string;
 };
 
 export type ActivityFilter = {
@@ -81,8 +88,15 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
   const eventWhere = (): SQL | undefined => (slug ? and(eq(eventLogSchema.orgId, orgId), eq(eventLogSchema.type, slug)) : eq(eventLogSchema.orgId, orgId));
   const syncWhere = (): SQL | undefined => (slug ? and(eq(sourceSyncCheckpointSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, slug)) : eq(sourceSyncCheckpointSchema.orgId, orgId));
   const automationWhere = (): SQL | undefined => (slug ? and(eq(automationRunSchema.orgId, orgId), eq(automationRunSchema.slug, slug)) : eq(automationRunSchema.orgId, orgId));
+  // `slug` narrows worker rows by agent (the run's definition IS the agent);
+  // `agent` does the same so the tool-call drill-in and this share a filter.
+  const workerWhere = (): SQL | undefined => and(
+    eq(workerRunSchema.orgId, orgId),
+    slug ? eq(workerRunSchema.agentSlug, slug) : undefined,
+    agent ? eq(workerRunSchema.agentSlug, agent) : undefined,
+  );
 
-  const [missionRuns, workflowRuns, events, syncs, toolCalls, automationRuns] = await Promise.all([
+  const [missionRuns, workflowRuns, events, syncs, toolCalls, automationRuns, workerRuns] = await Promise.all([
     need('mission')
       ? db
           .select({
@@ -161,6 +175,28 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
           .orderBy(desc(automationRunSchema.startedAt))
           .limit(limit)
       : [],
+    // External worker runs (ADR 0004): work Vocion did not host but does
+    // account for. `kind` rides along so board reviews and red-team grades
+    // are badged, not buried among ordinary dispatches.
+    need('worker')
+      ? db
+          .select({
+            id: workerRunSchema.id,
+            agentSlug: workerRunSchema.agentSlug,
+            kind: workerRunSchema.kind,
+            status: workerRunSchema.status,
+            model: workerRunSchema.model,
+            summary: workerRunSchema.summary,
+            error: workerRunSchema.error,
+            cents: workerRunSchema.cents,
+            createdBy: workerRunSchema.createdBy,
+            createdAt: workerRunSchema.createdAt,
+          })
+          .from(workerRunSchema)
+          .where(workerWhere())
+          .orderBy(desc(workerRunSchema.createdAt))
+          .limit(limit)
+      : [],
   ]);
 
   const items: ActivityItem[] = [
@@ -224,6 +260,23 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
       at: a.startedAt,
       detail: a.error ?? summarizeResult(a.result) ?? undefined,
     })),
+    ...workerRuns.map((w): ActivityItem => ({
+      kind: 'worker',
+      key: `worker-${w.id}`,
+      title: `${workerKindLabel(w.kind)}: ${w.agentSlug}`,
+      slug: w.agentSlug,
+      status: w.status,
+      invokedBy: w.createdBy,
+      href: `/dashboard/team-report/${encodeURIComponent(w.agentSlug)}#run-${w.id}`,
+      at: w.createdAt,
+      detail: w.error
+        ?? ([
+          w.model,
+          w.cents > 0 ? `$${(w.cents / 100).toFixed(2)}` : null,
+          w.summary ? firstLine(w.summary) : null,
+        ].filter(Boolean).join(' · ') || undefined),
+      runKind: w.kind,
+    })),
     ...syncs.map((s): ActivityItem => ({
       kind: 'sync',
       key: `sync-${s.id}`,
@@ -240,6 +293,26 @@ export async function activityFeed(orgId: string, filter: ActivityFilter = {}): 
   ];
 
   return items.sort((a, b) => b.at.getTime() - a.at.getTime());
+}
+
+/**
+ * Human label for a worker run kind — what the feed row leads with.
+ * @param kind - `worker_run.kind`.
+ */
+export function workerKindLabel(kind: string): string {
+  switch (kind) {
+    case 'board': return 'Board review';
+    case 'lead': return 'Lead cycle';
+    case 'red-team': return 'Red team';
+    case 'compact': return 'Compaction';
+    case 'snapshot': return 'Snapshot';
+    default: return 'Worker run';
+  }
+}
+
+function firstLine(text: string): string {
+  const line = text.split('\n').find(l => l.trim())?.trim() ?? '';
+  return line.length > 120 ? `${line.slice(0, 117)}...` : line;
 }
 
 /**
