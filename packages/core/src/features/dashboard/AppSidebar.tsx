@@ -12,7 +12,6 @@ import {
   Cpu,
   Database,
   FileText,
-  Gauge,
   GitBranch,
   Inbox,
   KeyRound,
@@ -32,9 +31,11 @@ import {
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
-import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
+import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
+import { useSidebar } from '@/components/ui/useSidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { AppSidebarNavGroup } from '@/features/dashboard/AppSidebarNavGroup';
+import { readNavView, writeNavView } from '@/features/dashboard/useNavView';
 import { WorkspaceMenu } from '@/features/dashboard/WorkspaceMenu';
 import { SurfaceNav } from '@/features/navigation/SurfaceNav';
 import { VocionLogo } from '@/templates/VocionLogo';
@@ -42,8 +43,8 @@ import { VocionLogo } from '@/templates/VocionLogo';
 /**
  * Dashboard left sidebar — two views, Linear-settings style:
  *
- *   WORK (default) — the daily surface only: chat, needs-you, briefings,
- *                    review, activity, search. Pure navigation, no chrome.
+ *   WORK (default) — the daily surface only: chat, briefings, review,
+ *                    activity, search. Pure navigation, no chrome.
  *   MANAGE         — entered via the quiet "Manage workspace" item at the
  *                    BOTTOM of the work view; swaps the sidebar into the
  *                    configuration sections with "Back to work" at top.
@@ -51,11 +52,15 @@ import { VocionLogo } from '@/templates/VocionLogo';
  * The view persists per browser (reloading mid-manage keeps you managing).
  * Nav sweep 2026-07-24: every route has a real page (no dead links, no
  * stubs). Active-state styling via `--sidebar-accent`.
+ *
+ * Airy pass (B-034b §3): the sidebar collapses to a 56px icon rail (the shell
+ * passes `collapsible="icon"`; the rail toggle + ⌘B persist it in the sidebar
+ * cookie), rows are 13px with tooltips, the © line moved to the account menu,
+ * and "Needs you" carries a live count when the shell has one.
  * @param props.isAdmin
  * @param props
  */
 
-const NAV_VIEW_KEY = 'vocion:nav:view';
 type NavView = 'work' | 'manage';
 
 /** Workspace-defined pages (libs/workspace/pages.ts), grouped for the nav. */
@@ -68,14 +73,16 @@ export type WorkspaceNavPage = {
 export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePages = [], needsYouCount = 0, ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
+  /** Open items waiting on a person — shown as a badge on "Needs you" (the inbox PR supplies it). */
+  needsYouCount?: number;
   /** Optional surfaces the workspace switched on — see `features/navigation/surfaces.ts`. */
   enabledSurfaces?: SurfaceId[];
   /** Tenant pages from the workspace's pages/ dir — rendered as their own WORK sections. */
   workspacePages?: WorkspaceNavPage[];
-  /** How many things are waiting on a person — the badge on "Needs you". */
-  needsYouCount?: number;
 }) => {
   const t = useTranslations('DashboardLayout');
+  const { state } = useSidebar();
+  const collapsed = state === 'collapsed';
   const [view, setView] = useState<NavView>('work');
 
   // Restore the persisted view after mount (SSR renders the default).
@@ -83,29 +90,23 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
   // useState initializer would hydrate with a mismatched value — the setState
   // here is the intended hydration pattern, not a cascading render.
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(NAV_VIEW_KEY);
-      if (stored === 'manage') {
-        // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- pre-existing SSR-safe restore; hydration must render the default first
-        setView('manage');
-      }
-    } catch { /* private mode */ }
+    if (readNavView(globalThis.localStorage) === 'manage') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- pre-existing SSR-safe restore; hydration must render the default first
+      setView('manage');
+    }
   }, []);
 
   const pick = (v: NavView) => {
     setView(v);
-    try {
-      localStorage.setItem(NAV_VIEW_KEY, v);
-    } catch { /* ignore */ }
+    writeNavView(globalThis.localStorage, v);
   };
 
   return (
     <Sidebar {...props}>
       <SidebarHeader className="pt-5">
-        <div className="flex justify-start px-2 pb-2">
-          <VocionLogo size="sm" />
+        <div className="flex justify-start px-2 pb-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+          <VocionLogo size="sm" isTextHidden={collapsed} />
         </div>
-
       </SidebarHeader>
 
       <SidebarContent>
@@ -118,7 +119,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   label={t('main_section_label')}
                   items={[
                     { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
-                    { title: t('inbox'), url: '/dashboard/inbox', icon: Inbox, badge: needsYouCount },
+                    { title: t('needs_you'), url: '/dashboard/inbox', icon: Inbox, badge: needsYouCount },
                     { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
                     { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
                     { title: 'Activity', url: '/dashboard/activity', icon: Activity },
@@ -139,7 +140,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                 ))}
                 {/* Bottom cluster: which workspace you're in + the door to
                     its configuration. Both are context, not daily nav. */}
-                <div className="mt-auto px-2 pb-1">
+                <div className="mt-auto px-2 pb-1 group-data-[collapsible=icon]:hidden">
                   <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
                 </div>
               </>
@@ -150,10 +151,11 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   <button
                     type="button"
                     onClick={() => pick('work')}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-[13px] font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                    title={t('back_to_work')}
+                    className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
                   >
-                    <ArrowLeft className="size-4" aria-hidden />
-                    Back to work
+                    <ArrowLeft className="size-4 shrink-0" aria-hidden />
+                    <span className="group-data-[collapsible=icon]:hidden">{t('back_to_work')}</span>
                   </button>
                 </div>
                 {/* MANAGE — who works for you + the shapes their work takes. */}
@@ -194,7 +196,6 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   label={t('observability_section_label')}
                   items={[
                     { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
-                    { title: t('team_report'), url: '/dashboard/team-report', icon: Gauge },
                   ]}
                 />
 
@@ -210,24 +211,14 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   ]}
                 />
 
-                <div className="mt-auto px-2 pb-1">
+                <div className="mt-auto px-2 pb-1 group-data-[collapsible=icon]:hidden">
                   <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
                 </div>
               </>
             )}
       </SidebarContent>
 
-      <SidebarFooter className="px-4 pb-3 text-[11px] text-muted-foreground/70">
-        <div>
-          ©
-          {' '}
-          {new Date().getFullYear()}
-          {' '}
-          {/* Deployments override via NEXT_PUBLIC_BRAND_ATTRIBUTION
-              (same pattern as the NEXT_PUBLIC_BRAND_* logo vars). */}
-          {process.env.NEXT_PUBLIC_BRAND_ATTRIBUTION || 'Vocion · Apache 2.0'}
-        </div>
-      </SidebarFooter>
+      {/* The © / attribution line lives in the account menu now (B-034b §3). */}
       <SidebarRail />
     </Sidebar>
   );

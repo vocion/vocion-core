@@ -26,7 +26,10 @@
     "evals": "Evals",
     "docs": "Docs",
     "adoption": "Adoption",
-    "team_report": "Team report"
+    "team_report": "Team report",
+    "needs_you": "Needs you",
+    "back_to_work": "Back to work",
+    "search_hint": "Search or ask…"
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",

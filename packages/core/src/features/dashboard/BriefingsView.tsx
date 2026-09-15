@@ -184,7 +184,7 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
 
       {history.length > 0 && (
         <div className="mt-5">
-          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+          <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium tracking-[0.1em] text-muted-foreground">
             <Clock className="size-3.5" aria-hidden />
             Previous briefs
           </div>

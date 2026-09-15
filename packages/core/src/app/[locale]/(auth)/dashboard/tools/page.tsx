@@ -58,7 +58,7 @@ export default async function ToolsPage(props: {
           }
           return (
             <section key={cat}>
-              <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              <h2 className="mb-3 text-xs font-medium text-muted-foreground">
                 {CATEGORY_LABELS[cat]}
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

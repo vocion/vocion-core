@@ -477,7 +477,7 @@ function CheckResult({ result, status }: { result: AutomationCheckResult; status
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{label}</dt>
+      <dt className="text-[12px] font-medium text-muted-foreground">{label}</dt>
       <dd className="mt-0.5">{children}</dd>
     </div>
   );

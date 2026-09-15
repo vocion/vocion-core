@@ -2,9 +2,11 @@
 
 import type { LucideIcon } from 'lucide-react';
 import { ChevronRight } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
+import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
 import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
 import { Link } from '@/libs/I18nNavigation';
 
@@ -27,6 +29,7 @@ export const AppSidebarNavGroup = (props: {
   }[];
 }) => {
   const { toggleSidebar, isMobile } = useSidebar();
+  const pathname = usePathname();
 
   return (
     <Collapsible defaultOpen={props.defaultOpen ?? true} className="group/collapsible">
@@ -44,6 +47,8 @@ export const AppSidebarNavGroup = (props: {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
+                    tooltip={item.title}
+                    isActive={isNavItemActive(pathname, item.url)}
                     onClick={() => {
                       if (isMobile) {
                         toggleSidebar();

@@ -100,7 +100,7 @@ export function RunLogFilters({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{label}</span>
+      <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
       {children}
     </label>
   );
