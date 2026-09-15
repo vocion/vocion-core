@@ -161,5 +161,22 @@
     "feedback_note_placeholder": "Tell the team what to change (optional)",
     "feedback_save": "Send",
     "feedback_saved": "Thanks — the team reads this on its next cycle."
+  },
+  "Review": {
+    "all": "All",
+    "next_label": "Next:",
+    "more": "{count} more",
+    "up_next": "Up next",
+    "load_more": "Load more",
+    "skip_to": "Skip to",
+    "back": "Back",
+    "add_feedback": "Add feedback",
+    "hide_feedback": "Hide feedback",
+    "shortcuts": "shortcuts",
+    "shortcut_next": "Next",
+    "shortcut_prev": "Back",
+    "shortcut_approve": "Approve",
+    "shortcut_decline": "Decline",
+    "shortcut_snooze": "Snooze"
   }
 }
