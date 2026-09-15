@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
+import { SessionProvider } from 'next-auth/react';
 import { NextIntlClientProvider } from 'next-intl';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/features/dashboard/AppSidebar';
@@ -27,14 +28,17 @@ const PAGES = [
 
 function Frame({ defaultOpen, needsYouCount, withPages = true }: { defaultOpen: boolean; needsYouCount?: number; withPages?: boolean }) {
   return (
-    <NextIntlClientProvider locale="en" messages={en}>
-      <SidebarProvider defaultOpen={defaultOpen}>
-        <div className="flex h-[640px] w-[900px] overflow-hidden rounded-xl border border-border">
-          <AppSidebar collapsible="icon" isAdmin needsYouCount={needsYouCount} workspacePages={withPages ? PAGES : []} className="relative! h-full" />
-          <SidebarInset className="p-10 text-[13px] text-muted-foreground">Page content</SidebarInset>
-        </div>
-      </SidebarProvider>
-    </NextIntlClientProvider>
+    // The workspace switcher in the sidebar footer reads `useSession()`.
+    <SessionProvider session={{ user: { name: 'Chris Fitkin', email: 'chris@example.com' }, expires: '2099-01-01T00:00:00.000Z' }}>
+      <NextIntlClientProvider locale="en" messages={en}>
+        <SidebarProvider defaultOpen={defaultOpen}>
+          <div className="flex h-[640px] w-[900px] overflow-hidden rounded-xl border border-border">
+            <AppSidebar collapsible="icon" isAdmin needsYouCount={needsYouCount} workspacePages={withPages ? PAGES : []} className="relative! h-full" />
+            <SidebarInset className="p-10 text-[13px] text-muted-foreground">Page content</SidebarInset>
+          </div>
+        </SidebarProvider>
+      </NextIntlClientProvider>
+    </SessionProvider>
   );
 }
 
