@@ -8,6 +8,7 @@
 - [**Entity reference**](#entity-reference) — every authored file type, field by field.
 - [**Where an agent turn runs**](./agent-execution.md) — the loop, the model, and the AWS account, kept apart. Read it before touching `harness.runsOn`, `harness.modelProvider`, or anything named AgentCore. Includes what the `provider` → `runsOn` rename changes for an existing workspace (nothing, unless you want it to).
 - [**Object model**](./object-model.md) — the lookup table: where each object is authored, its schema symbol, its table, its runtime, its UI surface. Includes runtime-only objects (tool calls, runs, events).
+- [**Routing — the workspace in the URL**](./routing.md) — why `/w/<slug>/…` exists, what the entry route does, and the phase-2 design for `/{account}/{workspace}/…` as the canonical URL.
 - [**Review operations in the base pack**](./review-ops.md) — the review-queue agents and approval-drafting skills that ship in `core@2.1.0`, how to activate them, and how to override one.
 
 ## Entity reference
