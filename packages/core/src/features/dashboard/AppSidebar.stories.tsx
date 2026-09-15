@@ -29,7 +29,7 @@ const PAGES = [
 function Frame({ defaultOpen, needsYouCount, withPages = true }: { defaultOpen: boolean; needsYouCount?: number; withPages?: boolean }) {
   return (
     // The workspace switcher in the sidebar footer reads `useSession()`.
-    <SessionProvider session={{ user: { name: 'Chris Fitkin', email: 'chris@example.com' }, expires: '2099-01-01T00:00:00.000Z' }}>
+    <SessionProvider session={{ user: { id: 'user_1', name: 'Chris Fitkin', email: 'chris@example.com', accountId: 'acct_1', projectId: 'proj_1', role: 'admin' }, expires: '2099-01-01T00:00:00.000Z' }}>
       <NextIntlClientProvider locale="en" messages={en}>
         <SidebarProvider defaultOpen={defaultOpen}>
           <div className="flex h-[640px] w-[900px] overflow-hidden rounded-xl border border-border">
