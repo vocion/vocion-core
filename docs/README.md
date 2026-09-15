@@ -31,6 +31,7 @@ default, and effect, plus a worked example and the rules the loader enforces.
 | [Trust rules](./entities/trust.md) | `trust.yaml` | Which actions may auto-execute, and above what confidence |
 | [Learning step](./entities/learning-step.md) | `learnings/<name>.yaml` | A named bucket of accumulated rules an agent reads |
 | [Eval dataset](./entities/eval-dataset.md) | `evals/<slug>.yaml` | Test cases for one agent, graded on substance |
+| [Ask](./entities/ask.md) | runtime — `POST /api/v1/asks` | One question waiting on a person, answered on the Needs-you page or over the API |
 | [Workspace page](./workspace-pages.md) | `pages/<slug>.yaml` | A tenant-defined dashboard page, derived from a core page archetype |
 
 Workspace pages keep their own page because they are file-only: nothing is

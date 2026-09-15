@@ -34,6 +34,7 @@ sweep. Field-by-field reference for each authored type:
 | Workflow run | `WorkflowService.startWorkflow` | `workflowRunSchema` | `workflow_run` | `/api/v1/runs`, `/dashboard/workflows/<slug>/runs` |
 | Mission run | `MissionService.startMission` | `missionRunSchema` | `mission_run` | `/dashboard/missions/runs` |
 | Action run | `ActionService.proposeAction` / `executeAction` | `actionRunSchema` | `action_run` | `/dashboard/review` |
+| Ask | `AskService.upsertAsk` — agents, external workers and sync scripts over `POST /api/v1/asks` | `askSchema` | `ask` | `/dashboard/inbox`, `/api/v1/asks` |
 | Automation run | `AutomationService.fireAutomation` | `automationRunSchema` | `automation_run` | `/dashboard/automation` |
 | Event | `EventService.emit` | `eventLogSchema` | `event_log` | `/dashboard/activity?kind=event` |
 | Source sync | `SourceSyncService.runSync` | `sourceSyncCheckpointSchema` | `source_sync_checkpoint` | `/dashboard/sources`, Activity |

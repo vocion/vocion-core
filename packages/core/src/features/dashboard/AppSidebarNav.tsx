@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ComponentPropsWithoutRef } from 'react';
-import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
+import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
 import { Link } from '@/libs/I18nNavigation';
@@ -12,6 +12,8 @@ export const AppSidebarNav = (props: {
     url: string;
     icon: LucideIcon;
     disabled?: boolean;
+    /** A live count shown at the right edge; hidden when 0 or unset. */
+    badge?: number;
   }[];
 } & ComponentPropsWithoutRef<typeof SidebarGroup>) => {
   const { toggleSidebar, isMobile } = useSidebar();
@@ -56,6 +58,7 @@ export const AppSidebarNav = (props: {
                           )}
                     </SidebarMenuButton>
                   )}
+              {item.badge ? <SidebarMenuBadge className="rounded-full bg-primary/10 text-primary">{item.badge > 99 ? '99+' : item.badge}</SidebarMenuBadge> : null}
             </SidebarMenuItem>
           ))}
         </SidebarMenu>
