@@ -503,14 +503,19 @@ function facetsOf(items: InboxItem[]): InboxFacets {
  */
 export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<Inbox> {
   const tab = query.tab ?? 'open';
+  // Every tab's rows, every time. Loading `decided` only when the decided tab
+  // was open made its badge read 0 from anywhere else and the real number once
+  // you clicked it (Chris, 2026-09-15: "decided counts show 0 when not
+  // selected and 7 when selected") — a count on a tab is a promise about what
+  // is behind it, so it cannot depend on which tab you are standing on.
   const [open, snoozedRows, decidedRows, decidedAsks] = await Promise.all([
     openItems(orgId),
     listReviewRows(orgId, 'snoozed'),
-    tab === 'decided' ? listReviewRows(orgId, 'decided') : Promise.resolve([] as ReviewRow[]),
-    tab === 'decided' ? decidedAskItems(orgId) : Promise.resolve([] as InboxItem[]),
+    listReviewRows(orgId, 'decided'),
+    decidedAskItems(orgId),
   ]);
   const snoozed = reviewItems(snoozedRows, 'snoozed');
-  const decided = tab === 'decided' ? [...reviewItems(decidedRows, 'decided'), ...decidedAsks] : [];
+  const decided = [...reviewItems(decidedRows, 'decided'), ...decidedAsks];
   const tabs: Record<InboxTab, number> = { open: open.length, snoozed: snoozed.length, decided: decided.length };
 
   let items = tab === 'open' ? open : tab === 'snoozed' ? snoozed : decided;

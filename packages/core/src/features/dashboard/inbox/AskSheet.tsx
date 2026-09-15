@@ -4,6 +4,7 @@ import type { AskOption } from '@/models/Schema';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, ExternalLink, Loader2, Pencil } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { FIXED_ROWS, labelFor, OTHER } from './askOptions';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { firstParagraph, isNearDuplicate, sentenceCase, splitBody } from './askText';
@@ -28,14 +29,6 @@ export type SheetAsk = {
 type Answer = { decision: string; note: string };
 type Outcome = { ok: true } | { ok: false; error: string };
 
-const OTHER = 'other';
-
-/** The rows shown when an ask names no options of its own. */
-const FIXED_ROWS: AskOption[] = [
-  { id: 'approve', label: 'Approve', description: 'Yes — go ahead as proposed.' },
-  { id: 'reject', label: 'Reject', description: 'No — do not do this.' },
-  { id: 'done', label: 'Mark done', description: 'Handled outside Vocion; nothing more to do here.' },
-];
 
 /**
  * The question screen and, for a group, the stepper around it — one question
@@ -426,19 +419,3 @@ function StickyBar({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * The human label for a recorded decision on this ask.
- * @param ask
- * @param decision
- */
-export function labelFor(ask: Pick<SheetAsk, 'options'>, decision: string): string {
-  if (decision === OTHER) {
-    return 'Other';
-  }
-  const own = ask.options.find(o => o.id === decision);
-  if (own) {
-    return own.label;
-  }
-  const fixed = FIXED_ROWS.find(o => o.id === decision);
-  return fixed?.label ?? decision;
-}
