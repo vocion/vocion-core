@@ -9,6 +9,8 @@ import type { ArtifactPayload } from '@/services/agents/types';
 
 export const COLUMNS = 3;
 export const MIN_SLOTS = 6;
+/** Placeholders always on screen, whatever the artifacts fill. */
+export const MIN_EMPTY = 2;
 export type Span = 1 | 2 | 3;
 
 export type PlacedTile
@@ -36,7 +38,10 @@ function slotOf(a: ArtifactPayload, i: number): number {
   return a.tile?.slot ?? i;
 }
 
-/** Artifacts pinned to the canvas, in slot order (ties by id so the order is stable). */
+/**
+ * Artifacts pinned to the canvas, in slot order (ties by id so the order is stable).
+ * @param state
+ */
 export function visibleArtifacts(state: CanvasState): ArtifactPayload[] {
   return state.artifacts
     .filter(a => a.pinned)
@@ -59,23 +64,26 @@ export function layoutTiles(state: CanvasState): PlacedTile[] {
     span: (a.tile?.span ?? (a.kind === 'table' || a.kind === 'chart' ? 2 : 1)) as Span,
     artifact: a,
   }));
-  const used = tiles.reduce((n, t) => n + t.span, 0);
-  const wantSlots = Math.max(MIN_SLOTS, tiles.length + COLUMNS);
+  // Pad with placeholders: fill the current row, then keep adding whole rows
+  // until at least MIN_EMPTY placeholders and MIN_SLOTS tiles exist — so
+  // "describe what goes here" is always on screen, even after a hide
+  // compacts the grid or the last row happens to be full.
+  let cells = tiles.reduce((n, t) => n + t.span, 0);
   let slot = tiles.length;
-  // Pad to the next full row after the last artifact, then to the minimum.
-  let cells = used;
-  while (slot < wantSlots || cells % COLUMNS !== 0) {
+  let empties = 0;
+  while ((empties < MIN_EMPTY || tiles.length < MIN_SLOTS || cells % COLUMNS !== 0) && slot < 64) {
     tiles.push({ kind: 'empty', slot, span: 1 });
     slot += 1;
     cells += 1;
-    if (slot > 64) {
-      break;
-    }
+    empties += 1;
   }
   return tiles;
 }
 
-/** Placement to persist after a reorder/resize: dense slots in the current visible order. */
+/**
+ * Placement to persist after a reorder/resize: dense slots in the current visible order.
+ * @param state
+ */
 export function placementOf(state: CanvasState): Array<{ id: number; tile: { slot: number; span: Span } }> {
   return visibleArtifacts(state).map((a, i) => ({ id: a.id, tile: { slot: i, span: (a.tile?.span ?? (a.kind === 'table' || a.kind === 'chart' ? 2 : 1)) as Span } }));
 }
@@ -125,7 +133,11 @@ export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasS
   }
 }
 
-/** The message a person's empty-tile prompt becomes — the model reads the slot back as `tile_slot`. */
+/**
+ * The message a person's empty-tile prompt becomes — the model reads the slot back as `tile_slot`.
+ * @param slot
+ * @param text
+ */
 export function fillTileMessage(slot: number, text: string): string {
   return `Fill tile ${slot}: ${text.trim()}`;
 }

@@ -36,7 +36,7 @@ export default async function ConversationCanvasPage(props: {
 
   let initialArtifacts;
   let savedCanvas: { id: number; name: string } | null = null;
-  const canvasId = canvasParam ? Number(canvasParam) : NaN;
+  const canvasId = canvasParam ? Number(canvasParam) : Number.NaN;
   if (Number.isInteger(canvasId) && canvasId > 0) {
     const found = await getCanvas({ orgId, id: canvasId });
     if (found) {

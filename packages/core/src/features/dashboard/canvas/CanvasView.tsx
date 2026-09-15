@@ -39,18 +39,22 @@ export type CanvasViewProps = {
 
 export function CanvasView(props: CanvasViewProps) {
   const router = useRouter();
+  // The reducer sits above the session so its (stable) dispatch can receive
+  // live `artifact` events through the session's `onEvent` seam.
   const [canvas, dispatch] = useReducer(canvasReducer, { ...initialCanvasState, artifacts: props.initialArtifacts });
   const session = useChatSession({
     agents: props.agents,
     agentSlug: props.agentSlug,
-    // Live feed (R2 seam): an `artifact` event lands on the canvas the moment
-    // the render_* tool runs; the transcript still sees it (not claimed).
-    onEvent: (evt) => {
-      const artifact = evt.artifact as ArtifactPayload | undefined;
-      if (evt.type === 'artifact' && artifact && artifact.conversationId === props.conversationId) {
-        dispatch({ type: 'upsert', artifact });
+    onEvent: (evt, api) => {
+      if (evt.type === 'artifact' && evt.artifact) {
+        const artifact = evt.artifact as ArtifactPayload;
+        if (artifact.conversationId === null || artifact.conversationId === props.conversationId) {
+          dispatch({ type: 'upsert', artifact });
+          api.setActivity(`Rendered ${artifact.title}`);
+        }
       }
-      return false;
+      // Not claimed: the chat surface's own handling (inline card) still runs.
+      return undefined;
     },
   });
   const [gridOpen, setGridOpen] = useState(props.gridOpen);

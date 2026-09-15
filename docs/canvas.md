@@ -61,7 +61,7 @@ File artifacts (`create_artifact`, `generate_image`) are written to
 `GET /api/artifacts/<id>/<filename>` — a dashboard session or a `vcn_live_`
 token whose org owns the artifact; anything else is a 404. `<id>` is the
 artifact row id or the content-addressed file id `<orgId>-<hash>` (files from
-before the `artifact` table). Responses are `Cache-Control: private`.
+before the `artifact` table). Responses are `Cache-Control: private`. A **card** artifact (table, markdown, chart, record, link) has no file behind it — `GET /api/artifacts/<rowId>` returns its spec as JSON (`{ artifact }`) instead.
 
 **Never leave `VOCION_ARTIFACTS_DIR` under `public/` in production.** Next
 serves `public/` to anyone with the URL; on 2026-09-15 a deployment with the

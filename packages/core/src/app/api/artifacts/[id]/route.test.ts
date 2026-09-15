@@ -99,6 +99,21 @@ describe('GET /api/artifacts', () => {
     expect(trav.status).toBe(404);
   });
 
+  it('returns a card artifact as JSON (no file behind it) and 404s it for another org', async () => {
+    const row = await createArtifact({ orgId: ORG, kind: 'markdown', title: 'Plan', spec: { md: '- call Acme' } });
+    session(ORG);
+    const ok = await getById(req(`/api/artifacts/${row.id}`), { params: Promise.resolve({ id: String(row.id) }) });
+
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('content-type')).toMatch(/json/);
+    expect(await ok.json()).toMatchObject({ artifact: { id: row.id, kind: 'markdown', spec: { md: '- call Acme' } } });
+
+    session(OTHER);
+    const no = await getById(req(`/api/artifacts/${row.id}`), { params: Promise.resolve({ id: String(row.id) }) });
+
+    expect(no.status).toBe(404);
+  });
+
   it('resolves an artifact row id to its file and 404s it for another org', async () => {
     await writeFile(path.join(dir, `${ORG}-rowfile.md`), '# brief', 'utf8');
     const row = await createArtifact({ orgId: ORG, kind: 'file', title: 'Revenue brief', spec: { filename: `${ORG}-rowfile.md`, contentType: 'text/markdown', bytes: 7, url: `/api/artifacts/${ORG}-rowfile/${ORG}-rowfile.md` }, url: `/api/artifacts/${ORG}-rowfile/${ORG}-rowfile.md` });

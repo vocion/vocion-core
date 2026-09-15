@@ -431,10 +431,9 @@ export function useChatSession({
   }, []);
 
   const handleEvent = useCallback((evt: { type: string; [k: string]: unknown }) => {
-    // Extension seam first: a surface that knows a new event type (the
-    // canvas's `artifact`, wired in CanvasView) claims it here; everything
-    // else falls through.
-    if (onEventRef.current?.(evt, { appendToLatestAgent, flushDeltas, setActivity })) {
+    // Extension seam first (R2/R3): a claimed event skips the built-in cases.
+    // Strict `=== true`: an extension that only observes returns undefined.
+    if (onEventRef.current?.(evt, { appendToLatestAgent, flushDeltas, setActivity }) === true) {
       return;
     }
     switch (evt.type) {

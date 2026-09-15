@@ -20,10 +20,12 @@ import path from 'node:path';
 import { artifactsDir } from './store';
 import { contentTypeForExt, isInlineType, isSafeArtifactFilename, parseArtifactFilename } from './url';
 
-export type ArtifactRowLookup = (id: number) => Promise<{ orgId: string; url: string | null; spec: Record<string, unknown>; title: string } | null>;
+export type ArtifactRowLookup = (id: number) => Promise<{ orgId: string; kind: string; url: string | null; spec: Record<string, unknown>; title: string; payload?: unknown } | null>;
 
 export type ServeResult
   = | { status: 200; body: Buffer; headers: Record<string, string> }
+    /** A card artifact (table, markdown, chart, record, link) has no file — its spec is the content. */
+    | { status: 200; json: unknown }
     | { status: 404 | 400 };
 
 async function fileIn(dir: string, filename: string): Promise<{ abs: string; size: number } | null> {
@@ -57,6 +59,9 @@ export async function resolveArtifactFile(opts: {
     const row = await opts.lookupRow(Number(opts.id));
     if (!row || row.orgId !== opts.callerOrgId) {
       return { status: 404 };
+    }
+    if (row.kind !== 'file') {
+      return { status: 200, json: row.payload ?? { kind: row.kind, title: row.title, spec: row.spec } };
     }
     const fromSpec = typeof row.spec.filename === 'string' ? row.spec.filename : null;
     const fromUrl = row.url ? row.url.split('/').pop() ?? null : null;
