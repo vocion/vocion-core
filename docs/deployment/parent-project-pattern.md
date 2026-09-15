@@ -205,7 +205,7 @@ boundary: terminate TLS properly and don't put it behind a wildcard that also
 serves something else.
 
 Model spend follows the org's stored AWS key. Core mints a short-lived STS
-session from the key the client saved at `/dashboard/api-tokens` and sends it
+session from the key the client saved at `/dashboard/developers` and sends it
 in the invocation, so Bedrock is billed to their account. If they have stored
 no key, the runtime signs with its own execution role and the bill is ours —
 which is the right fallback for a trial and the wrong one for a paying client,

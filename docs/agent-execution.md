@@ -153,7 +153,7 @@ for the in-process loop". Agents applied before that change carry an explicit
 
 ### Which AWS account is billed
 
-An org supplies its own AWS access key at `/dashboard/api-tokens`, under the
+An org supplies its own AWS access key at `/dashboard/developers`, under the
 `aws` platform, so that its Bedrock spend lands on its own bill. That works on
 both of the providers we drive, by two different routes:
 

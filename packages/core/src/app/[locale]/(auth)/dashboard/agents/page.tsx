@@ -1,9 +1,11 @@
+import type { Metadata } from 'next';
 import type { AgentCard } from '@/features/dashboard/AgentsGrid';
 import { Bot } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { AgentsGrid } from '@/features/dashboard/AgentsGrid';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
+import { combinedPageTitle } from '@/features/navigation/combinedPages';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { listCorePackAgents } from '@/libs/workspace/reader';
@@ -19,7 +21,11 @@ import { listAgentHierarchy } from '@/services/AgentService';
  * When the workspace extends the core base pack, core agents it hasn't
  * activated are shown as greyed "not activated" ghost cards so you can see
  * what core offers vs what's live (ticket 007 follow-up).
+ *
+ * The Agents tab of "Teams & agents" — see `teams/page.tsx`.
  */
+
+export const metadata: Metadata = { title: combinedPageTitle('/dashboard/agents') };
 
 function count(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -95,8 +101,8 @@ export default async function AgentsPage(props: {
 
   return (
     <>
-      <TitleBar
-        title="Agents"
+      <CombinedPageHeader
+        active="/dashboard/agents"
         description="Your lead AI agents — the ones you brief directly. Open one to see the specialists it coordinates, its tools, and how it works."
       />
 

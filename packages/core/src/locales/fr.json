@@ -9,7 +9,6 @@
   },
   "DashboardLayout": {
     "main_section_label": "Espace de travail",
-    "observability_section_label": "Observabilité",
     "organization_section_label": "Organisation",
     "chat": "Chat",
     "inbox": "À traiter",
@@ -51,16 +50,31 @@
     "usage_this_period": "Consommation de la période",
     "notifications": "Notifications",
     "notifications_soon": "Notifications — bientôt",
-    "workspace_settings": "Paramètres de l’espace"
+    "workspace_settings": "Paramètres de l’espace",
+    "team_section_label": "Équipe",
+    "knowledge_section_label": "Connaissances",
+    "build_section_label": "Construire",
+    "insights_section_label": "Analyses",
+    "you_section_label": "Vous",
+    "briefings": "Briefings",
+    "teams_agents": "Équipes et agents",
+    "missions": "Missions",
+    "automations": "Automatisations",
+    "context": "Contexte",
+    "skills_tools": "Compétences et outils",
+    "tools": "Outils",
+    "vision_models": "Modèles de vision",
+    "activity": "Activité",
+    "members": "Membres",
+    "system": "Système",
+    "profile": "Profil"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",
     "meta_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
   },
   "Teams": {
-    "title_bar": "Teams",
     "title_bar_description": "Your AI workforce, by team. Every team has a lead agent and an accountable person.",
-    "all_agents": "All agents",
     "workspace_lead_badge": "Workspace Lead",
     "workspace_lead_description": "Runs the whole workspace — briefs you by consulting the team leads.",
     "accountable_label": "Accountable:",

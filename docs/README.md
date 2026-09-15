@@ -12,6 +12,26 @@
 - [**Routing — the workspace in the URL**](./routing.md) — why `/w/<slug>/…` exists, what the entry route does, and the phase-2 design for `/{account}/{workspace}/…` as the canonical URL.
 - [**Review operations in the base pack**](./review-ops.md) — the review-queue agents and approval-drafting skills that ship in `core@2.1.0`, how to activate them, and how to override one.
 
+## Dashboard map
+
+The sidebar has two views, both derived from one registry
+(`packages/core/src/features/navigation/dashboardNav.ts` — groups, order, labels,
+icons, admin gating; the ⌘K palette and the breadcrumb read the same list).
+
+| View | Section | Pages |
+|---|---|---|
+| **Work** | Workspace | Chat `/dashboard/chat` · Needs you `/dashboard/inbox` · Briefings `/dashboard/briefings` · Search `/dashboard/search` |
+| | Pinned · Pages · surfaces | This person's pins; the workspace's own pages (`/dashboard/p/<slug>`) and saved canvases; surfaces the workspace switched on |
+| **Manage** | Team | Teams & agents `/dashboard/teams` (tab: Agents `/dashboard/agents`) · Missions `/dashboard/missions` · Workflows `/dashboard/workflows` · Automations `/dashboard/automation` |
+| | Knowledge | Connectors `/dashboard/connectors` · Objects `/dashboard/objects` · Learnings `/dashboard/learnings` · Context `/dashboard/workspace` |
+| | Build | Skills & tools `/dashboard/skills` (tabs: Tools `/dashboard/tools`, Vision models `/dashboard/models`) · Evals `/dashboard/evals` |
+| | Insights | Team report `/dashboard/team-report` · Activity `/dashboard/activity` · Observability `/dashboard/observability` · Autonomy `/dashboard/autonomy` · Adoption `/dashboard/adoption` (admins) |
+| | Organization | Members `/dashboard/members` · Developers `/dashboard/developers` (MCP + REST endpoints, API credentials, docs) · System `/dashboard/admin` |
+| **You** | avatar menu | Profile `/dashboard/profile` |
+
+Old URLs redirect: `/dashboard/api-tokens` → Developers; `/dashboard/sources` →
+Connectors; `/dashboard/logs` → Activity; `/dashboard/playbooks` → Skills.
+
 ## Entity reference
 
 One page per authored entity type. Each page lists every field with its type,

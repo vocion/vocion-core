@@ -1,41 +1,11 @@
 'use client';
 
 import type { PinnableItem } from './nav/navPins';
+import type { DashboardRoute } from '@/features/navigation/dashboardNav';
 import type { SurfaceId } from '@/features/navigation/surfaces';
-import {
-  Activity,
-  ArrowLeft,
-  BarChart3,
-  BookOpen,
-  CalendarClock,
-  CheckSquare,
-  Code2,
-  Compass,
-  Cpu,
-  Database,
-  FileText,
-  GitBranch,
-  Inbox,
-  KeyRound,
-  LayoutGrid,
-  LineChart,
-  MessageSquare,
-  Network,
-  Newspaper,
-  PanelsTopLeft,
-  Plug,
-  Settings2,
-  ShieldCheck,
-  Sparkles,
-  TestTube,
-  TrendingUp,
-  UserPlus,
-  Users,
-  Wrench,
-  Zap,
-} from 'lucide-react';
+import { ArrowLeft, FileText, LayoutGrid, PanelsTopLeft, Settings2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/components/ui/useSidebar';
@@ -46,6 +16,7 @@ import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
 import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
 import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { OPEN_MANAGE_VIEW, readNavView, writeNavView } from '@/features/dashboard/useNavView';
+import { manageNavGroups, manageRoutes, tabsOf, workRoutes } from '@/features/navigation/dashboardNav';
 import { SurfaceNav } from '@/features/navigation/SurfaceNav';
 import { client } from '@/libs/Orpc';
 import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
@@ -53,13 +24,22 @@ import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 /**
  * Dashboard left sidebar — two views, Linear-settings style:
  *
- *   WORK (default) — Workspace (the permanent Vocion pages), Pinned (this
- *                    person's pins, in pin order), Pages (the workspace's own
- *                    pages: tenant pages and saved canvases, 7 then "More
- *                    pages ›"), the invite card, a quiet "Manage workspace"
- *                    row, and the workspace row.
- *   MANAGE         — the configuration sections, every row pinnable, with
+ *   WORK (default) — Workspace (the daily driver: Chat, Needs you, Briefings,
+ *                    Search), Pinned (this person's pins, in pin order), Pages
+ *                    (the workspace's own pages: tenant pages and saved
+ *                    canvases, 7 then "More pages ›"), the enabled surfaces,
+ *                    the invite card, a quiet "Manage workspace" row, and the
+ *                    workspace row.
+ *   MANAGE         — the configuration sections (Team · Knowledge · Build ·
+ *                    Insights · Organization), every row pinnable, with
  *                    "Back to work" at top.
+ *
+ * Both views are DERIVED from `features/navigation/dashboardNav.ts` — groups,
+ * order, labels, icons and admin gating live there, once, shared with the ⌘K
+ * palette and the breadcrumb (nav sweep, Chris 2026-09-15: "team report and
+ * activity don't look like they belong in the main workspace nav"). Reports
+ * and the Developers page moved to MANAGE; nothing configurational is left in
+ * WORK.
  *
  * Three doors into MANAGE (Chris, 2026-09-15: "we lost nav access to
  * workspace settings"): the visible row in the work nav (the primary one —
@@ -164,54 +144,50 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
     writeNavView(globalThis.localStorage, v);
   };
 
+  // Sidebar labels come from the registry's i18n keys (typed against en.json);
+  // the English title is the fallback for a route that has none yet.
+  const label = useCallback((r: Pick<DashboardRoute, 'i18nKey' | 'title'>) => (r.i18nKey ? t(r.i18nKey) : r.title), [t]);
+
   // ---- the three WORK groups ----
-  const workspaceItems = [
-    { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
-    { title: t('inbox'), url: '/dashboard/inbox', icon: Inbox, badge: needsYouCount },
-    { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
-    { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
-    { title: 'Activity', url: '/dashboard/activity', icon: Activity },
-    { title: t('search'), url: '/dashboard/search', icon: BookOpen },
-    { title: t('team_report'), url: '/dashboard/team-report', icon: Network },
-  ];
+  const workspaceItems = workRoutes().map(r => ({
+    title: label(r),
+    url: r.url,
+    icon: r.icon,
+    badge: r.url === '/dashboard/inbox' ? needsYouCount : undefined,
+  }));
 
   const pageItems = useMemo<PinnableItem[]>(() => [
     ...workspacePages.map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft, origin: 'page' as const })),
     ...canvases.map(c => ({ title: c.title, url: `/dashboard/chat/${c.id}?grid=open`, icon: LayoutGrid, origin: 'canvas' as const })),
   ], [workspacePages, canvases]);
 
-  const manageItems = useMemo<PinnableItem[]>(() => {
-    const m = (title: string, url: string, icon: PinnableItem['icon']): PinnableItem => ({ title, url, icon, origin: 'manage' });
-    return [
-      m(t('teams'), '/dashboard/teams', Network),
-      m(t('agents'), '/dashboard/agents', Users),
-      m('Missions', '/dashboard/missions', Compass),
-      m(t('workflows'), '/dashboard/workflows', GitBranch),
-      m('Automation', '/dashboard/automation', CalendarClock),
-      m(t('sources'), '/dashboard/connectors', Plug),
-      m(t('objects'), '/dashboard/objects', Database),
-      m(t('learnings'), '/dashboard/learnings', Sparkles),
-      m(t('skills'), '/dashboard/skills', Zap),
-      m('Tools', '/dashboard/tools', Wrench),
-      m('Vision models', '/dashboard/models', Cpu),
-      m(t('evals'), '/dashboard/evals', TestTube),
-      m(t('observability'), '/dashboard/observability', LineChart),
-      m(t('autonomy'), '/dashboard/autonomy', TrendingUp),
-      ...(isAdmin ? [m(t('adoption'), '/dashboard/adoption', BarChart3)] : []),
-      m('Members', '/dashboard/members', UserPlus),
-      ...(isAdmin ? [m('API tokens', '/dashboard/api-tokens', KeyRound)] : []),
-      m('System', '/dashboard/admin', ShieldCheck),
-    ];
-  }, [isAdmin, t]);
+  // Every MANAGE destination — pages and their tabs — so a pin to either resolves.
+  const manageItems = useMemo<PinnableItem[]>(
+    () => manageRoutes(isAdmin).map(r => ({ title: label(r), url: r.url, icon: r.icon, origin: 'manage' as const })),
+    [isAdmin, label],
+  );
+
+  // The MANAGE sections: top-level rows, each combined page carrying its
+  // other tabs (shown beneath it while open; a pinned tab moves up to Pinned).
+  const manageSections = useMemo(() => manageNavGroups(isAdmin).map(({ group, routes }) => ({
+    label: label(group),
+    items: routes.map((r): PinnableItem => ({
+      title: label(r),
+      url: r.url,
+      icon: r.icon,
+      origin: 'manage',
+      tabs: tabsOf(r.url).filter(tab => tab.tabOf).map(tab => ({ title: label(tab), url: tab.url, icon: tab.icon, origin: 'manage' as const })),
+    })),
+  })), [isAdmin, label]);
 
   const pinnable = useMemo(() => [...pageItems, ...manageItems], [pageItems, manageItems]);
   const pinned = applyPins(pinnable, prefs.pins);
   const unpinnedPages = withoutPins(pageItems, prefs.pins);
-  const manageGroup = (label: string, urls: string[]) => (
+  const manageGroup = (section: { label: string; items: PinnableItem[] }) => (
     <PinnableNav
-      key={label}
-      label={label}
-      items={withoutPins(manageItems.filter(i => urls.includes(i.url)), prefs.pins)}
+      key={section.label}
+      label={section.label}
+      items={withoutPins(section.items, prefs.pins).map(i => ({ ...i, tabs: i.tabs ? withoutPins(i.tabs, prefs.pins) : undefined }))}
       pins={prefs.pins}
       onTogglePin={prefs.togglePin}
       max={99}
@@ -274,8 +250,6 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                     which workspace you're in + the door to its configuration. */}
                 <div className="mt-auto">
                   {!prefs.dismissed.includes(INVITE_CARD) && <InviteTeamCard onDismiss={() => prefs.dismiss(INVITE_CARD)} />}
-                  {/* Developers — API tokens for admins, the in-app docs otherwise. */}
-                  <AppSidebarNav className="py-0" items={[{ title: t('developers'), url: isAdmin ? '/dashboard/api-tokens' : '/dashboard/docs', icon: Code2 }]} />
                   {/* The visible door to MANAGE — everything configurational is
                       behind it, so it is a row in the nav, not only a line in a
                       popover. Icon rail: the gear alone, with a tooltip. */}
@@ -314,11 +288,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                 {pinned.length > 0 && (
                   <PinnableNav label={t('pinned')} items={pinned} pins={prefs.pins} onTogglePin={prefs.togglePin} onMovePin={prefs.movePin} max={99} reorderable {...pinLabels} />
                 )}
-                {manageGroup('Team', ['/dashboard/teams', '/dashboard/agents', '/dashboard/missions', '/dashboard/workflows', '/dashboard/automation'])}
-                {manageGroup('Knowledge', ['/dashboard/connectors', '/dashboard/objects', '/dashboard/learnings'])}
-                {manageGroup('Build', ['/dashboard/skills', '/dashboard/tools', '/dashboard/models', '/dashboard/evals'])}
-                {manageGroup(t('observability_section_label'), ['/dashboard/observability', '/dashboard/autonomy'])}
-                {manageGroup(t('organization_section_label'), ['/dashboard/adoption', '/dashboard/members', '/dashboard/api-tokens', '/dashboard/admin'])}
+                {manageSections.map(manageGroup)}
                 <AppSidebarNav items={[{ title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText }]} />
 
                 <div className="mt-auto px-2 pb-2 group-data-[collapsible=icon]:px-0">
