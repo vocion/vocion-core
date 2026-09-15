@@ -112,7 +112,7 @@ function TeamDetailScreen({ team, boundary, files, editInGitPath, dirty, dirtyFi
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="font-display text-2xl leading-tight font-semibold tracking-tight">{team.name}</h1>
             <span
-              className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+              className="rounded-md px-1.5 py-0.5 text-[12px] font-medium"
               style={{ background: a.tint, color: a.ink }}
             >
               {t('team_badge')}
@@ -220,7 +220,7 @@ function TeamDetailScreen({ team, boundary, files, editInGitPath, dirty, dirtyFi
                               <span className="truncate text-sm font-medium group-hover:text-primary">{member.name}</span>
                               {isLead && (
                                 <span
-                                  className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+                                  className="rounded-md px-1.5 py-0.5 text-[12px] font-medium"
                                   style={{ background: mAccent.tint, color: mAccent.ink }}
                                 >
                                   {t('team_lead_badge')}

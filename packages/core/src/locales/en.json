@@ -24,7 +24,10 @@
     "learnings": "Learnings",
     "evals": "Evals",
     "docs": "Docs",
-    "adoption": "Adoption"
+    "adoption": "Adoption",
+    "needs_you": "Needs you",
+    "back_to_work": "Back to work",
+    "search_hint": "Search or ask…"
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",

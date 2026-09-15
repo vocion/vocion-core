@@ -24,7 +24,10 @@
     "learnings": "Apprentissages",
     "evals": "Évaluations",
     "docs": "Docs",
-    "adoption": "Adoption"
+    "adoption": "Adoption",
+    "needs_you": "À traiter",
+    "back_to_work": "Retour au travail",
+    "search_hint": "Rechercher ou demander…"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",

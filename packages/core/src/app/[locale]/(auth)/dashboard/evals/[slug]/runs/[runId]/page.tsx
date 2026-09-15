@@ -161,24 +161,24 @@ export default async function EvalRunDetailPage(props: Props) {
                       </header>
                       <div className="grid gap-4 px-4 py-4 text-sm md:grid-cols-2">
                         <div>
-                          <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Input</div>
+                          <div className="mb-1 text-xs font-medium text-muted-foreground">Input</div>
                           <div className="whitespace-pre-wrap text-foreground">{r.input}</div>
                         </div>
                         <div>
-                          <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Output</div>
+                          <div className="mb-1 text-xs font-medium text-muted-foreground">Output</div>
                           <div className="whitespace-pre-wrap text-foreground">
                             {r.output ?? <span className="text-muted-foreground italic">(no output)</span>}
                           </div>
                         </div>
                         {item?.expectedOutput && (
                           <div className="md:col-span-2">
-                            <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Expected</div>
+                            <div className="mb-1 text-xs font-medium text-muted-foreground">Expected</div>
                             <div className="whitespace-pre-wrap text-muted-foreground">{item.expectedOutput}</div>
                           </div>
                         )}
                         {r.rationale && (
                           <div className="md:col-span-2">
-                            <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Judge rationale</div>
+                            <div className="mb-1 text-xs font-medium text-muted-foreground">Judge rationale</div>
                             <div className="whitespace-pre-wrap text-muted-foreground italic">{r.rationale}</div>
                           </div>
                         )}
@@ -196,7 +196,7 @@ export default async function EvalRunDetailPage(props: Props) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-border bg-background px-4 py-3">
-      <div className="text-xs tracking-wide text-muted-foreground uppercase">{label}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 font-mono text-lg">{value}</div>
     </div>
   );

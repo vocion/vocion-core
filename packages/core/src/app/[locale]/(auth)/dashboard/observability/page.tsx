@@ -52,7 +52,7 @@ export default async function ObservabilityPage(props: {
           title="Observability"
           description="Per-org / per-user / per-feature LLM cost + run volume, powered by Langfuse."
         />
-        <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">
+        <div className="text-sm text-muted-foreground">
           Sign in to an organization to see spend and run volume for your workspace.
         </div>
       </>
@@ -120,7 +120,7 @@ export default async function ObservabilityPage(props: {
               </div>
             )
           : (
-              <div className="rounded-md border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+              <div className="text-sm text-muted-foreground">
                 Trace search is unavailable because Langfuse is not configured for this
                 deployment. The spend and run-volume numbers below come from this
                 application's own tables and are unaffected. See
@@ -131,7 +131,8 @@ export default async function ObservabilityPage(props: {
               </div>
             )}
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        {/* Airy pass (B-034b §4): three numbers in a row between hairlines, no fills. */}
+        <div className="grid gap-6 border-y border-border/70 py-5 sm:grid-cols-3">
           <StatCard
             label="Spend this period"
             value={`$${(totalCents / 100).toFixed(2)}`}
@@ -150,11 +151,11 @@ export default async function ObservabilityPage(props: {
         </div>
 
         {topAgents.length > 0 && (
-          <div className="rounded-md border border-border">
-            <div className="border-b border-border px-4 py-3 text-sm font-medium">Top agents by spend</div>
-            <div className="divide-y divide-border text-sm">
+          <div>
+            <div className="mb-1 px-2 text-[15px] font-semibold">Top agents by spend</div>
+            <div className="divide-y divide-border/70 text-sm">
               {topAgents.map(agent => (
-                <div key={`${agent.agentSlug}-${agent.period}`} className="flex items-center justify-between px-4 py-3">
+                <div key={`${agent.agentSlug}-${agent.period}`} className="flex items-center justify-between rounded-lg px-2 py-3 transition-colors hover:bg-surface-hover">
                   <div className="flex items-center gap-3">
                     <LineChart className="h-4 w-4 text-muted-foreground" />
                     <span className="font-mono">{agent.agentSlug}</span>
@@ -182,7 +183,7 @@ export default async function ObservabilityPage(props: {
           </div>
         )}
 
-        <div className="rounded-md border border-border bg-muted/30 p-4 text-xs text-muted-foreground">
+        <div className="border-t border-border/70 pt-4 text-xs text-muted-foreground">
           The
           {' '}
           <code className="rounded bg-background px-1 py-0.5">agent_budget</code>
@@ -201,10 +202,10 @@ export default async function ObservabilityPage(props: {
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-md border border-border p-4">
-      <div className="text-xs tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div className="mt-1 font-display text-2xl tabular-nums">{value}</div>
-      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+    <div>
+      <div className="text-[12px] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{value}</div>
+      {hint && <div className="mt-1 text-[12px] text-muted-foreground">{hint}</div>}
     </div>
   );
 }
