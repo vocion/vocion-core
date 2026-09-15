@@ -1,20 +1,30 @@
 'use client';
 
 import type { ActionRun } from '@/features/review/ReviewFocusView';
-import type { ReviewType } from '@/features/review/reviewQueueModel';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import type { ProposalQueueEntry } from '@/services/InboxService';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { describeAction, ReviewFocusView } from '@/features/review/ReviewFocusView';
-import { typeLabel } from '@/features/review/reviewQueueModel';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
 import { client } from '@/libs/Orpc';
+import { inboxHref } from '@/services/inbox/inboxRef';
+import { decisionCrumbs } from './inbox/inboxMeta';
 
 /**
- * Review — FOCUS MODE: one item at a time, decide and move on. This is the
- * data half: the queue window, the type filter in the URL, skip/back/save,
- * the generic edit-and-steer path, and the queue keyboard (`j`/`k`/`?`). The
- * page itself is `features/review/ReviewFocusView`; the item's own decision
- * (`a`/`d`/`s`) belongs to the card in page presentation.
+ * The `proposal` kind's decision screen on "Needs you" — the data half. The
+ * server page (`/dashboard/inbox/proposal-:id`) loads the run with its card
+ * and alignment, plus the working queue: every open proposal in the order
+ * and under the filters the list showed them. This container owns what
+ * happens around the decision — skip/back/save, the generic edit-and-steer
+ * path, the queue keyboard (`j`/`k`/`?`) — and where to go next. The page
+ * itself is `features/review/ReviewFocusView`; the item's own decision
+ * (`a`/`d`/`s`) belongs to the card.
+ *
+ * The queue lives in the URL, not in component state: Up-next and `j`/`k`
+ * navigate to the next proposal's own address with the list's filters kept
+ * in the query string, so a reload, a shared link or the back button land
+ * exactly where a person was. Deciding moves to the next proposal in the
+ * queue and, when the queue is empty, back to the list.
  *
  * No popups. gmail.send never auto-sends. The run record in the database is
  * the debugging surface — no raw payload here.
@@ -22,213 +32,122 @@ import { client } from '@/libs/Orpc';
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
-export function ReviewFocus() {
+export function ReviewFocus(props: {
+  run: ActionRun;
+  /** The open proposals under the list's filters, in list order (`listProposalQueue`). */
+  queue: ProposalQueueEntry[];
+  /** The list's query string (`?kind=proposal&actionKind=…`), carried onto every neighbour's URL. */
+  search: string;
+  /** Where "done" goes: the list, filtered as it was. */
+  listHref: string;
+}) {
   const router = useRouter();
-  const params = useSearchParams();
-  // The filter lives in the URL: a filtered queue survives a reload and can be
-  // sent to whoever should work it. Repeated `?type=` params, so several card
-  // types can be worked as one queue.
-  const activeTypes = params.getAll('type').flatMap(v => v.split(',')).filter(Boolean);
-  const typeKey = activeTypes.join(',');
-  const [items, setItems] = useState<ActionRun[]>([]);
-  const [types, setTypes] = useState<ReviewType[]>([]);
-  const [total, setTotal] = useState(0);
-  const [skipped, setSkipped] = useState<Set<number>>(new Set());
-  const [pinnedId, setPinnedId] = useState<number | null>(null);
-  const [history, setHistory] = useState<number[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const { run, queue, search, listHref } = props;
   const [busy, setBusy] = useState(false);
   const [steering, setSteering] = useState(false);
   const [steer, setSteer] = useState('');
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [decided, setDecided] = useState(0);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  // Skipped ids fall to the back of the working queue for this visit.
+  const [skipped, setSkipped] = useState<number[]>([]);
 
-  const refresh = useCallback(async () => {
-    try {
-      // The filter goes to the SERVER, so a filtered queue draws its whole
-      // window from the matching rows.
-      const chosen = typeKey === '' ? [] : typeKey.split(',');
-      const [page, present] = await Promise.all([
-        client.review.listPendingActions(chosen.length > 0 ? { actionIds: chosen } : {}),
-        client.review.listPendingActionTypes(),
-      ]);
-      setItems(page.items as ActionRun[]);
-      setTotal(page.total);
-      setTypes(present as ReviewType[]);
-    } catch {
-      setItems([]);
-      setTypes([]);
-      setTotal(0);
+  const index = queue.findIndex(q => q.id === run.id);
+  const ordered = useMemo(() => {
+    // Items after the current one first, then wrap to the ones before it;
+    // anything skipped this visit falls to the back.
+    const walk = [...queue.slice(index + 1), ...(index >= 0 ? queue.slice(0, index) : [])];
+    return [...walk.filter(q => !skipped.includes(q.id)), ...walk.filter(q => skipped.includes(q.id))];
+  }, [queue, index, skipped]);
+  const next = ordered[0];
+  const prev = index > 0 ? queue[index - 1] : undefined;
+
+  const hrefFor = useCallback((id: number) => `${inboxHref('proposal', id)}${search}`, [search]);
+  const goTo = useCallback((id: number) => router.push(hrefFor(id)), [router, hrefFor]);
+  const leave = useCallback(() => {
+    if (next) {
+      router.push(hrefFor(next.id));
+    } else {
+      router.push(listHref);
     }
-    setLoaded(true);
-  }, [typeKey]);
-
-  useEffect(() => {
-    // A new filter is a new queue: the skip/back state belonged to the old one.
-    setSkipped(new Set());
-    setHistory([]);
-    setPinnedId(null);
-    void refresh();
-  }, [refresh]);
-
-  const selectTypes = (next: string[]) => {
-    const qs = new URLSearchParams(params.toString());
-    qs.delete('type');
-    for (const value of next) {
-      qs.append('type', value);
-    }
-    const search = qs.toString();
-    router.push(search ? `/dashboard/review?${search}` : '/dashboard/review');
-  };
-
-  const queue = [...items.filter(i => !skipped.has(i.id)), ...items.filter(i => skipped.has(i.id))];
-  const current = (pinnedId != null && items.find(i => i.id === pinnedId)) || queue[0] || null;
-  const index = current ? queue.findIndex(i => i.id === current.id) : -1;
-
-  /** Widen the loaded window by a page when the Up-next menu asks for more. */
-  const loadMore = useCallback(async () => {
-    if (items.length >= total || loadingMore) {
-      return;
-    }
-    setLoadingMore(true);
-    try {
-      const chosen = typeKey === '' ? [] : typeKey.split(',');
-      const page = await client.review.listPendingActions({
-        ...(chosen.length > 0 ? { actionIds: chosen } : {}),
-        limit: 50,
-        offset: items.length,
-      });
-      setItems((prev) => {
-        const seen = new Set(prev.map(i => i.id));
-        return [...prev, ...(page.items as ActionRun[]).filter(i => !seen.has(i.id))];
-      });
-      setTotal(page.total);
-    } catch {
-      /* the next open retries */
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [items.length, total, loadingMore, typeKey]);
+    router.refresh();
+  }, [next, router, hrefFor, listHref]);
 
   // Editable working copy of a presenter-less item's human fields.
   useEffect(() => {
     setSteer('');
-    if (!current) {
-      setEdited({});
-      return;
-    }
-    if (describeAction(current).isEmail) {
-      setEdited({ to: str(current.input.to), subject: str(current.input.subject), body: str(current.input.body) });
+    if (describeAction(run).isEmail) {
+      setEdited({ to: str(run.input.to), subject: str(run.input.subject), body: str(run.input.body) });
     } else {
-      const props = (current.input.properties ?? {}) as Record<string, unknown>;
-      setEdited(Object.fromEntries(Object.entries(props).map(([k, v]) => [k, str(v)])));
+      const properties = (run.input.properties ?? {}) as Record<string, unknown>;
+      setEdited(Object.fromEntries(Object.entries(properties).map(([k, v]) => [k, str(v)])));
     }
-  }, [current?.id]);
+  }, [run.id]);
 
-  const signal = (runId: number, s: 'skip' | 'save') => {
-    void client.review.recordSignal({ runId, signal: s }).catch(() => {});
-  };
-
-  const goTo = (id: number) => {
-    if (current) {
-      setHistory(h => [...h, current.id]);
-    }
-    setPinnedId(id);
+  const signal = (s: 'skip' | 'save') => {
+    void client.review.recordSignal({ runId: run.id, signal: s }).catch(() => {});
   };
 
   const onBack = () => {
-    const prev = history[history.length - 1];
-    if (prev === undefined) {
-      return;
+    if (prev) {
+      goTo(prev.id);
+    } else {
+      router.back();
     }
-    setHistory(h => h.slice(0, -1));
-    setSkipped((s) => {
-      const n = new Set(s);
-      n.delete(prev);
-      return n;
-    });
-    setPinnedId(prev);
   };
 
   const onSkip = () => {
-    if (!current) {
+    if (!next) {
       return;
     }
-    signal(current.id, 'skip');
-    setHistory(h => [...h, current.id]);
-    setSkipped(prev => new Set([...prev, current.id]));
-    setPinnedId(null);
+    signal('skip');
+    setSkipped(s => [...s, run.id]);
+    goTo(next.id);
   };
 
   const onSave = () => {
-    if (!current) {
-      return;
-    }
-    signal(current.id, 'save');
-    setHistory(h => [...h, current.id]);
-    setItems(prev => prev.filter(i => i.id !== current.id));
-    setPinnedId(null);
+    signal('save');
     setDecided(d => d + 1);
+    leave();
   };
 
   const buildEditedInput = (): Record<string, unknown> | undefined => {
-    if (!current) {
-      return undefined;
+    if (describeAction(run).isEmail) {
+      return { ...run.input, ...edited };
     }
-    if (describeAction(current).isEmail) {
-      return { ...current.input, ...edited };
-    }
-    if (current.input.properties) {
-      return { ...current.input, properties: { ...(current.input.properties as Record<string, unknown>), ...edited } };
+    if (run.input.properties) {
+      return { ...run.input, properties: { ...(run.input.properties as Record<string, unknown>), ...edited } };
     }
     return undefined;
   };
 
   const onDecide = async (decision: 'approve' | 'reject') => {
-    if (!current) {
-      return;
-    }
     setBusy(true);
     try {
       const editedInput = decision === 'approve' ? buildEditedInput() : undefined;
-      await client.review.decideAction({ id: current.id, decision, ...(editedInput ? { editedInput } : {}) });
-      setItems(prev => prev.filter(i => i.id !== current.id));
-      setPinnedId(null);
+      await client.review.decideAction({ id: run.id, decision, ...(editedInput ? { editedInput } : {}) });
       setDecided(d => d + 1);
+      leave();
     } finally {
       setBusy(false);
     }
   };
 
-  // The card owns its own decide/snooze; this just drops the item. A
-  // regenerate is NOT a decision: the card holds its place — pinned, so the
-  // queue cannot advance past it.
+  // The card owns its own decide/snooze; this just moves on. A regenerate is
+  // NOT a decision: the card holds its place and the page re-reads the run.
   const onCardDecided = (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => {
-    if (!current) {
-      return;
-    }
     if (outcome === 'regenerate') {
-      setPinnedId(current.id);
+      router.refresh();
       return;
     }
-    setItems(prev => prev.filter(i => i.id !== current.id));
-    setPinnedId(null);
     setDecided(d => d + 1);
-  };
-
-  const onCardRegenerated = () => {
-    void refresh();
+    leave();
   };
 
   const onSteer = async () => {
-    if (!current) {
-      return;
-    }
     setSteering(true);
     try {
-      const res = await client.review.rewriteDraft({ runId: current.id, hint: steer.trim() || undefined });
+      const res = await client.review.rewriteDraft({ runId: run.id, hint: steer.trim() || undefined });
       setEdited(e => ('body' in e ? { ...e, body: res.body } : { ...e, notes: res.body }));
       setSteer('');
     } catch {
@@ -255,7 +174,7 @@ export function ReviewFocus() {
       } else if (action === 'help') {
         e.preventDefault();
         setShowHelp(h => !h);
-      } else if (current && !current.card && !busy && !steering) {
+      } else if (!run.card && !busy && !steering) {
         if (action === 'approve') {
           e.preventDefault();
           void onDecide('approve');
@@ -269,29 +188,24 @@ export function ReviewFocus() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const upNext = queue
-    .filter(i => i.id !== current?.id)
-    .slice(0, 10)
-    .map(i => ({ id: i.id, title: describeAction(i).title, typeLabel: typeLabel(types, i.actionId) }));
+  const upNext = ordered.slice(0, 10).map(q => ({ id: q.id, title: q.title, typeLabel: q.typeLabel }));
+  const record = run.card?.subject?.name ?? describeAction(run).title;
 
   return (
     <ReviewFocusView
-      loaded={loaded}
-      types={types}
-      activeTypes={activeTypes}
-      onChangeTypes={selectTypes}
-      current={current}
+      loaded
+      crumbs={decisionCrumbs('proposal', record)}
+      current={run}
       index={index}
-      total={total}
+      total={queue.length}
       upNext={upNext}
       onSkipTo={goTo}
-      onLoadMore={items.length < total ? () => void loadMore() : undefined}
-      canBack={history.length > 0}
+      canBack={Boolean(prev)}
       onBack={onBack}
       onSkip={onSkip}
       onSave={onSave}
       onCardDecided={onCardDecided}
-      onCardRegenerated={onCardRegenerated}
+      onCardRegenerated={() => router.refresh()}
       edited={edited}
       onEditField={(k, v) => setEdited(e => ({ ...e, [k]: v }))}
       steer={steer}

@@ -93,8 +93,8 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
           {outcomes.filter(o => o === 'skipped').length > 0 && ` · ${outcomes.filter(o => o === 'skipped').length} skipped`}
         </span>
         {saved > 0 && (
-          <Link href="/dashboard/review" className="inline-flex items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
-            Review queue
+          <Link href="/dashboard/inbox?kind=proposal" className="inline-flex items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
+            Needs you
             <ArrowRight className="size-3.5" aria-hidden />
           </Link>
         )}

@@ -195,7 +195,7 @@ test('a snooze taken from the review card shows up as a snooze on the adoption s
   expect(status).toBe('pending');
 
   // ── Snooze it from the card, the way a reviewer does ─────────────────────
-  await page.goto(`${baseURL}/dashboard/review`);
+  await page.goto(`${baseURL}/dashboard/inbox/proposal-${runId}`);
   const focus = page.getByTestId('review-focus');
 
   await expect(focus.getByText(ITEM_TITLE).first()).toBeVisible();

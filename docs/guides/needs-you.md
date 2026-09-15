@@ -1,0 +1,126 @@
+# Needs you — the one decision surface
+
+> "Review and Needs you feel like they're two things trying to do the same
+> thing — what gives?" — product owner, 2026-09-15
+
+They were. Both asked a person to do one job: read the evidence, decide, and
+let the system learn from the decision. Only the *thing being decided*
+differed — an agent-proposed action on Review, a question from the team on
+Needs you. Two doors to one job is a choice a person has to make before they
+have made any decision at all, so as of this guide there is one door.
+
+**Needs you** (`/dashboard/inbox`) is where everything waiting on a person
+lands, whatever it is. `/dashboard/review` forwards there permanently.
+
+## What lands here
+
+Every row has a **kind**. The kind says what you are deciding and picks the
+screen you decide it on.
+
+| Kind | What it is | Where it comes from | Opens at |
+|---|---|---|---|
+| **Proposal** | An action an agent wants to take with an outside effect — a CRM update, an email, an enrollment. Approving executes it. | `propose_action` → `action_run` (the former review queue) | `/dashboard/inbox/proposal-:id`; several about one record: `/dashboard/inbox/r/:recordKey` |
+| **Ruling** | A decision only you can make; the team is blocked on it. | [`ask`](../entities/ask.md) with `kind: ruling` | `/dashboard/inbox/:id`; several under one group: `/dashboard/inbox/g/:groupKey` |
+| **Approval** | Permission for something the team wants to do (nothing executes on answer). | `ask` · `approval` | as above |
+| **Merge** | A pull request ready for a human to merge. | `ask` · `merge` | as above |
+| **Input** | A fact, a file, an answer the team needs. | `ask` · `input` | as above |
+| **Credential** | A key or a login the team needs to keep going. | `ask` · `credential` | as above |
+| **Gate** | A run waiting for you to say go. | `ask` · `gate` | as above |
+| **Recommendation** | A change the team proposes to itself — roles, models, budget. | `ask` · `recommendation` | as above |
+| **Run** | A mission or workflow run that paused or is awaiting review; a worker run that paused, is awaiting review, failed or was lost in the last 24 hours. | `mission_run`, `workflow_run`, `worker_run` | `/dashboard/inbox/mission-:id` · `workflow-:id` · `worker-:id` |
+| **Suggested rule** | A rule the feedback loop proposed from your corrections, waiting to be adopted. | `learning_candidate` | `/dashboard/inbox/learning-:id` |
+
+A bare number in the URL is an ask — the shape every mailed and Slacked link,
+and the API's `url` field, have always used. Every other kind spells itself
+out (`services/inbox/inboxRef.ts`).
+
+## The list
+
+One flat queue, **oldest first** by default — a queue, not a feed. The header
+answers Manifesto #11's three questions in one line each: *what needs me*,
+*what changed* (the last decision anyone took), *what happens next*.
+
+- **Kind chips** with counts filter the list (`?kind=proposal,ruling`). The
+  counts stay put while a chip is active so you can see what else waits.
+- Under them, **action-kind** chips (`?actionKind=hubspot.update`) and
+  **agent** chips (`?agents=deal-desk`) narrow proposals further.
+- **Search** (`?q=`) matches what you see on the row; **sort** (`?sort=`) is
+  oldest · newest · highest value · highest confidence.
+- **Tabs**: *Open* · *Decided* (every kind that can be decided — proposals,
+  asks, rules — newest first, with who decided, when and the note) · *Snoozed*
+  (proposals snoozed into the future; asks do not snooze).
+- Every control writes to the URL and nothing else, so a view can be
+  bookmarked or pasted into a chat.
+
+Rows follow the List archetype: a human title, a breadcrumb subline that
+starts with the kind (`Proposal › Spinutech › CRM update › proposed by
+deal-desk`), right-aligned confidence · amount · age, and the kind's quick
+verbs on hover. Several proposals about one record collapse into one sheet
+row ("Spinutech — 4 proposals"); several asks under one `groupKey` collapse
+into one decision sheet.
+
+## The detail, by kind
+
+Every detail screen wears the same chrome so the eye lands in the same place
+whatever the kind: a breadcrumb **Workspace › Needs you › kind › record**,
+the item as the H1, **one meta row** — system · status · who proposed or
+asked · the confidence meter · *agrees with you N% (n=…)* from the alignment
+ledger · the agent's own suggestion · your position in the queue — and a
+**sticky action bar** at the bottom of the content column carrying the
+kind's verbs. What sits between them is the kind's own detail.
+
+| Kind | Detail | Verbs in the bar | Keys |
+|---|---|---|---|
+| Proposal | The action's card: drafts and sends (editable in place), the CRM diff, the research, the rationale, the evidence. Edits travel with Approve. Regenerate when the action supports it, driven by the one feedback field. | **Approve** · Decline · Snooze · Save for later · Skip | `a` approve · `d` decline · `s` snooze · `j` next · `k` back · `?` help |
+| Ask (any ask kind) | The question, the short body, the options as tall touchable rows with the recommended one pre-selected, **Other** with a free-text answer, Details folded underneath. A group is a stepper with a receipt and one Submit all. | **Submit** (the chosen option is the verb) · Back | — |
+| Run | A compact status page: why it stopped, a few facts, a link to the full run. | **Resume** · Cancel run (missions and workflows; a worker run only opens) | `a` resume · `d` cancel |
+| Suggested rule | The rule, editable in place; which step it lands in; whether it says "keep doing" or "change"; how many times it was asked for. | **Adopt as rule** · Reject (a reason is required) | `a` adopt · `d` reject |
+
+The verbs, their labels, their keys and which appear on a list row all come
+from one table — `features/dashboard/inbox/decisionVerbs.ts` — so the sticky
+bar, the hover verbs and the keyboard never disagree.
+
+**Up next** on a proposal walks the *filtered inbox list*, not a separate
+queue: the filters in the URL when you opened the proposal ride along on
+every neighbour's address, so `j`/`k` from a proposal opened from
+"Proposals · deal-desk" move through exactly those. Deciding moves to the
+next proposal; when there is none, back to the list.
+
+## How a decision feeds learning and autonomy
+
+Every decision, from every kind's screen and from the row's quick verbs,
+goes through the same service the API uses — `ReviewService.decide` for a
+proposal, `AskService.decideAsk` for an ask, `LearningCandidateService
+.decideCandidate` for a rule — and so:
+
+- **The alignment ledger** (`decision_alignment`) gets a row for every
+  proposal and ask decision: what was recommended, what you chose, whether
+  they agreed, whether a note came with it. That row is the *agrees with you*
+  reading in the meta row, and the evidence the
+  [autonomy ladder](./earned-autonomy.md) needs before it lets an action kind
+  run without you. Skip, save, snooze and regenerate decide nothing and are
+  not evidence.
+- **The feedback classifier** gets your note. A decline or an *Other* with a
+  reason is queued the same way a rejection from the old review queue was; a
+  correction given three times becomes a suggested rule — which lands back on
+  this list as its own kind, closing the loop (Manifesto #6).
+- **Adoption** records each decision (`review.decided`, `ask.decided`,
+  `learning.candidate_decided`).
+
+## Where it lives
+
+- **Service:** `services/InboxService.ts` — `listInbox` (tabs, kinds, search,
+  sort, facets), `listProposalQueue` (Up-next order), `needsYouCount` (the
+  sidebar badge). Read-only aggregation; nothing here decides anything.
+- **Refs:** `services/inbox/inboxRef.ts`; **one proposal for its screen:**
+  `services/inbox/pendingAction.ts`.
+- **UI:** `app/[locale]/(auth)/dashboard/inbox/` (list, `[id]`, `g/`, `r/`);
+  `features/dashboard/inbox/` (rows, controls, `AskSheet`, `RunDecision`,
+  `LearningDecision`, `decisionVerbs`); `features/dashboard/ReviewFocus.tsx`
+  (the proposal container) over `features/review/ReviewFocusView.tsx`.
+- **Redirect:** `app/[locale]/(auth)/dashboard/review/page.tsx` → 308 to
+  `/dashboard/inbox?kind=proposal`, `?type=` → `?actionKind=`.
+- **Palette:** typing "review" surfaces *Needs you · Proposals*.
+- **API:** unchanged — `/api/v1/reviews/*` for proposals,
+  `/api/v1/asks/*` for asks, `/api/v1/learning-candidates/*` for rules. The
+  surface changed; the decide paths did not.

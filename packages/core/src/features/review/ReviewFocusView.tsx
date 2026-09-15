@@ -6,7 +6,10 @@ import type { UpNextEntry } from './UpNextMenu';
 import type { ReviewCard } from '@/libs/actions/types';
 import { Bookmark, Check, Loader2, ShieldCheck, SkipForward, Sparkles, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { DECISION_VERBS } from '@/features/dashboard/inbox/decisionVerbs';
+import { decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
+import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { ReviewActionCard } from './ReviewActionCard';
 import { ReviewHeader } from './ReviewHeader';
 import { itemTitle, queuePosition, typeLabel } from './reviewQueueModel';
@@ -15,13 +18,17 @@ import { TypeChips } from './TypeChips';
 import { UpNextMenu } from './UpNextMenu';
 
 /**
- * The Review page, presentationally. No fetching, no router — every fact and
- * every handler arrives as a prop, so the page renders in a story and the
- * container (`features/dashboard/ReviewFocus.tsx`) stays about data.
+ * The proposal decision screen, presentationally. No fetching, no router —
+ * every fact and every handler arrives as a prop, so the page renders in a
+ * story and the container (`features/dashboard/ReviewFocus.tsx`) stays about
+ * data.
  *
- * Shape (Chris, 2026-09-15): breadcrumb + item title, one meta row, type
- * chips, then the item as hairline-divided sections with the decision in a
- * sticky bar. No outer card, no persistent Up-next rail, no dropdown filter.
+ * Shape (Chris, 2026-09-15): breadcrumb + item title, one meta row, then the
+ * item as hairline-divided sections with the decision in a sticky bar. No
+ * outer card, no persistent Up-next rail. Since the two decision surfaces
+ * became one, this is the `proposal` kind's detail on "Needs you": the
+ * crumbs say so, the Up-next walks the filtered inbox, and the kind chips are
+ * the list's job (pass `types` only where a standalone queue wants them).
  */
 
 export type ActionRun = {
@@ -38,6 +45,8 @@ export type ActionRun = {
   card?: ReviewCard;
   /** Alignment beside the confidence meter (server-computed, 30d) — earned autonomy (0099). */
   alignment?: { agreementRate: number | null; n: number; window: string } | null;
+  /** The action's registered display name ("Enroll MQL in sequence"), when the loader knew it. */
+  typeLabel?: string;
 };
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -65,9 +74,12 @@ export function describeAction(p: ActionRun): { title: string; system: string; i
 
 export type ReviewFocusViewProps = {
   loaded: boolean;
-  types: readonly ReviewType[];
-  activeTypes: readonly string[];
-  onChangeTypes: (next: string[]) => void;
+  /** The kind chips. Omit them on the inbox detail — the list owns filtering there. */
+  types?: readonly ReviewType[];
+  activeTypes?: readonly string[];
+  onChangeTypes?: (next: string[]) => void;
+  /** Breadcrumb override; defaults to Workspace › Needs you › Proposals › record. */
+  crumbs?: Array<{ label: string; href?: string }>;
   current: ActionRun | null;
   /** Index of `current` in the working queue, 0-based; -1 when unknown. */
   index: number;
@@ -100,6 +112,9 @@ export type ReviewFocusViewProps = {
 // the airy shell (PR #330) with main's `--muted` as the fallback.
 const INLINE_FIELD = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm transition outline-none hover:bg-[var(--surface-hover,var(--muted))] focus:bg-[var(--surface-soft,var(--muted))]';
 
+const VERBS = DECISION_VERBS.proposal;
+const verb = (id: string) => [VERBS.primary, ...VERBS.secondary].find(v => v.id === id)!;
+
 export function ReviewFocusView(p: ReviewFocusViewProps) {
   const t = useTranslations('Review');
   const shortcutLabel: Record<Exclude<ReviewShortcut, 'help'>, string> = {
@@ -113,23 +128,25 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
     return <div className="flex justify-center py-16"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
   }
 
-  const chips = <TypeChips types={p.types} active={p.activeTypes} onChange={p.onChangeTypes} className="mt-4" />;
+  const types = p.types ?? [];
+  const activeTypes = p.activeTypes ?? [];
+  const chips = p.types && p.onChangeTypes ? <TypeChips types={p.types} active={activeTypes} onChange={p.onChangeTypes} className="mt-4" /> : null;
 
   if (!p.current) {
-    const chosen = p.types.filter(t => p.activeTypes.includes(t.actionId));
+    const chosen = types.filter(ty => activeTypes.includes(ty.actionId));
     const chosenLabel = chosen.length === 1 ? chosen[0]!.label : null;
     return (
       <div data-testid="review-focus">
-        <ReviewHeader crumbs={[{ label: 'Workspace', href: '/dashboard' }, { label: 'Review' }]} title="Review" status="pending" />
+        <ReviewHeader crumbs={p.crumbs ?? decisionCrumbs('proposal')} title="Proposals" status="pending" />
         {chips}
         <div className="px-2 py-16 text-center">
           <ShieldCheck className="mx-auto size-8 text-brand-amber-deep" aria-hidden />
           <div className="mt-3 text-base font-semibold">
-            {chosenLabel ? `No ${chosenLabel} items left` : p.activeTypes.length > 0 ? 'None of these types left' : 'All caught up'}
+            {chosenLabel ? `No ${chosenLabel} items left` : activeTypes.length > 0 ? 'None of these types left' : 'All caught up'}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {p.decided > 0 ? `${p.decided} handled this session. ` : ''}
-            {p.activeTypes.length > 0 ? 'Other types are still waiting — clear the filter to see them.' : 'New agent proposals land here for your decision.'}
+            {activeTypes.length > 0 ? 'Other types are still waiting — clear the filter to see them.' : 'New agent proposals land on Needs you for your decision.'}
           </p>
         </div>
       </div>
@@ -138,7 +155,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
 
   const current = p.current;
   const desc = describeAction(current);
-  const label = typeLabel(p.types, current.actionId);
+  const label = current.typeLabel ?? (types.length > 0 ? typeLabel(types, current.actionId) : humaniseActionId(current.actionId));
   const title = itemTitle({ label, title: desc.title, subject: current.card?.subject });
   const record = current.card?.subject?.name ?? desc.title;
   const longField = desc.isEmail ? 'body' : 'notes';
@@ -147,7 +164,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
   return (
     <div data-testid="review-focus" className="relative">
       <ReviewHeader
-        crumbs={[{ label: 'Workspace', href: '/dashboard' }, { label: 'Review', href: '/dashboard/review' }, { label }, { label: record }]}
+        crumbs={p.crumbs ?? decisionCrumbs('proposal', record)}
         title={title}
         subject={current.card?.subject}
         system={current.card?.system ?? desc.system}
@@ -224,18 +241,18 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
             </section>
             <StickyActionBar
               primary={{
-                'label': desc.isEmail ? (current.input.draft === true ? 'Approve → draft' : 'Approve & send') : 'Approve',
+                'label': desc.isEmail ? (current.input.draft === true ? `${verb('approve').label} → draft` : `${verb('approve').label} & send`) : verb('approve').label,
                 'onClick': () => p.onDecide('approve'),
                 'disabled': held,
                 'busy': p.busy,
                 'icon': Check,
-                'shortcut': 'a',
+                'shortcut': verb('approve').shortcut,
                 'data-testid': 'decide-approve',
               }}
               secondary={[
-                { 'label': 'Reject', 'onClick': () => p.onDecide('reject'), 'disabled': held, 'icon': X, 'shortcut': 'd', 'tone': 'danger', 'data-testid': 'decide-reject' },
-                { label: 'Save for later', onClick: p.onSave, disabled: held, icon: Bookmark },
-                { label: 'Skip', onClick: p.onSkip, disabled: held, icon: SkipForward, shortcut: 'j' },
+                { 'label': verb('reject').label, 'onClick': () => p.onDecide('reject'), 'disabled': held, 'icon': X, 'shortcut': verb('reject').shortcut, 'tone': 'danger', 'data-testid': 'decide-reject' },
+                { label: verb('save').label, onClick: p.onSave, disabled: held, icon: Bookmark },
+                { label: verb('skip').label, onClick: p.onSkip, disabled: held, icon: SkipForward, shortcut: verb('skip').shortcut },
               ]}
               field={{
                 label: 'Steer the agent',

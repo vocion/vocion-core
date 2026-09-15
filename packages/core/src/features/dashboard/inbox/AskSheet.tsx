@@ -1,14 +1,19 @@
 'use client';
 
 import type { AskOption } from '@/models/Schema';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ExternalLink, Loader2, Pencil } from 'lucide-react';
+import type { InboxKind } from '@/services/InboxService';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ExternalLink, Pencil } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { FIXED_ROWS, labelFor, OTHER } from './askOptions';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
+import { ReviewHeader } from '@/features/review/ReviewHeader';
+import { kindForAsk } from '@/services/inbox/kinds';
+import { FIXED_ROWS, labelFor, OTHER } from './askOptions';
 import { firstParagraph, isNearDuplicate, sentenceCase, splitBody } from './askText';
-import { KIND_LABEL, riskTone } from './inboxMeta';
+import { DECISION_VERBS } from './decisionVerbs';
+import { decisionCrumbs, KIND_LABEL, riskTone } from './inboxMeta';
 
 /** What the sheet needs to know about one open ask — the page hands it over from the server. */
 export type SheetAsk = {
@@ -38,6 +43,12 @@ type Outcome = { ok: true } | { ok: false; error: string };
  * ask is the same screen with Submit in place of Next. Each submit is one
  * `POST /api/v1/asks/:id/decide`; a sheet that half-fails stays editable.
  *
+ * Wears the same chrome as every other decision on "Needs you": the
+ * `ReviewHeader` (breadcrumb › kind › record, one meta row with the asker,
+ * the recommendation's confidence and how often you agreed with this asker)
+ * and the `StickyActionBar` for Submit / Next. The option rows ARE the verbs
+ * for an ask — `DECISION_VERBS` says so — so the bar carries one primary.
+ *
  * Built to be answered from a phone: one column, big targets, the action
  * pinned to the bottom of the screen.
  * @param props
@@ -45,10 +56,14 @@ type Outcome = { ok: true } | { ok: false; error: string };
  * @param props.title - The sheet's title (a group's `groupTitle`).
  * @param props.endpoint
  * @param props.allowOther
+ * @param props.kind - The inbox kind the crumbs name; defaults to the current ask's.
+ * @param props.crumbs - Breadcrumb override.
  */
-export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true }: {
+export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kind, crumbs }: {
   asks: SheetAsk[];
   title?: string | null;
+  kind?: InboxKind;
+  crumbs?: Array<{ label: string; href?: string }>;
   /**
    * Where a decision is written. `ask` → `POST /api/v1/asks/:id/decide`;
    * `review` → `POST /api/v1/reviews/decide` for a proposed action (the id is
@@ -128,16 +143,16 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true }: {
     }
   }
 
+  const sheetKind = kind ?? kindForAsk(current.kind);
+  const sheetCrumbs = crumbs ?? decisionCrumbs(sheetKind, multi ? title ?? null : null);
+
   if (stage === 'receipt') {
     const allDone = asks.every(a => outcomes[a.id]?.ok);
     return (
-      <div className="mx-auto w-full max-w-2xl pb-28">
-        <header className="mb-4">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Receipt</p>
-          <h1 className="text-xl font-semibold">{title ?? 'Your answers'}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Check each answer. Edit any row, then submit them all at once.</p>
-        </header>
-        <ol className="divide-y divide-border rounded-md border border-border">
+      <div className="mx-auto w-full max-w-3xl">
+        <ReviewHeader crumbs={sheetCrumbs} title={title ?? 'Your answers'} system="Receipt" status={allDone ? 'done' : 'open'} position={`${asks.length} ${asks.length === 1 ? 'answer' : 'answers'}`} />
+        <p className="mt-3 text-sm text-muted-foreground">Check each answer. Edit any row, then submit them all at once.</p>
+        <ol className="mt-4 divide-y divide-border border-y border-border">
           {asks.map((ask, i) => {
             const a = answerFor(ask.id);
             const outcome = outcomes[ask.id];
@@ -172,38 +187,29 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true }: {
             );
           })}
         </ol>
-        <StickyBar>
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => {
-              setIndex(asks.length - 1);
-              setStage('question');
-            }}
-            className="inline-flex min-h-12 items-center gap-1.5 rounded-md border border-border px-4 text-sm font-medium hover:bg-muted"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            Back
-          </button>
-          {allDone
-            ? (
-                <span className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-md bg-emerald-600/10 px-4 text-sm font-medium text-emerald-700 dark:text-emerald-400">
-                  <Check className="size-4" aria-hidden />
-                  All submitted
-                </span>
-              )
-            : (
-                <button
-                  type="button"
-                  disabled={submitting || remaining.some(a => !complete(answerFor(a.id)))}
-                  onClick={submitAll}
-                  className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
-                >
-                  {submitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Check className="size-4" aria-hidden />}
-                  {remaining.length === asks.length ? 'Submit all' : `Submit ${remaining.length} remaining`}
-                </button>
-              )}
-        </StickyBar>
+        <StickyActionBar
+          primary={allDone
+            ? { 'label': 'All submitted', 'onClick': () => router.push('/dashboard/inbox'), 'icon': Check, 'data-testid': 'ask-submit' }
+            : {
+                'label': remaining.length === asks.length ? 'Submit all' : `Submit ${remaining.length} remaining`,
+                'onClick': () => void submitAll(),
+                'disabled': submitting || remaining.some(a => !complete(answerFor(a.id))),
+                'busy': submitting,
+                'icon': Check,
+                'data-testid': 'ask-submit',
+              }}
+          secondary={allDone
+            ? []
+            : [{
+                label: 'Back',
+                icon: ArrowLeft,
+                disabled: submitting,
+                onClick: () => {
+                  setIndex(asks.length - 1);
+                  setStage('question');
+                },
+              }]}
+        />
       </div>
     );
   }
@@ -218,28 +224,34 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true }: {
   const canAdvance = complete(answer);
   const outcome = outcomes[current.id];
 
-  return (
-    <div className="mx-auto w-full max-w-2xl pb-28">
-      <header className="mb-4">
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          {multi && <span className="font-medium tabular-nums">{`Question ${index + 1} of ${asks.length}`}</span>}
-          {multi && title && <span className="truncate">{`· ${title}`}</span>}
-        </p>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full border border-border px-2 py-0.5 font-medium">{KIND_LABEL[current.kind] ?? current.kind}</span>
-          {current.risk && <span className={`rounded-full border px-2 py-0.5 font-medium tracking-wide uppercase ${riskTone(current.risk)}`}>{`${current.risk} risk`}</span>}
-          {current.agentSlug && <span className="text-muted-foreground">{`asked by ${current.agentSlug}`}</span>}
-        </div>
-        <h1 className="mt-2 line-clamp-2 text-xl leading-snug font-semibold" title={current.title}>{sentenceCase(current.title)}</h1>
-        <RecommendationLine ask={current} />
-        {body.lead && (
-          <div className="prose prose-sm mt-2 max-w-none text-muted-foreground dark:prose-invert">
-            <Markdown remarkPlugins={[remarkGfm]}>{body.lead}</Markdown>
-          </div>
-        )}
-      </header>
+  const recommended = current.options.find(o => o.recommended);
+  const verbs = DECISION_VERBS[sheetKind];
+  const primaryLabel = multi
+    ? (answer.decision ? `${labelFor(current, answer.decision)} · ${index + 1 < asks.length ? 'Next' : 'Review answers'}` : index + 1 < asks.length ? 'Next' : 'Review answers')
+    : (answer.decision ? `${verbs.primary.label} · ${labelFor(current, answer.decision)}` : verbs.primary.label);
 
-      <div role="radiogroup" aria-label="Your answer" className="space-y-2">
+  return (
+    <div className="mx-auto w-full max-w-3xl" data-testid="ask-sheet">
+      <ReviewHeader
+        crumbs={sheetCrumbs}
+        title={sentenceCase(current.title)}
+        system={KIND_LABEL[current.kind] ?? current.kind}
+        status="open"
+        proposedBy={current.agentSlug ? `asked by ${current.agentSlug}` : null}
+        confidence={typeof recommended?.confidence === 'number' ? recommended.confidence : undefined}
+        alignment={current.alignment}
+        position={multi ? `Question ${index + 1} of ${asks.length}` : undefined}
+        extra={current.risk
+          ? <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium tracking-wide uppercase ${riskTone(current.risk)}`}>{`${current.risk} risk`}</span>
+          : undefined}
+      />
+      {body.lead && (
+        <div className="prose prose-sm mt-4 mb-4 max-w-none text-muted-foreground dark:prose-invert">
+          <Markdown remarkPlugins={[remarkGfm]}>{body.lead}</Markdown>
+        </div>
+      )}
+
+      <div role="radiogroup" aria-label="Your answer" className="mt-4 space-y-2">
         {rows.map(option => (
           <OptionRow
             key={option.id}
@@ -310,72 +322,13 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true }: {
         <div className="mt-3 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">{outcome.error}</div>
       )}
 
-      <StickyBar>
-        {multi && index > 0 && (
-          <button
-            type="button"
-            onClick={() => setIndex(i => i - 1)}
-            className="inline-flex min-h-12 items-center gap-1.5 rounded-md border border-border px-4 text-sm font-medium hover:bg-muted"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            Back
-          </button>
-        )}
-        {multi
-          ? (
-              <button
-                type="button"
-                disabled={!canAdvance}
-                onClick={() => (index + 1 < asks.length ? setIndex(i => i + 1) : setStage('receipt'))}
-                className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
-              >
-                {answer.decision ? `${labelFor(current, answer.decision)} · ${index + 1 < asks.length ? 'Next' : 'Review answers'}` : index + 1 < asks.length ? 'Next' : 'Review answers'}
-                <ArrowRight className="size-4" aria-hidden />
-              </button>
-            )
-          : (
-              <button
-                type="button"
-                disabled={!canAdvance || submitting}
-                onClick={submitAll}
-                className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
-              >
-                {submitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Check className="size-4" aria-hidden />}
-                {answer.decision ? `Submit · ${labelFor(current, answer.decision)}` : 'Submit'}
-              </button>
-            )}
-      </StickyBar>
+      <StickyActionBar
+        primary={multi
+          ? { 'label': primaryLabel, 'onClick': () => (index + 1 < asks.length ? setIndex(i => i + 1) : setStage('receipt')), 'disabled': !canAdvance, 'icon': ArrowRight, 'data-testid': 'ask-submit' }
+          : { 'label': primaryLabel, 'onClick': () => void submitAll(), 'disabled': !canAdvance || submitting, 'busy': submitting, 'icon': Check, 'data-testid': 'ask-submit' }}
+        secondary={multi && index > 0 ? [{ label: 'Back', icon: ArrowLeft, onClick: () => setIndex(i => i - 1) }] : []}
+      />
     </div>
-  );
-}
-
-/**
- * One quiet line under the question: how sure the asker is of its
- * recommendation, and how often its recommendations were the one chosen. The
- * same shape an action proposal shows beside its confidence meter, so a
- * person reads asks and actions the same way. Nothing at all when there is
- * neither a confidence nor any history.
- * @param props
- * @param props.ask
- */
-function RecommendationLine({ ask }: { ask: SheetAsk }) {
-  const rec = ask.options.find(o => o.recommended);
-  const confidence = typeof rec?.confidence === 'number' ? Math.round(rec.confidence * 100) : null;
-  const a = ask.alignment;
-  const agrees = a && a.n > 0 && a.agreementRate !== null ? Math.round(a.agreementRate * 100) : null;
-  if (confidence === null && agrees === null) {
-    return null;
-  }
-  return (
-    <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-      {confidence !== null && `Recommended with ${confidence}% confidence`}
-      {confidence !== null && agrees !== null && ' · '}
-      {agrees !== null && (
-        <span title={`${a!.n} answered recommendation${a!.n === 1 ? '' : 's'} of this kind from this asker in the last 30 days`}>
-          {`agrees with you ${agrees}% · n=${a!.n}`}
-        </span>
-      )}
-    </p>
   );
 }
 
@@ -410,12 +363,3 @@ function OptionRow({ option, selected, onSelect }: { option: AskOption; selected
     </button>
   );
 }
-
-function StickyBar({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:sticky sm:mt-6 sm:rounded-md sm:border">
-      <div className="mx-auto flex w-full max-w-2xl items-center gap-2">{children}</div>
-    </div>
-  );
-}
-

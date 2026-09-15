@@ -13,7 +13,6 @@
     "chat": "Chat",
     "inbox": "À traiter",
     "search": "Rechercher",
-    "review": "Révision",
     "observability": "Observabilité",
     "sources": "Connecteurs",
     "objects": "Objets",
@@ -192,6 +191,23 @@
     "autonomy": "Autonomie",
     "conversations": "Conversations",
     "chat_options": "Options de discussion"
+  },
+  "Inbox": {
+    "title": "À traiter",
+    "tab_open": "Ouverts",
+    "tab_decided": "Décidés",
+    "tab_snoozed": "Reportés",
+    "search_placeholder": "Rechercher des affaires, contacts, agents…",
+    "search_label": "Rechercher dans la boîte",
+    "clear_search": "Effacer la recherche",
+    "sort": "Trier",
+    "sort_oldest": "Plus anciens d'abord",
+    "sort_newest": "Plus récents",
+    "sort_value": "Valeur la plus élevée",
+    "sort_confidence": "Confiance la plus élevée",
+    "filter_kind": "Filtrer par type",
+    "all": "Tout",
+    "clear": "Effacer"
   },
   "Review": {
     "all": "Tout",

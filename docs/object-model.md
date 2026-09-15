@@ -23,7 +23,7 @@ sweep. Field-by-field reference for each authored type:
 | [Source](./entities/source.md) | `sources/<slug>.yaml` | `SourceManifestSchema` | `knowledge_source` | `SourceSyncService.runSync` via connector registry | `/dashboard/connectors` |
 | [Learning step](./entities/learning-step.md) | `learnings/<step>.yaml` | `LearningStepManifestSchema` | `learning_step` (+ `learning` rows) | rendered to `/learnings/<step>.md` in the agent FS | `/dashboard/learnings` |
 | [Eval dataset](./entities/eval-dataset.md) | `evals/<slug>.yaml` | `EvalDatasetManifestSchema` | `eval_dataset` | `npm run eval:run --workspace @vocion/core` | `/api/v1/evals` |
-| [Trust rule](./entities/trust.md) | `trust.yaml` | `TrustManifestSchema` | `trust_rule` + `autonomy_policy` (rung, risk tier, floor, evidence) | auto-approval threshold check in `ActionService`; rung mapping in `AutonomyService` | `/dashboard/autonomy`, `/dashboard/review` (auto-executed list) |
+| [Trust rule](./entities/trust.md) | `trust.yaml` | `TrustManifestSchema` | `trust_rule` + `autonomy_policy` (rung, risk tier, floor, evidence) | auto-approval threshold check in `ActionService`; rung mapping in `AutonomyService` | `/dashboard/autonomy`; auto-executed runs over `GET /api/v1/reviews/auto-executed` |
 | [Workspace page](./workspace-pages.md) | `pages/<slug>.yaml` (+ optional sibling `.md`) | `PageManifestSchema` | none — file-only | `readWorkspacePages()` at render; `workspace:apply` does not touch pages | `/dashboard/p/<slug>` |
 
 ## Recorded objects (runtime state)
@@ -31,11 +31,11 @@ sweep. Field-by-field reference for each authored type:
 | Object | Written by | Schema symbol | Table | Surface |
 |---|---|---|---|---|
 | Tool call | `withToolCallRecord` at the tool registry, all three harness targets; `skill_read` rows from the stream/relay for mounted SKILL.md reads | `toolCallSchema` | `tool_call` | `/dashboard/activity?kind=tool` (filter by agent, tool) |
-| Workflow run | `WorkflowService.startWorkflow` | `workflowRunSchema` | `workflow_run` | `/api/v1/runs`, `/dashboard/workflows/<slug>/runs` |
-| Mission run | `MissionService.startMission` | `missionRunSchema` | `mission_run` | `/dashboard/missions/runs` |
-| Action run | `ActionService.proposeAction` / `executeAction` | `actionRunSchema` | `action_run` | `/dashboard/review` |
-| Ask | `AskService.upsertAsk` — agents, external workers and sync scripts over `POST /api/v1/asks` | `askSchema` | `ask` | `/dashboard/inbox`, `/api/v1/asks` |
-| Decision alignment | `AlignmentService.recordDecision` on every `ReviewService.decide` (actions) and `AskService.decideAsk` (asks) | `decisionAlignmentSchema` | `decision_alignment` | *agrees with you N%* beside the confidence meter on `/dashboard/review` and the ask sheet; `/dashboard/autonomy`; Autonomy column on `/dashboard/team-report` |
+| Workflow run | `WorkflowService.startWorkflow` | `workflowRunSchema` | `workflow_run` | `/api/v1/runs`, `/dashboard/workflows/<slug>/runs`; paused: Needs you, kind **run** (`/dashboard/inbox/workflow-:id`) |
+| Mission run | `MissionService.startMission` | `missionRunSchema` | `mission_run` | `/dashboard/missions/runs`; paused / awaiting review: Needs you, kind **run** (`/dashboard/inbox/mission-:id`) |
+| Action run | `ActionService.proposeAction` / `executeAction` | `actionRunSchema` | `action_run` | [Needs you](./guides/needs-you.md), kind **proposal**: `/dashboard/inbox?kind=proposal`, `/dashboard/inbox/proposal-:id`, `/dashboard/inbox/r/:recordKey`; `/api/v1/reviews` |
+| Ask | `AskService.upsertAsk` — agents, external workers and sync scripts over `POST /api/v1/asks` | `askSchema` | `ask` | [Needs you](./guides/needs-you.md), kind = the ask's kind: `/dashboard/inbox?kind=ruling…`, `/dashboard/inbox/:id`, `/dashboard/inbox/g/:groupKey`; `/api/v1/asks` |
+| Decision alignment | `AlignmentService.recordDecision` on every `ReviewService.decide` (actions) and `AskService.decideAsk` (asks) | `decisionAlignmentSchema` | `decision_alignment` | *agrees with you N%* in the meta row of every decision screen on Needs you (proposal and ask alike); `/dashboard/autonomy`; Autonomy column on `/dashboard/team-report` |
 | Autonomy policy | `AutonomyService.promote` / `demote` / `noteRejection` (in-app), `syncPoliciesFromManifest` (trust.yaml on apply) | `autonomyPolicySchema` | `autonomy_policy` | `/dashboard/autonomy`; `router.autonomy.*`; adoption events `autonomy.promoted` / `autonomy.demoted` |
 | Automation run | `AutomationService.fireAutomation` | `automationRunSchema` | `automation_run` | `/dashboard/automation` |
 | Event | `EventService.emit` | `eventLogSchema` | `event_log` | `/dashboard/activity?kind=event` |

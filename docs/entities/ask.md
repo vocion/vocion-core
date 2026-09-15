@@ -4,12 +4,14 @@ An **ask** is one question waiting on a **person**. A ruling the team is blocked
 for something it wants to do, a credential or an input it needs from you, a pull request ready for
 a human to merge, a change the team recommends to itself, a gate before a run may continue.
 
-Unlike an [action](./trust.md) in the review queue, nothing executes when an ask is answered.
-The answer *is* the outcome: whoever filed the ask — an agent, an external worker, a sync script —
-reads it back over the API and acts on it. Asks are runtime objects, not authored files; they are
-filed by code and answered on the **Needs you** page (`/dashboard/inbox`), which is where
-everything waiting on a person is listed together: asks, review-queue items, paused runs, and
-suggested rules.
+Unlike a [proposal](./trust.md) (an agent-proposed action), nothing executes when an ask is
+answered. The answer *is* the outcome: whoever filed the ask — an agent, an external worker, a sync
+script — reads it back over the API and acts on it. Asks are runtime objects, not authored files;
+they are filed by code and answered on **Needs you** (`/dashboard/inbox`), the [one decision
+surface](../guides/needs-you.md) where everything waiting on a person is listed together: proposals,
+asks, stopped runs and suggested rules, each tagged with its kind. An ask's `kind` is its inbox
+kind; the kind chips filter the list to it, and its detail screen wears the same chrome as a
+proposal's — breadcrumb › kind › record, the meta row with the asker's alignment, the sticky bar.
 
 ## The reference: answering from a phone
 
@@ -85,7 +87,7 @@ carries a *Recommended* chip and nothing more.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `kind` | `approval` \| `input` \| `ruling` \| `credential` \| `merge` \| `recommendation` \| `gate` | What sort of thing is waiting. Groups the inbox. |
+| `kind` | `approval` \| `input` \| `ruling` \| `credential` \| `merge` \| `recommendation` \| `gate` | What sort of thing is waiting. The inbox kind — the chips on Needs you filter by it. |
 | `title` | string | The question, as a person would ask it. |
 | `body` | markdown, short | Why, and what happens on each answer. |
 | `options` | `{ id, label, description?, recommended?, confidence? }[]` | Named answers. Bare strings are accepted on POST and get `id = slug(label)`. At most one `recommended`. `confidence` (0–1) is how sure the asker is of that option — meant for the recommended one, so the sheet shows *Recommended with 72% confidence · agrees with you 92% (n=48)* the way a review card does. Advisory only. |
@@ -147,7 +149,7 @@ on `decision`, `decisionNote` and `followUp`.
   `(org_id, group_key)`; unique on `(org_id, source_ref)` where present.
 - **Service:** `services/AskService.ts` (file, list, decide, supersede, notifications);
   `services/InboxService.ts` aggregates everything waiting on a person.
-- **UI:** `/dashboard/inbox`, `/dashboard/inbox/:id`, `/dashboard/inbox/g/:groupKey`.
+- **UI:** `/dashboard/inbox` (filter with `?kind=<ask kind>`), `/dashboard/inbox/:id`, `/dashboard/inbox/g/:groupKey` — see [Needs you](../guides/needs-you.md).
 - **Adoption stream:** every answer lands as `ask.decided` with the kind and the resulting status.
 - **Learning:** `services/feedback/askFeedbackQueue.ts` queues corrections for the classifier;
   `services/alignment/AlignmentService.ts` records every answer as alignment evidence.

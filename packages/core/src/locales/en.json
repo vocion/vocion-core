@@ -13,7 +13,6 @@
     "chat": "Chat",
     "inbox": "Needs you",
     "search": "Search",
-    "review": "Review",
     "observability": "Observability",
     "sources": "Connectors",
     "objects": "Objects",
@@ -192,6 +191,23 @@
     "autonomy": "Autonomy",
     "conversations": "Conversations",
     "chat_options": "Chat options"
+  },
+  "Inbox": {
+    "title": "Needs you",
+    "tab_open": "Open",
+    "tab_decided": "Decided",
+    "tab_snoozed": "Snoozed",
+    "search_placeholder": "Search deals, contacts, agents…",
+    "search_label": "Search the inbox",
+    "clear_search": "Clear search",
+    "sort": "Sort",
+    "sort_oldest": "Oldest first",
+    "sort_newest": "Newest",
+    "sort_value": "Highest value",
+    "sort_confidence": "Highest confidence",
+    "filter_kind": "Filter by kind",
+    "all": "All",
+    "clear": "Clear"
   },
   "Review": {
     "all": "All",
