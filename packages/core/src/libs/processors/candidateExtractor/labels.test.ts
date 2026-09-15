@@ -358,6 +358,19 @@ describe('scrubSeriesNote', () => {
     expect(scrubbed).not.toContain('#7');
   });
 
+  it('strips a NESTED run-id label, which one pass would reassemble', () => {
+    // One `.replace` plus the whitespace squeeze is itself a way to write the
+    // phrase: the inner match goes, the two halves around it close up, and
+    // what is left is the very label this step exists to remove. So the strip
+    // runs to a fixpoint.
+    expect(scrubSeriesNote('part of series part of series 1 999')).toBe('');
+    expect(scrubSeriesNote('possible duplicate of possible duplicate of 1 777')).toBe('');
+    expect(labelledRunIds({
+      series: scrubSeriesNote('part of series part of series 1 999'),
+      duplicate: scrubSeriesNote('possible duplicate of possible duplicate of 1 777'),
+    })).toEqual([]);
+  });
+
   it('caps the note AFTER scrubbing, so escaping cannot push it over', () => {
     // 140 `</` pairs become 140 `< /` triples before the slice; a cap applied
     // first would let the expansion through.

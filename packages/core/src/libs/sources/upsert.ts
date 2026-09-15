@@ -129,7 +129,7 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
     agentSlug?: string;
     dedupOn?: string[];
     knownCandidates?: { keyedBy?: string };
-    seriesLabel?: { sameOn?: string[]; differsOn?: string };
+    seriesLabel?: { sameOn?: string[]; differsOn?: string; keyField?: string };
   };
   for (const step of parsed.learningSteps ?? []) {
     if (!known.learningSteps.has(step)) {
@@ -158,6 +158,18 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
     requireIdentity(field, 'seriesLabel.sameOn');
   }
   requireIdentity(parsed.seriesLabel?.differsOn, 'seriesLabel.differsOn');
+  // And the one knob that must NOT be identity. The label stage runs BEFORE
+  // the proposal (`candidateExtractor/labels.ts` writes into `record.fields`,
+  // `propose.ts` reads them), so a key written into an identity field would
+  // change the record's own dedup key on the way past: every occurrence of a
+  // series would key on its group instead of itself, and a refresh would file
+  // a second card rather than find the first.
+  const requireNotIdentity = (field: string | undefined, knob: string): void => {
+    if (field !== undefined && identity.has(field)) {
+      throw new Error(`source "${spec.slug}" processor names "${field}" in ${knob}, which IS one of its dedupOn fields (${[...identity].join(', ')}); that field is written before the proposal, so it would change the record's own dedup key`);
+    }
+  };
+  requireNotIdentity(parsed.seriesLabel?.keyField, 'seriesLabel.keyField');
   return { slug: spec.processor.slug, config: spec.processor.config };
 }
 

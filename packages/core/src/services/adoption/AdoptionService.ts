@@ -12,6 +12,7 @@
 
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { sql } from 'drizzle-orm';
+import { LABEL_VERDICTS } from '@/libs/actions/labelVerdict';
 import { decisionOutcome, parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 
@@ -585,7 +586,8 @@ export type LabelFieldAgreement = {
    * kept + changed + cleared: decisions on a label the agent actually wrote.
    * `added` is outside it because there was no judgement of the agent's to
    * agree or disagree with. Whether that is the right denominator is Drew's
-   * call, and it is why both numbers are on the row rather than one rate.
+   * call (open as of 2026-09-15), and it is why both numbers are on the row
+   * rather than one rate.
    */
   judged: number;
 };
@@ -612,9 +614,6 @@ export type AdoptionAgentLabelAgreement = {
 function noLabelAgreementYet(): AdoptionAgentLabelAgreement {
   return { fields: [], judged: 0, kept: 0, keptRate: null };
 }
-
-/** The verdicts `ReviewService` records, in the order a reader wants them. */
-const LABEL_VERDICTS = ['kept', 'changed', 'cleared', 'added'] as const;
 
 /**
  * How often each agent's own labels survived review, per labelled field.

@@ -117,6 +117,21 @@ describe('candidate-extractor config', () => {
     })).toThrow(/keyFeild/);
   });
 
+  it('rejects a keyField that collides with flagField or evidenceField', () => {
+    // Three jobs on three fields: the label sentence, the group key, and the
+    // recurrence text an anchor is recognised by. Aim two at one field and the
+    // later write erases the earlier one with nothing said, which is the
+    // failure `.strict()` prevents one level up.
+    expect(() => candidateExtractorConfigSchema.parse({
+      ...minimal,
+      seriesLabel: { sameOn: ['title'], differsOn: 'startDate', flagField: 'seriesMatch', keyField: 'seriesMatch' },
+    })).toThrow(/flagField/);
+    expect(() => candidateExtractorConfigSchema.parse({
+      ...minimal,
+      seriesLabel: { sameOn: ['title'], differsOn: 'startDate', evidenceField: 'recurrence', flagField: 'seriesMatch', keyField: 'recurrence' },
+    })).toThrow(/evidenceField/);
+  });
+
   it('caps followLinks at twenty pages a document', () => {
     expect(() => candidateExtractorConfigSchema.parse({
       ...minimal,

@@ -49,10 +49,11 @@ export const RULES_MAX = 40;
 /**
  * How long an off-schedule note may be.
  *
- * Lives here because the instruction below states the same number to the
- * model: the envelope truncates to it (`model.ts`) and the label is assembled
- * against it (`labels.ts`), and three copies of a number the prompt also says
- * out loud is how they drift apart.
+ * Lives in this file, rather than next to the label it caps, because the
+ * instruction below STATES the number to the model and interpolates this
+ * constant to say it. The envelope truncates to the same value (`model.ts`)
+ * and the label is assembled against it (`labels.ts`); a number the prompt
+ * also says out loud, written out in three places, is how they drift apart.
  */
 export const SERIES_NOTE_CAP = 140;
 
@@ -95,7 +96,7 @@ RECURRING RECORDS
 When the document describes something that repeats, return ONE RECORD PER OCCURRENCE inside the horizon named below, each with its own date, rather than a single record standing for the whole run. Carry the repeat description itself into the field the operator policy names for it, so a reader can see what the series is.
 
 WHAT IS ALREADY KNOWN
-The document may be preceded by a <known> block listing records already waiting for review, one per line, each beginning with its id. If one of your records is another occurrence of one of those, set "seriesOf" to that id. When that occurrence does not follow the pattern of the others (a different weekday, a different time), say so in "seriesNote" in a few words, at most 140 characters, and only alongside "seriesOf". If one of your records is the same record as one of those, set "duplicateOf" to that id. Use ONLY ids printed in that block; never invent one and never guess at a number. When neither applies, omit both fields.`;
+The document may be preceded by a <known> block listing records already waiting for review, one per line, each beginning with its id. If one of your records is another occurrence of one of those, set "seriesOf" to that id. When that occurrence does not follow the pattern of the others (a different weekday, a different time), say so in "seriesNote" in a few words, at most ${SERIES_NOTE_CAP} characters, and only alongside "seriesOf". If one of your records is the same record as one of those, set "duplicateOf" to that id. Use ONLY ids printed in that block; never invent one and never guess at a number. When neither applies, omit both fields.`;
 
 /**
  * Untrusted text, with our own markers scrubbed out of it.

@@ -12,6 +12,7 @@
 
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
+import type { LabelVerdict } from '@/libs/actions/labelVerdict';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
@@ -882,16 +883,6 @@ function trackDecision(
 }
 
 /**
- * What a reviewer did with one field the proposer had declared as a label.
- *
- * Enums, never the values themselves: the adoption metadata envelope is
- * "counts and enums only, never message content" (`adoption/events.ts`). What
- * the field said before and after rides the tenant's own correction note
- * instead, where a person can read it.
- */
-export type LabelVerdict = 'kept' | 'changed' | 'cleared' | 'added';
-
-/**
  * The stored `fields` object of an action input, whatever else it carries.
  * @param input - An action payload, stored or edited.
  */
@@ -942,6 +933,11 @@ async function labelVerdicts(
   const verdicts: Record<string, LabelVerdict> = {};
   for (const name of declared) {
     if (typeof name !== 'string' || name === '') {
+      continue;
+    }
+    if (editedInput && !(name in after)) {
+      // Omission is not a clear: a reviewer clearing a label sends it as '',
+      // and a payload that never mentions the field was not edited on it.
       continue;
     }
     const was = labelText(before[name]);

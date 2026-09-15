@@ -83,6 +83,17 @@ describe('processor cross-field validation', () => {
     }))).rejects.toThrow(/doorsAt.*seriesLabel\.differsOn/);
   });
 
+  it('refuses a keyField that is part of the identity', async () => {
+    // The mirror image of the three above, and the only knob that has to be
+    // OUTSIDE `dedupOn`: the label stage writes this field before the proposal
+    // is filed, so an identity field here would change the record's own dedup
+    // key on the way past, and every occurrence would key on its group instead
+    // of itself.
+    await expect(apply(processorConfig({
+      seriesLabel: { sameOn: ['title'], differsOn: 'startDate', flagField: 'seriesMatch', keyField: 'venueName' },
+    }))).rejects.toThrow(/venueName.*seriesLabel\.keyField/);
+  });
+
   it('still refuses an unknown agent, which is the check this one was modelled on', async () => {
     await expect(apply(processorConfig({ agentSlug: 'nobody' }))).rejects.toThrow(/unknown agent/);
   });

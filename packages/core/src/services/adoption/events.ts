@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LABEL_VERDICTS } from '@/libs/actions/labelVerdict';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 
 /**
@@ -100,7 +101,7 @@ export const ADOPTION_EVENTS = {
        * Absent when the proposal declared no labels, which is every proposal
        * that judges nothing, and must never be read as "nothing was edited".
        */
-      labels: z.record(z.string(), z.enum(['kept', 'changed', 'cleared', 'added'])).optional(),
+      labels: z.record(z.string(), z.enum(LABEL_VERDICTS)).optional(),
     }),
   },
   'review.feedback': {

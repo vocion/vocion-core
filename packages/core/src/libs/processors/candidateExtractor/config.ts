@@ -159,10 +159,32 @@ export const candidateExtractorConfigSchema = z.object({
      * answers for the anchor and its followers with one comparison.
      *
      * Not part of the record's identity, so it never belongs in `dedupOn`.
+     * That one is cross-field against the rest of the config and is checked
+     * where the rest of the identity-relative knobs are, in
+     * `libs/sources/upsert.ts`.
      */
     keyField: FieldName.optional(),
     maxAnchors: z.number().int().positive().max(200).default(40),
-  }).strict().optional(),
+  }).strict().superRefine((series, ctx) => {
+    // Three jobs, three fields: the label sentence, the group key, and the
+    // recurrence text an anchor is recognised by. Point two of them at one
+    // field and the later write silently erases the earlier one, which is the
+    // same failure `.strict()` exists to prevent, one level up.
+    if (series.keyField !== undefined && series.keyField === series.flagField) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['keyField'],
+        message: `seriesLabel.keyField "${series.keyField}" is also its flagField; the group key would overwrite the label sentence`,
+      });
+    }
+    if (series.keyField !== undefined && series.keyField === series.evidenceField) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['keyField'],
+        message: `seriesLabel.keyField "${series.keyField}" is also its evidenceField; the group key would overwrite the recurrence text an anchor is recognised by`,
+      });
+    }
+  }).optional(),
   /**
    * Lower this sync's spending caps. Every value is optional and may only
    * LOWER the code default, see `libs/processors/budget.ts`.

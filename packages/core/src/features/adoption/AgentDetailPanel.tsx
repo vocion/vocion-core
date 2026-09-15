@@ -59,8 +59,8 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
           Next to Agreement because it answers the neighbouring question: that
           one is about the call, this one about a judgement inside the payload.
           The wording, the placement and whether it belongs on this page at all
-          are Drew's to settle; the number underneath it is what this change
-          makes available.
+          are Drew's to settle (open as of 2026-09-15); the number underneath
+          it is what this change makes available.
         */}
         <StatCard label="Label agreement" value={formatPercent(a?.labelAgreement.keptRate ?? null)} hint={a && a.labelAgreement.judged > 0 ? `${a.labelAgreement.kept} of ${a.labelAgreement.judged}` : undefined} definition="Of the fields this agent labelled itself, a series or a group, how many the reviewer left exactly as written. Counts only labelled fields on decided items, so an agent that labels nothing has no score." />
         <StatCard label="Snoozes" value={a?.snoozes ?? 0} definition="Items deferred instead of decided — a snooze leaves the item pending, so it never moves the approval rate" />

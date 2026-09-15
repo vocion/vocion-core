@@ -19,20 +19,21 @@ const EXTRACTOR = 'event-ingestion-lead';
 
 /**
  * One recorded decision, with whatever its `labels` map held.
- * @param labels - The per-field verdicts, or undefined for a decision that declared none.
- * @param agentSlug - The agent the decision is attributed to.
+ * @param opts - What this decision recorded.
+ * @param opts.labels - The per-field verdicts, omitted for a decision that declared none.
+ * @param opts.agentSlug - The agent the decision is attributed to.
  */
-async function record(labels: unknown, agentSlug: string | null = EXTRACTOR) {
+async function record(opts: { labels?: unknown; agentSlug?: string | null }) {
   await db.insert(userActivityEventSchema).values({
     orgId: ORG,
     userId: 'usr-reviewer',
-    agentSlug,
+    agentSlug: opts.agentSlug === undefined ? EXTRACTOR : opts.agentSlug,
     eventType: 'review.decided',
     resourceType: 'action_run',
     metadata: {
       kind: 'action',
       decision: 'edited',
-      ...(labels === undefined ? {} : { labels }),
+      ...(opts.labels === undefined ? {} : { labels: opts.labels }),
     },
   });
 }
@@ -47,11 +48,11 @@ afterAll(async () => {
 
 describe('getAgentLabelAgreement', () => {
   it('counts verdicts per field per agent', async () => {
-    await record({ seriesMatch: 'kept', seriesKey: 'kept' });
-    await record({ seriesMatch: 'changed', seriesKey: 'changed' });
-    await record({ seriesMatch: 'cleared', seriesKey: 'cleared' });
-    await record({ seriesMatch: 'kept', seriesKey: 'kept' });
-    await record({ seriesMatch: 'kept' }, 'other-agent');
+    await record({ labels: { seriesMatch: 'kept', seriesKey: 'kept' } });
+    await record({ labels: { seriesMatch: 'changed', seriesKey: 'changed' } });
+    await record({ labels: { seriesMatch: 'cleared', seriesKey: 'cleared' } });
+    await record({ labels: { seriesMatch: 'kept', seriesKey: 'kept' } });
+    await record({ labels: { seriesMatch: 'kept' }, agentSlug: 'other-agent' });
 
     const byAgent = await getAgentLabelAgreement(ORG, 30);
     const mine = byAgent.get(EXTRACTOR)!;
@@ -70,8 +71,8 @@ describe('getAgentLabelAgreement', () => {
   it('ignores events with no labels key', async () => {
     // Every decision made before this existed, and every agent that judges
     // nothing. Counting them would invent a perfect score out of silence.
-    await record(undefined);
-    await record(undefined);
+    await record({});
+    await record({});
 
     expect((await getAgentLabelAgreement(ORG, 30)).size).toBe(0);
   });
@@ -79,9 +80,9 @@ describe('getAgentLabelAgreement', () => {
   it('ignores a labels value that is not a map of verdicts', async () => {
     // jsonb accepts anything an earlier writer left behind, and one bad row
     // must not cost the whole panel its numbers.
-    await record('part of series 41');
-    await record({ seriesMatch: 'obliterated' });
-    await record({ seriesMatch: 'kept' });
+    await record({ labels: 'part of series 41' });
+    await record({ labels: { seriesMatch: 'obliterated' } });
+    await record({ labels: { seriesMatch: 'kept' } });
 
     const mine = (await getAgentLabelAgreement(ORG, 30)).get(EXTRACTOR)!;
 
@@ -90,7 +91,7 @@ describe('getAgentLabelAgreement', () => {
   });
 
   it('returns nothing for an agent that never declared a label', async () => {
-    await record({ seriesMatch: 'kept' });
+    await record({ labels: { seriesMatch: 'kept' } });
 
     expect((await getAgentLabelAgreement(ORG, 30)).get('applicant-screener')).toBeUndefined();
   });
@@ -99,8 +100,8 @@ describe('getAgentLabelAgreement', () => {
     // The reviewer supplied a label the agent left empty. There was no
     // judgement of the agent's to agree or disagree with, so it is counted and
     // reported without moving the rate.
-    await record({ seriesMatch: 'added' });
-    await record({ seriesMatch: 'kept' });
+    await record({ labels: { seriesMatch: 'added' } });
+    await record({ labels: { seriesMatch: 'kept' } });
 
     const mine = (await getAgentLabelAgreement(ORG, 30)).get(EXTRACTOR)!;
 

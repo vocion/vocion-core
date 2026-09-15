@@ -38,6 +38,7 @@ import type { CandidateExtractorConfig } from './config';
 import type { KnownCards } from './knownCards';
 import type { ValidatedRecord } from './validate';
 import { candidateKeySegments, findSimilarCandidates, LABELLED_RUN_ID, normaliseForKey } from '@/libs/actions/objects-propose-candidate';
+import { defangText, seriesKeyOf } from './knownCards';
 import { scrubMarkers, SERIES_NOTE_CAP } from './prompt';
 
 /**
@@ -55,28 +56,30 @@ export const DUPLICATE_LABEL = (runId: number): string => `possible duplicate of
  * `evidenceField` at the same field the label goes in). So it is treated as
  * the `<known>` block's own lines are, plus the one step those do not need:
  *
- *   1. the `scrubCardText` steps, no code fences, no closing-tag openers, one
- *      line, so the note cannot forge structure in a later prompt;
+ *   1. `defangText`, the `<known>` block's own steps: no code fences, no
+ *      closing-tag openers, one line, so the note cannot forge structure in a
+ *      later prompt;
  *   2. the prompt's own marker literals, so it cannot forge a block tag;
  *   3. `LABELLED_RUN_ID`, the phrase `objects-propose-candidate` reads back off
  *      the payload to decide which runs to leave out of the "Possible
  *      duplicate" row. This is the step with teeth: an unscrubbed note naming
  *      "part of series 999" would silently suppress that row for a run of the
- *      page's choosing;
+ *      page's choosing. Repeated TO A FIXPOINT, because one pass plus the
+ *      whitespace squeeze is itself a way to write the phrase: "part of series
+ *      part of series 1 999" loses the inner match and closes up into the very
+ *      label this step exists to remove;
  *   4. the length cap, applied LAST, so escaping can never push the value over
  *      it.
  * @param value - Whatever the model put in `seriesNote`.
  */
 export function scrubSeriesNote(value: unknown): string {
-  const oneLine = String(value ?? '')
-    .replace(/```/g, '')
-    .replace(/<\//g, '< /')
-    .replace(/[\n\r|]+/g, ' ');
-  return scrubMarkers(oneLine)
-    .replace(LABELLED_RUN_ID, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, SERIES_NOTE_CAP);
+  let scrubbed = scrubMarkers(defangText(String(value ?? '')));
+  let previous: string;
+  do {
+    previous = scrubbed;
+    scrubbed = scrubbed.replace(LABELLED_RUN_ID, ' ').replace(/\s+/g, ' ');
+  } while (scrubbed !== previous);
+  return scrubbed.trim().slice(0, SERIES_NOTE_CAP);
 }
 
 /**
@@ -85,12 +88,16 @@ export function scrubSeriesNote(value: unknown): string {
  * The invariant that makes this one hop rather than a walk: a key is
  * root-normalised at write time, so an anchor that has one is already pointing
  * at the root, and an anchor that has none IS the root.
+ * `inherited` rides back with the key because it is the one thing the caller
+ * cannot read off the answer: `String(anchorId)` and an inherited key are both
+ * bare decimal strings, and normalising the anchor's key twice to tell them
+ * apart is how the two copies drift.
  * @param anchorKey - The anchor card's own key, or null when it has none.
  * @param anchorId - The anchor card's run id.
  */
-function rootKeyFor(anchorKey: string | null, anchorId: number): string {
+function rootKeyFor(anchorKey: string | null, anchorId: number): { key: string; inherited: boolean } {
   const inherited = (anchorKey ?? '').trim();
-  return inherited === '' ? String(anchorId) : inherited;
+  return inherited === '' ? { key: String(anchorId), inherited: false } : { key: inherited, inherited: true };
 }
 
 /**
@@ -134,9 +141,10 @@ export async function labelRecords(opts: {
     if (!keyField) {
       return;
     }
-    write(record, keyField, rootKeyFor(anchorKey, anchorId));
+    const root = rootKeyFor(anchorKey, anchorId);
+    write(record, keyField, root.key);
     bump('series_keyed');
-    if ((anchorKey ?? '').trim() !== '') {
+    if (root.inherited) {
       // The one counter that proves the collapse: while this stays at zero
       // every group is one hop deep and the invariant is never exercised.
       bump('series_key_inherited');
@@ -251,11 +259,10 @@ async function findAnchor(opts: {
     const evidence = series.evidenceField
       ? String(fields[series.evidenceField] ?? '').trim() !== ''
       : false;
-    const keyField = series.keyField;
     siblings.push({
       id: row.id,
       evidence,
-      seriesKey: keyField ? (String(fields[keyField] ?? '').trim() || null) : null,
+      seriesKey: seriesKeyOf(fields, series.keyField),
     });
   }
 

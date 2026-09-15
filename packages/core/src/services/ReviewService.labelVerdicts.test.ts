@@ -155,6 +155,21 @@ describe('label verdicts on a decision', () => {
     });
   });
 
+  it('records nothing for a label the edited payload never mentioned', async () => {
+    // Omission is silence, not a clear. A reviewer clearing a label sends it
+    // back as '', so a field the payload does not mention at all was simply
+    // not edited, and counting it as cleared would invent a correction out of
+    // whichever fields the queue happened to send.
+    const runId = await pendingCandidate(['seriesMatch', 'seriesKey']);
+
+    await decide({ kind: 'action', id: runId }, 'approve', ORG, {
+      reviewedBy: REVIEWER,
+      editedInput: editedInput({ title: 'Open Mic Night', startDate: '2026-11-19', seriesMatch: 'part of series 41' }),
+    });
+
+    expect((await decidedMeta()).labels).toEqual({ seriesMatch: 'kept' });
+  });
+
   it('records nothing when the proposal declared no labels', async () => {
     // Every proposal made before this existed, and every proposer that judges
     // nothing. Absent must never read as "nothing was edited".
