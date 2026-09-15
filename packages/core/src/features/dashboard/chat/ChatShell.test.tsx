@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 
-import en from '@/locales/en.json';
 import { ShellBarActionsOutlet, ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
+import en from '@/locales/en.json';
 
 vi.mock('@/libs/Orpc', () => ({
   client: {
