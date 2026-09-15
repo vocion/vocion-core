@@ -6,9 +6,16 @@
  *
  * Auth: a HubSpot private-app token in `ctx.credentials.token` (Bearer).
  * Incremental: when `ctx.since` is set, fetch only records modified since via
- * the CRM Search API filtered on `hs_lastmodifieddate`; otherwise list all
- * (both paginate via the opaque `after` cursor). Idempotency + chunking are
- * handled downstream by IngestionService.
+ * the CRM Search API filtered on the object type's last-modified property;
+ * otherwise list all (both paginate via the opaque `after` cursor).
+ * Idempotency + chunking are handled downstream by IngestionService.
+ *
+ * The last-modified property is PER OBJECT TYPE: contacts use
+ * `lastmodifieddate`, deals and companies use `hs_lastmodifieddate`. Filtering
+ * contacts on the deals spelling matches ZERO rows forever, so every
+ * incremental sync completes "successfully" empty and the mirror silently
+ * freezes at its last full sync (observed on prod 2026-09-14: frozen four
+ * days, every new MQL invisible to the intake).
  */
 
 import type { SourceConnector, SourceContext } from './types';
@@ -16,8 +23,16 @@ import type { StageInfo } from '@/libs/hubspot/client';
 import type { IngestDoc } from '@/services/IngestionService';
 import { z } from 'zod';
 import { createHubspotClient, hubspotNumeric, tokenFromCredentials } from '@/libs/hubspot/client';
+import { DEFAULT_NURTURE_SLOTS, nurtureSlotsSchema } from '@/libs/hubspot/nurtureSlots';
 
 const OBJECT_TYPES = ['contacts', 'deals', 'companies'] as const;
+
+/** The searchable last-modified property, per object type (contacts differ). */
+const MODIFIED_PROPERTY: Record<(typeof OBJECT_TYPES)[number], string> = {
+  contacts: 'lastmodifieddate',
+  deals: 'hs_lastmodifieddate',
+  companies: 'hs_lastmodifieddate',
+};
 
 const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
   // Contacts carry how the person arrived and how warm they are; without those
@@ -30,7 +45,7 @@ const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
     'jobtitle',
     'lifecyclestage',
     'hubspot_owner_id',
-    'hs_lastmodifieddate',
+    'lastmodifieddate',
     'createdate',
     'hs_analytics_source',
     'hs_analytics_source_data_1',
@@ -47,10 +62,34 @@ const DEFAULT_PROPERTIES: Record<(typeof OBJECT_TYPES)[number], string[]> = {
   companies: ['name', 'domain', 'industry', 'description', 'numberofemployees', 'hubspot_owner_id', 'hs_lastmodifieddate', 'createdate'],
 };
 
+/**
+ * The two contact properties the handoff watcher diffs after each sync
+ * (`HandoffTriggerService`, ticket 055): when the contact last replied to a
+ * sales email, and the meeting signal. Both are ALWAYS fetched for contacts,
+ * on top of `properties`, so a workspace that pins its property list still
+ * feeds the watcher. The meeting signal is portal-specific: HubSpot's own
+ * `hs_latest_meeting_activity` is a timestamp, while a portal that books
+ * through Calendly carries a custom boolean such as `meeting_booked__calendly_`.
+ * The watcher reads either shape from the mirrored value.
+ */
+const DEFAULT_HANDOFF_SIGNALS = {
+  replyProperty: 'hs_sales_email_last_replied',
+  meetingProperty: 'hs_latest_meeting_activity',
+} as const;
+const handoffSignalsSchema = z.object({
+  replyProperty: z.string().min(1).default(DEFAULT_HANDOFF_SIGNALS.replyProperty),
+  meetingProperty: z.string().min(1).default(DEFAULT_HANDOFF_SIGNALS.meetingProperty),
+});
+export type HandoffSignals = z.infer<typeof handoffSignalsSchema>;
+
 const hubspotConfigSchema = z.object({
   objectType: z.enum(OBJECT_TYPES).default('contacts'),
   /** Override the properties fetched per record. */
   properties: z.array(z.string()).optional(),
+  /** Which contact properties carry the reply and meeting signals. See `handoffSignalsSchema`. */
+  handoffSignals: handoffSignalsSchema.default(DEFAULT_HANDOFF_SIGNALS),
+  /** The nurture ladder's token slots, written at Enroll. See `libs/hubspot/nurtureSlots.ts`. */
+  nurtureSlots: nurtureSlotsSchema.default(DEFAULT_NURTURE_SLOTS),
   /** Override for testing / EU data residency. */
   baseUrl: z.string().url().default('https://api.hubapi.com'),
   /** HubSpot portal (account) id — enables record deep links on review cards. */
@@ -100,11 +139,11 @@ function identityContent(
   return '';
 }
 
-function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageInfo>): IngestDoc {
+function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageInfo>, signals?: HandoffSignals): IngestDoc {
   const props = r.properties ?? {};
   const stage = props.dealstage ? stages?.get(props.dealstage) : undefined;
   const content = identityContent(objectType, props, stage);
-  const modified = props.hs_lastmodifieddate ?? r.updatedAt;
+  const modified = props.hs_lastmodifieddate ?? props.lastmodifieddate ?? r.updatedAt;
   const email = props.email ?? undefined;
   const emailDomain = email && email.includes('@') ? email.slice(email.lastIndexOf('@') + 1).toLowerCase() : undefined;
   // Stamp the fields the discovery-detection matcher (ticket 011) needs into
@@ -148,6 +187,13 @@ function toDoc(objectType: string, r: HubSpotRecord, stages?: Map<string, StageI
       emailDelivered: hubspotNumeric(props.hs_email_delivered),
       emailOpened: hubspotNumeric(props.hs_email_open),
       emailClicked: hubspotNumeric(props.hs_email_click),
+      // Handoff signals (ticket 055), read from whichever properties the
+      // source config names. Metadata-only like the counters, so a reply
+      // landing never re-embeds the record. `handoffMeeting` keeps the raw
+      // value: a timestamp on portals using HubSpot meetings, "true"/"false"
+      // on portals with a booking flag; the watcher tells them apart.
+      handoffReplyAt: signals ? props[signals.replyProperty] ?? undefined : undefined,
+      handoffMeeting: signals ? props[signals.meetingProperty] ?? undefined : undefined,
       // When the contact ENTERED the MQL stage — the date the arrival window
       // cannot see (it filters on createdate). Whichever spelling the portal
       // carries; absent on rows synced before the widening until a full sync.
@@ -176,15 +222,23 @@ export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
     if (!token) {
       throw new Error('HubSpot connector requires a private-app token in credentials.token');
     }
-    const properties = cfg.properties ?? DEFAULT_PROPERTIES[cfg.objectType];
+    // The handoff signals ride along for contacts whatever the pinned list
+    // says: a workspace that enumerates its properties must not silently
+    // starve the watcher.
+    const signals = cfg.objectType === 'contacts' ? cfg.handoffSignals : undefined;
+    const properties = [...new Set([
+      ...(cfg.properties ?? DEFAULT_PROPERTIES[cfg.objectType]),
+      ...(signals ? [signals.replyProperty, signals.meetingProperty] : []),
+    ])];
     const client = createHubspotClient({ token, baseUrl: cfg.baseUrl });
 
     async function fetchPage(after?: string): Promise<HubSpotPage> {
+      const modifiedProperty = MODIFIED_PROPERTY[cfg.objectType];
       const res = ctx.since
-        // Incremental: CRM Search filtered on hs_lastmodifieddate >= since.
+        // Incremental: CRM Search filtered on the type's last-modified >= since.
         ? await client.post<HubSpotPage>(`/crm/v3/objects/${cfg.objectType}/search`, {
-            filterGroups: [{ filters: [{ propertyName: 'hs_lastmodifieddate', operator: 'GTE', value: String(ctx.since.getTime()) }] }],
-            sorts: [{ propertyName: 'hs_lastmodifieddate', direction: 'ASCENDING' }],
+            filterGroups: [{ filters: [{ propertyName: modifiedProperty, operator: 'GTE', value: String(ctx.since.getTime()) }] }],
+            sorts: [{ propertyName: modifiedProperty, direction: 'ASCENDING' }],
             properties,
             limit: 100,
             ...(after ? { after } : {}),
@@ -215,7 +269,7 @@ export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
       const page = await fetchPage(after);
       for (const r of page.results ?? []) {
         ctx.onProgress?.({ kind: 'fetched', uri: r.id });
-        yield toDoc(cfg.objectType, r, stages);
+        yield toDoc(cfg.objectType, r, stages, signals);
       }
       after = page.paging?.next?.after;
     } while (after);

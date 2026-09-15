@@ -83,7 +83,16 @@ COPY . .
 # don't have DATABASE_URL at build time, and migrations should run
 # at boot anyway (bootstrap.sh fires them post-container-start).
 WORKDIR /app/packages/core
-RUN SKIP_ENV_VALIDATION=1 \
+# V8's default old-space cap is sized off the machine and is well under what a
+# webpack build of this app now needs: on 2026-09-10 the build died with
+# "Ineffective mark-compacts near heap limit" and the worker took SIGABRT, at a
+# point where the same build had been finishing a half hour earlier. That is a
+# heap ceiling rather than the box running out of memory, so the cap is named
+# here instead of left to be inferred. Kept at 6 GiB so it stays safe on the
+# smaller instance size, with Postgres, Temporal and Langfuse resident on the
+# same box while the image builds.
+RUN NODE_OPTIONS=--max-old-space-size=6144 \
+    SKIP_ENV_VALIDATION=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \
     DATABASE_URL="postgres://stub@stub/stub" \
     CLERK_SECRET_KEY="sk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA" \

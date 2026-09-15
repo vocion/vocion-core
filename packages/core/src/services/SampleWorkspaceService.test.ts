@@ -6,6 +6,8 @@
  * Negative fixtures (lead-less team / team-less workspace) load through
  * the same service via the test-only bundlePath override.
  */
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,8 +20,12 @@ vi.mock('@/libs/temporal/client', () => ({
 
 const { db } = await import('@/libs/DB');
 const { agentSchema, playbookSchema, projectSchema, teamSchema, tenantAccountSchema, userSchema, workspaceVersionSchema } = await import('@/models/Schema');
-const { SAMPLE_USERS, SampleSeedBlockedError, seedSampleWorkspace } = await import('@/services/SampleWorkspaceService');
+const { DEFAULT_SAMPLE_WORKSPACE, SAMPLE_USERS, SAMPLE_WORKSPACE_PATH, SAMPLE_WORKSPACES, SampleSeedBlockedError, seedSampleWorkspace, UnknownSampleWorkspaceError } = await import('@/services/SampleWorkspaceService');
 const { getWorkspaceLead, listTeams } = await import('@/services/TeamService');
+const { loadWorkspace } = await import('@/libs/workspace');
+
+/** Repo root — this test file sits at packages/core/src/services/. */
+const REPO_ROOT = resolve(import.meta.dirname, '../../../..');
 
 const ORG = 'proj_seed_sample';
 const ADMIN = { id: 'usr-seed-admin', name: 'Chris Fitkin', email: 'chris@example.com' };
@@ -122,6 +128,64 @@ describe('seedSampleWorkspace on an empty workspace', () => {
     const workspace = await getWorkspaceLead(ORG);
 
     expect(workspace.accountable).toBeNull();
+  });
+});
+
+describe('SAMPLE_WORKSPACES registry', () => {
+  it('is a non-empty list whose entries all carry slug/label/description/path', () => {
+    expect(SAMPLE_WORKSPACES.length).toBeGreaterThan(0);
+
+    for (const sample of SAMPLE_WORKSPACES) {
+      expect(sample.slug).toMatch(/^[a-z0-9-]+$/);
+      expect(sample.label.length).toBeGreaterThan(0);
+      expect(sample.description.length).toBeGreaterThan(0);
+      expect(sample.path.startsWith('packages/core/templates/workspaces/')).toBe(true);
+    }
+  });
+
+  it('has unique slugs and points at no test fixture', () => {
+    const slugs = SAMPLE_WORKSPACES.map(s => s.slug);
+
+    expect(new Set(slugs).size).toBe(slugs.length);
+    expect(SAMPLE_WORKSPACES.some(s => s.path.includes('/fixtures/'))).toBe(false);
+  });
+
+  it('every registered bundle exists on disk and loads', () => {
+    for (const sample of SAMPLE_WORKSPACES) {
+      expect(existsSync(resolve(REPO_ROOT, sample.path))).toBe(true);
+      expect(() => loadWorkspace(sample.path)).not.toThrow();
+    }
+  });
+
+  it('keeps meridian-revenue first, so the default is byte-identical to the old scalar', () => {
+    expect(SAMPLE_WORKSPACES[0]!.slug).toBe('meridian-revenue');
+    expect(DEFAULT_SAMPLE_WORKSPACE).toBe(SAMPLE_WORKSPACES[0]);
+    expect(SAMPLE_WORKSPACE_PATH).toBe('packages/core/templates/workspaces/meridian-revenue');
+  });
+});
+
+describe('seedSampleWorkspace slug resolution', () => {
+  it('defaults to the first registry entry when no slug is named', async () => {
+    const result = await seedSampleWorkspace({ orgId: ORG, workspaceOwnerEmail: ADMIN.email });
+
+    expect(result.slug).toBe('meridian-revenue');
+    expect(result.teams.sort()).toEqual(['deal-desk', 'founder-gtm', 'marketing', 'revenue-ops']);
+  });
+
+  it('loads the named entry when a slug IS given', async () => {
+    const result = await seedSampleWorkspace({ orgId: ORG, workspaceOwnerEmail: ADMIN.email, slug: 'meridian-revenue' });
+
+    expect(result.slug).toBe('meridian-revenue');
+    expect(result.counts.teams.created).toBe(4);
+  });
+
+  it('rejects an unknown slug instead of silently seeding the default', async () => {
+    await expect(seedSampleWorkspace({ orgId: ORG, slug: 'not-a-starter' }))
+      .rejects
+      .toBeInstanceOf(UnknownSampleWorkspaceError);
+
+    // Nothing was applied.
+    expect(await listTeams(ORG)).toEqual([]);
   });
 });
 

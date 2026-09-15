@@ -50,6 +50,7 @@ describe('harnessTargetNames', () => {
       'in-process',
       'agentcore-container',
       'aws-managed-harness',
+      'external-worker',
       'local',
       'runtime',
       'agentcore',

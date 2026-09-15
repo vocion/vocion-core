@@ -10,3 +10,4 @@ export * from './missionScheduledCheck';
 export * from './scheduledWorkflowTrigger';
 export * from './sourceSyncWorkflow';
 export * from './vocionWorkflow';
+export * from './workerRunReaper';

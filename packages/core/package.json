@@ -107,6 +107,7 @@
     "@vocion/sdk": "*",
     "ajv": "^8.17.1",
     "bcrypt": "^6.0.0",
+    "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cronstrue": "^3.24.0",
@@ -140,7 +141,6 @@
   },
   "devDependencies": {
     "@chromatic-com/playwright": "^0.12.8",
-    "@clerk/testing": "^1.14.3",
     "@electric-sql/pglite-socket": "^0.0.20",
     "@faker-js/faker": "^10.3.0",
     "@lingual/i18n-check": "^0.8.19",

@@ -72,9 +72,9 @@ export default async function LeadPage(props: {
   }
 
   // The back-linked run, resolved under the SAME predicate the review queue's
-  // pending feed applies: pending and not snoozed shows the card (deciding it
-  // here decides it everywhere); pending but snoozed shows when it returns; a
-  // failed execution is named rather than read as still waiting.
+  // feed applies: pending or failed and not snoozed shows the card (deciding
+  // it here decides it everywhere, and a failed card carries its error with
+  // Approve-as-retry); snoozed shows when it returns.
   const runState: LeadRunState = { run: null, snoozedUntil: null, runFailed: false };
   if (row.reviewActionRunId != null) {
     const now = new Date();
@@ -91,15 +91,17 @@ export default async function LeadPage(props: {
         eq(actionRunSchema.id, row.reviewActionRunId),
       ))
       .limit(1);
-    if (found?.run.status === 'pending') {
+    if (found?.run.status === 'pending' || found?.run.status === 'failed') {
       const snoozed = found.snoozedUntil != null && found.snoozedUntil > now;
       const expired = found.run.expiresAt != null && found.run.expiresAt <= now;
       if (snoozed) {
         runState.snoozedUntil = found.snoozedUntil!.toISOString();
       } else if (!expired) {
         // Best-effort, like the feed: a presenter error means no card, never
-        // a broken page.
-        const presenter = getAction(found.run.actionId)?.reviewCard;
+        // a broken page. `canRegenerate` is stamped from the action's declared
+        // capability, the same as the queue's feed.
+        const action = getAction(found.run.actionId);
+        const presenter = action?.reviewCard;
         const card = presenter
           ? await presenter({ orgId }, found.run.input as never).catch(() => undefined)
           : undefined;
@@ -111,12 +113,17 @@ export default async function LeadPage(props: {
             input: found.run.input as Record<string, unknown>,
             invokedBy: found.run.invokedBy,
             proposal: found.run.proposal,
-            card,
+            // ISO across the server/client boundary, like the dates above.
+            regeneratingSince: found.run.regeneratingSince?.toISOString() ?? null,
+            regenerateNote: found.run.regenerateNote,
+            error: found.run.error,
+            card: { ...card, canRegenerate: action?.regenerate !== undefined },
           } satisfies ReviewCardRun;
+        } else if (found.run.status === 'failed') {
+          // No presenter card to retry through — at least name the failure.
+          runState.runFailed = true;
         }
       }
-    } else if (found?.run.status === 'failed') {
-      runState.runFailed = true;
     }
   }
 
@@ -139,6 +146,7 @@ export default async function LeadPage(props: {
     briefError: row.briefError,
     briefAttempts: row.briefAttempts,
     regenerateNote: row.regenerateNote,
+    regenerateHistory: row.regenerateHistory,
     draftSequence: row.draftSequence,
     recommendedSequence: row.recommendedSequence,
     reviewActionRunId: row.reviewActionRunId,
@@ -148,6 +156,9 @@ export default async function LeadPage(props: {
     briefedAt: row.briefedAt?.toISOString() ?? null,
     decidedAt: row.decidedAt?.toISOString() ?? null,
     decidedBy: row.decidedBy,
+    handoffSections: row.handoffSections,
+    handoffTrigger: row.handoffTrigger,
+    handoffAt: row.handoffAt?.toISOString() ?? null,
   };
 
   // The dock: the agent conversation as a third column, scoped to this lead

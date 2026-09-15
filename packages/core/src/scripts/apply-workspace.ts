@@ -100,6 +100,13 @@ async function main(): Promise<void> {
     console.log(`  ${kind.padEnd(12)} created=${counts.created}  updated=${counts.updated}  unchanged=${counts.unchanged}`);
   }
 
+  if (result.warnings.length > 0) {
+    console.warn('\nwarnings:');
+    for (const w of result.warnings) {
+      console.warn(`  ${w.resource}/${w.slug}: ${w.message}`);
+    }
+  }
+
   if (result.errors.length > 0) {
     console.error('\nerrors:');
     for (const e of result.errors) {

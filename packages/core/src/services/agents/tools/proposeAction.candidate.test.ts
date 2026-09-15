@@ -26,6 +26,7 @@ const { loadWorkspace } = await import('@/libs/workspace/loader');
 const { applyWorkspace } = await import('@/libs/workspace/applier');
 const { proposeActionTool } = await import('./proposeAction');
 const { forgetCachedObjectTypes } = await import('@/libs/actions/objects-propose-candidate');
+const { rejectAction } = await import('@/services/ActionService');
 const { and, eq } = await import('drizzle-orm');
 
 const ORG = 'proj_candidate_intake_test';
@@ -74,6 +75,10 @@ async function pendingRuns() {
     .select()
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.status, 'pending')));
+}
+
+async function allRuns() {
+  return db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
 }
 
 async function candidateObjects() {
@@ -193,6 +198,63 @@ describe('the agent proposing a candidate', () => {
     expect(await candidateObjects()).toHaveLength(2);
   });
 
+  it('tells a refresh apart from a new proposal in what it says back', async () => {
+    const tool = proposeActionTool(runtimeContext());
+
+    const first = await tool.invoke(proposalFor());
+    const second = await tool.invoke(proposalFor({ price: '$5 suggested' }));
+
+    // Both used to read "is PENDING human approval", so an agent re-reading a
+    // page could not tell the reviewer it had added nothing new.
+    expect(first).toMatch(/PENDING human approval/);
+    expect(second).toMatch(/updated in place/i);
+    expect(second).not.toMatch(/PENDING human approval/);
+  });
+
+  it('does not queue a candidate the moderator already rejected', async () => {
+    const tool = proposeActionTool(runtimeContext());
+    await tool.invoke(proposalFor());
+    const [pending] = await pendingRuns();
+    await rejectAction(pending!.id, ORG, 'not our kind of event', { reviewedBy: 'user-lili' });
+
+    // The listing page is read again next week and still carries the event.
+    const said = await tool.invoke(proposalFor());
+
+    expect(said).toMatch(/already decided/i);
+    expect(said).toContain('rejected');
+    // Nothing new for the moderator, and no second candidate row.
+    expect(await pendingRuns()).toHaveLength(0);
+    expect(await allRuns()).toHaveLength(1);
+    expect(await candidateObjects()).toHaveLength(1);
+  });
+
+  it('does not queue a candidate the moderator already approved', async () => {
+    const tool = proposeActionTool(runtimeContext());
+    await tool.invoke(proposalFor());
+    const [pending] = await pendingRuns();
+    const { executeAction } = await import('@/services/ActionService');
+    await executeAction(pending!.id, ORG, { reviewedBy: 'user-jamie' });
+
+    const said = await tool.invoke(proposalFor());
+
+    expect(said).toMatch(/already decided/i);
+    expect(await allRuns()).toHaveLength(1);
+    expect(await candidateObjects()).toHaveLength(1);
+  });
+
+  it('still opens a fresh item for a genuinely new event on the same page', async () => {
+    const tool = proposeActionTool(runtimeContext());
+    await tool.invoke(proposalFor());
+    const [pending] = await pendingRuns();
+    await rejectAction(pending!.id, ORG, 'not our kind of event', { reviewedBy: 'user-lili' });
+
+    await tool.invoke(proposalFor({ title: 'Poetry Slam', start: '2026-09-26T19:30' }));
+
+    // Blocking the decided one must not blunt the tool: the new event on the
+    // same listing page still reaches the moderator.
+    expect(await pendingRuns()).toHaveLength(1);
+  });
+
   it('refuses an object type the workspace never defined, and says so plainly', async () => {
     const tool = proposeActionTool(runtimeContext());
     const proposal = proposalFor();
@@ -206,6 +268,40 @@ describe('the agent proposing a candidate', () => {
     // agent then repeats to a person.
     expect(said).toContain('Proposal refused (VALIDATION_FAILED)');
     expect(said).toContain('grant_deadline');
+    expect(await candidateObjects()).toHaveLength(0);
+    expect(await pendingRuns()).toHaveLength(0);
+  });
+
+  it('refuses a proposal with no dedupOn, and says so plainly — not a raw validation dump', async () => {
+    // VEERIO-257 regression: `inputSchema.parse` throwing a ZodError used to
+    // reach the model as `Proposal failed: [{"code":"custom",...}]` — the
+    // hand-authored message buried in JSON. It must read like the precheck
+    // refusal above: a plain sentence naming the fix.
+    const tool = proposeActionTool(runtimeContext());
+    const proposal = proposalFor();
+    delete (proposal.action_input as { dedupOn?: string[] }).dedupOn;
+
+    const said = await tool.invoke(proposal);
+
+    expect(said).toContain('Proposal refused (VALIDATION_FAILED)');
+    expect(said).toMatch(/dedupOn must list at least one field/);
+    expect(said).not.toMatch(/"code":\s*"custom"/);
+    expect(await candidateObjects()).toHaveLength(0);
+    expect(await pendingRuns()).toHaveLength(0);
+  });
+
+  it('refuses a dedupOn nested inside fields, and says so plainly — not a raw validation dump', async () => {
+    const tool = proposeActionTool(runtimeContext());
+    // `proposalFor`'s override spreads into `fields`, so this is exactly the
+    // VEERIO-257 shape that reached production: the real identity list
+    // nested under `fields.dedupOn`, top-level `dedupOn` left as the
+    // playbook's example.
+    const proposal = proposalFor({ dedupOn: ['title'] });
+
+    const said = await tool.invoke(proposal);
+
+    expect(said).toContain('Proposal refused (VALIDATION_FAILED)');
+    expect(said).toMatch(/dedupOn found inside fields/);
     expect(await candidateObjects()).toHaveLength(0);
     expect(await pendingRuns()).toHaveLength(0);
   });

@@ -47,8 +47,18 @@ export function proposeActionTool(ctx: RuntimeContext) {
         ctx.emit({
           type: 'tool_progress',
           tool: 'propose_action',
-          meta: { runId: res.runId, status: res.status },
+          meta: { runId: res.runId, status: res.status, outcome: res.outcome },
         } as never);
+        // Each outcome reads differently on purpose. An agent that re-reads a
+        // page has to be able to tell a person "nothing new here" — with one
+        // shared sentence it would report every second pass as fresh work.
+        if (res.outcome === 'already_decided') {
+          const decidedOn = res.decidedAt ? ` on ${res.decidedAt.toISOString().slice(0, 10)}` : '';
+          return `Not proposed: a person already decided this exact record${decidedOn} — action run #${res.runId} is ${res.status}. Nothing was queued and nothing changed. Do not propose it again; move on to records nobody has judged yet.`;
+        }
+        if (res.outcome === 'refreshed') {
+          return `Action run #${res.runId} for ${action_id} was updated in place — it was already waiting for approval, and now carries this payload (confidence ${confidence}). No new review item was created. Do NOT claim the change was made.`;
+        }
         if (res.status === 'pending') {
           return `Proposed ${action_id} → action run #${res.runId} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`;
         }

@@ -5,6 +5,7 @@ import {
   canDecide,
   contentEditsFor,
   currentBody,
+  hydrateGuidedState,
   initialGuidedState,
   isRevisionAsk,
   markRead,
@@ -42,7 +43,7 @@ describe('the guided flow', () => {
 
   it('a revision to the send under review does not block the decision', () => {
     const reviewing2 = { ...initialGuidedState, step: 1 };
-    const after = applyRevision(reviewing2, SENDS, 'send-2', 'tighter two', 'make send 2 shorter');
+    const after = applyRevision(reviewing2, SENDS, 'send-2', 'tighter two', 'make send 2 shorter', 'draft two');
 
     expect(after.unread).toEqual([]);
     expect(currentBody(SENDS[1]!, after)).toBe('tighter two');
@@ -50,7 +51,7 @@ describe('the guided flow', () => {
   });
 
   it('a revision to a send NOT under review withholds the decision until it is re-read', () => {
-    const after = applyRevision(walked, SENDS, 'send-1', 'tighter one', 'make send 1 shorter');
+    const after = applyRevision(walked, SENDS, 'send-1', 'tighter one', 'make send 1 shorter', 'draft one');
 
     expect(after.unread).toEqual(['send-1']);
     expect(canDecide(after, SENDS)).toBe(false);
@@ -59,15 +60,15 @@ describe('the guided flow', () => {
   });
 
   it('approval carries the revised copy, so what persists is what was on screen', () => {
-    const after = applyRevision(walked, SENDS, 'send-2', 'tighter two', 'shorter');
+    const after = applyRevision(walked, SENDS, 'send-2', 'tighter two', 'shorter', 'draft two');
 
     expect(contentEditsFor(after, SENDS)).toEqual([{ id: 'send-2', body: 'tighter two' }]);
     expect(contentEditsFor(walked, SENDS)).toEqual([]);
   });
 
   it('successive revisions keep the latest, and version counts up from the draft', () => {
-    const once = applyRevision(walked, SENDS, 'send-2', 'v2 body', 'shorter');
-    const twice = applyRevision(once, SENDS, 'send-2', 'v3 body', 'warmer');
+    const once = applyRevision(walked, SENDS, 'send-2', 'v2 body', 'shorter', 'draft two');
+    const twice = applyRevision(once, SENDS, 'send-2', 'v3 body', 'warmer', 'v2 body', 'v2 body');
 
     expect(currentBody(SENDS[1]!, twice)).toBe('v3 body');
     expect(versionOf(SENDS[1]!, twice)).toBe(3);
@@ -89,6 +90,33 @@ describe('the guided flow', () => {
     expect(isRevisionAsk('why day 6?')).toBe(false);
     expect(isRevisionAsk('who is this person')).toBe(false);
     expect(isRevisionAsk('')).toBe(false);
+  });
+
+  it('a revision keeps its before, and a regeneration over an earlier change records the discard', () => {
+    const once = applyRevision(walked, SENDS, 'send-2', 'v2 body', 'shorter', 'draft two');
+    const twice = applyRevision(once, SENDS, 'send-2', 'v3 body', 'warmer', 'v2 body', 'v2 body');
+
+    expect(revisionList(once, SENDS)[0]).toMatchObject({ prior: 'draft two' });
+    expect(revisionList(once, SENDS)[0]!.discarded).toBeUndefined();
+    expect(revisionList(twice, SENDS)[0]).toMatchObject({ prior: 'v2 body', discarded: 'v2 body' });
+  });
+
+  it('a saved position resumes only against the copy it was saved for', () => {
+    const saved = applyRevision({ ...initialGuidedState, step: 1 }, SENDS, 'send-2', 'tighter two', 'shorter', 'draft two');
+
+    // The same card resumes mid-walk with the revision intact.
+    expect(hydrateGuidedState(JSON.parse(JSON.stringify(saved)), SENDS)).toMatchObject({ step: 1, unread: [] });
+
+    // A card whose content ids changed is a different decision — start fresh.
+    const otherSends = sendsFromCard({ ...CARD, content: [{ kind: 'email', id: 'send-9', label: 'Day 1', subject: 's', body: 'b' }] } as unknown as ReviewCard);
+
+    expect(hydrateGuidedState(JSON.parse(JSON.stringify(saved)), otherSends)).toBeNull();
+
+    // A decided or malformed save never resumes.
+    expect(hydrateGuidedState({ ...saved, decided: true }, SENDS)).toBeNull();
+    expect(hydrateGuidedState({ step: 99, revisions: {}, unread: [], decided: false }, SENDS)).toBeNull();
+    expect(hydrateGuidedState('garbage', SENDS)).toBeNull();
+    expect(hydrateGuidedState(null, SENDS)).toBeNull();
   });
 
   it('a decided lead offers no further decision', () => {

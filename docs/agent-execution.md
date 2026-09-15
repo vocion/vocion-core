@@ -6,7 +6,7 @@ it. This page separates them.
 
 | Question | The field | Values |
 |---|---|---|
-| Which **machinery** runs the turn? | `harness.runsOn` | `in-process`, `agentcore-container`, `aws-managed-harness` |
+| Which **machinery** runs the turn? | `harness.runsOn` | `in-process`, `agentcore-container`, `aws-managed-harness`, `external-worker` |
 | Which vendor's **model** answers? | `harness.modelProvider` | `anthropic`, `openai`, `bedrock` |
 | Which AWS **account** pays for Bedrock? | not a field — the org's stored credential | the customer's, or ours |
 
@@ -307,3 +307,13 @@ of running in this process.
 |---|---|---|---|
 | `Veerio-Life/veerio-vocion` | `workspace/veerio/agents/event-ingestion-lead.yaml` | `provider: agentcore` | Optional rename to `runsOn: aws-managed-harness`. Behaviour is unchanged either way. |
 | `Meta-CTO/metacto-vocion-agents` | two agents with a `harness` block | no target named | Nothing. Check whether either is on Bedrock — if so, it moves to the container on next apply. |
+
+## `external-worker` — a process Vocion does not host
+
+The fourth target does not run a turn at all. Asking the agent something queues a **worker run**
+and returns a receipt; a worker outside the app — a headless coding-agent loop, a batch crawl, an
+overnight job — claims the run, heartbeats inside a lease, reports progress and cost, and completes
+or fails. Vocion is the control plane and the audit trail; the worker owns its execution and its
+working state. Anything the worker proposes lands in the review queue like any other agent's.
+Feature-flagged (`VOCION_EXTERNAL_WORKERS=1`). Details: [Worker run](./entities/worker-run.md),
+decision: [ADR 0004](./adr/0004-external-worker-provider.md).

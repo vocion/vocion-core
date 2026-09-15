@@ -37,6 +37,14 @@ export type Revision = {
   body: string;
   /** What the reviewer asked for, verbatim. */
   ask: string;
+  /** The copy this revision replaced — the before to this body's after. */
+  prior: string;
+  /**
+   * Set when this rewrite regenerated over an earlier revision: a rewrite
+   * always starts from the original draft, so the earlier change is discarded
+   * and the card says so instead of quietly folding it in.
+   */
+  discarded?: string;
 };
 
 export type GuidedState = {
@@ -94,6 +102,8 @@ export function versionOf(send: GuidedSend, state: GuidedState): number {
  * @param contentId - Which send was revised.
  * @param body - The revised copy.
  * @param ask - What the reviewer asked for.
+ * @param prior
+ * @param discarded
  * @returns The next state.
  */
 export function applyRevision(
@@ -102,9 +112,11 @@ export function applyRevision(
   contentId: string,
   body: string,
   ask: string,
+  prior: string,
+  discarded?: string,
 ): GuidedState {
   const existing = state.revisions[contentId] ?? [];
-  const revision: Revision = { contentId, version: existing.length + 2, body, ask };
+  const revision: Revision = { contentId, version: existing.length + 2, body, ask, prior, ...(discarded !== undefined ? { discarded } : {}) };
   const index = sends.findIndex(s => s.id === contentId);
   const isUnderReview = index === state.step;
   return {
@@ -201,4 +213,39 @@ export function isRevisionAsk(text: string): boolean {
     return false;
   }
   return CHANGE_RE.test(t);
+}
+
+/**
+ * Rehydrate a persisted guided state, or start fresh when it no longer fits.
+ *
+ * The position persists per record so closing the page does not restart the
+ * walk — but a stale save must never resume against different copy: if any
+ * revised or unread content id is missing from the card, or the step is out
+ * of range, the save is for another version of this decision and is dropped.
+ * A decided save is dropped too; the outcome then re-derives from the run.
+ * @param raw - What the store held (already parsed), shape unknown.
+ * @param sends - The sends being walked now.
+ * @returns The state to resume, or null to start fresh.
+ */
+export function hydrateGuidedState(raw: unknown, sends: GuidedSend[]): GuidedState | null {
+  if (typeof raw !== 'object' || raw === null) {
+    return null;
+  }
+  const st = raw as Partial<GuidedState>;
+  if (
+    typeof st.step !== 'number'
+    || st.step < 0
+    || st.step > sends.length
+    || st.decided !== false
+    || typeof st.revisions !== 'object' || st.revisions === null
+    || !Array.isArray(st.unread)
+  ) {
+    return null;
+  }
+  const ids = new Set(sends.map(s => s.id));
+  const knownIds = [...Object.keys(st.revisions), ...st.unread];
+  if (knownIds.some(id => !ids.has(id))) {
+    return null;
+  }
+  return { step: st.step, revisions: st.revisions, unread: st.unread, decided: false };
 }

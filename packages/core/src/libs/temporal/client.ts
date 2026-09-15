@@ -120,6 +120,10 @@ export const LANGFUSE_RETENTION_WORKFLOW = 'langfuseRetentionWorkflow';
  */
 export const LANGFUSE_RETENTION_SCHEDULE_ID = 'langfuse-retention';
 
+/** ADR 0004 — reaps worker runs whose lease lapsed. One schedule per deployment, not per org. */
+export const WORKER_RUN_REAPER_WORKFLOW = 'workerRunReaperWorkflow';
+export const WORKER_RUN_REAPER_SCHEDULE_ID = 'worker-run-reaper';
+
 /**
  * Schedule ID convention for automations — `automation-<orgId>-<slug>`.
  * @param orgId

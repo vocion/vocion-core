@@ -139,7 +139,7 @@ The three verbs, all in `workspace.yaml` — the *only* place activation happens
 
 ```yaml
 # workspace.yaml
-extends: core@2.0.0 # pin the base pack. OMIT → no base layer at all.
+extends: core@2.1.0 # pin the base pack. OMIT → no base layer at all.
 use: # activate AGENTS; their skills + object types + the
   agents: [revenue-director, proposal-writer] # skills' playbooks come along transitively
   skills: [lead-triage] # a base skill no activated agent mounts

@@ -16,7 +16,7 @@ const { eq } = await import('drizzle-orm');
 const { db } = await import('@/libs/DB');
 const { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } = await import('@/models/Schema');
 const { registerConnector } = await import('@/libs/sources/registry');
-const { deleteSource, latestSyncStateForOrg, updateSourceConfig } = await import('@/services/SourceSyncService');
+const { addSource, deleteSource, latestSyncStateForOrg, updateSourceConfig } = await import('@/services/SourceSyncService');
 
 /**
  * Long enough ago that a run still marked running counts as abandoned — the
@@ -35,6 +35,18 @@ registerConnector({
   icon: 'File',
   authKind: 'apikey',
   configSchema: z.object({ baseUrl: z.string().url('baseUrl must be a URL') }).passthrough(),
+  async* sync() {},
+});
+
+/** A sync-less connector: nothing to ingest, so nothing to name a row after. */
+registerConnector({
+  slug: 'syncless-fixture',
+  name: 'Syncless fixture',
+  description: 'test',
+  icon: 'File',
+  authKind: 'apikey',
+  syncless: true,
+  configSchema: z.object({}).passthrough(),
   async* sync() {},
 });
 
@@ -253,5 +265,28 @@ describe('latestSyncStateForOrg', () => {
     });
 
     expect(await latestSyncStateForOrg('someone_else')).toEqual({});
+  });
+});
+
+describe('addSource', () => {
+  it('gives a sync-less connector its own slug, so a manifest adopts the row instead of doubling it', async () => {
+    const added = await addSource({ orgId: ORG, kind: 'syncless-fixture', configJson: {} });
+
+    // `generateSlug` would have produced `syncless-fixture-<timestamp>`, and
+    // `upsertSource` matches on (orgId, slug): a workspace YAML declaring
+    // `slug: syncless-fixture` would then create a second row.
+    expect(added.slug).toBe('syncless-fixture');
+  });
+
+  it('still lets a caller name the slug itself', async () => {
+    const added = await addSource({ orgId: ORG, kind: 'syncless-fixture', slug: 'apollo-eu', configJson: {} });
+
+    expect(added.slug).toBe('apollo-eu');
+  });
+
+  it('leaves a syncing connector on its derived slug', async () => {
+    const added = await addSource({ orgId: ORG, kind: 'crud-fixture', configJson: { baseUrl: 'https://cms.example' } });
+
+    expect(added.slug).toMatch(/^crud-fixture-\d+$/);
   });
 });

@@ -379,6 +379,9 @@ describe('connector platforms', () => {
 
 describe('MANY_CREDENTIAL_PLATFORM_IDS', () => {
   it('names every platform an org may hold several live credentials for', () => {
+    // Apollo is deliberately absent: it is a connector, but widening the cap
+    // needs the partial unique index rebuilt, and nothing exercises it yet.
+    // See the `apollo` descriptor in registry.ts.
     expect([...MANY_CREDENTIAL_PLATFORM_IDS].sort()).toEqual(
       ['google', 'granola', 'hubspot', 'jira', 'slack', 'strapi', 'vocion', 'zoom'],
     );

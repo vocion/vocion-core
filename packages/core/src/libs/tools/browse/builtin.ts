@@ -3,9 +3,10 @@ import { extractFromHtml } from '@/libs/sources/web';
 
 /**
  * Built-in browse provider — no key, no middleman. Reuses the same
- * regex HTML→text extractor as the `web` source connector
- * (`libs/sources/web.ts`). Good for static/server-rendered pages; for
- * JS-heavy pages set VOCION_BROWSE_PROVIDER=firecrawl.
+ * cheerio HTML-to-text extractor as the `web` source connector
+ * (`libs/sources/web.ts`), and hands it the fetched URL so hrefs and
+ * image sources come back absolute. Good for static/server-rendered
+ * pages; for JS-heavy pages set VOCION_BROWSE_PROVIDER=firecrawl.
  */
 export function builtinBrowseProvider(): BrowseProvider {
   return {
@@ -23,7 +24,7 @@ export function builtinBrowseProvider(): BrowseProvider {
       const contentType = res.headers.get('content-type') ?? '';
       const isHtml = contentType.includes('text/html');
       const raw = await res.text();
-      const { title, content } = isHtml ? extractFromHtml(raw) : { title: undefined, content: raw };
+      const { title, content } = isHtml ? extractFromHtml(raw, url) : { title: undefined, content: raw };
       if (!content.trim()) {
         return null;
       }

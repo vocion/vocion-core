@@ -203,6 +203,15 @@ export const projectSchema = pgTable(
       provider?: 'openai' | 'bedrock';
       model?: string;
     }>(),
+    /**
+     * Which workspace skill regenerates each review-item type's card, keyed
+     * by action id (`personalization.enroll` → `regenerate-sequence-copy`).
+     * Authored as `defaults.regenerateSkills` in workspace.yaml; read by the
+     * scoped skill-turn executor, so core never hardcodes a workspace slug.
+     * NULL or a missing key = no fast path; the action's regenerate falls
+     * back to its full pass.
+     */
+    regenerateSkills: jsonb('regenerate_skills').$type<Record<string, string>>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -579,7 +588,7 @@ export const agentSchema = pgTable(
        * Left unset by workspace:apply on purpose — `defaultHarnessTargetFor`
        * derives it from `modelProvider`, and a stored value would shadow that.
        */
-      runsOn?: 'in-process' | 'agentcore-container' | 'aws-managed-harness';
+      runsOn?: 'in-process' | 'agentcore-container' | 'aws-managed-harness' | 'external-worker';
       /**
        * Pre-rename spelling of `runsOn`, kept for rows written before the
        * rename. Read through `normalizeHarnessTarget`, never written.
@@ -2148,7 +2157,7 @@ export const apiTokenSchema = pgTable(
     // `registry.test.ts` fails if the two drift.
     uniqueIndex('api_token_org_platform_live_idx')
       .on(table.orgId, table.platform)
-      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom')`),
+      .where(sql`${table.revokedAt} is null and ${table.platform} not in ('vocion', 'apollo', 'granola', 'hubspot', 'jira', 'strapi', 'google', 'slack', 'zoom')`),
     // The two credential shapes must never mix. A `vocion` row carries a secret
     // hash, and either a complete set of encryption columns or none of them —
     // none being a token issued before minted tokens were stored encrypted.
@@ -2325,6 +2334,41 @@ export const actionRunSchema = pgTable(
     expiresAt: timestamp('expires_at', { mode: 'date' }),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     executedAt: timestamp('executed_at', { mode: 'date' }),
+    /**
+     * Who took the human decision (user id) and when. `executedAt` is when the
+     * machine ran; these are when a person said yes or no, so a surface can
+     * tell a second reviewer "decided by X on Y" instead of just "decided".
+     */
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { mode: 'date' }),
+    /**
+     * Server truth for an in-flight regeneration: stamped by the regenerate
+     * route before the work dispatches, cleared by the dedup refresh that
+     * lands the new content (or by a failed fast-path turn). While fresh
+     * (under 15 minutes), every surface renders the run disabled and the
+     * decide/regenerate routes refuse it — a mid-regeneration approve would
+     * execute stale copy. Past staleness the guards expire on their own.
+     */
+    regeneratingSince: timestamp('regenerating_since', { mode: 'date' }),
+    /** The reviewer's instruction behind the in-flight regeneration, so every surface can show it. */
+    regenerateNote: text('regenerate_note'),
+    /**
+     * The audit record of AI rewrites asked during review, newest last. The
+     * DRAFT itself is never touched by a rewrite (the reviewer carries the
+     * copy and passes it back on approve); this is the record of what was
+     * asked and what came back, so a recap and its before/after are readable
+     * after the fact. `discardedEdit` holds the body a regeneration replaced.
+     */
+    revisions: jsonb('revisions').$type<Array<{
+      contentId?: string;
+      step?: number;
+      version: number;
+      body: string;
+      ask?: string;
+      discardedEdit?: string;
+      at: string;
+      by?: string;
+    }>>(),
   },
   table => [
     index('action_run_org_status_idx').on(table.orgId, table.status),
@@ -2542,11 +2586,38 @@ export const leadBriefSchema = pgTable(
       heading: string;
       body: string;
     }>>().default([]).notNull(),
-    /** Why the lead left: 'reply' | 'intent' | 'routed'. */
+    /** Why the lead left: 'reply' | 'meeting' | 'intent' | 'routed'. */
     handoffTrigger: text('handoff_trigger'),
     handoffAt: timestamp('handoff_at', { mode: 'date' }),
-    /** The reviewer's instruction for the next pass, kept so a rewrite has a reason. */
+    /**
+     * The newest reply and meeting timestamps the handoff watcher has already
+     * seen on the CRM mirror for this lead (`HandoffTriggerService`). A mirror
+     * value newer than the stored one, and newer than the enrollment decision,
+     * is a trigger; anything equal or older is not. Null until the first watch
+     * after enrollment, which baselines without firing.
+     */
+    handoffReplySeenAt: timestamp('handoff_reply_seen_at', { mode: 'date' }),
+    handoffMeetingSeenAt: timestamp('handoff_meeting_seen_at', { mode: 'date' }),
+    /**
+     * First time the watcher looked at this lead after enrollment. A meeting
+     * signal that is a plain boolean has no date of its own, so "already true
+     * on the first watch" is baselined and only a flip seen on a later watch
+     * fires. Null until that first watch.
+     */
+    handoffWatchedAt: timestamp('handoff_watched_at', { mode: 'date' }),
+    /**
+     * The reviewer's instruction for the next pass, kept so a rewrite has a
+     * reason. OUTSTANDING only: `saveLeadBrief` clears it and files it in
+     * `regenerateHistory`, because a satisfied instruction that still reads as
+     * pending misleads the reviewer on the lead page and the agent on the next
+     * pass alike.
+     */
     regenerateNote: text('regenerate_note'),
+    /** Instructions already addressed, each with the time the brief that answered it was written. */
+    regenerateHistory: jsonb('regenerate_history').$type<Array<{
+      note: string;
+      addressedAt: string;
+    }>>().default([]).notNull(),
     /** Briefing tries so far. Three, then the lead surfaces with its error. */
     briefAttempts: integer('brief_attempts').default(0).notNull(),
     /** Why the last try produced no brief. Rendered where the brief would be. */
@@ -2614,3 +2685,103 @@ export const leadBriefSchema = pgTable(
 // Re-export `sql` so callers can build the GENERATED-ALWAYS-AS-STORED
 // tsvector expression in raw migrations. Not used at query-time.
 export { sql };
+
+/* ------------------------------------------------------------------ */
+/* Worker runs — long-running agent runs executed OUTSIDE the app       */
+/* (ADR 0004, `harness.runsOn: external-worker`)                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A long-running agent run executed by a process Vocion does NOT host. Vocion
+ * is the control plane: it queues the run, hands out a lease, records
+ * heartbeats, checkpoints and cost, and reaps a run whose lease lapses. The
+ * worker owns its own working state (files, git, its own store); this row
+ * holds only what a human or another agent needs to see about it.
+ *
+ * Modelled on `source_sync_checkpoint` — the one resumable-work table before
+ * it — plus the columns a lease protocol needs. Status is text on purpose: a
+ * new state is a code change, not a migration.
+ */
+export const workerRunSchema = pgTable(
+  'worker_run',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    agentSlug: text('agent_slug').notNull(),
+    /** `queued` | `running` | `paused` | `awaiting_review` | `completed` | `failed` | `cancelled` | `lost` */
+    status: text('status').default('queued').notNull(),
+    /** What the worker was asked to do — free-form, worker-defined. */
+    input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
+    /** Whoever holds the lease. Set on claim; a re-claim after `lost` bumps `attempt`. */
+    workerId: text('worker_id'),
+    attempt: integer('attempt').default(0).notNull(),
+    leaseSeconds: integer('lease_seconds').default(300).notNull(),
+    leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date' }),
+    heartbeatAt: timestamp('heartbeat_at', { mode: 'date' }),
+    claimedAt: timestamp('claimed_at', { mode: 'date' }),
+    /** Hard deadline, echoed to the worker on every heartbeat. */
+    endsAt: timestamp('ends_at', { mode: 'date' }),
+    completedAt: timestamp('completed_at', { mode: 'date' }),
+    /** Coarse, worker-defined progress for the run page — not a token stream. */
+    progress: jsonb('progress').$type<Record<string, unknown>>().default({}).notNull(),
+    /** Opaque worker-defined resume position. */
+    cursor: text('cursor'),
+    counts: jsonb('counts').$type<Record<string, number>>().default({}).notNull(),
+    tokens: integer('tokens').default(0).notNull(),
+    cents: integer('cents').default(0).notNull(),
+    /** Per-run dollar cap in cents; the heartbeat reports what is left. */
+    capCents: integer('cap_cents'),
+    /** A human asked the run to stop; the worker learns it on its next heartbeat. */
+    stopRequested: boolean('stop_requested').default(false).notNull(),
+    result: jsonb('result').$type<Record<string, unknown>>(),
+    error: text('error'),
+    /** Non-fatal failures the worker carried on past, capped by the service. */
+    failures: jsonb('failures').$type<{ scope: string; message: string; at: string }[]>().default([]).notNull(),
+    workspaceSha: text('workspace_sha'),
+    langfuseTraceId: text('langfuse_trace_id'),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    index('worker_run_org_status_idx').on(table.orgId, table.status),
+    index('worker_run_org_agent_idx').on(table.orgId, table.agentSlug),
+    index('worker_run_lease_idx').on(table.status, table.leaseExpiresAt),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Chat surfaces — which agent answers in which channel (item 025)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Binds a chat-platform channel to an agent. The inbound event carries only a
+ * channel id, so this row is how an event finds its org AND its agent — the
+ * unique key is (surface, channel, team), not per org. `channel_id = '*'` with
+ * a `team_id` is the per-workspace catch-all that direct messages resolve to.
+ */
+export const chatChannelBindingSchema = pgTable(
+  'chat_channel_binding',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** `slack` today. */
+    surface: text('surface').notNull(),
+    teamId: text('team_id'),
+    channelId: text('channel_id').notNull(),
+    agentSlug: text('agent_slug').notNull(),
+    /**
+     * Persona the replies in this channel wear (migration 0083). Null means the
+     * app's own name and icon — i.e. exactly today's behaviour.
+     */
+    displayName: text('display_name'),
+    /** Public https URL of the persona avatar; Slack fetches it per message. */
+    iconUrl: text('icon_url'),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('chat_channel_binding_surface_channel_idx').on(table.surface, table.channelId, table.teamId),
+    index('chat_channel_binding_org_idx').on(table.orgId),
+  ],
+);

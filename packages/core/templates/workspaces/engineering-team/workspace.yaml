@@ -1,0 +1,18 @@
+version: 1
+# Placeholder — `workspace:apply --project <id|slug>` resolves this to the
+# live project id at apply time.
+orgId: proj_engineering_team
+name: Cobalt Works — Engineering
+description: >-
+  Sample engineering workspace for Cobalt Works, a fictional company that
+  runs a small platform team. One team of five: a lead who answers "can we
+  ship?" and four specialists — pull-request review, incident response,
+  releases, and documentation. Everything a person would see or an
+  outbound action would touch stops at a human first.
+lead: engineering-lead
+# accountableUser is deliberately omitted so the template names nobody. A
+# CLI apply may add `accountableUser: <email>` before applying, and the
+# team inherits it.
+defaults:
+  model: gpt-5.4-mini
+  temperature: '0.2'

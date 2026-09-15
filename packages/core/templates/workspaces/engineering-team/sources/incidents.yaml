@@ -1,0 +1,12 @@
+slug: incidents
+name: Incidents
+description: >-
+  Open and recently closed incidents with their timelines. Local
+  markdown, so an on-call walkthrough works on a fresh install.
+kind: local-files
+config:
+  directory: data/incidents
+  extensions:
+    - .md
+schedule: '0 * * * *'
+enabled: true

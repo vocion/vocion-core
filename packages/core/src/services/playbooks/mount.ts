@@ -28,9 +28,11 @@
  * bytes, so they carry no per-box values.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { logger } from '@/libs/Logger';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { substituteEnvTokens } from '@/libs/workspace/template-vars';
@@ -116,46 +118,152 @@ function mountRow(row: CatalogRow, out: Record<string, string>): void {
   }
 }
 
+type PlaybookFileCandidate = {
+  /** Folder that owns this row on disk. The file must stay inside it. */
+  base: string;
+  /** Where the requested resource lands, before any symlink is resolved. */
+  path: string;
+  /** Tenant files carry {{env.NAME}} tokens; the shared base pack does not. */
+  isTenantFile: boolean;
+};
+
+/**
+ * Resolve a candidate to a real path, or refuse it and say why.
+ *
+ * Two checks, because each catches what the other misses. Comparing the
+ * path we built catches `../` walks and absolute paths, which `resolve()`
+ * would otherwise honor outright. Resolving both sides for real catches a
+ * symlink sitting inside the folder but pointing out of it — a tenant's
+ * workspace is a git checkout, and git carries symlinks.
+ *
+ * Returns null when the file is absent or refused; a refusal is always
+ * logged, since a quiet one is how an escape attempt stays invisible.
+ * @param candidate - Where this origin thinks the file lives.
+ * @param row - The catalog row being read, for the log.
+ * @param resourcePath - What the caller asked for, for the log.
+ */
+function resolveInsideBase(candidate: PlaybookFileCandidate, row: Pick<CatalogRow, 'kind' | 'slug'>, resourcePath: string): string | null {
+  const context = {
+    slug: row.slug,
+    kind: row.kind,
+    requestedResource: resourcePath,
+    resolvedPath: candidate.path,
+    baseDirectory: candidate.base,
+  };
+
+  // Compared segment by segment, not as a string: a file legitimately
+  // named "..notes.md" sits inside the folder, and a plain prefix test
+  // would refuse it.
+  const relativeToBase = relative(candidate.base, candidate.path);
+  if (relativeToBase === '..' || relativeToBase.startsWith(`..${sep}`) || isAbsolute(relativeToBase)) {
+    logger.warn('playbook resource path escaped its base directory, refusing to read', context);
+    return null;
+  }
+
+  let realBase: string;
+  let realPath: string;
+  try {
+    realBase = realpathSync(candidate.base);
+    realPath = realpathSync(candidate.path);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      // Ordinary: an override reads workspace-first and falls through to the
+      // base pack, so a miss here is the normal path, not a problem. Still
+      // worth a line naming the file — "why did my resource not mount" is
+      // otherwise unanswerable without a debugger.
+      logger.debug('playbook resource is not present at this origin, trying the next one', context);
+    } else {
+      // EACCES, ELOOP or ENOTDIR mean the mount is broken. Passing those off
+      // as "the resource isn't there" is how a misconfiguration hides.
+      logger.warn('playbook resource path could not be resolved on disk, refusing to read', { ...context, errorCode: code ?? 'unknown' });
+    }
+    return null;
+  }
+
+  if (!realPath.startsWith(realBase + sep)) {
+    logger.warn('playbook resource pointed outside its base directory through a link, refusing to read', { ...context, resolvedPath: realPath, baseDirectory: realBase });
+    return null;
+  }
+  return realPath;
+}
+
 /**
  * Read one file of a cataloged folder, resolving the on-disk location
  * from the row's origin. Overrides read workspace-first with base-pack
  * fallback per file (sibling resources merged by path). Exported for
  * the catalog read paths (MCP playbook_get, detail pages).
- * @param row
- * @param rel
+ *
+ * `resourcePath` is caller-supplied — it is the MCP tool's `resource`
+ * argument — so every candidate is checked to be inside the folder that
+ * owns the row before anything is read.
+ * @param row - The catalog row whose file is being read.
+ * @param resourcePath - Which file inside the row's folder to read.
  */
-export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, rel: string): string | null {
-  const dirName = row.kind === 'skill' ? 'skills' : 'playbooks';
-  const workspaceFile = (): string | null => {
-    const ws = getWorkspacePath();
-    return ws ? fromRepoRoot(ws, dirName, row.slug, rel) : null;
-  };
-  const packFile = (): string => fromRepoRoot(PACK_ROOT, dirName, row.slug, rel);
+export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, resourcePath: string): string | null {
+  if (resourcePath.trim() === '') {
+    // The MCP tool turns an omitted `resource` into 'SKILL.md' before it
+    // gets here, so an empty string means the caller explicitly asked for
+    // one — malformed input, not a request for the default.
+    logger.warn('playbook resource path is empty, refusing to read', {
+      slug: row.slug,
+      kind: row.kind,
+      requestedResource: resourcePath,
+    });
+    return null;
+  }
 
-  // Tag each candidate with where it came from: only the tenant's own
-  // files carry {{env.NAME}} tokens. Substituting the shared base pack
-  // would let one shipped example break everyone's apply.
-  const candidates: Array<{ path: string | null; isWorkspaceFile: boolean }> = row.origin === 'core'
-    ? [{ path: packFile(), isWorkspaceFile: false }]
+  const kindFolder = row.kind === 'skill' ? 'skills' : 'playbooks';
+  const tenantCandidate = (): PlaybookFileCandidate | null => {
+    const workspace = getWorkspacePath();
+    if (!workspace) {
+      return null;
+    }
+    const base = fromRepoRoot(workspace, kindFolder, row.slug);
+    return { base, path: resolve(base, resourcePath), isTenantFile: true };
+  };
+  const basePackCandidate = (): PlaybookFileCandidate => {
+    const base = fromRepoRoot(PACK_ROOT, kindFolder, row.slug);
+    return { base, path: resolve(base, resourcePath), isTenantFile: false };
+  };
+
+  // Only the tenant's own files carry {{env.NAME}} tokens, hence the flag —
+  // substituting the shared base pack would let one shipped example break
+  // everyone's apply.
+  const candidates: Array<PlaybookFileCandidate | null> = row.origin === 'core'
+    ? [basePackCandidate()]
     : row.origin === 'override'
-      ? [{ path: workspaceFile(), isWorkspaceFile: true }, { path: packFile(), isWorkspaceFile: false }]
-      : [{ path: workspaceFile(), isWorkspaceFile: true }];
+      ? [tenantCandidate(), basePackCandidate()]
+      : [tenantCandidate()];
 
   for (const candidate of candidates) {
-    if (!candidate.path) {
+    if (!candidate) {
       continue;
     }
-    let raw: string;
+    const safePath = resolveInsideBase(candidate, row, resourcePath);
+    if (safePath === null) {
+      continue;
+    }
+    let contents: string;
     try {
-      raw = readFileSync(candidate.path, 'utf8');
-    } catch {
-      // Missing or unreadable — try the next origin. A row whose file was
-      // renamed just doesn't mount; workspace:apply cleans it up.
+      contents = readFileSync(safePath, 'utf8');
+    } catch (err) {
+      // Surprising by the time we get here: the path resolved a moment ago,
+      // so this is a permission problem, a race with workspace:apply, or a
+      // file that vanished between the two calls. Name it — a row whose
+      // file was renamed otherwise just quietly fails to mount.
+      logger.warn('playbook resource resolved but could not be read, trying the next origin', {
+        slug: row.slug,
+        kind: row.kind,
+        requestedResource: resourcePath,
+        resolvedPath: safePath,
+        error: err instanceof Error ? err.message : String(err),
+      });
       continue;
     }
     // Substitution failures are deliberately not caught. A raw token
     // reaching a model is far harder to notice than a run that stops.
-    return candidate.isWorkspaceFile ? substituteEnvTokens(raw, candidate.path) : raw;
+    return candidate.isTenantFile ? substituteEnvTokens(contents, candidate.path) : contents;
   }
   return null;
 }

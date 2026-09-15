@@ -63,6 +63,12 @@ type Source = {
    * already names put back in service.
    */
   credentialBroken: 'revoked' | 'expired' | 'missing' | null;
+  /** True when this connector ingests nothing, so its row shows Test connection rather than Sync now. */
+  syncless: boolean;
+  /** True when the connector can look at the service and report what the credential opens. */
+  inspectable: boolean;
+  /** What a test costs, said before the button is pressed, or null when it costs nothing. */
+  inspectNote: string | null;
   /** The latest sync run for this source, whoever started it. Null if never synced. */
   sync: {
     status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
@@ -84,6 +90,8 @@ type ConnectorTile = {
    * when it uses an OAuth grant or needs no credential at all.
    */
   credentialPlatform: string | null;
+  syncless: boolean;
+  inspectable: boolean;
 };
 
 /** How often to re-read the list while a sync is running somewhere. */
@@ -147,6 +155,7 @@ export function SourcesPanel() {
   const [addingKind, setAddingKind] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [connectingSource, setConnectingSource] = useState<Source | null>(null);
+  const [testingSource, setTestingSource] = useState<Source | null>(null);
   const [editingSource, setEditingSource] = useState<Source | null>(null);
   const [deletingSource, setDeletingSource] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -275,6 +284,7 @@ export function SourcesPanel() {
                     source={s}
                     syncing={syncingId === s.id}
                     onSync={() => handleSync(s.id)}
+                    onTest={() => setTestingSource(s)}
                     onEdit={() => setEditingSource(s)}
                     onDelete={() => setDeletingSource(s)}
                     onConnect={() => setConnectingSource(s)}
@@ -339,6 +349,9 @@ export function SourcesPanel() {
             />
           )
         : null}
+      {testingSource
+        ? <TestSourceDialog source={testingSource} onClose={() => setTestingSource(null)} />
+        : null}
       {connectingSource
         ? (
             <ConnectCredentialDialog
@@ -351,6 +364,166 @@ export function SourcesPanel() {
             />
           )
         : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Test connection — one affordance, every connector that can inspect. */
+/* ------------------------------------------------------------------ */
+
+/** One thing a test established. Mirrors `ConnectorCheck` on the server. */
+type ConnectorCheck = {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail: string | null;
+};
+
+/** The generic checklist a connector returns when it has no bespoke renderer. */
+type ConnectorInspection = {
+  reachable: boolean;
+  authorized: boolean;
+  checks: ConnectorCheck[];
+  note: string | null;
+  error: string | null;
+};
+
+/**
+ * Whether a payload is the generic checklist shape. Strapi's richer inspection
+ * flows through the same route and keeps its own renderer, so the page asks
+ * rather than assumes.
+ * @param value - Whatever the inspect route returned.
+ */
+function isConnectorInspection(value: unknown): value is ConnectorInspection {
+  const candidate = value as ConnectorInspection | null;
+  return typeof candidate === 'object'
+    && candidate !== null
+    && typeof candidate.reachable === 'boolean'
+    && Array.isArray(candidate.checks);
+}
+
+/**
+ * Run one connector's inspection. Returns the checklist, or the server's own
+ * message — a refused input and an unreachable host both say something the
+ * operator can act on, so neither is flattened into "test failed".
+ * @param slug - Connector to inspect.
+ * @param body - What to inspect with: typed values, or `{ sourceId }` to use
+ *   the credential already in the vault.
+ */
+async function runInspection(
+  slug: string,
+  body: Record<string, unknown>,
+): Promise<{ inspection: ConnectorInspection | null; error: string | null }> {
+  try {
+    const res = await fetch(`/rpc/connectors/${slug}/inspect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { inspection: null, error: data.error ?? 'The test could not be run.' };
+    }
+    if (!isConnectorInspection(data.inspection)) {
+      return { inspection: null, error: 'This connector reported something the page cannot show.' };
+    }
+    return { inspection: data.inspection, error: null };
+  } catch (err) {
+    return { inspection: null, error: (err as Error).message };
+  }
+}
+
+/**
+ * The checklist a test produced: one row per check, with what was observed.
+ * @param props - Component props.
+ * @param props.inspection - What the connector reported.
+ */
+function InspectionChecklist({ inspection }: { inspection: ConnectorInspection }) {
+  return (
+    <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+      <ul className="space-y-2">
+        {inspection.checks.map(check => (
+          <li key={check.key} className="flex items-start gap-2 text-sm">
+            {check.ok
+              ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              : <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-500" />}
+            <span className="min-w-0">
+              <span className="font-medium text-foreground/80">{check.label}</span>
+              {check.detail
+                ? <span className="mt-0.5 block text-xs text-muted-foreground">{check.detail}</span>
+                : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {inspection.error
+        ? <p className="text-xs text-destructive">{inspection.error}</p>
+        : null}
+      {inspection.note
+        ? <p className="text-[11px] text-muted-foreground">{inspection.note}</p>
+        : null}
+    </div>
+  );
+}
+
+/**
+ * The Test connection button plus whatever it last reported.
+ *
+ * Generic on purpose: it appears for any connector declaring an `inspect`
+ * hook, runs against the values as typed (or the vaulted credential, for a
+ * source that is already connected), and saves nothing either way.
+ * @param props - Component props.
+ * @param props.slug - Connector to test.
+ * @param props.note - What the test costs, shown before it is pressed.
+ * @param props.disabled - True while the form has nothing to test with.
+ * @param props.bodyFor - Builds the request body at press time, so it carries
+ *   the values as they are then.
+ */
+function TestConnectionPanel({ slug, note, disabled, bodyFor }: {
+  slug: string;
+  note: string | null;
+  disabled?: boolean;
+  bodyFor: () => Record<string, unknown>;
+}) {
+  const [testing, setTesting] = useState(false);
+  const [inspection, setInspection] = useState<ConnectorInspection | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  const test = async () => {
+    setTesting(true);
+    setFailure(null);
+    setInspection(null);
+    const result = await runInspection(slug, bodyFor());
+    setInspection(result.inspection);
+    setFailure(result.error);
+    setTesting(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={test}
+          disabled={testing || disabled}
+          className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
+        >
+          {testing ? <Loader2 className="size-3 animate-spin" /> : <Plug className="size-3" />}
+          {testing ? 'Testing…' : 'Test connection'}
+        </button>
+        {note
+          ? <span className="text-[11px] text-muted-foreground">{note}</span>
+          : null}
+      </div>
+      {failure
+        ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {failure}
+            </div>
+          )
+        : null}
+      {inspection ? <InspectionChecklist inspection={inspection} /> : null}
     </div>
   );
 }
@@ -658,6 +831,22 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
                         ? 'Stored AES-GCM encrypted at rest, and listed under API credentials so you can rotate it there.'
                         : 'Stored AES-GCM encrypted at rest — the token never touches logs or the browser again.'}
                     </p>
+                    {/* Test before Save, deliberately: the values as typed are
+                        checked against the real service and nothing is stored,
+                        so a bad key never becomes a connected-looking source. */}
+                    {source.inspectable
+                      ? (
+                          <TestConnectionPanel
+                            slug={connectorSlugFor(source)}
+                            note={source.inspectNote}
+                            disabled={!complete}
+                            bodyFor={() => ({
+                              config: source.config ?? {},
+                              credentials: collectCredentialValues(fields, values),
+                            })}
+                          />
+                        )
+                      : null}
                   </>
                 )}
             {error
@@ -735,10 +924,11 @@ function CredentialBadge({ source }: { source: Source }) {
   );
 }
 
-function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
+function SourceRow({ source, syncing, onSync, onTest, onEdit, onDelete, onConnect }: {
   source: Source;
   syncing: boolean;
   onSync: () => void;
+  onTest: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onConnect: () => void;
@@ -820,28 +1010,87 @@ function SourceRow({ source, syncing, onSync, onEdit, onDelete, onConnect }: {
             <Trash2 className="size-3" />
             Delete
           </button>
-          <button
-            type="button"
-            onClick={onSync}
-            disabled={busy || needsCreds}
-            title={needsCreds
-              ? 'Connect credentials first'
-              : (runningElsewhere ? 'This connector is already syncing. Wait for it to finish, then try again.' : undefined)}
-            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
-          >
-            {busy
-              ? (
-                  <>
-                    <Loader2 className="size-3 animate-spin" />
-                    Syncing…
-                  </>
-                )
-              : (
-                  <>
-                    <RefreshCw className="size-3" />
-                    Sync now
-                  </>
-                )}
+          {/* A sync-less source has no run to start, and a Sync button that
+              does nothing reads as a broken source. Testing the credential is
+              the useful thing to offer in its place. */}
+          {source.syncless
+            ? (
+                <button
+                  type="button"
+                  onClick={onTest}
+                  disabled={needsCreds || !source.inspectable}
+                  title={needsCreds ? 'Connect credentials first' : undefined}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
+                >
+                  <Plug className="size-3" />
+                  Test connection
+                </button>
+              )
+            : (
+                <button
+                  type="button"
+                  onClick={onSync}
+                  disabled={busy || needsCreds}
+                  title={needsCreds
+                    ? 'Connect credentials first'
+                    : (runningElsewhere ? 'This connector is already syncing. Wait for it to finish, then try again.' : undefined)}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
+                >
+                  {busy
+                    ? (
+                        <>
+                          <Loader2 className="size-3 animate-spin" />
+                          Syncing…
+                        </>
+                      )
+                    : (
+                        <>
+                          <RefreshCw className="size-3" />
+                          Sync now
+                        </>
+                      )}
+                </button>
+              )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Re-test a source that is already connected, on the credential in the vault.
+ *
+ * The point is that nothing is re-pasted: after a key rotation or a plan
+ * change, prod is verified again from the source's own row.
+ * @param props - Component props.
+ * @param props.source - The source to test.
+ * @param props.onClose - Called when the dialog is dismissed.
+ */
+function TestSourceDialog({ source, onClose }: { source: Source; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-xl rounded-xl border bg-background shadow-xl">
+        <div className="flex items-center gap-2 border-b px-4 py-3">
+          <Plug className="size-4 text-muted-foreground" />
+          <h3 className="font-display text-lg">
+            Test
+            {' '}
+            {source.slug}
+          </h3>
+        </div>
+        <div className="space-y-3 p-4">
+          <p className="text-xs text-muted-foreground">
+            Runs against the credential already stored for this source — nothing to paste, and nothing is saved.
+          </p>
+          <TestConnectionPanel
+            slug={connectorSlugFor(source)}
+            note={source.inspectNote}
+            bodyFor={() => ({ sourceId: source.id })}
+          />
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+          <button type="button" onClick={onClose} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+            Close
           </button>
         </div>
       </div>

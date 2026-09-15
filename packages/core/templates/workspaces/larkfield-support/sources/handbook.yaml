@@ -1,0 +1,11 @@
+slug: handbook
+name: Support handbook
+description: >-
+  SLA commitments, credit policy, and the escalation path — what a reply
+  has to be grounded in before a human will approve it.
+kind: local-files
+config:
+  directory: data/handbook
+  extensions:
+    - .md
+enabled: true

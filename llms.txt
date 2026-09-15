@@ -1,0 +1,62 @@
+# Vocion
+
+> `@vocion/core` — an open-source agent workforce platform: a Next.js app, a Postgres schema, an MCP server, and a workflow runner, under MPL-2.0.
+
+Vocion is for teams putting a team of AI agents into production. You author the workforce as YAML
+and markdown in a git-backed workspace directory — agents, teams, skills, playbooks, missions,
+workflows, automations, object types, sources, trust rules — validate it, and apply it to the
+database. What you get back is a typed runtime with human-in-the-loop built in: approve and ask
+gates on workflow steps, `requiresApproval` on skills, `trust.yaml` for what may auto-execute and
+above what confidence, mission autonomy levels 1 to 5, and one review queue exposed over REST. A
+`workspace_version` audit row is written on every apply and every tool call is stamped with the
+workspace SHA, so any output traces back to the exact prompts that produced it. Retrieval is
+first-party pgvector plus Postgres full-text search with reciprocal rank fusion. Observability is
+Langfuse and OpenTelemetry; durable workflows and schedules run on Temporal. `@vocion/core` is
+private to npm and is not published there — you install it by cloning
+https://github.com/vocion/vocion-core.
+
+## Start here
+
+- [README](https://github.com/vocion/vocion-core/blob/main/README.md): what Vocion is, the layered architecture, the full list of authored entity types, and the getting-started commands.
+- [AGENTS.md](https://github.com/vocion/vocion-core/blob/main/AGENTS.md): setup written for a coding agent — exact verified commands, where entities live, how to add an agent, a skill, and an approval gate, how to run lint, types, and tests, and an explicit do-not-touch list.
+- [Getting started](https://github.com/vocion/vocion-core/blob/main/docs/getting-started.md): tutorial from an empty directory to a working workforce, with a worked example of every entity type.
+- [Docs index](https://github.com/vocion/vocion-core/blob/main/docs/README.md): the map of everything below.
+
+## Core concepts
+
+- [Workspaces (workspace-as-code)](https://github.com/vocion/vocion-core/blob/main/docs/workspace.md): create, author, validate, apply, and layer base packs.
+- [Object model](https://github.com/vocion/vocion-core/blob/main/docs/object-model.md): where each object is authored, stored, executed, and displayed, including runtime-only objects.
+- [Workspace pages](https://github.com/vocion/vocion-core/blob/main/docs/workspace-pages.md): tenant-defined dashboard pages derived from core archetypes.
+
+## Entity reference
+
+- [Workspace manifest](https://github.com/vocion/vocion-core/blob/main/docs/entities/workspace-manifest.md): `workspace.yaml` — org identity, defaults, lead, surfaces, base-pack pin.
+- [Base pack](https://github.com/vocion/vocion-core/blob/main/docs/entities/base-pack.md): the default agent and skill layer shipped in core, with activation and override rules.
+- [Agent](https://github.com/vocion/vocion-core/blob/main/docs/entities/agent.md): prompt, hierarchy, skills, sources, harness settings.
+- [Team](https://github.com/vocion/vocion-core/blob/main/docs/entities/team.md): agents grouped under a lead with an accountable human.
+- [Skill](https://github.com/vocion/vocion-core/blob/main/docs/entities/skill.md): a unit of work read on the model's judgement, with optional approval requirement.
+- [Playbook](https://github.com/vocion/vocion-core/blob/main/docs/entities/playbook.md): standing context attached to a skill or an agent.
+- [Mission](https://github.com/vocion/vocion-core/blob/main/docs/entities/mission.md): a standing responsibility with a goal, success criteria, and an autonomy level.
+- [Workflow](https://github.com/vocion/vocion-core/blob/main/docs/entities/workflow.md): deterministic steps with approve and ask gates.
+- [Automation](https://github.com/vocion/vocion-core/blob/main/docs/entities/automation.md): the only place time and events live — `when` then `do`.
+- [Object type](https://github.com/vocion/vocion-core/blob/main/docs/entities/object-type.md): a business entity, its source weights, and its classification prompt.
+- [Source](https://github.com/vocion/vocion-core/blob/main/docs/entities/source.md): a connector, its sync cadence, and who may retrieve from it.
+- [Trust rules](https://github.com/vocion/vocion-core/blob/main/docs/entities/trust.md): which actions may auto-execute, and above what confidence.
+- [Learning step](https://github.com/vocion/vocion-core/blob/main/docs/entities/learning-step.md): a named bucket of accumulated rules an agent reads.
+- [Eval dataset](https://github.com/vocion/vocion-core/blob/main/docs/entities/eval-dataset.md): per-agent test cases graded on substance.
+
+## Deployment
+
+- [Multiple environments](https://github.com/vocion/vocion-core/blob/main/docs/deployment/multiple-environments.md): environment topology for a Vocion install.
+- [Parent project pattern](https://github.com/vocion/vocion-core/blob/main/docs/deployment/parent-project-pattern.md): carrying vocion-core as a submodule of a deployment repo.
+
+## Contributing and licensing
+
+- [CONTRIBUTING](https://github.com/vocion/vocion-core/blob/main/CONTRIBUTING.md): conventional commits, local checks, MPL-2.0 inbound licensing, DCO sign-off.
+- [LICENSE (MPL-2.0)](https://github.com/vocion/vocion-core/blob/main/LICENSE): the open-source license Vocion is released under.
+- [Commercial license](https://github.com/vocion/vocion-core/blob/main/COMMERCIAL-LICENSE.md): the uses that need a separate agreement.
+
+## Optional
+
+- [Hosted documentation](https://www.vocion.ai/docs): the same docs, rendered and searchable, plus the API and MCP tool reference.
+- [Vocion](https://www.vocion.ai): project home.

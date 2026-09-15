@@ -1,0 +1,21 @@
+# The autonomy ladder for this team. Every rule ships DISABLED: the
+# workspace starts at "a human sees everything", and a person raises one
+# action at a time by flipping `enabled` after the approve-gate record
+# has earned it. Disabling a rule reverts it without deleting the
+# history, and everything auto-approved still lands in the review
+# queue's auto-executed list.
+#
+# Note on what is listable here: `action` must be a registered action id
+# (`packages/core/src/libs/actions/`, listed in docs/entities/trust.md).
+# The ids that ship today are CRM- and mail-shaped — there is no
+# code-host action id yet — so the only engineering action this ladder
+# can cover is the outbound release announcement. Reviews, merges and
+# releases in this template are held by `harness.interrupts` and by the
+# `release-approval` workflow's approve gate instead, which is the
+# stronger boundary anyway.
+rules:
+  # Announcing a release to people outside the team is the last rung,
+  # and 0.99 is deliberate.
+  - action: gmail.send
+    autoApproveAbove: 0.99
+    enabled: false

@@ -6,19 +6,24 @@
  *
  * Two structural guarantees, both here rather than in a prompt:
  *
- *   - **Nothing is invented.** `queueLeads` takes CRM mirror refs, re-reads
- *     those records itself through `queryCrmRecords`, and writes only what the
- *     mirror carries. The caller cannot hand it a name, a company, or an
- *     entrance path, so a phase-1 row can never contain research that was
- *     never done. `claims`, `missing` and `draftSequence` stay at their empty
- *     defaults and `confidence` stays null until the research slice ships.
+ *   - **Nothing is invented.** `queueLeads` takes CRM refs and re-reads those
+ *     records itself — live from HubSpot first, from the mirror when live is
+ *     unavailable — and writes only what the CRM carries. The caller cannot
+ *     hand it a name, a company, or an entrance path, so a phase-1 row can
+ *     never contain research that was never done. `claims`, `missing` and
+ *     `draftSequence` stay at their empty defaults and `confidence` stays
+ *     null until the research slice ships.
  *   - **A re-fire is a no-op.** There is no de-duplication logic; the insert
  *     runs ON CONFLICT DO NOTHING against `lead_brief_org_contact_idx`, so the
  *     unique index is the guarantee. DO NOTHING rather than DO UPDATE on
  *     purpose: a later re-fire must not wipe a researched brief back to empty.
  *
- * The CRM read is the same one `hubspot_count_contacts` uses, so arrivals here
- * and counts there can never disagree.
+ * Intake reads LIVE, deliberately. The mirror froze for four days on prod
+ * (2026-09-14: the contacts watermark filtered on a property contacts do not
+ * carry) and every new MQL was invisible while the pass reported "mirror
+ * fresh". Live-first means a broken sync degrades to the mirror's older
+ * answer, loudly (`identitySource`/`sourcesRead` say which was read), instead
+ * of silently hiding arrivals.
  */
 
 import type { CrmRecord } from '@/services/CrmRecordsService';
@@ -95,10 +100,16 @@ export type QueueLeadsResult = {
   requested: number;
   queued: number;
   alreadyQueued: number;
-  /** Refs with no record in the CRM mirror — nothing was written for these. */
+  /** Refs the CRM read did not return — nothing was written for these. */
   notInMirror: string[];
   /** Total rows on the queue after this call, across every lane. */
   queueTotal: number;
+  /** When the identities were read: the live call's moment, or the mirror's last sync. */
+  asOf: string | null;
+  /** Set when identities came from a mirror that has fallen behind its own schedule. */
+  mirrorStaleness: string | null;
+  /** Where the identities were read from — live HubSpot, or the mirror when live was unavailable. */
+  identitySource: 'hubspot-live' | 'mirror-fallback';
   leads: QueuedLead[];
 };
 
@@ -149,6 +160,8 @@ export type MqlReconciliation = {
   truncated: boolean;
   asOf: string | null;
   sourcesRead: string[];
+  /** Set when the mirror is behind its own sync schedule, so "no gaps" is not read as "all covered". */
+  mirrorStaleness: string | null;
   note: string;
 };
 
@@ -226,7 +239,25 @@ function toRow(rec: CrmRecord, opts: { orgId: string; triggerType: string; brief
 }
 
 /**
- * Read the named contacts from the CRM mirror and put each on the queue.
+ * Live HubSpot client for the intake, gated the same way the mirror read is:
+ * an agent whose grants exclude the hubspot sources must not read the CRM
+ * live either. Null means "use the mirror" — no credentials, no grant, or the
+ * live call failed.
+ * @param orgId
+ * @param allowedSourceSlugs
+ */
+async function liveIntakeClient(orgId: string, allowedSourceSlugs?: string[]) {
+  if (allowedSourceSlugs && !allowedSourceSlugs.some(s => s.startsWith('hubspot'))) {
+    return null;
+  }
+  const { hubspotClientForOrg } = await import('@/services/agents/tools/hubspotDirect');
+  const resolved = await hubspotClientForOrg(orgId).catch(() => null);
+  return resolved?.ok ? resolved.client : null;
+}
+
+/**
+ * Read the named contacts (live from HubSpot, mirror fallback) and put each
+ * on the queue.
  * @param orgId
  * @param opts
  */
@@ -234,14 +265,33 @@ export async function queueLeads(orgId: string, opts: QueueLeadsOptions): Promis
   const refs = [...new Set(opts.contactRefs)];
   const briefedAt = opts.now ?? new Date();
 
-  const found: CrmRecord[] = [];
-  for (let offset = 0; offset < refs.length; offset += PAGE) {
-    const page = await queryCrmRecords(orgId, 'contacts', {
-      refs: refs.slice(offset, offset + PAGE),
-      limit: PAGE,
-      allowedSourceSlugs: opts.allowedSourceSlugs,
-    });
-    found.push(...page.records);
+  let found: CrmRecord[] = [];
+  let asOf: Date | null = null;
+  let staleness: string | null = null;
+  let identitySource: QueueLeadsResult['identitySource'] = 'mirror-fallback';
+
+  const client = await liveIntakeClient(orgId, opts.allowedSourceSlugs);
+  if (client) {
+    const { readContactsLive } = await import('@/libs/hubspot/contactsLive');
+    const ids = refs.map(r => r.split(':')[1]).filter((id): id is string => !!id);
+    const live = await readContactsLive(client, ids).catch(() => null);
+    if (live && live.ok) {
+      found = live.data as unknown as CrmRecord[];
+      asOf = briefedAt;
+      identitySource = 'hubspot-live';
+    }
+  }
+  if (identitySource === 'mirror-fallback') {
+    for (let offset = 0; offset < refs.length; offset += PAGE) {
+      const page = await queryCrmRecords(orgId, 'contacts', {
+        refs: refs.slice(offset, offset + PAGE),
+        limit: PAGE,
+        allowedSourceSlugs: opts.allowedSourceSlugs,
+      });
+      found.push(...page.records);
+      asOf = page.asOf;
+      staleness = page.freshness.reason;
+    }
   }
   const foundRefs = new Set(found.map(r => r.ref));
 
@@ -279,6 +329,9 @@ export async function queueLeads(orgId: string, opts: QueueLeadsOptions): Promis
     alreadyQueued: found.length - inserted.length,
     notInMirror: refs.filter(r => !foundRefs.has(r)),
     queueTotal: total?.n ?? 0,
+    asOf: asOf ? asOf.toISOString() : null,
+    mirrorStaleness: staleness,
+    identitySource,
     leads: [...insertedRefs].map((ref) => {
       const rec = byRef.get(ref)!;
       return {
@@ -373,44 +426,78 @@ export async function reconcileMqlWindow(
     allowedSourceSlugs?: string[];
   },
 ): Promise<MqlReconciliation> {
-  const arrivals: CrmRecord[] = [];
+  let arrivals: CrmRecord[] = [];
   let truncated = false;
   let asOf: Date | null = null;
   let sources: string[] = [];
   let since: string | null = null;
+  let staleness: string | null = null;
+  let liveRead = false;
 
   // An unbounded window would reconcile the whole CRM against a queue that
   // only ever covers recent arrivals, reporting years of old leads as gaps.
   // An explicit createdAfter is honored; otherwise the window is trailing.
   const sinceDays = opts.sinceDays ?? (opts.createdAfter ? undefined : DEFAULT_SINCE_DAYS);
 
-  for (let offset = 0; offset < MAX_ARRIVALS; offset += PAGE) {
-    const page = await queryCrmRecords(orgId, 'contacts', {
-      lifecycleStages: opts.lifecycleStages,
-      createdWithinDays: sinceDays,
-      createdAfter: opts.createdAfter,
-      createdBefore: opts.createdBefore,
-      limit: PAGE,
-      offset,
-      allowedSourceSlugs: opts.allowedSourceSlugs,
-    });
-
-    // A stage the mirror does not hold would silently reconcile to zero gaps,
-    // which reads as full coverage. Refuse instead.
-    const unknown = page.unknownFilterValues.lifecycleStage;
-    if (unknown) {
-      throw new UnknownStageError(unknown.requested, unknown.notFound, page.facets.lifecycleStage ?? {});
+  // Live first. A live answer with arrivals stands on its own; a live answer
+  // of ZERO falls through to the mirror, which validates the stage strings —
+  // a mistyped stage must refuse loudly, never reconcile to "full coverage".
+  const client = await liveIntakeClient(orgId, opts.allowedSourceSlugs);
+  if (client) {
+    const now = Date.now();
+    const createdAfterMs = opts.createdAfter
+      ? Date.parse(opts.createdAfter)
+      : now - (sinceDays ?? DEFAULT_SINCE_DAYS) * 86_400_000;
+    const createdBeforeMs = opts.createdBefore ? Date.parse(opts.createdBefore) : undefined;
+    if (Number.isFinite(createdAfterMs)) {
+      const { searchContactArrivalsLive } = await import('@/libs/hubspot/contactsLive');
+      const live = await searchContactArrivalsLive(client, {
+        lifecycleStages: opts.lifecycleStages,
+        createdAfterMs,
+        createdBeforeMs: Number.isFinite(createdBeforeMs as number) ? createdBeforeMs : undefined,
+        max: MAX_ARRIVALS,
+      }).catch(() => null);
+      if (live && live.ok && live.data.records.length > 0) {
+        arrivals = live.data.records as unknown as CrmRecord[];
+        truncated = live.data.truncated;
+        asOf = new Date();
+        sources = ['hubspot-live'];
+        since = new Date(createdAfterMs).toISOString();
+        liveRead = true;
+      }
     }
+  }
 
-    asOf = page.asOf;
-    sources = page.sources;
-    since = page.createdAfter;
-    arrivals.push(...page.records);
-    if (!page.hasMore) {
-      break;
-    }
-    if (offset + PAGE >= MAX_ARRIVALS) {
-      truncated = true;
+  if (!liveRead) {
+    for (let offset = 0; offset < MAX_ARRIVALS; offset += PAGE) {
+      const page = await queryCrmRecords(orgId, 'contacts', {
+        lifecycleStages: opts.lifecycleStages,
+        createdWithinDays: sinceDays,
+        createdAfter: opts.createdAfter,
+        createdBefore: opts.createdBefore,
+        limit: PAGE,
+        offset,
+        allowedSourceSlugs: opts.allowedSourceSlugs,
+      });
+
+      // A stage the mirror does not hold would silently reconcile to zero gaps,
+      // which reads as full coverage. Refuse instead.
+      const unknown = page.unknownFilterValues.lifecycleStage;
+      if (unknown) {
+        throw new UnknownStageError(unknown.requested, unknown.notFound, page.facets.lifecycleStage ?? {});
+      }
+
+      asOf = page.asOf;
+      sources = page.sources;
+      since = page.createdAfter;
+      staleness = page.freshness.reason;
+      arrivals.push(...page.records);
+      if (!page.hasMore) {
+        break;
+      }
+      if (offset + PAGE >= MAX_ARRIVALS) {
+        truncated = true;
+      }
     }
   }
 
@@ -444,7 +531,8 @@ export async function reconcileMqlWindow(
     truncated,
     asOf: asOf ? asOf.toISOString() : null,
     sourcesRead: sources,
-    note: 'Arrivals are contacts CREATED in this window that are at the named stage now, which is not the same as contacts that ENTERED that stage in the window. The mirror does not carry a stage-entry date.',
+    mirrorStaleness: staleness,
+    note: `Arrivals are contacts CREATED in this window that are at the named stage now, which is not the same as contacts that ENTERED that stage in the window. ${liveRead ? 'Read LIVE from HubSpot.' : 'Read from the CRM mirror (live HubSpot was unavailable).'}`,
   };
 }
 
@@ -512,20 +600,24 @@ async function surfaceExhaustedBriefs(orgId: string): Promise<string[]> {
  * @param orgId
  * @param opts
  * @param opts.now
+ * @param opts.contactRef
  */
 export async function claimLeadToBrief(
   orgId: string,
-  opts: { now?: Date } = {},
+  opts: { now?: Date; contactRef?: string } = {},
 ): Promise<ClaimResult> {
   const now = opts.now ?? new Date();
   const surfaced = await surfaceExhaustedBriefs(orgId);
   const floor = new Date(now.getTime() - RETRY_FLOOR_MINUTES * 60_000);
 
+  // A targeted claim (a reviewer's Regenerate) takes THAT lead if it is
+  // eligible and nothing otherwise; it never falls through to the oldest.
   const eligible = and(
     eq(leadBriefSchema.orgId, orgId),
     eq(leadBriefSchema.status, QUEUED_STATUS),
     lt(leadBriefSchema.briefAttempts, MAX_BRIEF_ATTEMPTS),
     or(isNull(leadBriefSchema.lastAttemptAt), lt(leadBriefSchema.lastAttemptAt, floor)),
+    ...(opts.contactRef ? [eq(leadBriefSchema.contactRef, opts.contactRef)] : []),
   );
 
   const [next] = await db
@@ -632,14 +724,90 @@ export type SaveLeadBriefResult = {
  * @param orgId
  * @param opts
  */
+/**
+ * Why a lead left the agent's care. `reply` and `meeting` are what the
+ * handoff watcher detects on the CRM mirror (`HandoffTriggerService`);
+ * `routed` is a reviewer sending the lead to a person by hand; `intent` is
+ * reserved for the page-view signal the mirror does not carry yet.
+ */
+export type HandoffTrigger = 'reply' | 'meeting' | 'intent' | 'routed';
+
 /** What a handoff brief carries, and why the lead left. */
 export type SaveHandoffBriefOptions = {
   contactRef: string;
   sections: Array<{ heading: string; body: string }>;
   /** Why the lead left the agent's care. */
-  trigger: 'reply' | 'intent' | 'routed';
+  trigger: HandoffTrigger;
   now?: Date;
 };
+
+/** One lead's saved record, read back for the handoff skill. */
+export type LeadBriefRecord = {
+  contactRef: string;
+  hubspotId: string | null;
+  contactName: string;
+  contactTitle: string | null;
+  companyName: string | null;
+  status: string;
+  entranceSource: string | null;
+  utmCampaign: string | null;
+  confidence: number | null;
+  sections: Array<{ heading: string; body: string }>;
+  claims: Array<{ text: string; kind: string; source: string; date?: string }>;
+  missing: string[];
+  /** The numbered sends as they were approved at Enroll. */
+  draftSequence: Array<{ step: number; day?: number; subject: string; body: string }>;
+  recommendedSequence: { id: string; name: string; reason?: string } | null;
+  /** When and by whom the enroll decision was taken; null if never decided. */
+  decidedAt: string | null;
+  decidedBy: string | null;
+  handoffSections: Array<{ heading: string; body: string }>;
+  handoffTrigger: string | null;
+  handoffAt: string | null;
+};
+
+/**
+ * Read one lead's saved record by CRM ref, for the handoff skill's Phase 1.
+ *
+ * Everything the review brief recorded, the approved sends and the decision,
+ * plus any earlier handoff brief. Read-only; the skill forms its hypotheses
+ * from the trigger evidence and never from a saved hypothesis section, and
+ * nothing here lets it change the record.
+ * @param orgId - Tenant.
+ * @param contactRef - CRM mirror ref, e.g. `contacts:9412`.
+ * @returns The record, or null when no row carries that ref.
+ */
+export async function leadBriefByRef(orgId: string, contactRef: string): Promise<LeadBriefRecord | null> {
+  const [row] = await db
+    .select()
+    .from(leadBriefSchema)
+    .where(and(eq(leadBriefSchema.orgId, orgId), eq(leadBriefSchema.contactRef, contactRef)))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  return {
+    contactRef: row.contactRef,
+    hubspotId: row.contactRef.split(':')[1] ?? null,
+    contactName: row.contactName,
+    contactTitle: row.contactTitle,
+    companyName: row.companyName,
+    status: row.status,
+    entranceSource: row.entranceSource,
+    utmCampaign: row.utmCampaign,
+    confidence: row.confidence,
+    sections: row.sections,
+    claims: row.claims,
+    missing: row.missing,
+    draftSequence: row.draftSequence,
+    recommendedSequence: row.recommendedSequence ?? null,
+    decidedAt: row.decidedAt?.toISOString() ?? null,
+    decidedBy: row.decidedBy,
+    handoffSections: row.handoffSections,
+    handoffTrigger: row.handoffTrigger,
+    handoffAt: row.handoffAt?.toISOString() ?? null,
+  };
+}
 
 export type SaveHandoffBriefResult = {
   saved: boolean;
@@ -699,6 +867,24 @@ export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): 
       // A brief supersedes whatever the last failure said.
       briefError: null,
       skippedReason: null,
+      // And it supersedes the instruction that asked for it. The note was
+      // never cleared once addressed, so a satisfied instruction looked
+      // exactly like a fresh one — to the reviewer on the lead page and to
+      // the agent on the next pass, which spent part of its 19:00 report
+      // speculating about four leads being "stuck" when all four had been
+      // re-briefed and re-drafted. `regenerateHistory` keeps the reason the
+      // rewrite happened, dated, so nothing is lost by clearing it.
+      regenerateNote: null,
+      // Appended in SQL from the row's own current value, so the note is filed
+      // and cleared in one statement and no read-modify-write can lose it.
+      regenerateHistory: sql`
+        case when ${leadBriefSchema.regenerateNote} is null
+          then ${leadBriefSchema.regenerateHistory}
+          else ${leadBriefSchema.regenerateHistory} || jsonb_build_array(jsonb_build_object(
+            'note', ${leadBriefSchema.regenerateNote},
+            'addressedAt', ${briefedAt.toISOString()}::text
+          ))
+        end`,
     })
     .where(and(
       eq(leadBriefSchema.orgId, orgId),
@@ -824,13 +1010,14 @@ export async function regenerateBrief(
       skippedReason: null,
       // Drafts hang off the brief, so a rewrite clears them too. A pending
       // enroll item is not cancelled here: the next drafting pass updates it
-      // in place through the dedup key and re-links it.
+      // in place through the dedup key. `reviewActionRunId` is KEPT — the
+      // run is mid-regeneration, not gone, and nulling it made the lead page
+      // lose its card for the whole pass.
       draftSequence: [],
       recommendedSequence: null,
       draftAttempts: 0,
       lastDraftAttemptAt: null,
       draftError: null,
-      reviewActionRunId: null,
       regenerateNote: opts.note,
       // Back to the stamp that means "no research pass behind this row".
       briefVersion: QUEUE_BRIEF_VERSION,
@@ -887,15 +1074,21 @@ export type DraftClaimResult = {
  * Briefed, undrafted, not yet surfaced as a review item, tries left.
  * @param orgId
  * @param floor
+ * @param contactRef
  */
-function draftEligible(orgId: string, floor: Date) {
+function draftEligible(orgId: string, floor: Date, contactRef?: string) {
   return and(
     eq(leadBriefSchema.orgId, orgId),
     eq(leadBriefSchema.status, REVIEW_STATUS),
+    // Targeted like claimLeadToBrief: a Regenerate re-drafts its own lead only.
+    ...(contactRef ? [eq(leadBriefSchema.contactRef, contactRef)] : []),
     // A failed brief never gets drafts: drafting requires written sections.
     sql`jsonb_array_length(${leadBriefSchema.sections}) > 0`,
+    // Empty drafts are the "not yet surfaced" test. A lead with a pending
+    // card has its sends saved, so this alone excludes it; a regenerating
+    // lead KEEPS its `reviewActionRunId` with the drafts wiped, and must
+    // still be claimable — the redraft updates that same run in place.
     sql`jsonb_array_length(${leadBriefSchema.draftSequence}) = 0`,
-    isNull(leadBriefSchema.reviewActionRunId),
     lt(leadBriefSchema.draftAttempts, MAX_DRAFT_ATTEMPTS),
     or(isNull(leadBriefSchema.lastDraftAttemptAt), lt(leadBriefSchema.lastDraftAttemptAt, floor)),
   );
@@ -909,14 +1102,15 @@ function draftEligible(orgId: string, floor: Date) {
  * @param orgId
  * @param opts
  * @param opts.now
+ * @param opts.contactRef
  */
 export async function claimBriefToDraft(
   orgId: string,
-  opts: { now?: Date } = {},
+  opts: { now?: Date; contactRef?: string } = {},
 ): Promise<DraftClaimResult> {
   const now = opts.now ?? new Date();
   const floor = new Date(now.getTime() - RETRY_FLOOR_MINUTES * 60_000);
-  const eligible = draftEligible(orgId, floor);
+  const eligible = draftEligible(orgId, floor, opts.contactRef);
 
   const [next] = await db
     .select({ id: leadBriefSchema.id })

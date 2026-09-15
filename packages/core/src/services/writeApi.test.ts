@@ -319,7 +319,7 @@ describe('apiRecordSignal', () => {
 
 describe('apiRewriteDraft', () => {
   it('returns the rewrite without saving it', async () => {
-    mockRewrite.mockResolvedValue({ input: { body: 'new' }, body: 'new' });
+    mockRewrite.mockResolvedValue({ input: { body: 'new' }, body: 'new', prior: 'old' });
 
     const out = await apiRewriteDraft(owner, { id: 5, hint: 'shorter' });
 
@@ -347,6 +347,18 @@ describe('apiProposeReview', () => {
       invokedBy: 'token:t1',
       principal: expect.objectContaining({ kind: 'agent', id: 'agent:sweeper' }),
     }));
+  });
+
+  it('hands the caller the proposal outcome, not just the run', async () => {
+    // The HTTP body is this object verbatim. A caller re-posting a listing
+    // page has to be able to tell "already decided" from a new queue item,
+    // so nothing here may narrow the result back down to runId + status.
+    proposeAction.mockResolvedValue({ runId: 42, status: 'rejected', outcome: 'already_decided', decidedAt: new Date('2026-09-01T00:00:00Z') });
+
+    const out = await apiProposeReview(owner, { actionId: 'objects.propose_candidate', input: { id: 1 } });
+
+    expect(out).toMatchObject({ runId: 42, status: 'rejected', outcome: 'already_decided' });
+    expect((out as { decidedAt: Date }).decidedAt).toEqual(new Date('2026-09-01T00:00:00Z'));
   });
 
   it('requires an actionId', async () => {

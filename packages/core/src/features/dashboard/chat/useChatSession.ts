@@ -189,13 +189,20 @@ export type UseChatSessionOptions = {
    * threads.
    */
   scopeRef?: string;
+  /**
+   * Where the person is when they ask (058): the everything-scoped dock off a
+   * record page sends the route and its title with each turn, so an
+   * unqualified question is answered about the page. A scoped session never
+   * sets this; the scope already says what the conversation is about.
+   */
+  pageContext?: { path: string; title: string };
 };
 
 /**
  * Chat session state + streaming logic, shared by the full-page `ChatShell`
- * and the floating `ChatBubble` so both surfaces behave identically — same
- * SSE reducer, same resumable streams, same activity trace — and resume the
- * same conversation.
+ * and the dock (`ChatDock`, on every other page) so both surfaces behave
+ * identically — same SSE reducer, same resumable streams, same activity trace
+ * — and resume the same conversation.
  *
  * Owns: the transcript, the SSE wire to `/rpc/agent/stream` (plus the
  * mid-turn resume endpoint), the boot sequence that restores the last agent
@@ -208,6 +215,7 @@ export type UseChatSessionOptions = {
  * @param root0.suggestions - Workspace-scoped empty-state chips.
  * @param root0.greeting - Empty-state greeting: org eyebrow + workspace name.
  * @param root0.scopeRef
+ * @param root0.pageContext
  */
 export function useChatSession({
   agents,
@@ -216,7 +224,12 @@ export function useChatSession({
   suggestions = [],
   greeting,
   scopeRef,
+  pageContext,
 }: UseChatSessionOptions) {
+  // Read at send time through a ref so a route change between turns is
+  // reflected without rebuilding `sendMessage`.
+  const pageContextRef = useRef(pageContext);
+  pageContextRef.current = pageContext;
   const { state: lastViewed, loading: lastViewedLoading, persist } = useLastViewedConversation();
 
   // Scoped mode: resolve the user's latest conversation for the record before
@@ -921,6 +934,7 @@ export function useChatSession({
         body: JSON.stringify({
           message: text,
           agent_slug: agent.slug,
+          ...(pageContextRef.current && !scopeRef ? { page_context: pageContextRef.current } : {}),
           // With a conversation attached the server replays its own
           // (authoritative) history and ignores this list.
           ...(activeConversationId !== null ? { conversation_id: activeConversationId } : {}),

@@ -1,0 +1,14 @@
+slug: pull-requests
+name: Pull requests
+description: >-
+  The open and recently merged pull-request corpus. Ships as local
+  markdown so the workspace is useful with no credentials; point `kind`
+  at a real code-host connector when you have one and nothing downstream
+  changes.
+kind: local-files
+config:
+  directory: data/pull-requests
+  extensions:
+    - .md
+schedule: '0 * * * *'
+enabled: true
