@@ -59,6 +59,26 @@ export type RecommendedActionPayload = {
   agentSlug?: string;
 };
 
+/**
+ * Canvas: something the agent RENDERED — a table, a markdown note, a chart,
+ * a record card, a link — persisted as an `artifact` row (migration 0095)
+ * and emitted so the chat shows the card inline and the canvas places a
+ * tile. `spec` is the card payload without its `__card` slug; the client
+ * resolves it through `libs/cards` with `cardPayloadFor(kind, spec)`.
+ */
+export type ArtifactPayload = {
+  id: number;
+  conversationId: number | null;
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file';
+  title: string;
+  spec: Record<string, unknown>;
+  url?: string | null;
+  /** Slot/span on the conversation's canvas when the tool placed it. */
+  tile?: { slot: number; span: 1 | 2 | 3 } | null;
+  pinned: boolean;
+  createdAt: string;
+};
+
 /* ------------------------------------------------------------------ */
 /* Typed hierarchical trace — reasoning / tools / skills / delegation  */
 /* / citations, attributed to an actor (lead or a specialist) and      */
@@ -155,6 +175,8 @@ export type AgentEvent
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
     | { type: 'recommended_action'; recommendation: RecommendedActionPayload }
+    /** Canvas (0095): a rendered artifact — the chat shows the card, the canvas places the tile. */
+    | { type: 'artifact'; artifact: ArtifactPayload }
     | TraceNodeEvent
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     /**
