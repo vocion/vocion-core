@@ -5,7 +5,7 @@ import { BookOpen, Bot, Compass, Loader, LogOut, MessageSquare, Moon, Network, P
 import { signOut } from 'next-auth/react';
 import { useTheme } from 'next-themes';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, CommandShortcut } from '@/components/ui/command';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { focusAgentComposer, requestAgentSurface } from '@/features/dashboard/chat/agentSurface';
@@ -34,7 +34,8 @@ export function CommandPalette({ isAdmin = false, agents = [] }: { isAdmin?: boo
   const [teams, setTeams] = useState<PaletteEntity[]>();
   const [missions, setMissions] = useState<PaletteEntity[]>();
   const [conversations, setConversations] = useState<PaletteConversation[]>();
-  const [loading, setLoading] = useState(false);
+  const fetching = useRef(false);
+  const loading = open && teams === undefined;
   const router = useRouter();
   const pathname = usePathname();
   const { setTheme, resolvedTheme } = useTheme();
@@ -64,11 +65,11 @@ export function CommandPalette({ isAdmin = false, agents = [] }: { isAdmin?: boo
 
   // Lazy data — fetched once, the first time the palette opens.
   useEffect(() => {
-    if (!open || teams !== undefined || loading) {
+    if (!open || teams !== undefined || fetching.current) {
       return;
     }
     let cancelled = false;
-    setLoading(true);
+    fetching.current = true;
     Promise.allSettled([
       client.teams.list(),
       client.missions.list(),
@@ -80,12 +81,12 @@ export function CommandPalette({ isAdmin = false, agents = [] }: { isAdmin?: boo
       setTeams(t.status === 'fulfilled' ? (t.value.teams ?? []).map(x => ({ slug: x.slug, name: x.name, description: x.description ?? undefined })) : []);
       setMissions(m.status === 'fulfilled' ? (m.value as Array<{ slug: string; name: string; description?: string | null }>).map(x => ({ slug: x.slug, name: x.name, description: x.description ?? undefined })) : []);
       setConversations(c.status === 'fulfilled' ? (c.value as Array<{ id: number; title: string; agentSlug: string }>).map(x => ({ id: x.id, title: x.title, agentSlug: x.agentSlug })) : []);
-      setLoading(false);
+      fetching.current = false;
     });
     return () => {
       cancelled = true;
     };
-  }, [open, teams, loading]);
+  }, [open, teams]);
 
   const groups = useMemo(() => buildPaletteGroups({
     query,

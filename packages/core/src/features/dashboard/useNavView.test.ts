@@ -27,7 +27,14 @@ describe('sidebar nav view persistence', () => {
   });
 
   it('swallows storage failures (private mode)', () => {
-    const throwing = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+    const throwing = {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+    };
 
     expect(readNavView(throwing)).toBe('work');
     expect(() => writeNavView(throwing, 'manage')).not.toThrow();

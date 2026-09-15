@@ -18,6 +18,7 @@ import { db } from '@/libs/DB';
 import { readWorkspacePages } from '@/libs/workspace/pages';
 import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
+import { listAgentBudgets } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
@@ -87,6 +88,18 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // the shell down — a badge that reads 0 is a smaller fault than no page.
   const waiting = orgId ? await needsYouCount(orgId).catch(() => 0) : 0;
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
+  // This workspace's spend vs cap this period — the header avatar's ring and
+  // the menu's usage row. Hidden entirely when no budget exists.
+  const usage = orgId
+    ? await listAgentBudgets(orgId)
+        .then((rows) => {
+          const spentCents = rows.reduce((acc, b) => acc + (b.currentCents ?? 0), 0);
+          const caps = rows.map(b => b.hardCentsLimit).filter((c): c is number => typeof c === 'number');
+          const capCents = caps.length > 0 ? caps.reduce((a, c) => a + c, 0) : null;
+          return rows.length > 0 ? { spentCents, capCents } : null;
+        })
+        .catch(() => null)
+    : null;
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
@@ -101,7 +114,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
       />
       <SidebarInset>
         <ShellBarActionsProvider>
-          <AppSidebarHeader workspace={workspace} />
+          <AppSidebarHeader workspace={workspace} usage={usage} />
 
           {/* The page and, beside it, the one conversation surface (058): the
               dock as a third column at a third of the screen, collapsed to a

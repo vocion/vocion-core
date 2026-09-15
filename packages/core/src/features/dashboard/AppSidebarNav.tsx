@@ -9,6 +9,8 @@ import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
 import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
 import { Link } from '@/libs/I18nNavigation';
 
+const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
+
 export type SidebarNavItem = {
   title: string;
   url: string;
@@ -76,11 +78,13 @@ export const AppSidebarNav = (props: {
                           )}
                     </SidebarMenuButton>
                   )}
-              {item.badge ? (
-                <SidebarMenuBadge className="rounded-full bg-brand-amber/12 px-1.5 text-[11px] font-medium text-brand-amber-deep">
-                  {item.badge > 99 ? '99+' : item.badge}
-                </SidebarMenuBadge>
-              ) : null}
+              {item.badge
+                ? (
+                    <SidebarMenuBadge className="rounded-full bg-brand-amber/12 px-1.5 text-[11px] font-medium text-brand-amber-deep">
+                      {formatBadge(item.badge)}
+                    </SidebarMenuBadge>
+                  )
+                : null}
             </SidebarMenuItem>
           ))}
         </SidebarMenu>
