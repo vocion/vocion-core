@@ -33,7 +33,7 @@ export type PricingTier = {
  * drifts; read-only because this module stays the single source of
  * truth for what a model costs.
  */
-export const PRICING: Readonly<Record<string, PricingTier>> = {
+export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
   // Anthropic
   'claude-opus-4-7': { inputCentsPerMillion: 1500, outputCentsPerMillion: 7500, cacheReadCentsPerMillion: 150 },
   'claude-sonnet-4-6': { inputCentsPerMillion: 300, outputCentsPerMillion: 1500, cacheReadCentsPerMillion: 30 },
