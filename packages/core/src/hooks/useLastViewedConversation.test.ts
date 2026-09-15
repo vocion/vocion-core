@@ -27,7 +27,10 @@ afterEach(() => {
 });
 
 describe('useLastViewedConversation', () => {
-  it('resolves the server value and mirrors it into localStorage', async () => {
+  // The pointer carries the rail's saved geometry as well as the thread
+  // (0094): the hook spreads the whole server row, so `railWidth`/`railOpen`
+  // reach both hook state and the localStorage mirror.
+  it('resolves the server value and mirrors it into localStorage, rail geometry included', async () => {
     const updatedAt = new Date('2026-08-06T12:00:00.000Z');
     vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt, railWidth: null, railOpen: null });
 
@@ -35,8 +38,8 @@ describe('useLastViewedConversation', () => {
 
     await vi.waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString() });
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString() });
+    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString(), railWidth: null, railOpen: null });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAt.toISOString(), railWidth: null, railOpen: null });
   });
 
   it('normalizes a server updatedAt that arrives as an ISO string (not a Date) into a stored ISO string', async () => {
@@ -47,8 +50,8 @@ describe('useLastViewedConversation', () => {
 
     await vi.waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso });
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso });
+    expect(result.current.state).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso, railWidth: null, railOpen: null });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt: updatedAtIso, railWidth: null, railOpen: null });
   });
 
   it('falls back to localStorage when the server has no pointer yet', async () => {

@@ -144,7 +144,9 @@ describe('ChatDock', () => {
 
     await userEvent.keyboard('{Escape}');
 
-    await userEvent.click(page.getByRole('button', { name: 'History' }));
+    // The history trigger is named "Conversations" since #345 — it is the
+    // way to the thread list, not a label for the icon.
+    await userEvent.click(page.getByRole('button', { name: 'Conversations' }));
 
     await expect.element(page.getByRole('button', { name: /Earlier about the queue/ })).toBeVisible();
   });
