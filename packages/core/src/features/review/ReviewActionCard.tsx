@@ -50,6 +50,8 @@ export type ReviewCardRun = {
   regenerateNote?: string | null;
   /** What the last execution attempt said, set when `status` is `failed`. */
   error?: string | null;
+  /** How often this agent's recommendations of this kind matched the person's decision (server-computed, 30d). */
+  alignment?: { agreementRate: number | null; n: number; window: string } | null;
 };
 
 /** The run status, as the lane label a reviewer reads. */
@@ -312,6 +314,14 @@ export function ReviewActionCard(props: {
                   {pct}
                   %
                 </span>
+                {/* The alignment score: confidence is how sure the agent is; this
+                    is how often people agreed with it. Inline, same box, no
+                    new chrome — and nothing at all until there is evidence. */}
+                {run.alignment && run.alignment.n > 0 && run.alignment.agreementRate !== null && (
+                  <span className="block text-[10px] leading-tight text-muted-foreground tabular-nums" title={`${run.alignment.n} decided recommendation${run.alignment.n === 1 ? '' : 's'} of this kind by this agent in the last 30 days`}>
+                    {`agrees with you ${Math.round(run.alignment.agreementRate * 100)}% · n=${run.alignment.n}`}
+                  </span>
+                )}
               </div>
             )}
           </div>

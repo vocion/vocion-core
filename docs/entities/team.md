@@ -90,7 +90,7 @@ and reads each field from what the workspace already authors:
 | Owner | `accountableUser`, or the workspace default, with its provenance |
 | KPI · Baseline · Target · Current performance | `kpis[]` — the reading is the sum of `worker_run.counts.<key>` over the team's agents in the KPI's window |
 | Permissions | the agents' `approvalPolicy` keys (empty = every outward action waits for a person) and the org's enabled trust rules |
-| Autonomy level | the highest `autonomyPolicy.level` among the active missions the team's agents own |
+| Autonomy | per action kind the team's agents have had decided in the last 30 days: its rung on the [autonomy ladder](../guides/earned-autonomy.md) and the agreement rate behind it (`decision_alignment`, `autonomy_policy`, `trust_rule`) |
 | Escalation | not modeled yet — the report points at the inbox |
 
 Activity — runs, tokens, spend — is the evidence layer beneath the contract,

@@ -43,6 +43,8 @@ type ActionRun = {
   error?: string | null;
   /** Structured presentation, when the action defines one (server-built). */
   card?: ReviewCard;
+  /** Alignment beside the confidence meter (server-computed, 30d). */
+  alignment?: { agreementRate: number | null; n: number; window: string } | null;
 };
 
 function tone(c?: number): string {
@@ -408,6 +410,11 @@ export function ReviewFocus() {
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tone(current.proposal?.confidence)}`}>
                         {pct}
                         %
+                      </span>
+                    )}
+                    {current.alignment && current.alignment.n > 0 && current.alignment.agreementRate !== null && (
+                      <span className="text-[11px] text-muted-foreground tabular-nums" title={`${current.alignment.n} decided recommendations of this kind in the last 30 days`}>
+                        {`agrees with you ${Math.round(current.alignment.agreementRate * 100)}% · n=${current.alignment.n}`}
                       </span>
                     )}
                     {current.input.draft === true && <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">dry run → Drafts</span>}

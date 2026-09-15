@@ -3,6 +3,7 @@ import { createElement } from 'react';
 import { agentAccent } from '@/libs/agentAccents';
 import { agentIcon } from '@/libs/agentIcons';
 import { Link } from '@/libs/I18nNavigation';
+import { AutonomyReadings } from './AutonomyReadings';
 import { ago, compact, pct, usd } from './format';
 import { KindMix } from './RunKindBadge';
 
@@ -10,7 +11,8 @@ import { KindMix } from './RunKindBadge';
  * The per-member table — dense, one line per agent. The first two number
  * columns are the manifesto's question: the member's share of the team's
  * OUTCOME (its part of the KPI readings) beside its share of the org's
- * SPEND. Then autonomy, then the evidence — runs by kind, cost, tokens,
+ * SPEND. Then autonomy — the rung each action kind stands on and how often
+ * the person agreed with it — then the evidence — runs by kind, cost, tokens,
  * model, last activity. Rows link to the member's runs.
  * @param props
  * @param props.members - Rows, in the order to show them.
@@ -28,7 +30,7 @@ export function MemberTable({ members, window }: { members: MemberReport[]; wind
             <th className="py-2 pr-3 font-medium">Member</th>
             <th className="py-2 pr-3 font-medium">Outcome share</th>
             <th className="py-2 pr-3 font-medium">Spend share</th>
-            <th className="py-2 pr-3 text-right font-medium">Autonomy</th>
+            <th className="py-2 pr-3 font-medium">Autonomy</th>
             <th className="py-2 pr-3 font-medium">Runs</th>
             <th className="py-2 pr-3 text-right font-medium">Spend</th>
             <th className="py-2 pr-3 text-right font-medium">Tokens</th>
@@ -65,7 +67,7 @@ export function MemberTable({ members, window }: { members: MemberReport[]; wind
                     : <ShareCell share={m.outcomeShare} tone="emerald" />}
                 </td>
                 <td className="py-2 pr-3"><ShareCell share={m.shareOfCents} tone="primary" /></td>
-                <td className="py-2 pr-3 text-right text-xs text-muted-foreground tabular-nums">{m.contract.autonomyLevel === null ? '—' : `L${m.contract.autonomyLevel}`}</td>
+                <td className="py-2 pr-3"><AutonomyReadings readings={m.contract.autonomy} compact /></td>
                 <td className="py-2 pr-3"><KindMix byKind={m.byKind} /></td>
                 <td className="py-2 pr-3 text-right font-medium tabular-nums">{usd(m.cents)}</td>
                 <td className="py-2 pr-3 text-right text-muted-foreground tabular-nums">{compact(m.tokens)}</td>

@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   Sparkles,
   TestTube,
+  TrendingUp,
   UserPlus,
   Users,
   Wrench,
@@ -195,6 +196,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
                   items={[
                     { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
                     { title: t('team_report'), url: '/dashboard/team-report', icon: Gauge },
+                    { title: t('autonomy'), url: '/dashboard/autonomy', icon: TrendingUp },
                   ]}
                 />
 

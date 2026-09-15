@@ -19,6 +19,7 @@ import type { Action } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
+import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema } from '@/models/Schema';
@@ -344,7 +345,9 @@ export async function proposeAction(input: {
     // Deliberately not configurable; revisit only once UC5 trust reporting
     // exists and a human opts in explicitly. Fails safe — it can only keep the
     // item in the review queue, never release it.
-    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll' || action.id === 'objects.propose_candidate') {
+    // The list itself lives in `libs/actions/neverAuto.ts` so the autonomy
+    // ladder reads the same one and never offers a promotion this gate refuses.
+    if (isNeverAuto(action)) {
       return { runId: run!.id, status: 'pending', outcome: 'created' };
     }
     // An agent that recommended anything other than approval does not get to

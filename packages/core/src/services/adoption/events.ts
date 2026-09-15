@@ -159,6 +159,20 @@ export const ADOPTION_EVENTS = {
     }),
   },
   /**
+   * An action kind moved on the autonomy ladder. `automatic` is a demotion
+   * the system made itself (a rejected auto-execution, or a rejection on a
+   * high-risk kind) as opposed to a person's promote/demote. System events
+   * exist for the audit trail; adoption keeps measuring humans.
+   */
+  'autonomy.promoted': {
+    system: true,
+    meta: z.object({ actionId: z.string(), from: z.string(), to: z.string(), automatic: z.boolean() }),
+  },
+  'autonomy.demoted': {
+    system: true,
+    meta: z.object({ actionId: z.string(), from: z.string(), to: z.string(), automatic: z.boolean() }),
+  },
+  /**
    * One assessed call = one event, whoever ordered it (scheduled mission
    * check or a chat turn). The drill-down pointer to the ledger:
    * `resource: ['discovery_candidate', id]`. Metadata is enum-and-boolean

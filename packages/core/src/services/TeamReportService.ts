@@ -30,11 +30,15 @@
  */
 
 import type { TeamKpi } from '@/models/Schema';
+import type { RiskTier, Rung } from '@/services/autonomy/rungs';
 import type { AccountableUser } from '@/services/TeamService';
 import type { WorkerRun } from '@/services/WorkerRunService';
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { agentBudgetSchema, agentSchema, missionSchema, projectSchema, teamSchema, trustRuleSchema, workerRunSchema } from '@/models/Schema';
+import { agentBudgetSchema, agentSchema, projectSchema, teamSchema, trustRuleSchema, workerRunSchema } from '@/models/Schema';
+import { scoresByAgentAndKey, splitAgentKey } from '@/services/alignment/AlignmentService';
+import { effectivePolicies } from '@/services/autonomy/AutonomyService';
+import { DEFAULT_RUNG, defaultRiskTier, rungIndex } from '@/services/autonomy/rungs';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
 
 export type ReportWindow = '24h' | '7d' | 'all';
@@ -87,6 +91,17 @@ export type KpiReading = TeamKpi & {
  * Fields the workspace has not authored are null — shown as "not set", never
  * invented. Escalation is not modeled yet; the UI points at the inbox.
  */
+/** One action kind on the ladder, as the contract states it. */
+export type AutonomyReading = {
+  actionId: string;
+  rung: Rung;
+  riskTier: RiskTier;
+  /** 30-day agreement between the recommendation and the person, or null with nothing decided. */
+  agreementRate: number | null;
+  /** Decided recommendations in the window. */
+  n: number;
+};
+
 export type OutcomeContract = {
   /** Purpose — the team's `goal:` (falling back to its description) or the agent's description. */
   purpose: string | null;
@@ -97,10 +112,13 @@ export type OutcomeContract = {
   /** Current performance: mean KPI progress 0..1, or null when nothing is measured. */
   attainment: number | null;
   /**
-   * Autonomy — the highest mission `autonomyPolicy.level` (1–5) among the
-   * missions this agent (or this team's agents) own; null when none.
+   * Autonomy — where each action kind this agent (or this team's agents) has
+   * had decided stands on the ladder (`services/autonomy/rungs.ts`), with the
+   * 30-day alignment behind it. Empty when nobody has decided anything of
+   * theirs yet; the mission-level proxy this replaced said "Level 3" about a
+   * goal, which is not what runs without a person.
    */
-  autonomyLevel: number | null;
+  autonomy: AutonomyReading[];
   /** Permissions — the agent's authored `approvalPolicy` keys; empty = every outward action waits for approval. */
   permissions: string[];
 };
@@ -278,7 +296,7 @@ export function permissionKeys(policy: Record<string, unknown> | null | undefine
  * @param input.owners - Accountable human per team slug (resolved by TeamService) and the workspace default.
  * @param input.owners.byTeam
  * @param input.owners.workspace
- * @param input.autonomy - Highest mission autonomy level per agent slug.
+ * @param input.autonomy - Per agent slug, the action kinds it has had decided, with rung and alignment.
  * @param input.autoExecuteActions - Enabled trust rules in the org.
  */
 export function buildTeamReport(input: {
@@ -291,7 +309,7 @@ export function buildTeamReport(input: {
   kpiValues: KpiValues;
   budgets: BudgetRow[];
   owners: { byTeam: Map<string, AccountableUser | null>; workspace: AccountableUser | null };
-  autonomy: Map<string, number>;
+  autonomy: Map<string, AutonomyReading[]>;
   autoExecuteActions: number;
 }): TeamReport {
   const totals = emptyTotals();
@@ -357,7 +375,7 @@ export function buildTeamReport(input: {
         owner: team ? input.owners.byTeam.get(team.slug) ?? null : input.owners.workspace,
         kpis: [],
         attainment: null,
-        autonomyLevel: input.autonomy.get(a.slug) ?? null,
+        autonomy: input.autonomy.get(a.slug) ?? [],
         permissions: permissionKeys(a.approvalPolicy),
       },
       models: modelsByAgent.get(a.slug) ?? [],
@@ -383,7 +401,6 @@ export function buildTeamReport(input: {
       const value = input.kpiValues.byTeam.get(`${team.slug}/${k.key}`) ?? 0;
       return { ...k, value, progress: kpiProgress(k, value), met: value >= k.target };
     });
-    const autonomyLevels = members.map(m => m.contract.autonomyLevel).filter((l): l is number => l !== null);
     return {
       ...t,
       slug: team.slug,
@@ -399,7 +416,7 @@ export function buildTeamReport(input: {
         owner: input.owners.byTeam.get(team.slug) ?? null,
         kpis,
         attainment: meanOrNull(kpis.map(k => k.progress)),
-        autonomyLevel: autonomyLevels.length > 0 ? Math.max(...autonomyLevels) : null,
+        autonomy: mergeAutonomy(members.map(m => m.contract.autonomy)),
         // The team's permissions are the union of what its members name.
         permissions: [...new Set(members.flatMap(m => m.contract.permissions))].sort(),
       },
@@ -437,7 +454,7 @@ export async function teamReport(orgId: string, window: ReportWindow = '7d', now
   const since = windowStart(window, now);
   const runWhere = and(eq(workerRunSchema.orgId, orgId), since ? gte(workerRunSchema.createdAt, since) : undefined);
 
-  const [project, teams, agents, agg, models, budgets, teamViews, workspaceLead, missionLevels, trustRules] = await Promise.all([
+  const [project, teams, agents, agg, models, budgets, teamViews, workspaceLead, autonomy, trustRules] = await Promise.all([
     db.select({ goal: projectSchema.goal }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1),
     db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId)),
     db.select({
@@ -469,10 +486,7 @@ export async function teamReport(orgId: string, window: ReportWindow = '7d', now
     // workspace default) is resolved in exactly one place.
     listTeams(orgId),
     getWorkspaceLead(orgId),
-    db.select({
-      agentSlug: missionSchema.agentSlug,
-      level: sql<number>`max(coalesce((${missionSchema.autonomyPolicy} ->> 'level')::int, 1))::int`,
-    }).from(missionSchema).where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.status, 'active'))).groupBy(missionSchema.agentSlug),
+    readAutonomy(orgId, now),
     db.select({ n: sql<number>`count(*)::int` }).from(trustRuleSchema).where(and(eq(trustRuleSchema.orgId, orgId), eq(trustRuleSchema.enabled, 'true'))),
   ]);
 
@@ -488,9 +502,62 @@ export async function teamReport(orgId: string, window: ReportWindow = '7d', now
     kpiValues,
     budgets,
     owners: { byTeam: new Map(teamViews.map(v => [v.slug, v.accountable])), workspace: workspaceLead.accountable },
-    autonomy: new Map(missionLevels.map(m => [m.agentSlug, Number(m.level)])),
+    autonomy,
     autoExecuteActions: Number(trustRules[0]?.n ?? 0),
   });
+}
+
+/**
+ * Per agent, the action kinds a person has decided in the last 30 days, each
+ * with the org's rung for that kind and the agent's own agreement rate. One
+ * ledger scan plus the policy rows — the same numbers `/dashboard/autonomy`
+ * shows, cut per member.
+ * @param orgId
+ * @param now
+ */
+async function readAutonomy(orgId: string, now: Date): Promise<Map<string, AutonomyReading[]>> {
+  const [scores, policies] = await Promise.all([
+    scoresByAgentAndKey(orgId, '30d', now, 'action'),
+    effectivePolicies(orgId),
+  ]);
+  const byAgent = new Map<string, AutonomyReading[]>();
+  for (const [key, score] of scores) {
+    const [agentSlug, actionId] = splitAgentKey(key);
+    if (!agentSlug || !actionId) {
+      continue;
+    }
+    const policy = policies.get(actionId) ?? { rung: DEFAULT_RUNG, riskTier: defaultRiskTier(actionId) };
+    const list = byAgent.get(agentSlug) ?? [];
+    list.push({ actionId, rung: policy.rung, riskTier: policy.riskTier, agreementRate: score.agreementRate, n: score.n });
+    byAgent.set(agentSlug, list);
+  }
+  for (const list of byAgent.values()) {
+    list.sort((a, b) => rungIndex(b.rung) - rungIndex(a.rung) || b.n - a.n || a.actionId.localeCompare(b.actionId));
+  }
+  return byAgent;
+}
+
+/**
+ * A team's autonomy is the union of its members' — per action kind, the rung
+ * (the same for every member, it is per org) and the pooled agreement.
+ * @param members
+ */
+export function mergeAutonomy(members: AutonomyReading[][]): AutonomyReading[] {
+  const byAction = new Map<string, AutonomyReading & { agreed: number }>();
+  for (const reading of members.flat()) {
+    const agreed = reading.agreementRate === null ? 0 : reading.agreementRate * reading.n;
+    const cur = byAction.get(reading.actionId);
+    if (!cur) {
+      byAction.set(reading.actionId, { ...reading, agreed });
+      continue;
+    }
+    cur.n += reading.n;
+    cur.agreed += agreed;
+    cur.agreementRate = cur.n > 0 ? cur.agreed / cur.n : null;
+  }
+  return [...byAction.values()]
+    .map(({ agreed: _agreed, ...r }) => r)
+    .sort((a, b) => rungIndex(b.rung) - rungIndex(a.rung) || b.n - a.n || a.actionId.localeCompare(b.actionId));
 }
 
 /**

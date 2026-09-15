@@ -7,7 +7,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { agentBudgetSchema, agentSchema, missionSchema, projectSchema, teamSchema, tenantAccountSchema, trustRuleSchema, userSchema, workerRunSchema } = await import('@/models/Schema');
+const { agentBudgetSchema, agentSchema, autonomyPolicySchema, decisionAlignmentSchema, missionSchema, projectSchema, teamSchema, tenantAccountSchema, trustRuleSchema, userSchema, workerRunSchema } = await import('@/models/Schema');
 const { buildTeamReport, kpiProgress, memberReport, parseReportWindow, permissionKeys, teamReport, windowStart } = await import('@/services/TeamReportService');
 
 const ORG = 'proj_team_report_test';
@@ -18,6 +18,8 @@ const CHRIS = { id: 'usr-tr-chris', name: 'Chris Fitkin', email: 'chris@example.
 const LILI = { id: 'usr-tr-lili', name: 'Lili Chen', email: 'lili@example.com' };
 
 async function wipe() {
+  await db.delete(decisionAlignmentSchema);
+  await db.delete(autonomyPolicySchema);
   await db.delete(workerRunSchema);
   await db.delete(agentBudgetSchema);
   await db.delete(missionSchema);
@@ -51,6 +53,15 @@ async function seed() {
   await db.insert(trustRuleSchema).values([
     { orgId: ORG, actionId: 'hubspot.update', threshold: 0.9, enabled: 'true' },
     { orgId: ORG, actionId: 'gmail.send', threshold: 0.99, enabled: 'false' },
+  ]);
+  // The alignment ledger: three hubspot.update decisions on the core
+  // engineer's proposals, two of them agreeing; one gmail.send on the docs
+  // engineer's, outside the 30-day window so it must not show.
+  await db.insert(decisionAlignmentSchema).values([
+    { orgId: ORG, subjectKind: 'action', subjectKey: 'hubspot.update', subjectId: 1, agentSlug: 'core-engineer', decision: 'approved', recommended: 'approve', implicit: true, agreed: true, decidedAt: hoursAgo(2) },
+    { orgId: ORG, subjectKind: 'action', subjectKey: 'hubspot.update', subjectId: 2, agentSlug: 'core-engineer', decision: 'edited', recommended: 'approve', implicit: true, agreed: true, decidedAt: hoursAgo(3) },
+    { orgId: ORG, subjectKind: 'action', subjectKey: 'hubspot.update', subjectId: 3, agentSlug: 'core-engineer', decision: 'rejected', recommended: 'approve', implicit: true, agreed: false, decidedAt: hoursAgo(4) },
+    { orgId: ORG, subjectKind: 'action', subjectKey: 'gmail.send', subjectId: 4, agentSlug: 'docs-engineer', decision: 'approved', recommended: 'approve', agreed: true, decidedAt: hoursAgo(24 * 40) },
   ]);
   await db.insert(agentSchema).values([
     { orgId: ORG, slug: 'ceo', name: 'CEO', systemPrompt: 'x', teamSlug: null, accent: 'amber' },
@@ -122,14 +133,18 @@ describe('TeamReportService (PGlite)', () => {
 
     expect(eng.contract.purpose).toBe('Merged-quality PRs.');
     expect(eng.contract.owner).toMatchObject({ email: LILI.email, source: 'team' });
-    expect(eng.contract.autonomyLevel).toBe(3);
+    // Autonomy is the ladder, not the mission level: hubspot.update has an
+    // enabled trust rule (Execute within bounds) and 2 of 3 decisions agreed.
+    expect(eng.contract.autonomy).toEqual([
+      { actionId: 'hubspot.update', rung: 'execute-within-bounds', riskTier: 'low', agreementRate: 2 / 3, n: 3 },
+    ]);
     expect(eng.contract.permissions).toEqual(['github.merge']);
     expect(eng.contract.attainment).toBe(1);
     expect(eng.contract.kpis.map(k => k.key)).toEqual(['prs_merged', 'prs_24h']);
 
-    // Inherits the workspace owner; the disabled level-5 mission does not count.
+    // Inherits the workspace owner; nothing of its members' has been decided.
     expect(content.contract.owner).toMatchObject({ email: CHRIS.email, source: 'workspace' });
-    expect(content.contract.autonomyLevel).toBeNull();
+    expect(content.contract.autonomy).toEqual([]);
     expect(content.contract.permissions).toEqual([]);
     expect(content.contract.attainment).toBeNull();
   });
@@ -145,9 +160,11 @@ describe('TeamReportService (PGlite)', () => {
     expect(core.outcomeShare).toBeCloseTo((1 + 0.5) / 2, 5);
     expect(docs.outcomeShare).toBeCloseTo((0 + 0.5) / 2, 5);
     expect(core.shareOfCents).toBeCloseTo(0.2, 5);
-    expect(core.contract).toMatchObject({ purpose: 'Framework changes, PR only.', autonomyLevel: 3, permissions: ['github.merge'] });
+    expect(core.contract).toMatchObject({ purpose: 'Framework changes, PR only.', permissions: ['github.merge'] });
+    expect(core.contract.autonomy).toEqual([{ actionId: 'hubspot.update', rung: 'execute-within-bounds', riskTier: 'low', agreementRate: 2 / 3, n: 3 }]);
     expect(core.contract.owner).toMatchObject({ email: LILI.email });
-    expect(docs.contract.autonomyLevel).toBe(2);
+    // The docs engineer's one decision is 40 days old — outside the window.
+    expect(docs.contract.autonomy).toEqual([]);
 
     // A team with no KPIs has no outcome to share.
     const writer = r.teams.find(t => t.slug === 'content')!.members.find(m => m.slug === 'writer')!;
