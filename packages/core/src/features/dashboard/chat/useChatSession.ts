@@ -10,6 +10,7 @@ import type {
   StreamingPhase,
   TraceNode,
 } from './types';
+import type { PageContext } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { client } from '@/libs/Orpc';
@@ -195,7 +196,7 @@ export type UseChatSessionOptions = {
    * unqualified question is answered about the page. A scoped session never
    * sets this; the scope already says what the conversation is about.
    */
-  pageContext?: { path: string; title: string };
+  pageContext?: PageContext;
 };
 
 /**
@@ -934,7 +935,10 @@ export function useChatSession({
         body: JSON.stringify({
           message: text,
           agent_slug: agent.slug,
-          ...(pageContextRef.current && !scopeRef ? { page_context: pageContextRef.current } : {}),
+          // R4: page context travels on every surface; a scoped dock also sends
+          // its scope so the server folds it in as a ref (mergeScopeRef).
+          ...(pageContextRef.current ? { page_context: pageContextRef.current } : {}),
+          ...(scopeRef ? { scope_ref: scopeRef } : {}),
           // With a conversation attached the server replays its own
           // (authoritative) history and ignores this list.
           ...(activeConversationId !== null ? { conversation_id: activeConversationId } : {}),

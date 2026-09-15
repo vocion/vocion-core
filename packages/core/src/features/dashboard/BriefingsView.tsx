@@ -2,12 +2,11 @@
 
 import { Check, Clock, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
 import { useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { BriefingChatStarter } from './BriefingChatStarter';
+import { BriefingSections } from './BriefingSections';
 
 /**
  * Briefings — BY TEAM. Tabs: the workspace ROLLUP first, then one per team.
@@ -178,7 +177,7 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
 
       {viewing && (
         <div data-briefing-root className="prose prose-sm mt-4 max-w-none rounded-2xl border border-border bg-card p-5 dark:prose-invert">
-          <Markdown remarkPlugins={[remarkGfm]}>{viewing.content}</Markdown>
+          <BriefingSections briefingId={viewing.id} briefingTitle={viewing.title} content={viewing.content} agentSlug={g.leadSlug ?? undefined} />
         </div>
       )}
 
@@ -209,6 +208,7 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
       {viewing && (
         <BriefingChatStarter
           key={`${g.teamSlug ?? 'rollup'}-${viewing.id}`}
+          briefingId={viewing.id}
           briefingTitle={viewing.title}
           briefingContent={viewing.content}
           agentSlug={g.leadSlug ?? undefined}

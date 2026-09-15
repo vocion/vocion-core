@@ -8,6 +8,7 @@ import { AppSidebarHeader } from '@/features/dashboard/AppSidebarHeader';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
 import { PageDock } from '@/features/dashboard/chat/PageDock';
+import { PageContextProvider } from '@/features/dashboard/context/PageContextProvider';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
@@ -97,12 +98,14 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
               dock as a third column at a third of the screen, collapsed to a
               button until opened. Record pages that mount their own scoped
               dock inside `children` are skipped by PageDock. */}
-          <div className="flex flex-1 items-stretch">
-            <div className="@container min-w-0 flex-1 px-4 py-4 sm:px-6">
-              {props.children}
+          <PageContextProvider>
+            <div className="flex flex-1 items-stretch">
+              <div className="@container min-w-0 flex-1 px-4 py-4 sm:px-6">
+                {props.children}
+              </div>
+              <PageDock agents={agents} />
             </div>
-            <PageDock agents={agents} />
-          </div>
+          </PageContextProvider>
         </ShellBarActionsProvider>
         {(() => {
           const tour = readWorkspaceTour();
