@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 130" role="img" aria-labelledby="title desc">
+  <title id="title">Vocion primary mark</title>
+  <desc id="desc">A governed path V mark built from two clean, independent rails.</desc>
+  <defs>
+    <linearGradient id="leftRail" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7C3CFF"/>
+      <stop offset="52%" stop-color="#4D63FF"/>
+      <stop offset="100%" stop-color="#168BFF"/>
+    </linearGradient>
+    <linearGradient id="rightRail" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#168BFF"/>
+      <stop offset="58%" stop-color="#16D6D2"/>
+      <stop offset="100%" stop-color="#55F58A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left / governance rail -->
+  <path
+    d="M24 22 L74 106 L136 16"
+    fill="none"
+    stroke="url(#leftRail)"
+    stroke-width="16"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+
+  <!-- Right / execution rail. Kept independent to avoid crossover artifacts. -->
+  <path
+    d="M56 24 L77 60 L98 30"
+    fill="none"
+    stroke="url(#rightRail)"
+    stroke-width="16"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+</svg>

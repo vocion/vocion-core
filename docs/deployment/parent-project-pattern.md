@@ -317,6 +317,37 @@ deletes that runtime too. Without the second, an agent moving off
 
 ---
 
+## Branding the deployment
+
+Out of the box the app wears the Vocion identity from vocion.ai: the gradient
+"governed path" V mark (`packages/core/public/brand/vocion-primary-mark.svg`)
+beside the wordmark "Vocion" in the sidebar and on sign-in, and the same mark
+as the favicon and Apple touch icon (`app/icon.tsx`, `app/apple-icon.tsx`).
+Two more files ship alongside it: `vocion-mono-mark.svg` (ink, for monochrome
+contexts, light surfaces only) and `vocion-logo-lockup.svg` (mark + VOCION
+wordmark + descriptor; ink text, so light surfaces only).
+
+A client deployment overrides any of it at image build time — `NEXT_PUBLIC_*`
+is inlined by Next, so these are `--build-arg`s to `packages/core/Dockerfile`,
+not runtime env. Whatever you pass wins over the defaults; leave one unset and
+the Vocion default fills in.
+
+| Build-arg | What it does |
+| --- | --- |
+| `NEXT_PUBLIC_BRAND_NAME` | Wordmark text (default `Vocion`). Title case — all-caps is styling, not the value. |
+| `NEXT_PUBLIC_BRAND_TAGLINE` | Subhead under the wordmark, e.g. `agents by Vocion`. |
+| `NEXT_PUBLIC_BRAND_MARK` | Glyph image — a path under `public/` or a `data:` URI. Replaces the Vocion mark. |
+| `NEXT_PUBLIC_BRAND_LOCKUP` | Mark + wordmark as one image; replaces both glyph and text. |
+| `NEXT_PUBLIC_BRAND_LOCKUP_DARK` | Dark-mode lockup variant (only used with `BRAND_LOCKUP`). |
+| `NEXT_PUBLIC_BRAND_ATTRIBUTION` | Sidebar footer line (default `Vocion · Apache 2.0`). |
+
+Keep client artwork in the client repo and inline it as a base64 `data:` URI
+(`infra/aws/bootstrap.sh` in the Metacto project does this) — OSS `vocion-core`
+carries only Vocion's own art. The favicon and touch icon are not part of the
+override slot today; they always render the Vocion mark.
+
+---
+
 ## Gotchas
 
 Three defaults that are wrong for any client outside `us-east-1`:
