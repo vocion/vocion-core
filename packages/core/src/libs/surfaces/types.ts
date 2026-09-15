@@ -27,6 +27,21 @@ export type ChatInbound = {
   isDirect: boolean;
 };
 
+/**
+ * The bot itself was added to a channel — the discovery signal. Carries no
+ * text and no human sender: nobody spoke, the app was invited. The handler
+ * answers it with one introduction so a fresh channel is never met with
+ * silence.
+ */
+export type ChatJoin = {
+  surface: string;
+  /** The platform's workspace/tenant id (Slack `team_id`), when it has one. */
+  teamId: string | null;
+  channelId: string;
+  /** The bot's own platform user id — why this event is ours to answer. */
+  botUserId: string;
+};
+
 export type ChatVerification
   = | { ok: true }
     | { ok: false; reason: 'missing_secret' | 'missing_headers' | 'stale' | 'bad_signature' };
@@ -34,6 +49,7 @@ export type ChatVerification
 export type ChatParse
   = | { kind: 'challenge'; challenge: string }
     | { kind: 'message'; inbound: ChatInbound }
+    | { kind: 'joined'; join: ChatJoin }
     | { kind: 'ignore'; reason: string };
 
 /**
@@ -43,7 +59,12 @@ export type ChatParse
  */
 export type ChatReplyTarget = {
   channelId: string;
-  threadRef: string;
+  /**
+   * Thread to reply in. Absent for a message that starts no thread — the
+   * channel-join introduction is the only one today — and the adapter then
+   * omits the platform's thread key rather than sending it empty.
+   */
+  threadRef?: string;
   /** Persona name to post under, e.g. `Sterling Banks`. */
   displayName?: string;
   /** Public https URL of the persona avatar. */
