@@ -486,16 +486,7 @@ export async function apiListSources(caller: ApiCaller): Promise<{ sources: ApiS
         enabled: s.enabled === 'true',
         lastSyncedAt: s.lastSyncedAt?.toISOString() ?? null,
         documentCount: documentCounts[s.id] ?? 0,
-        run: run
-          ? {
-              status: run.status,
-              startedAt: run.startedAt.toISOString(),
-              completedAt: run.completedAt?.toISOString() ?? null,
-              since: run.since?.toISOString() ?? null,
-              counts: run.counts,
-              failures: run.failures.map(f => ({ scope: f.scope, message: f.message, ...(f.uri ? { uri: f.uri } : {}) })),
-            }
-          : null,
+        run: run ? apiRunOf(run) : null,
       };
     }),
   };

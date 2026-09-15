@@ -1,5 +1,5 @@
 import type { BrowseProvider, Page } from './types';
-import { extractFromHtml } from '@/libs/sources/web';
+import { extractFromHtml, USER_AGENT } from '@/libs/sources/web';
 
 /**
  * Built-in browse provider — no key, no middleman. Reuses the same
@@ -15,7 +15,7 @@ export function builtinBrowseProvider(): BrowseProvider {
     isReady: () => true,
     async fetchPage(url): Promise<Page | null> {
       const res = await fetch(url, {
-        headers: { 'User-Agent': 'VocionBot/0.1 (+https://vocion.ai)' },
+        headers: { 'User-Agent': USER_AGENT },
         signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) {

@@ -68,7 +68,7 @@ const webConfigSchema = z.object({
 type CrawlConfig = z.infer<typeof crawlSchema>;
 type UrlsFromConfig = z.infer<typeof urlsFromSchema>;
 
-const USER_AGENT = 'VocionBot/0.1 (+https://vocion.ai)';
+export const USER_AGENT = 'VocionBot/0.1 (+https://vocion.ai)';
 const PAGE_TIMEOUT_MS = 15_000;
 /** Feed probes and the URL list are side quests: they get a shorter leash. */
 const PROBE_TIMEOUT_MS = 8_000;

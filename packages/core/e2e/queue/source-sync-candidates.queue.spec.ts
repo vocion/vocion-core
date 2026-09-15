@@ -12,15 +12,11 @@ import { test } from '@playwright/test';
  * Zero tokens: the processor's model stage is replaced by a deterministic
  * extractor over fixture pages, so nothing here calls out.
  *
- * SKIPPED, deliberately, and this is the whole reason the body is a skeleton:
- * the model stage is not in the tree yet. `libs/processors/candidateExtractor/
- * run.ts` is still the placeholder the registry's lazy `import()` resolves to,
- * it throws `candidate-extractor: model stage not implemented yet`, and the
- * registry is a closed map, so there is no second processor slug a fixture
- * could name to produce candidates without a model. Both halves of the gap are
- * one commit group away (the model stage, and whatever seam it offers for a
- * deterministic run), so this file is left in place with the shape it will
- * have rather than written from scratch later.
+ * SKIPPED, deliberately: the model stage exists (libs/processors/
+ * candidateExtractor/run.ts), but it has no seam for a deterministic run.
+ * A zero-token e2e needs a fake extractor the registry can name, or a
+ * `model` override on the processor config, and neither exists yet. The
+ * shape below is what the spec will have once one does.
  *
  * To finish it, in this order:
  *   1. Register the source with `POST /api/v1/sources`, `kind: 'local-files'`,

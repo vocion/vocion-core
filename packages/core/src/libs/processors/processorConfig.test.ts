@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSyncBudget, SYNC_BUDGET_DEFAULTS } from './budget';
 import { candidateExtractorConfigSchema } from './candidateExtractor/config';
-import { getProcessor, hasProcessor, processorConfigSchema } from './registry';
+import { getProcessor, processorConfigSchema } from './registry';
 
 /** The smallest config the extractor accepts. */
 const minimal = {
@@ -110,13 +110,13 @@ describe('candidate-extractor config', () => {
 
 describe('the processor registry', () => {
   it('exposes the extractor config schema without loading the model stage', () => {
-    expect(hasProcessor('candidate-extractor')).toBe(true);
+    expect(getProcessor('candidate-extractor')).toBeDefined();
     expect(processorConfigSchema('candidate-extractor')).toBe(candidateExtractorConfigSchema);
     expect(getProcessor('candidate-extractor')?.name).toBe('Candidate extractor');
   });
 
   it('knows nothing about a slug it does not have', () => {
-    expect(hasProcessor('no-such-processor')).toBe(false);
+    expect(getProcessor('no-such-processor')).toBeUndefined();
     expect(processorConfigSchema('no-such-processor')).toBeUndefined();
     expect(getProcessor('no-such-processor')).toBeUndefined();
   });

@@ -47,14 +47,6 @@ export function getProcessor(slug: string): RegisteredProcessor | undefined {
 }
 
 /**
- * Whether a slug names a registered processor.
- * @param slug - Processor slug to check.
- */
-export function hasProcessor(slug: string): boolean {
-  return registry.has(slug);
-}
-
-/**
  * The schema validating a processor's config blob, eager, and free of any
  * model code, so the applier can call it while parsing a workspace.
  * @param slug - Processor slug, as written in a manifest's `processor.slug`.

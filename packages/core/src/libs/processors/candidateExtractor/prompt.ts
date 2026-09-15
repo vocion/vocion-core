@@ -194,7 +194,11 @@ export function buildExtractionPrompt(opts: {
   // The page is the only block the call cannot do without, so it is the only
   // one that gets sliced rather than dropped, and only once the other three
   // are gone.
-  const overheadChars = EXTRACTOR_SYSTEM_PROMPT.length + 1_000;
+  // The operator policy rides in the system message too, and its
+  // promptFragment may be 8,000 chars; without it the trimmer would believe
+  // the call is smaller than it is and let the per-call cap slip.
+  const policyChars = operatorPolicy(opts.config, '').join('\n\n').length;
+  const overheadChars = EXTRACTOR_SYSTEM_PROMPT.length + policyChars + 1_000;
   for (const block of blocks) {
     const total = overheadChars + blocks.reduce((sum, b) => sum + b.text.length, 0);
     if (total <= budgetChars) {

@@ -114,7 +114,7 @@ export async function storedProcessorNames(orgId: string): Promise<KnownProcesso
  * @param spec - The source declaring the processor.
  * @param known - What its config may name.
  */
-export function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNames): ProcessorRef | undefined {
+function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNames): ProcessorRef | undefined {
   if (!spec.processor) {
     return undefined;
   }
@@ -257,7 +257,7 @@ export async function reconcileSourceSchedules(
  * Key-order-independent JSON, so a re-serialised blob is not read as a change.
  * @param v - The value to stabilise.
  */
-function canonical(v: unknown): string {
+export function canonical(v: unknown): string {
   return JSON.stringify(v, (_key, value) => {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const sorted: Record<string, unknown> = {};
