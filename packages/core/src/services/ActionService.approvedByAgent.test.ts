@@ -34,6 +34,18 @@ registerAction({
   execute: async (_ctx, input) => ({ echoed: (input as { value: string }).value }),
 });
 
+// Carries the grant that puts an action on the never-auto guard list, so the
+// trust ladder can be shown refusing to release it however confident it is.
+registerAction({
+  id: 'test.guarded-send',
+  name: 'Test guarded send',
+  description: 'test',
+  inputSchema: z.object({ value: z.string() }),
+  grant: 'send_email',
+  external: true,
+  execute: async () => ({ sent: true }),
+});
+
 /** An agent whose autonomy still sends external writes to the review gate. */
 function proposingAgent(): Principal {
   return { kind: 'agent', id: 'agent:event-scout', grants: ['test_write'], autonomy: 2, scope: { orgId: ORG } };
@@ -191,6 +203,70 @@ describe('approved_by_agent', () => {
     // fact the column exists to audit — that an agent approved this first.
     expect(run.status).toBe('rejected');
     expect(run.approvedByAgent).toBe(true);
+  });
+
+  it('clears the stamp when a decided run is re-proposed and comes back to the queue', async () => {
+    await enableTrustRule(0.5);
+    // Auto-approved, then its execution failed — so the same dedup key can
+    // refresh it back into the queue as open work.
+    const first = await proposeAction({
+      orgId: ORG,
+      actionId: 'test.trusted-write',
+      input: { value: 'first pass' },
+      principal: proposingAgent(),
+      proposal: { confidence: 0.9 },
+      dedupKey: 'test.trusted-write:kit-1',
+    });
+
+    expect((await readRun(first.runId)).approvedByAgent).toBe(true);
+
+    // Re-proposed below the threshold: the ladder leaves it for a person.
+    await db.delete(trustRuleSchema);
+    const again = await proposeAction({
+      orgId: ORG,
+      actionId: 'test.trusted-write',
+      input: { value: 'second pass' },
+      principal: proposingAgent(),
+      proposal: { confidence: 0.1 },
+      dedupKey: 'test.trusted-write:kit-1',
+    });
+
+    const run = await readRun(again.runId);
+
+    // A pending card carrying a stale `true` would tell a reviewer an agent
+    // had already approved the thing they are being asked to decide, and would
+    // put an undecided run into the auto-approved audit list and its count.
+    expect(run.status).toBe('pending');
+    expect(run.approvedByAgent).toBeNull();
+    expect(run.decidedBy).toBeNull();
+    expect(run.decidedAt).toBeNull();
+  });
+
+  it('stays null when a guarded action clears the confidence bar, because it can never auto-approve', async () => {
+    // Anything carrying the `send_email` grant is on the never-auto guard list
+    // — an over-eager threshold must never be able to fire a real message — so
+    // a proposal well above the bar still waits for a person, and the column
+    // has to show that no decision was taken.
+    await db.insert(trustRuleSchema).values({
+      orgId: ORG,
+      actionId: 'test.guarded-send',
+      threshold: 0.5,
+      enabled: 'true',
+    });
+
+    const out = await proposeAction({
+      orgId: ORG,
+      actionId: 'test.guarded-send',
+      input: { value: 'never auto' },
+      principal: { kind: 'agent', id: 'agent:event-scout', grants: ['send_email'], autonomy: 2, scope: { orgId: ORG } } as Principal,
+      proposal: { confidence: 0.99 },
+    });
+
+    const run = await readRun(out.runId);
+
+    expect(run.status).toBe('pending');
+    expect(run.approvedByAgent).toBeNull();
+    expect(run.decidedAt).toBeNull();
   });
 
   it('keeps the agent approval when a person re-runs an auto-approved execution that failed', async () => {

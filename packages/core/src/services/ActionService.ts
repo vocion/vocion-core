@@ -266,6 +266,16 @@ export async function proposeAction(input: {
           // it, and the card re-enables in place.
           regeneratingSince: null,
           regenerateNote: null,
+          // A refreshed card is open work again, so it carries no decision.
+          // A run the ladder approved whose execution failed can be
+          // re-proposed on the same dedup key and comes back to `pending`
+          // here; leaving the old stamp on it would show a reviewer a pending
+          // card that claims an agent already approved it, and would put an
+          // undecided run into the auto-approved audit list and the
+          // auto-approval count.
+          approvedByAgent: null,
+          decidedBy: null,
+          decidedAt: null,
         })
         .where(eq(actionRunSchema.id, existing.id));
       // Keep the action's own domain row in step with the refreshed payload.

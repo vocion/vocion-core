@@ -217,6 +217,10 @@ async function listWorkflowPlane(orgId: string, opts: ListOptions, now: Date, ca
     assignedTo: row.assignedTo,
     snoozedUntil: row.snoozedUntil,
     note: row.note,
+    // Stated, not omitted: `getReviewDetail` returns null for this plane, and
+    // a key that is present on the detail but missing from the list is the
+    // shape a client reads with `?? false` and gets wrong.
+    approvedByAgent: null,
   }));
   const total = await planeTotal(items.length, cap, async () => {
     const [counted] = await db
@@ -266,6 +270,8 @@ async function listMissionPlane(orgId: string, opts: ListOptions, now: Date, cap
     assignedTo: row.assignedTo,
     snoozedUntil: row.snoozedUntil,
     note: row.note,
+    // Same as the workflow plane: present and null, never absent.
+    approvedByAgent: null,
   }));
   const total = await planeTotal(items.length, cap, async () => {
     const [counted] = await db
