@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 
+import { ShellBarActionsOutlet, ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import en from '@/locales/en.json';
 
 vi.mock('@/libs/Orpc', () => ({
@@ -20,10 +21,23 @@ const { ChatShell } = await import('./ChatShell');
 
 /**
  * The chat surfaces read their copy from the `Chat` namespace; tests render inside the provider the shell supplies.
+ *
+ * ChatShell puts its whole control cluster — the speaker chip, History, the
+ * autonomy rung and the ⋯ menu — through `ShellBarActionsPortal` into the
+ * dashboard's top bar, so a bare render drops all of it on the floor: the
+ * portal returns `null` until an outlet has registered a node. The real
+ * layout supplies both; so must the test wrapper.
  * @param ui
  */
 function wrap(ui: React.ReactNode) {
-  return <NextIntlClientProvider locale="en" messages={en}>{ui}</NextIntlClientProvider>;
+  return (
+    <NextIntlClientProvider locale="en" messages={en}>
+      <ShellBarActionsProvider>
+        <ShellBarActionsOutlet />
+        {ui}
+      </ShellBarActionsProvider>
+    </NextIntlClientProvider>
+  );
 }
 
 const AGENTS = [
@@ -43,10 +57,14 @@ beforeEach(() => {
 });
 
 describe('ChatShell', () => {
-  it('names the active agent on the empty state once boot settles', async () => {
-    await render(wrap(<ChatShell agents={AGENTS} />));
+  it('names the workspace on the empty state once boot settles, never the agent (§9.10)', async () => {
+    // The surface has one identity and it is the workspace: the greeting is
+    // "Ask <workspace>", and the lead agent that actually answers is not
+    // named anywhere on the page. This test used to assert the opposite.
+    await render(wrap(<ChatShell agents={AGENTS} greeting={{ workspace: 'GTM Workspace' }} />));
 
-    await expect.element(page.getByText('GTM Orchestrator').first()).toBeInTheDocument();
+    await expect.element(page.getByText('GTM Workspace').first()).toBeInTheDocument();
+    expect(page.getByText('GTM Orchestrator').elements()).toHaveLength(0);
   });
 
   it('has no agent picker: the surface speaks as the workspace and ⋯ offers only New chat (§9.10)', async () => {

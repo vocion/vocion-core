@@ -41,6 +41,16 @@ export default defineConfig({
             headless: true,
             provider: playwright(),
             screenshotDirectory: 'vitest-test-results',
+            // vitest's browser default is 414x896 — a phone. The app's desktop
+            // layouts only exist above their breakpoints, and the widest one
+            // that matters here is the chat rail's RAIL_SHEET_BREAKPOINT
+            // (1200px, src/features/dashboard/chat/railState.ts): below it the
+            // rail is a Radix Sheet with no `complementary` landmark, so every
+            // rail assertion in ChatDock/PageDock/ChatShell fails against a
+            // dialog it never meant to test. Run the whole browser project at
+            // a desktop size and let a test that wants a phone narrow itself
+            // with `page.viewport(...)`.
+            viewport: { width: 1440, height: 900 },
             instances: [
               { browser: 'chromium' },
             ],
