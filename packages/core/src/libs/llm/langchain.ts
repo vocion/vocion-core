@@ -30,6 +30,17 @@ import { getReplayCache } from './replayCache';
 export type ModelRole = 'main' | 'classifier' | 'embedder' | 'skillTurn' | 'extractor';
 
 /** Provider tag — narrow alphabet so the env validation is straightforward. */
+/**
+ * Claude 4.6+ (Sonnet 4.6, Opus 4.6/4.7/4.8, Sonnet 5, Opus 5, Fable 5/5.1,
+ * Mythos) reject `temperature` / `top_p` / `top_k` with a 400
+ * ("`temperature` is deprecated for this model"). Older Claude and every
+ * other provider still accept them. Bedrock ids carry the same model name
+ * inside their decoration, so match on the substring.
+ */
+export function anthropicOmitsSampling(model: string): boolean {
+  return /claude-(?:sonnet-4-6|opus-4-[678]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
+}
+
 export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock';
 
 /** Every value `VOCION_LLM_PROVIDER` may be set to, for validation + error text. */
@@ -286,7 +297,8 @@ export function buildChatModel(
       }
       return withReplay(new ChatAnthropic({
         model,
-        temperature,
+        // 4.6+/5-family models 400 on any sampling parameter — omit it.
+        ...(anthropicOmitsSampling(model) ? {} : { temperature }),
         streaming,
         apiKey,
         ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
