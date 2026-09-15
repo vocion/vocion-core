@@ -1,13 +1,17 @@
 /**
  * Minimal artifact store for tool outputs (generated images, CSVs,
- * charts, docs). Writes bytes to a configurable directory and returns a
- * served URL.
+ * charts, docs). Writes bytes to a configurable directory and returns the
+ * URL of the AUTHENTICATED route that serves them (`/api/artifacts/<id>/<file>`,
+ * org-checked — see `serve.ts`).
  *
- * Default dir is `<cwd>/public/artifacts`, served by Next at
- * `/artifacts/<file>` — good for self-host/dev. For serverless or
- * multi-instance deploys, point `VOCION_ARTIFACTS_DIR` at a mounted
- * volume, or swap this module for an object-storage backend later
- * (the call sites only depend on `saveArtifact`'s return shape).
+ * Default dir is `<cwd>/.artifacts` — deliberately NOT under `public/`:
+ * anything under `public/` is served by Next to anyone who knows the URL,
+ * and a revenue brief with a guessable name is not something to leave there
+ * (found on a deployment 2026-09-15). Point `VOCION_ARTIFACTS_DIR` at a
+ * mounted private volume in production. `VOCION_ARTIFACTS_URL_BASE` stays
+ * as an override for deployments that serve the directory themselves
+ * behind their own auth (a CDN with signed URLs, say); leave it unset to
+ * use the built-in route.
  */
 
 import { Buffer } from 'node:buffer';
@@ -15,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { API_ARTIFACTS_BASE, servedArtifactUrl } from './url';
 
 export type SavedArtifact = {
   id: string;
@@ -28,11 +33,17 @@ export type SavedArtifact = {
 };
 
 export function artifactsDir(): string {
-  return process.env.VOCION_ARTIFACTS_DIR ?? path.join(process.cwd(), 'public', 'artifacts');
+  return process.env.VOCION_ARTIFACTS_DIR ?? path.join(process.cwd(), '.artifacts');
+}
+
+/** True when the configured directory would be served statically by Next — never acceptable in production. */
+export function artifactsDirIsPublic(): boolean {
+  const dir = path.resolve(artifactsDir());
+  return dir.startsWith(path.resolve(process.cwd(), 'public') + path.sep);
 }
 
 export function artifactsUrlBase(): string {
-  return process.env.VOCION_ARTIFACTS_URL_BASE ?? '/artifacts';
+  return process.env.VOCION_ARTIFACTS_URL_BASE ?? API_ARTIFACTS_BASE;
 }
 
 export async function saveArtifact(input: {
@@ -46,6 +57,9 @@ export async function saveArtifact(input: {
   const id = `${input.orgId}-${hash}`;
   const filename = `${id}.${input.ext.replace(/^\./, '')}`;
   const dir = artifactsDir();
+  if (process.env.NODE_ENV === 'production' && artifactsDirIsPublic()) {
+    console.warn('[artifacts] VOCION_ARTIFACTS_DIR points under public/ — files there are served unauthenticated. Move it to a private volume.');
+  }
   await mkdir(dir, { recursive: true });
   const absPath = path.join(dir, filename);
   await writeFile(absPath, buf);
@@ -53,7 +67,7 @@ export async function saveArtifact(input: {
     id,
     filename,
     absPath,
-    url: `${artifactsUrlBase()}/${filename}`,
+    url: servedArtifactUrl(filename, artifactsUrlBase()),
     contentType: input.contentType,
     bytes: buf.byteLength,
   };

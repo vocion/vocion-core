@@ -6,6 +6,7 @@ import { MissionRunActions } from '@/features/dashboard/MissionRunActions';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { recordRef } from '@/services/chat/recordContext';
+import { artifactHref } from '@/libs/tools/artifacts/url';
 import { getMissionRun } from '@/services/MissionService';
 
 const TASK_STATUS_TONE: Record<string, string> = {
@@ -114,7 +115,7 @@ export default async function MissionRunPage(props: {
                 <ul className="flex flex-col gap-1.5 text-sm">
                   {artifacts.map((a, i) => (
                     <li key={i}>
-                      <a href={a.url} className="text-primary hover:underline" target="_blank" rel="noreferrer">
+                      <a href={artifactHref(a.url)} className="text-primary hover:underline" target="_blank" rel="noreferrer">
                         {a.title ?? a.url}
                       </a>
                       <span className="ml-2 text-xs text-muted-foreground">{a.kind}</span>
