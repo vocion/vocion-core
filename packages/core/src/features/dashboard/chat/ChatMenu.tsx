@@ -21,11 +21,11 @@ import {
  * default, so the agent list here is deliberately secondary UX: names + a
  * check, no section headers, no explanations.
  *
- * Leads only: the switcher lists the workspace lead + the team leads (the
- * parentless primaries) + the virtual Search entry. Specialists (anything
- * with a parent) stay hidden — you reach them through their lead, not a
- * long flat roster. A specialist that IS the current selection (deep link)
- * stays visible so the check always lands somewhere.
+ * "Talk directly to a specialist…" (agent-chat-surface.md §9): the lead is
+ * who you talk to; the roster here is the demoted escape hatch for going
+ * straight to one specialist (or Search only) for one conversation. Every
+ * agent is listed — specialists included — because that is the point of the
+ * entry; the check marks who is answering now.
  */
 
 export type ChatMenuProps = {
@@ -40,8 +40,8 @@ export type ChatMenuProps = {
 };
 
 export function ChatMenu({ onNewChat, agents = [], currentSlug, onSwitch, conversations = [], onPickConversation }: ChatMenuProps) {
-  const leads = agents.filter(a => !a.parentSlug || a.slug === currentSlug);
-  const switchable = leads.length > 1 && !!onSwitch;
+  const roster = agents;
+  const switchable = roster.length > 1 && !!onSwitch;
 
   return (
     <DropdownMenu>
@@ -74,9 +74,13 @@ export function ChatMenu({ onNewChat, agents = [], currentSlug, onSwitch, conver
         {switchable && (
           <>
             <DropdownMenuSeparator />
-            {leads.map(a => (
+            <div className="px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+              Talk directly to a specialist…
+            </div>
+            {roster.map(a => (
               <DropdownMenuItem key={a.slug} onClick={() => onSwitch?.(a.slug)}>
                 <span className="flex-1 truncate">{a.name}</span>
+                {a.eyebrow && <span className="ml-2 truncate text-[10px] text-muted-foreground">{a.eyebrow}</span>}
                 {a.slug === currentSlug && <Check className="ml-2 size-4 shrink-0" aria-hidden="true" />}
               </DropdownMenuItem>
             ))}

@@ -123,5 +123,31 @@
     "plan_interval_month": "mois",
     "plan_interval_year": "année",
     "next_renew_date": "Votre abonnement sera renouvelé le {date}"
+  },
+  "Chat": {
+    "rail_label": "Conversation",
+    "rail_label_about": "Conversation à propos de {scope}",
+    "open_rail": "Ouvrir la conversation (⌘J)",
+    "collapse_rail": "Réduire la conversation (⌘J)",
+    "resize_rail": "Redimensionner la conversation",
+    "all_conversations": "Toutes les conversations",
+    "history": "Historique",
+    "search_placeholder": "Rechercher dans les conversations…",
+    "history_today": "Aujourd’hui",
+    "history_yesterday": "Hier",
+    "history_older": "Plus ancien",
+    "history_empty": "Aucune conversation pour l’instant",
+    "history_no_match": "Aucun résultat",
+    "new_chat": "Nouvelle conversation",
+    "autonomy_ask": "Demander avant d’agir",
+    "autonomy_act": "Agir dans les limites",
+    "autonomy_ask_hint": "Les actions recommandées sont des cartes que vous envoyez à la file de revue.",
+    "autonomy_act_hint": "Les actions recommandées vont directement dans la file de revue. Rien ne s’exécute sans approbation.",
+    "feedback_up": "Utile",
+    "feedback_down": "Pas utile",
+    "feedback_add_note": "Ajouter une note",
+    "feedback_note_placeholder": "Dites à l’équipe ce qu’il faut changer (facultatif)",
+    "feedback_save": "Envoyer",
+    "feedback_saved": "Merci — l’équipe la lit à son prochain cycle."
   }
 }

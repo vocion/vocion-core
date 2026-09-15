@@ -123,5 +123,31 @@
     "plan_interval_month": "month",
     "plan_interval_year": "year",
     "next_renew_date": "Your subscription renews on {date}"
+  },
+  "Chat": {
+    "rail_label": "Conversation",
+    "rail_label_about": "Conversation about {scope}",
+    "open_rail": "Open the conversation (⌘J)",
+    "collapse_rail": "Collapse the conversation (⌘J)",
+    "resize_rail": "Resize the conversation",
+    "all_conversations": "All conversations",
+    "history": "History",
+    "search_placeholder": "Search conversations…",
+    "history_today": "Today",
+    "history_yesterday": "Yesterday",
+    "history_older": "Older",
+    "history_empty": "No conversations yet",
+    "history_no_match": "Nothing matches",
+    "new_chat": "New chat",
+    "autonomy_ask": "Ask before acting",
+    "autonomy_act": "Act within bounds",
+    "autonomy_ask_hint": "Recommended actions are cards you tap into the review queue.",
+    "autonomy_act_hint": "Recommended actions go straight to the review queue. Nothing executes without approval.",
+    "feedback_up": "Helpful",
+    "feedback_down": "Not helpful",
+    "feedback_add_note": "Add a note",
+    "feedback_note_placeholder": "Tell the team what to change (optional)",
+    "feedback_save": "Send",
+    "feedback_saved": "Thanks — the team reads this on its next cycle."
   }
 }

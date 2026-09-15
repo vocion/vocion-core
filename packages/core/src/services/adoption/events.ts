@@ -63,6 +63,17 @@ export const ADOPTION_EVENTS = {
    * starts in context rather than cold.
    */
   'chat.opened_from_context': { agent: true, meta: z.object({ recordType: z.string().max(40) }) },
+   * A thumb on one assistant turn in the chat (0094). `rating` null = the
+   * person cleared their thumb. The note itself never travels here — it goes
+   * to the feedback classifier — only whether there was one.
+   */
+  'chat.feedback': {
+    agent: true,
+    meta: z.object({
+      rating: feedbackRating.nullable().optional(),
+      hasNote: z.boolean().optional(),
+    }),
+  },
   /**
    * One event for every HITL approval surface; the run kind travels in
    * metadata. `decision` is the TYPED triage signal — approve/edit/reject are

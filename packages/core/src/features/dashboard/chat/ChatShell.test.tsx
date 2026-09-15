@@ -1,17 +1,30 @@
+import { NextIntlClientProvider } from 'next-intl';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 
+import en from '@/locales/en.json';
+
 vi.mock('@/libs/Orpc', () => ({
   client: {
-    chatWidget: { getState: vi.fn(), setState: vi.fn() },
+    chatWidget: { getState: vi.fn(), setState: vi.fn(), setRail: vi.fn(async () => ({ railWidth: null, railOpen: null })) },
     chat: { suggestions: vi.fn() },
-    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn() },
+    conversations: { get: vi.fn(), create: vi.fn(), list: vi.fn(), search: vi.fn(async () => []), tail: vi.fn(async () => []), setAutonomy: vi.fn(), feedback: vi.fn() },
+    teams: { list: vi.fn(async () => ({ workspace: null, teams: [] })) },
+    missions: { list: vi.fn(async () => []) },
   },
 }));
 
 const { client } = await import('@/libs/Orpc');
 const { ChatShell } = await import('./ChatShell');
+
+/**
+ * The chat surfaces read their copy from the `Chat` namespace; tests render inside the provider the shell supplies.
+ * @param ui
+ */
+function wrap(ui: React.ReactNode) {
+  return <NextIntlClientProvider locale="en" messages={en}>{ui}</NextIntlClientProvider>;
+}
 
 const AGENTS = [
   { slug: 'orchestrator', name: 'GTM Orchestrator', icon: 'bot' as const, placeholder: 'Ask…', role: 'lead' as const },
@@ -31,26 +44,30 @@ beforeEach(() => {
 
 describe('ChatShell', () => {
   it('names the active agent on the empty state once boot settles', async () => {
-    await render(<ChatShell agents={AGENTS} />);
+    await render(wrap(<ChatShell agents={AGENTS} />));
 
     await expect.element(page.getByText('GTM Orchestrator').first()).toBeInTheDocument();
   });
 
-  it('switching agents from the empty-state title updates the displayed name', async () => {
-    const { getByText, getByRole } = page;
-    await render(<ChatShell agents={AGENTS} />);
+  it('talking directly to a specialist is under the ⋯ menu, shows a Direct chip, and "Back to" returns to the lead (§9)', async () => {
+    await render(wrap(<ChatShell agents={AGENTS} />));
 
-    await getByText('GTM Orchestrator').first().click();
-    await getByRole('menuitem', { name: 'Pipeline Analyst' }).click();
+    await page.getByRole('button', { name: 'Chat options' }).click();
+    await page.getByRole('menuitem', { name: /Pipeline Analyst/ }).click();
 
-    await expect.element(page.getByText('Pipeline Analyst', { exact: true }).first()).toBeInTheDocument();
+    await expect.element(page.getByText('Direct · Pipeline Analyst')).toBeInTheDocument();
+
+    await page.getByRole('button', { name: /Back to GTM Orchestrator/ }).click();
+
+    await expect.element(page.getByText('Direct · Pipeline Analyst')).not.toBeInTheDocument();
+    await expect.element(page.getByText('GTM Orchestrator').first()).toBeInTheDocument();
   });
 
   it('shows an empty state instead of crashing when there are no agents', async () => {
     // `chat/page.tsx` hands over an empty list whenever it cannot resolve a
     // workspace. `useChatSession` reads `agents[0]!.slug`, so the page used to
     // throw here rather than render anything.
-    await render(<ChatShell agents={[]} />);
+    await render(wrap(<ChatShell agents={[]} />));
 
     await expect.element(page.getByText('No agents to chat with')).toBeInTheDocument();
     // The guard has to sit above the hook: no agent means nothing to fetch
@@ -70,7 +87,7 @@ describe('ChatShell', () => {
     });
     vi.mocked(client.chatWidget.getState).mockReturnValue(getStatePromise as never);
 
-    await render(<ChatShell agents={AGENTS} suggestions={[{ label: 'Try this', prompt: 'Do the thing' }]} />);
+    await render(wrap(<ChatShell agents={AGENTS} suggestions={[{ label: 'Try this', prompt: 'Do the thing' }]} />));
 
     // Boot is still in flight — the skeleton stands in for the transcript, so
     // there are no suggestion chips to click yet, and the composer stays

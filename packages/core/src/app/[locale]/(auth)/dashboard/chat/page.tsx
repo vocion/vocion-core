@@ -1,6 +1,7 @@
 import { setRequestLocale } from 'next-intl/server';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { ChatShell } from '@/features/dashboard/chat/ChatShell';
+import { parseConversationParam } from '@/features/dashboard/chat/resumeRule';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { buildWorkspaceChips } from '@/services/chat/suggestions';
 import { workspaceGreeting } from '@/services/chat/workspaceLabel';
@@ -13,8 +14,9 @@ import { workspaceGreeting } from '@/services/chat/workspaceLabel';
  * shell renders an empty state for that instead of failing to pick a default.
  *
  * Deep-linkable: `?agent=<slug>` starts with that agent (unknown slugs fall
- * back to the workspace-coordinator default) and `?prompt=<text>` pre-fills
- * the composer without sending.
+ * back to the workspace-coordinator default), `?prompt=<text>` pre-fills
+ * the composer without sending, and `?conversation=<id>` resumes a thread —
+ * otherwise the page opens a NEW conversation (agent-chat-surface.md §9).
  *
  * Deliberately chrome-free: no TitleBar, no header strip — "insert quarter,
  * shoot aliens." The surface is messages + composer; New chat / Switch agent
@@ -25,10 +27,10 @@ import { workspaceGreeting } from '@/services/chat/workspaceLabel';
  */
 export default async function ChatPage(props: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ agent?: string; prompt?: string }>;
+  searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string }>;
 }) {
   const { locale } = await props.params;
-  const { agent: requestedSlug, prompt: seededPrompt } = await props.searchParams;
+  const { agent: requestedSlug, prompt: seededPrompt, conversation } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId } = await auth();
 
@@ -56,6 +58,7 @@ export default async function ChatPage(props: {
         greeting={greeting}
         suggestions={chips.map(c => ({ label: c.label, prompt: c.prompt }))}
         initialComposerValue={seededPrompt}
+        conversationId={parseConversationParam(conversation)}
       />
     </div>
   );
