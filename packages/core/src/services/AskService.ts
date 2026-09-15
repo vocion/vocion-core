@@ -138,7 +138,12 @@ export function normaliseOptions(raw: unknown): AskOption[] {
   return out;
 }
 
-/** The fields a filer may set, and may change on a re-file. Status is never among them. */
+/**
+ * The fields a filer may set, and may change on a re-file. Status is never
+ * among them. On a re-file, a field left `undefined` is left as it was and a
+ * field set to `null` is cleared — so a caller re-filing only `{ kind, title,
+ * sourceRef }` never wipes the body, owner, risk or options it filed before.
+ */
 export type AskInput = {
   kind: AskKind;
   title: string;
@@ -171,22 +176,26 @@ export type AskInput = {
  */
 export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?: string | null }): Promise<{ ask: Ask; created: boolean }> {
   const { orgId, ask } = opts;
-  const mutable = {
-    kind: ask.kind,
-    title: ask.title,
-    body: ask.body ?? null,
-    agentSlug: ask.agentSlug ?? null,
-    teamSlug: ask.teamSlug ?? null,
-    risk: ask.risk ?? null,
-    options: ask.options ?? [],
-    groupKey: ask.groupKey ?? null,
-    groupTitle: ask.groupTitle ?? null,
-    contextUrl: ask.contextUrl ?? null,
-    contextMd: ask.contextMd ?? null,
-    dueAt: ask.dueAt ?? null,
-    notifyAt: ask.notifyAt ?? null,
-    projectId: ask.projectId ?? null,
-  };
+  // Only the keys the caller actually sent. `undefined` means "not mentioned",
+  // and an unmentioned field must survive a re-file.
+  const mutable = Object.fromEntries(
+    Object.entries({
+      kind: ask.kind,
+      title: ask.title,
+      body: ask.body,
+      agentSlug: ask.agentSlug,
+      teamSlug: ask.teamSlug,
+      risk: ask.risk,
+      options: ask.options,
+      groupKey: ask.groupKey,
+      groupTitle: ask.groupTitle,
+      contextUrl: ask.contextUrl,
+      contextMd: ask.contextMd,
+      dueAt: ask.dueAt,
+      notifyAt: ask.notifyAt,
+      projectId: ask.projectId,
+    }).filter(([, v]) => v !== undefined),
+  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'options' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId'>> & Pick<Ask, 'kind' | 'title'>;
 
   const sourceRef = ask.sourceRef?.trim() || null;
   if (sourceRef) {

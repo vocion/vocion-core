@@ -3,7 +3,7 @@ import { Inbox as InboxIcon } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { InboxList } from '@/features/dashboard/inbox/InboxList';
-import { INBOX_GROUP_META, waitingFor } from '@/features/dashboard/inbox/inboxMeta';
+import { agoLabel, INBOX_GROUP_META, waitingFor } from '@/features/dashboard/inbox/inboxMeta';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
@@ -54,7 +54,7 @@ export default async function InboxPage(props: {
             {recent[0]
               ? (
                   <Link href={recent[0].href} className="underline-offset-2 hover:underline">
-                    {`${recent[0].title} · ${waitingFor(recent[0].at)} ago`}
+                    {`${recent[0].title} · ${agoLabel(recent[0].at)}`}
                   </Link>
                 )
               : 'No activity yet.'}

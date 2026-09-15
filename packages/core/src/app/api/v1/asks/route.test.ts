@@ -121,6 +121,40 @@ describe('POST /api/v1/asks', () => {
     expect(body.created).toBe(false);
     expect(body.ask).toMatchObject({ id: ask.id, title: 'Slack app granularity? (updated)', status: 'done', decision: 'per-agent' });
   });
+
+  it('re-files with only { kind, title, sourceRef } without wiping what was filed before, and clears a field only on an explicit null', async () => {
+    const first = await (await POST(post('/api/v1/asks', {
+      kind: 'approval',
+      title: 'Publish the Show HN post',
+      body: 'Two links to re-check after #33 merges.',
+      sourceRef: 'workforce:approvals/014-show-hn-post',
+      agentSlug: 'distribution',
+      teamSlug: 'distribution',
+      risk: 'low',
+      options: ['Post Tue 8am ET', 'Hold'],
+      contextUrl: 'https://example.test/014.md',
+      dueAt: '2026-09-16T12:00:00Z',
+    }))).json();
+
+    const again = await (await POST(post('/api/v1/asks', { kind: 'approval', title: 'Publish the Show HN post (links verified)', sourceRef: 'workforce:approvals/014-show-hn-post' }))).json();
+
+    expect(again.created).toBe(false);
+    expect(again.ask).toMatchObject({
+      id: first.ask.id,
+      title: 'Publish the Show HN post (links verified)',
+      body: 'Two links to re-check after #33 merges.',
+      agentSlug: 'distribution',
+      teamSlug: 'distribution',
+      risk: 'low',
+      contextUrl: 'https://example.test/014.md',
+      options: [{ id: 'post-tue-8am-et', label: 'Post Tue 8am ET' }, { id: 'hold', label: 'Hold' }],
+    });
+    expect(again.ask.dueAt).toBe(first.ask.dueAt);
+
+    const cleared = await (await POST(post('/api/v1/asks', { kind: 'approval', title: 'x', sourceRef: 'workforce:approvals/014-show-hn-post', body: null, risk: null, options: [], dueAt: null }))).json();
+
+    expect(cleared.ask).toMatchObject({ body: null, risk: null, options: [], dueAt: null, agentSlug: 'distribution' });
+  });
 });
 
 describe('GET /api/v1/asks', () => {

@@ -13,6 +13,17 @@ import { ChatDock } from './ChatDock';
 export const OWN_DOCK_ROUTES: RegExp[] = [/\/gtm\/lead\//];
 
 /**
+ * Screens where a person is answering a question — an ask or a decision
+ * sheet — with the action pinned to the bottom of a phone. The dock's button
+ * would sit on top of Submit there, and a decision screen is not a place to
+ * start a conversation, so the shell mounts no dock at all.
+ */
+export const NO_DOCK_ROUTES: RegExp[] = [
+  /\/dashboard\/inbox\/(?!g(?:\/|$))[^/]+$/,
+  /\/dashboard\/inbox\/g\/[^/]+$/,
+];
+
+/**
  * Single-record pages that do not (yet) mount their own dock: the everything
  * conversation opens by default there, because a person on one record came
  * to work on it (Valerie, 2026-09-09). Anything with its own URL and its own
@@ -82,7 +93,7 @@ export function PageDock({ agents }: { agents: AgentOption[] }) {
     return () => observer.disconnect();
   }, [pathname]);
 
-  if (agents.length === 0 || isChatPage(pathname) || isOwnDockRoute(pathname)) {
+  if (agents.length === 0 || isChatPage(pathname) || isOwnDockRoute(pathname) || NO_DOCK_ROUTES.some(r => r.test(pathname))) {
     return null;
   }
 

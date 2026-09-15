@@ -32,14 +32,18 @@ export function optStr(body: Record<string, unknown>, key: string): string | nul
 }
 
 /**
- * Read an optional ISO-8601 timestamp field: a `Date`, `null` when absent or
- * null, or the 400 body to send back when the string does not parse.
+ * Read an optional ISO-8601 timestamp field: a `Date`, `undefined` when the key
+ * is absent, `null` when the caller sent null or an empty string (clear it), or
+ * the 400 body to send back when the string does not parse.
  * @param body
  * @param key
  */
-export function optDate(body: Record<string, unknown>, key: string): Date | null | NextResponse {
+export function optDate(body: Record<string, unknown>, key: string): Date | null | undefined | NextResponse {
+  if (!(key in body)) {
+    return undefined;
+  }
   const v = body[key];
-  if (v === undefined || v === null || v === '') {
+  if (v === null || v === '') {
     return null;
   }
   const d = typeof v === 'string' ? new Date(v) : null;

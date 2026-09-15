@@ -66,3 +66,13 @@ export function waitingFor(at: Date, now: Date = new Date()): string {
   }
   return `${Math.floor(hours / 24)}d`;
 }
+
+/**
+ * "just now" or "3h ago" — `waitingFor` with the suffix only where it reads right.
+ * @param at
+ * @param now
+ */
+export function agoLabel(at: Date, now: Date = new Date()): string {
+  const w = waitingFor(at, now);
+  return w === 'just now' ? w : `${w} ago`;
+}

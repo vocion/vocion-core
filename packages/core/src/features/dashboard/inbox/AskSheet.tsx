@@ -350,7 +350,7 @@ function OptionRow({ option, selected, onSelect }: { option: AskOption; selected
 
 function StickyBar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:sticky sm:mt-6 sm:rounded-md sm:border">
+    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:sticky sm:mt-6 sm:rounded-md sm:border">
       <div className="mx-auto flex w-full max-w-2xl items-center gap-2">{children}</div>
     </div>
   );

@@ -49,8 +49,9 @@ export async function GET(req: Request) {
  * File a question for a person. `options` may be bare strings (id = slug of
  * the label) or objects; at most one may be `recommended`. `url` is accepted
  * as an alias of `contextUrl`. With a `sourceRef` this org has already filed,
- * the open row is updated in place and the reply is 200 — status and decision
- * are never touched by a re-file. A new ask is 201.
+ * the row is updated in place and the reply is 200 — only the fields present
+ * in the request change (send `null` to clear one); status and decision are
+ * never touched by a re-file. A new ask is 201.
  * Auth: tenant API token or dashboard session.
  * @param req - Request.
  */
@@ -89,19 +90,20 @@ export async function POST(req: Request) {
       ask: {
         kind: body.kind,
         title,
-        body: optStr(body, 'body') ?? null,
+        // Absent keys stay `undefined` so a re-file touches only what it names.
+        body: optStr(body, 'body'),
         sourceRef: optStr(body, 'sourceRef') ?? null,
-        agentSlug: optStr(body, 'agentSlug') ?? null,
-        teamSlug: optStr(body, 'teamSlug') ?? null,
-        risk: isAskRisk(rawRisk) ? rawRisk : null,
-        options: normaliseOptions(body.options),
-        groupKey: optStr(body, 'groupKey') ?? null,
-        groupTitle: optStr(body, 'groupTitle') ?? null,
-        contextUrl: optStr(body, 'contextUrl') ?? optStr(body, 'url') ?? null,
-        contextMd: optStr(body, 'contextMd') ?? null,
+        agentSlug: optStr(body, 'agentSlug'),
+        teamSlug: optStr(body, 'teamSlug'),
+        risk: rawRisk === undefined ? undefined : isAskRisk(rawRisk) ? rawRisk : null,
+        options: 'options' in body ? normaliseOptions(body.options) : undefined,
+        groupKey: optStr(body, 'groupKey'),
+        groupTitle: optStr(body, 'groupTitle'),
+        contextUrl: 'contextUrl' in body ? optStr(body, 'contextUrl') : optStr(body, 'url'),
+        contextMd: optStr(body, 'contextMd'),
         dueAt,
         notifyAt,
-        projectId: optStr(body, 'projectId') ?? null,
+        projectId: optStr(body, 'projectId'),
       },
     });
     return NextResponse.json({ ask, created }, { status: created ? 201 : 200 });
