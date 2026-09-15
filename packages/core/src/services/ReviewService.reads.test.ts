@@ -217,4 +217,62 @@ describe('listAutoExecuted', () => {
     expect(page.items).toHaveLength(1);
     expect(page.total).toBe(2);
   });
+
+  it('finds runs marked on the column, not just ones carrying the old envelope key', async () => {
+    await makePendingAction(ORG, { status: 'done', approvedByAgent: true, proposal: { confidence: 0.99 } });
+
+    const out = await listAutoExecuted(ORG);
+
+    expect(out.total).toBe(1);
+    expect(out.items[0]!.approvedByAgent).toBe(true);
+  });
+
+  it('still finds pre-migration runs, whose column is null but whose envelope says auto-approved', async () => {
+    // Narrowing this list to the column alone would silently empty the audit
+    // trail of everything decided before the column shipped.
+    await makePendingAction(ORG, { status: 'done', approvedByAgent: null, proposal: { autoApproved: true } });
+
+    expect((await listAutoExecuted(ORG)).total).toBe(1);
+  });
+
+  it('leaves out a run a person decided, even when the old envelope key is set on it', async () => {
+    // The column is the system of record: an explicit `false` beats a stale
+    // envelope, or a human decision would be reported as the agent's work.
+    await makePendingAction(ORG, { status: 'done', approvedByAgent: false, proposal: { autoApproved: true } });
+
+    expect((await listAutoExecuted(ORG)).total).toBe(0);
+  });
+});
+
+describe('approvedByAgent on the queue reads', () => {
+  it('is null on a pending item, so an undecided card never reads as human-approved', async () => {
+    await makePendingAction();
+
+    const page = await listPendingPage(ORG, { kind: 'action' });
+
+    expect(page.items[0]!.approvedByAgent).toBeNull();
+  });
+
+  it('comes back on the detail view for a run an agent approved', async () => {
+    const id = await makePendingAction(ORG, { status: 'done', approvedByAgent: true, decidedBy: 'agent:event-scout' });
+
+    const detail = await getReviewDetail(ORG, 'action', id);
+
+    expect(detail!.approvedByAgent).toBe(true);
+    // The agent and the timestamp travel with it, so a reviewer can audit the
+    // decision without a second lookup.
+    expect((detail!.record as { decidedBy?: string }).decidedBy).toBe('agent:event-scout');
+  });
+
+  it('comes back false on the detail view for a run a person decided', async () => {
+    const id = await makePendingAction(ORG, { status: 'done', approvedByAgent: false, decidedBy: 'user_123' });
+
+    expect((await getReviewDetail(ORG, 'action', id))!.approvedByAgent).toBe(false);
+  });
+
+  it('is null on planes that have no auto-approval path at all', async () => {
+    const workflowId = await makePausedWorkflow();
+
+    expect((await getReviewDetail(ORG, 'workflow', workflowId))!.approvedByAgent).toBeNull();
+  });
 });

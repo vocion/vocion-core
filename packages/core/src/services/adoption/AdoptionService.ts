@@ -119,6 +119,17 @@ export type AdoptionOverview = {
   /** Approvals + feedback + learnings. */
   accountabilityActions: number;
   interactions: number;
+  /**
+   * Decisions the trust ladder took without a person, over the same window.
+   *
+   * Read off `action_run.approved_by_agent`, not the activity stream, and that
+   * is deliberate: every other number here counts what a HUMAN did, and an
+   * agent writing itself onto the stream would count as an active user and as
+   * an interaction, inflating the figures this screen exists to report. Kept
+   * beside them so the two questions — how much reaches people, and how much
+   * never needed to — can be read together without being added together.
+   */
+  autoApprovals: number;
   /** Same metrics over the preceding window of equal length. */
   previous: {
     activeUsers: number;
@@ -126,6 +137,7 @@ export type AdoptionOverview = {
     chatMessages: number;
     accountabilityActions: number;
     interactions: number;
+    autoApprovals: number;
   };
 };
 
@@ -167,6 +179,7 @@ export async function getOverview(orgId: string, accountId: string | null, days:
       accountabilityActions: num(agg?.accountability),
       interactions: num(agg?.interactions),
       sessions: num(sess?.sessions),
+      autoApprovals: await countAutoApprovals(orgId, from, to),
     };
   };
 
@@ -183,6 +196,37 @@ export async function getOverview(orgId: string, accountId: string | null, days:
     adoptionRate: members > 0 ? current.activeUsers / members : 0,
     previous,
   };
+}
+
+/**
+ * How many proposals the trust ladder approved on its own in a window.
+ *
+ * Counted from `action_run` rather than the activity stream on purpose. The
+ * stream measures people — an agent actor on it would register as an active
+ * user and as an interaction — so the decision rows are the honest source, and
+ * they are also the authoritative one: `approved_by_agent` is what the ladder
+ * writes when it releases work.
+ *
+ * `decided_at` is the clock, not `created_at`: a proposal made last week and
+ * released today belongs to today's window, because the question is when the
+ * agent decided, not when the work appeared.
+ *
+ * Served by `action_run_approved_by_agent_idx` (org_id, decided_at) partial on
+ * the true rows, so the count stays cheap as the table grows.
+ * @param orgId
+ * @param from - Start of the window, inclusive.
+ * @param to - End of the window, exclusive. Null means "up to now".
+ */
+export async function countAutoApprovals(orgId: string, from: Date, to: Date | null): Promise<number> {
+  const upper = to ? sql` AND decided_at < ${to}` : sql``;
+  const [row] = await rows(sql`
+    SELECT count(*) AS n
+    FROM action_run
+    WHERE org_id = ${orgId}
+      AND approved_by_agent
+      AND decided_at >= ${from}${upper}
+  `);
+  return num(row?.n);
 }
 
 async function countMembers(accountId: string | null): Promise<number> {

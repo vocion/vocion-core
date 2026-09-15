@@ -17,11 +17,12 @@
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { Action } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema } from '@/models/Schema';
+import { agentSlugFromPrincipal } from '@/services/adoption/attribution';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
@@ -362,6 +363,14 @@ export async function proposeAction(input: {
     const { trustDecision } = await import('@/services/TrustService');
     const trust = await trustDecision(input.orgId, action.id, input.proposal?.confidence);
     if (trust.auto) {
+      // Who to credit with the decision. An in-process agent turn stamps
+      // `agent:<slug>` on the proposing principal; a proposal made over the API
+      // stamps its caller there and names the agent in the envelope instead, so
+      // both have to be read. Neither knowing it means the trust ladder itself
+      // is the decider — the honest answer, rather than crediting an agent we
+      // cannot name.
+      const decidingAgent = agentSlugFromPrincipal(input.invokedBy ?? input.principal.id)
+        ?? input.proposal?.agentSlug;
       await db
         .update(actionRunSchema)
         .set({
@@ -370,8 +379,25 @@ export async function proposeAction(input: {
             autoApproved: true,
             autoApprovedThreshold: trust.threshold,
           } as never,
+          // `approvedByAgent` is the system of record for who decided; the
+          // envelope key above predates it and is kept so runs written before
+          // the column landed still read as auto-approved.
+          //
+          // Stamping the decision fields here is what makes "did a decision
+          // happen" one question instead of two: before this, an auto-approved
+          // run left `decidedBy` and `decidedAt` empty and was indistinguishable
+          // from one nobody had touched.
+          approvedByAgent: true,
+          decidedBy: decidingAgent ? `agent:${decidingAgent}` : 'trust-ladder',
+          decidedAt: new Date(),
         })
         .where(eq(actionRunSchema.id, run!.id));
+      // Deliberately NOT written to the adoption stream. Adoption measures what
+      // people do, and an agent actor on a `review.%` event would count itself
+      // as an active user and as an interaction, inflating the very numbers the
+      // screen exists to report. The count comes off this column instead
+      // (`AdoptionService.countAutoApprovals`), which is the system of record
+      // for the decision and is indexed for exactly that question.
       return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
     }
     return { runId: run!.id, status: 'pending', outcome: 'created' };
@@ -421,7 +447,18 @@ export async function executeAction(
       status: 'executing',
       // Stamped at the decision, not at completion: even a failed execution
       // was still approved by this person at this moment.
-      ...(opts?.reviewedBy ? { decidedBy: opts.reviewedBy, decidedAt: new Date() } : {}),
+      ...(opts?.reviewedBy
+        ? {
+            decidedBy: opts.reviewedBy,
+            decidedAt: new Date(),
+            // A person is executing this, so the decision was not an agent's —
+            // unless one already took it. `coalesce` keeps the FIRST decider:
+            // an agent-approved run whose execution failed and which a person
+            // then retries by hand must not lose the fact that an agent
+            // approved it, which is the whole thing this column audits.
+            approvedByAgent: sql`coalesce(${actionRunSchema.approvedByAgent}, false)`,
+          }
+        : {}),
     })
     .where(eq(actionRunSchema.id, runId));
   const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
@@ -502,7 +539,19 @@ export async function updateActionInput(runId: number, orgId: string, input: Rec
 export async function rejectAction(runId: number, orgId: string, reason?: string, opts?: { reviewedBy?: string }): Promise<void> {
   const [run] = await db
     .update(actionRunSchema)
-    .set({ status: 'rejected', error: reason ?? null, executedAt: new Date(), decidedBy: opts?.reviewedBy ?? null, decidedAt: new Date() })
+    .set({
+      status: 'rejected',
+      error: reason ?? null,
+      executedAt: new Date(),
+      decidedBy: opts?.reviewedBy ?? null,
+      decidedAt: new Date(),
+      // A rejection is a decision, so this stops being null — and it is never
+      // an agent's, because the trust ladder can only release work, never turn
+      // it down. `coalesce` still guards the one case that matters: rejecting a
+      // run an agent had already approved leaves the original `true` standing,
+      // so the reversal shows up in `status` without erasing who approved it.
+      approvedByAgent: sql`coalesce(${actionRunSchema.approvedByAgent}, false)`,
+    })
     .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
     .returning({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy });
   if (!run) {

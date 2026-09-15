@@ -44,6 +44,19 @@ export type ReviewItem = {
    * just to label rows it already has in hand.
    */
   suggestedDecision?: SuggestedDecision;
+  /**
+   * Who made the approval call: `true` an agent took it on its own via the
+   * trust ladder, `false` a person decided it, `null` nobody has decided yet.
+   *
+   * Null on every item in the pending queue by definition — they are the
+   * undecided ones — and on every run decided before the column shipped. Never
+   * read a missing value as a human approval; it means unknown.
+   *
+   * Workflow and mission items carry `null` too: neither plane has an
+   * auto-approval path, so there is no honest value other than "no agent
+   * decided this".
+   */
+  approvedByAgent?: boolean | null;
 };
 
 export type ListOptions = {
@@ -299,6 +312,7 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
       suggestedDecision: suggestedDecisionColumn,
+      approvedByAgent: actionRunSchema.approvedByAgent,
     })
     .from(actionRunSchema)
     .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
@@ -319,6 +333,10 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     // older release or by hand can be any string at all, and a row claiming a
     // recommendation nobody defined should read as having none.
     suggestedDecision: parseSuggestedDecision(row.suggestedDecision),
+    // Null for everything in this plane — it only returns open work, which is
+    // by definition undecided. Carried anyway so the field is present on every
+    // item a client sees, rather than appearing only once an item is decided.
+    approvedByAgent: row.approvedByAgent,
   }));
   const total = await planeTotal(items.length, cap, async () => {
     const [counted] = await db
@@ -511,6 +529,7 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       input: row.input ?? null,
       proposal: (row.proposal as Record<string, unknown> | null) ?? null,
       suggestedDecision: parseSuggestedDecision(row.proposal?.suggestedDecision),
+      approvedByAgent: row.approvedByAgent,
       card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
       record: row as unknown as Record<string, unknown>,
     };
@@ -534,6 +553,10 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       ...routing,
       input: row.input ?? null,
       proposal: null,
+      // No auto-approval path on this plane, so no agent ever decides one.
+      // Stated rather than omitted, so a client reads the same field on every
+      // kind instead of having to know which planes carry it.
+      approvedByAgent: null,
       card: null,
       record: row as unknown as Record<string, unknown>,
     };
@@ -556,6 +579,8 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
     ...routing,
     input: null,
     proposal: null,
+    // Same as the workflow plane: missions have no auto-approval path.
+    approvedByAgent: null,
     card: null,
     record: row as unknown as Record<string, unknown>,
   };
@@ -600,7 +625,22 @@ export async function listAutoExecuted(
   const offset = opts.offset ?? 0;
   const autoApproved = and(
     eq(actionRunSchema.orgId, orgId),
-    sql`${actionRunSchema.proposal} ->> 'autoApproved' = 'true'`,
+    // `approved_by_agent` is the system of record. Runs decided before that
+    // column shipped have it null and are still auto-executed, so the proposal
+    // key it replaced is read as a fallback: narrowing to the column alone
+    // would silently empty this audit trail of everything before the migration.
+    //
+    // The first arm is what `action_run_approved_by_agent_idx` serves. The
+    // fallback arm scans, and is meant to — it shrinks as pre-migration rows
+    // age out, and indexing a jsonb key to read a closed set of old rows would
+    // cost more than it saves.
+    or(
+      eq(actionRunSchema.approvedByAgent, true),
+      and(
+        isNull(actionRunSchema.approvedByAgent),
+        sql`${actionRunSchema.proposal} ->> 'autoApproved' = 'true'`,
+      ),
+    ),
   );
   const [items, [counted]] = await Promise.all([
     db
