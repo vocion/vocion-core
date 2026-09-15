@@ -63,6 +63,7 @@ export const ADOPTION_EVENTS = {
    * starts in context rather than cold.
    */
   'chat.opened_from_context': { agent: true, meta: z.object({ recordType: z.string().max(40) }) },
+  /**
    * A thumb on one assistant turn in the chat (0094). `rating` null = the
    * person cleared their thumb. The note itself never travels here — it goes
    * to the feedback classifier — only whether there was one.
