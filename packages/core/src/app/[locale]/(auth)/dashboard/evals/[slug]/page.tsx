@@ -6,6 +6,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { getDataset, listRuns } from '@/services/EvalService';
+import { CompareModelsForm } from './CompareModelsForm';
 import { RunDatasetButton } from './RunDatasetButton';
 
 type Props = {
@@ -26,6 +27,15 @@ export default async function EvalDatasetDetailPage(props: Props) {
   }
 
   const runs = (await listRuns(orgId, dataset.id)).filter(r => r.datasetId === dataset.id);
+  // Runs that named a model and finished, newest first — the pairs a person
+  // can compare without running anything. Adjacent pairs only; the page is
+  // an entry point, not a matrix.
+  const modelRuns = runs.filter(r => r.status === 'succeeded' && r.model);
+  const comparablePairs = modelRuns.slice(0, 3).flatMap((cand, i) => {
+    const base = modelRuns[i + 1];
+    return base && base.model !== cand.model ? [[base, cand] as const] : [];
+  });
+  const lastModel = modelRuns[0]?.model ?? null;
 
   return (
     <>
@@ -82,6 +92,37 @@ export default async function EvalDatasetDetailPage(props: Props) {
         </p>
       </div>
 
+      <div className="mb-8 flex flex-wrap items-start gap-3 rounded-lg border border-border bg-muted/10 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold">Model upgrade test</div>
+          <p className="text-xs text-muted-foreground">
+            Run every case on the model this role uses today and on a candidate release, judged the same way, and compare on cost per passed case — not price per token.
+            {comparablePairs.length > 0 && (
+              <>
+                {' '}
+                Or compare two existing runs:
+                {' '}
+                {comparablePairs.map(([a, b], i) => (
+                  <span key={`${a.id}-${b.id}`}>
+                    {i > 0 ? ', ' : null}
+                    <Link href={`/dashboard/evals/${dataset.slug}/compare?baseline=${a.id}&candidate=${b.id}`} className="font-mono underline-offset-2 hover:underline">
+                      #
+                      {a.id}
+                      {' '}
+                      →
+                      {' '}
+                      #
+                      {b.id}
+                    </Link>
+                  </span>
+                ))}
+              </>
+            )}
+          </p>
+        </div>
+        <CompareModelsForm slug={dataset.slug} defaultBaseline={lastModel ?? ''} />
+      </div>
+
       <section className="mb-10">
         <h2 className="mb-3 font-display text-sm font-semibold">Recent runs</h2>
         {runs.length === 0
@@ -118,6 +159,9 @@ export default async function EvalDatasetDetailPage(props: Props) {
                               {Math.round(pass * 100)}
                               % pass
                             </span>
+                          )}
+                          {run.model && (
+                            <Badge variant="outline" className="font-mono text-[10px]">{run.model}</Badge>
                           )}
                           {run.workspaceSha && (
                             <span className="font-mono text-xs text-muted-foreground">

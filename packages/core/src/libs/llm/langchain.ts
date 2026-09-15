@@ -114,6 +114,38 @@ function resolveProvider(role: ModelRole): LangChainProvider {
   return raw;
 }
 
+/**
+ * The provider a bare model id belongs to, read off the id's shape — or null
+ * when the shape says nothing.
+ *
+ * Exists for the one call site that names a model without naming a vendor:
+ * the model-upgrade test (`services/evals/modelUpgradeTest.ts`), where a person
+ * types `gpt-6-astra` and expects it to run on OpenAI without also having to
+ * say so. Every other path still passes the provider explicitly — see
+ * `chatModelOptionsFor` in `services/agents/harness.ts` for why a bare
+ * `model:` in workspace YAML is NOT resolved this way (those ids were authored
+ * for a different harness, and guessing would send a Bedrock id to Anthropic).
+ *
+ * The rules are the vendors' own naming: OpenAI ids start with `gpt-`, `o<n>`
+ * or `text-`; Anthropic's start with `claude-`; a Bedrock id carries a vendor
+ * segment (`anthropic.`, `amazon.`, `meta.`) or a cross-region prefix. Nothing
+ * else is guessed — an unknown shape returns null and the caller decides.
+ * @param modelId - A bare model id as a provider would report it.
+ */
+export function inferProviderForModel(modelId: string): LangChainProvider | null {
+  const id = modelId.trim().toLowerCase();
+  if (/^(?:us|eu|apac|global)\./.test(id) || /^(?:anthropic|amazon|meta|mistral|cohere)\./.test(id)) {
+    return 'bedrock';
+  }
+  if (id.startsWith('claude-')) {
+    return 'anthropic';
+  }
+  if (id.startsWith('gpt-') || id.startsWith('text-') || /^o\d/.test(id) || id.startsWith('chat-')) {
+    return 'openai';
+  }
+  return null;
+}
+
 function resolveModel(role: ModelRole, provider: LangChainProvider): string {
   const override = process.env[`VOCION_LLM_MODEL_${role.toUpperCase()}`];
   if (override) {
