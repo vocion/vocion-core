@@ -1,4 +1,4 @@
-import type { ChatInbound, ChatParse, ChatReplyTarget, ChatSurfaceAdapter, ChatVerification } from './types';
+import type { ChatImage, ChatInbound, ChatMessage, ChatParse, ChatPostRef, ChatReplyTarget, ChatSurfaceAdapter, ChatVerification } from './types';
 import { Buffer } from 'node:buffer';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -16,6 +16,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /** Slack rejects replays older than five minutes; so do we. */
 const MAX_SKEW_SECONDS = 300;
+
+export const SLACK_API_BASE = 'https://slack.com/api';
 
 type SlackEvent = {
   type?: string;
@@ -145,9 +147,169 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
   return { kind: 'message', inbound };
 }
 
+/* ------------------------------------------------------------------ */
+/* Posting — text, and the media ladder                                 */
+/* ------------------------------------------------------------------ */
+
 /**
- * Post a reply into the thread. Two-layer error check (`res.ok` and `body.ok`)
- * is the Slack idiom the source connector already uses.
+ * How images reached the channel, in the order we prefer them.
+ *
+ * - `uploaded` — the bytes live in Slack (`files:write`). Works for an image
+ *   behind our own auth, because we read it server-side and hand over bytes.
+ * - `blocks` — a Block Kit `image` block pointing at a publicly reachable URL.
+ *   Slack fetches it itself and renders it INLINE with only `chat:write`.
+ * - `unreachable` — neither: the scope is missing AND the URL needs a sign-in,
+ *   so the post says so rather than showing a broken picture.
+ * - `none` — the message carried no images.
+ *
+ * A bare link is not on the ladder. Verified on the live app 2026-09-15: a
+ * link to an image in a private channel does NOT unfurl even with
+ * `unfurl_media: true`, so "paste the link" is a picture nobody sees.
+ */
+export type SlackMedia = 'none' | 'uploaded' | 'blocks' | 'unreachable';
+
+/**
+ * Slack rejects an `image` block whose URL it cannot fetch itself.
+ * @param url
+ */
+export function isPubliclyFetchable(url: string): boolean {
+  return /^https:\/\//i.test(url) && !url.includes('/api/artifacts/');
+}
+
+/**
+ * The message as blocks. The caption goes in `alt_text` and in a `section`
+ * block above the image — Slack IGNORES `title` on an image block inside a
+ * message and warns `ignored_extra_attributes_for_image_block`, so a caption
+ * put there is a caption nobody reads.
+ *
+ * `text` stays on the payload alongside the blocks: it is what a notification
+ * and a screen reader get when the blocks do not render.
+ * @param text - The message body.
+ * @param images - Images to render inline. Only publicly fetchable URLs belong here.
+ */
+export function slackBlocks(text: string, images: ChatImage[]): Record<string, unknown>[] {
+  const blocks: Record<string, unknown>[] = [];
+  if (text.trim()) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text } });
+  }
+  for (const img of images) {
+    const caption = img.caption.trim();
+    if (caption) {
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: caption } });
+    }
+    blocks.push({ type: 'image', image_url: img.url, alt_text: caption || 'screenshot' });
+  }
+  return blocks;
+}
+
+/**
+ * A message given as a bare string or as an object, normalised.
+ * @param message
+ */
+function asMessage(message: string | ChatMessage): ChatMessage {
+  return typeof message === 'string' ? { text: message } : message;
+}
+
+/**
+ * One Slack Web API call, with the two-layer error check (`res.ok` and
+ * `body.ok`) the source connector already uses. `missing_scope` is returned
+ * rather than thrown: a missing scope is a fact about the install to degrade
+ * on, not a bug to crash on.
+ * @param method - API method name, e.g. `chat.postMessage`.
+ * @param body - JSON payload.
+ * @param token - Bot token.
+ * @param baseUrl - Overridable for tests.
+ * @param fetchImpl - Injectable for tests.
+ */
+export async function slackApi<T extends Record<string, unknown>>(method: string, body: Record<string, unknown>, token: string | undefined, baseUrl = SLACK_API_BASE, fetchImpl: typeof fetch = fetch): Promise<{ ok: true; body: T } | { ok: false; error: string }> {
+  if (!token) {
+    return { ok: false, error: 'missing_token' };
+  }
+  const res = await fetchImpl(`${baseUrl}/${method}`, {
+    method: 'POST',
+    headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    return { ok: false, error: `http_${res.status}` };
+  }
+  const parsed = (await res.json()) as { ok?: boolean; error?: string } & T;
+  if (!parsed.ok) {
+    return { ok: false, error: parsed.error ?? 'unknown' };
+  }
+  return { ok: true, body: parsed };
+}
+
+/**
+ * Upload images into Slack as real files (`files:write`): ask for an upload
+ * URL, PUT the bytes, then complete the upload into the channel and thread.
+ * Three calls per file, which is what Slack's current API costs — `files.upload`
+ * is retired.
+ *
+ * Bytes come from the caller, not from Slack fetching a URL, which is exactly
+ * why this rung works for an image behind our own authentication.
+ * @param opts - Channel, thread, the comment the files arrive under, and the files.
+ * @param opts.channelId
+ * @param opts.threadRef
+ * @param opts.initialComment
+ * @param opts.files
+ * @param token - Bot token.
+ * @param baseUrl - Overridable for tests.
+ * @param fetchImpl - Injectable for tests.
+ * @returns The ids Slack assigned, or the API error that stopped it.
+ */
+export async function uploadSlackImages(
+  opts: { channelId: string; threadRef?: string; initialComment?: string; files: { filename: string; title: string; bytes: Uint8Array }[] },
+  token: string | undefined,
+  baseUrl = SLACK_API_BASE,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: true; fileIds: string[] } | { ok: false; error: string }> {
+  const fileIds: { id: string; title: string }[] = [];
+  for (const file of opts.files) {
+    const handle = await slackApi<{ upload_url?: string; file_id?: string }>(
+      'files.getUploadURLExternal',
+      { filename: file.filename, length: file.bytes.byteLength },
+      token,
+      baseUrl,
+      fetchImpl,
+    );
+    if (!handle.ok) {
+      return { ok: false, error: handle.error };
+    }
+    const { upload_url: uploadUrl, file_id: fileId } = handle.body;
+    if (!uploadUrl || !fileId) {
+      return { ok: false, error: 'upload_url_missing' };
+    }
+    const put = await fetchImpl(uploadUrl, { method: 'POST', body: file.bytes as BodyInit });
+    if (!put.ok) {
+      return { ok: false, error: `upload_http_${put.status}` };
+    }
+    fileIds.push({ id: fileId, title: file.title });
+  }
+  const complete = await slackApi(
+    'files.completeUploadExternal',
+    {
+      files: fileIds.map(f => ({ id: f.id, title: f.title })),
+      channel_id: opts.channelId,
+      ...(opts.threadRef ? { thread_ts: opts.threadRef } : {}),
+      ...(opts.initialComment ? { initial_comment: opts.initialComment } : {}),
+    },
+    token,
+    baseUrl,
+    fetchImpl,
+  );
+  if (!complete.ok) {
+    return { ok: false, error: complete.error };
+  }
+  return { ok: true, fileIds: fileIds.map(f => f.id) };
+}
+
+/** Fetch the bytes behind an image so the upload rung can hand them to Slack. */
+export type ImageFetcher = (image: ChatImage) => Promise<Uint8Array | null>;
+
+/**
+ * Post a message into the thread, carrying its images the best way the
+ * install's scopes allow (see {@link SlackMedia}).
  *
  * A target that carries a persona is posted with Slack's `username` and
  * `icon_url` overrides, which need the `chat:write.customize` bot scope — one
@@ -157,15 +319,63 @@ export function parseSlackPayload(payload: unknown, configuredBotUserId?: string
  * A target with no `threadRef` posts to the channel itself rather than into a
  * thread — the channel-join introduction, which has no thread to answer in.
  * @param target - Channel, optionally a thread, and optionally the persona to post as.
- * @param text - Plain text (Slack mrkdwn is fine).
+ * @param message - Plain text (Slack mrkdwn is fine), or `{ text, images }`.
  * @param token - Bot token.
  * @param baseUrl - Overridable for tests.
+ * @param opts - Scope and byte-fetching seams, injectable for tests.
+ * @param opts.scopes - Bot scopes this install holds; omitted means "ask Slack".
+ * @param opts.fetchImage - Reads the bytes behind an image, for the upload rung.
+ * @param opts.fetchImpl - Injectable fetch.
  */
-export async function postSlackReply(target: ChatReplyTarget, text: string, token: string | undefined, baseUrl = 'https://slack.com/api'): Promise<void> {
+export async function postSlackReply(
+  target: ChatReplyTarget,
+  message: string | ChatMessage,
+  token: string | undefined,
+  baseUrl = SLACK_API_BASE,
+  opts: { scopes?: ReadonlySet<string>; fetchImage?: ImageFetcher; fetchImpl?: typeof fetch } = {},
+): Promise<ChatPostRef | null> {
   if (!token) {
     throw new Error('SLACK_BOT_TOKEN is not set; cannot reply');
   }
-  const payload: Record<string, string> = { channel: target.channelId, text };
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const msg = asMessage(message);
+  const images = msg.images ?? [];
+  let media: SlackMedia = 'none';
+  let text = msg.text;
+  let renderable: ChatImage[] = [];
+
+  if (images.length > 0) {
+    const scopes = opts.scopes ?? await fetchBotScopes(token, baseUrl, fetchImpl);
+    if (scopes.has('files:write') && opts.fetchImage) {
+      const files: { filename: string; title: string; bytes: Uint8Array }[] = [];
+      for (const [i, image] of images.entries()) {
+        const bytes = await opts.fetchImage(image).catch(() => null);
+        if (bytes) {
+          files.push({ filename: filenameFor(image, i), title: image.caption || `image ${i + 1}`, bytes });
+        }
+      }
+      if (files.length === images.length) {
+        const uploaded = await uploadSlackImages({ channelId: target.channelId, threadRef: target.threadRef, initialComment: text, files }, token, baseUrl, fetchImpl);
+        if (uploaded.ok) {
+          // completeUploadExternal posts the message; there is no separate
+          // chat.postMessage, and no `ts` to key an outbound record on.
+          return { channelId: target.channelId, ts: '', ...(target.threadRef ? { threadRef: target.threadRef } : {}), media: 'uploaded' };
+        }
+      }
+      // Fell through: a byte read or the upload failed. The block rung below
+      // still shows the images, so this is a downgrade, not a failure.
+    }
+    renderable = images.filter(i => isPubliclyFetchable(i.url));
+    const unreachable = images.filter(i => !isPubliclyFetchable(i.url));
+    media = renderable.length > 0 ? 'blocks' : 'unreachable';
+    if (unreachable.length > 0) {
+      // Honest rather than broken: an image block pointing at a URL Slack
+      // cannot fetch renders as a grey box, and a bare link does not unfurl.
+      text = `${text}\n\n${unreachable.map(i => `_${i.caption || 'image'} — ${i.url} (opens in Vocion; sign-in required, so Slack cannot show it inline)_`).join('\n')}`;
+    }
+  }
+
+  const payload: Record<string, unknown> = { channel: target.channelId, text };
   if (target.threadRef) {
     payload.thread_ts = target.threadRef;
   }
@@ -175,23 +385,102 @@ export async function postSlackReply(target: ChatReplyTarget, text: string, toke
   if (target.iconUrl) {
     payload.icon_url = target.iconUrl;
   }
-  const res = await fetch(`${baseUrl}/chat.postMessage`, {
-    method: 'POST',
-    headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json; charset=utf-8' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(`Slack chat.postMessage failed: ${res.status} ${await res.text().catch(() => '')}`);
+  if (renderable.length > 0) {
+    payload.blocks = slackBlocks(text, renderable);
   }
-  const body = (await res.json()) as { ok?: boolean; error?: string };
-  if (!body.ok) {
-    throw new Error(`Slack API error: ${body.error ?? 'unknown'}`);
+  const posted = await slackApi<{ ts?: string; channel?: string }>('chat.postMessage', payload, token, baseUrl, fetchImpl);
+  if (!posted.ok) {
+    throw new Error(`Slack chat.postMessage failed: ${posted.error}`);
   }
+  return {
+    channelId: posted.body.channel ?? target.channelId,
+    ts: posted.body.ts ?? '',
+    ...(target.threadRef ? { threadRef: target.threadRef } : {}),
+    media,
+  };
+}
+
+/**
+ * A filename Slack will accept, derived from the image URL or its position.
+ * @param image
+ * @param index
+ */
+function filenameFor(image: ChatImage, index: number): string {
+  const last = image.url.split(/[?#]/)[0]!.split('/').pop() ?? '';
+  return /\.(?:png|jpe?g|gif|webp)$/i.test(last) ? last : `screenshot-${index + 1}.png`;
+}
+
+/**
+ * Post an announcement — a release note, a report — into a channel, carrying
+ * its screenshots.
+ *
+ * Same ladder as a reply, and the reason it exists: the original post is where
+ * the screenshots belong. A reader who has to ask "any screenshots to go with
+ * this?" is reading an announcement that was built without them.
+ * @param target - Channel and optional persona. A `threadRef` posts into an existing thread.
+ * @param message - Text and images.
+ * @param token - Bot token.
+ * @param baseUrl - Overridable for tests.
+ * @param opts - Scope and byte-fetching seams, injectable for tests.
+ * @param opts.scopes
+ * @param opts.fetchImage
+ * @param opts.fetchImpl
+ */
+export async function postAnnouncement(
+  target: ChatReplyTarget,
+  message: ChatMessage,
+  token: string | undefined,
+  baseUrl = SLACK_API_BASE,
+  opts: { scopes?: ReadonlySet<string>; fetchImage?: ImageFetcher; fetchImpl?: typeof fetch } = {},
+): Promise<ChatPostRef | null> {
+  return postSlackReply(target, message, token, baseUrl, opts);
+}
+
+/* ------------------------------------------------------------------ */
+/* Scopes — what this install can actually do                          */
+/* ------------------------------------------------------------------ */
+
+const SCOPE_TTL_MS = 5 * 60 * 1000;
+const scopeCache = new Map<string, { scopes: Set<string>; at: number }>();
+
+/**
+ * The bot scopes this install holds, read from `auth.test`'s `x-oauth-scopes`
+ * response header. Cached per token for the process's lifetime minus a short
+ * TTL, because a reinstall changes them and nothing tells us.
+ *
+ * Asked rather than configured: a scope list in the environment is a list of
+ * what someone MEANT to grant. The live app's answer is what it can do.
+ * @param token - Bot token.
+ * @param baseUrl - Overridable for tests.
+ * @param fetchImpl - Injectable for tests.
+ */
+export async function fetchBotScopes(token: string | undefined, baseUrl = SLACK_API_BASE, fetchImpl: typeof fetch = fetch): Promise<Set<string>> {
+  if (!token) {
+    return new Set();
+  }
+  const cached = scopeCache.get(token);
+  if (cached && Date.now() - cached.at < SCOPE_TTL_MS) {
+    return cached.scopes;
+  }
+  try {
+    const res = await fetchImpl(`${baseUrl}/auth.test`, { method: 'POST', headers: { authorization: `Bearer ${token}` } });
+    const header = res.headers.get('x-oauth-scopes') ?? '';
+    const scopes = new Set(header.split(',').map(s => s.trim()).filter(Boolean));
+    scopeCache.set(token, { scopes, at: Date.now() });
+    return scopes;
+  } catch {
+    return new Set();
+  }
+}
+
+/** Clear the scope cache — a reinstall, and the tests. */
+export function resetSlackScopeCache(): void {
+  scopeCache.clear();
 }
 
 export const slackSurface: ChatSurfaceAdapter = {
   id: 'slack',
   verify: (rawBody, headers) => verifySlackSignature(rawBody, headers, process.env.SLACK_SIGNING_SECRET),
   parse: payload => parseSlackPayload(payload, process.env.SLACK_BOT_USER_ID),
-  reply: (target, text) => postSlackReply(target, text, process.env.SLACK_BOT_TOKEN),
+  reply: (target, message) => postSlackReply(target, message, process.env.SLACK_BOT_TOKEN),
 };
