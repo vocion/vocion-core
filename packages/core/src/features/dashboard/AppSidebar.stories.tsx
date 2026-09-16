@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
+import { SessionProvider } from 'next-auth/react';
 import { NextIntlClientProvider } from 'next-intl';
 import { useEffect } from 'react';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
@@ -21,6 +22,23 @@ import en from '@/locales/en.json';
  * sections (Team · Knowledge · Build · Insights · Organization) and the WORK
  * rows both come from `features/navigation/dashboardNav.ts`.
  */
+/**
+ * Enough of a session for `useSession()`. The switcher only needs an
+ * authenticated one; the tenancy fields are what this app's `Session` type
+ * carries (see libs/Auth.ts), not something the sidebar reads.
+ */
+const STORY_SESSION = {
+  user: {
+    id: 'usr-story',
+    name: 'E2E Admin',
+    email: 'admin@example.test',
+    accountId: 'acct-story',
+    projectId: 'proj-story',
+    role: 'admin' as const,
+  },
+  expires: '2999-01-01T00:00:00.000Z',
+};
+
 const PAGES = [
   { title: 'Deal desk', url: '/dashboard/p/deal-desk', section: 'Pages' },
   { title: 'Hiring pipeline', url: '/dashboard/p/hiring', section: 'Pages' },
@@ -43,14 +61,20 @@ function Frame({ defaultOpen, needsYouCount, withPages = true, manage = false }:
     return () => writeNavView(globalThis.localStorage, 'work');
   }, [manage]);
   return (
-    <NextIntlClientProvider locale="en" messages={en}>
-      <SidebarProvider defaultOpen={defaultOpen}>
-        <div className="flex h-[640px] w-[900px] overflow-hidden rounded-xl border border-border">
-          <AppSidebar collapsible="icon" isAdmin needsYouCount={needsYouCount} workspacePages={withPages ? PAGES : []} className="relative! h-full" />
-          <SidebarInset className="p-10 text-[13px] text-muted-foreground">Page content</SidebarInset>
-        </div>
-      </SidebarProvider>
-    </NextIntlClientProvider>
+    // The workspace switcher inside the sidebar calls `useSession()`, so the
+    // story needs the same provider the authenticated layout supplies. The
+    // session is passed in rather than fetched: without it the provider hits
+    // /api/auth/session, which does not exist under the story runner.
+    <SessionProvider session={STORY_SESSION}>
+      <NextIntlClientProvider locale="en" messages={en}>
+        <SidebarProvider defaultOpen={defaultOpen}>
+          <div className="flex h-[640px] w-[900px] overflow-hidden rounded-xl border border-border">
+            <AppSidebar collapsible="icon" isAdmin needsYouCount={needsYouCount} workspacePages={withPages ? PAGES : []} className="relative! h-full" />
+            <SidebarInset className="p-10 text-[13px] text-muted-foreground">Page content</SidebarInset>
+          </div>
+        </SidebarProvider>
+      </NextIntlClientProvider>
+    </SessionProvider>
   );
 }
 
