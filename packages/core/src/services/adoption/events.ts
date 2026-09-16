@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { LABEL_VERDICTS } from '@/libs/actions/labelVerdict';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
+import { DISCOVERY_CLASSES, READINESS_CLASSES } from '@/services/discovery/classification';
 
 /**
  * Typed registry of adoption events — the single source of truth for the
@@ -233,16 +234,19 @@ export const ADOPTION_EVENTS = {
   /**
    * One assessed call = one event, whoever ordered it (scheduled mission
    * check or a chat turn). The drill-down pointer to the ledger:
-   * `resource: ['discovery_candidate', id]`. Metadata is enum-and-boolean
-   * only — the scores and reasoning live on the ledger row, never here.
+   * `resource: ['discovery_candidate', id]`. Metadata is enums only — the
+   * confidences and the reasoning live on the ledger row, never here. The
+   * booleans became classes when the classifier's contract did
+   * (`services/discovery/classification.ts`).
    */
   'discovery.classified': {
     agent: true,
     system: true,
     meta: z.object({
       route: z.enum(['generate', 'confirm', 'drop']),
-      isDiscovery: z.boolean(),
-      proposalReady: z.boolean(),
+      classification: z.enum(DISCOVERY_CLASSES),
+      proposalReadiness: z.enum(READINESS_CLASSES),
+      reasonCode: z.string(),
     }),
   },
 } as const satisfies Record<string, EventSpec>;

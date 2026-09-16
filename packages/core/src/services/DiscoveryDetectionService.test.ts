@@ -1,4 +1,4 @@
-import type { Classification } from '@/services/DiscoveryDetectionService';
+import type { Classification, ReadClassification } from '@/services/DiscoveryDetectionService';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -284,31 +284,72 @@ describe('matchMeeting', () => {
 
 // ── Stage 3 · routeClassification (pure) ─────────────────────────────────────
 
-describe('routeClassification', () => {
+describe('routeClassification — the threshold means what the field name says', () => {
   const t = { discoveryThreshold: 0.6, readyThreshold: 0.7 };
-  const c = (over: Partial<Classification>): Classification => ({
-    isDiscovery: true,
-    isDiscoveryConfidence: 0.9,
-    proposalReady: true,
-    proposalReadyConfidence: 0.9,
+  const c = (over: Partial<Classification>): ReadClassification => svc.readClassification({
+    confidenceSemantics: 'stated-class',
+    classification: 'discovery',
+    classificationConfidence: 0.9,
+    proposalReadiness: 'proposal-ready',
+    proposalReadinessConfidence: 0.9,
+    reasonCode: 'first-sales-conversation',
+    reasonCodeFallback: false,
+    reasonSummary: '',
     reasoning: '',
     ...over,
-  });
+  })!;
 
-  it('generates for a confident discovery call that is ready', () => {
+  it('generates for a confident discovery call that is confidently ready', () => {
     expect(svc.routeClassification(c({}), t)).toBe('generate');
   });
 
   it('confirms a discovery call that is not confidently ready', () => {
-    expect(svc.routeClassification(c({ proposalReady: false, proposalReadyConfidence: 0.2 }), t)).toBe('confirm');
+    expect(svc.routeClassification(c({ proposalReadiness: 'not-proposal-ready', proposalReadinessConfidence: 0.2 }), t)).toBe('confirm');
   });
 
-  it('drops when it is not a discovery call', () => {
-    expect(svc.routeClassification(c({ isDiscovery: false }), t)).toBe('drop');
+  it('drops a CONFIDENT not-discovery', () => {
+    expect(svc.routeClassification(c({ classification: 'not-discovery', classificationConfidence: 0.95 }), t)).toBe('drop');
   });
 
-  it('drops when discovery confidence is below threshold', () => {
-    expect(svc.routeClassification(c({ isDiscoveryConfidence: 0.4 }), t)).toBe('drop');
+  it('sends an UNCONFIDENT not-discovery to a person instead of dropping it', () => {
+    // This is the behaviour change the contract buys. Under v1 the number
+    // beside "not discovery" was uninterpretable, so a weak verdict and a
+    // strong one both dropped. A confidence below the threshold now means
+    // exactly one thing — we are not sure of the class we stated — whichever
+    // way the class points, and the only cases the calibration loop can learn
+    // from are the ones a person sees.
+    expect(svc.routeClassification(c({ classification: 'not-discovery', classificationConfidence: 0.5 }), t)).toBe('confirm');
+  });
+
+  it('routes `uncertain` to human review, never to drop', () => {
+    expect(svc.routeClassification(c({ classification: 'uncertain', classificationConfidence: 0.9 }), t)).toBe('confirm');
+  });
+
+  it('confirms a discovery call held below the class threshold', () => {
+    expect(svc.routeClassification(c({ classificationConfidence: 0.4 }), t)).toBe('confirm');
+  });
+
+  it('routes a LEGACY row on its boolean alone — its number has no defined scale to compare', () => {
+    const legacy = svc.readClassification({
+      isDiscovery: false,
+      isDiscoveryConfidence: 0.95,
+      proposalReady: false,
+      proposalReadyConfidence: 0.1,
+      reasoning: 'Not a discovery call.',
+    })!;
+
+    expect(legacy.semantics).toBe('legacy');
+    expect(legacy.classificationConfidence).toBeNull();
+    expect(svc.routeClassification(legacy, t)).toBe('drop');
+    // …and the same row read with the OPPOSITE number routes identically,
+    // which is the proof the number is not being interpreted.
+    expect(svc.routeClassification(svc.readClassification({
+      isDiscovery: false,
+      isDiscoveryConfidence: 0.12,
+      proposalReady: false,
+      proposalReadyConfidence: 0.1,
+      reasoning: 'Not a discovery call.',
+    })!, t)).toBe('drop');
   });
 });
 
@@ -346,26 +387,55 @@ describe('readMatchedTranscript (content gate)', () => {
 // ── classifier fail-safe ─────────────────────────────────────────────────────
 
 describe('classifyTranscript', () => {
-  it('routes to review (low signal) when the model output cannot be parsed', async () => {
+  it('answers `uncertain` at zero confidence when the model output cannot be parsed', async () => {
     invokeMock.mockResolvedValue({ content: 'not json at all' });
     const c = await svc.classifyTranscript('some transcript', { title: 'x' });
 
-    expect(c.isDiscovery).toBe(false);
-    expect(c.isDiscoveryConfidence).toBe(0);
+    // Not `isDiscovery: false` — that asserted a verdict the model never gave.
+    expect(c.classification).toBe('uncertain');
+    expect(c.classificationConfidence).toBe(0);
     expect(c.reasoning).toMatch(/could not be parsed/);
+    expect(svc.routeClassification(c, { discoveryThreshold: 0.6, readyThreshold: 0.75 })).toBe('confirm');
   });
 
-  it('maps a valid classifier response into the two-axis result', async () => {
+  it('maps a valid classifier response, stamping the semantics it was written under', async () => {
     classifierReturns({
-      is_discovery: true,
-      is_discovery_confidence: 0.88,
-      proposal_ready: false,
-      proposal_ready_confidence: 0.3,
+      classification: 'discovery',
+      classification_confidence: 0.88,
+      proposal_readiness: 'not-proposal-ready',
+      proposal_readiness_confidence: 0.3,
+      reason_code: 'first-sales-conversation',
+      reason_summary: 'First call with a new prospect; needs and budget discussed.',
       reasoning: 'clear discovery, needs one more call',
     });
     const c = await svc.classifyTranscript('t', { title: 'x' });
 
-    expect(c).toMatchObject({ isDiscovery: true, isDiscoveryConfidence: 0.88, proposalReady: false });
+    expect(c).toMatchObject({
+      confidenceSemantics: 'stated-class',
+      classification: 'discovery',
+      classificationConfidence: 0.88,
+      proposalReadiness: 'not-proposal-ready',
+      reasonCode: 'first-sales-conversation',
+      reasonCodeFallback: false,
+    });
+  });
+
+  it('falls back to insufficient-evidence for a reason outside the closed set, and flags it', async () => {
+    classifierReturns({
+      classification: 'not-discovery',
+      classification_confidence: 0.91,
+      proposal_readiness: 'not-proposal-ready',
+      proposal_readiness_confidence: 0.2,
+      reason_code: 'vendor-check-in',
+      reason_summary: 'A scheduled check-in with an existing vendor.',
+      reasoning: 'no buying conversation',
+    });
+    const c = await svc.classifyTranscript('t', { title: 'x' });
+
+    // Never invented: the code the model asked for does not exist, so the row
+    // says "insufficient evidence" AND says the reason did not match.
+    expect(c.reasonCode).toBe('insufficient-evidence');
+    expect(c.reasonCodeFallback).toBe(true);
   });
 });
 
@@ -613,10 +683,12 @@ describe('matchWindow', () => {
 // ── classifyCall · read + classify + persist, one function ──────────────────
 
 const GOOD_VERDICT = {
-  is_discovery: true,
-  is_discovery_confidence: 0.92,
-  proposal_ready: true,
-  proposal_ready_confidence: 0.85,
+  classification: 'discovery',
+  classification_confidence: 0.92,
+  proposal_readiness: 'proposal-ready',
+  proposal_readiness_confidence: 0.85,
+  reason_code: 'first-sales-conversation',
+  reason_summary: 'First conversation; scoped problem and buying intent.',
   reasoning: 'clear discovery, scoped problem, buying intent',
 };
 
@@ -644,12 +716,14 @@ describe('classifyCall', () => {
 
     expect(result).toMatchObject({
       candidateId,
-      isDiscovery: true,
+      classification: 'discovery',
+      classificationConfidence: 0.92,
+      reasonCode: 'first-sales-conversation',
       route: 'generate',
       thresholds: { discovery: 0.6, ready: 0.75 },
       transcriptHash: 'zoom:prospect', // seedDoc sets contentHash = externalId
     });
-    expect(result.classifierVersion).toMatch(/#discovery-v1$/);
+    expect(result.classifierVersion).toMatch(/#discovery-v2$/);
 
     // The transcript body never appears in what the tool would hand the agent.
     expect(JSON.stringify(result)).not.toContain('40 stores');
@@ -663,6 +737,9 @@ describe('classifyCall', () => {
       thresholds: { discovery: 0.6, ready: 0.75 },
       assessedBy: { agentSlug: 'revenue-lead', missionRunId: 42, userId: 'automation:discovery-sweep' },
       skippedReason: null,
+      // The stamp that says this row's numbers are readable.
+      confidenceSemantics: 'stated-class',
+      reasonCode: 'first-sales-conversation',
     });
     expect(row!.classification?.reasoning).toContain('clear discovery');
   });
@@ -681,7 +758,7 @@ describe('classifyCall', () => {
       agentSlug: 'revenue-lead',
       resourceType: 'discovery_candidate',
       resourceId: String(candidateId),
-      metadata: { route: 'generate', isDiscovery: true, proposalReady: true },
+      metadata: { route: 'generate', classification: 'discovery', proposalReadiness: 'proposal-ready', reasonCode: 'first-sales-conversation' },
     });
   });
 
@@ -769,10 +846,12 @@ describe('classifyCall', () => {
 
   it('records a dropped call as a row with scores and reasoning, not an absence', async () => {
     classifierReturns({
-      is_discovery: false,
-      is_discovery_confidence: 0.9,
-      proposal_ready: false,
-      proposal_ready_confidence: 0.1,
+      classification: 'not-discovery',
+      classification_confidence: 0.9,
+      proposal_readiness: 'not-proposal-ready',
+      proposal_readiness_confidence: 0.1,
+      reason_code: 'customer-delivery-call',
+      reason_summary: 'A status call with an existing client.',
       reasoning: 'status call with an existing client',
     });
     const { candidateId } = await seedMatchedProspect();

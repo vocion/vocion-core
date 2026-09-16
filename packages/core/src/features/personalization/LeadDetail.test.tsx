@@ -101,7 +101,9 @@ describe('LeadDetail', () => {
     await expect.element(page.getByRole('link', { name: 'Open in HubSpot ↗' })).toBeVisible();
     await expect.element(page.getByText('Paid social')).toBeVisible();
     await expect.element(page.getByText('MQL Sep 1')).toBeVisible();
-    await expect.element(page.getByText('uncertain 0.60')).toBeVisible();
+    // One confidence renderer everywhere now, and never a bare score: the
+    // subject the number is about travels with it (`ConfidenceBars`).
+    await expect.element(page.getByText('Brief 60%').first()).toBeVisible();
 
     // The brief, at readable width, with its Regenerate control.
     await expect.element(page.getByText('Pete Laverick, CEO at Incline Gaming Marketing Inc.')).toBeVisible();
@@ -112,7 +114,7 @@ describe('LeadDetail', () => {
     await expect.element(page.getByRole('link', { name: 'incline.bet/about ↗' })).toBeVisible();
     await expect.element(page.getByText('Runs an iGaming marketing agency.')).toBeVisible();
     await expect.element(page.getByText('No public team size.')).toBeVisible();
-    await expect.element(page.getByText('0.60 · uncertain')).toBeVisible();
+    await expect.element(page.getByText('Brief 60%').nth(1)).toBeVisible();
 
     // The timeline, oldest first, decided absent because nothing was decided.
     await expect.element(page.getByText('Arrived')).toBeVisible();

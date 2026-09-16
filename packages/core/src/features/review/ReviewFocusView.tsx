@@ -173,21 +173,26 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
   const current = p.current;
   const desc = describeAction(current);
   const label = current.typeLabel ?? (types.length > 0 ? typeLabel(types, current.actionId) : humaniseActionId(current.actionId));
-  const title = itemTitle({ label, title: desc.title, subject: current.card?.subject });
-  const record = current.card?.subject?.name ?? desc.title;
+  // A card that names its own object owns the H1 and the section crumb; every
+  // other card keeps the generated "<action> — <subject>" title.
+  const object = current.card?.object;
+  const title = object?.title ?? itemTitle({ label, title: desc.title, subject: current.card?.subject });
+  const record = object?.title ?? current.card?.subject?.name ?? desc.title;
   const longField = desc.isEmail ? 'body' : 'notes';
   const held = p.busy || p.steering;
 
   return (
     <div data-testid="review-focus" className="relative">
       <ReviewHeader
-        crumbs={p.crumbs ?? decisionCrumbs('proposal', record)}
+        crumbs={p.crumbs ?? decisionCrumbs('proposal', record, object?.section)}
         title={title}
+        subtitle={object?.subtitle}
         subject={current.card?.subject}
         system={current.card?.system ?? desc.system}
         status={current.status}
         proposedBy={current.invokedBy}
         confidence={current.proposal?.confidence}
+        confidenceSubject={current.card?.confidenceSubject ?? 'Recommendation'}
         alignment={current.alignment}
         suggestion={current.proposal?.suggestedDecision}
         position={queuePosition(p.index, p.total)}

@@ -1,5 +1,6 @@
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { BriefingV2 } from '@/services/briefings/document';
+import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
 import { bigint, boolean, check, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
@@ -2930,15 +2931,29 @@ export const discoveryCandidateSchema = pgTable(
     matchedAt: timestamp('matched_at', { mode: 'date' }).defaultNow().notNull(),
     /** Lifecycle: 'matched' | 'classified' | 'routed' | 'dropped'. */
     status: text('status').default('matched').notNull(),
-    /** Two-dimensional classification output (null until Stage 2 runs). */
-    classification: jsonb('classification').$type<{
-      isDiscovery: boolean;
-      isDiscoveryConfidence: number;
-      proposalReady: boolean;
-      proposalReadyConfidence: number;
-      reasoning: string;
-      model?: string;
-    }>(),
+    /**
+     * Classifier output (null until Stage 2 runs). Two shapes live here, told
+     * apart by `confidenceSemantics` on the document itself and mirrored into
+     * `confidence_semantics` for querying:
+     *
+     *  - `stated-class` — the defined contract. Both confidences are
+     *    confidence IN THE STATED CLASS.
+     *  - legacy (no `confidenceSemantics`) — rows written under the v1 prompt,
+     *    which never said what its confidence meant. The booleans are readable;
+     *    the numbers are carried, never converted.
+     *
+     * `services/discovery/classification.ts` is the one definition, and
+     * `readClassification()` the one reader.
+     */
+    classification: jsonb('classification').$type<StoredClassification>(),
+    /**
+     * Which reading this row's confidences were written under:
+     * 'stated-class' | 'legacy'. Duplicated out of the jsonb so the ledger can
+     * filter and count without unpacking every document.
+     */
+    confidenceSemantics: text('confidence_semantics'),
+    /** The closed-set reason the classifier gave. Null on legacy rows — v1 had no reason codes. */
+    reasonCode: text('reason_code'),
     classifiedAt: timestamp('classified_at', { mode: 'date' }),
     /** Route the supervised router chose: 'generate' | 'confirm' | 'drop'. */
     route: text('route'),

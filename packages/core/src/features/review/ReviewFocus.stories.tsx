@@ -90,6 +90,48 @@ const gmailSend: ActionRun = {
   input: { to: 'contact@example.com', subject: 'Following up on the proposal', body: 'Hi —\n\nChecking in on the proposal we sent Sep 9. Happy to walk through any questions this week.', draft: true },
 };
 
+/**
+ * A discovery assessment. The card names its own object, so the H1 is the
+ * meeting ("Project Ranger – Follow Up"), the line under it says what kind of
+ * record this is, and the breadcrumb reads Needs you › Discovery › <object>
+ * instead of putting a generated identifier where the page's name belongs.
+ * The long Up-next label beside it is what used to squeeze the H1 into ~150px.
+ * Every name is a fixture.
+ */
+const discoveryAssessment: ActionRun = {
+  id: 4,
+  actionId: 'discovery.review_proposal',
+  status: 'pending',
+  invokedBy: 'agent:revops-lead',
+  createdAt: '2026-09-14T12:00:00Z',
+  proposal: { confidence: 0.95, rationale: 'The bid is due tomorrow and technical diligence is underway with two of the buyer\'s engineers on the call.' },
+  input: {},
+  card: {
+    title: 'Project Ranger – Follow Up',
+    object: {
+      title: 'Project Ranger – Follow Up',
+      subtitle: 'Discovery assessment · Sep 14, 11:30 AM',
+      section: 'Discovery',
+    },
+    system: 'Discovery',
+    confidenceSubject: 'Not discovery',
+    recommendation: {
+      headline: 'Not discovery',
+      detail: 'Existing opportunity · Proposal-ready',
+    },
+    fields: [
+      { label: 'Meeting', value: 'Project Ranger – Follow Up — Sep 14, 11:30 AM' },
+      { label: 'Opportunity', value: 'Project Ranger / Northwind Health' },
+      { label: 'Account', value: 'Northwind Health' },
+      { label: 'Sponsor / referral source', value: 'kestrelcapital.example' },
+      { label: 'Attendees', value: 'dreyes@kestrelcapital.example · lead@acme.example' },
+    ],
+    summary: 'Existing opportunity; diligence and bid preparation already underway.',
+    nextAction: 'Mark this assessment correct. No downstream workflow runs — Vocion classified this as existing opportunity.',
+    verbs: { approve: 'Approve', reject: 'Reject' },
+  },
+};
+
 const base: Omit<ReviewFocusViewProps, 'current' | 'edited'> = {
   loaded: true,
   types: TYPES,
@@ -98,7 +140,7 @@ const base: Omit<ReviewFocusViewProps, 'current' | 'edited'> = {
   index: 2,
   total: 213,
   upNext: [
-    { id: 11, title: 'Update HubSpot deal record', typeLabel: 'Update HubSpot record' },
+    { id: 11, title: 'Update HubSpot deal record for the Northwind renewal', typeLabel: 'Update HubSpot record' },
     { id: 12, title: 'New MQL ready to enroll', typeLabel: 'Enroll MQL in sequence' },
     { id: 13, title: 'Send email → ops@example.com', typeLabel: 'Send email' },
   ],
@@ -142,3 +184,10 @@ export const WithShortcuts: Story = { args: { ...base, current: enroll, edited: 
 
 /** Nothing left for the chosen type. */
 export const Empty: Story = { args: { ...base, current: null, edited: {}, activeTypes: ['gmail.send'], decided: 4 } };
+
+/**
+ * The object named for a human. Also the regression guard for the H1 width
+ * bug: a long Up-next label beside a title that must still get the room to
+ * read as a heading (`docs/specs/discovery-ledger-v2.md` § P0).
+ */
+export const DiscoveryAssessment: Story = { args: { ...base, current: discoveryAssessment, edited: {} } };

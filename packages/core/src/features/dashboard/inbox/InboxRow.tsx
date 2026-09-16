@@ -6,9 +6,10 @@ import { ArrowUpRight, Check, ChevronRight, Loader2, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Column, ListRow, Subline } from '@/components/patterns';
+import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { toast } from '@/components/ui/toast';
 import { Link } from '@/libs/I18nNavigation';
-import { amountLabel, confidenceLabel } from '@/services/inbox/describeActionRun';
+import { amountLabel } from '@/services/inbox/describeActionRun';
 import { rowVerbs } from './decisionVerbs';
 import { agoLabel, INBOX_KIND_META, riskTone, waitingFor } from './inboxMeta';
 import { withMinimumPending } from './pending';
@@ -93,8 +94,12 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
         )}
         columns={(
           <>
-            <Column kind="number" className="hidden sm:inline-block">
-              <span title="Confidence">{item.confidence !== undefined ? confidenceLabel(item.confidence ?? null) : ''}</span>
+            <Column kind="score" className="hidden sm:inline-block">
+              {/* Was a bare `85%`. One renderer, and the class the number is
+                  about travels with it (MANIFESTO §19 + §12). */}
+              {item.confidence !== undefined && item.confidence !== null
+                ? <ConfidenceBars value={item.confidence} subject="Recommendation" />
+                : null}
             </Column>
             <Column kind="amount" className="hidden sm:inline-block">
               <span title="Amount">{item.amount !== undefined && item.amount !== null ? amountLabel(item.amount, item.currency ?? null) : ''}</span>

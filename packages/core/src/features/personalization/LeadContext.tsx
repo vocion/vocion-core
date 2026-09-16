@@ -3,6 +3,7 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DetailColumns, EvidenceList, RightColumn, Section } from '@/components/patterns';
+import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { confidenceLevel } from './confidence';
 import { RegenerateBriefControl } from './RegenerateBriefControl';
 
@@ -245,7 +246,7 @@ const EvidenceRail = (props: { row: LeadDossier; timeline?: React.ReactNode; art
             </>
           )}
         >
-          <p className="tabular-nums">{`${row.confidence?.toFixed(2)} · ${level}`}</p>
+          <ConfidenceBars value={row.confidence} subject="Brief" size="md" />
         </Section>
       )}
 
